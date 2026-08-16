@@ -37,10 +37,11 @@ const { buildGatewayChatBody, agentSdkResumeFromThread, mergeTurnRouting, attrib
 // narrow local view rather than widening a file this change does not own.
 const store = threads as unknown as {
   setThreadRouting(id: string, routing: unknown): Promise<Record<string, unknown> | null>;
+  setThreadRouteSession(id: string, routeSession: unknown): Promise<Record<string, unknown> | null>;
 };
 
 // ── fake gateway ─────────────────────────────────────────────────────────────
-type TurnScript = { status?: number; frames?: string[] };
+type TurnScript = { status?: number; frames?: string[]; responseBody?: Record<string, unknown> };
 let turnScript: TurnScript = {};
 let lastChatBody: any = null;
 let lastInterruptBody: any = null;
@@ -84,7 +85,7 @@ beforeAll(async () => {
       lastChatBody = JSON.parse((await readBody(req)) || "{}");
       if (turnScript.status && turnScript.status >= 400) {
         res.statusCode = turnScript.status;
-        res.end(JSON.stringify({ error: "gateway said no" }));
+        res.end(JSON.stringify(turnScript.responseBody ?? { error: "gateway said no" }));
         return;
       }
       res.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -212,6 +213,26 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
     });
   });
 
+  it("forwards the server-owned effort-free logical route session", () => {
+    const routeSession = {
+      epoch: 3,
+      signature: {
+        target: "opus-plan",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-opus-5",
+        account: null,
+        accountSource: null,
+        projectPath: "/srv/garrison",
+      },
+    };
+    expect(buildGatewayChatBody({ message: "continue", routeSession })).toEqual({
+      message: "continue",
+      channel: "web",
+      routeSession,
+    });
+  });
+
   it("derives SDK resume only from the latest session's complete persisted attribution", () => {
     const route = {
       route: "sonnet-plan",
@@ -255,6 +276,38 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
       claudeSessionId: "sdk-session-latest",
       messages: [{ role: "assistant", route: { runtime: "agent-sdk", sessionId: "sdk-session-latest" } }],
     })).toBeNull();
+
+    const longProjectPath = `/${"project".repeat(350)}`;
+    const fallbackRoute = {
+      ...route,
+      model: "claude-fallback-actual",
+      projectPath: longProjectPath,
+      spawnSignature: {
+        target: "sonnet-plan",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-sonnet-requested",
+        account: "work",
+        accountSource: "override",
+        projectPath: longProjectPath,
+      },
+    };
+    expect(agentSdkResumeFromThread({
+      claudeSessionId: "sdk-session-latest",
+      messages: [{ role: "assistant", route: fallbackRoute }],
+    })).toEqual({
+      sessionId: "sdk-session-latest",
+      route: "sonnet-plan",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      // Actual fallback remains visible on the message, while resume compares
+      // the Query's requested spawn model and exact project path.
+      model: "claude-sonnet-requested",
+      effort: "high",
+      account: "work",
+      accountSource: "override",
+      projectPath: longProjectPath,
+    });
   });
 });
 
@@ -296,6 +349,10 @@ describe("attributionFromFrame - wire spellings to RouteAttribution", () => {
         reply: "the whole answer text",
         route: "sonnet-plan",
         runtime: "agent-sdk",
+        flow: "full-feature",
+        phasesOff: "review",
+        classifierSkipped: true,
+        sessionBoundaryReason: null,
         session_id: "sess-123",
         transcript_path: "/home/x/.claude/projects/p/sess-123.jsonl",
         stopped_by_user: true,
@@ -304,6 +361,10 @@ describe("attributionFromFrame - wire spellings to RouteAttribution", () => {
     ).toEqual({
       route: "sonnet-plan",
       runtime: "agent-sdk",
+      flow: "full-feature",
+      phasesOff: "review",
+      classifierSkipped: true,
+      sessionBoundaryReason: null,
       sessionId: "sess-123",
       transcriptPath: "/home/x/.claude/projects/p/sess-123.jsonl",
       stoppedByUser: true,
@@ -316,6 +377,17 @@ describe("attributionFromFrame - wire spellings to RouteAttribution", () => {
     expect(attributionFromFrame({ reply: "text only" })).toBeNull();
     expect(attributionFromFrame(null)).toBeNull();
     expect(attributionFromFrame("done")).toBeNull();
+  });
+
+  it("preserves an exact long absolute project path in route attribution", () => {
+    const projectPath = `/${"workspace".repeat(300)}`;
+    expect(attributionFromFrame({ route: "sonnet-plan", projectPath })).toEqual({
+      route: "sonnet-plan",
+      projectPath,
+    });
+    expect(attributionFromFrame({ route: "sonnet-plan", projectPath: "relative/workspace" })).toEqual({
+      route: "sonnet-plan",
+    });
   });
 });
 
@@ -446,7 +518,11 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
     expect(turn.text).toContain('"inputId":');
     expect(turn.text).toContain('"generationId":');
     const stored = await waitForMessages(id, 2);
-    expect(stored.sessionEvents.map((entry: any) => entry.id)).toEqual(["assistant-1", "result-1"]);
+    expect(stored.sessionEvents.map((entry: any) => entry.id)).toEqual([
+      "assistant-1",
+      "result-1",
+      expect.stringMatching(/^terminal:/),
+    ]);
     expect(stored.sessionEvents[0]).toMatchObject({ revision: 1, blocks: [{ type: "text", text: "canonical answer" }] });
     expect(stored.sessionEvents[1]).toMatchObject({ role: "user", toolResultsOnly: true });
     expect(stored.sessionEvents[1].blocks[0].images).toEqual([{ mediaType: "image/png", data: imageData }]);
@@ -471,6 +547,94 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
 });
 
 describe("POST /api/chat - failure persistence (the ask is never lost)", () => {
+  it("settles a provider error result from its canonical terminal without duplicate Markdown", async () => {
+    const id = "chat-provider-terminal-error";
+    const generationId = `generation-${gatewayGenerationSeq + 1}`;
+    const failure = {
+      source: "result",
+      kind: "limit",
+      code: "error_max_budget_usd",
+      text: "The request reached its configured budget limit.",
+      retryable: false,
+    };
+    turnScript = {
+      frames: [
+        sse("session_event", {
+          id: `terminal:${JSON.stringify([generationId])}`,
+          role: "assistant",
+          ts: Date.now(),
+          generationId,
+          order: 4,
+          revision: 1,
+          blocks: [
+            { type: "error", ...failure },
+            {
+              type: "turn_end",
+              status: "error",
+              subtype: "error_max_budget_usd",
+              reason: "budget_exceeded",
+              stopReason: "max_budget",
+              terminalReason: "blocking_limit",
+            },
+          ],
+        }),
+        // The canonical terminal is authoritative even if a malformed lifecycle
+        // projection tries to substitute different failure details.
+        sse("done", {
+          reply: "",
+          terminalStatus: "error",
+          failure: { ...failure, code: "contradictory_failure", text: "wrong failure" },
+          runtime: "agent-sdk",
+        }),
+      ],
+    };
+    await runTurn({ message: "bounded work", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1]).toMatchObject({ role: "assistant", text: "" });
+    expect(t.sessionEvents.filter((event: any) => event.blocks.some((block: any) => block.type === "turn_end"))).toHaveLength(1);
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      state: "failed",
+      failure,
+    });
+  });
+
+  it("accepts the matching compatibility error after a canonical error terminal", async () => {
+    const id = "chat-canonical-error-projection";
+    const generationId = `generation-${gatewayGenerationSeq + 1}`;
+    const failure = {
+      source: "runtime",
+      kind: "runtime",
+      code: "iterator_failed",
+      text: "The provider iterator failed.",
+      retryable: false,
+    };
+    turnScript = { frames: [
+      sse("session_event", {
+        id: `terminal:${JSON.stringify([generationId])}`,
+        role: "assistant",
+        ts: Date.now(),
+        generationId,
+        order: 2,
+        revision: 1,
+        blocks: [
+          { type: "error", ...failure },
+          { type: "turn_end", status: "error", subtype: "iterator_failed", reason: "iterator_failed", stopReason: null, terminalReason: "runtime" },
+        ],
+      }),
+      sse("error", { error: failure.text, failure, ...failure }),
+    ] };
+    const { text } = await runTurn({ message: "preserve the canonical error", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(text).not.toContain("gateway_stream_protocol_error");
+    expect(t.messages[1].text).toBe("");
+    expect(t.inputReceipts.at(-1)).toMatchObject({ state: "failed", failure });
+    expect(t.sessionEvents).toHaveLength(1);
+    expect(t.sessionEvents[0]).toMatchObject({ revision: 1, blocks: [
+      { type: "error", ...failure },
+      { type: "turn_end", status: "error" },
+    ] });
+  });
+
   it("persists on an `error` frame, keeping the pre-turn attribution", async () => {
     const id = "chat-fail-error";
     turnScript = {
@@ -482,23 +646,381 @@ describe("POST /api/chat - failure persistence (the ask is never lost)", () => {
     await runTurn({ message: "do the thing", thread: id });
     const t = await waitForMessages(id, 2);
     expect(t.messages[0]).toMatchObject({ role: "user", text: "do the thing" });
-    expect(t.messages[1].text).toContain("Turn did not complete");
-    expect(t.messages[1].text).toContain("runtime exploded");
+    expect(t.messages[1].text).toBe("");
     expect(t.messages[1].route).toMatchObject({ runtime: "codex", duty: "build", stoppedReason: "runtime exploded" });
     // The pre-turn `pending` marker must NOT survive onto a settled failure.
     expect(t.messages[1].route.pending).toBeUndefined();
+    expect(t.sessionEvents.at(-1)).toMatchObject({
+      blocks: [
+        { type: "error", text: "runtime exploded" },
+        { type: "turn_end", status: "error" },
+      ],
+    });
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      state: "failed",
+      failure: { text: "runtime exploded" },
+    });
+  });
+
+  it("fails closed when a gateway declares an invalid terminal status", async () => {
+    const id = "chat-invalid-terminal-status";
+    turnScript = {
+      frames: [sse("done", { reply: "must not settle", terminalStatus: "finished" })],
+    };
+    await runTurn({ message: "validate the terminal contract", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1].text).toBe("");
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      state: "failed",
+      failure: { code: "terminal_contract_invalid", kind: "protocol" },
+    });
+    expect(t.sessionEvents.at(-1)).toMatchObject({
+      blocks: [
+        { type: "error", code: "terminal_contract_invalid" },
+        { type: "turn_end", status: "error", subtype: "terminal_contract_invalid" },
+      ],
+    });
+  });
+
+  it.each([
+    ["same-epoch signature conflict", 1, 1, "model-b"],
+    ["lower epoch", 2, 1, "model-a"],
+  ])("fails a %s route session instead of wedging durable settlement", async (_label, priorEpoch, frameEpoch, frameModel) => {
+    const id = `chat-route-session-conflict-${gatewayGenerationSeq + 1}`;
+    const signature = (model: string) => ({
+      target: "sdk-target",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model,
+      account: null,
+      accountSource: null,
+      projectPath: null,
+    });
+    await threads.ensureThread({ id });
+    await store.setThreadRouteSession(id, { epoch: priorEpoch, signature: signature("model-a") });
+    const generationId = `generation-${gatewayGenerationSeq + 1}`;
+    turnScript = {
+      frames: [
+        sse("route", {
+          route: "sdk-target",
+          runtime: "agent-sdk",
+          model: frameModel,
+          sessionDisposition: "warm",
+          sessionBoundaryReason: null,
+          sessionEpoch: frameEpoch,
+          spawnSignature: signature(frameModel),
+        }),
+        sse("session_event", {
+          id: `terminal:${JSON.stringify([generationId])}`,
+          role: "assistant",
+          ts: Date.now(),
+          generationId,
+          order: 2,
+          revision: 1,
+          blocks: [{
+            type: "turn_end",
+            status: "completed",
+            subtype: "success",
+            reason: null,
+            stopReason: null,
+            terminalReason: "completed",
+          }],
+        }),
+        sse("done", { reply: "must not settle", terminalStatus: "completed" }),
+      ],
+    };
+    await runTurn({ message: "keep route identity exact", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1].text).toBe("");
+    expect(t.routeSession).toEqual({ epoch: priorEpoch, signature: signature("model-a") });
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      state: "failed",
+      failure: { code: "gateway_stream_protocol_error", kind: "protocol" },
+    });
+  });
+
+  it.each([
+    ["malformed revision", (generationId: string) => ({
+      id: `terminal:${JSON.stringify([generationId])}`,
+      revision: "bad",
+    })],
+    ["noncanonical id", (_generationId: string) => ({
+      id: "provider-picked-terminal-id",
+      revision: 1,
+    })],
+  ])("fails closed on a %s terminal event before settlement", async (_label, identity) => {
+    const id = `chat-invalid-terminal-event-${gatewayGenerationSeq + 1}`;
+    const generationId = `generation-${gatewayGenerationSeq + 1}`;
+    turnScript = {
+      frames: [
+        sse("session_event", {
+          ...identity(generationId),
+          role: "assistant",
+          ts: Date.now(),
+          generationId,
+          order: 1,
+          blocks: [{
+            type: "turn_end",
+            status: "completed",
+            subtype: "success",
+            reason: null,
+            stopReason: null,
+            terminalReason: "completed",
+          }],
+        }),
+        sse("done", { reply: "must not settle", terminalStatus: "completed" }),
+      ],
+    };
+    await runTurn({ message: "validate canonical ownership", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1].text).toBe("");
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      state: "failed",
+      generationId,
+      failure: { code: "gateway_stream_protocol_error", kind: "protocol" },
+    });
+    expect(t.sessionEvents).toHaveLength(1);
+    expect(t.sessionEvents[0]).toMatchObject({
+      id: `terminal:${JSON.stringify([generationId])}`,
+      generationId,
+      blocks: [
+        { type: "error", code: "gateway_stream_protocol_error" },
+        { type: "turn_end", status: "error" },
+      ],
+    });
+  });
+
+  it.each([
+    ["completed terminal containing an error", "completed", [{
+      type: "error", source: "runtime", kind: "runtime", code: "boom", text: "boom", retryable: false,
+    }]],
+    ["error terminal without a FailureInfo block", "error", []],
+    ["error terminal with an untyped failure block", "error", [{
+      type: "error", kind: "made_up", text: "boom",
+    }]],
+  ])("fails closed on a %s", async (_label, status, extraBlocks) => {
+    const id = `chat-incoherent-terminal-${gatewayGenerationSeq + 1}`;
+    const generationId = `generation-${gatewayGenerationSeq + 1}`;
+    turnScript = { frames: [
+      sse("session_event", {
+        id: `terminal:${JSON.stringify([generationId])}`,
+        role: "assistant",
+        ts: Date.now(),
+        generationId,
+        order: 1,
+        revision: 1,
+        blocks: [
+          ...extraBlocks,
+          {
+            type: "turn_end",
+            status,
+            subtype: status === "completed" ? "success" : "error_during_execution",
+            reason: null,
+            stopReason: null,
+            terminalReason: status === "completed" ? "completed" : "execution_failed",
+          },
+        ],
+      }),
+      sse("done", { reply: "must not settle", terminalStatus: status }),
+    ] };
+    await runTurn({ message: "validate terminal semantics", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1].text).toBe("");
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      state: "failed",
+      failure: { code: "gateway_stream_protocol_error", kind: "protocol" },
+    });
+    expect(t.sessionEvents.at(-1)).toMatchObject({
+      id: `terminal:${JSON.stringify([generationId])}`,
+      blocks: [
+        { type: "error", code: "gateway_stream_protocol_error" },
+        { type: "turn_end", status: "error" },
+      ],
+    });
+  });
+
+  it.each([
+    ["reuse", (terminalId: string) => sse("session_event", {
+      id: terminalId,
+      role: "assistant",
+      ts: Date.now() + 1,
+      order: 2,
+      revision: 2,
+      blocks: [{ type: "status", status: "running", text: "not terminal" }],
+    })],
+    ["retraction", (terminalId: string) => sse("session_event", {
+      id: "later-provider-notice",
+      role: "assistant",
+      ts: Date.now() + 1,
+      order: 2,
+      revision: 1,
+      retracts: [terminalId],
+      blocks: [{ type: "status", status: "running", text: "not terminal" }],
+    })],
+  ])("does not allow a later nonterminal event to %s the canonical terminal", async (_label, laterFrame) => {
+    const id = `chat-terminal-tombstone-${gatewayGenerationSeq + 1}`;
+    const generationId = `generation-${gatewayGenerationSeq + 1}`;
+    const terminalId = `terminal:${JSON.stringify([generationId])}`;
+    turnScript = { frames: [
+      sse("session_event", {
+        id: terminalId,
+        role: "assistant",
+        ts: Date.now(),
+        generationId,
+        order: 1,
+        revision: 1,
+        blocks: [{
+          type: "turn_end",
+          status: "completed",
+          subtype: "success",
+          reason: null,
+          stopReason: null,
+          terminalReason: "completed",
+        }],
+      }),
+      laterFrame(terminalId),
+      sse("done", { reply: "must not settle", terminalStatus: "completed" }),
+    ] };
+    await runTurn({ message: "keep terminal authority", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.inputReceipts.at(-1)).toMatchObject({ state: "failed" });
+    expect(t.sessionEvents).toHaveLength(1);
+    expect(t.sessionEvents[0]).toMatchObject({ id: terminalId, blocks: [
+      { type: "error" },
+      { type: "turn_end", status: "error" },
+    ] });
+  });
+
+  it.each(["not-json", ""])("fails a malformed done payload (%s) as protocol, never legacy success", async (data) => {
+    const id = `chat-malformed-done-${gatewayGenerationSeq + 1}`;
+    turnScript = { frames: [`event: done\ndata: ${data}\n\n`] };
+    await runTurn({ message: "reject malformed done", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1].text).toBe("");
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      state: "failed",
+      failure: { code: "gateway_stream_protocol_error", kind: "protocol" },
+    });
+  });
+
+  it("never settles from a stale terminal revision that the durable journal refused", async () => {
+    const id = `chat-stale-terminal-${gatewayGenerationSeq + 1}`;
+    const generationId = `generation-${gatewayGenerationSeq + 1}`;
+    const terminalId = `terminal:${JSON.stringify([generationId])}`;
+    await threads.ensureThread({ id });
+    await (threads as any).appendSessionEvent(id, {
+      id: terminalId,
+      role: "assistant",
+      ts: Date.now() - 1,
+      generationId,
+      order: 1,
+      revision: 2,
+      blocks: [
+        { type: "error", source: "runtime", kind: "runtime", code: "older_failure", text: "Earlier failure.", retryable: false },
+        { type: "turn_end", status: "error", subtype: "older_failure", reason: "older_failure", stopReason: null, terminalReason: null },
+      ],
+    });
+    turnScript = { frames: [
+      sse("session_event", {
+        id: terminalId,
+        role: "assistant",
+        ts: Date.now(),
+        generationId,
+        order: 1,
+        revision: 1,
+        blocks: [{ type: "turn_end", status: "completed", subtype: "success", reason: null, stopReason: null, terminalReason: "completed" }],
+      }),
+      sse("done", { reply: "must not settle", terminalStatus: "completed" }),
+    ] };
+    await runTurn({ message: "reject stale authority", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1].text).toBe("");
+    expect(t.inputReceipts.at(-1)).toMatchObject({ state: "failed" });
+    expect(t.sessionEvents.find((event: any) => event.id === terminalId)).toMatchObject({
+      revision: 3,
+      turnId: t.messages[0].turnId,
+      blocks: [{ type: "error", code: "gateway_stream_protocol_error" }, { type: "turn_end", status: "error" }],
+    });
+  });
+
+  it.each([
+    ["activity after the canonical boundary", (terminal: string) => [
+      sse("chunk", { text: "late draft" }),
+      sse("done", { reply: terminal, terminalStatus: "completed" }),
+    ], "gateway_stream_protocol_error"],
+    ["a lifecycle reply that contradicts terminal.result", (_terminal: string) => [
+      sse("done", { reply: "different lifecycle reply", terminalStatus: "completed" }),
+    ], "terminal_contract_invalid"],
+  ])("fails closed on %s", async (_label, trailingFrames, expectedCode) => {
+    const id = `chat-post-terminal-${gatewayGenerationSeq + 1}`;
+    const generationId = `generation-${gatewayGenerationSeq + 1}`;
+    const result = "authoritative terminal result";
+    turnScript = { frames: [
+      sse("session_event", {
+        id: `terminal:${JSON.stringify([generationId])}`,
+        role: "assistant",
+        ts: Date.now(),
+        generationId,
+        order: 1,
+        revision: 1,
+        blocks: [{
+          type: "turn_end",
+          status: "completed",
+          subtype: "success",
+          reason: null,
+          stopReason: null,
+          terminalReason: "completed",
+          result,
+        }],
+      }),
+      ...trailingFrames(result),
+    ] };
+    await runTurn({ message: "enforce terminal ordering", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1].text).toBe("");
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      state: "failed",
+      failure: { code: expectedCode, kind: "protocol" },
+    });
+    expect(t.sessionEvents.at(-1)).toMatchObject({
+      revision: 2,
+      blocks: [{ type: "error", code: expectedCode }, { type: "turn_end", status: "error" }],
+    });
   });
 
   it("persists when the gateway answers >= 400 (no frames at all)", async () => {
     const id = "chat-fail-400";
-    turnScript = { status: 503 };
+    turnScript = {
+      status: 503,
+      responseBody: {
+        error: "gateway said no",
+        code: "gateway_route_unavailable",
+        kind: "routing",
+        source: "gateway",
+        text: "gateway said no",
+        retryable: true,
+        requestId: "gateway-request-503",
+        httpStatus: 503,
+        retryAt: 1_787_000_000,
+      },
+    };
     const { text } = await runTurn({ message: "upstream is down", thread: id });
-    expect(text).toContain("upstream 503");
+    expect(text).toContain('"httpStatus":503');
+    expect(text).toContain("gateway said no");
     const t = await waitForMessages(id, 2);
-    expect(t.messages[1].text).toContain("upstream 503");
+    expect(t.messages[1].text).toBe("");
     // No route frame ever arrived, so there is no attribution to invent - only the
     // reason survives.
-    expect(t.messages[1].route).toEqual({ stoppedReason: "upstream 503" });
+    expect(t.messages[1].route).toEqual({ stoppedReason: "gateway said no" });
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      failure: {
+        code: "gateway_route_unavailable",
+        kind: "routing",
+        requestId: "gateway-request-503",
+        httpStatus: 503,
+        retryAt: 1_787_000_000,
+      },
+    });
   });
 
   it("persists when the stream ends without a done frame", async () => {
@@ -506,9 +1028,12 @@ describe("POST /api/chat - failure persistence (the ask is never lost)", () => {
     turnScript = { frames: [sse("chunk", { text: "half an answ" })] };
     const { text } = await runTurn({ message: "truncated", thread: id });
     expect(text).toContain("event: error");
-    expect(text).toContain("gateway stream ended without a done event");
+    expect(text).toContain("The gateway stream ended without a terminal frame.");
     const t = await waitForMessages(id, 2);
-    expect(t.messages[1].text).toContain("ended without a done event");
+    expect(t.messages[1].text).toBe("");
+    expect(t.inputReceipts.at(-1)).toMatchObject({
+      failure: { code: "gateway_stream_ended", kind: "protocol", retryable: true },
+    });
   });
 
   it("a normal done latches the persist, so the stream end does NOT add a failure note", async () => {
@@ -530,8 +1055,11 @@ describe("POST /api/chat - failure persistence (the ask is never lost)", () => {
     await runTurn({ message: "return nothing", thread: id });
     const t = await waitForMessages(id, 2);
     expect(t.messages[1]).toMatchObject({ role: "assistant" });
-    expect(t.messages[1].text).toContain("operative returned an empty reply");
+    expect(t.messages[1].text).toBe("");
     expect(t.messages[1].route).toMatchObject({ runtime: "agent-sdk" });
+    expect(t.sessionEvents.at(-1)).toMatchObject({
+      blocks: [{ type: "turn_end", status: "completed" }],
+    });
   });
 });
 

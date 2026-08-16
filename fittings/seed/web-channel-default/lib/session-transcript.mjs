@@ -549,7 +549,16 @@ export function reconcileTranscriptSessionEvents(durable, recovered) {
   if (!Array.isArray(recovered) || recovered.length === 0) {
     return Array.isArray(durable) ? durable : [];
   }
+  const retractionsFor = (event) => Array.isArray(event?.retracts)
+    ? [...new Set(event.retracts.filter(
+        (id) => typeof id === "string" && id && id !== event.id && !id.startsWith("terminal:")
+      ))].slice(0, 64)
+    : [];
+  const tombstones = new Set();
   const output = Array.isArray(durable) ? durable.slice() : [];
+  for (const event of output) {
+    for (const target of retractionsFor(event)) tombstones.add(target);
+  }
   const indexes = new Map();
   output.forEach((event, index) => {
     if (typeof event?.id === "string" && !indexes.has(event.id)) indexes.set(event.id, index);
@@ -557,6 +566,8 @@ export function reconcileTranscriptSessionEvents(durable, recovered) {
   for (const recoveredCandidate of Array.isArray(recovered) ? recovered : []) {
     let candidate = recoveredCandidate;
     if (!candidate || typeof candidate.id !== "string" || !Array.isArray(candidate.blocks)) continue;
+    if (tombstones.has(candidate.id)) continue;
+    for (const target of retractionsFor(candidate)) tombstones.add(target);
     let index = indexes.get(candidate.id);
     if (index !== undefined && output[index]?.sessionId !== candidate.sessionId) {
       const currentSessionId = typeof output[index]?.sessionId === "string" && output[index].sessionId
@@ -593,7 +604,12 @@ export function reconcileTranscriptSessionEvents(durable, recovered) {
       continue;
     }
     const current = output[index];
-    if (JSON.stringify(current.blocks) === JSON.stringify(candidate.blocks)) continue;
+    const retainedRetracts = [...new Set([
+      ...retractionsFor(current),
+      ...retractionsFor(candidate),
+    ])].slice(0, 64);
+    const retractionsChanged = JSON.stringify(retainedRetracts) !== JSON.stringify(retractionsFor(current));
+    if (JSON.stringify(current.blocks) === JSON.stringify(candidate.blocks) && !retractionsChanged) continue;
     if (!recoveryExtendsEvent(current, candidate)) continue;
     const revision = Number.isInteger(current.revision) && current.revision >= 0
       ? current.revision + 1
@@ -608,9 +624,11 @@ export function reconcileTranscriptSessionEvents(durable, recovered) {
       ...(current.generationId ? { generationId: current.generationId } : {}),
       order: Number.isInteger(current.order) ? current.order : candidate.order,
       revision,
+      ...(retainedRetracts.length ? { retracts: retainedRetracts } : {}),
     };
   }
   return output
+    .filter((event) => !tombstones.has(event?.id))
     .map((event, index) => ({ event, index }))
     .sort((left, right) => {
       const leftTs = Number.isFinite(left.event?.ts) ? left.event.ts : Number.MAX_SAFE_INTEGER;

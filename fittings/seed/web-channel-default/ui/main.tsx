@@ -172,7 +172,7 @@ interface ThreadMeta {
   inputRevision?: number;
 }
 interface ThreadInput extends ChatInputReceipt {
-  message: string;
+  message?: string;
   turnSeq?: number;
 }
 interface ThreadMessage {
@@ -207,13 +207,16 @@ interface Thread extends ThreadMeta {
   claudeSessionId?: string | null;
   /** Durable inputs not yet terminal, ordered active-first then FIFO queue. */
   pendingInputs?: ThreadInput[];
+  /** Bounded terminal lifecycle receipts. These reattach exact failed/stopped
+   * coordinates on reload; they never resurrect completed work. */
+  inputReceipts?: ThreadInput[];
 }
 
 /** Lightweight durable-history identity used by idle/replay refreshes. Canonical
  * snapshots can advance in place (same array length, higher revision), so message
  * count alone is not a completeness signal. Event payload bytes/images stay out
  * of this key; accepted durable replacements are revisioned by contract. */
-export function threadHistoryRevision(thread: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputRevision">): string {
+export function threadHistoryRevision(thread: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputReceipts" | "inputRevision">): string {
   const messages = (thread.messages ?? []).map((message) => [
     message.role,
     message.ts ?? null,
@@ -232,7 +235,7 @@ export function threadHistoryRevision(thread: Pick<Thread, "messages" | "session
     event.sessionId ?? null,
     event.generationId ?? null,
   ]);
-  const inputs = (thread.pendingInputs ?? []).map((input) => [
+  const inputs = [...(thread.inputReceipts ?? []), ...(thread.pendingInputs ?? [])].map((input) => [
     input.inputId,
     input.clientRequestId,
     input.state,
@@ -240,14 +243,15 @@ export function threadHistoryRevision(thread: Pick<Thread, "messages" | "session
     input.position ?? null,
     input.acceptedAt ?? null,
     input.reason ?? null,
-    input.message,
+    input.failure ?? null,
+    input.message ?? null,
   ]);
   return JSON.stringify([messages, events, thread.inputRevision ?? 0, inputs]);
 }
 
 export function shouldRemountAfterResume(
-  current: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputRevision">,
-  fresh: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputRevision">,
+  current: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputReceipts" | "inputRevision">,
+  fresh: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputReceipts" | "inputRevision">,
   recovery: boolean,
 ): boolean {
   return recovery && threadHistoryRevision(fresh) !== threadHistoryRevision(current);
@@ -320,14 +324,25 @@ async function apiDelete(id: string): Promise<boolean> {
   }
 }
 // Autosave, no Save button (house rule): every rail tap PUTs the whole pin set.
-async function apiSetRouting(id: string, routing: TurnRouting): Promise<void> {
-  try {
-    await fetch(`/api/threads/${encodeURIComponent(id)}/routing`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ routing }),
-    });
-  } catch { /* the pin is already applied locally; the next tap retries */ }
+export async function apiSetRouting(id: string, routing: TurnRouting): Promise<TurnRouting> {
+  const response = await fetch(`/api/threads/${encodeURIComponent(id)}/routing`, {
+    method: "PUT",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ routing }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(typeof body?.error === "string" ? body.error : `routing save ${response.status}`);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("routing save returned an invalid confirmation");
+  }
+  const stored = body.routing;
+  if (stored === null) return {};
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+    throw new Error("routing save did not confirm the stored pins");
+  }
+  return stored as TurnRouting;
 }
 
 const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
@@ -494,12 +509,14 @@ export function toHistory(
         ...(input.generationId ? { generationId: input.generationId } : {}),
         ...(input.acceptedAt ? { acceptedAt: input.acceptedAt } : {}),
         ...(input.reason ? { reason: input.reason } : {}),
+        ...(input.failure ? { failure: input.failure } : {}),
       };
       const existing = slots.find((slot) => slot.turnId === input.inputId);
       if (existing) {
         existing.exchange.input = receipt;
         continue;
       }
+      if (typeof input.message !== "string") continue;
       slots.push({
         exchange: { user: input.message, assistant: "", input: receipt },
         startTs: asTimestamp(input.acceptedAt),
@@ -795,9 +812,13 @@ function ThreadedApp({ url }: { url: UrlState }) {
     return () => { alive = false; window.removeEventListener("focus", onFocus); };
   }, []);
 
-  const savePins = useCallback((next: TurnRouting) => {
-    setPins(next);
-    if (activeId) void apiSetRouting(activeId, next);
+  const savePins = useCallback(async (next: TurnRouting) => {
+    if (!activeId) {
+      setPins(next);
+      return;
+    }
+    const confirmed = await apiSetRouting(activeId, next);
+    setPins(confirmed);
   }, [activeId]);
 
   // One slide-over at a time: the brief editor and the session transcript occupy the
@@ -896,6 +917,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // reply), with a 20-minute expiry so a lost turn can't mute feedback forever.
   const busyRef = useRef(false);
   const busySinceRef = useRef(0);
+  const recoveryPendingRef = useRef<string | null>(null);
   const [historyRev, setHistoryRev] = useState(0);
   // Matches the 600px composer breakpoint in styles.css. Tracked live so a
   // rotate/resize swaps the placeholder without a reload.
@@ -944,7 +966,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
     const h: HistoryExchange[] = toHistory(
       activeThread.messages,
       activeThread.sessionEvents,
-      activeThread.pendingInputs
+      [...(activeThread.inputReceipts ?? []), ...(activeThread.pendingInputs ?? [])]
     );
     // A reopened Discuss thread's first exchange is the auto-sent kickoff instruction -
     // hide its user bubble so the transcript starts with the Discuss duty's question, not the prompt.
@@ -1007,9 +1029,11 @@ function ThreadedApp({ url }: { url: UrlState }) {
   }, [kickoff]);
   const refreshAfterResume = useCallback(async ({ recovery }: { recovery: boolean }) => {
     if (!activeId) return;
+    if (recovery) recoveryPendingRef.current = activeId;
     const activityEpoch = activityEpochRef.current;
     const [fresh, list] = await Promise.all([apiGetThread(activeId), apiListThreads()]);
     if (!fresh || busyRef.current || activityEpoch !== activityEpochRef.current) return;
+    const needsRecovery = recovery || recoveryPendingRef.current === activeId;
     setThreads(list);
     setActiveThread((current) => {
       if (!current || current.id !== fresh.id) return current;
@@ -1017,9 +1041,10 @@ function ThreadedApp({ url }: { url: UrlState }) {
       // component mounted so an in-flight spoken reply, focus, and local controls
       // survive the durable metadata refresh. Only missed/empty/malformed replay
       // paths need to rebuild child history from disk.
-      if (shouldRemountAfterResume(current, fresh, recovery)) {
+      if (shouldRemountAfterResume(current, fresh, needsRecovery)) {
         setHistoryRev((r) => r + 1);
       }
+      if (recoveryPendingRef.current === activeId) recoveryPendingRef.current = null;
       return fresh;
     });
   }, [activeId]);
@@ -1033,6 +1058,8 @@ function ThreadedApp({ url }: { url: UrlState }) {
     const hasPendingInputs = Boolean(activeThread?.pendingInputs?.length);
     const t = createOrchestratorTransport("/api", activeId ?? undefined, {
       resumeOnConnect: hasPendingInputs,
+      initialInputRevision: activeThread?.inputRevision,
+      initialInputIds: activeThread?.pendingInputs?.map((input) => input.inputId) ?? [],
       onResumeState(active) {
         activityEpochRef.current += 1;
         busyRef.current = active;

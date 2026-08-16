@@ -16,6 +16,65 @@ export type RelatedTaskStatus = "running" | "completed" | "failed" | "unknown";
 export type PermissionRequestStatus = "pending" | "resolved" | "cancelled";
 export type PermissionDecision = "allow_once" | "allow_always" | "deny";
 
+export type FailureSource =
+  | "assistant"
+  | "result"
+  | "runtime"
+  | "session"
+  | "transport"
+  | "system"
+  | "gateway"
+  | "web";
+
+export type FailureKind =
+  | "authentication"
+  | "authorization"
+  | "billing"
+  | "rate_limit"
+  | "overloaded"
+  | "invalid_request"
+  | "not_found"
+  | "limit"
+  | "execution"
+  | "runtime"
+  | "transport"
+  | "routing"
+  | "protocol"
+  | "permission"
+  | "unknown";
+
+/** Provider-neutral failure details shared by thrown transport errors, live
+ * error frames, canonical journal blocks, and durable terminal projections. */
+export interface FailureInfo {
+  source: FailureSource;
+  kind: FailureKind;
+  code: string;
+  text: string;
+  retryable: boolean;
+  requestId?: string;
+  httpStatus?: number;
+  /** Epoch seconds supplied by the producer when a retry time is known. */
+  retryAt?: number;
+}
+
+/** A deliberately tolerant attribution bag. The canonical route producer owns
+ * the full schema; the shared renderer reads only stable presentation fields. */
+export interface SessionRouteAttribution {
+  route?: string | null;
+  runtime?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  effort?: string | null;
+  account?: string | null;
+  project?: string | null;
+  sessionId?: string | null;
+  sessionEpoch?: string | number | null;
+  sessionDisposition?: "new" | "warm" | "resumed" | string | null;
+  sessionBoundaryReason?: string | null;
+  spawnSignature?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
 /** Stable coordinates sent back to the runtime when a user answers a durable
  * permission prompt. The generation id prevents a late click from answering a
  * newer request that happens to reuse the same request id. */
@@ -30,10 +89,17 @@ export interface SessionBlock {
   text?: string;
   /** Typed terminal/error metadata emitted by channel-neutral runtimes. */
   kind?: string;
+  source?: FailureSource;
+  code?: string | null;
+  retryable?: boolean;
+  requestId?: string;
+  httpStatus?: number | null;
+  retryAt?: number;
   result?: string;
   errors?: string[];
   subtype?: string | null;
   stopReason?: string | null;
+  terminalReason?: string | null;
   name?: string;
   /** Tool input is normally a JSON string. Permission requests may retain the
    * SDK's JSON value directly so the approval surface can show it verbatim. */
@@ -52,20 +118,84 @@ export interface SessionBlock {
   streamUrl?: string | null;
   detail?: string | null;
   /** Durable permission-request extension fields. */
-  requestId?: string;
   generationId?: string;
   title?: string;
   displayName?: string;
   description?: string;
   blockedPath?: string;
   agentId?: string;
-  reason?: string;
+  reason?: string | null;
+  attempt?: number;
+  maxAttempts?: number;
+  delayMs?: number;
+  errorKind?: string;
+  fromModel?: string;
+  toModel?: string;
+  direction?: string;
+  rateLimitType?: string;
+  resetsAt?: number;
+  utilization?: number;
+  overageStatus?: string;
+  overageResetsAt?: number;
+  overageDisabledReason?: string;
+  isUsingOverage?: boolean;
+  overageInUse?: boolean;
+  surpassedThreshold?: number;
+  attribution?: SessionRouteAttribution;
+  requestedModel?: string;
   decision?: PermissionDecision;
   suggestions?: unknown[];
   /** Explicit completeness flags for security-sensitive permission display. A
    * missing/false flag means the corresponding value must not be approved. */
   inputComplete?: boolean;
   suggestionsComplete?: boolean;
+}
+
+export interface SessionErrorBlock extends SessionBlock {
+  type: "error";
+  source: FailureSource;
+  kind: FailureKind;
+  code: string;
+  text: string;
+  retryable: boolean;
+  requestId?: string;
+  httpStatus?: number;
+  retryAt?: number;
+}
+
+export interface SessionRetryBlock extends SessionBlock {
+  type: "retry";
+  kind: "api" | "model_fallback";
+  text: string;
+  attempt?: number;
+  maxAttempts?: number;
+  delayMs?: number;
+  httpStatus?: number | null;
+  errorKind?: string;
+  requestId?: string;
+  fromModel?: string;
+  toModel?: string;
+  direction?: string;
+}
+
+export interface SessionRateLimitBlock extends SessionBlock {
+  type: "rate_limit";
+  status: "allowed" | "allowed_warning" | "rejected" | string;
+}
+
+export interface SessionRouteBlock extends SessionBlock {
+  type: "route";
+  attribution: SessionRouteAttribution;
+  requestedModel?: string;
+}
+
+export interface SessionTurnEndBlock extends SessionBlock {
+  type: "turn_end";
+  status: "completed" | "error" | "cancelled";
+  subtype: string;
+  reason: string | null;
+  stopReason: string | null;
+  terminalReason: string | null;
 }
 
 /** Public canonical shape for a durable permission prompt. SessionBlock stays
@@ -109,6 +239,9 @@ export interface SessionEvent {
   order?: number | null;
   /** Monotonic snapshot revision for a stable event id. */
   revision?: number | null;
+  /** Canonical event ids made obsolete by this accepted snapshot. Tombstones
+   * remain effective across replay so a late/stale row cannot reappear. */
+  retracts?: string[];
   toolResultsOnly?: boolean;
   blocks: SessionBlock[];
 }
@@ -135,7 +268,8 @@ export interface SessionTurnPresentation {
 
 export type SessionActivityBeat =
   | { type: "text"; eventIndex: number; blockIndex: number; text: string }
-  | { type: "error"; eventIndex: number; blockIndex: number; text: string }
+  | { type: "error"; eventIndex: number; blockIndex: number; text: string; block: SessionBlock }
+  | { type: "retry" | "rate_limit" | "route" | "turn_end" | "status"; eventIndex: number; blockIndex: number; block: SessionBlock }
   | { type: "thinking" | "tool_use" | "permission_request"; eventIndex: number; blockIndex: number; block: SessionBlock };
 
 export interface RelatedTask {
@@ -151,6 +285,32 @@ export interface RelatedTask {
 
 type JsonRecord = Record<string, unknown>;
 const FANOUT_TOOL_NAMES = new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
+const SESSION_RETRACT_CAP = 64;
+const FAILURE_SOURCES: ReadonlySet<string> = new Set([
+  "assistant", "result", "runtime", "session", "transport", "system", "gateway", "web",
+]);
+const FAILURE_KINDS: ReadonlySet<string> = new Set([
+  "authentication", "authorization", "billing", "rate_limit", "overloaded",
+  "invalid_request", "not_found", "limit", "execution", "runtime", "transport",
+  "routing", "protocol", "permission", "unknown",
+]);
+
+export function isFailureInfo(value: unknown): value is FailureInfo {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const failure = value as Record<string, unknown>;
+  const optionalText = (key: string) => failure[key] === undefined ||
+    (typeof failure[key] === "string" && Boolean((failure[key] as string).trim()));
+  return typeof failure.source === "string" && FAILURE_SOURCES.has(failure.source) &&
+    typeof failure.kind === "string" && FAILURE_KINDS.has(failure.kind) &&
+    typeof failure.code === "string" && Boolean(failure.code.trim()) &&
+    typeof failure.text === "string" && Boolean(failure.text.trim()) &&
+    typeof failure.retryable === "boolean" &&
+    optionalText("requestId") &&
+    (failure.httpStatus === undefined ||
+      (typeof failure.httpStatus === "number" && Number.isInteger(failure.httpStatus) && failure.httpStatus >= 100 && failure.httpStatus <= 599)) &&
+    (failure.retryAt === undefined ||
+      (typeof failure.retryAt === "number" && Number.isFinite(failure.retryAt) && failure.retryAt > 0));
+}
 
 /** Runtime guard for the live canonical-event boundary. The server deliberately
  * keeps malformed frames observable on its SSE stream for diagnostics, but a
@@ -160,6 +320,11 @@ export function isSessionEvent(value: unknown): value is SessionEvent {
   const event = value as Record<string, unknown>;
   if (event.id !== null && typeof event.id !== "string") return false;
   if (typeof event.role !== "string" || !Array.isArray(event.blocks)) return false;
+  if (
+    event.retracts !== undefined &&
+    (!Array.isArray(event.retracts) || event.retracts.length > SESSION_RETRACT_CAP ||
+      event.retracts.some((id) => typeof id !== "string" || !id.trim() || id.startsWith("terminal:")))
+  ) return false;
   return event.blocks.every(
     (block) => Boolean(block) && typeof block === "object" && !Array.isArray(block) && typeof (block as Record<string, unknown>).type === "string"
   );
@@ -203,7 +368,24 @@ export function sessionActivityBeats(events: SessionEvent[]): SessionActivityBea
           beats.push({ type: "text", eventIndex, blockIndex, text: block.text });
         }
       } else if (block.type === "error" && typeof block.text === "string" && block.text.trim() !== "") {
-        beats.push({ type: "error", eventIndex, blockIndex, text: block.text });
+        beats.push({ type: "error", eventIndex, blockIndex, text: block.text, block });
+      } else if (block.type === "rate_limit") {
+        const status = String(block.status ?? "").toLowerCase();
+        const overageStatus = String(block.overageStatus ?? "").toLowerCase();
+        // Routine allowed telemetry is retained durably but does not interrupt the
+        // conversation. A warning/rejection in either window is user-visible.
+        if (status !== "allowed" || (overageStatus && overageStatus !== "allowed")) {
+          beats.push({ type: "rate_limit", eventIndex, blockIndex, block });
+        }
+      } else if (block.type === "retry" || block.type === "route" || block.type === "turn_end") {
+        beats.push({ type: block.type, eventIndex, blockIndex, block });
+      } else if (
+        block.type === "status" &&
+        (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback")
+      ) {
+        // Migration compatibility for durable M2/M5 rows produced before the
+        // typed retry block existed.
+        beats.push({ type: "status", eventIndex, blockIndex, block });
       } else if (block.type === "thinking" || block.type === "tool_use" || block.type === "permission_request") {
         beats.push({ type: block.type, eventIndex, blockIndex, block });
       }
@@ -376,7 +558,14 @@ export function hasVisibleSessionActivity(events: SessionEvent[]): boolean {
         (block) =>
           (block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") ||
           (block.type === "error" && typeof block.text === "string" && block.text.trim() !== "") ||
-          (block.type === "turn_end" && typeof block.result === "string" && block.result.trim() !== "") ||
+          block.type === "retry" ||
+          block.type === "route" ||
+          block.type === "turn_end" ||
+          (block.type === "rate_limit" && (
+            String(block.status ?? "").toLowerCase() !== "allowed" ||
+            Boolean(block.overageStatus && String(block.overageStatus).toLowerCase() !== "allowed")
+          )) ||
+          (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback")) ||
           block.type === "thinking" ||
           block.type === "tool_use" ||
           block.type === "permission_request"
@@ -411,18 +600,54 @@ function shouldReplaceSessionEvent(current: SessionEvent, incoming: SessionEvent
 export function mergeSessionEvents(current: SessionEvent[], incoming: SessionEvent[]): SessionEvent[] {
   if (!incoming.length) return current;
   let next = current;
-  const indexes = new Map<string, number>();
-  current.forEach((event, index) => { if (event.id && !indexes.has(event.id)) indexes.set(event.id, index); });
+  let indexes = new Map<string, number>();
+  const tombstones = new Set<string>();
+  const retractionsFor = (event: SessionEvent): string[] => {
+    const ids = Array.isArray(event.retracts) ? event.retracts : [];
+    return [...new Set(ids.map((id) => String(id).trim()).filter(
+      (id) => id && id !== event.id && !id.startsWith("terminal:")
+    ))]
+      .slice(0, SESSION_RETRACT_CAP);
+  };
+  const rebuildIndexes = () => {
+    indexes = new Map<string, number>();
+    next.forEach((event, index) => { if (event.id && !indexes.has(event.id)) indexes.set(event.id, index); });
+  };
+  current.forEach((event) => retractionsFor(event).forEach((id) => tombstones.add(id)));
+  rebuildIndexes();
   for (const event of incoming) {
     const index = event.id ? indexes.get(event.id) : undefined;
-    if (index === undefined) {
-      if (next === current) next = current.slice();
-      if (event.id) indexes.set(event.id, next.length);
-      next.push(event);
-    } else if (shouldReplaceSessionEvent(next[index], event)) {
-      if (next === current) next = current.slice();
-      next[index] = event;
+    if (event.id && tombstones.has(event.id)) continue;
+    if (index !== undefined && !shouldReplaceSessionEvent(next[index], event)) continue;
+
+    const retracts = retractionsFor(event);
+    if (retracts.length) {
+      retracts.forEach((id) => tombstones.add(id));
+      const filtered = next.filter((candidate) => !candidate.id || !tombstones.has(candidate.id));
+      if (filtered.length !== next.length) {
+        next = filtered;
+        rebuildIndexes();
+      }
     }
+
+    const acceptedIndex = event.id ? indexes.get(event.id) : undefined;
+    if (acceptedIndex === undefined) {
+      if (next === current) next = current.slice();
+      next.push(event);
+    } else {
+      if (next === current) next = current.slice();
+      // A newer revision may omit tombstones that were already accepted on this
+      // stable event. Carry them forward so a later replay cannot resurrect the
+      // retracted row merely because only the newest snapshot was persisted.
+      const retainedRetracts = [...new Set([
+        ...retractionsFor(next[acceptedIndex]),
+        ...retracts,
+      ])].slice(0, SESSION_RETRACT_CAP);
+      next[acceptedIndex] = retainedRetracts.length
+        ? { ...event, retracts: retainedRetracts }
+        : event;
+    }
+    rebuildIndexes();
   }
   return next;
 }

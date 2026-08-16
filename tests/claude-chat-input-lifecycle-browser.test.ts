@@ -45,8 +45,10 @@ beforeAll(async () => {
           interrupts: [],
           answers: [],
           permissionAnswers: [],
+          pinChanges: [],
           rejectInterrupt: false,
           rejectAnswer: false,
+          rejectPinSave: false,
           rejectNextAdmission: false,
           connect(onEvent) {
             listener = onEvent;
@@ -98,6 +100,16 @@ beforeAll(async () => {
             features: { routing: true },
             composerAdornment,
             initialHistory,
+            routeOptions: {
+              targets: [{ id: "cc-sonnet-med", runtime: "agent-sdk", provider: "anthropic", model: "claude-sonnet-4-6" }],
+              efforts: ["low", "medium", "high"],
+              accounts: [{ name: "work", platform: "anthropic" }],
+              projects: ["garrison"],
+            },
+            onPinChange: async (routing) => {
+              mock.pinChanges.push({ ...routing });
+              if (mock.rejectPinSave) throw new Error("store unavailable");
+            },
           }));
           return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         };
@@ -172,6 +184,32 @@ beforeAll(async () => {
               }],
             },
           });
+        };
+        window.__turnEndThenClickInteractiveControls = (number, status = "completed") => {
+          const sent = mock.sends[number - 1];
+          listener({
+            type: "session_event",
+            inputId: sent.receipt.inputId,
+            generationId: "generation-" + number,
+            event: {
+              id: "turn-end-" + number,
+              role: "assistant",
+              ts: Date.now(),
+              revision: 1,
+              generationId: "generation-" + number,
+              blocks: [{
+                type: "turn_end",
+                status,
+                subtype: status === "completed" ? "success" : "runtime",
+                reason: status === "completed" ? null : "runtime failed",
+                stopReason: status === "completed" ? "end_turn" : null,
+                terminalReason: status === "completed" ? null : "runtime",
+              }],
+            },
+          });
+          document.querySelector("button.cc-railstop:not(.cc-railstop-change)")?.click();
+          document.querySelector(".cc-question-opt")?.click();
+          document.querySelector(".cc-session-permission-deny")?.click();
         };
         window.__failThenClickRetry = (number) => {
           const sent = mock.sends[number - 1];
@@ -363,7 +401,7 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
 
     await page.evaluate(() => { (window as any).__mock.rejectAnswer = true; });
     await optionA.click();
-    const error = page.getByRole("alert");
+    const error = page.locator(".cc-question-error");
     await expect.poll(() => error.textContent()).toBe("Could not send the answer. Please try again.");
     expect(await error.locator("img").count()).toBe(0);
     expect(await page.evaluate(() => (window as any).__unsafe ?? false)).toBe(false);
@@ -411,6 +449,70 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
       liveRegions: document.querySelectorAll('[role="status"][aria-live]').length,
     }));
     expect(measurements).toEqual({ viewport: 320, document: 320, liveRegions: 1 });
+  });
+
+  it("lets typed turn_end fence Stop, question, and permission in the same task for the exact generation", async () => {
+    await composer().fill("finish with typed settlement");
+    await button("Send").click();
+    await emitInput(1, "running", { generationId: "generation-1" });
+    await page.evaluate(() => (window as any).__emitQuestion(1, "toolu-before-terminal"));
+    await page.evaluate(() => (window as any).__emitPermission(1));
+    expect(await stopButton().isEnabled()).toBe(true);
+    expect(await page.locator(".cc-question-opt").first().isEnabled()).toBe(true);
+    expect(await page.locator(".cc-session-permission-deny").isEnabled()).toBe(true);
+
+    await page.evaluate(() => (window as any).__turnEndThenClickInteractiveControls(1));
+    await expect.poll(() => page.locator('[data-input-state="settled"]').count()).toBe(1);
+    expect(await page.locator(".cc-session-notice-label").filter({ hasText: "Response complete" }).count()).toBe(1);
+    expect(await stopButton().count()).toBe(0);
+    expect(await page.locator(".cc-question-opt").first().isDisabled()).toBe(true);
+    expect(await page.locator(".cc-session-permission-actions").count()).toBe(0);
+    expect(await page.evaluate(() => (window as any).__mock.interrupts)).toEqual([]);
+    expect(await page.evaluate(() => (window as any).__mock.answers)).toEqual([]);
+    expect(await page.evaluate(() => (window as any).__mock.permissionAnswers)).toEqual([]);
+
+    // A delayed running receipt cannot resurrect controls after the typed fence.
+    await emitInput(1, "running", { generationId: "generation-1" });
+    expect(await page.locator('[data-input-state="settled"]').count()).toBe(1);
+    expect(await stopButton().count()).toBe(0);
+    expect(await page.locator('[role="alert"]').count()).toBe(0);
+    expect(await page.locator('[role="status"][aria-live="polite"]').count()).toBe(1);
+  });
+
+  it("drops a turn_end whose input and generation coordinates point at different turns", async () => {
+    await composer().fill("first exact turn");
+    await button("Send").click();
+    await emitInput(1, "running", { generationId: "generation-1" });
+    await composer().fill("second queued turn");
+    await button("Queue").click();
+
+    await page.evaluate(() => {
+      const second = (window as any).__mock.sends[1];
+      return (window as any).__emit({
+        type: "session_event",
+        inputId: second.receipt.inputId,
+        generationId: "generation-1",
+        event: {
+          id: "conflicting-terminal",
+          role: "assistant",
+          ts: Date.now(),
+          revision: 1,
+          generationId: "generation-1",
+          blocks: [{
+            type: "turn_end",
+            status: "completed",
+            subtype: "success",
+            reason: null,
+            stopReason: "end_turn",
+            terminalReason: null,
+          }],
+        },
+      });
+    });
+    expect(await page.locator('[data-input-state="running"]').count()).toBe(1);
+    expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
+    expect(await page.locator(".cc-session-notice-label").filter({ hasText: "Response complete" }).count()).toBe(0);
+    expect(await stopButton().isEnabled()).toBe(true);
   });
 
   it("hydrates a failed recovery as settled history while preserving exact running and queued successors", async () => {
@@ -577,5 +679,49 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
     expect(await stopButton().isEnabled()).toBe(true);
     expect(await button("Queue").isVisible()).toBe(true);
     expect(await composer().isEnabled()).toBe(true);
+  });
+
+  it("rolls back a rejected async pin save and exposes a keyboard-retryable nonblocking error", async () => {
+    await button("Route").click();
+    const target = page.locator("button.cc-rbadge").filter({ hasText: "target" }).first();
+    await target.focus();
+    expect(await target.evaluate((node) => node === document.activeElement)).toBe(true);
+    await target.press("Enter");
+    const menu = page.locator(".cc-railmenu");
+    await expect.poll(() => menu.isVisible()).toBe(true);
+    expect(await menu.locator(".cc-railmenu-effect").textContent()).toBe(
+      "Starts a new session for your next message."
+    );
+
+    await page.evaluate(() => { (window as any).__mock.rejectPinSave = true; });
+    await menu.locator(".cc-railitem").filter({ hasText: "cc-sonnet-med" }).click();
+    const saveError = page.locator(".cc-pin-save-error");
+    await expect.poll(() => saveError.isVisible()).toBe(true);
+    expect(await saveError.textContent()).toContain("Your previous choices were restored");
+    expect(await page.locator(".cc-rbadge-pinned").filter({ hasText: "cc-sonnet-med" }).count()).toBe(0);
+    expect(await composer().isEnabled()).toBe(true);
+    expect(await page.locator('[role="alert"]').count()).toBe(0);
+    expect(await page.locator('[role="status"][aria-live="polite"]').count()).toBe(1);
+
+    const retry = saveError.getByRole("button", { name: "Retry save" });
+    const retryBox = await retry.boundingBox();
+    expect(retryBox?.width).toBeGreaterThanOrEqual(44);
+    expect(retryBox?.height).toBeGreaterThanOrEqual(44);
+    await retry.focus();
+    expect(await retry.evaluate((node) => node === document.activeElement)).toBe(true);
+    await page.evaluate(() => { (window as any).__mock.rejectPinSave = false; });
+    await retry.press("Enter");
+    await expect.poll(() => page.locator(".cc-pin-save").count()).toBe(0);
+    expect(await page.locator(".cc-rbadge-pinned").filter({ hasText: "cc-sonnet-med" }).count()).toBe(1);
+    expect(await page.evaluate(() => (window as any).__mock.pinChanges)).toEqual([
+      { target: "cc-sonnet-med" },
+      { target: "cc-sonnet-med" },
+    ]);
+    const sizes = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+      root: document.querySelector(".cc-root")?.scrollWidth,
+    }));
+    expect(sizes).toEqual({ viewport: 320, document: 320, root: 320 });
   });
 });

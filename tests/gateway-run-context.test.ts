@@ -22,8 +22,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { dutyEfforts } from "../src/lib/types";
 import { writeGatewayV4ExecutionModel } from "./helpers/gateway-v4-fixture";
+// @ts-ignore — Web's persistence sanitizer is plain ESM and is exercised here
+// as the receiving half of the gateway's canonical failure-event contract.
+import { sanitizeSessionEvent as sanitizeWebSessionEvent } from "../fittings/seed/web-channel-default/scripts/threads.mjs";
 // @ts-ignore — pure .mjs routing layer, no .d.ts
-import { applyTurnOverride, effortControllable, listVaultAccounts, resolveVaultAccount, readMaterializedSecrets, anthropicAccountEnv, createRoutedGateway, RoutedGateway, TURN_EFFORTS, AGENT_SDK_SESSION_CAP } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+import { applyTurnOverride, effortControllable, listVaultAccounts, resolveVaultAccount, readMaterializedSecrets, anthropicAccountEnv, createRoutedGateway, RoutedGateway, TURN_EFFORTS, AGENT_SDK_SESSION_CAP, normalizeFailureInfo } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
 const ROOT = path.resolve(__dirname, "..");
 const AGENT_SDK_STUB = path.join(ROOT, "tests", "fixtures", "gateway-agent-sdk-runtime");
@@ -415,6 +418,146 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
     expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, model: "claude-sonnet-4-6" }, pre, {})).toBe(null);
     expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, account: "personal" }, pre, {})).toBe(null);
     expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, projectPath: "/work/other" }, pre, {})).toBe(null);
+    // Effort rotates the Query but remains the same logical journal/signature.
+    expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, effort: "low" }, pre, {})).toBe("resume-session-1");
+  });
+
+  it("accepts only an exact durable routeSession and computes stable/boundary epochs", () => {
+    const signature = {
+      target: "sdk-haiku-chat",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      account: null,
+      accountSource: null,
+      projectPath: "/work/project",
+    };
+    const hint = { epoch: 4, signature };
+    expect(gw.sanitizeRouteSession(hint)).toEqual(hint);
+    expect(gw.routeHintsFromBody({ routeSession: hint }).routeSession).toEqual(hint);
+    expect(gw.sanitizeRouteSession({ ...hint, extra: true })).toBe(null);
+    expect(gw.sanitizeRouteSession({ epoch: 0, signature })).toBe(null);
+    expect(gw.sanitizeRouteSession({ epoch: 4, signature: { ...signature, effort: "high" } })).toBe(null);
+
+    const pre: any = preFixture({
+      projectPath: "/work/project",
+      route: {
+        targetId: "sdk-haiku-chat",
+        target: {
+          id: "sdk-haiku-chat",
+          runtime: "agent-sdk",
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+        },
+        role: "fast",
+      },
+    });
+    expect(gw.resolveRouteSession(pre, {})).toMatchObject({
+      epoch: 1,
+      signature,
+      boundaryReason: "initial",
+      disposition: "new",
+      hadPrior: false,
+    });
+    expect(gw.resolveRouteSession(pre, { routeSession: hint })).toMatchObject({
+      epoch: 4,
+      boundaryReason: null,
+      disposition: "warm",
+      hadPrior: true,
+    });
+    expect(gw.resolveRouteSession(pre, {
+      routeSession: { epoch: 4, signature: { ...signature, model: "claude-sonnet-4-6" } },
+    })).toMatchObject({ epoch: 5, boundaryReason: "spawn-signature-changed", disposition: "new" });
+    expect(gw.resolveRouteSession(pre, { routeSession: hint, agentSdkNewGeneration: true }))
+      .toMatchObject({ epoch: 5, boundaryReason: "restart-recovery", disposition: "new" });
+
+    pre.routeSession = gw.resolveRouteSession(pre, {});
+    const routeEvents: any[] = [];
+    const publisher = gw.createRouteSessionEventPublisher(pre, { turnSeq: 7 }, {
+      generationId: "generation-route-contract",
+      onSessionEvent: (event: any) => routeEvents.push(event),
+    });
+    publisher.observe();
+    expect(routeEvents).toHaveLength(1);
+    expect(routeEvents[0].blocks).toEqual([
+      expect.objectContaining({ type: "route", attribution: expect.objectContaining({ spawnSignature: signature }) }),
+    ]);
+    expect(sanitizeWebSessionEvent(routeEvents[0])).toMatchObject({
+      id: "route:generation-route-contract",
+      order: 0,
+      revision: 1,
+      generationId: "generation-route-contract",
+      blocks: [{
+        type: "route",
+        attribution: expect.objectContaining({
+          route: "sdk-haiku-chat",
+          model: "claude-haiku-4-5",
+          sessionEpoch: 1,
+          spawnSignature: signature,
+        }),
+      }],
+    });
+
+    const secondary = preFixture({
+      route: {
+        targetId: "sec-gemini",
+        target: { id: "sec-gemini", runtime: "gemini", model: "gemini-2.5-flash" },
+        role: "fast",
+      },
+    });
+    expect(gw.resolvedSpawnSignature(secondary, {})).toMatchObject({
+      target: "sec-gemini",
+      runtime: "gemini",
+      provider: "google",
+      model: "gemini-2.5-flash",
+    });
+  });
+
+  it("bounds gateway failures into the shared typed vocabulary", () => {
+    const failure = normalizeFailureInfo(Object.assign(new Error(`boom\u0000${"x".repeat(2_000)}`), {
+      code: "ECONNRESET",
+      status: 503,
+      request_id: "request-safe",
+    }));
+    expect(failure).toMatchObject({
+      source: "gateway",
+      kind: "transport",
+      code: "ECONNRESET",
+      retryable: true,
+      httpStatus: 503,
+      requestId: "request-safe",
+    });
+    expect(failure.text.length).toBeLessThanOrEqual(1_000);
+    expect(failure.text).not.toContain("\u0000");
+    expect(normalizeFailureInfo({ code: "retry", text: "later", retryable: true, retryAt: 0 }))
+      .not.toHaveProperty("retryAt");
+    expect(normalizeFailureInfo({ code: "retry", text: "later", retryable: true, retryAt: 123 }))
+      .toHaveProperty("retryAt", 123);
+  });
+
+  it("emits a canonical gateway terminal that survives the Web persistence sanitizer", () => {
+    const event = gw.gatewayFailureSessionEvent({
+      generationId: "generation-gateway-failure",
+      turnId: "9",
+      order: 3,
+      ts: 1234,
+      failure: {
+        source: "gateway",
+        kind: "execution",
+        code: "one_shot_failed",
+        text: "Disposable runtime failed.",
+        retryable: false,
+      },
+    });
+    expect(event.blocks[1]).toMatchObject({
+      type: "turn_end",
+      status: "error",
+      subtype: "one_shot_failed",
+      reason: "one_shot_failed",
+      stopReason: null,
+      terminalReason: "error",
+    });
+    expect(sanitizeWebSessionEvent(event)).toEqual(event);
   });
 });
 
@@ -720,6 +863,33 @@ describe("a pinned target changes the resolved LANE, not just the badge (§7)", 
       expect(last).toMatchObject({ targetId: "sdk-haiku-chat", runtime: "agent-sdk", overrides: ["target"] });
       // The PTY operative was never switched for a pin that left the Claude lane.
       expect(gateway.getOperativeSession().keys.join("")).toBe("");
+    } finally {
+      gateway.shutdown();
+    }
+  });
+
+  it("keeps an unpinned durable conversation on its prior target without claiming a new override", async () => {
+    const { gateway } = await bootGateway();
+    try {
+      const pre = await gateway.preRoute("add a test for the login flow", {
+        channel: "web",
+        routeSession: {
+          epoch: 7,
+          signature: {
+            target: "sdk-haiku-chat",
+            runtime: "agent-sdk",
+            provider: "anthropic",
+            model: "claude-haiku-4-5",
+            account: null,
+            accountSource: null,
+            projectPath: null,
+          },
+        },
+      });
+      expect(pre.route.targetId).toBe("sdk-haiku-chat");
+      expect(pre.plan.path).toBe("agent-sdk");
+      expect(pre.overridesApplied).toBe(null);
+      expect(pre.route.via).toBe("global-default");
     } finally {
       gateway.shutdown();
     }
@@ -1300,6 +1470,10 @@ class FakeAgentSdk {
   async awaitResponse() {
     return this.response;
   }
+  async setEffort(session: any, effort: string) {
+    session.effort = effort;
+    session.effortApplied = true;
+  }
   async cancel(session: any) {
     this.cancelled.push(session.sessionId);
     return true;
@@ -1372,6 +1546,242 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     const cacheIdentity = [...gateway._agentSdkSessions.keys()].join("\n");
     expect(cacheIdentity).not.toContain("token-version-one");
     expect(cacheIdentity).not.toContain("token-version-two");
+  });
+
+  it("rotates effort by awaiting teardown and native-resuming the same journal/epoch", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const signature = {
+      target: "sdk-haiku-chat",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      account: null,
+      accountSource: null,
+      projectPath: null,
+    };
+    const low = sdkRoute();
+    (low.target as any).effort = "low";
+    const first = await gateway.runAgentSdkTurn(low, "first", undefined, {
+      sessionKey: "effort-thread",
+      streamingInput: true,
+      generationId: "effort-generation-1",
+      routeSession: { epoch: 1, signature, boundaryReason: "initial", disposition: "new", hadPrior: false },
+      coldStartContext: "durable before first",
+    });
+
+    const order: string[] = [];
+    const originalTeardown = adapter.teardown.bind(adapter);
+    adapter.teardown = async (session: any) => {
+      order.push("teardown:start");
+      await Promise.resolve();
+      await originalTeardown(session);
+      order.push("teardown:end");
+    };
+    const originalSpawn = adapter.spawn.bind(adapter);
+    adapter.spawn = async (config: any) => {
+      order.push("spawn");
+      return originalSpawn(config);
+    };
+    const high = sdkRoute();
+    (high.target as any).effort = "high";
+    const observations: any[] = [];
+    const second = await gateway.runAgentSdkTurn(high, "second", undefined, {
+      sessionKey: "effort-thread",
+      streamingInput: true,
+      generationId: "effort-generation-2",
+      routeSession: { epoch: 1, signature, boundaryReason: null, disposition: "warm", hadPrior: true },
+      resumeSessionId: first.session_id,
+      coldStartContext: "durable through first",
+      onRouteSession: (value: any) => observations.push(value),
+    });
+
+    expect(order).toEqual(["teardown:start", "teardown:end", "spawn"]);
+    expect(adapter.spawned.at(-1)).toMatchObject({ sessionId: first.session_id, effort: "high" });
+    expect(adapter.turns.at(-1)).toBe("second");
+    expect(second).toMatchObject({
+      session_id: first.session_id,
+      sessionDisposition: "resumed",
+      sessionBoundaryReason: null,
+      sessionEpoch: 1,
+      spawnSignature: signature,
+    });
+    expect(observations[0]).toMatchObject({ sessionDisposition: "resumed", sessionEpoch: 1 });
+  });
+
+  it("does not spawn a second journal owner when an effort rotation cannot close the old Query", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const low = sdkRoute();
+    (low.target as any).effort = "low";
+    await gateway.runAgentSdkTurn(low, "first", undefined, {
+      sessionKey: "effort-close-failure",
+      streamingInput: true,
+      generationId: "effort-close-failure-1",
+    });
+    const closeFailure = new Error("standing Query close failed");
+    adapter.teardown = async () => { throw closeFailure; };
+    const high = sdkRoute();
+    (high.target as any).effort = "high";
+
+    await expect(gateway.runAgentSdkTurn(high, "second", undefined, {
+      sessionKey: "effort-close-failure",
+      streamingInput: true,
+      generationId: "effort-close-failure-2",
+    })).rejects.toBe(closeFailure);
+
+    expect(adapter.spawned).toHaveLength(1);
+    expect(gateway._agentSdkSessions.size).toBe(1);
+  });
+
+  it("forces a clean same-thread Query and new epoch on a spawn-signature boundary", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const oldSignature = {
+      target: "sdk-haiku-chat",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      account: null,
+      accountSource: null,
+      projectPath: null,
+    };
+    const first = await gateway.runAgentSdkTurn(sdkRoute(), "first", undefined, {
+      sessionKey: "signature-thread",
+      streamingInput: true,
+      generationId: "signature-generation-1",
+      routeSession: { epoch: 2, signature: oldSignature, boundaryReason: "initial", disposition: "new", hadPrior: false },
+    });
+    const changedRoute = sdkRoute();
+    (changedRoute.target as any).model = "claude-sonnet-4-6";
+    const signature = { ...oldSignature, model: "claude-sonnet-4-6" };
+    const second = await gateway.runAgentSdkTurn(changedRoute, "second", undefined, {
+      sessionKey: "signature-thread",
+      streamingInput: true,
+      generationId: "signature-generation-2",
+      forceNewSession: true,
+      resumeSessionId: first.session_id,
+      coldStartContext: "durable through first",
+      routeSession: {
+        epoch: 3,
+        signature,
+        boundaryReason: "spawn-signature-changed",
+        disposition: "new",
+        hadPrior: true,
+      },
+    });
+
+    expect(adapter.tornDown).toContain(first.session_id);
+    expect(adapter.spawned.at(-1)).not.toHaveProperty("sessionId");
+    expect(adapter.turns.at(-1)).toBe("durable through first\n\n---\n\nsecond");
+    expect(second).toMatchObject({
+      sessionDisposition: "new",
+      sessionBoundaryReason: "spawn-signature-changed",
+      sessionEpoch: 3,
+      spawnSignature: signature,
+    });
+    expect(second.session_id).not.toBe(first.session_id);
+  });
+
+  it("preserves the runtime's typed terminal and final observed attribution", async () => {
+    const adapter = new FakeAgentSdk();
+    adapter.response = {
+      text: "",
+      toolUses: [],
+      stoppedReason: "provider_error",
+      terminalStatus: "error",
+      failure: {
+        source: "result",
+        kind: "execution",
+        code: "provider_failed",
+        text: "Provider failed.",
+        retryable: false,
+      },
+      sessionId: "sdk-final",
+      model: "claude-fallback",
+    };
+    const gateway = bareGateway(adapter);
+    const result = await gateway.runAgentSdkTurn(sdkRoute(), "fail visibly", undefined, {
+      sessionKey: "terminal-thread",
+    });
+    expect(result).toMatchObject({
+      terminalStatus: "error",
+      failure: adapter.response.failure,
+      session_id: "sdk-final",
+      model: "claude-fallback",
+    });
+  });
+
+  it("holds build-mode regeneration terminals until the final fresh Query settles", async () => {
+    const adapter = new FakeAgentSdk();
+    let attempt = 0;
+    adapter.sendTurn = async (session: any, text: string, hooks: any = {}) => {
+      attempt += 1;
+      adapter.turns.push(text);
+      adapter.hooks.push(hooks);
+      hooks.onEvent?.({
+        id: `terminal-build-${attempt}`,
+        role: "assistant",
+        ts: attempt,
+        order: 2,
+        revision: 1,
+        blocks: [{
+          type: "turn_end",
+          status: "completed",
+          subtype: `attempt-${attempt}`,
+          reason: "completed",
+          stopReason: "end_turn",
+          terminalReason: "completed",
+        }],
+      });
+      session.lastAttempt = attempt;
+    };
+    adapter.awaitResponse = async () => attempt === 1
+      ? { text: "not committable", toolUses: [], stoppedReason: null, sessionId: "sdk-1" }
+      : {
+          text: "```js\nexport const regenerated = true;\n```",
+          toolUses: [],
+          stoppedReason: null,
+          sessionId: "sdk-2",
+          terminalStatus: "completed",
+        };
+    const gateway = bareGateway(adapter);
+    gateway.buildWorkspace = compositionDir;
+    const signature = {
+      target: "sdk-haiku-chat",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      account: null,
+      accountSource: null,
+      projectPath: null,
+    };
+    const forwarded: any[] = [];
+    const order: string[] = [];
+    const result = await gateway.runAgentSdkTurn(
+      sdkRoute(),
+      "write src/m6-regenerated.mjs",
+      undefined,
+      {
+        sessionKey: "build-regeneration",
+        routeSession: { epoch: 1, signature, boundaryReason: "initial", disposition: "new", hadPrior: false },
+        onRouteSession: (value: any) => {
+          if (value.sessionId === "sdk-2") order.push("route-final");
+        },
+        onEvent: (event: any) => {
+          forwarded.push(event);
+          order.push("terminal");
+        },
+      },
+    );
+
+    expect(adapter.spawned).toHaveLength(2);
+    expect(adapter.tornDown).toContain("sdk-1");
+    expect(forwarded.map((event) => event.id)).toEqual(["terminal-build-2"]);
+    expect(order.at(-1)).toBe("terminal");
+    expect(result).toMatchObject({ session_id: "sdk-2", terminalStatus: "completed" });
+    expect(readFileSync(path.join(compositionDir, "src", "m6-regenerated.mjs"), "utf8"))
+      .toContain("export const regenerated = true");
   });
 
   it("reports a resumed SDK journal before send and de-duplicates its system frame", async () => {
@@ -1809,6 +2219,18 @@ describe("web one-shot lane: project → real cwd, account → real env (§6, §
     await gateway.runWebOneShot({ message: "hi" });
     expect(calls[0].cwd).toBe(compositionDir);
     expect("env" in calls[0]).toBe(false);
+  });
+
+  it("propagates a disposable one-shot failure instead of fabricating an empty result", async () => {
+    const gateway: any = Object.create(RoutedGateway.prototype);
+    gateway.compositionDir = compositionDir;
+    gateway._operativeSpawnConfig = { compositionDir };
+    const failure = Object.assign(new Error("one-shot failed"), {
+      code: "one_shot_failed",
+      kind: "execution",
+    });
+    gateway._oneShotFn = async () => { throw failure; };
+    await expect(gateway.runWebOneShot({ message: "fail visibly" })).rejects.toBe(failure);
   });
 });
 

@@ -60,6 +60,110 @@ export const TURN_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 // queries forever.
 export const AGENT_SDK_SESSION_CAP = 8;
 
+const FAILURE_TEXT_CAP = 1_000;
+const FAILURE_ID_CAP = 200;
+const FAILURE_KINDS = new Set([
+  "authentication",
+  "authorization",
+  "billing",
+  "rate_limit",
+  "overloaded",
+  "invalid_request",
+  "not_found",
+  "limit",
+  "execution",
+  "runtime",
+  "transport",
+  "routing",
+  "protocol",
+  "permission",
+  "unknown",
+]);
+const FAILURE_SOURCES = new Set([
+  "assistant",
+  "result",
+  "runtime",
+  "session",
+  "transport",
+  "system",
+  "gateway",
+  "web",
+]);
+
+function boundedFailureText(value, fallback = "Gateway turn failed.") {
+  const text = String(value ?? "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .trim();
+  return (text || fallback).slice(0, FAILURE_TEXT_CAP);
+}
+
+function boundedFailureId(value, fallback) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(text)
+    ? text.slice(0, FAILURE_ID_CAP)
+    : fallback;
+}
+
+function failureKind(value, code, fallback = "unknown") {
+  const direct = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (FAILURE_KINDS.has(direct)) return direct;
+  const hint = `${direct} ${String(code ?? "")}`.toLowerCase();
+  if (/oauth_org_not_allowed|authori[sz]|permission/.test(hint)) return "authorization";
+  if (/auth/.test(hint)) return "authentication";
+  if (/billing|budget/.test(hint)) return "billing";
+  if (/rate.?limit/.test(hint)) return "rate_limit";
+  if (/overload/.test(hint)) return "overloaded";
+  if (/invalid.?request/.test(hint)) return "invalid_request";
+  if (/not.?found/.test(hint)) return "not_found";
+  if (/max_|limit|output.?tokens/.test(hint)) return "limit";
+  if (/execution/.test(hint)) return "execution";
+  if (/transport|network|upstream|timeout|econn/.test(hint)) return "transport";
+  if (/route|target|scope/.test(hint)) return "routing";
+  if (/protocol|frame|generation/.test(hint)) return "protocol";
+  if (/runtime|subprocess|iterator|query|session/.test(hint)) return "runtime";
+  return FAILURE_KINDS.has(fallback) ? fallback : "unknown";
+}
+
+/** Closed, bounded public failure vocabulary shared by runtime results and the
+ * HTTP gateway lifecycle signal. Provider/private objects never cross this seam. */
+export function normalizeFailureInfo(value, defaults = {}) {
+  const outer = value && typeof value === "object" ? value : {};
+  const raw = outer.failure && typeof outer.failure === "object" ? outer.failure : outer;
+  const defaultCode = boundedFailureId(defaults.code, "gateway_turn_failed");
+  const code = boundedFailureId(raw.code ?? outer.code, defaultCode);
+  const kind = failureKind(raw.kind ?? outer.kind, code, defaults.kind ?? "unknown");
+  const requestedSource = boundedFailureId(raw.source ?? outer.source, null);
+  const defaultSource = boundedFailureId(defaults.source, "gateway");
+  const source = FAILURE_SOURCES.has(requestedSource)
+    ? requestedSource
+    : FAILURE_SOURCES.has(defaultSource)
+      ? defaultSource
+      : "gateway";
+  const text = boundedFailureText(
+    raw.text ?? raw.message ?? outer.text ?? outer.message ?? (value instanceof Error ? value.message : value),
+    defaults.text ?? "Gateway turn failed."
+  );
+  const status = raw.httpStatus ?? outer.httpStatus ?? outer.statusCode ?? outer.status;
+  const statusRetryable = status === 429 || (Number.isInteger(status) && status >= 500 && status <= 599);
+  const out = {
+    code,
+    kind,
+    source,
+    text,
+    retryable: typeof raw.retryable === "boolean"
+      ? raw.retryable
+      : typeof outer.retryable === "boolean"
+        ? outer.retryable
+        : defaults.retryable === true || statusRetryable,
+  };
+  if (Number.isInteger(status) && status >= 100 && status <= 599) out.httpStatus = status;
+  const retryAt = raw.retryAt ?? outer.retryAt;
+  if (typeof retryAt === "number" && Number.isFinite(retryAt) && retryAt > 0) out.retryAt = retryAt;
+  const requestId = boundedFailureId(raw.requestId ?? raw.request_id ?? outer.requestId ?? outer.request_id, null);
+  if (requestId) out.requestId = requestId;
+  return out;
+}
+
 // Cache compatibility must change when the credential that will actually reach
 // the SDK subprocess changes. The process-local HMAC key makes this a one-way,
 // non-portable version marker: useful for equality inside this gateway process,
@@ -1326,7 +1430,7 @@ export class RoutedGateway {
     }
     const streamingInput = opts.streamingInput === true && sessionKey !== null && Boolean(generationId);
     const forceNewSession = streamingInput && opts.forceNewSession === true;
-    const requestedResumeSessionId =
+    let requestedResumeSessionId =
       streamingInput &&
       !forceNewSession &&
       typeof opts.resumeSessionId === "string" &&
@@ -1378,23 +1482,67 @@ export class RoutedGateway {
       env: undefined,
     };
     const compatibilityKey = JSON.stringify(compatibility);
+    // Effort configures the standing Query but is deliberately NOT logical
+    // conversation identity. A change closes the idle Query and resumes its same
+    // journal with a fresh Query rather than cold-materializing the Web history.
+    const effortCompatibility = { ...compatibility, effort: undefined };
+    const effortCompatibilityKey = JSON.stringify(effortCompatibility);
     const credentialVersion = effectiveAgentSdkCredentialVersion(t, {
       secrets: spawnArgs.secrets,
       env: spawnArgs.env,
     });
     const key = JSON.stringify({ ...compatibility, credentialVersion });
-    // One warm SDK session is one conversation: turns on the SAME key serialize
-    // on its lane; different targets/conversations run concurrently.
-    return this._onLane(`sdk:${key}`, async () => {
+    // A standing conversation keeps ONE lane even while its effort or resolved
+    // spawn signature changes. That makes closing the previous idle Query and
+    // opening its successor atomic; distinct Web conversations still run in
+    // parallel. Historical/threadless calls retain their exact cache-key lane.
+    const laneKey = streamingInput && sessionKey
+      ? `sdk:conversation:${JSON.stringify(sessionKey)}`
+      : `sdk:${key}`;
+    return this._onLane(laneKey, async () => {
     let session = this._agentSdkSessions.get(key);
     let spawnedSession = false;
     let spawnedFromResume = false;
-    if (forceNewSession && session) {
-      // Same-lane serialization proves no turn is active on this Query here. A
-      // recovery barrier cannot be represented by `resumeSessionId: null`: null
-      // would otherwise reuse this cached conversation and inherit the orphan.
-      await this._releaseAgentSdkSession(adapter, key, session, "recovery-generation-reset");
+    let effortRotated = false;
+    if (forceNewSession) {
+      // A signature/recovery boundary applies to the logical conversation, not
+      // merely the NEW cache key. Close every same-thread standing Query while
+      // this conversation lane proves they are idle, then start without resume.
+      for (const [candidateKey, candidate] of [...this._agentSdkSessions]) {
+        const meta = this._agentSdkSessionMeta?.get(candidateKey);
+        if (meta?.sessionKey !== sessionKey) continue;
+        await this._releaseAgentSdkSession(adapter, candidateKey, candidate, "generation-reset", { strict: true });
+      }
       session = null;
+      requestedResumeSessionId = "";
+    } else if ((!session || session.alive === false) && streamingInput) {
+      const effortSibling = [...this._agentSdkSessions.entries()].find(([candidateKey, candidate]) => {
+        if (candidateKey === key || candidate?.alive === false) return false;
+        const meta = this._agentSdkSessionMeta?.get(candidateKey);
+        return meta?.effortCompatibilityKey === effortCompatibilityKey &&
+          meta?.credentialVersion === credentialVersion &&
+          meta?.requestedEffort !== requestedEffort;
+      });
+      if (effortSibling) {
+        const [candidateKey, candidate] = effortSibling;
+        const journalId = typeof candidate?.sessionId === "string" &&
+          /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(candidate.sessionId)
+          ? candidate.sessionId
+          : "";
+        if (!journalId) {
+          const error = new Error("Agent SDK effort change cannot resume: the standing Query has no journal identity");
+          error.code = "agent_sdk_effort_resume_unavailable";
+          error.kind = "runtime";
+          error.source = "gateway";
+          error.retryable = false;
+          throw error;
+        }
+        // _onLane above proves the old Query is idle. Await teardown completely
+        // before native resume so two live Queries never own one journal.
+        await this._releaseAgentSdkSession(adapter, candidateKey, candidate, "effort-rotated", { strict: true });
+        requestedResumeSessionId = journalId;
+        effortRotated = true;
+      }
     }
     if (!session || session.alive === false) {
       // Never open two standing Queries on one SDK journal. This is especially
@@ -1420,6 +1568,16 @@ export class RoutedGateway {
       // An adapter that ignores the candidate did not resume. Preserve the cold
       // materialized fallback instead of silently dropping all prior context.
       spawnedFromResume = Boolean(resumeSessionId && session?.sessionId === resumeSessionId);
+      if (effortRotated && !spawnedFromResume) {
+        await adapter?.teardown?.(session);
+        if (session) session.alive = false;
+        const error = new Error("Agent SDK effort change was not resumed by the runtime");
+        error.code = "agent_sdk_effort_resume_refused";
+        error.kind = "runtime";
+        error.source = "gateway";
+        error.retryable = false;
+        throw error;
+      }
       if (requestedResumeSessionId && !spawnedFromResume) {
         this.logFn({
           kind: "agent-sdk-resume-refused",
@@ -1437,7 +1595,14 @@ export class RoutedGateway {
     // thread count, so the map needs a real cap).
     this._agentSdkSessions.delete(key);
     this._agentSdkSessions.set(key, session);
-    (this._agentSdkSessionMeta ??= new Map()).set(key, { compatibilityKey, credentialVersion });
+    (this._agentSdkSessionMeta ??= new Map()).set(key, {
+      compatibilityKey,
+      effortCompatibilityKey,
+      credentialVersion,
+      requestedEffort,
+      sessionKey,
+      laneKey,
+    });
     (this._currentAgentSdkKeyByCompatibility ??= new Map()).set(compatibilityKey, key);
     await this._retireStaleAgentSdkSessions(adapter);
     await this._evictAgentSdkSessions(adapter);
@@ -1468,6 +1633,41 @@ export class RoutedGateway {
       // stop captured from an earlier turn would abort the wrong query).
       opts.registerStop(() => adapter.cancel?.(session) ?? false);
     }
+    const sessionDisposition = spawnedFromResume ? "resumed" : spawnedSession ? "new" : "warm";
+    let sessionEpoch = Number.isSafeInteger(opts.routeSession?.epoch) && opts.routeSession.epoch >= 1
+      ? opts.routeSession.epoch
+      : null;
+    let sessionBoundaryReason = typeof opts.routeSession?.boundaryReason === "string"
+      ? opts.routeSession.boundaryReason
+      : null;
+    // A matching durable hint expected warm/native-resume. If neither was
+    // possible, make the unavoidable cold boundary explicit and advance its
+    // epoch instead of pretending continuity.
+    if (sessionDisposition === "new" && opts.routeSession?.hadPrior === true && sessionBoundaryReason === null) {
+      sessionEpoch = sessionEpoch === null ? null : sessionEpoch + 1;
+      sessionBoundaryReason = "resume-unavailable";
+    }
+    let lastRouteObservation = null;
+    const routeObservation = (extra = {}) => {
+      if (typeof opts.onRouteSession !== "function") return;
+      const observation = {
+        sessionDisposition,
+        sessionBoundaryReason,
+        sessionEpoch,
+        spawnSignature: opts.routeSession?.signature ?? null,
+        model: session?.observedModel ?? t.model ?? null,
+        sessionId: session?.sessionId ?? null,
+        ...extra,
+      };
+      const signature = JSON.stringify(observation);
+      if (signature === lastRouteObservation) return;
+      lastRouteObservation = signature;
+      try {
+        opts.onRouteSession(observation);
+      } catch {
+        /* route observability must never break a turn */
+      }
+    };
     this.logFn({
       kind: "runtime-turn",
       runtime: "agent-sdk",
@@ -1476,9 +1676,11 @@ export class RoutedGateway {
       promptMode: session.harness?.promptMode,
       authMode: t.authMode ?? null,
       target: route.targetId,
-      conversation: spawnedFromResume ? "resumed" : spawnedSession ? "new" : "warm",
+      conversation: sessionDisposition,
     });
     await adapter.awaitReady(session);
+    // Runtime selection is known before journal reporting or input admission.
+    routeObservation();
     // A resumed SDK session is known before sendTurn; a fresh session is only
     // announced by the SDK's first system frame. One reporter covers both timing
     // paths and de-duplicates the warm session's later system announcement.
@@ -1488,6 +1690,7 @@ export class RoutedGateway {
       if (!sessionId || sessionId === reportedJournalSessionId || typeof opts.onJournal !== "function") return;
       reportedJournalSessionId = sessionId;
       try {
+        routeObservation({ sessionId });
         opts.onJournal({
           session_id: sessionId,
           transcript_path: this.claudeTranscriptPathFor(spawnArgs.compositionDir, sessionId)
@@ -1504,11 +1707,48 @@ export class RoutedGateway {
     // time, so the reply can grow in the channel instead of arriving as a blob
     // minutes later. onText hands the ACCUMULATED text, which is exactly the
     // onChunk(text, replace=true) contract. tool_use becomes an `activity` frame.
+    let terminalStatus = null;
+    let failure = null;
+    let fallbackModel = null;
+    const deferredTerminalEvents = [];
+    const observeSessionEvent = (event) => {
+      for (const block of Array.isArray(event?.blocks) ? event.blocks : []) {
+        if (block?.type === "error") failure = normalizeFailureInfo(block, { source: "runtime", kind: "runtime" });
+        if (block?.type === "turn_end" && typeof block.status === "string") terminalStatus = block.status;
+        if (block?.type === "retry" && block.kind === "model_fallback" && typeof block.toModel === "string") {
+          // A provider refusal fallback is an intra-request retry. Disclose the
+          // model that actually answered, but keep the pre-runtime Query config
+          // as this epoch's durable spawn signature.
+          fallbackModel = block.toModel;
+          routeObservation({ model: block.toModel });
+        }
+      }
+      if (typeof event?.sessionId === "string") routeObservation({ sessionId: event.sessionId });
+      const isTerminal = Array.isArray(event?.blocks) && event.blocks.some((block) => block?.type === "turn_end");
+      if (isTerminal) deferredTerminalEvents.push(event);
+      else opts.onEvent?.(event);
+    };
+    const flushTerminalEvents = (finalAttribution = {}) => {
+      routeObservation(finalAttribution);
+      for (const event of deferredTerminalEvents.splice(0)) opts.onEvent?.(event);
+    };
+    const captureRuntimeOutcome = (value) => {
+      if (typeof value?.terminalStatus === "string") terminalStatus = value.terminalStatus;
+      if (value?.failure && typeof value.failure === "object") failure = value.failure;
+    };
+    const runtimeAttribution = (value) => ({
+      model: value?.model ?? fallbackModel ?? session?.observedModel ?? t.model ?? null,
+      sessionId: value?.sessionId ?? session?.sessionId ?? null,
+    });
     const streamHooks = {
       // Keep the callback and turn identity byte-for-byte as supplied. The runtime
       // adapter owns the canonical event vocabulary; the gateway is only a
       // transport boundary and must not reshape channel-neutral events.
-      onEvent: opts.onEvent,
+      // Hold a canonical turn_end only until final runtime attribution has been
+      // observed. The route revision is then guaranteed to precede terminal.
+      onEvent: typeof opts.onRouteSession === "function"
+        ? observeSessionEvent
+        : opts.onEvent,
       turnId: opts.turnId,
       generationId: opts.generationId,
       onPermissionRequest: opts.onPermissionRequest,
@@ -1540,8 +1780,21 @@ export class RoutedGateway {
     // receive that bounded context; warm and resumed sessions receive only the
     // newly admitted message.
     const sessionMessage = spawnedSession && !spawnedFromResume ? coldSessionMessage : message;
-    await adapter.sendTurn(session, sessionMessage, streamHooks);
-    let resp = await adapter.awaitResponse(session);
+    let resp;
+    try {
+      await adapter.sendTurn(session, sessionMessage, streamHooks);
+      resp = await adapter.awaitResponse(session);
+      captureRuntimeOutcome(resp);
+      reportJournalSession(resp?.sessionId);
+      const attribution = runtimeAttribution(resp);
+      if (this.buildWorkspace) routeObservation(attribution);
+      else flushTerminalEvents(attribution);
+    } catch (error) {
+      captureRuntimeOutcome(error);
+      reportJournalSession(error?.sessionId);
+      flushTerminalEvents(runtimeAttribution(error));
+      throw error;
+    }
     // BUILD MODE (buildWorkspace set): local models can't drive file-edit tools
     // over ollama's Anthropic-compat endpoint (tool_use is not surfaced), so the
     // local model GENERATES the code in chat mode and the orchestrator COMMITS it
@@ -1554,12 +1807,34 @@ export class RoutedGateway {
       committed = commitGeneratedFile(this.buildWorkspace, message, resp.text ?? "");
       for (let attempt = 2; !committed && attempt <= 6; attempt++) {
         this.logFn({ kind: "agent-sdk-regenerate", attempt, provider: t.provider, model: t.model });
+        // An invalid generation is an internal bounded retry, not this public
+        // turn's terminal. Close its idle Query, discard only that attempt's held
+        // terminal, and let the final attempt own the canonical turn_end.
+        deferredTerminalEvents.splice(0);
+        terminalStatus = null;
+        failure = null;
+        fallbackModel = null;
+        await adapter.teardown(session);
+        if (session) session.alive = false;
         session = await adapter.spawn(spawnArgs);
         await adapter.awaitReady(session);
-        await adapter.sendTurn(session, coldSessionMessage, streamHooks);
-        resp = await adapter.awaitResponse(session);
+        routeObservation();
+        reportJournalSession(session?.sessionId);
+        try {
+          await adapter.sendTurn(session, coldSessionMessage, streamHooks);
+          resp = await adapter.awaitResponse(session);
+          captureRuntimeOutcome(resp);
+          reportJournalSession(resp?.sessionId);
+          routeObservation(runtimeAttribution(resp));
+        } catch (error) {
+          captureRuntimeOutcome(error);
+          reportJournalSession(error?.sessionId);
+          flushTerminalEvents(runtimeAttribution(error));
+          throw error;
+        }
         committed = commitGeneratedFile(this.buildWorkspace, message, resp.text ?? "");
       }
+      flushTerminalEvents(runtimeAttribution(resp));
       this._agentSdkSessions.set(key, session);
       if (committed) {
         this.logFn({ kind: "agent-sdk-commit", file: committed.rel, bytes: committed.bytes, provider: t.provider, model: t.model });
@@ -1571,20 +1846,29 @@ export class RoutedGateway {
     if (onChunk && replyText) onChunk(replyText, true); // non-streaming: emit the full reply once
     return {
       reply: replyText,
-      session_id: session.sessionId ?? null,
+      session_id: resp?.sessionId ?? session.sessionId ?? null,
       // SDK-driven sessions DO journal a transcript (unlike the PTY operative), so
       // the per-message `transcript` badge (§12) has a real file to open.
-      transcript_path: this.claudeTranscriptPathFor(spawnArgs.compositionDir, session.sessionId ?? null),
+      transcript_path: this.claudeTranscriptPathFor(
+        spawnArgs.compositionDir,
+        resp?.sessionId ?? session.sessionId ?? null
+      ),
       cost_usd: null,
       route: route.targetId,
       runtime: "agent-sdk",
       provider: t.provider,
-      model: t.model,
+      model: resp?.model ?? fallbackModel ?? session?.observedModel ?? t.model,
       account: t.account ?? null,
       effort: requestedEffort,
       effortApplied: requestedEffort == null ? null : session.effortApplied === true,
       toolUses: resp.toolUses ?? [],
       stoppedReason: resp.stoppedReason ?? null,
+      terminalStatus,
+      failure,
+      sessionDisposition,
+      sessionBoundaryReason,
+      sessionEpoch,
+      spawnSignature: opts.routeSession?.signature ?? null,
     };
     });
   }
@@ -1593,13 +1877,33 @@ export class RoutedGateway {
   // with thread count against a Map that had no eviction at all. A standing Query
   // must be closed, not merely interrupted (interrupt intentionally preserves it
   // for the next turn). Historical one-shot sessions retain cancel-before-teardown.
-  async _releaseAgentSdkSession(adapter, key, session, kind = "evicted") {
+  async _releaseAgentSdkSession(adapter, key, session, kind = "evicted", { strict = false } = {}) {
     const releasingSessionId = typeof session?.sessionId === "string" && session.sessionId
       ? session.sessionId
       : null;
     if (releasingSessionId) (this._releasingAgentSdkSessionIds ??= new Set()).add(releasingSessionId);
-    this._agentSdkSessions.delete(key);
     const meta = this._agentSdkSessionMeta?.get(key) ?? null;
+    // Eviction/recovery releases disappear from lookup before an asynchronous
+    // close (the releasing-id barrier then prevents a concurrent native resume).
+    // Logical signature/effort rotations serialize on the conversation lane and
+    // stay discoverable until close succeeds, so a failed close cannot orphan a
+    // possibly-live Query and then spawn a second owner for its journal.
+    if (!strict) this._agentSdkSessions.delete(key);
+    let releaseError = null;
+    try {
+      if (session?.streamingInput === true || session?.config?.streamingInput === true) {
+        await adapter?.teardown?.(session);
+      } else {
+        await adapter?.cancel?.(session);
+        await adapter?.teardown?.(session);
+      }
+    } catch (error) {
+      releaseError = error;
+    } finally {
+      if (releasingSessionId) this._releasingAgentSdkSessionIds?.delete(releasingSessionId);
+    }
+    if (releaseError && strict) throw releaseError;
+    this._agentSdkSessions.delete(key);
     this._agentSdkSessionMeta?.delete(key);
     if (meta && this._currentAgentSdkKeyByCompatibility?.get(meta.compatibilityKey) === key) {
       const hasOlderSibling = [...(this._agentSdkSessionMeta?.values() ?? [])]
@@ -1609,18 +1913,8 @@ export class RoutedGateway {
       // still retire on idle and can never become the compatibility winner.
       if (!hasOlderSibling) this._currentAgentSdkKeyByCompatibility.delete(meta.compatibilityKey);
     }
-    try {
-      if (session?.streamingInput === true || session?.config?.streamingInput === true) {
-        await adapter?.teardown?.(session);
-      } else {
-        await adapter?.cancel?.(session);
-        await adapter?.teardown?.(session);
-      }
-    } catch {
-      /* an already-finished query is a successful release */
-    } finally {
-      if (releasingSessionId) this._releasingAgentSdkSessionIds?.delete(releasingSessionId);
-    }
+    // Non-strict retirement preserves the historical idempotent behavior: an
+    // already-finished query may reject close, but it is no longer reusable.
     if (session) session.alive = false;
     this.logFn({ kind: `agent-sdk-session-${kind}`, live: this._agentSdkSessions.size });
   }
@@ -1632,7 +1926,7 @@ export class RoutedGateway {
     for (const [key, session] of [...this._agentSdkSessions]) {
       const meta = metadata.get(key);
       if (!meta || current.get(meta.compatibilityKey) === key) continue;
-      if (queues.has(`sdk:${key}`)) continue;
+      if (queues.has(meta.laneKey ?? `sdk:${key}`)) continue;
       await this._releaseAgentSdkSession(adapter, key, session, "credential-retired");
     }
   }
@@ -1646,7 +1940,10 @@ export class RoutedGateway {
       // oldest IDLE entry; if all are busy, bounded correctness beats a hard
       // instantaneous cap and the lane-idle callback above trims the overflow.
       const oldestIdleKey = [...this._agentSdkSessions.keys()]
-        .find((candidate) => !queues.has(`sdk:${candidate}`));
+        .find((candidate) => {
+          const laneKey = this._agentSdkSessionMeta?.get(candidate)?.laneKey ?? `sdk:${candidate}`;
+          return !queues.has(laneKey);
+        });
       if (oldestIdleKey === undefined) return;
       const session = this._agentSdkSessions.get(oldestIdleKey);
       await this._releaseAgentSdkSession(adapter, oldestIdleKey, session, "evicted");
@@ -2981,11 +3278,24 @@ export class RoutedGateway {
   // Honor a pinned TurnRouting on a resolved route and log both sides. Wired here
   // (not in applyTurnOverride) so the project/account resolvers stay injectable and
   // the pure overlay keeps no I/O.
-  _applyOverride(route, ov) {
+  _applyOverride(route, ov, { implicitTarget = false } = {}) {
+    const originalVia = route?.via;
+    const originalRuleId = route?.ruleId;
     const result = applyTurnOverride(this.config, route, ov, {
       resolveProject: this._projectResolver ?? undefined,
       resolveAccount: this._accountResolver ?? ((name) => resolveVaultAccount(this.compositionDir, name))
     });
+    if (implicitTarget) {
+      // A durable thread's prior target is sticky spawn identity, not a new user
+      // override. It still has to run through the exact target resolver, but must
+      // not claim `overridesApplied:["target"]` or rewrite the route's provenance.
+      result.applied = result.applied.filter((field) => field !== "target");
+      if (result.applied.length === 0) {
+        route.via = originalVia;
+        route.ruleId = originalRuleId;
+      }
+      this.logFn({ kind: "route-session-sticky-target", target: route?.targetId ?? null });
+    }
     if (result.applied.length) {
       this.logFn({ kind: "turn-override", applied: result.applied, target: route.targetId, via: route.via });
     }
@@ -3020,7 +3330,8 @@ export class RoutedGateway {
       // Carried through from preRoute so a duty-routed decision names its
       // conversation too, not just the classifier-path decision below.
       sessionId = null,
-      sessionTitle = null
+      sessionTitle = null,
+      implicitStickyTarget = false
     } = {}
   ) {
     const resolved = await this.executionRouteFor({ duty, level, phase, stepIndex });
@@ -3050,7 +3361,7 @@ export class RoutedGateway {
     };
     // §7: honor the pin BEFORE the decision record and the plan/lane selection
     // below, so an overridden target.runtime actually changes which lane runs.
-    const override = this._applyOverride(route, routing);
+    const override = this._applyOverride(route, routing, { implicitTarget: implicitStickyTarget });
     const overridesApplied = [...(viaOverride ? ["duty", "level"] : []), ...override.applied];
     const overridesRejected = [...(Array.isArray(rejected) ? rejected : []), ...override.rejected];
     if (viaOverride) route.via = "turn-override";
@@ -3164,7 +3475,18 @@ export class RoutedGateway {
     // The per-turn pin (§2), already validated at the HTTP edge (sanitizeRouting),
     // plus the rejections that validation itself produced - one list reaches the
     // badge whether a value died on the wire or died here.
-    const ov = opts.routing && typeof opts.routing === "object" ? opts.routing : null;
+    const explicitRouting = opts.routing && typeof opts.routing === "object" ? opts.routing : null;
+    const stickyTarget = typeof opts.routeSession?.signature?.target === "string"
+      ? opts.routeSession.signature.target
+      : null;
+    const implicitStickyTarget = Boolean(stickyTarget && !explicitRouting?.target);
+    // Keep a standing conversation on its durable target even while duty/flow
+    // classification changes per request. Explicit target/model/account/project
+    // fields still overlay this base and the gateway records a logical boundary
+    // if the resulting resolved spawn signature differs.
+    const ov = implicitStickyTarget
+      ? { ...(explicitRouting ?? {}), target: stickyTarget }
+      : explicitRouting;
     const rejected = Array.isArray(opts.routingRejected) ? [...opts.routingRejected] : [];
     // A Kanban phase carries the card's semantic v4 identity. It is authoritative:
     // resolve the assigned leaf cell from the shared execution manifest and never
@@ -3177,6 +3499,7 @@ export class RoutedGateway {
         stepIndex: opts.stepIndex,
         sequence: opts.sequence,
         routing: ov,
+        implicitStickyTarget,
         sessionId: opts.sessionId ?? null,
         sessionTitle: opts.sessionTitle ?? null,
         rejected
@@ -3192,6 +3515,7 @@ export class RoutedGateway {
           duty: ov.duty,
           level: ov.level,
           routing: ov,
+          implicitStickyTarget,
           rejected,
           viaOverride: true
         });
@@ -3221,6 +3545,7 @@ export class RoutedGateway {
         return this.preRouteV4(message, {
           ...migrated,
           routing,
+          implicitStickyTarget,
           sessionId: opts.sessionId ?? null,
           sessionTitle: opts.sessionTitle ?? null,
           rejected
@@ -3280,6 +3605,7 @@ export class RoutedGateway {
           flow: dispatched.flow ?? null,
           dutyLevels: dispatched.dutyLevels ?? null,
           routing: ov,
+          implicitStickyTarget,
           autonomy,
           sessionId: opts.sessionId ?? null,
           sessionTitle: opts.sessionTitle ?? null,
@@ -3340,7 +3666,7 @@ export class RoutedGateway {
     // §7: the pin lands HERE - after the route resolves, before the decision record
     // and before the plan/lane selection below reads route.target.runtime. Applying
     // it any later would change the badge and nothing else.
-    const override = this._applyOverride(route, ov);
+    const override = this._applyOverride(route, ov, { implicitTarget: implicitStickyTarget });
     rejected.push(...override.rejected);
     const decision = this.core.decisionRecord({ prompt: message, classification, route, at: this.nowFn() });
     // Enrich the logged decision with the RUNTIME/provider/model so the log shows

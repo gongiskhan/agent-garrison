@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ChatEvent, SessionEvent } from "@garrison/claude-chat";
 import { createHttpTransport } from "@garrison/claude-chat";
+import { ChatTransportError } from "@garrison/claude-chat/transport";
 import { createOrchestratorTransport } from "../fittings/seed/web-channel-default/ui/orchestrator-transport";
 // @ts-ignore — dependency-free fitting JavaScript intentionally has no .d.ts.
 import { normalizeAgentSdkMessages } from "../fittings/seed/agent-sdk-runtime/lib/session-events.mjs";
@@ -401,6 +402,9 @@ describe("orchestrator transport: widened route frames (contract §1, §4)", () 
         duty: "execute",
         level: 3,
         phase: "review",
+        flow: "full-feature",
+        phasesOff: "review",
+        classifierSkipped: true,
         skill: null,
         via: "turn-override",
         account: "work",
@@ -426,6 +430,9 @@ describe("orchestrator transport: widened route frames (contract §1, §4)", () 
       duty: "execute",
       level: 3,
       phase: "review",
+      flow: "full-feature",
+      phasesOff: "review",
+      classifierSkipped: true,
       skill: null,
       via: "turn-override",
       account: "work",
@@ -520,7 +527,17 @@ describe("orchestrator transport: terminal EOF", () => {
     await t.sendMessage("go");
 
     expect(events.filter((event) => event.type === "error")).toEqual([
-      { type: "error", message: "chat stream ended without a completion event" },
+      {
+        type: "error",
+        message: "The response stream ended without a completion event.",
+        failure: {
+          source: "transport",
+          kind: "protocol",
+          code: "stream_ended_without_terminal",
+          text: "The response stream ended without a completion event.",
+          retryable: true,
+        },
+      },
     ]);
     expect(events.filter((event) => event.type === "turn")).toEqual([
       { type: "turn", active: false },
@@ -538,7 +555,17 @@ describe("orchestrator transport: terminal EOF", () => {
     await t.sendMessage("go");
 
     expect(events.filter((event) => event.type === "error")).toEqual([
-      { type: "error", message: "the gateway stream ended without a done event" },
+      {
+        type: "error",
+        message: "the gateway stream ended without a done event",
+        failure: {
+          source: "transport",
+          kind: "transport",
+          code: "stream_error",
+          text: "the gateway stream ended without a done event",
+          retryable: false,
+        },
+      },
     ]);
     expect(events.filter((event) => event.type === "turn")).toEqual([
       { type: "turn", active: false },
@@ -642,7 +669,9 @@ describe("orchestrator transport: replay/follow a running thread", () => {
     expect(calls).toContain("/api/threads/thread-resume/inputs");
     expect(calls).toContain(`/api/threads/thread-resume/inputs/${inputId}/live`);
     expect(states).toEqual([true, false]);
-    expect(settlements).toEqual([{ recovery: false }]);
+    // No canonical turn_end was painted (the replay contained only a tool row),
+    // so the host must remount from the durable server snapshot after legacy done.
+    expect(settlements).toEqual([{ recovery: true }]);
     expect(events.filter((event) => event.type === "turn")).toEqual([]);
     expect(events.filter((event) => event.type === "assistant").map((event: any) => event.text)).toEqual([
       "draft ",
@@ -656,6 +685,107 @@ describe("orchestrator transport: replay/follow a running thread", () => {
     const restored = events.find((event: any) => event.type === "session_event") as any;
     expect(restored.event).toEqual({ ...replayEvent, turnId: inputId, inputId, generationId });
     expect(restored.event.blocks).toEqual(replayEvent.blocks);
+  });
+
+  it("does not remount after a generated follower paints its canonical terminal", async () => {
+    const input = {
+      clientRequestId: "client-canonical-terminal",
+      inputId: "input-canonical-terminal",
+      generationId: "generation-canonical-terminal",
+      state: "running" as const,
+    };
+    const terminal = {
+      id: `terminal:${JSON.stringify([input.generationId])}`,
+      role: "assistant",
+      ts: Date.now(),
+      turnId: input.inputId,
+      generationId: input.generationId,
+      order: 2,
+      revision: 1,
+      blocks: [{
+        type: "turn_end",
+        status: "completed",
+        subtype: "success",
+        reason: null,
+        stopReason: null,
+        terminalReason: "completed",
+        result: "done",
+      }],
+    };
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      if (requestUrl.endsWith("/inputs")) {
+        return new Response(JSON.stringify({ inputs: [input] }), { status: 200 });
+      }
+      return sseResponse([
+        `event: session_event\ndata: ${JSON.stringify(terminal)}\n\n`,
+        `event: done\ndata: ${JSON.stringify({ ...input, reply: "done", terminalStatus: "completed" })}\n\n`,
+        `event: input\ndata: ${JSON.stringify({ ...input, state: "settled" })}\n\n`,
+      ]);
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const settlements: Array<{ recovery: boolean }> = [];
+    const transport = create("/api", "thread-canonical-terminal", {
+      resumeOnConnect: true,
+      onResumeSettled: (result) => { settlements.push(result); },
+    });
+    transport.connect(() => {});
+    await vi.waitFor(() => expect(settlements).toEqual([{ recovery: false }]));
+  });
+
+  it("keeps recovery sticky when a FIFO handoff happened before resume even if the returned input paints a terminal", async () => {
+    const input = {
+      clientRequestId: "client-handoff-b",
+      inputId: "input-handoff-b",
+      generationId: "generation-handoff-b",
+      state: "running" as const,
+    };
+    const terminal = {
+      id: `terminal:${JSON.stringify([input.generationId])}`,
+      role: "assistant",
+      ts: Date.now(),
+      turnId: input.inputId,
+      generationId: input.generationId,
+      order: 2,
+      revision: 1,
+      blocks: [{
+        type: "turn_end",
+        status: "completed",
+        subtype: "success",
+        reason: null,
+        stopReason: null,
+        terminalReason: "completed",
+        result: "B completed",
+      }],
+    };
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      if (requestUrl.endsWith("/inputs")) {
+        // A settled and B was claimed after the parent snapshot (revision 10)
+        // but before this list request, so only B remains at revision 12.
+        return new Response(JSON.stringify({ inputs: [input], inputRevision: 12 }), { status: 200 });
+      }
+      return sseResponse([
+        `event: session_event\ndata: ${JSON.stringify(terminal)}\n\n`,
+        `event: done\ndata: ${JSON.stringify({ ...input, reply: "B completed", terminalStatus: "completed" })}\n\n`,
+        `event: input\ndata: ${JSON.stringify({ ...input, state: "settled" })}\n\n`,
+      ]);
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const settlements: Array<{ recovery: boolean }> = [];
+    const states: boolean[] = [];
+    const transport = create("/api", "thread-handoff", {
+      resumeOnConnect: true,
+      initialInputRevision: 10,
+      initialInputIds: ["input-handoff-a", input.inputId],
+      onResumeState: (active: boolean) => { states.push(active); },
+      onResumeSettled: (result) => { settlements.push(result); },
+    });
+    transport.connect(() => {});
+    await vi.waitFor(() => expect(settlements).toEqual([{ recovery: true }]));
+    expect(states).toEqual([true, false]);
   });
 
   it("refreshes immediately when the input settles between thread hydration and resume", async () => {
@@ -783,7 +913,7 @@ describe("orchestrator transport: replay/follow a running thread", () => {
       onResumeSettled: (result) => { settlements.push(result); },
     });
     transport.connect((event) => events.push(event));
-    await vi.waitFor(() => expect(settlements).toEqual([{ recovery: false }]), { timeout: 3_000 });
+    await vi.waitFor(() => expect(settlements).toEqual([{ recovery: true }]), { timeout: 3_000 });
     expect(liveAttempts).toBe(2);
     expect(events.filter((event) => event.type === "assistant").map((event: any) => event.text)).toEqual([
       "hello",
@@ -910,7 +1040,17 @@ describe("orchestrator transport: durable input admission", () => {
     globalThis.fetch = vi.fn(async (raw: any) => {
       if (String(raw) === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
       admissionAttempts += 1;
-      return new Response(JSON.stringify({ error: "queue is full" }), {
+      return new Response(JSON.stringify({
+        error: "This conversation queue is full.",
+        failure: {
+          source: "web",
+          kind: "limit",
+          code: "web_input_queue_full",
+          text: "This conversation queue is full.",
+          retryable: true,
+          httpStatus: 429,
+        },
+      }), {
         status: 429,
         headers: { "content-type": "application/json" },
       });
@@ -919,10 +1059,49 @@ describe("orchestrator transport: durable input admission", () => {
     const states: boolean[] = [];
     const transport = create("/api", "thread-rejected", { onResumeState: (active: boolean) => states.push(active) });
     transport.connect(() => {});
-    await expect(transport.sendMessage("too many", { clientRequestId: "client-rejected" }))
-      .rejects.toThrow("queue is full");
+    const rejection = transport.sendMessage("too many", { clientRequestId: "client-rejected" });
+    await expect(rejection).rejects.toThrow("This conversation queue is full.");
+    await expect(rejection).rejects.toMatchObject({
+      failure: {
+        source: "web",
+        kind: "limit",
+        code: "web_input_queue_full",
+        retryable: true,
+        httpStatus: 429,
+      },
+    });
     expect(admissionAttempts).toBe(1);
     expect(states).toEqual([true, false]);
+  });
+
+  it("preserves a typed not-found failure when the thread disappears before admission", async () => {
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      if (String(raw) === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      return new Response(JSON.stringify({
+        error: "This conversation no longer exists.",
+        failure: {
+          source: "web",
+          kind: "not_found",
+          code: "web_thread_not_found",
+          text: "This conversation no longer exists.",
+          retryable: false,
+          httpStatus: 404,
+        },
+      }), { status: 404, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const transport = create("/api", "thread-deleted");
+    transport.connect(() => {});
+    const rejection = transport.sendMessage("race deletion", { clientRequestId: "client-deleted" });
+    await expect(rejection).rejects.toMatchObject({
+      failure: {
+        source: "web",
+        kind: "not_found",
+        code: "web_thread_not_found",
+        retryable: false,
+        httpStatus: 404,
+      },
+    });
   });
 
   it("aborts admission on disconnect and never starts an orphan follower", async () => {
@@ -1001,6 +1180,31 @@ describe("createHttpTransport (rich path): answerQuestion", () => {
     expect(calls[0].url).toBe("/api/claude/answer");
     expect(calls[0].body).toMatchObject({ tool_use_id: "toolu_2", label: "B" });
   });
+
+  it("throws a structured ChatTransportError for a typed HTTP admission failure", async () => {
+    const failure = {
+      source: "web" as const,
+      kind: "rate_limit" as const,
+      code: "QUEUE_RATE_LIMITED",
+      text: "The message could not enter the queue yet.",
+      retryable: true,
+      httpStatus: 429,
+      retryAt: 1_787_000_000,
+    };
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ failure }), {
+      status: 429,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+    const transport = createHttpTransport("/api");
+    await expect(transport.sendMessage("queued request")).rejects.toMatchObject({
+      name: "ChatTransportError",
+      message: failure.text,
+      failure,
+    });
+    await transport.sendMessage("queued request").catch((error) => {
+      expect(error).toBeInstanceOf(ChatTransportError);
+    });
+  });
 });
 
 describe("createHttpTransport (rich path): canonical session events", () => {
@@ -1055,11 +1259,26 @@ describe("createHttpTransport (rich path): canonical session events", () => {
       sources[0].emit("session_event", JSON.stringify(canonical));
       sources[0].emit("session_event", "{not-json");
       sources[0].emit("session_event", JSON.stringify({ id: "missing-blocks", role: "assistant", ts: 1 }));
+      const failure = {
+        source: "transport",
+        kind: "protocol",
+        code: "STREAM_PROTOCOL_ERROR",
+        text: "The stream returned an invalid frame.",
+        retryable: false,
+      };
+      sources[0].emit("error", JSON.stringify({ failure, inputId: "input-7", generationId: "generation-7" }));
+      sources[0].emit("error", JSON.stringify({ failure: { ...failure, kind: "made_up" } }));
 
       expect(events.filter((event) => event.type === "session_event")).toEqual([
         { type: "session_event", event: canonical },
       ]);
       expect(Object.keys(events.find((event) => event.type === "session_event") ?? {}).sort()).toEqual(["event", "type"]);
+      expect(events.filter((event) => event.type === "error")).toEqual([{
+        type: "error",
+        failure,
+        inputId: "input-7",
+        generationId: "generation-7",
+      }]);
       disconnect();
     } finally {
       if (originalEventSource === undefined) delete (globalThis as any).EventSource;

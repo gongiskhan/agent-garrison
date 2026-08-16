@@ -307,6 +307,112 @@ describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route
     }
   });
 
+  it("publishes final observed route attribution before forwarding the canonical terminal", async () => {
+    const { gw, agentSdk } = await bootGateway();
+    try {
+      const terminal = {
+        id: 'terminal:["generation-final-route"]',
+        role: "assistant",
+        ts: 100,
+        order: 9,
+        revision: 1,
+        blocks: [{
+          type: "turn_end",
+          status: "completed",
+          subtype: "success",
+          reason: "completed",
+          stopReason: "end_turn",
+          terminalReason: "completed",
+        }],
+      };
+      const fallback = {
+        id: 'retry:["generation-final-route","fallback"]',
+        role: "assistant",
+        ts: 99,
+        order: 8,
+        revision: 1,
+        blocks: [{
+          type: "retry",
+          kind: "model_fallback",
+          fromModel: "claude-primary",
+          toModel: "claude-fallback",
+          attempt: 1,
+          reason: "provider refusal",
+        }],
+      };
+      agentSdk.eventsToEmit = [fallback, terminal];
+      agentSdk.response = {
+        text: "fallback answer",
+        toolUses: [],
+        stoppedReason: null,
+        terminalStatus: "completed",
+        failure: null,
+        sessionId: "sdk-observed-final",
+      };
+      const order: string[] = [];
+      const observations: any[] = [];
+      const signature = {
+        target: "sdk-final-route",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-primary",
+        account: null,
+        accountSource: null,
+        projectPath: null,
+      };
+      const result = await gw.runAgentSdkTurn(
+        {
+          targetId: "sdk-final-route",
+          target: {
+            id: "sdk-final-route",
+            type: "runtime-target",
+            runtime: "agent-sdk",
+            provider: "anthropic",
+            model: "claude-primary",
+          },
+        },
+        "observe fallback",
+        undefined,
+        {
+          generationId: "generation-final-route",
+          routeSession: {
+            epoch: 1,
+            signature,
+            boundaryReason: "initial",
+            disposition: "new",
+            hadPrior: false,
+          },
+          onRouteSession: (value: any) => {
+            observations.push(value);
+            if (value.model === "claude-fallback") order.push("route-final");
+          },
+          onEvent: (event: any) => {
+            if (event.blocks?.some((block: any) => block.type === "turn_end")) order.push("terminal");
+          },
+        },
+      );
+      expect(order.at(-1)).toBe("terminal");
+      expect(order.slice(0, -1)).not.toHaveLength(0);
+      expect(order.slice(0, -1).every((entry) => entry === "route-final")).toBe(true);
+      expect(observations.at(-1)).toMatchObject({
+        model: "claude-fallback",
+        sessionId: "sdk-observed-final",
+        sessionEpoch: 1,
+        spawnSignature: signature,
+      });
+      expect(result).toMatchObject({
+        model: "claude-fallback",
+        session_id: "sdk-observed-final",
+        terminalStatus: "completed",
+        failure: null,
+        sessionEpoch: 1,
+        spawnSignature: signature,
+      });
+    } finally {
+      gw.shutdown();
+    }
+  });
+
   it("opts only a stable streamed session into standing input and reuses its warm adapter session", async () => {
     const { gw, agentSdk } = await bootGateway();
     const route = {
@@ -593,6 +699,13 @@ export class AgentSdkAdapter {
     hooks.onEvent?.({ id: "evt-2", type: "tool_result", turnId: hooks.turnId, block: { type: "tool_result", toolUseId: "tool-1", content: "ok" } });
   }
   async awaitResponse(session) {
+    if (/gateway typed failure/i.test(session.message)) {
+      const error = new Error("bounded gateway failure");
+      error.code = "fixture_gateway_failed";
+      error.kind = "execution";
+      error.retryable = false;
+      throw error;
+    }
     if (session.config.model === "claude-haiku-4-5") {
       return { text: JSON.stringify({ duty: "other", level: 1, confidence: "high", clarity: "clear", reason: "fixture" }), toolUses: [], stoppedReason: null };
     }
@@ -650,7 +763,36 @@ export class AgentSdkAdapter {
       const streamGenerationId = frames.find((frame) => frame.event === "open")?.data.generationId;
       expect(streamGenerationId).toBeTruthy();
       const sessionEvents = frames.filter((frame) => frame.event === "session_event");
-      expect(sessionEvents.map((frame) => frame.data)).toEqual([
+      const routeEvents = sessionEvents.filter((frame) => frame.data.id === `route:${streamGenerationId}`);
+      expect(routeEvents).toHaveLength(2);
+      expect(routeEvents.map((frame) => frame.data.revision)).toEqual([1, 2]);
+      expect(new Set(routeEvents.map((frame) => frame.data.ts)).size).toBe(1);
+      expect(routeEvents.every((frame) => frame.data.order === 0)).toBe(true);
+      expect(routeEvents[0].data.blocks).toEqual([
+        expect.objectContaining({
+          type: "route",
+          attribution: expect.objectContaining({
+            route: "sdk-ollama-chat",
+            runtime: "agent-sdk",
+            model: "qwen3:0.6b",
+            sessionDisposition: "new",
+            sessionBoundaryReason: "initial",
+            sessionEpoch: 1,
+            spawnSignature: {
+              target: "sdk-ollama-chat",
+              runtime: "agent-sdk",
+              provider: "ollama-local",
+              model: "qwen3:0.6b",
+              account: null,
+              accountSource: null,
+              projectPath: null,
+            },
+          }),
+        }),
+      ]);
+      expect(routeEvents[1].data.blocks[0].attribution.sessionId).toMatch(/^sdk-stream-session-/);
+      const runtimeSessionEvents = sessionEvents.filter((frame) => /^evt-/.test(frame.data.id));
+      expect(runtimeSessionEvents.map((frame) => frame.data)).toEqual([
         { id: "evt-1", type: "block_delta", turnId: "17", block: { type: "text", text: "alpha" }, nested: { keep: [1, "two", false] }, generationId: streamGenerationId },
         { id: "evt-2", type: "tool_result", turnId: "17", block: { type: "tool_result", toolUseId: "tool-1", content: "ok" }, generationId: streamGenerationId }
       ]);
@@ -660,21 +802,35 @@ export class AgentSdkAdapter {
       }
 
       const firstEvent = frames.findIndex((frame) => frame.event === "session_event" && frame.data.id === "evt-1");
+      const finalRouteEvent = frames.reduce(
+        (last: number, frame: any, index: number) =>
+          frame.event === "session_event" && frame.data.id === `route:${streamGenerationId}` ? index : last,
+        -1,
+      );
       const chunk = frames.findIndex((frame) => frame.event === "chunk");
       const activity = frames.findIndex((frame) => frame.event === "activity");
       const secondEvent = frames.findIndex((frame) => frame.event === "session_event" && frame.data.id === "evt-2");
       const done = frames.findIndex((frame) => frame.event === "done");
       expect(firstEvent).toBeGreaterThan(-1);
+      expect(finalRouteEvent).toBeLessThan(firstEvent);
       expect(firstEvent).toBeLessThan(chunk);
       expect(chunk).toBeLessThan(activity);
       expect(activity).toBeLessThan(secondEvent);
       expect(secondEvent).toBeLessThan(done);
       expect(frames[chunk].data).toMatchObject({ text: "legacy reply", replace: true });
       expect(frames[activity].data).toMatchObject({ kind: "tool", name: "Read", id: "tool-1" });
-      expect(frames[done].data).toMatchObject({ reply: "legacy reply", runtime: "agent-sdk" });
+      expect(frames[done].data).toMatchObject({
+        reply: "legacy reply",
+        runtime: "agent-sdk",
+        sessionDisposition: "new",
+        sessionBoundaryReason: "initial",
+        sessionEpoch: 1,
+        spawnSignature: expect.objectContaining({ target: "sdk-ollama-chat", model: "qwen3:0.6b" }),
+      });
 
       // The Web server supplies materialized durable history on every request,
       // but the standing Query needs it only when its SDK session is cold.
+      let contextRouteSession: any = null;
       const contextTurn = async (
         message: string,
         context: string,
@@ -691,31 +847,51 @@ export class AgentSdkAdapter {
             thread: "thread-context-continuity",
             turnSeq,
             routing: { target: "sdk-ollama-chat" },
+            ...(contextRouteSession ? { routeSession: contextRouteSession } : {}),
             ...extra,
           }),
         });
         expect(contextResponse.status).toBe(200);
-        return parseSse(await contextResponse.text()).find((frame) => frame.event === "done")?.data.reply;
+        const done = parseSse(await contextResponse.text()).find((frame) => frame.event === "done")?.data;
+        contextRouteSession = { epoch: done.sessionEpoch, signature: done.spawnSignature };
+        return done;
       };
-      expect(await contextTurn(
+      const firstContext = await contextTurn(
         "quick: gateway context continuity probe first",
         "durable context before first",
         171,
-      )).toBe("durable context before first\n\n---\n\nquick: gateway context continuity probe first");
-      expect(await contextTurn(
+      );
+      expect(firstContext).toMatchObject({
+        reply: "durable context before first\n\n---\n\nquick: gateway context continuity probe first",
+        sessionDisposition: "new",
+        sessionBoundaryReason: "initial",
+        sessionEpoch: 1,
+      });
+      const secondContext = await contextTurn(
         "quick: gateway context continuity probe second",
         "durable context through first",
         172,
-      )).toBe("quick: gateway context continuity probe second");
-      expect(await contextTurn(
+      );
+      expect(secondContext).toMatchObject({
+        reply: "quick: gateway context continuity probe second",
+        sessionDisposition: "warm",
+        sessionBoundaryReason: null,
+        sessionEpoch: 1,
+      });
+      const recoveryContext = await contextTurn(
         "quick: gateway context continuity probe after durable barrier",
         "durable context excluding uncertain turn",
         173,
         { agentSdkNewGeneration: true },
-      )).toBe(
-        "durable context excluding uncertain turn\n\n---\n\n" +
-        "quick: gateway context continuity probe after durable barrier",
       );
+      expect(recoveryContext).toMatchObject({
+        reply:
+          "durable context excluding uncertain turn\n\n---\n\n" +
+          "quick: gateway context continuity probe after durable barrier",
+        sessionDisposition: "new",
+        sessionBoundaryReason: "restart-recovery",
+        sessionEpoch: 2,
+      });
 
       const resumeTurn = async (thread: string, model: string, turnSeq: number) => {
         const resumeResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
@@ -1089,6 +1265,54 @@ export class AgentSdkAdapter {
         body: JSON.stringify({ threadId: "thread-overlap", inputId: "input-overlap" }),
       });
       expect(releasedGeneration.status).toBe(404);
+
+      const failedResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "quick: gateway typed failure",
+          channel: "web",
+          thread: "thread-typed-failure",
+          inputId: "input-typed-failure",
+          turnSeq: 201,
+          routing: { target: "sdk-ollama-chat" },
+        }),
+      });
+      expect(failedResponse.status).toBe(200);
+      const failedFrames = parseSse(await failedResponse.text());
+      const failedRouteIndex = failedFrames.findIndex((frame) =>
+        frame.event === "session_event" && frame.data.blocks?.[0]?.type === "route");
+      const failedTerminalIndex = failedFrames.findIndex((frame) =>
+        frame.event === "session_event" && frame.data.blocks?.some((block: any) => block.type === "turn_end"));
+      const failedLegacyIndex = failedFrames.findIndex((frame) => frame.event === "error");
+      expect(failedFrames.find((frame) => frame.event === "done")).toBeUndefined();
+      expect(failedTerminalIndex).toBeGreaterThan(failedRouteIndex);
+      expect(failedLegacyIndex).toBeGreaterThan(failedTerminalIndex);
+      expect(failedFrames[failedTerminalIndex].data.blocks).toEqual([
+        expect.objectContaining({
+          type: "error",
+          source: "gateway",
+          kind: "execution",
+          code: "fixture_gateway_failed",
+          text: "bounded gateway failure",
+          retryable: false,
+        }),
+        expect.objectContaining({ type: "turn_end", status: "error", reason: "fixture_gateway_failed" }),
+      ]);
+      expect(failedFrames[failedLegacyIndex].data).toMatchObject({
+        error: "bounded gateway failure",
+        source: "gateway",
+        kind: "execution",
+        code: "fixture_gateway_failed",
+        retryable: false,
+        failure: expect.objectContaining({ code: "fixture_gateway_failed" }),
+      });
+      const releasedFailure = await fetch(`http://127.0.0.1:${port}/chat/generation`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: "thread-typed-failure", inputId: "input-typed-failure" }),
+      });
+      expect(releasedFailure.status).toBe(404);
 
       // The native Ollama vision subprocess has no supported cancellation seam.
       // Once its marker proves inference is in flight, exact Stop must report a

@@ -40,8 +40,8 @@ The legacy target ids remain unchanged so authored matrix references and sticky 
 | M3 — Permissions | done | Agent SDK permission bridge; generation-bound gateway resolver; durable thread revisions; Web answer proxy/transports; shared accessible permission cards; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 393 tests; full suite 514 files / 5,759 tests green (6 files / 21 tests skipped); typecheck, 3 builds, and diff check green | Implement running-turn interrupt and queued/streaming input semantics. |
 | M4 — Interrupt/input | done | standing Agent SDK Query; durable Web FIFO/input receipts; exact generation stop/replay; recovery-safe transport; queue/voice UI; rebuilt Web/Dev Env/Kanban assets | 16 focused files / 290 tests; full suite 519 files / 5,819 tests green (6 files / 21 tests skipped); voice Playwright 6/6; typecheck, 3 builds, optimized build, and diff check green | Reconcile process-restart ownership and rebuild complete history from the SDK journal chain. |
 | M5 — Continuity | done | atomic no-replay restart reconciliation; exact SDK resume/cold-generation barrier; full-chain JSONL recovery; authoritative transcript snapshots; stale-control hardening; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 388 tests; full suite 520 files / 5,855 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Normalize typed route and failure state without weakening exact generation ownership. |
-| M6 — Routes/errors | pending | — | — | Audit the canonical route, rate-limit, retry, runtime-error, and terminal-state seams. |
-| M7 — Prefix guard | pending | — | — | Await M6. |
+| M6 — Routes/errors | done | effort-free spawn signature and logical session epoch; typed route/retry/rate-limit/failure/terminal events; exact Web settlement and recovery; shared notices and route-save UX; rebuilt Web/Dev Env/Kanban assets | 18 focused files / 479 tests; full suite 520 files / 5,922 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Remove hidden user-message prefixes while preserving explicit cold-start recovery context. |
+| M7 — Prefix guard | pending | — | — | Audit and remove dynamic materialized-context and effort prefixes; freeze prompt/tool/MCP assembly at the documented boundary. |
 | M8 — Live validation | pending | — | — | Await offline milestones. |
 | M9 — Report | pending | — | — | Await M8. |
 
@@ -286,13 +286,66 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
   opt-in tests skipped**. No process was deployed and no additional live model
   session was launched.
 
+## M6 — Durable route, retry, rate-limit, and failure state
+
+- Each Web thread now owns a resolved, effort-free spawn signature over target,
+  runtime, provider, model, account, account source, and project path, plus a
+  monotonic logical session epoch. The gateway validates that contract before
+  runtime side effects: an unchanged signature remains warm or resumes, while a
+  changed signature creates an explicit session boundary. Effort is request-only;
+  changing it closes and awaits the old standing Query, then natively resumes the
+  same SDK journal under the same logical epoch. Provider model-refusal fallback
+  refines the observed model for that request without rewriting the spawn
+  signature or silently splitting the logical session.
+- The Agent SDK bridge emits stable, revisioned route and terminal events owned by
+  the exact generation. It retains full bounded retry telemetry, actionable
+  rate-limit fields, safe provider-neutral failures, final observed session/model
+  attribution, and separate provider subtype/stop reason versus host terminal
+  reason. Result frames are buffered until the real iterator or standing-query
+  boundary, so post-result warnings, cancellation, crashes, and fallback
+  regeneration cannot leave a premature successful terminal behind.
+- The Web store treats the canonical terminal as the single durable authority.
+  Its exact generation id, revision, role, required terminal fields, typed error
+  coherence, and tombstone state must be accepted on disk before any compatibility
+  `done`/`error` projection or FIFO settlement is published. Malformed frames,
+  reused terminal ids, contradictory lifecycle projections, terminal retraction,
+  route-session conflict, and substantive post-terminal activity fail closed;
+  authoritative persistence retries before the queue advances. Typed HTTP and
+  transport failures retain safe codes, source, retryability, status, request id,
+  and retry time through admission, live rendering, receipts, and hydration.
+- The shared chat renders route refinements, retries, warning/rejected rate limits,
+  failures, and terminal state chronologically. Canonical terminal text drives
+  display, Copy, TTS, and completion callbacks without a duplicate Markdown error.
+  Pin saves now report failure, roll back, and offer retry; spawn-affecting choices
+  disclose the new-session boundary, while effort is labelled for the next
+  request. The existing single-live-region, visible-focus, 44px target, keyboard,
+  contrast, and true 320px checks cover the new controls.
+
+### M6 verification
+
+- Focused regression gate: **18 files / 479 tests passed**, including real
+  Chromium coverage for typed notices, terminal authority, same-task control
+  fencing, hydration recovery, and route-save rollback.
+- `node fittings/seed/web-channel-default/ui/build.mjs`,
+  `node fittings/seed/dev-env/ui/build.mjs`, and
+  `node fittings/seed/kanban-loop/ui/build.mjs` rebuilt all shared-chat consumers;
+  the optimized repository build, full typecheck, MJS syntax checks, and
+  `git diff --check` passed.
+- Repository-wide `npm test` — **520 files, 5,922 tests passed; 6 files / 21
+  opt-in tests skipped**. No process was deployed and no additional live model
+  session was launched.
+
 ## Resolved questions
 
 - **Which checkout may execute tests?** This process is on `dev-madrid`, not macOS, so the repository's Linux commands are permitted here. Production deployment remains separately unauthorized.
 - **How should historical notes be treated?** Basic Memory was searched first. Its Web Channel notes describe the prior per-turn architecture and rich transcript renderer, but current repository and runtime evidence remain authoritative.
+- **Which route and failure facts are durable?** M6 uses an effort-free resolved
+  spawn signature and logical epoch, one stable generation terminal, a closed
+  provider-neutral failure shape, nonterminal retry telemetry, and actionable
+  rate-limit state. Provider-specific subtypes remain data rather than UI logic.
 
 ## Open questions
 
-- M6 must decide which SDK route, retry, rate-limit, execution-error, and crash
-  fields belong in the provider-neutral durable vocabulary, while retaining M4's
-  exact input/generation settlement rules.
+- M7 must identify and remove every invisible dynamic user-message prefix while
+  preserving explicit cold-start history recovery and freezing system prompt,
+  tool, and MCP assembly at the documented spawn boundary.

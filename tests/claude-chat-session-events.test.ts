@@ -270,6 +270,152 @@ describe("claude-chat canonical session events", () => {
     expect(html).not.toContain("cc-canonical-fallback");
   });
 
+  it("renders route, retry, warning reset, error, and terminal beats in exact order", () => {
+    const reset = 1_787_000_000;
+    const events: SessionEvent[] = [{
+      id: "typed-settlement",
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [
+        { type: "route", attribution: { target: "claude", runtime: "agent-sdk", model: "sonnet", sessionDisposition: "new" } },
+        { type: "rate_limit", status: "allowed", utilization: 0.12 },
+        { type: "retry", kind: "api", text: "The request will retry.", attempt: 2, maxAttempts: 3, delayMs: 750, httpStatus: 529 },
+        { type: "rate_limit", status: "allowed_warning", rateLimitType: "tokens", resetsAt: reset },
+        {
+          type: "error",
+          source: "runtime",
+          kind: "runtime",
+          code: "RUNTIME_CRASH_WITH_A_LONG_UNBROKEN_IDENTIFIER",
+          text: "The runtime crashed while producing this response.",
+          retryable: false,
+          requestId: "request-with-a-long-unbroken-identity-1234567890",
+        },
+        { type: "turn_end", status: "error", subtype: "runtime", reason: "runtime crash", stopReason: null, terminalReason: "runtime" },
+      ],
+    }];
+    const html = renderToStaticMarkup(h(SessionEventTimeline, { events, live: false }));
+
+    const route = html.indexOf("Route selected");
+    const retry = html.indexOf("Retrying request");
+    const warning = html.indexOf("Rate limit warning");
+    const error = html.indexOf("Runtime error");
+    const terminal = html.indexOf("Response failed");
+    expect([route, retry, warning, error, terminal].every((index) => index >= 0)).toBe(true);
+    expect(route).toBeLessThan(retry);
+    expect(retry).toBeLessThan(warning);
+    expect(warning).toBeLessThan(error);
+    expect(error).toBeLessThan(terminal);
+    expect(html).toContain("Started a new session. Using claude · agent-sdk / sonnet.");
+    expect(html.match(/Rate limit/g)).toHaveLength(1);
+    expect(html).toContain(`<time dateTime="${new Date(reset * 1_000).toISOString()}">`);
+    expect(html).toContain("RUNTIME_CRASH_WITH_A_LONG_UNBROKEN_IDENTIFIER");
+    expect(html).toContain("request request-with-a-long-unbroken-identity-1234567890");
+    expect(html).not.toContain('role="alert"');
+
+    const rejectedHtml = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: [{
+        id: "overage-rejected",
+        role: "assistant",
+        ts: 2,
+        revision: 1,
+        blocks: [{ type: "rate_limit", status: "allowed", overageStatus: "rejected", overageResetsAt: reset + 60 }],
+      }],
+    }));
+    expect(rejectedHtml).toContain("Rate limit reached");
+    expect(rejectedHtml).toContain(`<time dateTime="${new Date((reset + 60) * 1_000).toISOString()}">`);
+    const invalidTimeHtml = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: [{
+        id: "invalid-reset",
+        role: "assistant",
+        ts: 3,
+        revision: 1,
+        blocks: [{ type: "rate_limit", status: "rejected", resetsAt: Number.NaN }],
+      }],
+    }));
+    expect(invalidTimeHtml).toContain("Rate limit reached");
+    expect(invalidTimeHtml).not.toContain("<time");
+
+    const fallbackHtml = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: [{
+        id: "model-fallback",
+        role: "assistant",
+        ts: 4,
+        revision: 1,
+        blocks: [{
+          type: "retry",
+          kind: "model_fallback",
+          text: "The requested model refused the prompt.",
+          fromModel: "opus",
+          toModel: "sonnet",
+          direction: "retry",
+        }],
+      }],
+    }));
+    expect(fallbackHtml).toContain("Route changed");
+    expect(fallbackHtml).toContain("Model changed from opus to sonnet.");
+  });
+
+  it("lets an error/cancelled typed boundary suppress duplicate italic fallback for render, copy, and TTS", () => {
+    const failureEvents: SessionEvent[] = [{
+      id: "terminal-error",
+      role: "assistant",
+      ts: 2,
+      revision: 1,
+      blocks: [
+        { type: "error", source: "runtime", kind: "runtime", code: "CRASH", text: "Runtime crashed.", retryable: false },
+        { type: "turn_end", status: "error", subtype: "runtime", reason: "crash", stopReason: null, terminalReason: "runtime" },
+      ],
+    }];
+    const failed = { assistant: "_Turn did not complete. Please retry._", sessionEvents: failureEvents };
+    expect(resolvedAssistantText(failed)).toBe("Runtime crashed.");
+    expect(resolvedAssistantRaw(failed)).toBe("Runtime crashed.");
+    expect(legacyAssistantFallback(failed.assistant, failureEvents)).toBe("");
+
+    const cancelledEvents: SessionEvent[] = [{
+      id: "terminal-cancelled",
+      role: "assistant",
+      ts: 3,
+      revision: 1,
+      blocks: [{ type: "turn_end", status: "cancelled", subtype: "user", reason: "user requested", stopReason: "interrupt", terminalReason: null }],
+    }];
+    expect(resolvedAssistantText({ assistant: "_Turn stopped._", sessionEvents: cancelledEvents })).toBe("");
+
+    const html = renderToStaticMarkup(h(ClaudeChat, {
+      transport: stubTransport(),
+      initialHistory: [{ user: "run it", ...failed }],
+    }));
+    expect(html).toContain("Runtime crashed.");
+    expect(html.match(/Runtime crashed\./g)).toHaveLength(1);
+    expect(html).not.toContain("Turn did not complete");
+    expect(html).not.toContain("cc-canonical-fallback");
+  });
+
+  it("renders a hydrated typed admission failure without replaying legacy italic prose", () => {
+    const failure = {
+      source: "web" as const,
+      kind: "invalid_request",
+      code: "QUEUE_REJECTED",
+      text: "The message was not admitted.",
+      retryable: true,
+      retryAt: 1_787_000_000,
+    } as const;
+    const html = renderToStaticMarkup(h(ClaudeChat, {
+      transport: stubTransport(),
+      initialHistory: [{
+        user: "run it",
+        assistant: "_The operative returned an empty reply. Try sending again._",
+        input: { clientRequestId: "client-1", inputId: "input-1", state: "failed", failure },
+      }],
+    }));
+    expect(html).toContain("Web error");
+    expect(html).toContain("The message was not admitted.");
+    expect(html).toContain("Retry after");
+    expect(html).toContain(`<time dateTime="${new Date(failure.retryAt * 1_000).toISOString()}">`);
+    expect(html).not.toContain("operative returned an empty reply");
+    expect(html.match(/aria-live=/g)).toHaveLength(1);
+  });
+
   it("shows an authoritative terminal result and does not reuse stale progress for an image-only result", () => {
     const events: SessionEvent[] = [
       {

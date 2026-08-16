@@ -61,7 +61,28 @@ beforeAll(async () => {
       turns.push({ body, response: res, generationId });
       if (!holdNextOpen) {
         res.write(sse("open", { generationId, ts: Date.now() }));
-        res.write(sse("route", { runtime: "agent-sdk", session_id: `session-${turns.length}` }));
+        res.write(sse("route", {
+          route: "opus-plan",
+          runtime: "agent-sdk",
+          provider: "anthropic",
+          model: "claude-opus-5",
+          account: null,
+          accountSource: null,
+          projectPath: null,
+          session_id: `session-${turns.length}`,
+          sessionDisposition: body.routeSession ? "warm" : "new",
+          sessionBoundaryReason: body.routeSession ? null : "initial",
+          sessionEpoch: 1,
+          spawnSignature: {
+            target: "opus-plan",
+            runtime: "agent-sdk",
+            provider: "anthropic",
+            model: "claude-opus-5",
+            account: null,
+            accountSource: null,
+            projectPath: null,
+          },
+        }));
         res.write(sse("chunk", { text: `draft-${turns.length}` }));
       } else {
         holdNextOpen = false;
@@ -111,6 +132,55 @@ async function admit(threadId: string, clientRequestId: string, message: string)
 }
 
 describe("durable Web input FIFO", () => {
+  it("returns a typed not-found failure when admission races thread deletion", async () => {
+    const response = await fetch(api("/api/threads/missing-thread/inputs"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "do not misclassify this", clientRequestId: "client-missing" }),
+    });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({
+      error: "This conversation no longer exists.",
+      failure: {
+        source: "web",
+        kind: "not_found",
+        code: "web_thread_not_found",
+        text: "This conversation no longer exists.",
+        retryable: false,
+        httpStatus: 404,
+      },
+    });
+  });
+
+  it("clears a stale process-local owner before running the durable claim", async () => {
+    const threadId = "fifo-stale-live-owner";
+    await fetch(api("/api/threads"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: threadId }),
+    });
+    (threads as any).markInputActive(threadId, "ghost-input");
+    const before = turns.length;
+    const admitted = await admit(threadId, "client-after-ghost", "run the durable input");
+    await waitFor(() => turns.length, (count) => count === before + 1, "turn after stale owner cleanup");
+    expect((threads as any).activeInputId(threadId)).toBe(admitted.body.input.inputId);
+    turns[before].response.write(sse("done", { reply: "ran after stale owner" }));
+    turns[before].response.end();
+    const settled: any = await waitFor(
+      () => threads.getThread(threadId),
+      (thread) => (thread as any)?.pendingInputs?.length === 0,
+      "stale owner successor settlement",
+    );
+    expect(settled.messages).toMatchObject([
+      { role: "user", turnId: admitted.body.input.inputId },
+      { role: "assistant", text: "ran after stale owner", turnId: admitted.body.input.inputId },
+    ]);
+    // The remaining FIFO scenarios intentionally assert generation-1/turns[0]
+    // against a fresh fake-gateway sequence.
+    turns.splice(0, turns.length);
+    interrupts.splice(0, interrupts.length);
+  });
+
   it("runs one input at a time, binds exact generations, and keeps queued work", async () => {
     const threadId = "fifo-thread";
     await fetch(api("/api/threads"), {
@@ -171,6 +241,18 @@ describe("durable Web input FIFO", () => {
     expect(turns[1].body.context).toContain("user: first question");
     expect(turns[1].body.context).toContain("assistant: first answer");
     expect(turns[1].body.context).not.toContain("user: second question");
+    expect(turns[1].body.routeSession).toEqual({
+      epoch: 1,
+      signature: {
+        target: "opus-plan",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-opus-5",
+        account: null,
+        accountSource: null,
+        projectPath: null,
+      },
+    });
 
     const secondLive = await fetch(api(`/api/threads/${threadId}/inputs/${second.body.input.inputId}/live`));
     const secondLiveBody = secondLive.text();
@@ -208,11 +290,12 @@ describe("durable Web input FIFO", () => {
       ["user", second.body.input.inputId],
       ["assistant", second.body.input.inputId],
     ]);
-    expect(settled.sessionEvents[0]).toMatchObject({
+    expect(settled.sessionEvents.find((event: any) => event.id === "event-second")).toMatchObject({
       id: "event-second",
       turnId: second.body.input.inputId,
       generationId: "generation-2",
     });
+    expect(settled.routeSession).toEqual(turns[1].body.routeSession);
   });
 
   it("closed-validates admission and refuses Stop during the pre-open starting state", async () => {
@@ -342,12 +425,25 @@ describe("durable Web input FIFO", () => {
       { role: "user", turnId: admitted.body.input.inputId },
       { role: "assistant", turnId: admitted.body.input.inputId },
     ]);
-    expect(failed.messages[1].text).toContain("before its open frame");
+    expect(failed.messages[1].text).toBe("");
     expect(failed.inputReceipts.at(-1)).toMatchObject({
       inputId: admitted.body.input.inputId,
       state: "failed",
+      failure: {
+        code: "gateway_stream_protocol_error",
+        kind: "protocol",
+        source: "web",
+        retryable: false,
+      },
     });
     expect(failed.inputReceipts.at(-1)).not.toHaveProperty("generationId");
+    expect(failed.sessionEvents.at(-1)).toMatchObject({
+      turnId: admitted.body.input.inputId,
+      blocks: [
+        { type: "error", code: "gateway_stream_protocol_error" },
+        { type: "turn_end", status: "error", reason: "gateway_stream_protocol_error" },
+      ],
+    });
   });
 
   it("locks the first gateway generation and rejects a conflicting second open", async () => {
@@ -372,11 +468,12 @@ describe("durable Web input FIFO", () => {
       (thread) => (thread as any)?.pendingInputs?.length === 0,
       "conflicting-open failure",
     );
-    expect(failed.messages[1].text).toContain("conflicting generationId");
+    expect(failed.messages[1].text).toBe("");
     expect(failed.inputReceipts.at(-1)).toMatchObject({
       inputId: admitted.body.input.inputId,
       generationId: "generation-authoritative",
       state: "failed",
+      failure: { code: "gateway_stream_protocol_error", kind: "protocol" },
     });
   });
 
@@ -409,6 +506,10 @@ describe("durable Web input FIFO", () => {
       { role: "user", turnId: successor.body.input.inputId },
       { role: "assistant", text: "ran after timeout", turnId: successor.body.input.inputId },
     ]);
-    expect(settled.messages[1].text).toContain("did not open");
+    expect(settled.messages[1].text).toBe("");
+    expect(settled.inputReceipts.find((receipt: any) => receipt.inputId === stuck.body.input.inputId)).toMatchObject({
+      state: "failed",
+      failure: { code: "gateway_stream_protocol_error", kind: "protocol" },
+    });
   });
 });

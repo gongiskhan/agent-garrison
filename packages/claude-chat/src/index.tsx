@@ -12,16 +12,18 @@ export {
   isPendingInputState,
   legacyAssistantFallback,
   liveSessionAnnouncement,
+  mergeRouteAttribution,
   QuestionBlock,
   resolvedAssistantText,
   rewriteRouteForHost,
 } from "./ClaudeChat";
 export type { GeneratedTurnCoordinate, GeneratedTurnState, SessionEventTurn } from "./ClaudeChat";
-export { SessionEventTimeline, SessionStream } from "./SessionTranscript";
+export { FailureNotice, SessionEventTimeline, SessionStream } from "./SessionTranscript";
 export type { SessionEventTimelineProps, SessionStreamProps } from "./SessionTranscript";
 export {
   collectRelatedTasks,
   hasVisibleSessionActivity,
+  isFailureInfo,
   isSessionEvent,
   isFanoutTool,
   latestBlocksByToolUse,
@@ -32,6 +34,9 @@ export {
   sessionToolSummary,
 } from "./journal";
 export type {
+  FailureInfo,
+  FailureKind,
+  FailureSource,
   PermissionAnswer,
   PermissionDecision,
   PermissionRequestBlock,
@@ -39,11 +44,17 @@ export type {
   RelatedTask,
   RelatedTaskStatus,
   SessionBlock,
+  SessionErrorBlock,
   SessionEvent,
   SessionImage,
+  SessionRateLimitBlock,
+  SessionRetryBlock,
+  SessionRouteAttribution,
+  SessionRouteBlock,
+  SessionTurnEndBlock,
 } from "./journal";
 export type { ClaudeChatProps, ChatFeatures, ComposerAdornmentApi } from "./ClaudeChat";
-export { createHttpTransport, isChatInputReceipt } from "./transport";
+export { ChatTransportError, createHttpTransport, isChatInputReceipt } from "./transport";
 export { createVoiceClient } from "./voice";
 export type { VoiceClient, VoiceHealth } from "./voice";
 export { sanitizeAssistantBadges, sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
@@ -76,6 +87,7 @@ export {
 export type { ChatThemeMode } from "./chat-theme";
 export type {
   ChatTransport,
+  ChatErrorEvent,
   ChatEvent,
   ChatFrameCoordinate,
   ChatInputReceipt,

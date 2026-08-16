@@ -10,6 +10,14 @@
 
 export const SESSION_TEXT_BLOCK_CAP = 20_000;
 
+// Refusal fallback references SDK wire UUIDs, while channel state is keyed by
+// canonical event ids (for example, the model message id shared by every
+// partial revision). Keep only a bounded turn-local alias table: a fallback can
+// retract recent content without letting a hostile/buggy stream grow durable
+// state without limit.
+const WIRE_ALIAS_CAP = 512;
+const RETRACTION_CAP = 64;
+
 export function clampSessionText(value) {
   const text = String(value ?? "");
   return text.length > SESSION_TEXT_BLOCK_CAP
@@ -21,6 +29,109 @@ function finiteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function optionalString(value) {
+  return typeof value === "string" && value.trim() ? clampSessionText(value.trim()) : null;
+}
+
+function optionalLabel(value, max = 200) {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+}
+
+function optionalId(value) {
+  if (typeof value !== "string") return null;
+  const id = value.trim();
+  return id && id.length <= 256 ? id : null;
+}
+
+function optionalHttpStatus(value) {
+  const status = finiteNumber(value);
+  return status !== null && status >= 100 && status <= 599 ? status : null;
+}
+
+const ASSISTANT_ERROR_KIND = Object.freeze({
+  authentication_failed: "authentication",
+  oauth_org_not_allowed: "authorization",
+  billing_error: "billing",
+  rate_limit: "rate_limit",
+  overloaded: "overloaded",
+  invalid_request: "invalid_request",
+  model_not_found: "not_found",
+  server_error: "transport",
+  unknown: "unknown",
+  max_output_tokens: "limit"
+});
+
+const RETRYABLE_ASSISTANT_ERRORS = new Set(["rate_limit", "overloaded", "server_error"]);
+
+function assistantFailure(message) {
+  const code = optionalLabel(message?.error) ?? "unknown";
+  const requestId = optionalId(message?.request_id);
+  return {
+    source: "assistant",
+    kind: ASSISTANT_ERROR_KIND[code] ?? "unknown",
+    code,
+    text: `Assistant request failed: ${code}.`,
+    retryable: RETRYABLE_ASSISTANT_ERRORS.has(code),
+    ...(requestId ? { requestId } : {})
+  };
+}
+
+function resultFailure(message, stoppedReason, errors) {
+  if (stoppedReason === "cancelled") return null;
+  const subtype = String(message?.subtype ?? "result");
+  const providerError = message?.is_error === true || subtype.startsWith("error");
+  if (!providerError && stoppedReason == null) return null;
+
+  if (!providerError) {
+    const code = String(stoppedReason ?? "runtime_error");
+    return {
+      source: "system",
+      kind: code === "budget_exceeded" ? "limit" : "execution",
+      code,
+      text: `Session ended with ${code}.`,
+      retryable: false
+    };
+  }
+
+  const kinds = {
+    error_during_execution: "execution",
+    error_max_turns: "limit",
+    error_max_budget_usd: "limit",
+    error_max_structured_output_retries: "limit"
+  };
+  const httpStatus = optionalHttpStatus(message?.api_error_status);
+  return {
+    source: "result",
+    kind: kinds[subtype] ?? "execution",
+    code: subtype,
+    text: clampSessionText(errors.join("\n") || `Session ended with ${subtype}.`),
+    retryable: httpStatus === 429 || (httpStatus !== null && httpStatus >= 500),
+    ...(httpStatus !== null ? { httpStatus } : {})
+  };
+}
+
+function runtimeFailure(error, overrides = {}) {
+  const value = error instanceof Error ? error : new Error(String(error ?? "Unknown runtime error."));
+  const code = optionalLabel(overrides.code) ?? optionalLabel(value.code) ?? "runtime_error";
+  const requestId = optionalId(overrides.requestId ?? value.request_id ?? value.requestId);
+  const httpStatus = optionalHttpStatus(overrides.httpStatus ?? value.status ?? value.statusCode);
+  const retryAt = finiteNumber(overrides.retryAt ?? value.retryAt);
+  return {
+    source: optionalLabel(overrides.source) ?? "runtime",
+    kind: optionalLabel(overrides.kind) ?? "runtime",
+    code,
+    text: clampSessionText(value.message || "Unknown runtime error."),
+    retryable: overrides.retryable === true || httpStatus === 429 || (httpStatus !== null && httpStatus >= 500),
+    ...(requestId ? { requestId } : {}),
+    ...(httpStatus !== null ? { httpStatus } : {}),
+    ...(retryAt !== null ? { retryAt } : {})
+  };
+}
+
+function errorBlock(failure) {
+  return { type: "error", ...failure };
+}
+
 function timestampFor(message, now) {
   const parsed = Date.parse(message?.timestamp ?? "");
   return Number.isFinite(parsed) ? parsed : now();
@@ -28,7 +139,9 @@ function timestampFor(message, now) {
 
 function sessionIdFor(message, fallback = null) {
   const value = typeof message?.session_id === "string" ? message.session_id.trim() : "";
-  return value || fallback || null;
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) return value;
+  const fallbackValue = typeof fallback === "string" ? fallback.trim() : "";
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(fallbackValue) ? fallbackValue : null;
 }
 
 function stringifyInput(value) {
@@ -133,13 +246,14 @@ function blocksEqual(left, right) {
 }
 
 export class AgentSdkSessionEventNormalizer {
-  constructor({ turnId = null, generationId = null, sessionId = null, eventScope = null, now = () => Date.now() } = {}) {
+  constructor({ turnId = null, generationId = null, sessionId = null, model = null, eventScope = null, now = () => Date.now() } = {}) {
     this.turnId = turnId == null ? null : String(turnId);
-    // A standing SDK Query spans several gateway generations. The adapter creates
-    // one normalizer per input turn and supplies this only for the explicitly
-    // opted-in streaming path, keeping legacy one-shot event envelopes unchanged.
+    // The adapter creates one normalizer per gateway generation in both one-shot
+    // and standing modes, so every generated terminal snapshot has one durable
+    // owner even when browser-local turn counters restart.
     this.generationId = generationId == null ? null : String(generationId);
-    this.sessionId = sessionId == null ? null : String(sessionId);
+    this.sessionId = sessionIdFor({ session_id: sessionId }, null);
+    this.model = optionalLabel(model);
     // Browser-local turn counters restart after a remount, so they cannot
     // namespace fallback event ids. Provider message ids remain authoritative;
     // only locally synthesized ids use this per-normalizer scope.
@@ -152,8 +266,15 @@ export class AgentSdkSessionEventNormalizer {
     this.meta = new Map();
     this.assistant = new Map();
     this.permissions = new Map();
+    this.wireAliases = new Map();
     this.currentAssistantId = null;
     this.terminalEmitted = false;
+    this.terminalStatus = null;
+    this.failure = null;
+    const terminalOwner = this.generationId
+      ? [this.generationId]
+      : [this.eventScope, this.turnId ?? "turn"];
+    this.terminalId = `terminal:${JSON.stringify(terminalOwner)}`;
   }
 
   _fallbackStableId(kind) {
@@ -164,31 +285,77 @@ export class AgentSdkSessionEventNormalizer {
     const stableId = String(id || this._fallbackStableId("session"));
     let meta = this.meta.get(stableId);
     if (!meta) {
-      meta = { order: this.nextOrder++, revision: 0 };
+      meta = { order: this.nextOrder++, revision: 0, ts };
       this.meta.set(stableId, meta);
     }
     meta.revision += 1;
     return {
       id: stableId,
       role,
-      ts,
+      // Revisions are snapshots of one logical event. Its placement and creation
+      // time must not jump every time a partial message is repainted.
+      ts: meta.ts,
       ...(this.turnId ? { turnId: this.turnId } : {}),
       ...(this.generationId ? { generationId: this.generationId } : {}),
       ...(extra.sessionId || this.sessionId ? { sessionId: extra.sessionId || this.sessionId } : {}),
       order: meta.order,
       revision: meta.revision,
       ...(extra.toolResultsOnly ? { toolResultsOnly: true } : {}),
+      ...(Array.isArray(extra.retracts) && extra.retracts.length ? { retracts: extra.retracts } : {}),
       blocks
     };
+  }
+
+  _rememberWireAlias(wireUuid, canonicalIds) {
+    const wire = optionalId(wireUuid);
+    const ids = [...new Set((canonicalIds ?? []).map((value) => String(value ?? "").trim()).filter(Boolean))].slice(0, 4);
+    if (!wire || ids.length === 0) return;
+    // Refresh insertion order for a repeated UUID without growing the map.
+    if (this.wireAliases.has(wire)) this.wireAliases.delete(wire);
+    this.wireAliases.set(wire, ids);
+    while (this.wireAliases.size > WIRE_ALIAS_CAP) {
+      this.wireAliases.delete(this.wireAliases.keys().next().value);
+    }
+  }
+
+  _resolveRetractions(wireUuids, excludeId = null) {
+    if (!Array.isArray(wireUuids)) return [];
+    const resolved = [];
+    const seen = new Set();
+    for (const wireUuid of wireUuids.slice(0, RETRACTION_CAP)) {
+      const wire = optionalId(wireUuid);
+      if (!wire) continue;
+      for (const id of this.wireAliases.get(wire) ?? []) {
+        if (id === excludeId || seen.has(id)) continue;
+        seen.add(id);
+        resolved.push(id);
+        if (resolved.length >= RETRACTION_CAP) return resolved;
+      }
+    }
+    return resolved;
+  }
+
+  _observeAttribution(message) {
+    const sessionId = sessionIdFor(message, null);
+    if (sessionId) this.sessionId = sessionId;
+    const model = message?.subtype === "model_refusal_fallback"
+      ? optionalLabel(message?.fallback_model)
+      : message?.type === "assistant"
+        ? optionalLabel(message?.message?.model)
+        : message?.type === "stream_event" && message?.event?.type === "message_start"
+          ? optionalLabel(message?.event?.message?.model)
+          : message?.subtype === "init"
+            ? optionalLabel(message?.model)
+            : null;
+    if (model) this.model = model;
   }
 
   _assistantState(id, ts, sessionId) {
     let state = this.assistant.get(id);
     if (!state) {
-      state = { id, ts, sessionId, blocks: [], rawByIndex: new Map(), lastSignature: null };
+      state = { id, ts, sessionId, blocks: [], retracts: [], rawByIndex: new Map(), lastSignature: null };
       this.assistant.set(id, state);
     } else {
-      state.ts = ts;
       state.sessionId = sessionId ?? state.sessionId;
     }
     return state;
@@ -196,11 +363,12 @@ export class AgentSdkSessionEventNormalizer {
 
   _assistantEvent(state) {
     const blocks = state.blocks.filter(Boolean);
-    const signature = JSON.stringify(blocks);
+    const signature = JSON.stringify([blocks, state.retracts]);
     if (signature === state.lastSignature) return null;
     state.lastSignature = signature;
     return this._event(state.id, "assistant", state.ts, blocks, {
-      sessionId: state.sessionId
+      sessionId: state.sessionId,
+      retracts: state.retracts
     });
   }
 
@@ -321,13 +489,14 @@ export class AgentSdkSessionEventNormalizer {
     if (sessionId) this.sessionId = sessionId;
     const id = message?.message?.id ?? this.currentAssistantId ?? message?.uuid ?? this._fallbackStableId("assistant");
     const state = this._assistantState(String(id), ts, sessionId);
+    this.currentAssistantId = String(id);
+    const retracts = this._resolveRetractions(message?.supersedes, state.id);
+    if (retracts.length > 0) {
+      state.retracts = [...new Set([...state.retracts, ...retracts])].slice(0, RETRACTION_CAP);
+    }
     const blocks = contentArray(message?.message?.content).map(settledBlock).filter(Boolean);
     if (message?.error) {
-      blocks.push({
-        type: "error",
-        kind: String(message.error),
-        text: `Assistant request failed: ${String(message.error)}.`
-      });
+      blocks.push(errorBlock(assistantFailure(message)));
     }
     if (blocks.length === 0) {
       blocks.push({
@@ -337,9 +506,10 @@ export class AgentSdkSessionEventNormalizer {
         text: "Assistant emitted an empty message."
       });
     }
-    if (blocksEqual(state.blocks.filter(Boolean), blocks)) return [];
-    state.blocks = blocks;
-    state.rawByIndex.clear();
+    if (!blocksEqual(state.blocks.filter(Boolean), blocks)) {
+      state.blocks = blocks;
+      state.rawByIndex.clear();
+    }
     return [this._assistantEvent(state)].filter(Boolean);
   }
 
@@ -371,7 +541,10 @@ export class AgentSdkSessionEventNormalizer {
       ...(finiteNumber(info.utilization) !== null ? { utilization: info.utilization } : {}),
       ...(typeof info.overageStatus === "string" ? { overageStatus: info.overageStatus } : {}),
       ...(finiteNumber(info.overageResetsAt) !== null ? { overageResetsAt: info.overageResetsAt } : {}),
-      ...(typeof info.isUsingOverage === "boolean" ? { isUsingOverage: info.isUsingOverage } : {})
+      ...(typeof info.overageDisabledReason === "string" ? { overageDisabledReason: info.overageDisabledReason } : {}),
+      ...(typeof info.isUsingOverage === "boolean" ? { isUsingOverage: info.isUsingOverage } : {}),
+      ...(typeof info.overageInUse === "boolean" ? { overageInUse: info.overageInUse } : {}),
+      ...(finiteNumber(info.surpassedThreshold) !== null ? { surpassedThreshold: info.surpassedThreshold } : {})
     };
     return [
       this._event(message?.uuid, "assistant", timestampFor(message, this.now), [block], {
@@ -455,56 +628,124 @@ export class AgentSdkSessionEventNormalizer {
     const cancelled = stoppedReason === "cancelled";
     const forcedError = stoppedReason != null && !cancelled;
     const isError = message?.is_error === true || providerSubtype.startsWith("error") || forcedError;
-    const subtype = stoppedReason ?? providerSubtype;
     const errors = Array.isArray(message?.errors)
       ? message.errors.map((value) => clampSessionText(value)).filter(Boolean)
       : [];
+    const failure = resultFailure(message, stoppedReason, errors);
     const blocks = [];
-    if (isError && !cancelled) {
-      blocks.push({
-        type: "error",
-        kind: subtype,
-        text: clampSessionText(errors.join("\n") || `Session ended with ${subtype}.`)
-      });
-    }
+    if (failure) blocks.push(errorBlock(failure));
     blocks.push({
       type: "turn_end",
       status: cancelled ? "cancelled" : isError ? "error" : "completed",
-      subtype,
-      stopReason: stoppedReason ?? (message?.stop_reason == null ? null : String(message.stop_reason)),
+      // Provider facts and host policy are separate. A host budget/cancel reason
+      // must never overwrite the SDK's canonical subtype or stop reason.
+      subtype: providerSubtype,
+      reason: stoppedReason == null ? null : String(stoppedReason),
+      stopReason: message?.stop_reason == null ? null : String(message.stop_reason),
+      terminalReason: message?.terminal_reason == null ? null : String(message.terminal_reason),
       ...(typeof message?.result === "string" && message.result ? { result: clampSessionText(message.result) } : {}),
       ...(errors.length ? { errors } : {})
     });
     this.terminalEmitted = true;
+    this.terminalStatus = cancelled ? "cancelled" : isError ? "error" : "completed";
+    this.failure = failure;
     const sessionId = sessionIdFor(message, this.sessionId);
     if (sessionId) this.sessionId = sessionId;
-    return [this._event(message?.uuid ?? `turn:${this.eventScope}:${this.turnId ?? "turn"}:end`, "assistant", timestampFor(message, this.now), blocks, { sessionId })];
+    return [this._event(this.terminalId, "assistant", timestampFor(message, this.now), blocks, { sessionId })];
   }
 
-  // Standing streaming-input queries keep yielding after `result` (for example,
-  // prompt_suggestion can follow it). The adapter buffers that result and calls
-  // this only after the SDK's authoritative session_state_changed/idle frame.
-  // One-shot callers continue to use push(result), preserving their old boundary.
+  // SDK queries can keep yielding after `result` (for example, prompt_suggestion
+  // can follow it). Adapters buffer that candidate result and call this only at
+  // EOF, explicit idle, or the standing-query quiet fallback.
   finishResult(message, stoppedReason = null) {
     if (this.terminalEmitted) return [];
     if (!message || typeof message !== "object") return this.finish(stoppedReason);
     return this._result(message, stoppedReason);
   }
 
+  _apiRetry(message) {
+    const attempt = finiteNumber(message?.attempt);
+    const maxAttempts = finiteNumber(message?.max_retries);
+    const delayMs = finiteNumber(message?.retry_delay_ms);
+    const errorStatus = message?.error_status === null ? null : optionalHttpStatus(message?.error_status);
+    const errorKind = optionalLabel(message?.error);
+    const suffix = attempt !== null && maxAttempts !== null ? ` (${attempt}/${maxAttempts})` : "";
+    const delay = delayMs !== null ? ` in ${delayMs} ms` : "";
+    const block = {
+      type: "retry",
+      kind: "api",
+      text: `API request retrying${suffix}${delay}.`,
+      ...(attempt !== null ? { attempt } : {}),
+      ...(maxAttempts !== null ? { maxAttempts } : {}),
+      ...(delayMs !== null ? { delayMs } : {}),
+      // Preserve the SDK's meaningful null: connection errors have no HTTP
+      // response and therefore no status.
+      ...(message && Object.hasOwn(message, "error_status") ? { httpStatus: errorStatus } : {}),
+      ...(errorKind ? { errorKind } : {})
+    };
+    return [
+      this._event(message?.uuid, "assistant", timestampFor(message, this.now), [block], {
+        sessionId: sessionIdFor(message, this.sessionId)
+      })
+    ];
+  }
+
+  _modelFallback(message) {
+    const fromModel = optionalLabel(message?.original_model);
+    const toModel = optionalLabel(message?.fallback_model);
+    const direction = optionalLabel(message?.direction);
+    const requestId = optionalId(message?.request_id);
+    const text = optionalString(message?.content) ??
+      (fromModel && toModel
+        ? `${fromModel} refused the request; retrying with ${toModel}.`
+        : "The request was refused; retrying with a fallback model.");
+    const block = {
+      type: "retry",
+      kind: "model_fallback",
+      text,
+      ...(fromModel ? { fromModel } : {}),
+      ...(toModel ? { toModel } : {}),
+      ...(direction ? { direction } : {}),
+      ...(requestId ? { requestId } : {})
+    };
+    return [
+      this._event(message?.uuid, "assistant", timestampFor(message, this.now), [block], {
+        sessionId: sessionIdFor(message, this.sessionId),
+        retracts: this._resolveRetractions(message?.retracted_message_uuids)
+      })
+    ];
+  }
+
   _system(message) {
     const subtype = String(message?.subtype ?? message?.type ?? "system");
     const sessionId = sessionIdFor(message, this.sessionId);
     if (sessionId) this.sessionId = sessionId;
+    if (subtype === "api_retry") return this._apiRetry(message);
+    if (subtype === "model_refusal_fallback") return this._modelFallback(message);
     if (subtype === "permission_denied") {
+      const failure = {
+        source: "system",
+        kind: "permission",
+        code: "permission_denied",
+        text: clampSessionText(message?.message || `${message?.tool_name ?? "Tool"} permission was denied.`),
+        retryable: false
+      };
       return [
         this._event(message?.uuid, "assistant", timestampFor(message, this.now), [
-          {
-            type: "error",
-            kind: "permission_denied",
-            text: clampSessionText(message?.message || `${message?.tool_name ?? "Tool"} permission was denied.`)
-          }
+          errorBlock(failure)
         ], { sessionId })
       ];
+    }
+    if ((message?.type === "auth_status" && optionalString(message?.error)) || subtype === "mirror_error") {
+      const kind = message?.type === "auth_status" ? "authentication" : "transport";
+      const failure = {
+        source: "system",
+        kind,
+        code: subtype,
+        text: optionalString(message?.error) ?? statusText(message),
+        retryable: false
+      };
+      return [this._event(message?.uuid, "assistant", timestampFor(message, this.now), [errorBlock(failure)], { sessionId })];
     }
     return [
       this._event(message?.uuid, "assistant", timestampFor(message, this.now), [
@@ -526,30 +767,56 @@ export class AgentSdkSessionEventNormalizer {
         ])
       ];
     }
-    if (message.type === "stream_event") return this._partial(message);
-    if (message.type === "assistant") return this._settledAssistant(message);
-    if (message.type === "user") return this._user(message);
-    if (message.type === "rate_limit_event") return this._rateLimit(message);
-    if (message.type === "tool_progress") return this._toolProgress(message);
-    if (message.type === "result") return this._result(message);
-    return this._system(message);
+    this._observeAttribution(message);
+    let events;
+    if (message.type === "stream_event") events = this._partial(message);
+    else if (message.type === "assistant") events = this._settledAssistant(message);
+    else if (message.type === "user") events = this._user(message);
+    else if (message.type === "rate_limit_event") events = this._rateLimit(message);
+    else if (message.type === "tool_progress") events = this._toolProgress(message);
+    else if (message.type === "result") events = this._result(message);
+    else events = this._system(message);
+
+    let canonicalIds = events.map((event) => event.id);
+    if (message.type === "assistant") {
+      canonicalIds = [String(message?.message?.id ?? this.currentAssistantId ?? message?.uuid ?? "")].filter(Boolean);
+    } else if (message.type === "stream_event" && this.currentAssistantId) {
+      canonicalIds = [this.currentAssistantId];
+    } else if (message.type === "user") {
+      canonicalIds = [String(message?.message?.id ?? message?.uuid ?? "")].filter(Boolean);
+    }
+    this._rememberWireAlias(message?.uuid, canonicalIds);
+    return events;
   }
 
-  runtimeError(error) {
-    const text = clampSessionText(error instanceof Error ? error.message : error);
-    const alreadyTerminal = this.terminalEmitted;
+  runtimeError(error, options = {}) {
+    const failure = runtimeFailure(error, options);
+    const result = options?.resultMessage && typeof options.resultMessage === "object"
+      ? options.resultMessage
+      : null;
+    const errors = Array.isArray(result?.errors)
+      ? result.errors.map((value) => clampSessionText(value)).filter(Boolean)
+      : [];
     this.terminalEmitted = true;
+    this.terminalStatus = "error";
+    this.failure = failure;
     const blocks = [
-      { type: "error", kind: "runtime_error", text: text || "Unknown runtime error." }
+      errorBlock(failure),
+      {
+        type: "turn_end",
+        status: "error",
+        subtype: String(result?.subtype ?? "runtime_error"),
+        reason: optionalLabel(options?.reason) ?? "runtime_error",
+        stopReason: result?.stop_reason == null ? null : String(result.stop_reason),
+        terminalReason: result?.terminal_reason == null ? null : String(result.terminal_reason),
+        ...(typeof result?.result === "string" && result.result ? { result: clampSessionText(result.result) } : {}),
+        ...(errors.length ? { errors } : {})
+      }
     ];
-    // A result can be followed by an unrelated subprocess/iterator failure. The
-    // result remains the turn boundary, but the later crash must still be visible;
-    // only add a second boundary when no result was seen at all.
-    if (!alreadyTerminal) {
-      blocks.push({ type: "turn_end", status: "error", subtype: "runtime_error", stopReason: "runtime_error" });
-    }
     return [
-      this._event(`turn:${this.eventScope}:${this.turnId ?? "turn"}:error`, "assistant", this.now(), blocks)
+      this._event(this.terminalId, "assistant", this.now(), blocks, {
+        sessionId: sessionIdFor(result, this.sessionId)
+      })
     ];
   }
 
@@ -558,15 +825,25 @@ export class AgentSdkSessionEventNormalizer {
     this.terminalEmitted = true;
     const cancelled = stoppedReason === "cancelled";
     const errored = stoppedReason != null && !cancelled;
+    const failure = errored
+      ? resultFailure({ subtype: "stream_complete", is_error: false }, stoppedReason, [])
+      : null;
+    this.terminalStatus = cancelled ? "cancelled" : errored ? "error" : "completed";
+    this.failure = failure;
+    const blocks = [];
+    if (failure) blocks.push(errorBlock(failure));
+    blocks.push(
+      {
+        type: "turn_end",
+        status: this.terminalStatus,
+        subtype: "stream_complete",
+        reason: stoppedReason == null ? null : String(stoppedReason),
+        stopReason: null,
+        terminalReason: null
+      }
+    );
     return [
-      this._event(`turn:${this.eventScope}:${this.turnId ?? "turn"}:end`, "assistant", this.now(), [
-        {
-          type: "turn_end",
-          status: cancelled ? "cancelled" : errored ? "error" : "completed",
-          subtype: stoppedReason ?? "stream_complete",
-          stopReason: stoppedReason
-        }
-      ])
+      this._event(this.terminalId, "assistant", this.now(), blocks)
     ];
   }
 }
@@ -578,6 +855,21 @@ export function createAgentSdkSessionEventNormalizer(options = {}) {
 export function normalizeAgentSdkMessages(messages, options = {}) {
   const normalizer = createAgentSdkSessionEventNormalizer(options);
   const events = [];
-  for (const message of messages ?? []) events.push(...normalizer.push(message));
+  let resultMessage = null;
+  for (const message of messages ?? []) {
+    if (message?.type === "result") {
+      if (resultMessage) {
+        events.push(...normalizer.runtimeError(new Error("SDK message batch contained multiple results"), {
+          resultMessage
+        }));
+        resultMessage = null;
+        continue;
+      }
+      resultMessage = message;
+      continue;
+    }
+    events.push(...normalizer.push(message));
+  }
+  if (resultMessage) events.push(...normalizer.finishResult(resultMessage));
   return events;
 }

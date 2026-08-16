@@ -15,7 +15,7 @@ import sql from "highlight.js/lib/languages/sql";
 import rust from "highlight.js/lib/languages/rust";
 import go from "highlight.js/lib/languages/go";
 import diff from "highlight.js/lib/languages/diff";
-import { isChatInputReceipt } from "./transport";
+import { ChatTransportError, isChatInputReceipt } from "./transport";
 import type {
   ChatEvent,
   ChatFrameCoordinate,
@@ -47,12 +47,15 @@ import {
   installSafeMarkdownRenderer,
   loadHostMap,
 } from "./markdown-safety";
-import { SessionEventTimeline, SessionStream } from "./SessionTranscript";
+import { FailureNotice, SessionEventTimeline, SessionStream } from "./SessionTranscript";
 import {
   hasVisibleSessionActivity,
+  isFailureInfo,
   isSessionEvent,
   mergeSessionEvents,
   sessionEventText,
+  type FailureInfo,
+  type SessionBlock,
   type SessionEvent,
 } from "./journal";
 
@@ -265,6 +268,11 @@ interface Turn {
   inputPosition?: number;
   inputReason?: string;
   inputAcceptedAt?: string;
+  /** Structured admission/runtime failure. Never collapsed into italic prose. */
+  failure?: FailureInfo;
+  /** A typed turn_end has fenced every generation-bound control even if a
+   * trailing host lifecycle receipt has not arrived yet. */
+  eventTerminal?: boolean;
   /** Last runtime activity for this exact generated turn. */
   activity?: string;
   /** Exact interrupt failure. It belongs to this turn and cannot leak onto a
@@ -282,6 +290,8 @@ export interface GeneratedTurnState extends GeneratedTurnCoordinate {
   inputPosition?: number;
   inputReason?: string;
   inputAcceptedAt?: string;
+  failure?: FailureInfo;
+  eventTerminal?: boolean;
   stopError?: string;
 }
 
@@ -366,11 +376,13 @@ export function isPendingInputState(state?: ChatInputState): boolean {
   return state === "queued" || isActiveInputState(state);
 }
 
-export function inputLifecycleAnnouncement(input: Pick<ChatInputReceipt, "state" | "position" | "reason">): string {
+export function inputLifecycleAnnouncement(input: Pick<ChatInputReceipt, "state" | "position" | "reason" | "failure">): string {
   const position = typeof input.position === "number" && Number.isFinite(input.position)
     ? Math.max(0, Math.trunc(input.position))
     : null;
-  const reason = typeof input.reason === "string" ? input.reason.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  const failureText = input.failure?.text;
+  const reasonSource = typeof failureText === "string" ? failureText : input.reason;
+  const reason = typeof reasonSource === "string" ? reasonSource.replace(/\s+/g, " ").trim().slice(0, 120) : "";
   switch (input.state) {
     case "queued": return position && position > 0 ? `Message queued, position ${position}.` : "Message queued.";
     case "starting": return "Starting response.";
@@ -378,7 +390,7 @@ export function inputLifecycleAnnouncement(input: Pick<ChatInputReceipt, "state"
     case "stopping": return "Stopping current response.";
     case "settled": return "Response complete.";
     case "stopped": return "Response stopped.";
-    case "failed": return reason ? `Message failed: ${reason}.` : "Message failed.";
+    case "failed": return reason ? `Message failed: ${reason}${/[.!?]$/.test(reason) ? "" : "."}` : "Message failed.";
   }
 }
 
@@ -402,7 +414,7 @@ export function applyInputLifecycle<T extends GeneratedTurnState>(
     const stateAdvances = !currentState || !turn.inputId || currentState === input.state ||
       (!currentTerminal && INPUT_STATE_ORDER[input.state] >= INPUT_STATE_ORDER[currentState]);
     const nextState = stateAdvances ? input.state : currentState;
-    const nextStreaming = isActiveInputState(nextState);
+    const nextStreaming = !turn.eventTerminal && isActiveInputState(nextState);
     const position = typeof input.position === "number" && Number.isFinite(input.position)
       ? Math.max(0, Math.trunc(input.position))
       : turn.inputPosition;
@@ -415,6 +427,8 @@ export function applyInputLifecycle<T extends GeneratedTurnState>(
       inputPosition: position,
       inputAcceptedAt: turn.inputAcceptedAt ?? input.acceptedAt,
       inputReason: stateAdvances && input.reason !== undefined ? input.reason : turn.inputReason,
+      failure: stateAdvances && input.failure !== undefined ? input.failure : turn.failure,
+      eventTerminal: turn.eventTerminal || (stateAdvances && INPUT_STATE_ORDER[input.state] === 4),
       streaming: nextStreaming,
       ...(stateAdvances && INPUT_STATE_ORDER[input.state] === 4 ? { stopError: undefined } : {}),
     };
@@ -426,6 +440,8 @@ export function applyInputLifecycle<T extends GeneratedTurnState>(
       next.inputPosition === turn.inputPosition &&
       next.inputAcceptedAt === turn.inputAcceptedAt &&
       next.inputReason === turn.inputReason &&
+      next.failure === turn.failure &&
+      next.eventTerminal === turn.eventTerminal &&
       next.streaming === turn.streaming &&
       next.stopError === turn.stopError;
     return unchanged ? turn : next;
@@ -445,6 +461,17 @@ export interface SessionEventTurn {
   seq: number;
   streaming: boolean;
   sessionEvents: SessionEvent[];
+}
+
+/** Route revisions are additive, except `pending`, which describes only the
+ * newest frame. Shared by legacy turn-seq and exact generated-coordinate paths. */
+export function mergeRouteAttribution(
+  current: RouteAttribution | undefined,
+  frame: RouteAttribution
+): RouteAttribution {
+  const merged: RouteAttribution = { ...(current ?? {}), ...frame };
+  if (frame.pending !== true) delete merged.pending;
+  return merged;
 }
 
 function numericSessionTurnId(value: SessionEvent["turnId"]): number | null {
@@ -535,48 +562,46 @@ export function canonicalAssistantReply(events: SessionEvent[]): string {
   return canonicalResponseCandidates(events).at(-1) ?? "";
 }
 
-/** A successful typed turn boundary is the runtime's final answer authority. It
- * outranks the parallel legacy accumulator, which may still contain a streamed
- * draft or the channel's empty-reply fallback. Error/cancelled boundaries do not
- * use this override: their differing durable fallback remains useful context. */
-function canonicalSuccessfulTerminalReply(events: SessionEvent[]): string {
+/** The latest typed turn boundary owns settlement for render, copy, and TTS.
+ * Its result wins when present; otherwise canonical error/text blocks may still
+ * supply the durable reply, but the parallel italic legacy fallback never does. */
+function canonicalTerminalReply(events: SessionEvent[]): string | null {
   for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
     const event = events[eventIndex];
     if (event.role !== "assistant") continue;
     for (let blockIndex = event.blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
       const block = event.blocks[blockIndex];
-      if (
-        block.type === "turn_end" &&
-        block.status === "completed" &&
-        typeof block.result === "string" &&
-        block.result.trim()
-      ) {
-        return block.result;
+      if (block.type === "turn_end") {
+        if (typeof block.result === "string" && block.result.trim()) return block.result;
+        return canonicalAssistantReply(events);
       }
     }
   }
-  return "";
+  return null;
 }
 
 interface AssistantTextTurn {
   assistant: string;
   sessionEvents: SessionEvent[];
+  failure?: FailureInfo;
 }
 
 /** Text used by copy, TTS, composer adornments, and completion callbacks. A
- * successful typed terminal result is authoritative; otherwise real legacy TUI
- * prose remains primary and canonical-only recovery supplies empty accumulators. */
+ * typed terminal result/error is authoritative; otherwise real legacy TUI prose
+ * remains primary and canonical-only recovery supplies empty accumulators. */
 export function resolvedAssistantText(turn: AssistantTextTurn): string {
-  const terminal = canonicalSuccessfulTerminalReply(turn.sessionEvents);
-  if (terminal) return sanitizeAssistantBadges(terminal).text;
+  const terminal = canonicalTerminalReply(turn.sessionEvents);
+  if (terminal !== null) return sanitizeAssistantBadges(terminal).text;
+  if (turn.failure) return turn.failure.text;
   const legacy = sanitizeAssistantText(turn.assistant).text;
   if (legacy.trim()) return legacy;
   return sanitizeAssistantBadges(canonicalAssistantReply(turn.sessionEvents)).text;
 }
 
 export function resolvedAssistantRaw(turn: AssistantTextTurn): string {
-  const terminal = canonicalSuccessfulTerminalReply(turn.sessionEvents);
-  if (terminal) return terminal;
+  const terminal = canonicalTerminalReply(turn.sessionEvents);
+  if (terminal !== null) return terminal;
+  if (turn.failure) return turn.failure.text;
   return sanitizeAssistantText(turn.assistant).text.trim()
     ? turn.assistant
     : canonicalAssistantReply(turn.sessionEvents);
@@ -588,7 +613,7 @@ export function resolvedAssistantRaw(turn: AssistantTextTurn): string {
 export function legacyAssistantFallback(assistant: string, events: SessionEvent[]): string {
   const legacy = sanitizeAssistantText(assistant).text;
   if (!legacy.trim()) return "";
-  if (canonicalSuccessfulTerminalReply(events)) return "";
+  if (hasCanonicalTurnEnd(events)) return "";
   const duplicated = canonicalResponseCandidates(events).some(
     (candidate) => sanitizeAssistantBadges(candidate).text.trim() === legacy.trim()
   );
@@ -623,6 +648,16 @@ export function liveSessionAnnouncement(events: SessionEvent[], fallback: string
         return `Permission requested for ${permissionName}.`;
       }
       if (block.type === "error") return "Turn failed.";
+      if (block.type === "retry") {
+        return block.kind === "model_fallback" ? "Route changed to a fallback model." : "Request retrying.";
+      }
+      if (block.type === "rate_limit") {
+        if (block.status === "allowed" && (!block.overageStatus || block.overageStatus === "allowed")) continue;
+        return block.status === "rejected" || block.overageStatus === "rejected"
+          ? "Rate limit reached."
+          : "Rate limit warning.";
+      }
+      if (block.type === "route") return "Route selected.";
       if (block.type === "turn_end") {
         if (block.status === "cancelled") return "Turn cancelled.";
         if (block.status === "error" || block.status === "failed") return "Turn failed.";
@@ -641,6 +676,28 @@ export function liveSessionAnnouncement(events: SessionEvent[], fallback: string
 
 function hasCanonicalTurnEnd(events: SessionEvent[]): boolean {
   return events.some((event) => event.blocks.some((block) => block.type === "turn_end"));
+}
+
+function terminalBlock(event: SessionEvent): SessionBlock | null {
+  for (let index = event.blocks.length - 1; index >= 0; index -= 1) {
+    if (event.blocks[index].type === "turn_end") return event.blocks[index];
+  }
+  return null;
+}
+
+function terminalInputState(block: SessionBlock): ChatInputState {
+  if (block.status === "cancelled") return "stopped";
+  if (block.status === "error" || block.status === "failed") return "failed";
+  return "settled";
+}
+
+function failureFromUnknown(value: unknown): FailureInfo | undefined {
+  if (value instanceof ChatTransportError) return value.failure;
+  if (value && typeof value === "object" && "failure" in value) {
+    const failure = (value as { failure?: unknown }).failure;
+    if (isFailureInfo(failure)) return failure;
+  }
+  return undefined;
 }
 
 /** Bind an authoritative active signal to a restored trailing exchange. Partial
@@ -701,10 +758,7 @@ export function applyRouteFrame<T extends RouteFrameTurn>(turns: T[], frame: Rou
     // re-mount case - and drop it otherwise.
     if (!last.streaming) return turns;
   }
-  const merged: RouteAttribution = { ...(last.route ?? {}), ...frame };
-  // `pending` describes the LATEST frame, not the accumulated turn: the done frame
-  // omits it, and a merge that kept it would leave every settled turn "pending".
-  if (frame.pending !== true) delete merged.pending;
+  const merged = mergeRouteAttribution(last.route, frame);
   const copy = turns.slice();
   copy[idx] = { ...last, route: merged, ...(seq !== null ? { seq } : {}) };
   return copy;
@@ -789,7 +843,7 @@ export function QuestionBlock({
       {!active && !answered && (
         <div className="cc-question-inactive">This question is no longer active and cannot be answered.</div>
       )}
-      {active && error && <div className="cc-question-error" role="alert">{error}</div>}
+      {active && error && <div className="cc-question-error">{error}</div>}
     </div>
   );
 }
@@ -819,7 +873,7 @@ function InputLifecycleStatus({
   const active = state === "starting" || state === "running" || state === "stopping";
   const detail = state === "queued" && typeof turn.inputPosition === "number"
     ? `Position ${turn.inputPosition}`
-    : turn.inputReason || (active ? hint : "");
+    : (active ? hint : turn.failure ? "" : turn.inputReason || "");
   return (
     <div className={`cc-lifecycle cc-lifecycle-${state}`} data-input-state={state}>
       <span className="cc-lifecycle-mark" aria-hidden="true">
@@ -827,7 +881,7 @@ function InputLifecycleStatus({
       </span>
       <span className="cc-lifecycle-label">{label[state]}</span>
       {active && <span className="cc-lifecycle-time">{fmtElapsed(elapsed)}</span>}
-      {detail && <span className="cc-lifecycle-detail" title={detail}>{detail}</span>}
+      {detail && <span className="cc-lifecycle-detail">{detail}</span>}
       {turn.stopError && turn.generationId && (state === "starting" || state === "running") && (
         <span className="cc-lifecycle-stoperror">
           <span>Stop failed: {turn.stopError}</span>
@@ -1173,8 +1227,9 @@ export interface ClaudeChatProps {
    */
   routeOptions?: RailOptions | null;
   /** Fires with the full new pin set whenever the user changes one, for the host
-   *  to persist. Never called for a no-op change. */
-  onPinChange?: (routing: TurnRouting) => void;
+   *  to persist. Never called for a no-op change. Promise rejection rolls the
+   *  optimistic choice back and exposes a non-blocking retry control. */
+  onPinChange?: (routing: TurnRouting) => void | Promise<void>;
   /**
    * Open the routed runtime's OWN session transcript (the per-message `transcript`
    * badge). The host wires this to its existing session-stream view; absent → the
@@ -1196,37 +1251,49 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   // the persist effect would re-append the restored history on every open.
   const seededTurns = useMemo<Turn[]>(
     () =>
-      (initialHistory ?? []).map((h) => ({
-        id: nextId(),
-        user: h.user,
-        assistant: h.assistant,
-        streaming: h.input ? isActiveInputState(h.input.state) : false,
-        hideUser: h.hideUser,
-        // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
-        // stamped frame can never be mis-attached to one of them.
-        seq: 0,
-        sessionEvents: mergeSessionEvents([], h.sessionEvents ?? []),
-        route: h.route,
-        overrides: h.overrides,
-        clientRequestId: h.input?.clientRequestId,
-        inputId: h.input?.inputId,
-        generationId: h.input?.generationId,
-        inputState: h.input?.state,
-        inputPosition: h.input?.position,
-        inputReason: h.input?.reason,
-        inputAcceptedAt: h.input?.acceptedAt,
-      })),
+      (initialHistory ?? []).map((h) => {
+        const sessionEvents = mergeSessionEvents([], h.sessionEvents ?? []);
+        let boundary: SessionBlock | null = null;
+        for (let eventIndex = sessionEvents.length - 1; eventIndex >= 0 && !boundary; eventIndex -= 1) {
+          boundary = terminalBlock(sessionEvents[eventIndex]);
+        }
+        const inputState = boundary ? terminalInputState(boundary) : h.input?.state;
+        return {
+          id: nextId(),
+          user: h.user,
+          assistant: h.assistant,
+          streaming: !boundary && (h.input ? isActiveInputState(h.input.state) : false),
+          hideUser: h.hideUser,
+          // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
+          // stamped frame can never be mis-attached to one of them.
+          seq: 0,
+          sessionEvents,
+          route: h.route,
+          overrides: h.overrides,
+          clientRequestId: h.input?.clientRequestId,
+          inputId: h.input?.inputId,
+          generationId: h.input?.generationId,
+          inputState,
+          inputPosition: h.input?.position,
+          inputReason: h.input?.reason,
+          inputAcceptedAt: h.input?.acceptedAt,
+          failure: h.input?.failure,
+          eventTerminal: Boolean(boundary),
+        };
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
   const [turns, setTurns] = useState<Turn[]>(seededTurns);
+  const turnsRef = useRef<Turn[]>(turns);
+  turnsRef.current = turns;
   // Lifecycle callbacks can be followed by a click in the same browser task,
   // before React has removed a stale Retry button. Record terminal coordinates
   // synchronously at event receipt so that stale handler can never call Stop or
   // paint the terminal turn active again.
   const terminalCoordinatesRef = useRef(new Set(
     seededTurns
-      .filter((turn) => turn.inputState && INPUT_STATE_ORDER[turn.inputState] === 4)
+      .filter((turn) => turn.eventTerminal || (turn.inputState && INPUT_STATE_ORDER[turn.inputState] === 4))
       .flatMap(generatedCoordinateKeys)
   ));
   const rememberTerminalCoordinate = useCallback((coordinate: GeneratedTurnCoordinate) => {
@@ -1238,9 +1305,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
   const generatedMode = transport.inputLifecycle === true;
   const [legacyBusy, setLegacyBusy] = useState(false);
-  const generatedWork = generatedMode && turns.some((turn) => isPendingInputState(turn.inputState));
+  const generatedWork = generatedMode && turns.some((turn) => !turn.eventTerminal && isPendingInputState(turn.inputState));
   const activeGeneratedTurn = generatedMode
-    ? turns.find((turn) => isActiveInputState(turn.inputState)) ?? null
+    ? turns.find((turn) => !turn.eventTerminal && isActiveInputState(turn.inputState)) ?? null
     : null;
   const busy = generatedMode ? generatedWork : legacyBusy;
   const generatedWorkRef = useRef(generatedWork);
@@ -1363,16 +1430,37 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const [pins, setPins] = useState<TurnRouting>(() => compactRouting(routing) ?? {});
   const pinsRef = useRef<TurnRouting>(pins);
   pinsRef.current = pins;
+  const pinSaveEpochRef = useRef(0);
+  const [pinSavePending, setPinSavePending] = useState(false);
+  const [pinSaveError, setPinSaveError] = useState<{
+    attempted: TurnRouting;
+    touched: PinField[];
+    message: string;
+  } | null>(null);
   const routingPropKey = JSON.stringify(compactRouting(routing) ?? {});
   useEffect(() => {
     // Compare by VALUE: the host re-renders with a fresh object on every poll, and
     // an identity-keyed effect would clobber a pin the user just set locally.
-    if (JSON.stringify(pinsRef.current) === routingPropKey) return;
-    setPins(JSON.parse(routingPropKey) as TurnRouting);
+    if (JSON.stringify(pinsRef.current) === routingPropKey) {
+      pinSaveEpochRef.current += 1;
+      setPinSavePending(false);
+      setPinSaveError(null);
+      return;
+    }
+    const authoritative = JSON.parse(routingPropKey) as TurnRouting;
+    // A newer host read wins over an older pending save. Invalidate its handlers
+    // so a late rejection cannot roll this authoritative value backward.
+    pinSaveEpochRef.current += 1;
+    pinsRef.current = authoritative;
+    setPins(authoritative);
+    setPinSavePending(false);
+    setPinSaveError(null);
   }, [routingPropKey]);
   /** Pins changed while a turn was in flight - they apply to the NEXT turn, and the
    *  rail says so rather than pretending the running turn re-routed. */
   const [pendingPins, setPendingPins] = useState<PinField[]>([]);
+  const pendingPinsRef = useRef<PinField[]>(pendingPins);
+  pendingPinsRef.current = pendingPins;
   /** The rail is mounted while busy or while anything is pinned; this opens it on
    *  demand (the `Route` chip, and `Stop & change`). */
   const [railOpen, setRailOpen] = useState(false);
@@ -1457,6 +1545,12 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const lastSpokenRef = useRef<string>("");
+
+  // Keep the root's single polite live region authoritative for voice failures;
+  // the durable visible error row deliberately has no second status region.
+  useEffect(() => {
+    if (voiceError) setTurnAnnouncement(voiceError);
+  }, [voiceError]);
 
   useEffect(() => {
     if (!voiceOn || !voiceClient) return;
@@ -1577,20 +1671,58 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             applyAssistant(ev.text);
           }
           break;
-        case "session_event":
+        case "session_event": {
+          const boundary = terminalBlock(ev.event);
+          const eventGenerationId = typeof ev.event.generationId === "string" && ev.event.generationId.trim()
+            ? ev.event.generationId
+            : undefined;
+          const coordinate: GeneratedTurnCoordinate = {
+            ...(ev.inputId ? { inputId: ev.inputId } : {}),
+            ...(ev.generationId || eventGenerationId ? { generationId: ev.generationId ?? eventGenerationId } : {}),
+          };
+          const exactEvent = !generatedMode || findGeneratedTurnIndex(turnsRef.current, coordinate) >= 0;
+          const exactBoundary = boundary && exactEvent ? boundary : null;
+          if (generatedMode && exactBoundary) rememberTerminalCoordinate(coordinate);
           setTurns((prev) => {
             if (generatedMode) {
-              return applyGeneratedTurn(prev, ev, (turn) => {
+              return applyGeneratedTurn(prev, coordinate, (turn) => {
                 const sessionEvents = mergeSessionEvents(turn.sessionEvents, [ev.event]);
-                return sessionEvents === turn.sessionEvents ? turn : { ...turn, sessionEvents };
+                if (!boundary) return sessionEvents === turn.sessionEvents ? turn : { ...turn, sessionEvents };
+                return {
+                  ...turn,
+                  sessionEvents,
+                  eventTerminal: true,
+                  inputState: terminalInputState(boundary),
+                  streaming: false,
+                  activity: "",
+                  stopError: undefined,
+                  answered: boundary.status === "error" ? undefined : turn.answered,
+                  answering: false,
+                  questionError: undefined,
+                };
               });
             }
             const base = prev.length > 0
               ? prev
               : [{ id: nextId(), user: "", assistant: "", streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
-            return applySessionEvent(base, ev.event);
+            const attached = applySessionEvent(base, ev.event);
+            return boundary ? applyTurnActive(attached, false) : attached;
           });
+          if (exactBoundary) {
+            if (!generatedMode) {
+              setLegacyBusy(false);
+              setActivity("");
+            }
+            setTurnAnnouncement(exactBoundary.status === "cancelled"
+              ? "Response stopped."
+              : exactBoundary.status === "error" || exactBoundary.status === "failed"
+                ? "Turn failed."
+                : "Response complete.");
+          } else if (exactEvent && hasVisibleSessionActivity([ev.event])) {
+            setTurnAnnouncement(liveSessionAnnouncement([ev.event], ""));
+          }
           break;
+        }
         case "status":
           setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
           break;
@@ -1634,10 +1766,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           // already history) - see applyRouteFrame for why both halves matter.
           const { type: _type, inputId: _inputId, generationId: _generationId, ...attribution } = ev;
           setTurns((prev) => generatedMode
-            ? applyGeneratedTurn(prev, ev, (turn) => ({
-                ...turn,
-                route: { ...(turn.route ?? {}), ...attribution },
-              }))
+            ? applyGeneratedTurn(prev, ev, (turn) => {
+                return { ...turn, route: mergeRouteAttribution(turn.route, attribution) };
+              })
             : applyRouteFrame(prev, attribution));
           break;
         }
@@ -1662,7 +1793,8 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           break;
         }
         case "input": {
-          if (INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
+          const exactInput = !generatedMode || findGeneratedTurnIndex(turnsRef.current, ev) >= 0;
+          if (exactInput && INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
           setTurns((prev) => {
             const next = applyInputLifecycle(prev, ev);
             if (INPUT_STATE_ORDER[ev.state] !== 4) return next;
@@ -1673,33 +1805,52 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               questionError: undefined,
             }));
           });
-          setTurnAnnouncement(inputLifecycleAnnouncement(ev));
+          if (exactInput) setTurnAnnouncement(inputLifecycleAnnouncement(ev));
           break;
         }
         case "connection":
           setConn(ev.state);
           break;
-        case "error":
+        case "error": {
+          const failure = ev.failure;
+          const message = ev.message ?? failure?.text ?? "Request failed";
           if (generatedMode) {
+            if (findGeneratedTurnIndex(turnsRef.current, ev) < 0) break;
             rememberTerminalCoordinate(ev);
             setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) => ({
               ...turn,
-              assistant: `_error: ${ev.message}_`,
+              ...(failure ? {} : { assistant: `_error: ${message}_` }),
               streaming: false,
               inputState: "failed",
-              inputReason: ev.message,
+              inputReason: message,
+              failure: failure ?? turn.failure,
+              eventTerminal: true,
               activity: "",
               stopError: undefined,
               answered: undefined,
               answering: false,
               questionError: undefined,
             })));
-            setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: ev.message }));
+            setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: message, failure }));
           } else {
-            // Surface as an assistant note on the latest turn.
-            applyAssistant(`_error: ${ev.message}_`);
+            setLegacyBusy(false);
+            setActivity("");
+            if (failure) {
+              setTurns((prev) => {
+                const base = prev.length ? prev : [{ id: nextId(), user: "", assistant: "", streaming: false, hideUser: true, seq: 0, sessionEvents: [] }];
+                const copy = base.slice();
+                copy[copy.length - 1] = { ...copy[copy.length - 1], streaming: false, failure };
+                return copy;
+              });
+              setTurnAnnouncement(`Request failed: ${failure.text}`);
+            } else {
+              // Legacy transports have no structured semantics to render.
+              applyAssistant(`_error: ${message}_`);
+              setTurns((prev) => applyTurnActive(prev, false));
+            }
           }
           break;
+        }
       }
     });
     return off;
@@ -1813,6 +1964,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         setTurnAnnouncement(inputLifecycleAnnouncement({ state: optimisticState }));
       }
       // The pins have now reached a turn, so they stop reading "applies next turn".
+      pendingPinsRef.current = [];
       setPendingPins([]);
       setResendArmed(false);
       pinnedRef.current = true;
@@ -1828,18 +1980,22 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
       if (generatedMode && clientRequestId) {
         p.then((receipt) => {
           if (!isChatInputReceipt(receipt)) return;
+          if (INPUT_STATE_ORDER[receipt.state] === 4) rememberTerminalCoordinate(receipt);
           setTurns((prev) => applyInputLifecycle(prev, receipt));
           setTurnAnnouncement(inputLifecycleAnnouncement(receipt));
         }).catch((error) => {
-          const reason = error instanceof Error ? error.message : String(error ?? "input admission failed");
+          const failure = failureFromUnknown(error);
+          const reason = failure?.text ?? (error instanceof Error ? error.message : String(error ?? "input admission failed"));
           rememberTerminalCoordinate({ clientRequestId });
           setTurns((prev) => applyGeneratedTurn(prev, { clientRequestId }, (turn) => ({
             ...turn,
             streaming: false,
             inputState: "failed",
             inputReason: reason,
+            failure,
+            eventTerminal: true,
           })));
-          setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason }));
+          setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason, failure }));
         });
       } else {
         p.catch(() => {});
@@ -2240,7 +2396,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     (turn: Turn, toolUseId: string, choice: { label?: string; text?: string }) => {
       const generatedQuestion = Boolean(turn.inputState);
       const active = generatedQuestion
-        ? isActiveInputState(turn.inputState) && !isRememberedTerminalCoordinate(turn)
+        ? !turn.eventTerminal && isActiveInputState(turn.inputState) && !isRememberedTerminalCoordinate(turn)
         : turn.streaming;
       if (!active) return;
       const turnId = turn.id;
@@ -2262,6 +2418,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               }
             : t
         )));
+        setTurnAnnouncement("Could not send the answer. Please try again.");
         return;
       }
       Promise.resolve(fn.call(transport, { toolUseId, ...choice }))
@@ -2270,16 +2427,19 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             ? { ...t, answering: false, questionError: undefined }
             : t
         ))))
-        .catch(() => setTurns((prev) => prev.map((t) => (
-          t.id === turnId && t.question?.toolUseId === toolUseId
-            ? {
-                ...t,
-                answered: undefined,
-                answering: false,
-                questionError: "Could not send the answer. Please try again.",
-              }
-            : t
-        ))));
+        .catch(() => {
+          setTurns((prev) => prev.map((t) => (
+            t.id === turnId && t.question?.toolUseId === toolUseId
+              ? {
+                  ...t,
+                  answered: undefined,
+                  answering: false,
+                  questionError: "Could not send the answer. Please try again.",
+                }
+              : t
+          )));
+          setTurnAnnouncement("Could not send the answer. Please try again.");
+        });
     },
     [transport, isRememberedTerminalCoordinate]
   );
@@ -2288,9 +2448,56 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   // A pin never re-routes the turn already in flight (preRoute has resolved and the
   // model may already hold context), so a change made while busy is recorded and
   // the badge says "applies next turn".
+  const persistPinChange = useCallback(
+    (
+      next: TurnRouting,
+      previous: TurnRouting,
+      previousPending: PinField[],
+      touched: PinField[]
+    ) => {
+      if (!onPinChange) {
+        setPinSavePending(false);
+        setPinSaveError(null);
+        return;
+      }
+      const epoch = ++pinSaveEpochRef.current;
+      setPinSavePending(true);
+      setPinSaveError(null);
+      let result: void | Promise<void>;
+      try {
+        result = onPinChange(next);
+      } catch (error) {
+        result = Promise.reject(error);
+      }
+      Promise.resolve(result).then(
+        () => {
+          if (pinSaveEpochRef.current !== epoch) return;
+          setPinSavePending(false);
+        },
+        () => {
+          if (pinSaveEpochRef.current !== epoch) return;
+          pinsRef.current = previous;
+          setPins(previous);
+          pendingPinsRef.current = previousPending;
+          setPendingPins(previousPending);
+          setPinSavePending(false);
+          setPinSaveError({
+            attempted: next,
+            touched,
+            message: "Could not save route choices. Your previous choices were restored.",
+          });
+          setTurnAnnouncement("Could not save route choices. Your previous choices were restored. Retry is available.");
+        }
+      );
+    },
+    [onPinChange]
+  );
+
   const applyPin = useCallback(
     (patch: PinPatch) => {
-      const next: TurnRouting = { ...pinsRef.current };
+      const previous: TurnRouting = { ...pinsRef.current };
+      const previousPending = [...pendingPinsRef.current];
+      const next: TurnRouting = { ...previous };
       const touched: PinField[] = [];
       for (const [key, value] of Object.entries(patch)) {
         const field = key as PinField;
@@ -2307,12 +2514,32 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
       }
       if (!touched.length) return; // a no-op tap must not bump the host's store
       const compact = compactRouting(next) ?? {};
+      pinsRef.current = compact;
       setPins(compact);
-      if (busy) setPendingPins((prev) => [...new Set([...prev, ...touched])]);
-      onPinChange?.(compact);
+      if (busy) {
+        const nextPending = [...new Set([...previousPending, ...touched])];
+        pendingPinsRef.current = nextPending;
+        setPendingPins(nextPending);
+      }
+      persistPinChange(compact, previous, previousPending, touched);
     },
-    [busy, onPinChange]
+    [busy, persistPinChange]
   );
+
+  const retryPinSave = useCallback(() => {
+    if (!pinSaveError) return;
+    const previous = { ...pinsRef.current };
+    const previousPending = [...pendingPinsRef.current];
+    const attempted = { ...pinSaveError.attempted };
+    pinsRef.current = attempted;
+    setPins(attempted);
+    if (busy) {
+      const nextPending = [...new Set([...previousPending, ...pinSaveError.touched])];
+      pendingPinsRef.current = nextPending;
+      setPendingPins(nextPending);
+    }
+    persistPinChange(attempted, previous, previousPending, pinSaveError.touched);
+  }, [pinSaveError, busy, persistPinChange]);
 
   const requestGeneratedStop = useCallback(async (turn: Turn, restore: boolean) => {
     // A Retry control can race a terminal lifecycle frame. Guard before any
@@ -2414,7 +2641,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   }, [busy, stopTurn]);
 
   const hasPins = Object.keys(pins).length > 0;
-  const showFlightRail = railOn && (busy || hasPins || railOpen);
+  const showFlightRail = railOn && (busy || hasPins || railOpen || pinSavePending || Boolean(pinSaveError));
   // The flight rail's right-hand slot: the live elapsed time and the Stop pair
   // while busy; otherwise a way to put the rail away again.
   const generatedStopDisabled = !activeGeneratedTurn?.generationId || activeGeneratedTurn.inputState === "stopping";
@@ -2524,7 +2751,11 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           // counters, thinking blocks) and lift the router status badge out of the
           // prose into a compact chip. Cheap + pure, so per-render is fine.
           const clean = sanitizeAssistantText(t.assistant);
+          const legacyText = t.failure ? "" : clean.text;
           const hasCanonicalActivity = hasVisibleSessionActivity(t.sessionEvents);
+          const canonicalOwnsFailure = t.sessionEvents.some((event) =>
+            event.blocks.some((block) => block.type === "error")
+          );
           const legacyFallback = hasCanonicalActivity ? legacyAssistantFallback(t.assistant, t.sessionEvents) : "";
           const actionText = resolvedAssistantText(t);
           const turnWorkingHint = generatedMode ? (t.activity ?? "") : workingHint;
@@ -2555,7 +2786,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             {/* `t.route` joins the gate: a carded or cancelled turn can settle with
                 NO prose at all, and its rail (card / stopped / transcript badges) is
                 then the only record the user gets. */}
-            {(clean.text || hasCanonicalActivity || t.streaming || t.question || t.route || t.inputState || t.stopError) && (
+            {(legacyText || hasCanonicalActivity || t.streaming || t.question || t.route || t.inputState || t.stopError || t.failure) && (
               <div className="cc-assistant">
                 {t.inputState && (
                   <InputLifecycleStatus
@@ -2565,15 +2796,17 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     onRetryStop={() => { if (t.generationId) void requestGeneratedStop(t, false); }}
                   />
                 )}
+                {t.failure && !canonicalOwnsFailure && <FailureNotice failure={t.failure} />}
                 {hasCanonicalActivity ? (
                   <SessionEventTimeline
                     events={t.sessionEvents}
                     live={t.streaming}
                     renderMarkdown={renderAssistantMarkdown}
-                    permissionGenerationId={isActiveInputState(t.inputState) ? t.generationId : undefined}
+                    permissionGenerationId={!t.eventTerminal && isActiveInputState(t.inputState) ? t.generationId : undefined}
                     onPermissionDecision={transport.answerPermission
                       ? (answer) => {
                           if (
+                            t.eventTerminal ||
                             !isActiveInputState(t.inputState) ||
                             !t.generationId ||
                             answer.generationId !== t.generationId ||
@@ -2586,7 +2819,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                       : undefined}
                   />
                 ) : (
-                  <div className="cc-md" dangerouslySetInnerHTML={{ __html: renderChatMarkdown(clean.text || "") }} />
+                  <div className="cc-md" dangerouslySetInnerHTML={{ __html: renderChatMarkdown(legacyText || "") }} />
                 )}
                 {legacyFallback && (
                   <div
@@ -2595,11 +2828,11 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                   />
                 )}
                 {/* Streaming cursor once prose is arriving. */}
-                {!hasCanonicalActivity && t.streaming && clean.text && <span className="cc-cursor" aria-hidden="true" />}
+                {!hasCanonicalActivity && t.streaming && legacyText && <span className="cc-cursor" aria-hidden="true" />}
                 {/* Rich "working" indicator before any prose lands (while James is
                     only doing tool activity, clean.text is empty → show this, not the
                     raw scrape): animated dots + label + live elapsed + activity hint. */}
-                {!t.inputState && !hasCanonicalActivity && t.streaming && !clean.text && (
+                {!t.inputState && !hasCanonicalActivity && t.streaming && !legacyText && (
                   <div className="cc-working">
                     <span className="cc-working-dots"><i /><i /><i /></span>
                     <span className="cc-working-label">Working</span>
@@ -2620,7 +2853,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     answered={t.answered}
                     answering={t.answering}
                     error={t.questionError}
-                    active={t.inputState ? isActiveInputState(t.inputState) : t.streaming}
+                    active={!t.eventTerminal && (t.inputState ? isActiveInputState(t.inputState) : t.streaming)}
                     onSelect={(label) => answerQuestion(t, t.question!.toolUseId, { label })}
                     onOther={(text) => answerQuestion(t, t.question!.toolUseId, { text })}
                   />
@@ -2891,19 +3124,29 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             dropdowns, mounted while busy, while anything is pinned, or on demand
             from the toolbar's Route chip. */}
         {showFlightRail && (
-          <AttributionRail
-            variant="flight"
-            route={rewriteRouteForHost(latestAssistant?.route, hostCtx())}
-            pins={pins}
-            pendingFields={pendingPins}
-            options={routeOptions ?? undefined}
-            onPin={applyPin}
-            onOpenTranscript={onOpenTranscript}
-            label="Run context for your next message"
-            musterUrl={musterUrl}
-          >
-            {flightRailEnd}
-          </AttributionRail>
+          <>
+            <AttributionRail
+              variant="flight"
+              route={rewriteRouteForHost(latestAssistant?.route, hostCtx())}
+              pins={pins}
+              pendingFields={pendingPins}
+              options={routeOptions ?? undefined}
+              onPin={applyPin}
+              onOpenTranscript={onOpenTranscript}
+              label="Run context for your next message"
+              musterUrl={musterUrl}
+            >
+              {flightRailEnd}
+            </AttributionRail>
+            {(pinSavePending || pinSaveError) && (
+              <div className={`cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`}>
+                <span>{pinSaveError?.message ?? "Saving route choices…"}</span>
+                {pinSaveError && (
+                  <button type="button" onClick={retryPinSave}>Retry save</button>
+                )}
+              </div>
+            )}
+          </>
         )}
         {slashQuery !== null && filtered.length > 0 && (
           <div className="cc-slashmenu">
@@ -2921,7 +3164,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           </div>
         )}
         {feat.voice && voiceError && (
-          <div className="cc-voiceerr" role="status">
+          <div className="cc-voiceerr">
             <span className="cc-voiceerr-msg">{voiceError}</span>
             <button
               type="button"

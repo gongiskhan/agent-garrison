@@ -481,6 +481,17 @@ describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
     await adapter.sendTurn(s, "loop forever");
     const r = await adapter.awaitResponse(s);
     expect(r.stoppedReason).toBe("max_turns");
+    expect(r).toMatchObject({
+      terminalStatus: "error",
+      failure: {
+        source: "result",
+        kind: "limit",
+        code: "error_max_turns",
+        retryable: false,
+      },
+      sessionId: null,
+      model: "m",
+    });
   });
 
   it("normalizes the SDK's post-result max-turn rejection and preserves accumulated output", async () => {
@@ -510,7 +521,11 @@ describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
     await expect(adapter.awaitResponse(s)).resolves.toMatchObject({
       text: "Plan and durable gate were written.",
       toolUses: [{ id: "write-gate", name: "Write" }],
-      stoppedReason: "max_turns"
+      stoppedReason: "max_turns",
+      terminalStatus: "error",
+      failure: expect.objectContaining({ code: "error_max_turns" }),
+      sessionId: "sdk-max-turn-session",
+      model: "m",
     });
     expect(s.sessionId).toBe("sdk-max-turn-session");
     expect(s.usedTokens).toBe(15);
@@ -549,6 +564,15 @@ describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
     const r = await adapter.awaitResponse(s);
     expect(r.stoppedReason).toBe("budget_exceeded");
     expect(s.usedTokens).toBeGreaterThanOrEqual(100);
+    expect(r).toMatchObject({
+      terminalStatus: "error",
+      failure: {
+        source: "system",
+        kind: "limit",
+        code: "budget_exceeded",
+        retryable: false,
+      },
+    });
   });
 });
 

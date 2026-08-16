@@ -8,7 +8,7 @@ import {
   isPendingInputState,
   type GeneratedTurnState,
 } from "../packages/claude-chat/src/ClaudeChat";
-import { isChatInputReceipt, type ChatInputReceipt } from "../packages/claude-chat/src/transport";
+import { ChatTransportError, isChatInputReceipt, type ChatInputReceipt } from "../packages/claude-chat/src/transport";
 
 interface TestTurn extends GeneratedTurnState {
   user: string;
@@ -159,5 +159,40 @@ describe("generated input lifecycle reducer", () => {
     expect(isActiveInputState("queued")).toBe(false);
     expect(isPendingInputState("queued")).toBe(true);
     expect(isPendingInputState("settled")).toBe(false);
+  });
+
+  it("hydrates a structured terminal failure and announces its typed text", () => {
+    const failure = {
+      source: "web" as const,
+      kind: "invalid_request",
+      code: "QUEUE_REJECTED",
+      text: "This message could not enter the runtime queue.",
+      retryable: true,
+      requestId: "request-queue-1",
+      httpStatus: 429,
+      retryAt: 1_787_000_000,
+    } as const;
+    const receipt = lifecycle("client-1", "input-1", "failed", {
+      reason: "legacy reason",
+      failure,
+    });
+    expect(isChatInputReceipt(receipt)).toBe(true);
+    expect(isChatInputReceipt({ ...receipt, failure: { ...failure, code: null } })).toBe(false);
+
+    const turns = applyInputLifecycle([optimistic("client-1", "first", "starting")], receipt);
+    expect(turns[0]).toMatchObject({
+      inputState: "failed",
+      streaming: false,
+      eventTerminal: true,
+      failure,
+    });
+    expect(inputLifecycleAnnouncement(receipt)).toBe(
+      "Message failed: This message could not enter the runtime queue."
+    );
+    const thrown = new ChatTransportError(failure);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown.name).toBe("ChatTransportError");
+    expect(thrown.message).toBe(failure.text);
+    expect(thrown.failure).toBe(failure);
   });
 });

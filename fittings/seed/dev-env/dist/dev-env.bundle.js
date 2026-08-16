@@ -1137,7 +1137,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useDeferredValue(value);
         }
-        function useId2() {
+        function useId3() {
           var dispatcher = resolveDispatcher();
           return dispatcher.useId();
         }
@@ -1883,7 +1883,7 @@ var require_react_development = __commonJS({
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
         exports.useEffect = useEffect9;
-        exports.useId = useId2;
+        exports.useId = useId3;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect;
@@ -39815,11 +39815,46 @@ function diff(hljs) {
 
 // packages/claude-chat/src/journal.ts
 var FANOUT_TOOL_NAMES = /* @__PURE__ */ new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
+var SESSION_RETRACT_CAP = 64;
+var FAILURE_SOURCES = /* @__PURE__ */ new Set([
+  "assistant",
+  "result",
+  "runtime",
+  "session",
+  "transport",
+  "system",
+  "gateway",
+  "web"
+]);
+var FAILURE_KINDS = /* @__PURE__ */ new Set([
+  "authentication",
+  "authorization",
+  "billing",
+  "rate_limit",
+  "overloaded",
+  "invalid_request",
+  "not_found",
+  "limit",
+  "execution",
+  "runtime",
+  "transport",
+  "routing",
+  "protocol",
+  "permission",
+  "unknown"
+]);
+function isFailureInfo(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const failure = value;
+  const optionalText = (key) => failure[key] === void 0 || typeof failure[key] === "string" && Boolean(failure[key].trim());
+  return typeof failure.source === "string" && FAILURE_SOURCES.has(failure.source) && typeof failure.kind === "string" && FAILURE_KINDS.has(failure.kind) && typeof failure.code === "string" && Boolean(failure.code.trim()) && typeof failure.text === "string" && Boolean(failure.text.trim()) && typeof failure.retryable === "boolean" && optionalText("requestId") && (failure.httpStatus === void 0 || typeof failure.httpStatus === "number" && Number.isInteger(failure.httpStatus) && failure.httpStatus >= 100 && failure.httpStatus <= 599) && (failure.retryAt === void 0 || typeof failure.retryAt === "number" && Number.isFinite(failure.retryAt) && failure.retryAt > 0);
+}
 function isSessionEvent(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const event = value;
   if (event.id !== null && typeof event.id !== "string") return false;
   if (typeof event.role !== "string" || !Array.isArray(event.blocks)) return false;
+  if (event.retracts !== void 0 && (!Array.isArray(event.retracts) || event.retracts.length > SESSION_RETRACT_CAP || event.retracts.some((id) => typeof id !== "string" || !id.trim() || id.startsWith("terminal:")))) return false;
   return event.blocks.every(
     (block2) => Boolean(block2) && typeof block2 === "object" && !Array.isArray(block2) && typeof block2.type === "string"
   );
@@ -39848,7 +39883,17 @@ function sessionActivityBeats(events) {
           beats.push({ type: "text", eventIndex, blockIndex, text: block2.text });
         }
       } else if (block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "") {
-        beats.push({ type: "error", eventIndex, blockIndex, text: block2.text });
+        beats.push({ type: "error", eventIndex, blockIndex, text: block2.text, block: block2 });
+      } else if (block2.type === "rate_limit") {
+        const status = String(block2.status ?? "").toLowerCase();
+        const overageStatus = String(block2.overageStatus ?? "").toLowerCase();
+        if (status !== "allowed" || overageStatus && overageStatus !== "allowed") {
+          beats.push({ type: "rate_limit", eventIndex, blockIndex, block: block2 });
+        }
+      } else if (block2.type === "retry" || block2.type === "route" || block2.type === "turn_end") {
+        beats.push({ type: block2.type, eventIndex, blockIndex, block: block2 });
+      } else if (block2.type === "status" && (block2.subtype === "api_retry" || block2.subtype === "model_refusal_fallback")) {
+        beats.push({ type: "status", eventIndex, blockIndex, block: block2 });
       } else if (block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request") {
         beats.push({ type: block2.type, eventIndex, blockIndex, block: block2 });
       }
@@ -39978,7 +40023,7 @@ function latestBlocksByToolUse(events, type) {
 function hasVisibleSessionActivity(events) {
   return events.some(
     (event) => event.role === "assistant" && !event.toolResultsOnly && event.blocks.some(
-      (block2) => block2.type === "text" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== "" || block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request"
+      (block2) => block2.type === "text" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "retry" || block2.type === "route" || block2.type === "turn_end" || block2.type === "rate_limit" && (String(block2.status ?? "").toLowerCase() !== "allowed" || Boolean(block2.overageStatus && String(block2.overageStatus).toLowerCase() !== "allowed")) || block2.type === "status" && (block2.subtype === "api_retry" || block2.subtype === "model_refusal_fallback") || block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request"
     )
   );
 }
@@ -39997,20 +40042,48 @@ function shouldReplaceSessionEvent(current, incoming) {
 function mergeSessionEvents(current, incoming) {
   if (!incoming.length) return current;
   let next = current;
-  const indexes = /* @__PURE__ */ new Map();
-  current.forEach((event, index) => {
-    if (event.id && !indexes.has(event.id)) indexes.set(event.id, index);
-  });
+  let indexes = /* @__PURE__ */ new Map();
+  const tombstones = /* @__PURE__ */ new Set();
+  const retractionsFor = (event) => {
+    const ids = Array.isArray(event.retracts) ? event.retracts : [];
+    return [...new Set(ids.map((id) => String(id).trim()).filter(
+      (id) => id && id !== event.id && !id.startsWith("terminal:")
+    ))].slice(0, SESSION_RETRACT_CAP);
+  };
+  const rebuildIndexes = () => {
+    indexes = /* @__PURE__ */ new Map();
+    next.forEach((event, index) => {
+      if (event.id && !indexes.has(event.id)) indexes.set(event.id, index);
+    });
+  };
+  current.forEach((event) => retractionsFor(event).forEach((id) => tombstones.add(id)));
+  rebuildIndexes();
   for (const event of incoming) {
     const index = event.id ? indexes.get(event.id) : void 0;
-    if (index === void 0) {
-      if (next === current) next = current.slice();
-      if (event.id) indexes.set(event.id, next.length);
-      next.push(event);
-    } else if (shouldReplaceSessionEvent(next[index], event)) {
-      if (next === current) next = current.slice();
-      next[index] = event;
+    if (event.id && tombstones.has(event.id)) continue;
+    if (index !== void 0 && !shouldReplaceSessionEvent(next[index], event)) continue;
+    const retracts = retractionsFor(event);
+    if (retracts.length) {
+      retracts.forEach((id) => tombstones.add(id));
+      const filtered = next.filter((candidate) => !candidate.id || !tombstones.has(candidate.id));
+      if (filtered.length !== next.length) {
+        next = filtered;
+        rebuildIndexes();
+      }
     }
+    const acceptedIndex = event.id ? indexes.get(event.id) : void 0;
+    if (acceptedIndex === void 0) {
+      if (next === current) next = current.slice();
+      next.push(event);
+    } else {
+      if (next === current) next = current.slice();
+      const retainedRetracts = [.../* @__PURE__ */ new Set([
+        ...retractionsFor(next[acceptedIndex]),
+        ...retracts
+      ])].slice(0, SESSION_RETRACT_CAP);
+      next[acceptedIndex] = retainedRetracts.length ? { ...event, retracts: retainedRetracts } : event;
+    }
+    rebuildIndexes();
   }
   return next;
 }
@@ -40079,6 +40152,14 @@ function collectRelatedTasks(events, live = false) {
 }
 
 // packages/claude-chat/src/transport.ts
+var ChatTransportError = class extends Error {
+  failure;
+  constructor(failure, message = failure.text) {
+    super(message);
+    this.name = "ChatTransportError";
+    this.failure = failure;
+  }
+};
 var CHAT_INPUT_STATES = /* @__PURE__ */ new Set([
   "queued",
   "starting",
@@ -40092,7 +40173,7 @@ function isChatInputReceipt(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const input = value;
   const optionalText = (key, nonEmpty = false) => input[key] === void 0 || typeof input[key] === "string" && (!nonEmpty || Boolean(input[key].trim()));
-  return typeof input.clientRequestId === "string" && Boolean(input.clientRequestId.trim()) && typeof input.inputId === "string" && Boolean(input.inputId.trim()) && typeof input.state === "string" && CHAT_INPUT_STATES.has(input.state) && optionalText("generationId", true) && optionalText("acceptedAt") && optionalText("reason") && (input.position === void 0 || typeof input.position === "number" && Number.isInteger(input.position) && input.position >= 0);
+  return typeof input.clientRequestId === "string" && Boolean(input.clientRequestId.trim()) && typeof input.inputId === "string" && Boolean(input.inputId.trim()) && typeof input.state === "string" && CHAT_INPUT_STATES.has(input.state) && optionalText("generationId", true) && optionalText("acceptedAt") && optionalText("reason") && (input.failure === void 0 || isFailureInfo(input.failure)) && (input.position === void 0 || typeof input.position === "number" && Number.isInteger(input.position) && input.position >= 0);
 }
 function createHttpTransport(base = "/api", opts) {
   const b = base.replace(/\/$/, "");
@@ -40102,7 +40183,16 @@ function createHttpTransport(base = "/api", opts) {
       headers: { "content-type": "application/json" },
       body: body ? JSON.stringify(body) : void 0
     });
-    if (!res.ok) throw new Error(`${path} ${res.status}`);
+    if (!res.ok) {
+      const body2 = await res.json().catch(() => null);
+      if (isFailureInfo(body2?.failure)) {
+        throw new ChatTransportError(
+          body2.failure,
+          typeof body2?.message === "string" && body2.message.trim() ? body2.message : body2.failure.text
+        );
+      }
+      throw new Error(`${path} ${res.status}`);
+    }
     return res.json().catch(() => ({}));
   };
   return {
@@ -40135,8 +40225,26 @@ function createHttpTransport(base = "/api", opts) {
         on("tool");
         on("route");
         on("activity");
-        on("error");
-        es.onerror = () => {
+        es.addEventListener("error", (e) => {
+          const data = "data" in e ? e.data : void 0;
+          if (typeof data !== "string") return;
+          try {
+            const payload = JSON.parse(data);
+            const coordinates = {
+              ...typeof payload.inputId === "string" ? { inputId: payload.inputId } : {},
+              ...typeof payload.generationId === "string" ? { generationId: payload.generationId } : {}
+            };
+            const message = typeof payload.message === "string" && payload.message.trim() ? payload.message : void 0;
+            if (isFailureInfo(payload.failure)) {
+              onEvent({ type: "error", failure: payload.failure, ...message ? { message } : {}, ...coordinates });
+            } else if (message) {
+              onEvent({ type: "error", message, ...coordinates });
+            }
+          } catch {
+          }
+        });
+        es.onerror = (event) => {
+          if (event && "data" in event) return;
           onEvent({ type: "connection", state: "reconnecting" });
           if (es && es.readyState === EventSource.CLOSED && !closed) {
             es.close();
@@ -40719,6 +40827,7 @@ function menuForField(field, options2, pins, musterUrl) {
   return {
     field,
     label: field === "phasesOff" ? "Phases this run walks" : `Pin ${FIELD_LABEL[field]} for the next message`,
+    effect: ["target", "model", "account", "project"].includes(field) ? "Starts a new session for your next message." : field === "effort" ? "Applies to your next request without starting a new session." : "Applies to your next message.",
     rows,
     ...field === "model" ? { freeText: { field: "model", label: "Any model id", placeholder: "model id" } } : {}
   };
@@ -40744,6 +40853,7 @@ function AttributionRail({
   const [openKey, setOpenKey] = (0, import_react2.useState)(null);
   const [menuIdx, setMenuIdx] = (0, import_react2.useState)(0);
   const [freeText, setFreeText] = (0, import_react2.useState)("");
+  const menuEffectId = (0, import_react2.useId)();
   const itemsRef = (0, import_react2.useRef)([]);
   const railRef = (0, import_react2.useRef)(null);
   (0, import_react2.useEffect)(() => {
@@ -40890,7 +41000,7 @@ function AttributionRail({
           const ref = (el) => {
             itemsRef.current[i] = el;
           };
-          const mark = b.pending ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-next", children: "next" }) : b.auto ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-automark", "aria-hidden": "true", children: "auto" }) : null;
+          const mark = b.pending ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-next", children: "next" }) : b.auto ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-automark", children: "auto" }) : null;
           if (b.href) {
             return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
               "a",
@@ -40953,73 +41063,84 @@ function AttributionRail({
     children ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-railend", children }) : null,
     menu && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-railscrim", onClick: () => closeMenu(focusIdx) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-railmenu", role: "menu", "aria-label": menu.label, onKeyDown: onMenuKey, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-railmenu-head", children: menu.label }),
-        menu.rows.map(
-          (row, i) => row.href ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "a",
-            {
-              className: "cc-railitem cc-railitem-link",
-              href: row.href,
-              target: "_blank",
-              rel: "noopener noreferrer",
-              role: "menuitem",
-              children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-label", children: row.label })
-            },
-            row.key
-          ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-            "button",
-            {
-              type: "button",
-              className: `cc-railitem${i === menuIdx ? " cc-railitem-active" : ""}`,
-              role: "menuitemradio",
-              "aria-checked": Boolean(row.selected),
-              "aria-disabled": row.disabled ? true : void 0,
-              autoFocus: i === 0,
-              onMouseEnter: () => !row.disabled && setMenuIdx(i),
-              onClick: () => applyRow(row, focusIdx),
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-label", children: row.label }),
-                row.detail && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-detail", children: row.detail }),
-                row.selected && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-on", children: "pinned" })
-              ]
-            },
-            row.key
-          )
-        ),
-        menu.freeText && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-railfree", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "input",
-            {
-              className: "cc-railfree-input",
-              value: freeText,
-              placeholder: menu.freeText.placeholder,
-              "aria-label": menu.freeText.label,
-              onChange: (e) => setFreeText(e.target.value),
-              onKeyDown: (e) => {
-                if (e.key === "Enter" && freeText.trim()) {
-                  e.preventDefault();
-                  onPin?.({ [menu.freeText.field]: freeText.trim() });
-                  closeMenu(focusIdx);
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+        "div",
+        {
+          className: "cc-railmenu",
+          role: "menu",
+          "aria-label": menu.label,
+          "aria-describedby": menuEffectId,
+          onKeyDown: onMenuKey,
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-railmenu-head", children: menu.label }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { id: menuEffectId, className: "cc-railmenu-effect", children: menu.effect }),
+            menu.rows.map(
+              (row, i) => row.href ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "a",
+                {
+                  className: "cc-railitem cc-railitem-link",
+                  href: row.href,
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  role: "menuitem",
+                  children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-label", children: row.label })
+                },
+                row.key
+              ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+                "button",
+                {
+                  type: "button",
+                  className: `cc-railitem${i === menuIdx ? " cc-railitem-active" : ""}`,
+                  role: "menuitemradio",
+                  "aria-checked": Boolean(row.selected),
+                  "aria-disabled": row.disabled ? true : void 0,
+                  autoFocus: i === 0,
+                  onMouseEnter: () => !row.disabled && setMenuIdx(i),
+                  onClick: () => applyRow(row, focusIdx),
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-label", children: row.label }),
+                    row.detail && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-detail", children: row.detail }),
+                    row.selected && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-on", children: "pinned" })
+                  ]
+                },
+                row.key
+              )
+            ),
+            menu.freeText && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-railfree", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "input",
+                {
+                  className: "cc-railfree-input",
+                  value: freeText,
+                  placeholder: menu.freeText.placeholder,
+                  "aria-label": menu.freeText.label,
+                  onChange: (e) => setFreeText(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter" && freeText.trim()) {
+                      e.preventDefault();
+                      onPin?.({ [menu.freeText.field]: freeText.trim() });
+                      closeMenu(focusIdx);
+                    }
+                  }
                 }
-              }
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "button",
-            {
-              type: "button",
-              className: "cc-railfree-set",
-              disabled: !freeText.trim(),
-              onClick: () => {
-                onPin?.({ [menu.freeText.field]: freeText.trim() });
-                closeMenu(focusIdx);
-              },
-              children: "Pin"
-            }
-          )
-        ] })
-      ] })
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-railfree-set",
+                  disabled: !freeText.trim(),
+                  onClick: () => {
+                    onPin?.({ [menu.freeText.field]: freeText.trim() });
+                    closeMenu(focusIdx);
+                  },
+                  children: "Pin"
+                }
+              )
+            ] })
+          ]
+        }
+      )
     ] })
   ] });
 }
@@ -41699,6 +41820,134 @@ function PermissionBlock({
     }
   );
 }
+function finiteEpochTime(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  const date = new Date(value * 1e3);
+  if (!Number.isFinite(date.getTime())) return null;
+  try {
+    return {
+      dateTime: date.toISOString(),
+      label: new Intl.DateTimeFormat(void 0, { dateStyle: "medium", timeStyle: "short" }).format(date)
+    };
+  } catch {
+    return null;
+  }
+}
+function compactNoticeText(value) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+function errorLabel(block2) {
+  if (block2.source === "runtime") return "Runtime error";
+  if (block2.source === "transport") return "Connection error";
+  if (block2.source === "gateway") return "Gateway error";
+  if (block2.source === "web") return "Web error";
+  if (block2.source === "session") return "Session error";
+  if (block2.source === "result") return "Execution error";
+  if (block2.source === "assistant") return "Request error";
+  return "Error";
+}
+function routeSummary(block2) {
+  const attribution = block2.attribution ?? {};
+  const signature = attribution.spawnSignature && typeof attribution.spawnSignature === "object" ? attribution.spawnSignature : {};
+  const field = (key) => compactNoticeText(attribution[key] ?? signature[key]);
+  const target = field("route") || field("target");
+  const runtime = field("runtime");
+  const provider = field("provider");
+  const model = field("model");
+  const destination = [runtime, provider, model].filter(Boolean).join(" / ");
+  const selected = [target, destination].filter(Boolean).join(" \xB7 ");
+  const requested = compactNoticeText(block2.requestedModel);
+  const disposition = compactNoticeText(attribution.sessionDisposition);
+  const lifecycle = disposition === "new" ? "Started a new session." : disposition === "resumed" ? "Resumed the session." : disposition === "warm" ? "Continued the current session." : "";
+  if (requested && model && requested !== model) {
+    return [lifecycle, `Requested ${requested}; using ${model}${target ? ` via ${target}` : ""}.`].filter(Boolean).join(" ");
+  }
+  const route = selected ? `Using ${selected}.` : compactNoticeText(block2.text) || "Route resolved.";
+  return [lifecycle, route].filter(Boolean).join(" ");
+}
+function retrySummary(block2) {
+  if (block2.kind === "model_fallback") {
+    const from = compactNoticeText(block2.fromModel);
+    const to = compactNoticeText(block2.toModel);
+    if (from && to) return `Model changed from ${from} to ${to}.`;
+  }
+  const parts = [];
+  if (typeof block2.attempt === "number" && Number.isFinite(block2.attempt)) {
+    const attempt = Math.max(0, Math.trunc(block2.attempt));
+    const maximum = typeof block2.maxAttempts === "number" && Number.isFinite(block2.maxAttempts) ? Math.max(0, Math.trunc(block2.maxAttempts)) : null;
+    parts.push(maximum !== null ? `attempt ${attempt} of ${maximum}` : `attempt ${attempt}`);
+  }
+  if (typeof block2.delayMs === "number" && Number.isFinite(block2.delayMs) && block2.delayMs >= 0) {
+    const seconds = Math.max(0, Math.round(block2.delayMs / 100) / 10);
+    parts.push(`in ${seconds} ${seconds === 1 ? "second" : "seconds"}`);
+  }
+  const text = compactNoticeText(block2.text);
+  return [text, parts.join(" \xB7 ")].filter(Boolean).join(" ");
+}
+function terminalSummary(block2) {
+  const reportedErrors = Array.isArray(block2.errors) ? block2.errors.map(compactNoticeText).filter(Boolean).join("; ") : "";
+  const candidates = [block2.reason, block2.terminalReason, block2.stopReason, reportedErrors, block2.subtype];
+  return candidates.map(compactNoticeText).find(Boolean) ?? "";
+}
+function SessionNotice({
+  block: block2,
+  renderMarkdown,
+  renderTerminalResult = false,
+  terminalResultDuplicated = false
+}) {
+  let tone = "info";
+  let label = "Notice";
+  let detail = compactNoticeText(block2.text);
+  let reset = null;
+  let timePrefix = "Resets";
+  if (block2.type === "error") {
+    tone = "danger";
+    label = errorLabel(block2);
+    reset = finiteEpochTime(block2.retryAt);
+    timePrefix = "Retry after";
+  } else if (block2.type === "retry" || block2.type === "status") {
+    const fallback = block2.kind === "model_fallback" || block2.subtype === "model_refusal_fallback";
+    tone = fallback ? "route" : "warning";
+    label = fallback ? "Route changed" : "Retrying request";
+    detail = retrySummary(block2) || (fallback ? "The request moved to a fallback model." : "The request will retry automatically.");
+  } else if (block2.type === "rate_limit") {
+    const rejected = block2.status === "rejected" || block2.overageStatus === "rejected";
+    const overageNeedsAttention = Boolean(block2.overageStatus && block2.overageStatus !== "allowed");
+    tone = rejected ? "danger" : "warning";
+    label = rejected ? "Rate limit reached" : "Rate limit warning";
+    detail = compactNoticeText(block2.text) || (block2.rateLimitType ? `${block2.rateLimitType.replace(/_/g, " ")} usage window.` : "Usage is nearing its limit.");
+    reset = finiteEpochTime(block2.status === "rejected" ? block2.resetsAt : overageNeedsAttention ? block2.overageResetsAt : block2.resetsAt);
+  } else if (block2.type === "route") {
+    tone = "route";
+    label = "Route selected";
+    detail = routeSummary(block2);
+  } else if (block2.type === "turn_end") {
+    const status = String(block2.status ?? "completed");
+    tone = status === "error" ? "danger" : status === "cancelled" ? "warning" : "complete";
+    label = status === "error" ? "Response failed" : status === "cancelled" ? "Response stopped" : "Response complete";
+    detail = terminalSummary(block2);
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: `cc-session-notice cc-session-notice-${tone}${block2.type === "error" ? " cc-session-error" : ""}`, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-notice-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-notice-label", children: label }),
+      block2.type === "error" && (block2.code || block2.requestId) && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-notice-meta", children: [compactNoticeText(block2.code), block2.requestId ? `request ${compactNoticeText(block2.requestId)}` : ""].filter(Boolean).join(" \xB7 ") }),
+      block2.type === "retry" && typeof block2.httpStatus === "number" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-session-notice-meta", children: [
+        "HTTP ",
+        block2.httpStatus
+      ] })
+    ] }),
+    detail && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-notice-detail", children: detail }),
+    reset && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-notice-reset", children: [
+      timePrefix,
+      " ",
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("time", { dateTime: reset.dateTime, children: reset.label })
+    ] }),
+    block2.type === "turn_end" && renderTerminalResult && !terminalResultDuplicated && typeof block2.result === "string" && block2.result.trim() && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-terminal-text cc-session-markdown", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: block2.result, role: "assistant", renderMarkdown }) })
+  ] });
+}
+function FailureNotice({ failure }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SessionNotice, { block: { type: "error", ...failure } });
+}
 function ActivityTimeline({
   events,
   includeText,
@@ -41710,7 +41959,8 @@ function ActivityTimeline({
   onImage,
   renderMarkdown,
   onPermissionDecision,
-  permissionGenerationId
+  permissionGenerationId,
+  renderTerminalResult = false
 }) {
   const beats = sessionActivityBeats(events);
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: `cc-session-activity${live ? " is-live" : ""}`, children: beats.map((beat) => {
@@ -41731,21 +41981,39 @@ function ActivityTimeline({
       );
     }
     if (beat.type === "error") {
-      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         "div",
         {
-          className: "cc-session-error",
           "data-session-event-id": sourceEvent?.id ?? void 0,
           "data-session-block-index": beat.blockIndex,
-          children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: "Error" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: beat.text })
-          ]
+          children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SessionNotice, { block: beat.block })
         },
         key
       );
     }
     const block2 = beat.block;
+    if (["retry", "rate_limit", "route", "turn_end", "status"].includes(beat.type)) {
+      const terminalResultDuplicated = block2.type === "turn_end" && typeof block2.result === "string" && events.some(
+        (event) => sessionEventText(event).trim() === block2.result.trim()
+      );
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        "div",
+        {
+          "data-session-event-id": sourceEvent?.id ?? void 0,
+          "data-session-block-index": beat.blockIndex,
+          children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            SessionNotice,
+            {
+              block: block2,
+              renderMarkdown,
+              renderTerminalResult,
+              terminalResultDuplicated
+            }
+          )
+        },
+        key
+      );
+    }
     if (beat.type === "thinking") {
       return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ThinkingBlock, { block: block2, active: live && activeThinkingBlock === block2 }, key);
     }
@@ -41798,22 +42066,6 @@ function SessionEventTimeline({
   );
   const resultsByToolUse = (0, import_react3.useMemo)(() => latestBlocksByToolUse(events, "tool_result"), [events]);
   const progressByToolUse = (0, import_react3.useMemo)(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
-  const terminalText = (0, import_react3.useMemo)(() => {
-    for (let eventIndex = assistantEvents.length - 1; eventIndex >= 0; eventIndex -= 1) {
-      const blocks = assistantEvents[eventIndex].blocks;
-      for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
-        const block2 = blocks[blockIndex];
-        if (block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim()) {
-          return block2.result;
-        }
-      }
-    }
-    return "";
-  }, [assistantEvents]);
-  const terminalDuplicatesText = (0, import_react3.useMemo)(
-    () => Boolean(terminalText) && assistantEvents.some((event) => sessionEventText(event).trim() === terminalText.trim()),
-    [assistantEvents, terminalText]
-  );
   const activeThinkingBlock = (0, import_react3.useMemo)(() => {
     if (!live) return null;
     let latest = null;
@@ -41843,10 +42095,10 @@ function SessionEventTimeline({
             onImage: (image, label) => setModalImage({ image, label }),
             renderMarkdown,
             onPermissionDecision,
-            permissionGenerationId
+            permissionGenerationId,
+            renderTerminalResult: true
           }
         ),
-        terminalText && !terminalDuplicatesText && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-terminal-text cc-session-markdown", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: terminalText, role: "assistant", renderMarkdown }) }),
         modalImage && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ImageModal, { image: modalImage.image, label: modalImage.label, onClose: () => setModalImage(null) })
       ]
     }
@@ -42051,7 +42303,7 @@ function SessionStream({
         return;
       }
       if (payload.type === "init") {
-        setEvents(Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : []);
+        setEvents(Array.isArray(payload.events) ? mergeSessionEvents([], payload.events.filter(isSessionEvent)) : []);
         if (payload.title) setTitle(String(payload.title));
         const nextStatus = payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended";
         setStatus(nextStatus);
@@ -42063,7 +42315,7 @@ function SessionStream({
       } else if (payload.type === "snapshot") {
         if (!Array.isArray(payload.events)) return;
         if (payload.title) setTitle(String(payload.title));
-        setEvents(payload.events.filter(isSessionEvent));
+        setEvents(mergeSessionEvents([], payload.events.filter(isSessionEvent)));
       } else if (payload.type === "end") {
         setStatus((current) => current === "unavailable" ? current : "ended");
         source.close();
@@ -42099,9 +42351,7 @@ function SessionStream({
     });
   }, [relatedTasks]);
   const visibleEvents = (0, import_react3.useMemo)(
-    () => events.filter((event) => !event.toolResultsOnly && event.blocks.some(
-      (block2) => ["text", "thinking", "tool_use", "error", "permission_request"].includes(block2.type) || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== ""
-    )),
+    () => events.filter((event) => event.role === "assistant" ? hasVisibleSessionActivity([event]) : !event.toolResultsOnly && Boolean(sessionEventText(event).trim())),
     [events]
   );
   const turns = (0, import_react3.useMemo)(() => groupSessionTurns(visibleEvents), [visibleEvents]);
@@ -42129,19 +42379,18 @@ function SessionStream({
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RelatedTasks, { tasks: relatedTasks, onOpen: (task) => setRelatedView(task) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-scroll", ref: scrollRef, onScroll, children: [
-      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-empty", children: status === "connecting" ? "Opening the activity journal\u2026" : status === "unavailable" ? "No rich activity journal is available for this turn." : live ? "Waiting for the first activity\u2026" : "No journal activity." }),
+      visibleEvents.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-empty", children: status === "connecting" ? "Opening the activity journal\u2026" : status === "unavailable" ? "No rich activity journal is available for this turn." : live ? "Waiting for the first activity\u2026" : "No journal activity." }),
       turns.map((turn, turnIndex) => {
         const turnLive = streamLive && turnIndex === turns.length - 1;
         const presentation = presentSessionTurn(turn, turnLive);
         const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
-        const terminalText = [...turn.assistantEvents].reverse().map(sessionEventTerminalText).find((text) => text.trim()) ?? "";
-        const terminalDuplicatesText = Boolean(terminalText) && turn.assistantEvents.some(
-          (event) => sessionEventText(event).trim() === terminalText.trim()
-        );
+        const hasSettlementNotice = turn.assistantEvents.some((event) => event.blocks.some(
+          (block2) => block2.type === "error" || block2.type === "retry" || block2.type === "route" || block2.type === "turn_end" || block2.type === "rate_limit" && (String(block2.status ?? "").toLowerCase() !== "allowed" || Boolean(block2.overageStatus && String(block2.overageStatus).toLowerCase() !== "allowed")) || block2.type === "status" && (block2.subtype === "api_retry" || block2.subtype === "model_refusal_fallback")
+        ));
         const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
           const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
           const activityCount = event.blocks.filter(
-            (block2) => block2.type === "thinking" || block2.type === "tool_use" || block2.type === "error" || block2.type === "permission_request"
+            (block2) => block2.type === "thinking" || block2.type === "tool_use" || block2.type === "error" || block2.type === "permission_request" || block2.type === "retry" || block2.type === "route" || block2.type === "turn_end" || block2.type === "rate_limit" && (String(block2.status ?? "").toLowerCase() !== "allowed" || Boolean(block2.overageStatus && String(block2.overageStatus).toLowerCase() !== "allowed")) || block2.type === "status" && (block2.subtype === "api_retry" || block2.subtype === "model_refusal_fallback")
           ).length;
           return count + textCount + activityCount;
         }, 0);
@@ -42153,24 +42402,22 @@ function SessionStream({
           (turn.assistantEvents.length > 0 || turnLive) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-turn assistant", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-role", children: "Assistant" }),
             !turnLive && presentation.primaryText && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: presentation.primaryText, role: "assistant" }),
-            turnLive && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                ActivityTimeline,
-                {
-                  events: turn.assistantEvents,
-                  includeText: true,
-                  omittedTextEventIndex: null,
-                  live: true,
-                  activeThinkingBlock,
-                  resultsByToolUse,
-                  progressByToolUse,
-                  onImage: (image, label) => setModalImage({ image, label })
-                }
-              ),
-              terminalText && !terminalDuplicatesText && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: terminalText, role: "assistant" })
-            ] }),
+            turnLive && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_jsx_runtime3.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              ActivityTimeline,
+              {
+                events: turn.assistantEvents,
+                includeText: true,
+                omittedTextEventIndex: null,
+                live: true,
+                activeThinkingBlock,
+                resultsByToolUse,
+                progressByToolUse,
+                onImage: (image, label) => setModalImage({ image, label }),
+                renderTerminalResult: true
+              }
+            ) }),
             turnLive && !presentation.primaryText && interimCount === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-awaiting", role: announceLiveUpdates ? "status" : void 0, children: "Working\u2026" }),
-            !turnLive && interimCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(InterimDetails, { count: interimCount, openByDefault: !presentation.primaryText, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            !turnLive && interimCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(InterimDetails, { count: interimCount, openByDefault: !presentation.primaryText || hasSettlementNotice, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
               ActivityTimeline,
               {
                 events: turn.assistantEvents,
@@ -42361,7 +42608,9 @@ function isPendingInputState(state) {
 }
 function inputLifecycleAnnouncement(input) {
   const position = typeof input.position === "number" && Number.isFinite(input.position) ? Math.max(0, Math.trunc(input.position)) : null;
-  const reason = typeof input.reason === "string" ? input.reason.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  const failureText = input.failure?.text;
+  const reasonSource = typeof failureText === "string" ? failureText : input.reason;
+  const reason = typeof reasonSource === "string" ? reasonSource.replace(/\s+/g, " ").trim().slice(0, 120) : "";
   switch (input.state) {
     case "queued":
       return position && position > 0 ? `Message queued, position ${position}.` : "Message queued.";
@@ -42376,7 +42625,7 @@ function inputLifecycleAnnouncement(input) {
     case "stopped":
       return "Response stopped.";
     case "failed":
-      return reason ? `Message failed: ${reason}.` : "Message failed.";
+      return reason ? `Message failed: ${reason}${/[.!?]$/.test(reason) ? "" : "."}` : "Message failed.";
   }
 }
 function applyInputLifecycle(turns, input) {
@@ -42388,7 +42637,7 @@ function applyInputLifecycle(turns, input) {
     const currentTerminal = currentState ? INPUT_STATE_ORDER[currentState] === 4 : false;
     const stateAdvances = !currentState || !turn.inputId || currentState === input.state || !currentTerminal && INPUT_STATE_ORDER[input.state] >= INPUT_STATE_ORDER[currentState];
     const nextState = stateAdvances ? input.state : currentState;
-    const nextStreaming = isActiveInputState(nextState);
+    const nextStreaming = !turn.eventTerminal && isActiveInputState(nextState);
     const position = typeof input.position === "number" && Number.isFinite(input.position) ? Math.max(0, Math.trunc(input.position)) : turn.inputPosition;
     const next = {
       ...turn,
@@ -42399,12 +42648,19 @@ function applyInputLifecycle(turns, input) {
       inputPosition: position,
       inputAcceptedAt: turn.inputAcceptedAt ?? input.acceptedAt,
       inputReason: stateAdvances && input.reason !== void 0 ? input.reason : turn.inputReason,
+      failure: stateAdvances && input.failure !== void 0 ? input.failure : turn.failure,
+      eventTerminal: turn.eventTerminal || stateAdvances && INPUT_STATE_ORDER[input.state] === 4,
       streaming: nextStreaming,
       ...stateAdvances && INPUT_STATE_ORDER[input.state] === 4 ? { stopError: void 0 } : {}
     };
-    const unchanged = next.clientRequestId === turn.clientRequestId && next.inputId === turn.inputId && next.generationId === turn.generationId && next.inputState === turn.inputState && next.inputPosition === turn.inputPosition && next.inputAcceptedAt === turn.inputAcceptedAt && next.inputReason === turn.inputReason && next.streaming === turn.streaming && next.stopError === turn.stopError;
+    const unchanged = next.clientRequestId === turn.clientRequestId && next.inputId === turn.inputId && next.generationId === turn.generationId && next.inputState === turn.inputState && next.inputPosition === turn.inputPosition && next.inputAcceptedAt === turn.inputAcceptedAt && next.inputReason === turn.inputReason && next.failure === turn.failure && next.eventTerminal === turn.eventTerminal && next.streaming === turn.streaming && next.stopError === turn.stopError;
     return unchanged ? turn : next;
   });
+}
+function mergeRouteAttribution(current, frame) {
+  const merged = { ...current ?? {}, ...frame };
+  if (frame.pending !== true) delete merged.pending;
+  return merged;
 }
 function numericSessionTurnId(value) {
   if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0) return value;
@@ -42475,35 +42731,38 @@ function canonicalResponseCandidates(events) {
 function canonicalAssistantReply(events) {
   return canonicalResponseCandidates(events).at(-1) ?? "";
 }
-function canonicalSuccessfulTerminalReply(events) {
+function canonicalTerminalReply(events) {
   for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
     const event = events[eventIndex];
     if (event.role !== "assistant") continue;
     for (let blockIndex = event.blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
       const block2 = event.blocks[blockIndex];
-      if (block2.type === "turn_end" && block2.status === "completed" && typeof block2.result === "string" && block2.result.trim()) {
-        return block2.result;
+      if (block2.type === "turn_end") {
+        if (typeof block2.result === "string" && block2.result.trim()) return block2.result;
+        return canonicalAssistantReply(events);
       }
     }
   }
-  return "";
+  return null;
 }
 function resolvedAssistantText(turn) {
-  const terminal = canonicalSuccessfulTerminalReply(turn.sessionEvents);
-  if (terminal) return sanitizeAssistantBadges(terminal).text;
+  const terminal = canonicalTerminalReply(turn.sessionEvents);
+  if (terminal !== null) return sanitizeAssistantBadges(terminal).text;
+  if (turn.failure) return turn.failure.text;
   const legacy = sanitizeAssistantText(turn.assistant).text;
   if (legacy.trim()) return legacy;
   return sanitizeAssistantBadges(canonicalAssistantReply(turn.sessionEvents)).text;
 }
 function resolvedAssistantRaw(turn) {
-  const terminal = canonicalSuccessfulTerminalReply(turn.sessionEvents);
-  if (terminal) return terminal;
+  const terminal = canonicalTerminalReply(turn.sessionEvents);
+  if (terminal !== null) return terminal;
+  if (turn.failure) return turn.failure.text;
   return sanitizeAssistantText(turn.assistant).text.trim() ? turn.assistant : canonicalAssistantReply(turn.sessionEvents);
 }
 function legacyAssistantFallback(assistant, events) {
   const legacy = sanitizeAssistantText(assistant).text;
   if (!legacy.trim()) return "";
-  if (canonicalSuccessfulTerminalReply(events)) return "";
+  if (hasCanonicalTurnEnd(events)) return "";
   const duplicated = canonicalResponseCandidates(events).some(
     (candidate) => sanitizeAssistantBadges(candidate).text.trim() === legacy.trim()
   );
@@ -42534,6 +42793,14 @@ function liveSessionAnnouncement(events, fallback) {
         return `Permission requested for ${permissionName}.`;
       }
       if (block2.type === "error") return "Turn failed.";
+      if (block2.type === "retry") {
+        return block2.kind === "model_fallback" ? "Route changed to a fallback model." : "Request retrying.";
+      }
+      if (block2.type === "rate_limit") {
+        if (block2.status === "allowed" && (!block2.overageStatus || block2.overageStatus === "allowed")) continue;
+        return block2.status === "rejected" || block2.overageStatus === "rejected" ? "Rate limit reached." : "Rate limit warning.";
+      }
+      if (block2.type === "route") return "Route selected.";
       if (block2.type === "turn_end") {
         if (block2.status === "cancelled") return "Turn cancelled.";
         if (block2.status === "error" || block2.status === "failed") return "Turn failed.";
@@ -42551,6 +42818,25 @@ function liveSessionAnnouncement(events, fallback) {
 }
 function hasCanonicalTurnEnd(events) {
   return events.some((event) => event.blocks.some((block2) => block2.type === "turn_end"));
+}
+function terminalBlock(event) {
+  for (let index = event.blocks.length - 1; index >= 0; index -= 1) {
+    if (event.blocks[index].type === "turn_end") return event.blocks[index];
+  }
+  return null;
+}
+function terminalInputState(block2) {
+  if (block2.status === "cancelled") return "stopped";
+  if (block2.status === "error" || block2.status === "failed") return "failed";
+  return "settled";
+}
+function failureFromUnknown(value) {
+  if (value instanceof ChatTransportError) return value.failure;
+  if (value && typeof value === "object" && "failure" in value) {
+    const failure = value.failure;
+    if (isFailureInfo(failure)) return failure;
+  }
+  return void 0;
 }
 function rebindActiveTurn(turns, assistantSnapshot = "") {
   if (turns.length === 0) {
@@ -42580,8 +42866,7 @@ function applyRouteFrame(turns, frame) {
     if (seq < last.seq) return turns;
     if (!last.streaming) return turns;
   }
-  const merged = { ...last.route ?? {}, ...frame };
-  if (frame.pending !== true) delete merged.pending;
+  const merged = mergeRouteAttribution(last.route, frame);
   const copy = turns.slice();
   copy[idx] = { ...last, route: merged, ...seq !== null ? { seq } : {} };
   return copy;
@@ -42651,7 +42936,7 @@ function QuestionBlock({
     ] }),
     answered && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user cc-question-answer", children: answered }),
     !active && !answered && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-inactive", children: "This question is no longer active and cannot be answered." }),
-    active && error && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-error", role: "alert", children: error })
+    active && error && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-error", children: error })
   ] });
 }
 function InputLifecycleStatus({
@@ -42672,7 +42957,7 @@ function InputLifecycleStatus({
     failed: "Failed"
   };
   const active = state === "starting" || state === "running" || state === "stopping";
-  const detail = state === "queued" && typeof turn.inputPosition === "number" ? `Position ${turn.inputPosition}` : turn.inputReason || (active ? hint : "");
+  const detail = state === "queued" && typeof turn.inputPosition === "number" ? `Position ${turn.inputPosition}` : active ? hint : turn.failure ? "" : turn.inputReason || "";
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `cc-lifecycle cc-lifecycle-${state}`, "data-input-state": state, children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-mark", "aria-hidden": "true", children: active ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-working-dots", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
@@ -42681,7 +42966,7 @@ function InputLifecycleStatus({
     ] }) : null }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-label", children: label[state] }),
     active && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-time", children: fmtElapsed(elapsed) }),
-    detail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-detail", title: detail, children: detail }),
+    detail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-detail", children: detail }),
     turn.stopError && turn.generationId && (state === "starting" || state === "running") && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-lifecycle-stoperror", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { children: [
         "Stop failed: ",
@@ -42803,32 +43088,44 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   const seededTurns = (0, import_react4.useMemo)(
-    () => (initialHistory ?? []).map((h) => ({
-      id: nextId(),
-      user: h.user,
-      assistant: h.assistant,
-      streaming: h.input ? isActiveInputState(h.input.state) : false,
-      hideUser: h.hideUser,
-      // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
-      // stamped frame can never be mis-attached to one of them.
-      seq: 0,
-      sessionEvents: mergeSessionEvents([], h.sessionEvents ?? []),
-      route: h.route,
-      overrides: h.overrides,
-      clientRequestId: h.input?.clientRequestId,
-      inputId: h.input?.inputId,
-      generationId: h.input?.generationId,
-      inputState: h.input?.state,
-      inputPosition: h.input?.position,
-      inputReason: h.input?.reason,
-      inputAcceptedAt: h.input?.acceptedAt
-    })),
+    () => (initialHistory ?? []).map((h) => {
+      const sessionEvents = mergeSessionEvents([], h.sessionEvents ?? []);
+      let boundary = null;
+      for (let eventIndex = sessionEvents.length - 1; eventIndex >= 0 && !boundary; eventIndex -= 1) {
+        boundary = terminalBlock(sessionEvents[eventIndex]);
+      }
+      const inputState = boundary ? terminalInputState(boundary) : h.input?.state;
+      return {
+        id: nextId(),
+        user: h.user,
+        assistant: h.assistant,
+        streaming: !boundary && (h.input ? isActiveInputState(h.input.state) : false),
+        hideUser: h.hideUser,
+        // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
+        // stamped frame can never be mis-attached to one of them.
+        seq: 0,
+        sessionEvents,
+        route: h.route,
+        overrides: h.overrides,
+        clientRequestId: h.input?.clientRequestId,
+        inputId: h.input?.inputId,
+        generationId: h.input?.generationId,
+        inputState,
+        inputPosition: h.input?.position,
+        inputReason: h.input?.reason,
+        inputAcceptedAt: h.input?.acceptedAt,
+        failure: h.input?.failure,
+        eventTerminal: Boolean(boundary)
+      };
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
   const [turns, setTurns] = (0, import_react4.useState)(seededTurns);
+  const turnsRef = (0, import_react4.useRef)(turns);
+  turnsRef.current = turns;
   const terminalCoordinatesRef = (0, import_react4.useRef)(new Set(
-    seededTurns.filter((turn) => turn.inputState && INPUT_STATE_ORDER[turn.inputState] === 4).flatMap(generatedCoordinateKeys)
+    seededTurns.filter((turn) => turn.eventTerminal || turn.inputState && INPUT_STATE_ORDER[turn.inputState] === 4).flatMap(generatedCoordinateKeys)
   ));
   const rememberTerminalCoordinate = (0, import_react4.useCallback)((coordinate) => {
     for (const key of generatedCoordinateKeys(coordinate)) terminalCoordinatesRef.current.add(key);
@@ -42837,8 +43134,8 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const [status, setStatus] = (0, import_react4.useState)({ rows: [], mode: "unknown", contextPct: null, model: null });
   const generatedMode = transport.inputLifecycle === true;
   const [legacyBusy, setLegacyBusy] = (0, import_react4.useState)(false);
-  const generatedWork = generatedMode && turns.some((turn) => isPendingInputState(turn.inputState));
-  const activeGeneratedTurn = generatedMode ? turns.find((turn) => isActiveInputState(turn.inputState)) ?? null : null;
+  const generatedWork = generatedMode && turns.some((turn) => !turn.eventTerminal && isPendingInputState(turn.inputState));
+  const activeGeneratedTurn = generatedMode ? turns.find((turn) => !turn.eventTerminal && isActiveInputState(turn.inputState)) ?? null : null;
   const busy = generatedMode ? generatedWork : legacyBusy;
   const generatedWorkRef = (0, import_react4.useRef)(generatedWork);
   generatedWorkRef.current = generatedWork;
@@ -42936,12 +43233,27 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const [pins, setPins] = (0, import_react4.useState)(() => compactRouting(routing) ?? {});
   const pinsRef = (0, import_react4.useRef)(pins);
   pinsRef.current = pins;
+  const pinSaveEpochRef = (0, import_react4.useRef)(0);
+  const [pinSavePending, setPinSavePending] = (0, import_react4.useState)(false);
+  const [pinSaveError, setPinSaveError] = (0, import_react4.useState)(null);
   const routingPropKey = JSON.stringify(compactRouting(routing) ?? {});
   (0, import_react4.useEffect)(() => {
-    if (JSON.stringify(pinsRef.current) === routingPropKey) return;
-    setPins(JSON.parse(routingPropKey));
+    if (JSON.stringify(pinsRef.current) === routingPropKey) {
+      pinSaveEpochRef.current += 1;
+      setPinSavePending(false);
+      setPinSaveError(null);
+      return;
+    }
+    const authoritative = JSON.parse(routingPropKey);
+    pinSaveEpochRef.current += 1;
+    pinsRef.current = authoritative;
+    setPins(authoritative);
+    setPinSavePending(false);
+    setPinSaveError(null);
   }, [routingPropKey]);
   const [pendingPins, setPendingPins] = (0, import_react4.useState)([]);
+  const pendingPinsRef = (0, import_react4.useRef)(pendingPins);
+  pendingPinsRef.current = pendingPins;
   const [railOpen, setRailOpen] = (0, import_react4.useState)(false);
   const [resendArmed, setResendArmed] = (0, import_react4.useState)(false);
   const [activity, setActivity] = (0, import_react4.useState)("");
@@ -43004,6 +43316,9 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const audioRef = (0, import_react4.useRef)(null);
   const audioUrlRef = (0, import_react4.useRef)(null);
   const lastSpokenRef = (0, import_react4.useRef)("");
+  (0, import_react4.useEffect)(() => {
+    if (voiceError) setTurnAnnouncement(voiceError);
+  }, [voiceError]);
   (0, import_react4.useEffect)(() => {
     if (!voiceOn || !voiceClient) return;
     let cancelled = false;
@@ -43101,18 +43416,50 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
             applyAssistant(ev.text);
           }
           break;
-        case "session_event":
+        case "session_event": {
+          const boundary = terminalBlock(ev.event);
+          const eventGenerationId = typeof ev.event.generationId === "string" && ev.event.generationId.trim() ? ev.event.generationId : void 0;
+          const coordinate = {
+            ...ev.inputId ? { inputId: ev.inputId } : {},
+            ...ev.generationId || eventGenerationId ? { generationId: ev.generationId ?? eventGenerationId } : {}
+          };
+          const exactEvent = !generatedMode || findGeneratedTurnIndex(turnsRef.current, coordinate) >= 0;
+          const exactBoundary = boundary && exactEvent ? boundary : null;
+          if (generatedMode && exactBoundary) rememberTerminalCoordinate(coordinate);
           setTurns((prev) => {
             if (generatedMode) {
-              return applyGeneratedTurn(prev, ev, (turn) => {
+              return applyGeneratedTurn(prev, coordinate, (turn) => {
                 const sessionEvents = mergeSessionEvents(turn.sessionEvents, [ev.event]);
-                return sessionEvents === turn.sessionEvents ? turn : { ...turn, sessionEvents };
+                if (!boundary) return sessionEvents === turn.sessionEvents ? turn : { ...turn, sessionEvents };
+                return {
+                  ...turn,
+                  sessionEvents,
+                  eventTerminal: true,
+                  inputState: terminalInputState(boundary),
+                  streaming: false,
+                  activity: "",
+                  stopError: void 0,
+                  answered: boundary.status === "error" ? void 0 : turn.answered,
+                  answering: false,
+                  questionError: void 0
+                };
               });
             }
             const base = prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: "", streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
-            return applySessionEvent(base, ev.event);
+            const attached = applySessionEvent(base, ev.event);
+            return boundary ? applyTurnActive(attached, false) : attached;
           });
+          if (exactBoundary) {
+            if (!generatedMode) {
+              setLegacyBusy(false);
+              setActivity("");
+            }
+            setTurnAnnouncement(exactBoundary.status === "cancelled" ? "Response stopped." : exactBoundary.status === "error" || exactBoundary.status === "failed" ? "Turn failed." : "Response complete.");
+          } else if (exactEvent && hasVisibleSessionActivity([ev.event])) {
+            setTurnAnnouncement(liveSessionAnnouncement([ev.event], ""));
+          }
           break;
+        }
         case "status":
           setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
           break;
@@ -43147,10 +43494,9 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
         }
         case "route": {
           const { type: _type, inputId: _inputId, generationId: _generationId, ...attribution } = ev;
-          setTurns((prev) => generatedMode ? applyGeneratedTurn(prev, ev, (turn) => ({
-            ...turn,
-            route: { ...turn.route ?? {}, ...attribution }
-          })) : applyRouteFrame(prev, attribution));
+          setTurns((prev) => generatedMode ? applyGeneratedTurn(prev, ev, (turn) => {
+            return { ...turn, route: mergeRouteAttribution(turn.route, attribution) };
+          }) : applyRouteFrame(prev, attribution));
           break;
         }
         case "activity": {
@@ -43167,7 +43513,8 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
           break;
         }
         case "input": {
-          if (INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
+          const exactInput = !generatedMode || findGeneratedTurnIndex(turnsRef.current, ev) >= 0;
+          if (exactInput && INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
           setTurns((prev) => {
             const next = applyInputLifecycle(prev, ev);
             if (INPUT_STATE_ORDER[ev.state] !== 4) return next;
@@ -43178,32 +43525,51 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
               questionError: void 0
             }));
           });
-          setTurnAnnouncement(inputLifecycleAnnouncement(ev));
+          if (exactInput) setTurnAnnouncement(inputLifecycleAnnouncement(ev));
           break;
         }
         case "connection":
           setConn(ev.state);
           break;
-        case "error":
+        case "error": {
+          const failure = ev.failure;
+          const message = ev.message ?? failure?.text ?? "Request failed";
           if (generatedMode) {
+            if (findGeneratedTurnIndex(turnsRef.current, ev) < 0) break;
             rememberTerminalCoordinate(ev);
             setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) => ({
               ...turn,
-              assistant: `_error: ${ev.message}_`,
+              ...failure ? {} : { assistant: `_error: ${message}_` },
               streaming: false,
               inputState: "failed",
-              inputReason: ev.message,
+              inputReason: message,
+              failure: failure ?? turn.failure,
+              eventTerminal: true,
               activity: "",
               stopError: void 0,
               answered: void 0,
               answering: false,
               questionError: void 0
             })));
-            setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: ev.message }));
+            setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: message, failure }));
           } else {
-            applyAssistant(`_error: ${ev.message}_`);
+            setLegacyBusy(false);
+            setActivity("");
+            if (failure) {
+              setTurns((prev) => {
+                const base = prev.length ? prev : [{ id: nextId(), user: "", assistant: "", streaming: false, hideUser: true, seq: 0, sessionEvents: [] }];
+                const copy = base.slice();
+                copy[copy.length - 1] = { ...copy[copy.length - 1], streaming: false, failure };
+                return copy;
+              });
+              setTurnAnnouncement(`Request failed: ${failure.text}`);
+            } else {
+              applyAssistant(`_error: ${message}_`);
+              setTurns((prev) => applyTurnActive(prev, false));
+            }
           }
           break;
+        }
       }
     });
     return off;
@@ -43289,6 +43655,7 @@ ${full}` : full;
       } else if (optimisticState) {
         setTurnAnnouncement(inputLifecycleAnnouncement({ state: optimisticState }));
       }
+      pendingPinsRef.current = [];
       setPendingPins([]);
       setResendArmed(false);
       pinnedRef.current = true;
@@ -43299,18 +43666,22 @@ ${full}` : full;
       if (generatedMode && clientRequestId) {
         p.then((receipt) => {
           if (!isChatInputReceipt(receipt)) return;
+          if (INPUT_STATE_ORDER[receipt.state] === 4) rememberTerminalCoordinate(receipt);
           setTurns((prev) => applyInputLifecycle(prev, receipt));
           setTurnAnnouncement(inputLifecycleAnnouncement(receipt));
         }).catch((error) => {
-          const reason = error instanceof Error ? error.message : String(error ?? "input admission failed");
+          const failure = failureFromUnknown(error);
+          const reason = failure?.text ?? (error instanceof Error ? error.message : String(error ?? "input admission failed"));
           rememberTerminalCoordinate({ clientRequestId });
           setTurns((prev) => applyGeneratedTurn(prev, { clientRequestId }, (turn) => ({
             ...turn,
             streaming: false,
             inputState: "failed",
-            inputReason: reason
+            inputReason: reason,
+            failure,
+            eventTerminal: true
           })));
-          setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason }));
+          setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason, failure }));
         });
       } else {
         p.catch(() => {
@@ -43659,7 +44030,7 @@ ${full}` : full;
   const answerQuestion = (0, import_react4.useCallback)(
     (turn, toolUseId, choice) => {
       const generatedQuestion = Boolean(turn.inputState);
-      const active = generatedQuestion ? isActiveInputState(turn.inputState) && !isRememberedTerminalCoordinate(turn) : turn.streaming;
+      const active = generatedQuestion ? !turn.eventTerminal && isActiveInputState(turn.inputState) && !isRememberedTerminalCoordinate(turn) : turn.streaming;
       if (!active) return;
       const turnId = turn.id;
       const chosen = choice.label ?? choice.text ?? "";
@@ -43672,20 +44043,65 @@ ${full}` : full;
           answering: false,
           questionError: "Could not send the answer. Please try again."
         } : t));
+        setTurnAnnouncement("Could not send the answer. Please try again.");
         return;
       }
-      Promise.resolve(fn.call(transport, { toolUseId, ...choice })).then(() => setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? { ...t, answering: false, questionError: void 0 } : t))).catch(() => setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? {
-        ...t,
-        answered: void 0,
-        answering: false,
-        questionError: "Could not send the answer. Please try again."
-      } : t)));
+      Promise.resolve(fn.call(transport, { toolUseId, ...choice })).then(() => setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? { ...t, answering: false, questionError: void 0 } : t))).catch(() => {
+        setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? {
+          ...t,
+          answered: void 0,
+          answering: false,
+          questionError: "Could not send the answer. Please try again."
+        } : t));
+        setTurnAnnouncement("Could not send the answer. Please try again.");
+      });
     },
     [transport, isRememberedTerminalCoordinate]
   );
+  const persistPinChange = (0, import_react4.useCallback)(
+    (next, previous, previousPending, touched) => {
+      if (!onPinChange) {
+        setPinSavePending(false);
+        setPinSaveError(null);
+        return;
+      }
+      const epoch = ++pinSaveEpochRef.current;
+      setPinSavePending(true);
+      setPinSaveError(null);
+      let result;
+      try {
+        result = onPinChange(next);
+      } catch (error) {
+        result = Promise.reject(error);
+      }
+      Promise.resolve(result).then(
+        () => {
+          if (pinSaveEpochRef.current !== epoch) return;
+          setPinSavePending(false);
+        },
+        () => {
+          if (pinSaveEpochRef.current !== epoch) return;
+          pinsRef.current = previous;
+          setPins(previous);
+          pendingPinsRef.current = previousPending;
+          setPendingPins(previousPending);
+          setPinSavePending(false);
+          setPinSaveError({
+            attempted: next,
+            touched,
+            message: "Could not save route choices. Your previous choices were restored."
+          });
+          setTurnAnnouncement("Could not save route choices. Your previous choices were restored. Retry is available.");
+        }
+      );
+    },
+    [onPinChange]
+  );
   const applyPin = (0, import_react4.useCallback)(
     (patch) => {
-      const next = { ...pinsRef.current };
+      const previous = { ...pinsRef.current };
+      const previousPending = [...pendingPinsRef.current];
+      const next = { ...previous };
       const touched = [];
       for (const [key, value] of Object.entries(patch)) {
         const field = key;
@@ -43702,12 +44118,31 @@ ${full}` : full;
       }
       if (!touched.length) return;
       const compact2 = compactRouting(next) ?? {};
+      pinsRef.current = compact2;
       setPins(compact2);
-      if (busy) setPendingPins((prev) => [.../* @__PURE__ */ new Set([...prev, ...touched])]);
-      onPinChange?.(compact2);
+      if (busy) {
+        const nextPending = [.../* @__PURE__ */ new Set([...previousPending, ...touched])];
+        pendingPinsRef.current = nextPending;
+        setPendingPins(nextPending);
+      }
+      persistPinChange(compact2, previous, previousPending, touched);
     },
-    [busy, onPinChange]
+    [busy, persistPinChange]
   );
+  const retryPinSave = (0, import_react4.useCallback)(() => {
+    if (!pinSaveError) return;
+    const previous = { ...pinsRef.current };
+    const previousPending = [...pendingPinsRef.current];
+    const attempted = { ...pinSaveError.attempted };
+    pinsRef.current = attempted;
+    setPins(attempted);
+    if (busy) {
+      const nextPending = [.../* @__PURE__ */ new Set([...previousPending, ...pinSaveError.touched])];
+      pendingPinsRef.current = nextPending;
+      setPendingPins(nextPending);
+    }
+    persistPinChange(attempted, previous, previousPending, pinSaveError.touched);
+  }, [pinSaveError, busy, persistPinChange]);
   const requestGeneratedStop = (0, import_react4.useCallback)(async (turn, restore) => {
     if (!turn.generationId || turn.inputState !== "starting" && turn.inputState !== "running" || isRememberedTerminalCoordinate(turn)) return;
     const coordinate = {
@@ -43782,7 +44217,7 @@ ${full}` : full;
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, stopTurn]);
   const hasPins = Object.keys(pins).length > 0;
-  const showFlightRail = railOn && (busy || hasPins || railOpen);
+  const showFlightRail = railOn && (busy || hasPins || railOpen || pinSavePending || Boolean(pinSaveError));
   const generatedStopDisabled = !activeGeneratedTurn?.generationId || activeGeneratedTurn.inputState === "stopping";
   const generatedStopLabel = activeGeneratedTurn?.inputState === "stopping" ? "Stopping\u2026" : activeGeneratedTurn?.stopError ? "Retry stop" : "Stop";
   const flightRailEnd = generatedMode && busy ? activeGeneratedTurn ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
@@ -43875,7 +44310,11 @@ ${full}` : full;
         turns.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-empty", children: "Send a message to begin \xB7 type / for commands and skills" }),
         turns.map((t) => {
           const clean = sanitizeAssistantText(t.assistant);
+          const legacyText = t.failure ? "" : clean.text;
           const hasCanonicalActivity = hasVisibleSessionActivity(t.sessionEvents);
+          const canonicalOwnsFailure = t.sessionEvents.some(
+            (event) => event.blocks.some((block2) => block2.type === "error")
+          );
           const legacyFallback = hasCanonicalActivity ? legacyAssistantFallback(t.assistant, t.sessionEvents) : "";
           const actionText = resolvedAssistantText(t);
           const turnWorkingHint = generatedMode ? t.activity ?? "" : workingHint;
@@ -43888,7 +44327,7 @@ ${full}` : full;
           const routeTitle = structuredChip ? structuredChip.title : metaTitle;
           return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-turn", children: [
             !t.hideUser && t.user.trim() !== "" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user", children: t.user }),
-            (clean.text || hasCanonicalActivity || t.streaming || t.question || t.route || t.inputState || t.stopError) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-assistant", children: [
+            (legacyText || hasCanonicalActivity || t.streaming || t.question || t.route || t.inputState || t.stopError || t.failure) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-assistant", children: [
               t.inputState && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 InputLifecycleStatus,
                 {
@@ -43900,21 +44339,22 @@ ${full}` : full;
                   }
                 }
               ),
+              t.failure && !canonicalOwnsFailure && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(FailureNotice, { failure: t.failure }),
               hasCanonicalActivity ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 SessionEventTimeline,
                 {
                   events: t.sessionEvents,
                   live: t.streaming,
                   renderMarkdown: renderAssistantMarkdown,
-                  permissionGenerationId: isActiveInputState(t.inputState) ? t.generationId : void 0,
+                  permissionGenerationId: !t.eventTerminal && isActiveInputState(t.inputState) ? t.generationId : void 0,
                   onPermissionDecision: transport.answerPermission ? (answer) => {
-                    if (!isActiveInputState(t.inputState) || !t.generationId || answer.generationId !== t.generationId || isRememberedTerminalCoordinate(t)) {
+                    if (t.eventTerminal || !isActiveInputState(t.inputState) || !t.generationId || answer.generationId !== t.generationId || isRememberedTerminalCoordinate(t)) {
                       return Promise.reject(new Error("permission request is no longer active"));
                     }
                     return transport.answerPermission(answer);
                   } : void 0
                 }
-              ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: renderChatMarkdown(clean.text || "") } }),
+              ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: renderChatMarkdown(legacyText || "") } }),
               legacyFallback && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 "div",
                 {
@@ -43922,8 +44362,8 @@ ${full}` : full;
                   dangerouslySetInnerHTML: { __html: renderChatMarkdown(legacyFallback) }
                 }
               ),
-              !hasCanonicalActivity && t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
-              !t.inputState && !hasCanonicalActivity && t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-working", children: [
+              !hasCanonicalActivity && t.streaming && legacyText && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
+              !t.inputState && !hasCanonicalActivity && t.streaming && !legacyText && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-working", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-working-dots", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
@@ -43943,7 +44383,7 @@ ${full}` : full;
                   answered: t.answered,
                   answering: t.answering,
                   error: t.questionError,
-                  active: t.inputState ? isActiveInputState(t.inputState) : t.streaming,
+                  active: !t.eventTerminal && (t.inputState ? isActiveInputState(t.inputState) : t.streaming),
                   onSelect: (label) => answerQuestion(t, t.question.toolUseId, { label }),
                   onOther: (text) => answerQuestion(t, t.question.toolUseId, { text })
                 }
@@ -44147,21 +44587,27 @@ ${full}` : full;
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-composer", children: [
-      showFlightRail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-        AttributionRail,
-        {
-          variant: "flight",
-          route: rewriteRouteForHost(latestAssistant?.route, hostCtx()),
-          pins,
-          pendingFields: pendingPins,
-          options: routeOptions ?? void 0,
-          onPin: applyPin,
-          onOpenTranscript,
-          label: "Run context for your next message",
-          musterUrl,
-          children: flightRailEnd
-        }
-      ),
+      showFlightRail && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          AttributionRail,
+          {
+            variant: "flight",
+            route: rewriteRouteForHost(latestAssistant?.route, hostCtx()),
+            pins,
+            pendingFields: pendingPins,
+            options: routeOptions ?? void 0,
+            onPin: applyPin,
+            onOpenTranscript,
+            label: "Run context for your next message",
+            musterUrl,
+            children: flightRailEnd
+          }
+        ),
+        (pinSavePending || pinSaveError) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: pinSaveError?.message ?? "Saving route choices\u2026" }),
+          pinSaveError && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", onClick: retryPinSave, children: "Retry save" })
+        ] })
+      ] }),
       slashQuery !== null && filtered.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-slashmenu", children: filtered.map((c, i) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
         "button",
         {
@@ -44179,7 +44625,7 @@ ${full}` : full;
         },
         c.name
       )) }),
-      feat.voice && voiceError && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-voiceerr", role: "status", children: [
+      feat.voice && voiceError && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-voiceerr", children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-voiceerr-msg", children: voiceError }),
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           "button",

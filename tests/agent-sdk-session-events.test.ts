@@ -47,6 +47,7 @@ describe("Agent SDK channel-neutral session events", () => {
 
     await adapter.sendTurn(session, "fixture prompt", {
       turnId: "turn-fixture",
+      generationId: "generation-fixture",
       onEvent: async (event: any) => events.push(event),
       onText: (text: string) => growingText.push(text),
       onTool: (tool: any) => legacyTools.push(tool),
@@ -110,7 +111,7 @@ describe("Agent SDK channel-neutral session events", () => {
     ]);
     expect(blocks(events, "turn_end").map(({ event, block }) => ({ event, block }))).toEqual([
       expect.objectContaining({
-        event: expect.objectContaining({ id: "uuid-52", sessionId: "session-53" }),
+        event: expect.objectContaining({ id: 'terminal:["generation-fixture"]', sessionId: "session-53" }),
         block: expect.objectContaining({ status: "completed", subtype: "success", stopReason: "end_turn" })
       })
     ]);
@@ -202,6 +203,294 @@ describe("Agent SDK channel-neutral session events", () => {
     expect(events.every((event) => event.ts === 1234)).toBe(true);
   });
 
+  it("preserves retry/rate-limit fields and maps assistant failures without provider secrets", () => {
+    const normalizer = new AgentSdkSessionEventNormalizer({
+      generationId: "generation-errors",
+      sessionId: "session-errors",
+      now: () => 2222,
+    });
+    const events = [
+      ...normalizer.push({
+        type: "system",
+        subtype: "api_retry",
+        uuid: "retry-1",
+        session_id: "session-errors",
+        attempt: 2,
+        max_retries: 5,
+        retry_delay_ms: 1750,
+        error_status: null,
+        error: "overloaded",
+      }),
+      ...normalizer.push({
+        type: "system",
+        subtype: "api_retry",
+        uuid: "retry-2",
+        session_id: "session-errors",
+        attempt: 3,
+        max_retries: 5,
+        retry_delay_ms: 2500,
+        error_status: 503,
+        error: "server_error",
+      }),
+      ...normalizer.push({
+        type: "rate_limit_event",
+        uuid: "limit-1",
+        session_id: "session-errors",
+        rate_limit_info: {
+          status: "allowed_warning",
+          resetsAt: 2000,
+          rateLimitType: "seven_day_opus",
+          utilization: 0.91,
+          overageStatus: "rejected",
+          overageResetsAt: 3000,
+          overageDisabledReason: "out_of_credits",
+          isUsingOverage: false,
+          overageInUse: true,
+          surpassedThreshold: 0.9,
+        },
+      }),
+      ...normalizer.push({
+        type: "assistant",
+        uuid: "assistant-error-wire",
+        session_id: "session-errors",
+        request_id: "request-safe",
+        error: "rate_limit",
+        message: { id: "assistant-error", model: "claude-a", content: [] },
+      }),
+    ];
+
+    expect(blocks(events, "retry")[0].block).toEqual({
+      type: "retry",
+      kind: "api",
+      text: "API request retrying (2/5) in 1750 ms.",
+      attempt: 2,
+      maxAttempts: 5,
+      delayMs: 1750,
+      httpStatus: null,
+      errorKind: "overloaded",
+    });
+    expect(blocks(events, "retry")[1].block).toMatchObject({
+      attempt: 3,
+      maxAttempts: 5,
+      delayMs: 2500,
+      httpStatus: 503,
+      errorKind: "server_error",
+    });
+    expect(blocks(events, "rate_limit")[0].block).toEqual({
+      type: "rate_limit",
+      status: "allowed_warning",
+      resetsAt: 2000,
+      rateLimitType: "seven_day_opus",
+      utilization: 0.91,
+      overageStatus: "rejected",
+      overageResetsAt: 3000,
+      overageDisabledReason: "out_of_credits",
+      isUsingOverage: false,
+      overageInUse: true,
+      surpassedThreshold: 0.9,
+    });
+    expect(blocks(events, "error")[0].block).toEqual({
+      type: "error",
+      source: "assistant",
+      kind: "rate_limit",
+      code: "rate_limit",
+      text: "Assistant request failed: rate_limit.",
+      retryable: true,
+      requestId: "request-safe",
+    });
+  });
+
+  it("maps every pinned assistant error code into the closed provider-neutral failure vocabulary", () => {
+    const expected = {
+      authentication_failed: ["authentication", false],
+      oauth_org_not_allowed: ["authorization", false],
+      billing_error: ["billing", false],
+      rate_limit: ["rate_limit", true],
+      overloaded: ["overloaded", true],
+      invalid_request: ["invalid_request", false],
+      model_not_found: ["not_found", false],
+      server_error: ["transport", true],
+      unknown: ["unknown", false],
+      max_output_tokens: ["limit", false],
+    } as const;
+
+    for (const [code, [kind, retryable]] of Object.entries(expected)) {
+      const normalizer = new AgentSdkSessionEventNormalizer({ generationId: `generation-${code}` });
+      const event = normalizer.push({
+        type: "assistant",
+        uuid: `wire-${code}`,
+        error: code,
+        message: { id: `assistant-${code}`, content: [] },
+      })[0];
+      expect(event.blocks).toEqual([expect.objectContaining({
+        type: "error",
+        source: "assistant",
+        kind,
+        code,
+        retryable,
+      })]);
+    }
+  });
+
+  it("freezes the first timestamp/order across assistant revisions", () => {
+    const normalizer = new AgentSdkSessionEventNormalizer({ generationId: "generation-revisions" });
+    const first = normalizer.push({
+      type: "assistant",
+      uuid: "wire-revision-1",
+      timestamp: "2026-08-16T10:00:00.000Z",
+      message: { id: "assistant-revision", content: [{ type: "text", text: "first" }] },
+    })[0];
+    const second = normalizer.push({
+      type: "assistant",
+      uuid: "wire-revision-2",
+      timestamp: "2026-08-16T10:01:00.000Z",
+      message: { id: "assistant-revision", content: [{ type: "text", text: "second" }] },
+    })[0];
+
+    expect(second).toMatchObject({
+      id: first.id,
+      ts: first.ts,
+      order: first.order,
+      revision: 2,
+    });
+  });
+
+  it("turns refusal fallback wire UUIDs into bounded canonical tombstones and exposes the observed model", () => {
+    const normalizer = new AgentSdkSessionEventNormalizer({ generationId: "generation-fallback" });
+    normalizer.push({
+      type: "assistant",
+      uuid: "wire-refused",
+      session_id: "session-fallback",
+      message: { id: "assistant-refused", model: "claude-primary", content: [{ type: "text", text: "refused leg" }] },
+    });
+    const [replacement] = normalizer.push({
+      type: "assistant",
+      uuid: "wire-replacement",
+      session_id: "session-fallback",
+      supersedes: ["wire-refused", "wire-unknown"],
+      message: { id: "assistant-replacement", model: "claude-fallback", content: [{ type: "text", text: "replacement" }] },
+    });
+    const [fallback] = normalizer.push({
+      type: "system",
+      subtype: "model_refusal_fallback",
+      uuid: "fallback-notice",
+      session_id: "session-fallback",
+      trigger: "refusal",
+      direction: "retry",
+      original_model: "claude-primary",
+      fallback_model: "claude-fallback",
+      request_id: "request-fallback",
+      retracted_message_uuids: ["wire-refused", "wire-replacement", "wire-unknown"],
+      content: "Retrying safely.",
+    });
+
+    expect(replacement.retracts).toEqual(["assistant-refused"]);
+    expect(fallback.retracts).toEqual(["assistant-refused", "assistant-replacement"]);
+    expect(fallback.blocks).toEqual([{
+      type: "retry",
+      kind: "model_fallback",
+      text: "Retrying safely.",
+      fromModel: "claude-primary",
+      toModel: "claude-fallback",
+      direction: "retry",
+      requestId: "request-fallback",
+    }]);
+    expect(normalizer.model).toBe("claude-fallback");
+
+    const bounded = new AgentSdkSessionEventNormalizer({ generationId: "generation-bounded-retracts" });
+    for (let index = 0; index < 70; index += 1) {
+      bounded.push({
+        type: "assistant",
+        uuid: `wire-bounded-${index}`,
+        message: { id: `assistant-bounded-${index}`, content: [{ type: "text", text: String(index) }] },
+      });
+    }
+    const [boundedFallback] = bounded.push({
+      type: "system",
+      subtype: "model_refusal_fallback",
+      uuid: "bounded-fallback",
+      original_model: "primary",
+      fallback_model: "fallback",
+      retracted_message_uuids: Array.from({ length: 70 }, (_value, index) => `wire-bounded-${index}`),
+      content: "bounded",
+    });
+    expect(boundedFallback.retracts).toHaveLength(64);
+    expect(boundedFallback.retracts.at(-1)).toBe("assistant-bounded-63");
+  });
+
+  it("keeps provider result facts separate from host reason and revises one terminal slot on runtime failure", () => {
+    const normalizer = new AgentSdkSessionEventNormalizer({
+      generationId: "generation-terminal",
+      now: () => 4444,
+    });
+    const result = {
+      type: "result",
+      uuid: "provider-result-wire",
+      subtype: "error_max_budget_usd",
+      is_error: true,
+      stop_reason: "max_budget_usd",
+      terminal_reason: "blocking_limit",
+      errors: ["Provider budget was exhausted."],
+    };
+    const [providerTerminal] = normalizer.finishResult(result, "budget_exceeded");
+    expect(providerTerminal).toMatchObject({
+      id: 'terminal:["generation-terminal"]',
+      revision: 1,
+      blocks: [
+        expect.objectContaining({ source: "result", kind: "limit", code: "error_max_budget_usd" }),
+        expect.objectContaining({
+          type: "turn_end",
+          status: "error",
+          subtype: "error_max_budget_usd",
+          reason: "budget_exceeded",
+          stopReason: "max_budget_usd",
+          terminalReason: "blocking_limit",
+        }),
+      ],
+    });
+
+    const [runtimeTerminal] = normalizer.runtimeError(new Error("iterator integrity failure"), {
+      resultMessage: result,
+    });
+    expect(runtimeTerminal).toMatchObject({
+      id: providerTerminal.id,
+      ts: providerTerminal.ts,
+      order: providerTerminal.order,
+      revision: 2,
+      blocks: [
+        expect.objectContaining({ source: "runtime", code: "runtime_error" }),
+        expect.objectContaining({
+          type: "turn_end",
+          status: "error",
+          subtype: "error_max_budget_usd",
+          stopReason: "max_budget_usd",
+          terminalReason: "blocking_limit",
+        }),
+      ],
+    });
+
+    const apiFailure = new AgentSdkSessionEventNormalizer({ generationId: "generation-api-failure" });
+    const [apiTerminal] = apiFailure.finishResult({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      api_error_status: 503,
+      stop_reason: null,
+      result: "partial",
+    });
+    expect(apiTerminal.blocks).toEqual([
+      expect.objectContaining({
+        type: "error",
+        source: "result",
+        kind: "execution",
+        code: "success",
+        httpStatus: 503,
+        retryable: true,
+      }),
+      expect.objectContaining({ type: "turn_end", status: "error", subtype: "success" }),
+    ]);
+  });
+
   it("namespaces fallback and terminal ids when browser turn ids repeat", () => {
     const first = new AgentSdkSessionEventNormalizer({
       turnId: "1",
@@ -221,11 +510,11 @@ describe("Agent SDK channel-neutral session events", () => {
 
     expect(firstIds).toEqual([
       "session:scope-first:1:1",
-      "turn:scope-first:1:end",
+      'terminal:["scope-first","1"]',
     ]);
     expect(secondIds).toEqual([
       "session:scope-second:1:1",
-      "turn:scope-second:1:end",
+      'terminal:["scope-second","1"]',
     ]);
     expect(firstIds.filter((id: string) => secondIds.includes(id))).toEqual([]);
   });
@@ -287,8 +576,9 @@ describe("Agent SDK channel-neutral session events", () => {
       blocks: [expect.objectContaining({
         type: "turn_end",
         status: "cancelled",
-        subtype: "cancelled",
-        stopReason: "cancelled",
+        subtype: "success",
+        reason: "cancelled",
+        stopReason: null,
       })],
     });
   });
@@ -681,6 +971,71 @@ describe("Agent SDK channel-neutral session events", () => {
     expect(calls).toBe(2);
   });
 
+  it("buffers a one-shot result through the postlude and returns final session/model attribution", async () => {
+    const adapter = new AgentSdkAdapter({
+      createClient: async () => generator([
+        {
+          type: "assistant",
+          uuid: "wire-before-result",
+          session_id: "session-before-result",
+          message: { id: "assistant-before-result", model: "claude-primary", content: [{ type: "text", text: "answer" }] },
+        },
+        {
+          type: "result",
+          uuid: "result-candidate",
+          session_id: "session-result",
+          subtype: "success",
+          is_error: false,
+          result: "answer",
+          stop_reason: "end_turn",
+          terminal_reason: "completed",
+          usage: { output_tokens: 1 },
+        },
+        {
+          type: "prompt_suggestion",
+          uuid: "postlude-suggestion",
+          session_id: "session-postlude",
+          suggestion: "follow up",
+        },
+        {
+          type: "system",
+          subtype: "model_refusal_fallback",
+          uuid: "postlude-fallback",
+          session_id: "session-postlude",
+          original_model: "claude-primary",
+          fallback_model: "claude-fallback",
+          request_id: "request-postlude",
+          content: "Fallback was made sticky.",
+        },
+      ]),
+    });
+    const session = await adapter.spawn({ provider: "anthropic", model: "claude-primary", compositionDir: "/tmp" });
+    const events: any[] = [];
+    await adapter.sendTurn(session, "go", {
+      turnId: "turn-postlude",
+      generationId: "generation-postlude",
+      onEvent: (event: any) => events.push(event),
+    });
+    await expect(adapter.awaitResponse(session)).resolves.toMatchObject({
+      text: "answer",
+      terminalStatus: "completed",
+      failure: null,
+      sessionId: "session-postlude",
+      model: "claude-fallback",
+    });
+    expect(session).toMatchObject({ sessionId: "session-postlude", observedModel: "claude-fallback" });
+    expect(events.flatMap((event) => event.blocks).map((block) => block.type)).toEqual([
+      "text",
+      "status",
+      "retry",
+      "turn_end",
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      id: 'terminal:["generation-postlude"]',
+      blocks: [expect.objectContaining({ terminalReason: "completed" })],
+    });
+  });
+
   it("surfaces an iterator crash even when it follows a successful result", async () => {
     const adapter = new AgentSdkAdapter({
       createClient: async () =>
@@ -699,14 +1054,39 @@ describe("Agent SDK channel-neutral session events", () => {
     });
     const session = await adapter.spawn({ provider: "ollama-local", model: "m", compositionDir: "/tmp" });
     const events: any[] = [];
-    await adapter.sendTurn(session, "go", { turnId: "crash-turn", onEvent: (event: any) => events.push(event) });
-    await expect(adapter.awaitResponse(session)).rejects.toThrow("subprocess crashed after result");
+    await adapter.sendTurn(session, "go", {
+      turnId: "crash-turn",
+      generationId: "generation-crash",
+      onEvent: (event: any) => events.push(event),
+    });
+    let failure: any = null;
+    try {
+      await adapter.awaitResponse(session);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({
+      message: "subprocess crashed after result",
+      terminalStatus: "error",
+      failure: expect.objectContaining({ source: "runtime", code: "runtime_error" }),
+      model: "m",
+    });
 
     expect(blocks(events, "turn_end")).toHaveLength(1);
+    expect(blocks(events, "turn_end")[0].event.id).toBe('terminal:["generation-crash"]');
+    expect(blocks(events, "turn_end")[0].block).toMatchObject({
+      status: "error",
+      subtype: "success",
+      reason: "runtime_error",
+      stopReason: "end_turn",
+    });
     expect(blocks(events, "error").at(-1)?.block).toEqual({
       type: "error",
-      kind: "runtime_error",
-      text: "subprocess crashed after result"
+      source: "runtime",
+      kind: "runtime",
+      code: "runtime_error",
+      text: "subprocess crashed after result",
+      retryable: false
     });
   });
 });

@@ -34,9 +34,14 @@ import {
   deleteThread,
   setThreadSession,
   setThreadRouting,
+  setThreadRouteSession,
   threadExistsSync,
   sanitizeRouteMeta,
   sanitizeRouting,
+  sanitizeSpawnSignature,
+  sanitizeRouteSession,
+  sanitizeFailureInfo,
+  sanitizeSessionEvent,
   admitThreadInput,
   claimNextThreadInput,
   bindThreadInputGeneration,
@@ -763,6 +768,7 @@ export function buildGatewayChatBody({
   autonomous,
   agentSdkResume,
   agentSdkNewGeneration,
+  routeSession,
 } = {}) {
   const body = { message, channel: CHANNEL_ID };
   if (context !== undefined && context !== null) body.context = context;
@@ -802,6 +808,11 @@ export function buildGatewayChatBody({
   // released before our exact ownership probe. Force eviction/cold seeding until
   // a later completed SDK attribution establishes a clean generation.
   if (agentSdkNewGeneration === true) body.agentSdkNewGeneration = true;
+  // Server-owned sticky spawn identity. The browser can select pins, but it can
+  // neither forge the current logical-session epoch nor nominate an SDK journal.
+  if (routeSession && typeof routeSession === "object" && !Array.isArray(routeSession)) {
+    body.routeSession = routeSession;
+  }
   return body;
 }
 
@@ -825,23 +836,35 @@ export function agentSdkResumeFromThread(thread) {
       ? message.route
       : null;
     if (!route || route.runtime !== "agent-sdk" || route.sessionId !== sessionId) continue;
+    // `route.model` is the model that actually answered and may be a provider
+    // refusal fallback. Native-resume compatibility is instead the Query's
+    // pre-runtime spawn configuration, retained in the effort-free signature.
+    // This keeps the fallback visible without turning an intra-request retry into
+    // a false cold-session boundary on the next input.
+    const signature = sanitizeSpawnSignature(route.spawnSignature);
+    const resumeRoute = signature ?? route;
+    const resumeTarget = typeof resumeRoute.target === "string" && resumeRoute.target
+      ? resumeRoute.target
+      : typeof resumeRoute.route === "string" && resumeRoute.route
+        ? resumeRoute.route
+        : null;
     if (
-      typeof route.route !== "string" || !route.route ||
-      typeof route.provider !== "string" || !route.provider ||
-      typeof route.model !== "string" || !route.model
+      !resumeTarget ||
+      typeof resumeRoute.provider !== "string" || !resumeRoute.provider ||
+      typeof resumeRoute.model !== "string" || !resumeRoute.model
     ) {
       return null;
     }
     return {
       sessionId,
-      route: route.route,
+      route: resumeTarget,
       runtime: "agent-sdk",
-      provider: route.provider,
-      model: route.model,
+      provider: resumeRoute.provider,
+      model: resumeRoute.model,
       effort: typeof route.effort === "string" && route.effort ? route.effort : null,
-      account: typeof route.account === "string" && route.account ? route.account : null,
-      accountSource: typeof route.accountSource === "string" && route.accountSource ? route.accountSource : null,
-      projectPath: typeof route.projectPath === "string" && route.projectPath ? route.projectPath : null,
+      account: typeof resumeRoute.account === "string" && resumeRoute.account ? resumeRoute.account : null,
+      accountSource: typeof resumeRoute.accountSource === "string" && resumeRoute.accountSource ? resumeRoute.accountSource : null,
+      projectPath: typeof resumeRoute.projectPath === "string" && resumeRoute.projectPath ? resumeRoute.projectPath : null,
     };
   }
   return null;
@@ -1205,6 +1228,134 @@ function stampInputFrame(name, data, inputId, generationId) {
   return { event: name, data: JSON.stringify(stamped), payload: stamped };
 }
 
+const FAILURE_TEXT_CAP = 1_000;
+const TERMINAL_STATES = new Set(["completed", "error", "cancelled"]);
+
+function safeFailureText(value, fallback = "The turn did not complete.") {
+  const text = typeof value === "string" ? value : "";
+  const clean = text
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .replace(/https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\S*/gi, "the local service")
+    .trim();
+  return (clean || fallback).slice(0, FAILURE_TEXT_CAP);
+}
+
+function failureKindForStatus(status) {
+  if (status === 401) return "authentication";
+  if (status === 402) return "billing";
+  if (status === 403) return "authorization";
+  if (status === 404) return "not_found";
+  if (status === 408 || status === 504) return "transport";
+  if (status === 429) return "rate_limit";
+  if (status >= 500) return "overloaded";
+  return "invalid_request";
+}
+
+function normalizeFailure(raw, fallback = {}) {
+  const candidate = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw.failure && typeof raw.failure === "object" && !Array.isArray(raw.failure) ? raw.failure : raw)
+    : {};
+  const httpStatus = Number.isInteger(candidate.httpStatus)
+    ? candidate.httpStatus
+    : Number.isInteger(fallback.httpStatus)
+      ? fallback.httpStatus
+      : null;
+  const value = {
+    code: typeof candidate.code === "string" && candidate.code.trim()
+      ? candidate.code.trim()
+      : String(fallback.code ?? (httpStatus ? `upstream_http_${httpStatus}` : "turn_failed")),
+    kind: typeof candidate.kind === "string" && candidate.kind.trim()
+      ? candidate.kind.trim()
+      : String(fallback.kind ?? (httpStatus ? failureKindForStatus(httpStatus) : "unknown")),
+    source: typeof candidate.source === "string" && candidate.source.trim()
+      ? candidate.source.trim()
+      : String(fallback.source ?? "web"),
+    text: safeFailureText(candidate.text ?? candidate.error ?? fallback.text),
+    retryable: typeof candidate.retryable === "boolean"
+      ? candidate.retryable
+      : Boolean(fallback.retryable ?? (httpStatus === null || httpStatus === 408 || httpStatus === 409 || httpStatus === 429 || httpStatus >= 500)),
+    ...(httpStatus !== null ? { httpStatus } : {}),
+    ...(typeof candidate.requestId === "string" && candidate.requestId.trim()
+      ? { requestId: candidate.requestId.trim() }
+      : typeof fallback.requestId === "string" && fallback.requestId.trim()
+        ? { requestId: fallback.requestId.trim() }
+        : {}),
+    ...(typeof candidate.retryAt === "number" && Number.isFinite(candidate.retryAt)
+      ? { retryAt: candidate.retryAt }
+      : typeof fallback.retryAt === "number" && Number.isFinite(fallback.retryAt)
+        ? { retryAt: fallback.retryAt }
+        : {}),
+  };
+  return sanitizeFailureInfo(value) ?? {
+    code: "turn_failed",
+    kind: "unknown",
+    source: "web",
+    text: safeFailureText(fallback.text),
+    retryable: false,
+  };
+}
+
+function localTerminalEvent({ inputId, generationId, failure, previous, now = Date.now() }) {
+  const coordinate = generationId ?? inputId;
+  const id = `terminal:${JSON.stringify([coordinate])}`;
+  const previousMatches = previous?.id === id ? previous : null;
+  return {
+    id,
+    role: "assistant",
+    ts: previousMatches?.ts ?? now,
+    turnId: inputId,
+    ...(generationId ? { generationId } : {}),
+    order: previousMatches?.order ?? Number.MAX_SAFE_INTEGER,
+    revision: (previousMatches?.revision ?? 0) + 1,
+    blocks: [
+      { type: "error", ...failure },
+      {
+        type: "turn_end",
+        status: "error",
+        subtype: failure.code,
+        reason: failure.code,
+        stopReason: null,
+        terminalReason: null,
+      },
+    ],
+  };
+}
+
+function localSuccessTerminalEvent({ inputId, generationId, status, result, previous, now = Date.now() }) {
+  const coordinate = generationId ?? inputId;
+  const id = `terminal:${JSON.stringify([coordinate])}`;
+  const previousMatches = previous?.id === id ? previous : null;
+  return {
+    id,
+    role: "assistant",
+    ts: previousMatches?.ts ?? now,
+    turnId: inputId,
+    ...(generationId ? { generationId } : {}),
+    order: previousMatches?.order ?? Number.MAX_SAFE_INTEGER,
+    revision: (previousMatches?.revision ?? 0) + 1,
+    blocks: [{
+      type: "turn_end",
+      status,
+      subtype: status === "cancelled" ? "cancelled" : "success",
+      reason: status === "cancelled" ? "user_interrupt" : "completed",
+      stopReason: status === "cancelled" ? "user" : null,
+      terminalReason: status === "cancelled" ? null : "completed",
+      ...(typeof result === "string" && result ? { result: result.slice(0, 20_000) } : {}),
+    }],
+  };
+}
+
+async function readBoundedResponseBody(response, cap = 64 * 1024) {
+  let text = "";
+  for await (const chunk of response) {
+    if (text.length >= cap) continue;
+    text += Buffer.from(chunk).toString("utf8", 0, Math.max(0, cap - text.length));
+  }
+  let payload = null;
+  try { payload = text ? JSON.parse(text) : null; } catch { /* bounded prose fallback below */ }
+  return { text, payload };
+}
+
 async function runQueuedInput(threadId, input, opts) {
   const target = new URL("/chat/stream", opts.gatewayUrl);
   const [durableThread, materialized] = await Promise.all([
@@ -1224,6 +1375,7 @@ async function runQueuedInput(threadId, input, opts) {
     autonomous: input.autonomous,
     agentSdkResume: agentSdkResumeFromThread(durableThread),
     agentSdkNewGeneration: agentSdkNewGenerationFromThread(durableThread),
+    routeSession: durableThread?.routeSession ?? null,
   }));
 
   let generationId = null;
@@ -1231,6 +1383,10 @@ async function runQueuedInput(threadId, input, opts) {
   let cancelOpenWatchdog = () => {};
   let preRoute = null;
   let terminal = null;
+  let terminalFailure = null;
+  let canonicalTerminal = null;
+  let conflictingTerminal = null;
+  let acceptedRouteSession = sanitizeRouteSession(durableThread?.routeSession);
   let persistence = Promise.resolve();
   const failedWrites = [];
   const queueThreadWrite = (work) => {
@@ -1244,42 +1400,194 @@ async function runQueuedInput(threadId, input, opts) {
     const sessionId = frame?.session_id ?? frame?.sessionId;
     if (sessionId) queueThreadWrite(() => setThreadSession(threadId, String(sessionId)));
   };
-  const persistDone = (frame) => {
-    if (terminal) return;
-    terminal = frame?.stopped_by_user === true || frame?.stoppedByUser === true ? "stopped" : "settled";
-    const reply = frame?.reply;
-    const durableReply = typeof reply === "string" && reply.trim()
-      ? reply
-      : "_The operative returned an empty reply. Try sending again._";
+  const queueRouteSession = (frame) => {
+    const routeSession = sanitizeRouteSession({ epoch: frame?.sessionEpoch, signature: frame?.spawnSignature });
+    if (!routeSession) return false;
+    if (acceptedRouteSession) {
+      if (routeSession.epoch < acceptedRouteSession.epoch) return false;
+      if (
+        routeSession.epoch === acceptedRouteSession.epoch &&
+        JSON.stringify(routeSession.signature) !== JSON.stringify(acceptedRouteSession.signature)
+      ) return false;
+      if (JSON.stringify(routeSession) === JSON.stringify(acceptedRouteSession)) return true;
+    }
+    acceptedRouteSession = routeSession;
+    queueThreadWrite(async () => {
+      const stored = await setThreadRouteSession(threadId, routeSession);
+      if (JSON.stringify(stored) !== JSON.stringify(routeSession)) {
+        throw new Error("gateway route session conflicted with durable thread state");
+      }
+      return stored;
+    });
+    return true;
+  };
+  const terminalBlockFrom = (event) => Array.isArray(event?.blocks)
+    ? event.blocks.find((block) => block?.type === "turn_end" && TERMINAL_STATES.has(block.status)) ?? null
+    : null;
+  const failureBlockFrom = (event) => Array.isArray(event?.blocks)
+    ? event.blocks.find((block) => block?.type === "error") ?? null
+    : null;
+  const persistExactTerminal = async (candidate) => {
+    const cleanCandidate = sanitizeSessionEvent(candidate);
+    if (!cleanCandidate) return null;
+    await persistence;
+    if (failedWrites.length > 0) {
+      await retryAuthoritativeWrites(
+        failedWrites.splice(0),
+        `pre-terminal writes for input ${input.inputId} in thread ${threadId}`,
+      );
+    }
+    let stored = null;
+    try {
+      stored = await appendSessionEvent(threadId, cleanCandidate);
+    } catch (err) {
+      await retryAuthoritativeWrites([async () => {
+        stored = await appendSessionEvent(threadId, cleanCandidate);
+        if (!stored) throw new Error("canonical terminal event was not accepted");
+      }], `canonical terminal ${input.inputId} in thread ${threadId}`);
+    }
+    if (stored && JSON.stringify(stored) === JSON.stringify(cleanCandidate)) return stored;
+    if (stored?.id === cleanCandidate.id && terminalBlockFrom(stored)) conflictingTerminal = stored;
+    return null;
+  };
+  const persistAssistantOutcome = (frame, text) => {
+    const route = attributionFromFrame({ ...(preRoute ?? {}), ...frame, pending: null }) ?? undefined;
     queueThreadWrite(() => appendMessages(threadId, [{
       role: "assistant",
-      text: durableReply,
+      text,
       turnId: input.inputId,
-      route: attributionFromFrame({ ...(preRoute ?? {}), ...frame }) ?? undefined,
+      route,
     }], { idempotencyKey: `input-reply:${input.inputId}` }));
     queueSession(frame);
   };
-  const persistFailed = (reason) => {
+  const persistDone = async (frame) => {
     if (terminal) return;
+    let canonicalStatus = terminalBlockFrom(canonicalTerminal)?.status ?? null;
+    const declaresTerminalStatus = Object.hasOwn(frame ?? {}, "terminalStatus");
+    const reportedStatus = TERMINAL_STATES.has(frame?.terminalStatus) ? frame.terminalStatus : null;
+    // Older fitting stubs and third-party gateways have no typed terminal field.
+    // Adapt that legacy shape once at this boundary by creating the same canonical
+    // event; a gateway that claims the M6 contract (`terminalStatus`) must already
+    // have emitted the matching event and still fails closed when it did not.
+    if (!canonicalStatus && !declaresTerminalStatus) {
+      canonicalStatus = frame?.stopped_by_user === true || frame?.stoppedByUser === true ? "cancelled" : "completed";
+      canonicalTerminal = localSuccessTerminalEvent({
+        inputId: input.inputId,
+        generationId,
+        status: canonicalStatus,
+        result: typeof frame?.reply === "string" ? frame.reply : "",
+      });
+      const storedTerminal = await persistExactTerminal(canonicalTerminal);
+      if (!storedTerminal) {
+        failProtocol("gateway generation conflicted with an existing durable terminal event");
+        return;
+      }
+      canonicalTerminal = storedTerminal;
+    }
+    if (!canonicalStatus || (declaresTerminalStatus && reportedStatus !== canonicalStatus)) {
+      failProtocol(
+        canonicalStatus
+          ? "The gateway reported a terminal outcome that contradicted its canonical event."
+          : "The gateway completed without a canonical terminal event.",
+        "terminal_contract_invalid",
+      );
+      return;
+    }
+    const canonicalResult = terminalBlockFrom(canonicalTerminal)?.result;
+    if (
+      canonicalStatus === "completed" &&
+      typeof canonicalResult === "string" &&
+      frame?.reply !== canonicalResult
+    ) {
+      failProtocol(
+        "The gateway reply contradicted the result in its canonical terminal event.",
+        "terminal_contract_invalid",
+      );
+      return;
+    }
+    if (canonicalStatus === "completed") {
+      terminal = "settled";
+      const reply = typeof frame?.reply === "string" ? frame.reply : "";
+      persistAssistantOutcome(frame, reply);
+      return;
+    }
+    if (canonicalStatus === "cancelled") {
+      terminal = "stopped";
+      persistAssistantOutcome(frame, typeof frame?.reply === "string" ? frame.reply : "");
+      return;
+    }
+    const failure = normalizeFailure(failureBlockFrom(canonicalTerminal) ?? frame, {
+      code: "provider_execution_failed",
+      kind: "execution",
+      source: "result",
+      text: "The provider could not complete this response.",
+      retryable: false,
+    });
     terminal = "failed";
-    const why = String(reason || "turn did not complete").slice(0, 200);
-    const route = attributionFromFrame({ ...(preRoute ?? {}), pending: null, stoppedReason: why });
-    queueThreadWrite(() => appendMessages(threadId, [{
-      role: "assistant",
-      text: `_Turn did not complete: ${why}._`,
-      turnId: input.inputId,
-      route: route ?? undefined,
-    }], { idempotencyKey: `input-reply:${input.inputId}` }));
+    terminalFailure = failure;
+    persistAssistantOutcome({ ...frame, stoppedReason: failure.text }, "");
   };
-  const failProtocol = (reason) => {
+  const persistFailed = (rawFailure) => {
+    if (terminal) return;
+    // Once a canonical error terminal exists it is the durable authority. A
+    // later lifecycle frame may carry a compatibility projection, but it cannot
+    // change the code/details recorded on the receipt.
+    const canonicalFailure = !conflictingTerminal && canonicalTerminal?.turnId === input.inputId && terminalBlockFrom(canonicalTerminal)?.status === "error"
+      ? failureBlockFrom(canonicalTerminal)
+      : null;
+    const failure = normalizeFailure(canonicalFailure ?? rawFailure, {
+      code: "turn_failed",
+      kind: "unknown",
+      source: "web",
+      text: "The turn did not complete.",
+      retryable: false,
+    });
+    terminal = "failed";
+    terminalFailure = failure;
+    if (conflictingTerminal || terminalBlockFrom(canonicalTerminal)?.status !== "error" || !failureBlockFrom(canonicalTerminal)) {
+      canonicalTerminal = localTerminalEvent({
+        inputId: input.inputId,
+        generationId,
+        failure,
+        previous: conflictingTerminal ?? canonicalTerminal,
+      });
+      conflictingTerminal = null;
+      queueThreadWrite(() => appendSessionEvent(threadId, canonicalTerminal));
+    }
+    persistAssistantOutcome({ ...(preRoute ?? {}), stoppedReason: failure.text }, "");
+  };
+  const failProtocol = (reason, code = "gateway_stream_protocol_error") => {
     if (protocolFailed || terminal) return;
     protocolFailed = true;
-    const stampedError = stampInputFrame("error", JSON.stringify({ error: reason }), input.inputId, generationId);
+    const failure = normalizeFailure(null, {
+      code,
+      kind: "protocol",
+      source: "web",
+      text: reason,
+      retryable: false,
+    });
+    const stampedError = stampInputFrame("error", JSON.stringify({ error: failure.text, failure, ...failure }), input.inputId, generationId);
     appendInputLiveFrame(input.inputId, stampedError);
-    persistFailed(reason);
+    persistFailed(failure);
   };
 
   let frameChain = Promise.resolve();
+  const queueStreamFailure = (failure) => {
+    frameChain = frameChain.then(() => {
+      // A socket can report a late error after its complete terminal bytes were
+      // already decoded. Terminal ordering is authoritative: never append a
+      // contradictory live error after success/cancellation/error has latched.
+      if (terminal) return;
+      const frame = stampInputFrame(
+        "error",
+        JSON.stringify({ error: failure.text, failure, ...failure }),
+        input.inputId,
+        generationId,
+      );
+      appendInputLiveFrame(input.inputId, frame);
+      persistFailed(failure);
+    });
+  };
   const handleFrame = async ({ event: name, data }) => {
     const raw = parseFrameObject(data);
     if (name === "open") {
@@ -1310,18 +1618,112 @@ async function runQueuedInput(threadId, input, opts) {
 
     if (protocolFailed || terminal) return;
 
+    if (canonicalTerminal) {
+      const isTerminalRevision = name === "session_event" && Array.isArray(raw?.blocks) &&
+        raw.blocks.some((block) => block?.type === "turn_end");
+      const canonicalFailure = terminalBlockFrom(canonicalTerminal)?.status === "error"
+        ? sanitizeFailureInfo(failureBlockFrom(canonicalTerminal))
+        : null;
+      const projectedFailure = name === "error"
+        ? sanitizeFailureInfo(raw?.failure ?? raw)
+        : null;
+      const isMatchingErrorProjection = Boolean(
+        canonicalFailure && projectedFailure &&
+        JSON.stringify(projectedFailure) === JSON.stringify(canonicalFailure)
+      );
+      if (name !== "done" && !isTerminalRevision && !isMatchingErrorProjection) {
+        failProtocol(`gateway emitted ${name || "data"} after its canonical terminal event`);
+        return;
+      }
+    }
+
+    if (["session_event", "route", "done", "error"].includes(name) && !raw) {
+      failProtocol(`gateway emitted ${name} without a valid JSON object payload`);
+      return;
+    }
+    if (name === "done" && typeof raw.reply !== "string" && !Object.hasOwn(raw, "terminalStatus")) {
+      failProtocol("gateway emitted a done frame without a reply or terminal status");
+      return;
+    }
+
     const stamped = stampInputFrame(name, data, input.inputId, generationId);
-    appendInputLiveFrame(input.inputId, stamped);
     const frame = stamped.payload ?? raw ?? {};
+    let cleanSessionEvent = null;
     if (name === "session_event") {
-      queueThreadWrite(() => appendSessionEvent(threadId, frame));
+      const expectedTerminalId = `terminal:${JSON.stringify([generationId])}`;
+      if (Array.isArray(frame?.retracts) && frame.retracts.includes(expectedTerminalId)) {
+        failProtocol("gateway attempted to retract the canonical terminal event");
+        return;
+      }
+      cleanSessionEvent = sanitizeSessionEvent(frame);
+      if (!cleanSessionEvent) {
+        failProtocol("gateway emitted a malformed canonical session event");
+        return;
+      }
+      const rawClaimsTerminal = Array.isArray(frame?.blocks) &&
+        frame.blocks.some((block) => block?.type === "turn_end");
+      if (cleanSessionEvent.id.startsWith("terminal:") && !rawClaimsTerminal) {
+        failProtocol("gateway reused the reserved terminal event id for a nonterminal event");
+        return;
+      }
+      if (rawClaimsTerminal) {
+        const terminalBlocks = cleanSessionEvent?.blocks?.filter((block) => block?.type === "turn_end") ?? [];
+        const errorBlocks = cleanSessionEvent?.blocks?.filter((block) => block?.type === "error") ?? [];
+        const rawErrorBlocks = Array.isArray(frame?.blocks)
+          ? frame.blocks.filter((block) => block?.type === "error")
+          : [];
+        const terminalStatus = terminalBlocks[0]?.status ?? null;
+        const coherentFailure = terminalStatus === "error"
+          ? errorBlocks.length === 1 && rawErrorBlocks.length === 1 && Boolean(sanitizeFailureInfo(rawErrorBlocks[0]))
+          : errorBlocks.length === 0 && rawErrorBlocks.length === 0;
+        if (
+          cleanSessionEvent.role !== "assistant" ||
+          cleanSessionEvent.id !== expectedTerminalId ||
+          terminalBlocks.length !== 1 ||
+          !coherentFailure
+        ) {
+          failProtocol("gateway emitted an invalid canonical terminal event");
+          return;
+        }
+
+        // A canonical terminal is not visible or authoritative until the exact
+        // sanitized candidate is durably accepted. This prevents a reused
+        // generation/stale revision from settling against a different stored
+        // terminal outcome.
+        const storedTerminal = await persistExactTerminal(cleanSessionEvent);
+        if (!storedTerminal) {
+          failProtocol("gateway canonical terminal conflicted with the durable journal");
+          return;
+        }
+        canonicalTerminal = storedTerminal;
+        const failureBlock = failureBlockFrom(storedTerminal);
+        if (failureBlock) terminalFailure = normalizeFailure(failureBlock);
+        appendInputLiveFrame(input.inputId, {
+          event: "session_event",
+          data: JSON.stringify(storedTerminal),
+        });
+        return;
+      }
+    }
+    if ((name === "route" || name === "done") &&
+        (Object.hasOwn(frame, "sessionEpoch") || Object.hasOwn(frame, "spawnSignature")) &&
+        !queueRouteSession(frame)) {
+      failProtocol("gateway frame conflicted with the durable route session");
+      return;
+    }
+    if (name === "done") {
+      await persistDone(frame);
+      if (!protocolFailed) appendInputLiveFrame(input.inputId, stamped);
+      return;
+    }
+    appendInputLiveFrame(input.inputId, stamped);
+    if (name === "session_event") {
+      queueThreadWrite(() => appendSessionEvent(threadId, cleanSessionEvent));
     } else if (name === "route") {
       preRoute = { ...(preRoute ?? {}), ...frame };
       queueSession(frame);
     } else if (name === "error") {
-      persistFailed(String(frame?.error ?? "stream error"));
-    } else if (name === "done") {
-      persistDone(frame);
+      persistFailed(frame);
     }
   };
   const decoder = new SseFrameDecoder((frame) => {
@@ -1350,27 +1752,46 @@ async function runQueuedInput(threadId, input, opts) {
     }, (up) => {
       upstreamResponse = up;
       if (up.statusCode && up.statusCode >= 400) {
-        const reason = `upstream ${up.statusCode}`;
-        const frame = stampInputFrame("error", JSON.stringify({ error: reason }), input.inputId, generationId);
-        appendInputLiveFrame(input.inputId, frame);
-        persistFailed(reason);
-        up.resume();
-        up.on("end", finish);
+        void (async () => {
+          const body = await readBoundedResponseBody(up);
+          const failure = normalizeFailure(body.payload, {
+            code: `gateway_http_${up.statusCode}`,
+            kind: failureKindForStatus(up.statusCode),
+            source: "gateway",
+            text: body.text || `The gateway refused this input (${up.statusCode}).`,
+            retryable: up.statusCode === 408 || up.statusCode === 409 || up.statusCode === 429 || up.statusCode >= 500,
+            httpStatus: up.statusCode,
+          });
+          const frame = stampInputFrame("error", JSON.stringify({ error: failure.text, failure, ...failure }), input.inputId, generationId);
+          appendInputLiveFrame(input.inputId, frame);
+          persistFailed(failure);
+          finish();
+        })().catch(() => finish());
         return;
       }
       up.on("data", (chunk) => decoder.push(chunk));
       up.on("end", finish);
       up.on("error", (err) => {
-        const frame = stampInputFrame("error", JSON.stringify({ error: err.message }), input.inputId, generationId);
-        appendInputLiveFrame(input.inputId, frame);
-        persistFailed(err.message);
+        const failure = normalizeFailure(null, {
+          code: "gateway_response_failed",
+          kind: "transport",
+          source: "web",
+          text: "The gateway connection failed while reading the response.",
+          retryable: true,
+        });
+        queueStreamFailure(failure);
         finish();
       });
     });
     upstream.on("error", (err) => {
-      const frame = stampInputFrame("error", JSON.stringify({ error: err.message }), input.inputId, generationId);
-      appendInputLiveFrame(input.inputId, frame);
-      persistFailed(err.message);
+      const failure = normalizeFailure(null, {
+        code: "gateway_connection_failed",
+        kind: "transport",
+        source: "web",
+        text: "The Web channel could not connect to the gateway.",
+        retryable: true,
+      });
+      queueStreamFailure(failure);
       finish();
     });
     const configuredTimeout = Number(opts.gatewayOpenTimeoutMs);
@@ -1393,18 +1814,59 @@ async function runQueuedInput(threadId, input, opts) {
 
   await frameChain;
   if (!terminal) {
-    const reason = "the gateway stream ended without a done event";
-    const frame = stampInputFrame("error", JSON.stringify({ error: reason }), input.inputId, generationId);
+    const failure = normalizeFailure(null, {
+      code: "gateway_stream_ended",
+      kind: "protocol",
+      source: "web",
+      text: "The gateway stream ended without a terminal frame.",
+      retryable: true,
+    });
+    const frame = stampInputFrame("error", JSON.stringify({ error: failure.text, failure, ...failure }), input.inputId, generationId);
     appendInputLiveFrame(input.inputId, frame);
-    persistFailed(reason);
+    persistFailed(failure);
   }
   await persistence;
   await retryAuthoritativeWrites(failedWrites, `input ${input.inputId} in thread ${threadId}`);
+  // Local compatibility/error terminals use the same exact durable authority as
+  // gateway-provided M6 terminals. If a reused generation collided with an older
+  // terminal, advance that stable id with this input's failure rather than ever
+  // settling from a candidate the journal refused.
+  if (canonicalTerminal) {
+    const cleanTerminal = sanitizeSessionEvent(canonicalTerminal);
+    const storedTerminal = cleanTerminal ? await appendSessionEvent(threadId, cleanTerminal) : null;
+    if (!cleanTerminal || !storedTerminal || JSON.stringify(storedTerminal) !== JSON.stringify(cleanTerminal)) {
+      const failure = terminalFailure ?? normalizeFailure(null, {
+        code: "terminal_generation_conflict",
+        kind: "protocol",
+        source: "web",
+        text: "The gateway generation conflicted with an earlier durable terminal.",
+        retryable: false,
+      });
+      terminal = "failed";
+      terminalFailure = failure;
+      canonicalTerminal = sanitizeSessionEvent(localTerminalEvent({
+        inputId: input.inputId,
+        generationId,
+        failure,
+        previous: storedTerminal,
+      }));
+      await retryAuthoritativeWrites([async () => {
+        const stored = await appendSessionEvent(threadId, canonicalTerminal);
+        if (!stored || JSON.stringify(stored) !== JSON.stringify(canonicalTerminal)) {
+          throw new Error("replacement canonical terminal event was not accepted");
+        }
+      }], `replacement terminal ${input.inputId} in thread ${threadId}`);
+      appendInputLiveFrame(input.inputId, {
+        event: "session_event",
+        data: JSON.stringify(canonicalTerminal),
+      });
+    }
+  }
   let settled = null;
   await retryAuthoritativeWrites([async () => {
     settled = await settleThreadInput(threadId, input.inputId, terminal ?? "failed", {
       ...(generationId ? { generationId } : {}),
-      ...(terminal === "failed" ? { reason: "turn did not complete" } : {}),
+      ...(terminalFailure ? { reason: terminalFailure.text, failure: terminalFailure } : {}),
     });
     if (!settled) throw new Error("durable input identity no longer matched its terminal outcome");
   }], `settlement ${input.inputId} in thread ${threadId}`);
@@ -1416,8 +1878,53 @@ async function processThreadInputs(threadId, opts) {
   for (;;) {
     const input = await claimNextThreadInput(threadId);
     if (!input) return;
-    if (!markInputActive(threadId, input.inputId, input.startedAt)) {
-      await settleThreadInput(threadId, input.inputId, "failed", { reason: "thread already has an active input" });
+    let ownsLive = markInputActive(threadId, input.inputId, input.startedAt);
+    if (!ownsLive) {
+      const competingInputId = activeInputId(threadId);
+      const competingInput = competingInputId
+        ? await getThreadInput(threadId, competingInputId)
+        : null;
+      // The process-local registry can outlive a defensive/test-owned producer,
+      // but it may never veto a durable claim forever. Clear only an owner that
+      // has no matching pending input, then retry this exact claim once.
+      if (competingInputId && (!competingInput || ["settled", "stopped", "failed"].includes(competingInput.state))) {
+        finishInputLive(threadId, competingInputId, "stale-active-owner");
+        ownsLive = markInputActive(threadId, input.inputId, input.startedAt);
+      }
+    }
+    if (!ownsLive) {
+      const failure = normalizeFailure(null, {
+        code: "web_thread_input_conflict",
+        kind: "protocol",
+        source: "web",
+        text: "The Web channel found conflicting ownership for this conversation input.",
+        retryable: true,
+      });
+      appendInputLiveFrame(input.inputId, stampInputFrame(
+        "error",
+        JSON.stringify({ error: failure.text, failure, ...failure }),
+        input.inputId,
+        null,
+      ));
+      const terminalEvent = localTerminalEvent({ inputId: input.inputId, generationId: null, failure });
+      await retryAuthoritativeWrites([
+        () => appendSessionEvent(threadId, terminalEvent),
+        () => appendMessages(threadId, [{
+          role: "assistant",
+          text: "",
+          turnId: input.inputId,
+          route: { stoppedReason: failure.text },
+        }], { idempotencyKey: `input-reply:${input.inputId}` }),
+      ], `ownership conflict ${input.inputId} in thread ${threadId}`);
+      let failed = null;
+      await retryAuthoritativeWrites([async () => {
+        failed = await settleThreadInput(threadId, input.inputId, "failed", {
+          reason: failure.text,
+          failure,
+        });
+        if (!failed) throw new Error("durable input identity no longer matched its ownership failure");
+      }], `ownership conflict settlement ${input.inputId} in thread ${threadId}`);
+      publishInputLifecycle(failed);
       finishInputLive(threadId, input.inputId, "failed");
       return;
     }
@@ -1425,13 +1932,29 @@ async function processThreadInputs(threadId, opts) {
     try {
       await runQueuedInput(threadId, input, opts);
     } catch (err) {
-      const reason = String(err?.message ?? "queued input failed");
-      appendInputLiveFrame(input.inputId, stampInputFrame("error", JSON.stringify({ error: reason }), input.inputId, null));
-      await retryAuthoritativeWrites([() => appendMessages(threadId, [{
+      const latestInput = await getThreadInput(threadId, input.inputId);
+      const generationId = latestInput?.generationId ?? null;
+      const failure = normalizeFailure(null, {
+        code: "web_input_worker_failed",
+        kind: "runtime",
+        source: "web",
+        text: "The Web channel could not finish processing this input.",
+        retryable: true,
+      });
+      appendInputLiveFrame(input.inputId, stampInputFrame(
+        "error",
+        JSON.stringify({ error: failure.text, failure, ...failure }),
+        input.inputId,
+        generationId,
+      ));
+      const terminalEvent = localTerminalEvent({ inputId: input.inputId, generationId, failure });
+      await retryAuthoritativeWrites([
+        () => appendSessionEvent(threadId, terminalEvent),
+        () => appendMessages(threadId, [{
           role: "assistant",
-          text: `_Turn did not complete: ${reason.slice(0, 200)}._`,
+          text: "",
           turnId: input.inputId,
-          route: { stoppedReason: reason.slice(0, 200) },
+          route: { stoppedReason: failure.text },
         }], { idempotencyKey: `input-reply:${input.inputId}` })],
       `worker failure ${input.inputId} in thread ${threadId}`);
       // Never acknowledge/remove the only durable copy of an input unless there
@@ -1439,7 +1962,11 @@ async function processThreadInputs(threadId, opts) {
       // while storage is unavailable, then continue the FIFO after recovery.
       let failed = null;
       await retryAuthoritativeWrites([async () => {
-        failed = await settleThreadInput(threadId, input.inputId, "failed", { reason });
+        failed = await settleThreadInput(threadId, input.inputId, "failed", {
+          ...(generationId ? { generationId } : {}),
+          reason: failure.text,
+          failure,
+        });
         if (!failed) throw new Error("durable input identity no longer matched its worker failure");
       }], `worker failure settlement ${input.inputId} in thread ${threadId}`);
       publishInputLifecycle(failed);
@@ -1458,8 +1985,19 @@ function scheduleThreadInputs(threadId, opts) {
 }
 
 async function admitWebInput(threadId, raw, opts, { legacy = false } = {}) {
+  const missingThread = () => {
+    const failure = normalizeFailure(null, {
+      code: "web_thread_not_found",
+      kind: "not_found",
+      source: "web",
+      text: "This conversation no longer exists.",
+      retryable: false,
+      httpStatus: 404,
+    });
+    return { status: 404, error: failure.text, failure };
+  };
   const thread = await getThread(threadId) ?? (legacy ? await ensureThread({ id: threadId }) : null);
-  if (!thread) return { status: 404, error: "thread not found" };
+  if (!thread) return missingThread();
   const routing = mergeTurnRouting(thread.routing ?? null, raw?.routing);
   const clientRequestId = typeof raw?.clientRequestId === "string" && raw.clientRequestId.trim()
     ? raw.clientRequestId.trim()
@@ -1475,9 +2013,21 @@ async function admitWebInput(threadId, raw, opts, { legacy = false } = {}) {
       turnSeq: raw?.turnSeq,
     });
   } catch (err) {
-    return { status: err?.code === "QUEUE_FULL" ? 429 : 400, error: err.message };
+    const queueFull = err?.code === "QUEUE_FULL";
+    const status = queueFull ? 429 : 400;
+    const failure = normalizeFailure(null, {
+      code: queueFull ? "web_input_queue_full" : "web_input_rejected",
+      // A bounded local FIFO is not provider rate limiting. Keeping it in the
+      // generic limit bucket prevents the UI from inventing a provider reset.
+      kind: queueFull ? "limit" : "invalid_request",
+      source: "web",
+      text: queueFull ? "This conversation queue is full. Wait for pending inputs to finish." : safeFailureText(err?.message, "The input was rejected."),
+      retryable: queueFull,
+      httpStatus: status,
+    });
+    return { status, error: failure.text, failure };
   }
-  if (!admitted) return { status: 404, error: "thread not found" };
+  if (!admitted) return missingThread();
   const input = admitted.input;
   if (!admitted.duplicate) {
     startInputLive(input.inputId, input.acceptedAt);
@@ -1512,7 +2062,7 @@ async function handleChat(req, res, opts) {
     // on that response, but execution now goes through the same durable FIFO as
     // the receipt-first endpoint. Closing this response never cancels the worker.
     const admitted = await admitWebInput(threadId, { ...body, message }, opts, { legacy: true });
-    if (admitted.error) return jsonRes(res, admitted.status, { error: admitted.error });
+    if (admitted.error) return jsonRes(res, admitted.status, { error: admitted.error, failure: admitted.failure });
     if (!admitted.input || !["queued", "starting", "running", "stopping"].includes(admitted.input.state)) {
       return jsonRes(res, 409, { error: "input already settled", input: admitted.input ?? null });
     }
@@ -1818,21 +2368,32 @@ async function handleThreadInputsGet(res, id) {
 }
 
 async function handleThreadInputCreate(req, res, opts, id) {
+  const reject = (status, code, text) => {
+    const failure = normalizeFailure(null, {
+      code,
+      kind: status === 404 ? "not_found" : "invalid_request",
+      source: "web",
+      text,
+      retryable: false,
+      httpStatus: status,
+    });
+    return jsonRes(res, status, { error: failure.text, failure });
+  };
   let body;
   try {
     body = await readJsonBody(req);
   } catch (err) {
-    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+    return reject(400, "web_input_json_invalid", "The input request was not valid JSON.");
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return jsonRes(res, 400, { error: "input body must be an object" });
+    return reject(400, "web_input_body_invalid", "The input request must be a JSON object.");
   }
   const allowed = new Set(["message", "clientRequestId", "routing", "classification", "autonomous", "turnSeq"]);
   if (Object.keys(body).some((key) => !allowed.has(key))) {
-    return jsonRes(res, 400, { error: "input body contains unsupported fields" });
+    return reject(400, "web_input_fields_unsupported", "The input request contains unsupported fields.");
   }
   const admitted = await admitWebInput(id, body, opts);
-  if (admitted.error) return jsonRes(res, admitted.status, { error: admitted.error });
+  if (admitted.error) return jsonRes(res, admitted.status, { error: admitted.error, failure: admitted.failure });
   jsonRes(res, 202, { input: admitted.input, duplicate: admitted.duplicate });
 }
 

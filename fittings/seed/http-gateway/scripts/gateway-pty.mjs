@@ -56,7 +56,8 @@ import {
   resolveVaultAccount,
   autonomyHoldPlan,
   heldCardRoute,
-  TURN_EFFORTS
+  TURN_EFFORTS,
+  normalizeFailureInfo
 } from "./lib/gateway-routing.mjs";
 import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
@@ -1325,6 +1326,7 @@ export function turnAttribution(pre, hints, extra = {}) {
     // Echoed on BOTH frames so the client can drop a frame belonging to an older
     // turn instead of writing it onto the newest bubble (§5).
     turnSeq: Number.isInteger(hints?.turnSeq) ? hints.turnSeq : null,
+    ...publicRouteSessionFields(pre?.routeSession),
     ...extra
   };
 }
@@ -1348,6 +1350,224 @@ export function routeFieldsFrom(pre) {
     tier: pre?.decision?.tier ?? pre?.classification?.tier ?? null,
     ruleId: pre?.decision?.ruleId ?? route?.ruleId ?? null,
     profile: pre?.decision?.profile ?? route?.profile ?? null
+  };
+}
+
+const SPAWN_SIGNATURE_KEYS = [
+  "target",
+  "runtime",
+  "provider",
+  "model",
+  "account",
+  "accountSource",
+  "projectPath",
+];
+const ROUTE_SESSION_BOUNDARY_REASONS = new Set([
+  "initial",
+  "spawn-signature-changed",
+  "restart-recovery",
+  "resume-unavailable",
+]);
+// Mirror the execution-lane defaults used by RoutedGateway. A policy target may
+// omit an engine's conventional provider/model, but the durable signature must
+// name the resolved values that the lane will actually use.
+const ROUTE_SIGNATURE_RUNTIME_DEFAULTS = {
+  "agent-sdk": { provider: "anthropic", model: null },
+  "claude-code": { provider: PRIMARY_PROVIDER, model: MODEL },
+  codex: { provider: "openai", model: "gpt-5-codex" },
+  gemini: { provider: "google", model: "gemini-2.5-flash" },
+  opencode: { provider: "opencode", model: null },
+  cursor: { provider: "cursor", model: "auto" },
+  "openai-agents": { provider: "ollama-local", model: null },
+  "ollama-native": { provider: "ollama-local", model: null },
+};
+
+function exactRouteSessionString(raw, max = 200) {
+  if (typeof raw !== "string" || !raw || raw !== raw.trim() || raw.length > max) return null;
+  return /[\u0000-\u001f\u007f]/.test(raw) ? null : raw;
+}
+
+/** Closed durable spawn identity. Effort is intentionally absent: it rotates a
+ * standing Query through native resume without changing the logical session. */
+export function sanitizeSpawnSignature(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const keys = Object.keys(raw).sort();
+  if (keys.join("\0") !== [...SPAWN_SIGNATURE_KEYS].sort().join("\0")) return null;
+  const target = exactRouteSessionString(raw.target);
+  const runtime = exactRouteSessionString(raw.runtime);
+  const provider = exactRouteSessionString(raw.provider);
+  const model = exactRouteSessionString(raw.model);
+  const nullable = (key, max = 200) => raw[key] === null ? null : exactRouteSessionString(raw[key], max);
+  const account = nullable("account");
+  const accountSource = nullable("accountSource");
+  const projectPath = nullable("projectPath", 4_000);
+  if (!target || !runtime || !provider || !model) return null;
+  if (raw.account !== null && !account) return null;
+  if (raw.accountSource !== null && !accountSource) return null;
+  if (raw.projectPath !== null && (!projectPath || !path.isAbsolute(projectPath))) return null;
+  return { target, runtime, provider, model, account, accountSource, projectPath };
+}
+
+/** Exact Web hint; unknown/partial fields cannot steer a live conversation. */
+export function sanitizeRouteSession(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (Object.keys(raw).sort().join("\0") !== ["epoch", "signature"].sort().join("\0")) return null;
+  const epoch = Number.isSafeInteger(raw.epoch) && raw.epoch >= 1 ? raw.epoch : null;
+  const signature = sanitizeSpawnSignature(raw.signature);
+  return epoch === null || !signature ? null : { epoch, signature };
+}
+
+export function resolvedSpawnSignature(pre, hints) {
+  const target = pre?.route?.target ?? null;
+  const attribution = turnAttribution(pre, hints);
+  // Workflow targets are declarative aliases executed by the Claude operative;
+  // unlike runtime-targets they intentionally carry no runtime/provider/model.
+  // Sign what actually spawns, not the sparse workflow record.
+  const workflow = target?.type === "workflow";
+  const defaults = ROUTE_SIGNATURE_RUNTIME_DEFAULTS[target?.runtime] ?? {};
+  const signature = sanitizeSpawnSignature({
+    target: pre?.route?.targetId ?? null,
+    runtime: target?.runtime ?? (workflow ? "claude-code" : null),
+    provider: target?.provider ?? (workflow ? PRIMARY_PROVIDER : defaults.provider ?? null),
+    model: target?.model ?? (workflow ? MODEL : defaults.model ?? null),
+    account: attribution.account ?? null,
+    accountSource: attribution.accountSource ?? null,
+    projectPath: pre?.projectPath ?? null,
+  });
+  if (signature) return signature;
+  const error = new Error("resolved route does not provide a complete spawn signature");
+  error.code = "invalid_spawn_signature";
+  error.kind = "routing";
+  error.source = "gateway";
+  error.retryable = false;
+  throw error;
+}
+
+/** Compute the next durable logical-session epoch before a runtime is touched. */
+export function resolveRouteSession(pre, hints = {}) {
+  const signature = resolvedSpawnSignature(pre, hints);
+  const prior = sanitizeRouteSession(hints?.routeSession);
+  const changed = prior && JSON.stringify(prior.signature) !== JSON.stringify(signature);
+  const restart = hints?.agentSdkNewGeneration === true;
+  const boundaryReason = !prior
+    ? "initial"
+    : restart
+      ? "restart-recovery"
+      : changed
+        ? "spawn-signature-changed"
+        : null;
+  return {
+    epoch: prior ? prior.epoch + (boundaryReason ? 1 : 0) : 1,
+    signature,
+    boundaryReason,
+    disposition: boundaryReason ? "new" : "warm",
+    hadPrior: Boolean(prior),
+  };
+}
+
+function publicRouteSessionFields(routeSession) {
+  return {
+    sessionDisposition: routeSession?.disposition ?? null,
+    sessionBoundaryReason: routeSession?.boundaryReason ?? null,
+    sessionEpoch: Number.isSafeInteger(routeSession?.epoch) ? routeSession.epoch : null,
+    spawnSignature: routeSession?.signature ?? null,
+  };
+}
+
+/** One canonical route event per streamed generation. Revisions refine the same
+ * logical event and keep order 0, so runtime content/terminal always follows it. */
+export function createRouteSessionEventPublisher(pre, hints, opts = {}) {
+  if (typeof opts.onSessionEvent !== "function") return { observe() {} };
+  const generationId = exactPermissionId(opts.generationId);
+  if (!generationId) return { observe() {} };
+  const eventId = `route:${generationId}`;
+  const ts = Date.now();
+  const requestedModel = exactRouteSessionString(hints?.routing?.model);
+  let revision = 0;
+  let observed = {};
+  let lastSignature = null;
+  const emit = () => {
+    const attribution = {
+      ...turnAttribution(pre, hints),
+      ...routeFieldsFrom(pre),
+      ...publicRouteSessionFields(pre?.routeSession),
+      ...observed,
+    };
+    const routeBlock = {
+      type: "route",
+      attribution,
+      ...(requestedModel ? { requestedModel } : {}),
+    };
+    const signature = JSON.stringify(routeBlock);
+    if (signature === lastSignature) return;
+    lastSignature = signature;
+    revision += 1;
+    try {
+      opts.onSessionEvent({
+        id: eventId,
+        role: "assistant",
+        ts,
+        ...(hints?.turnSeq == null ? {} : { turnId: String(hints.turnSeq) }),
+        order: 0,
+        revision,
+        generationId,
+        blocks: [routeBlock],
+      });
+    } catch {
+      /* a session-event transport sink must never break the turn */
+    }
+  };
+  return {
+    observe(value = {}) {
+      if (value && typeof value === "object") {
+        if (["new", "warm", "resumed"].includes(value.sessionDisposition)) {
+          pre.routeSession.disposition = value.sessionDisposition;
+        }
+        if (value.sessionBoundaryReason === null || ROUTE_SESSION_BOUNDARY_REASONS.has(value.sessionBoundaryReason)) {
+          pre.routeSession.boundaryReason = value.sessionBoundaryReason;
+        }
+        if (Number.isSafeInteger(value.sessionEpoch) && value.sessionEpoch >= 1) {
+          pre.routeSession.epoch = value.sessionEpoch;
+        }
+        const signature = sanitizeSpawnSignature(value.spawnSignature);
+        if (signature) pre.routeSession.signature = signature;
+        const model = exactRouteSessionString(value.model);
+        if (model) observed.model = model;
+        const sessionId = exactRouteSessionString(value.sessionId, 512);
+        if (sessionId) observed.sessionId = sessionId;
+      }
+      emit();
+    },
+  };
+}
+
+export function gatewayFailureSessionEvent({ generationId, turnId = null, order = 1, failure, ts = Date.now() }) {
+  const normalized = normalizeFailureInfo(failure, {
+    code: "gateway_turn_failed",
+    kind: "runtime",
+    source: "gateway",
+    retryable: false,
+  });
+  const generation = exactPermissionId(generationId) ?? "unscoped";
+  return {
+    id: `terminal:${JSON.stringify([generation])}`,
+    role: "assistant",
+    ts,
+    ...(turnId == null ? {} : { turnId: String(turnId) }),
+    order: Number.isSafeInteger(order) && order >= 1 ? order : 1,
+    revision: 1,
+    ...(generation !== "unscoped" ? { generationId: generation } : {}),
+    blocks: [
+      { type: "error", ...normalized },
+      {
+        type: "turn_end",
+        status: "error",
+        subtype: normalized.code,
+        reason: normalized.code,
+        stopReason: null,
+        terminalReason: "error",
+      },
+    ],
   };
 }
 
@@ -2014,6 +2234,11 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   // so preRoute can honor §10 instead of re-classifying from scratch, plus the per-list
   // skill + suppressContinuations controls. Absent hints → classify as before.
   const pre = await router.preRoute(message, hints || {}); // classify/honor + resolve + LOG + switch
+  // Resolve the effort-free spawn identity and next logical epoch before any
+  // runtime/provider lane is entered. This is the durable boundary the Web echoes
+  // on its next request; an identical signature stays on the same epoch.
+  pre.routeSession = resolveRouteSession(pre, hints || {});
+  const routeEvents = createRouteSessionEventPublisher(pre, hints || {}, opts);
   // §4: emit the badge row NOW (pending), ~1s into the turn, instead of only at the
   // end. Everything the rail shows except the reply is already known here. The
   // client MERGES this frame with the one folded into `done`.
@@ -2024,6 +2249,23 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
       /* a frame observer must never break the turn */
     }
   }
+  routeEvents.observe();
+  const observeRouteSession = (observation = {}) => {
+    routeEvents.observe(observation);
+    try {
+      opts.onRouteSessionObservation?.(observation);
+    } catch {
+      /* a compatibility frame observer must never break the turn */
+    }
+  };
+  const routedOpts = {
+    ...opts,
+    onRouteSessionObservation: observeRouteSession,
+    onJournal: (identity) => {
+      observeRouteSession({ sessionId: identity?.session_id ?? null });
+      opts.onJournal?.(identity);
+    },
+  };
   assertExecutableRunScope(pre);
   // D19: EVERY task-shaped turn is a card. A trivial plan runs INLINE under a
   // `quick` card that auto-advances Implement→Done at completion; a multi-phase
@@ -2374,7 +2616,59 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
       }
     }
   }
-  const result = await execRoutedTurn(pre, message, onChunk, hints, opts);
+  let result;
+  try {
+    result = await execRoutedTurn(pre, message, onChunk, hints, routedOpts);
+  } catch (error) {
+    // Rejected runtime iterators can still carry the provider's final observed
+    // model/session. Refine the stable route event before the HTTP edge emits its
+    // canonical error terminal; absent values leave the pre-route attribution.
+    observeRouteSession({
+      sessionDisposition: pre.routeSession.disposition,
+      sessionBoundaryReason: pre.routeSession.boundaryReason,
+      sessionEpoch: pre.routeSession.epoch,
+      spawnSignature: pre.routeSession.signature,
+      ...(typeof error?.model === "string" ? { model: error.model } : {}),
+      ...(typeof (error?.sessionId ?? error?.session_id) === "string"
+        ? { sessionId: error.sessionId ?? error.session_id }
+        : {}),
+    });
+    // A provider/runtime rejection is just as non-successful as an empty reply.
+    // Keep the board honest while preserving the rejection for the HTTP edge,
+    // which will publish the typed failure and canonical terminal event.
+    if (quickCard) {
+      const failure = normalizeFailureInfo(error?.failure ?? error, {
+        code: "quick_turn_failed",
+        kind: "execution",
+        source: "gateway",
+        retryable: false,
+      });
+      const reason = (
+        `This quick task failed before producing a verifiable result (${failure.code}): ${failure.text} ` +
+        "It was routed to needs-attention rather than advanced. Move it back to retry after addressing the failure."
+      ).slice(0, 1_500);
+      try {
+        await router.parkQuickCard(quickCard.id, reason);
+        logEvent("stdout", { kind: "quick-card-failure-parked", id: quickCard.id, code: failure.code });
+      } finally {
+        router.forgetCard(sessionKey);
+      }
+    }
+    throw error;
+  }
+  // Agent SDK selection/final attribution is published from inside its adapter
+  // path before a held terminal event. Other lanes have no canonical terminal
+  // stream, so refine their observed session/model here before legacy `done`.
+  if (!router.isAgentSdkTarget(pre.route)) {
+    observeRouteSession({
+      sessionDisposition: pre.routeSession.disposition,
+      sessionBoundaryReason: pre.routeSession.boundaryReason,
+      sessionEpoch: pre.routeSession.epoch,
+      spawnSignature: pre.routeSession.signature,
+      model: result?.model ?? pre.route?.target?.model ?? null,
+      sessionId: result?.session_id ?? null,
+    });
+  }
   // D19: a quick card runs inline; advance it Implement→Done now that the turn
   // finished — but ONLY if it finished honestly. An EMPTY reply is a FAILURE, not
   // a pass: route it to needs-attention with the failure contract instead of Done
@@ -2502,11 +2796,14 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   // runs on the SDK adapter session, NOT the claude-code PTY operative.
   if (router.isAgentSdkTarget(pre.route)) {
     broadcastRich("turn", { active: true }); // rich UI shows "thinking"
-    const forceNewSession = hints?.agentSdkNewGeneration === true;
+    const forceNewSession = hints?.agentSdkNewGeneration === true ||
+      pre?.routeSession?.boundaryReason === "spawn-signature-changed";
     const resumeSessionId = forceNewSession
       ? null
       : compatibleAgentSdkResumeSessionId(hints?.agentSdkResume, pre, hints);
-    const r = await router.runAgentSdkTurn(pre.route, message, onChunk, {
+    let r;
+    try {
+      r = await router.runAgentSdkTurn(pre.route, message, onChunk, {
       // §12: the warm SDK session is keyed by CONVERSATION as well as target, so
       // two web threads never share one session_id (and one transcript badge).
       sessionKey: hints?.sessionId ?? null,
@@ -2519,13 +2816,19 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
           ? hints.context
           : null,
       // A candidate reaches this point only when its persisted runtime, target,
-      // model, effort, account source, and project scope exactly match this turn.
+      // model, account source, and project scope exactly match this turn. Effort
+      // is Query configuration and rotates by native resume on the same journal.
       // The router still rejects a resume id owned by another live cache entry.
       resumeSessionId,
       // A durable host-recovery barrier is stronger than an absent resume id: a
       // just-finished orphan may still own the same-thread warm Query. Explicitly
       // retire it so materialized context creates a clean journal generation.
       forceNewSession,
+      // Internal form carries the pre-runtime epoch plus whether an identical
+      // durable hint existed. runAgentSdkTurn refines warm/resumed/new and may
+      // disclose a resume-unavailable boundary without changing this signature.
+      routeSession: pre.routeSession,
+      onRouteSession: opts.onRouteSessionObservation,
       // Only a streamed Web turn owns both coordinates required by the standing
       // Agent SDK input protocol. JSON chat, Kanban, and threadless probes retain
       // the historical per-turn string Query path.
@@ -2553,8 +2856,12 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       onActivity: opts.onActivity,
       onJournal: opts.onJournal,
       registerRecoveryReset: registerTurnRecoveryReset,
-      registerStop: (stop) => registerTurnStop("agent-sdk", stop)
-    });
+        registerStop: (stop) => registerTurnStop("agent-sdk", stop)
+      });
+    } catch (error) {
+      broadcastRich("turn", { active: false });
+      throw error;
+    }
     // Inject the off-screen agent-sdk reply + a status badge into rich clients so
     // the channel UI clearly shows the routed runtime/model (not the idle operative).
     broadcastRich("status", {
@@ -2592,6 +2899,12 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // Preserve it on the normal SSE `done` payload so the card engine can
       // require durable phase evidence before treating the phase as complete.
       stoppedReason: r.stoppedReason ?? null,
+      terminalStatus: r.terminalStatus ?? null,
+      failure: r.failure ?? null,
+      sessionDisposition: r.sessionDisposition,
+      sessionBoundaryReason: r.sessionBoundaryReason,
+      sessionEpoch: r.sessionEpoch,
+      spawnSignature: r.spawnSignature,
       // Routing attribution for channels/kanban (null-safe — a missing decision
       // must never throw): what the classifier decided and which rule matched.
       taskType: pre.decision?.taskType ?? null,
@@ -2784,6 +3097,11 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       reply = os1.reply ?? "";
     } catch (err) {
       logEvent("stderr", { kind: "web-oneshot-failed", error: err?.message || String(err) });
+      if (!isInternal) broadcastRich("turn", { active: false });
+      // A disposable runtime failure is still a failed turn. Returning the empty
+      // accumulator here used to manufacture a successful `done` frame and could
+      // advance a quick card despite the provider never producing a result.
+      throw err;
     }
     if (!isInternal) {
       lastMaterialized = { at: new Date().toISOString(), threadId: hints?.sessionId ?? null, assembledChars: ctxBlock.length, oneShot: true };
@@ -3168,14 +3486,15 @@ export function compatibleAgentSdkResumeSessionId(candidate, pre, hints) {
     runtime: target.runtime,
     provider: target.provider ?? null,
     model: target.model ?? null,
-    // Match what the Agent SDK lane persists, not a classifier's suggested
-    // effort when the target itself has no effort control.
+    // Effort is retained in the legacy resume payload for backwards-compatible
+    // validation, but it is not spawn identity: changing it rotates the standing
+    // Query and resumes this same journal.
     effort: target.effort ?? null,
     account: attribution.account ?? null,
     accountSource: attribution.accountSource ?? null,
     projectPath: pre?.projectPath ?? null,
   };
-  for (const field of ["route", "runtime", "provider", "model", "effort", "account", "accountSource", "projectPath"]) {
+  for (const field of ["route", "runtime", "provider", "model", "account", "accountSource", "projectPath"]) {
     if (resume[field] !== current[field]) return null;
   }
   return resume.sessionId;
@@ -3247,6 +3566,9 @@ export function routeHintsFromBody(body) {
     // gateway/cache to resume the exact journal; malformed or legacy candidates
     // become null and the lane uses the already-bounded materialized context.
     agentSdkResume: sanitizeAgentSdkResume(body?.agentSdkResume),
+    // M6: durable logical route identity. Closed validation makes it an equality
+    // hint only; the gateway always recomputes the live signature after routing.
+    routeSession: sanitizeRouteSession(body?.routeSession),
     // Server-owned restart boundary. `true` explicitly abandons any same-thread
     // warm Query; false/absent retains the normal warm-or-resume behavior.
     agentSdkNewGeneration: body?.agentSdkNewGeneration === true,
@@ -3735,6 +4057,10 @@ const server = http.createServer(async (request, response) => {
           : { value: payload, generationId };
       const writeStreamEvent = (event, payload) => sseWrite(response, event, withGeneration(payload));
       let heartbeat = null;
+      let pendingPre = null;
+      let canonicalMaxOrder = 0;
+      let canonicalTerminalObserved = false;
+      let canonicalFailure = null;
       // The watcher delivers only questions observed in this turn's transcript
       // to this sink. It is stored on the exact AsyncLocalStorage turn entry;
       // there is deliberately no process-global listener fanout.
@@ -3766,7 +4092,6 @@ const server = http.createServer(async (request, response) => {
         // badge row appears ~1s into the turn instead of after the reply. `pending`
         // marks it as refinable; the client merges the done frame over it and drops
         // any frame from an older turnSeq (§5).
-        let pendingPre = null;
         const emitPendingRoute = (extra = {}) => {
           try {
             writeStreamEvent("route", pendingRouteFrame(pendingPre, hints, extra));
@@ -3785,6 +4110,12 @@ const server = http.createServer(async (request, response) => {
           bindQuestionJournal(identity);
           emitPendingRoute(identity);
         };
+        const onRouteSessionObservation = (observation = {}) => {
+          emitPendingRoute({
+            ...(observation && typeof observation === "object" ? observation : {}),
+            ...(typeof observation?.sessionId === "string" ? { session_id: observation.sessionId } : {}),
+          });
+        };
         // §12: tool activity from a routed runtime, for the working-hint slot.
         const onActivity = (payload) => {
           try {
@@ -3797,6 +4128,15 @@ const server = http.createServer(async (request, response) => {
         // Forward each payload immediately, adding only the gateway-owned generation
         // coordinate; legacy activity/chunk/done frames remain alongside it.
         const onSessionEvent = (payload) => {
+          if (Number.isSafeInteger(payload?.order) && payload.order >= 0) {
+            canonicalMaxOrder = Math.max(canonicalMaxOrder, payload.order);
+          }
+          for (const block of Array.isArray(payload?.blocks) ? payload.blocks : []) {
+            if (block?.type === "error") {
+              canonicalFailure = normalizeFailureInfo(block, { source: "runtime", kind: "runtime" });
+            }
+            if (block?.type === "turn_end") canonicalTerminalObserved = true;
+          }
           try {
             writeStreamEvent("session_event", payload);
           } catch {
@@ -3820,6 +4160,7 @@ const server = http.createServer(async (request, response) => {
           onPreRoute,
           onActivity,
           onJournal,
+          onRouteSessionObservation,
           onQuestion,
           onSessionEvent,
           generationId,
@@ -3837,6 +4178,20 @@ const server = http.createServer(async (request, response) => {
               }
             : {})
         });
+        if (result?.terminalStatus === "error" && !canonicalTerminalObserved) {
+          canonicalFailure = normalizeFailureInfo(result?.failure, {
+            code: "runtime_turn_failed",
+            kind: "runtime",
+            source: "runtime",
+            retryable: false,
+          });
+          onSessionEvent(gatewayFailureSessionEvent({
+            generationId,
+            turnId: hints?.turnSeq,
+            order: canonicalMaxOrder + 1,
+            failure: canonicalFailure,
+          }));
+        }
         // Additive context telemetry (D5b): the turn's live/peak context % + any
         // compactions, read off the operative session that just ran. A nested
         // `context` object so consumers (the kanban engine) opt in without any
@@ -3844,8 +4199,36 @@ const server = http.createServer(async (request, response) => {
         writeStreamEvent("done", { ...result, context: contextTelemetry() });
         logEvent("stdout", { kind: "chat-stream-out", reply: result.reply.slice(0, 200) });
       } catch (err) {
-        writeStreamEvent("error", { error: err.message });
-        logEvent("stderr", { kind: "chat-stream-failed", error: err.message });
+        const failure = normalizeFailureInfo(err?.failure ?? err, {
+          code: err?.code ?? "gateway_turn_failed",
+          kind: err?.kind ?? "runtime",
+          source: err?.failure?.source ?? err?.source ?? "gateway",
+          retryable: err?.retryable === true,
+        });
+        canonicalFailure = canonicalFailure ?? failure;
+        if (!canonicalTerminalObserved) {
+          const terminal = gatewayFailureSessionEvent({
+            generationId,
+            turnId: hints?.turnSeq,
+            order: canonicalMaxOrder + 1,
+            failure: canonicalFailure,
+          });
+          try {
+            writeStreamEvent("session_event", terminal);
+            canonicalTerminalObserved = true;
+          } catch {
+            /* client gone */
+          }
+        }
+        try {
+          // Compatibility-only lifecycle signal. The canonical error/turn_end
+          // above owns durable content; these bounded flat fields let legacy
+          // transports reject with the same typed failure.
+          writeStreamEvent("error", { error: failure.text, ...failure, failure });
+        } catch {
+          /* client gone */
+        }
+        logEvent("stderr", { kind: "chat-stream-failed", code: failure.code, error: failure.text });
       } finally {
         if (permissionGenerationId) permissionControl.closeGeneration(permissionGenerationId);
         if (turnControlEntry) generationTurnControl.release(turnControlEntry);
@@ -4136,8 +4519,21 @@ const server = http.createServer(async (request, response) => {
 
     sendJson(response, 404, { error: "not found", path: url.pathname });
   } catch (err) {
-    logEvent("stderr", { kind: "request-failed", method: request.method, path: url.pathname, error: err.message });
-    sendJson(response, 500, { error: err.message });
+    const failure = normalizeFailureInfo(err?.failure ?? err, {
+      code: err?.code ?? "gateway_request_failed",
+      kind: err?.kind ?? "runtime",
+      source: err?.failure?.source ?? err?.source ?? "gateway",
+      retryable: err?.retryable === true,
+    });
+    logEvent("stderr", {
+      kind: "request-failed",
+      method: request.method,
+      path: url.pathname,
+      code: failure.code,
+      error: failure.text,
+    });
+    const status = failure.httpStatus && failure.httpStatus >= 400 ? failure.httpStatus : 500;
+    sendJson(response, status, { error: failure.text, ...failure, failure });
   }
 });
 

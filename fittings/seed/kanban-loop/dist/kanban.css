@@ -183,9 +183,9 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-lifecycle-detail {
   min-width: 0;
   max-width: min(46ch, 100%);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: var(--cc-fg-dim);
   text-transform: none;
   letter-spacing: normal;
@@ -961,10 +961,37 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-state.error { color: var(--cc-danger-border); }
 .cc-session-toolbody { display: flex; flex-direction: column; gap: 8px; padding: 0 9px 9px; }
 .cc-session-section-label { display: block; margin: 0 0 4px 2px; color: var(--cc-fg-dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.cc-session-notice {
+  min-width: 0; padding: 8px 10px; border-left: 2px solid var(--cc-border-strong);
+  border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--cc-border-strong) 8%, transparent);
+  color: var(--cc-fg); font-size: 13px; line-height: 1.45;
+}
+.cc-session-notice-warning {
+  border-left-color: var(--cc-rail-warn, #e8a598);
+  background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 10%, transparent);
+}
+.cc-session-notice-route { border-left-color: var(--cc-accent); background: color-mix(in srgb, var(--cc-accent) 8%, transparent); }
+.cc-session-notice-danger { border-left-color: var(--cc-danger-border); background: color-mix(in srgb, var(--cc-danger-border) 10%, transparent); }
+.cc-session-notice-complete { border-left-color: var(--cc-success, #70a37f); background: color-mix(in srgb, var(--cc-success, #70a37f) 8%, transparent); }
+.cc-session-notice-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px; min-width: 0; }
+.cc-session-notice-label {
+  color: var(--cc-fg); font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+}
+.cc-session-notice-meta {
+  min-width: 0; color: var(--cc-fg-dim);
+  font: 10px/1.35 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  white-space: normal; overflow-wrap: anywhere;
+}
+.cc-session-notice-detail,
+.cc-session-notice-reset {
+  min-width: 0; margin-top: 3px; white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+}
+.cc-session-notice-reset { color: var(--cc-fg-dim); font-size: 12px; }
+.cc-session-notice-reset time { color: var(--cc-fg); font-variant-numeric: tabular-nums; }
 .cc-session-error {
   padding: 8px 10px; border-left: 2px solid var(--cc-danger-border);
   border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--cc-danger-border) 10%, transparent);
-  color: var(--cc-fg); font-size: 13px; line-height: 1.45; white-space: pre-wrap;
+  color: var(--cc-fg); font-size: 13px; line-height: 1.45; white-space: normal; overflow-wrap: anywhere;
 }
 .cc-session-permission {
   display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow: hidden;
@@ -1178,6 +1205,9 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    id) ellipsizes instead of pushing every other badge off the line. The full text
    is always in the badge's title. */
 .cc-root .cc-rail .cc-rbadge-label { min-width: 0; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
+.cc-root .cc-rail .cc-rbadge-warn .cc-rbadge-label {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; word-break: break-word;
+}
 .cc-root .cc-rail .cc-rbadge[aria-haspopup="menu"] { cursor: pointer; }
 .cc-root .cc-rail a.cc-rbadge { cursor: pointer; }
 .cc-root .cc-rail .cc-rbadge[aria-disabled="true"] { cursor: default; }
@@ -1206,8 +1236,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    rather than louder: auto is the default state, so most badges on a normal turn
    carry it, and a loud treatment would make the ordinary case look like a warning.
    The "auto" marker text does the identifying; the dotted underside just groups
-   them visually. Both are decoration - the fact itself is in the badge title, which
-   is what a screen reader gets (the marker is aria-hidden). */
+   them visually. The visible marker stays in the accessibility tree so automatic
+   routing identity never depends on hover/title text. */
 .cc-root .cc-rail .cc-rbadge-auto { border-bottom-style: dotted; }
 .cc-root .cc-rail .cc-rbadge-automark {
   flex: 0 0 auto; color: var(--cc-rail-fg-dim); font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
@@ -1255,6 +1285,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   padding: 7px 10px; border-bottom: 1px solid var(--cc-border); color: var(--cc-fg-faint);
   font: 10px/1.2 var(--cc-mono); letter-spacing: .08em; text-transform: uppercase;
 }
+.cc-root .cc-rail .cc-railmenu-effect {
+  padding: 8px 10px; border-bottom: 1px solid var(--cc-border);
+  color: var(--cc-fg); font: 12px/1.4 var(--cc-sans);
+  white-space: normal; overflow-wrap: anywhere;
+}
 .cc-root .cc-rail .cc-railitem {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
   min-height: 34px; padding: 7px 10px; text-align: left; text-decoration: none;
@@ -1283,6 +1318,20 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-root .cc-rail .cc-railfree-set:disabled { opacity: .45; cursor: default; }
 
+.cc-pin-save {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-width: 0; margin: -2px 0 8px; padding: 7px 9px;
+  border-left: 2px solid var(--cc-accent); background: color-mix(in srgb, var(--cc-accent) 8%, transparent);
+  color: var(--cc-fg-dim); font: 12px/1.4 var(--cc-sans);
+}
+.cc-pin-save > span { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.cc-pin-save-error { border-left-color: var(--cc-danger-border); color: var(--cc-fg); }
+.cc-pin-save button {
+  flex: 0 0 auto; min-height: 44px; padding: 0 12px;
+  border: 1px solid currentColor; border-radius: 2px; background: transparent; color: inherit;
+  cursor: pointer; font: 10px/1.2 var(--cc-mono); letter-spacing: .055em; text-transform: uppercase;
+}
+
 /* Separator before the working indicator's activity hint ("Working 0:42 - Edit").
    A real element rather than CSS `content`, so the dash is part of the DOM text. */
 .cc-root .cc-working-sep { color: var(--cc-fg-faint); font-size: 11px; }
@@ -1310,11 +1359,16 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-composer { padding-left: 6px; padding-right: 6px; }
   .cc-composerrow { gap: 5px; }
   .cc-send,
-  .cc-stop { padding-left: 10px; padding-right: 10px; }
+  .cc-stop { min-height: 44px; padding-left: 10px; padding-right: 10px; }
+  .cc-attach,
+  .cc-mic { min-width: 44px; min-height: 44px; }
   .cc-root .cc-rail { gap: 5px; }
   .cc-root .cc-railend { gap: 4px; }
   .cc-root .cc-railtime { display: none; }
   .cc-root .cc-rail .cc-railstop { padding-left: 7px; padding-right: 7px; letter-spacing: .025em; }
+  .cc-root .cc-rail-flight .cc-rbadge,
+  .cc-root .cc-rail .cc-railclose { min-height: 44px; }
+  .cc-pin-save { align-items: flex-start; flex-direction: column; }
   .cc-lifecycle { width: 100%; }
   .cc-lifecycle-stoperror { align-items: flex-start; flex-direction: column; }
 }

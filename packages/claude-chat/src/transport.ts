@@ -2,7 +2,25 @@
 // and dev-env both expose the same /claude/* shape, so a single HTTP transport
 // serves both — only the base path differs.
 
-import { isSessionEvent, type PermissionAnswer, type SessionEvent } from "./journal";
+import {
+  isFailureInfo,
+  isSessionEvent,
+  type FailureInfo,
+  type PermissionAnswer,
+  type SessionEvent,
+} from "./journal";
+
+/** An HTTP/admission failure whose user-facing semantics survive an `Error`
+ * boundary without callers parsing message prose. */
+export class ChatTransportError extends Error {
+  readonly failure: FailureInfo;
+
+  constructor(failure: FailureInfo, message = failure.text) {
+    super(message);
+    this.name = "ChatTransportError";
+    this.failure = failure;
+  }
+}
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "unknown";
 
@@ -100,6 +118,11 @@ export interface RouteAttribution {
   /** The routed runtime's OWN session id, per message (not per thread) - the key
    *  the transcript drill-down passes to GET /api/session-stream. */
   sessionId?: string | null;
+  /** Durable runtime-session identity reported on canonical route revisions. */
+  sessionEpoch?: string | number | null;
+  sessionDisposition?: "new" | "warm" | "resumed" | string | null;
+  sessionBoundaryReason?: string | null;
+  spawnSignature?: Record<string, unknown> | null;
   transcriptPath?: string | null;
   stoppedByUser?: boolean | null;
   stoppedReason?: string | null;
@@ -203,6 +226,7 @@ export interface ChatInputReceipt {
   generationId?: string;
   acceptedAt?: string;
   reason?: string;
+  failure?: FailureInfo;
 }
 
 const CHAT_INPUT_STATES: ReadonlySet<string> = new Set([
@@ -218,6 +242,7 @@ export function isChatInputReceipt(value: unknown): value is ChatInputReceipt {
     typeof input.inputId === "string" && Boolean(input.inputId.trim()) &&
     typeof input.state === "string" && CHAT_INPUT_STATES.has(input.state) &&
     optionalText("generationId", true) && optionalText("acceptedAt") && optionalText("reason") &&
+    (input.failure === undefined || isFailureInfo(input.failure)) &&
     (input.position === undefined ||
       (typeof input.position === "number" && Number.isInteger(input.position) && input.position >= 0));
 }
@@ -241,6 +266,10 @@ export interface ChatInterruptResult {
   inputId?: string;
   reason?: string;
 }
+
+export type ChatErrorEvent =
+  | { type: "error"; failure: FailureInfo; message?: string }
+  | { type: "error"; message: string; failure?: undefined };
 
 type ChatEventPayload =
   | { type: "hello"; mode: PermissionMode; status: ClaudeStatus; busy: boolean; assistant: string; screen: string[] }
@@ -266,7 +295,7 @@ type ChatEventPayload =
   | { type: "activity"; kind: "tool"; name: string; id?: string }
   | { type: "activity"; kind: "thinking"; name: string }
   | ({ type: "input" } & ChatInputReceipt)
-  | { type: "error"; message: string }
+  | ChatErrorEvent
   | { type: "connection"; state: "open" | "closed" | "reconnecting" };
 
 export type ChatEvent = ChatEventPayload & ChatFrameCoordinate;
@@ -343,7 +372,16 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
       headers: { "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error(`${path} ${res.status}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null) as { failure?: unknown; message?: unknown } | null;
+      if (isFailureInfo(body?.failure)) {
+        throw new ChatTransportError(
+          body.failure,
+          typeof body?.message === "string" && body.message.trim() ? body.message : body.failure.text
+        );
+      }
+      throw new Error(`${path} ${res.status}`);
+    }
     return res.json().catch(() => ({}));
   };
   return {
@@ -382,8 +420,29 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
         // server speaks the same /claude/* shape as the web channel.
         on("route");
         on("activity");
-        on("error");
-        es.onerror = () => {
+        es.addEventListener("error", (e: Event) => {
+          const data = "data" in e ? (e as MessageEvent).data : undefined;
+          if (typeof data !== "string") return;
+          try {
+            const payload = JSON.parse(data) as Record<string, unknown>;
+            const coordinates = {
+              ...(typeof payload.inputId === "string" ? { inputId: payload.inputId } : {}),
+              ...(typeof payload.generationId === "string" ? { generationId: payload.generationId } : {}),
+            };
+            const message = typeof payload.message === "string" && payload.message.trim() ? payload.message : undefined;
+            if (isFailureInfo(payload.failure)) {
+              onEvent({ type: "error", failure: payload.failure, ...(message ? { message } : {}), ...coordinates });
+            } else if (message) {
+              onEvent({ type: "error", message, ...coordinates });
+            }
+          } catch {
+            /* ignore malformed */
+          }
+        });
+        es.onerror = (event) => {
+          // A server-sent `event: error` is an application failure frame, not a
+          // broken EventSource connection. The listener above owns its data.
+          if (event && "data" in event) return;
           onEvent({ type: "connection", state: "reconnecting" });
           // EventSource auto-reconnects; if it's permanently closed, retry.
           if (es && es.readyState === EventSource.CLOSED && !closed) {

@@ -164,6 +164,17 @@ work.
   to durable Web input intervals as whole turns, raw human prompts stay out of
   assistant activity, and the thread stream sends authoritative ordered
   snapshots so reload and live views converge.
+- **Web route and failure state is typed and session-bound (implemented in the
+  2026-08-16 Web-parity continuation; not deployed yet).** Each thread owns an
+  effort-free resolved spawn signature and logical session epoch. A changed
+  target, runtime, provider, model, account, or project creates an explicit new
+  session boundary; effort rotates the standing Query by native resume within
+  the same logical session. Stable generation-owned route and terminal events,
+  typed failures, retries, and rate-limit notices are durable before lifecycle
+  settlement, and malformed or contradictory terminal projections fail closed.
+  Provider model fallback may refine the observed model for one request without
+  rewriting the spawn signature. Shared route controls report save failures and
+  distinguish new-session choices from next-request effort.
 - **No multi-host compositions in v1.** One composition per host.
 - **Workbench-as-shell-area is gone.** The 2026-05-17 dissolution
   decision made `terminal`, `worktrees`, `session-view`,

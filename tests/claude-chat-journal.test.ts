@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   collectRelatedTasks,
   groupSessionTurns,
+  hasVisibleSessionActivity,
+  isFailureInfo,
+  isSessionEvent,
   latestBlocksByToolUse,
   mergeSessionEvents,
   presentSessionTurn,
@@ -287,5 +290,73 @@ describe("claude-chat activity journal", () => {
     expect(sessionActivityBeats(turns[0].assistantEvents)).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "error", text: "subprocess failed" }),
     ]));
+  });
+
+  it("validates the locked cross-layer failure shape without accepting nullable codes", () => {
+    const failure = {
+      source: "gateway",
+      kind: "transport",
+      code: "UPSTREAM_503",
+      text: "The routed runtime is unavailable.",
+      retryable: true,
+      requestId: "request-17",
+      httpStatus: 503,
+      retryAt: 1_787_000_000,
+    };
+    expect(isFailureInfo(failure)).toBe(true);
+    expect(isFailureInfo({ ...failure, source: "unknown" })).toBe(false);
+    expect(isFailureInfo({ ...failure, kind: "made_up" })).toBe(false);
+    expect(isFailureInfo({ ...failure, code: null })).toBe(false);
+    expect(isFailureInfo({ ...failure, retryAt: "later" })).toBe(false);
+  });
+
+  it("keeps accepted tombstones across revisions and prevents replay resurrection", () => {
+    const obsolete = { ...event("obsolete", [{ type: "text", text: "stale draft" }]), revision: 1 };
+    const terminal = {
+      ...event("terminal", [{ type: "turn_end", status: "completed", subtype: "success", reason: null, stopReason: null, terminalReason: null }]),
+      revision: 1,
+      retracts: ["obsolete", "obsolete"],
+    };
+    let merged = mergeSessionEvents([], [obsolete, terminal]);
+    expect(merged.map((entry) => entry.id)).toEqual(["terminal"]);
+
+    merged = mergeSessionEvents(merged, [{ ...terminal, revision: 2, retracts: undefined }]);
+    expect(merged[0].retracts).toEqual(["obsolete"]);
+
+    const replay = mergeSessionEvents(merged, [{ ...obsolete, revision: 99 }]);
+    expect(replay).toBe(merged);
+    expect(replay.map((entry) => entry.id)).toEqual(["terminal"]);
+  });
+
+  it("rejects attempts to retract a generation terminal", () => {
+    expect(isSessionEvent({
+      ...event("late-provider-row", [{ type: "text", text: "late" }]),
+      retracts: ['terminal:["generation-1"]'],
+    })).toBe(false);
+  });
+
+  it("does not apply retractions from a stale revision", () => {
+    const retained = { ...event("retained", [{ type: "text", text: "keep me" }]), revision: 1 };
+    const marker = { ...event("marker", [{ type: "route", attribution: { target: "alpha" } }]), revision: 2 };
+    const current = mergeSessionEvents([], [retained, marker]);
+    const stale = mergeSessionEvents(current, [{ ...marker, revision: 1, retracts: ["retained"] }]);
+    expect(stale).toBe(current);
+    expect(stale.map((entry) => entry.id)).toEqual(["retained", "marker"]);
+  });
+
+  it("keeps typed settlement beats chronological while routine allowed telemetry stays quiet", () => {
+    const events = [event("settlement", [
+      { type: "route", attribution: { target: "claude", model: "sonnet" } },
+      { type: "rate_limit", status: "allowed", utilization: 0.2 },
+      { type: "retry", kind: "api", text: "Retrying", attempt: 2, delayMs: 500 },
+      { type: "rate_limit", status: "allowed_warning", resetsAt: 1_787_000_000 },
+      { type: "error", source: "runtime", kind: "runtime", code: "CRASH", text: "Runtime crashed", retryable: false },
+      { type: "turn_end", status: "error", subtype: "runtime", reason: "crash", stopReason: null, terminalReason: "runtime" },
+    ])];
+    expect(sessionActivityBeats(events).map((beat) => beat.type)).toEqual([
+      "route", "retry", "rate_limit", "error", "turn_end",
+    ]);
+    expect(hasVisibleSessionActivity([event("quiet", [{ type: "rate_limit", status: "allowed" }])])).toBe(false);
+    expect(hasVisibleSessionActivity(events)).toBe(true);
   });
 });

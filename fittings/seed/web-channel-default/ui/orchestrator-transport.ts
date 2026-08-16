@@ -12,7 +12,8 @@
 //     `activity` frame are surfaced as ChatEvents, and `interrupt()` is a real
 //     POST /api/chat/interrupt instead of the no-op that made Stop a lie.
 
-import { isSessionEvent } from "@garrison/claude-chat/journal";
+import { isSessionEvent, type FailureInfo, type FailureKind } from "@garrison/claude-chat/journal";
+import { ChatTransportError } from "@garrison/claude-chat/transport";
 import type {
   ChatEvent,
   ChatInputReceipt,
@@ -30,6 +31,35 @@ const ADMISSION_MAX_ATTEMPTS = 4;
 const ADMISSION_RETRY_BASE_MS = 100;
 const RESUME_MAX_RETRIES = 4;
 const RESUME_RETRY_BASE_MS = 250;
+const FAILURE_SOURCES = new Set(["assistant", "result", "runtime", "session", "transport", "system", "gateway", "web"]);
+const FAILURE_KINDS = new Set<FailureKind>([
+  "authentication", "authorization", "billing", "rate_limit", "overloaded",
+  "invalid_request", "not_found", "limit", "execution", "runtime", "transport",
+  "routing", "protocol", "permission", "unknown",
+]);
+
+function cleanFailureInfo(value: unknown): FailureInfo | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const source = typeof raw.source === "string" && FAILURE_SOURCES.has(raw.source) ? raw.source : null;
+  const kind = typeof raw.kind === "string" && FAILURE_KINDS.has(raw.kind as FailureKind)
+    ? raw.kind as FailureKind
+    : null;
+  const code = typeof raw.code === "string" && raw.code.trim() ? raw.code.trim().slice(0, 200) : "";
+  const text = typeof raw.text === "string" && raw.text.trim() ? raw.text.trim().slice(0, 1_000) : "";
+  if (!source || !kind || !code || !text || typeof raw.retryable !== "boolean") return null;
+  const out: FailureInfo = { source: source as FailureInfo["source"], kind, code, text, retryable: raw.retryable };
+  if (typeof raw.requestId === "string" && raw.requestId.trim()) out.requestId = raw.requestId.trim().slice(0, 512);
+  if (typeof raw.httpStatus === "number" && Number.isInteger(raw.httpStatus) && raw.httpStatus >= 100 && raw.httpStatus <= 599) {
+    out.httpStatus = raw.httpStatus;
+  }
+  if (typeof raw.retryAt === "number" && Number.isFinite(raw.retryAt) && raw.retryAt > 0) out.retryAt = raw.retryAt;
+  return out;
+}
+
+function failureFromPayload(data: Record<string, unknown>, fallback: FailureInfo): FailureInfo {
+  return cleanFailureInfo(data.failure) ?? cleanFailureInfo(data) ?? fallback;
+}
 
 function retryDelay(baseMs: number, retry: number, ceilingMs = 2_000): number {
   return Math.min(baseMs * (2 ** Math.max(0, retry - 1)), ceilingMs);
@@ -73,6 +103,7 @@ function cleanChatInputReceipt(value: unknown): ChatInputReceipt | null {
     ...(position !== undefined ? { position } : {}),
     ...(typeof input.acceptedAt === "string" ? { acceptedAt: input.acceptedAt.slice(0, 64) } : {}),
     ...(typeof input.reason === "string" ? { reason: input.reason.slice(0, 200) } : {}),
+    ...(cleanFailureInfo(input.failure) ? { failure: cleanFailureInfo(input.failure)! } : {}),
   };
 }
 
@@ -87,6 +118,9 @@ const ROUTE_FIELDS = [
   "duty",
   "level",
   "phase",
+  "flow",
+  "phasesOff",
+  "classifierSkipped",
   "skill",
   "via",
   "account",
@@ -102,6 +136,10 @@ const ROUTE_FIELDS = [
   "overridesApplied",
   "overridesRejected",
   "pending",
+  "sessionDisposition",
+  "sessionBoundaryReason",
+  "sessionEpoch",
+  "spawnSignature",
 ] as const;
 
 // Four fields were on the wire in snake_case long before this contract named them
@@ -219,6 +257,10 @@ export interface OrchestratorTransportOptions {
   resumeOnConnect?: boolean;
   /** Lets the thread host suppress history polling while replay/follow is active. */
   onResumeState?: (active: boolean) => void;
+  /** Durable snapshot coordinates used to detect a settle/claim handoff that
+   * happened between thread hydration and the resume-list request. */
+  initialInputRevision?: number;
+  initialInputIds?: readonly string[];
   /**
    * Fires when the durable parent snapshot should be refreshed. A painted live
    * terminal does not require child-history recovery; races, rejected admissions,
@@ -245,9 +287,28 @@ export function createOrchestratorTransport(
   let activeReported = false;
   let resumeRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let resumeRetryCount = 0;
+  let refreshPending = false;
+  let recoveryRequired = false;
   const followers = new Map<string, { controller: AbortController; promise: Promise<void> }>();
   const pendingRequests = new Set<AbortController>();
   const isCurrentConnection = (epoch: number) => connected && epoch === connectionEpoch;
+  const flushResumeSettlement = (epoch: number) => {
+    if (
+      !refreshPending ||
+      !isCurrentConnection(epoch) ||
+      followers.size > 0 ||
+      pendingRequests.size > 0
+    ) return;
+    const recovery = recoveryRequired;
+    refreshPending = false;
+    recoveryRequired = false;
+    options.onResumeSettled?.({ recovery });
+  };
+  const requestResumeSettlement = (epoch: number, recovery: boolean) => {
+    refreshPending = true;
+    recoveryRequired ||= recovery;
+    flushResumeSettlement(epoch);
+  };
   const reportActivity = () => {
     const active = connected && (pendingRequests.size > 0 || followers.size > 0);
     if (active === activeReported) return;
@@ -285,6 +346,8 @@ export function createOrchestratorTransport(
     sawReply: boolean;
     settled: boolean;
     paintedTerminal: boolean;
+    paintedTerminalStatus?: "completed" | "error" | "cancelled";
+    terminalConflict: boolean;
     seenIds: Set<string>;
   }
 
@@ -299,6 +362,7 @@ export function createOrchestratorTransport(
     sawReply: false,
     settled: false,
     paintedTerminal: false,
+    terminalConflict: false,
     seenIds: new Set(),
   });
 
@@ -322,10 +386,18 @@ export function createOrchestratorTransport(
       state.clientRequestId = input.clientRequestId;
       state.inputId = input.inputId;
       if (input.generationId) state.generationId = input.generationId;
-      if (input.state === "settled" || input.state === "stopped" || input.state === "failed") state.settled = true;
+      if (input.state === "settled" || input.state === "stopped" || input.state === "failed") {
+        const receiptStatus = input.state === "settled" ? "completed" : input.state === "stopped" ? "cancelled" : "error";
+        if (state.paintedTerminalStatus && state.paintedTerminalStatus !== receiptStatus) state.terminalConflict = true;
+        state.settled = true;
+      }
       listener?.({ ...input, type: "input" });
       return;
     }
+    // A named terminal frame latches the visible outcome. Keep accepting the
+    // authoritative input receipt above, but ignore any late socket/proxy frames
+    // that would otherwise repaint a completed generation as failed.
+    if (state.settled) return;
     if (name === "open") return;
     if (name === "chunk" && typeof data.text === "string") {
       // PTY lanes re-emit the whole visible answer after a reflow. Preserve the
@@ -342,6 +414,13 @@ export function createOrchestratorTransport(
       // replay changes only its turn coordinate so the restored synthetic turn
       // owns it just as it owns replayed route frames.
       if (!isSessionEvent(data)) return;
+      const terminalBlock = data.blocks.find((block) => block.type === "turn_end");
+      if (terminalBlock?.type === "turn_end") {
+        state.paintedTerminal = true;
+        if (terminalBlock.status === "completed" || terminalBlock.status === "error" || terminalBlock.status === "cancelled") {
+          state.paintedTerminalStatus = terminalBlock.status;
+        }
+      }
       listener?.({ type: "session_event", event: data, ...coordinate } as unknown as ChatEvent);
     } else if (name === "route") {
       // A resumed turn targets the persisted trailing user exchange (seq 0), not
@@ -368,18 +447,24 @@ export function createOrchestratorTransport(
         state.sawReply = true;
         listener?.({ type: "assistant", text: state.acc, ...coordinate });
       }
-      if (!state.sawReply) {
+      if (!state.sawReply && !state.paintedTerminal) {
         listener?.({ type: "assistant", text: "_The operative returned an empty reply. Try sending again._", ...coordinate });
       }
       const routeEv = routeEventFrom(data, state.seq);
       if (routeEv) listener?.({ ...routeEv, ...coordinate });
-      state.paintedTerminal = true;
       state.settled = true;
       if (!state.generated) listener?.({ type: "turn", active: false });
     } else if (name === "error") {
-      state.paintedTerminal = true;
+      if (state.paintedTerminalStatus && state.paintedTerminalStatus !== "error") state.terminalConflict = true;
       state.settled = true;
-      listener?.({ type: "error", message: String(data.error ?? "stream error"), ...coordinate });
+      const failure = failureFromPayload(data, {
+        source: "transport",
+        kind: "transport",
+        code: "stream_error",
+        text: typeof data.error === "string" ? data.error.slice(0, 1_000) : "The response stream failed.",
+        retryable: false,
+      });
+      listener?.({ type: "error", failure, message: failure.text, ...coordinate });
       if (!state.generated) listener?.({ type: "turn", active: false });
     }
   };
@@ -436,7 +521,14 @@ export function createOrchestratorTransport(
     if (state.settled) return;
     if (!state.generated) {
       state.settled = true;
-      listener?.({ type: "error", message: "chat stream ended without a completion event" });
+      const failure: FailureInfo = {
+        source: "transport",
+        kind: "protocol",
+        code: "stream_ended_without_terminal",
+        text: "The response stream ended without a completion event.",
+        retryable: true,
+      };
+      listener?.({ type: "error", failure, message: failure.text });
       listener?.({ type: "turn", active: false });
       return;
     }
@@ -487,14 +579,14 @@ export function createOrchestratorTransport(
         }
         if (state.settled) {
           shouldRefresh = true;
-          recovery = !state.paintedTerminal;
+          recovery = !state.paintedTerminal || state.terminalConflict;
         }
       } finally {
         const current = followers.get(input.inputId);
         if (current?.controller === controller) followers.delete(input.inputId);
         reportActivity();
         if (!controller.signal.aborted && isCurrentConnection(epoch) && shouldRefresh) {
-          options.onResumeSettled?.({ recovery });
+          requestResumeSettlement(epoch, recovery);
         }
       }
     })();
@@ -528,12 +620,30 @@ export function createOrchestratorTransport(
       }
       const body = await res.json().catch(() => null);
       const hasInputArray = Array.isArray(body?.inputs);
-      const inputs = hasInputArray
+      const inputs: ChatInputReceipt[] = hasInputArray
         ? body.inputs.map(cleanChatInputReceipt).filter((input: ChatInputReceipt | null): input is ChatInputReceipt => input !== null)
         : [];
       if (!hasInputArray || inputs.length !== body.inputs.length) {
         retryable = true;
         shouldRefresh = true;
+      }
+      if (hasInputArray) {
+        const responseRevision = typeof body.inputRevision === "number" &&
+          Number.isInteger(body.inputRevision) && body.inputRevision >= 0
+          ? body.inputRevision
+          : null;
+        const initialRevision = typeof options.initialInputRevision === "number" &&
+          Number.isInteger(options.initialInputRevision) && options.initialInputRevision >= 0
+          ? options.initialInputRevision
+          : null;
+        const expectedIds = new Set(options.initialInputIds ?? []);
+        const returnedIds = new Set(inputs.map((input: ChatInputReceipt) => input.inputId));
+        const membershipChanged = expectedIds.size > 0 &&
+          (expectedIds.size !== returnedIds.size || [...expectedIds].some((id) => !returnedIds.has(id)));
+        if ((responseRevision !== null && initialRevision !== null && responseRevision !== initialRevision) || membershipChanged) {
+          shouldRefresh = true;
+          recoveryRequired = true;
+        }
       }
       if (inputs.length === 0) {
         shouldRefresh = true;
@@ -558,7 +668,8 @@ export function createOrchestratorTransport(
         resumeRetryCount = 0;
       }
       reportActivity();
-      if (shouldRefresh && isCurrentConnection(epoch)) options.onResumeSettled?.({ recovery: true });
+      if (shouldRefresh && isCurrentConnection(epoch)) requestResumeSettlement(epoch, true);
+      else flushResumeSettlement(epoch);
     }
   };
 
@@ -606,14 +717,28 @@ export function createOrchestratorTransport(
               throw new Error("chat transport disconnected during admission");
             }
             if (attempt === ADMISSION_MAX_ATTEMPTS) {
-              throw new Error(`input admission could not be confirmed after ${attempt} attempts`);
+              throw new ChatTransportError({
+                source: "transport",
+                kind: "transport",
+                code: "input_admission_uncertain",
+                text: `Input admission could not be confirmed after ${attempt} attempts.`,
+                retryable: true,
+              });
             }
             await waitForRetry(retryDelay(ADMISSION_RETRY_BASE_MS, attempt), controller.signal);
             continue;
           }
           const body = await res.json().catch(() => null);
           if (!res.ok) {
-            throw new Error(typeof body?.error === "string" ? body.error : `input admission ${res.status}`);
+            const failure = failureFromPayload(body && typeof body === "object" ? body as Record<string, unknown> : {}, {
+              source: "web",
+              kind: res.status === 429 ? "limit" : "invalid_request",
+              code: res.status === 429 ? "web_input_queue_full" : `input_admission_${res.status}`,
+              text: typeof body?.error === "string" ? body.error.slice(0, 1_000) : `The input was rejected (${res.status}).`,
+              retryable: res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500,
+              httpStatus: res.status,
+            });
+            throw new ChatTransportError(failure);
           }
           const cleanInput = cleanChatInputReceipt(body?.input);
           if (cleanInput?.clientRequestId === clientRequestId) {
@@ -624,11 +749,23 @@ export function createOrchestratorTransport(
           // response body lost in transit. Re-posting the SAME id is safe because
           // admission is idempotent and returns the original receipt as duplicate.
           if (attempt === ADMISSION_MAX_ATTEMPTS) {
-            throw new Error(`input admission response could not be confirmed after ${attempt} attempts`);
+            throw new ChatTransportError({
+              source: "transport",
+              kind: "protocol",
+              code: "input_admission_receipt_invalid",
+              text: `Input admission could not be confirmed after ${attempt} attempts.`,
+              retryable: true,
+            });
           }
           await waitForRetry(retryDelay(ADMISSION_RETRY_BASE_MS, attempt), controller.signal);
         }
-        if (!receipt) throw new Error("input admission response could not be confirmed");
+        if (!receipt) throw new ChatTransportError({
+          source: "transport",
+          kind: "protocol",
+          code: "input_admission_receipt_missing",
+          text: "Input admission could not be confirmed.",
+          retryable: true,
+        });
         if (!isCurrentConnection(epoch)) throw new Error("chat transport disconnected during admission");
         admitted = true;
         listener?.({ ...receipt, type: "input" });
@@ -637,7 +774,8 @@ export function createOrchestratorTransport(
       } finally {
         pendingRequests.delete(controller);
         reportActivity();
-        if (!admitted && isCurrentConnection(epoch)) options.onResumeSettled?.({ recovery: true });
+        if (!admitted && isCurrentConnection(epoch)) requestResumeSettlement(epoch, true);
+        else flushResumeSettlement(epoch);
       }
     }
     try {
@@ -648,14 +786,32 @@ export function createOrchestratorTransport(
         body: JSON.stringify(payload),
       });
       if (!res.ok || !res.body) {
-        listener?.({ type: "error", message: `chat ${res.status}` });
+        const body = await res.json().catch(() => null);
+        const failure = failureFromPayload(body && typeof body === "object" ? body as Record<string, unknown> : {}, {
+          source: "web",
+          kind: res.status >= 500 ? "transport" : "invalid_request",
+          code: `chat_http_${res.status}`,
+          text: typeof body?.error === "string" ? body.error.slice(0, 1_000) : `The chat request failed (${res.status}).`,
+          retryable: res.status === 408 || res.status === 429 || res.status >= 500,
+          httpStatus: res.status,
+        });
+        listener?.({ type: "error", failure, message: failure.text });
         listener?.({ type: "turn", active: false });
         return;
       }
       await readEventStream(res, state);
       settleUnexpectedEof(state);
     } catch (err: any) {
-      listener?.({ type: "error", message: String(err?.message ?? "chat stream failed") });
+      const failure: FailureInfo = err instanceof ChatTransportError
+        ? err.failure
+        : {
+            source: "transport" as const,
+            kind: "transport",
+            code: "chat_transport_failed",
+            text: String(err?.message ?? "The chat stream failed.").slice(0, 1_000),
+            retryable: true,
+          };
+      listener?.({ type: "error", failure, message: failure.text });
       listener?.({ type: "turn", active: false });
     }
   };

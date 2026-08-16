@@ -90,6 +90,51 @@ describe("web-channel push notices", () => {
 });
 
 describe("web-channel toHistory: run context survives a reload (contract §10)", () => {
+  it("reattaches a terminal failure receipt to its exact durable input turn", () => {
+    const failure = {
+      source: "web",
+      kind: "transport",
+      code: "gateway_stream_ended",
+      text: "The gateway stream ended without a terminal frame.",
+      retryable: true,
+    } as const;
+    const history = ui.toHistory(
+      [
+        { role: "user", text: "run it", turnId: "input-failed", ts: "2026-08-16T10:00:00.000Z" },
+        { role: "assistant", text: "", turnId: "input-failed", ts: "2026-08-16T10:00:01.000Z" },
+      ],
+      [{
+        id: "terminal:[\"generation-failed\"]",
+        role: "assistant",
+        ts: Date.parse("2026-08-16T10:00:01.000Z"),
+        turnId: "input-failed",
+        generationId: "generation-failed",
+        order: 1,
+        revision: 1,
+        blocks: [
+          { type: "error", ...failure },
+          { type: "turn_end", status: "error", reason: failure.code },
+        ],
+      }],
+      [{
+        clientRequestId: "request-failed",
+        inputId: "input-failed",
+        generationId: "generation-failed",
+        state: "failed",
+        acceptedAt: "2026-08-16T09:59:59.000Z",
+        reason: failure.text,
+        failure,
+      }],
+    );
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      user: "run it",
+      assistant: "",
+      input: { inputId: "input-failed", generationId: "generation-failed", state: "failed", failure },
+      sessionEvents: [{ id: "terminal:[\"generation-failed\"]" }],
+    });
+  });
+
   it("detects an in-place canonical revision even when message and event counts stay fixed", () => {
     const base: any = {
       messages: [{ role: "user", text: "run it", ts: "2026-08-16T10:00:00.000Z" }],
@@ -415,6 +460,24 @@ describe("web-channel toHistory: run context survives a reload (contract §10)",
     ], events);
 
     expect(h.map((exchange: any) => exchange.sessionEvents?.[0]?.id)).toEqual(["first-by-sequence", "second-by-sequence"]);
+  });
+});
+
+describe("web-channel routing persistence", () => {
+  it("adopts only the server-confirmed pins and rejects a failed autosave", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      routing: { target: "opus-plan", effort: "high" },
+    }), { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch;
+    await expect(ui.apiSetRouting("thread-route", { target: "opus-plan", effort: "high" })).resolves.toEqual({
+      target: "opus-plan",
+      effort: "high",
+    });
+
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ error: "routing store unavailable" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+    await expect(ui.apiSetRouting("thread-route", { target: "sonnet-plan" })).rejects.toThrow("routing store unavailable");
   });
 });
 

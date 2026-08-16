@@ -280,6 +280,54 @@ describe("claude-chat canonical timeline in a real browser", () => {
     expect(await page.locator('.cc-session [role="status"]').count()).toBe(1);
   });
 
+  it("keeps typed settlement notices chronological, wrapped, and non-assertive at 320px", async () => {
+    const reset = 1_787_000_000;
+    await mount([{
+      id: "typed-settlement",
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [
+        { type: "route", attribution: { target: "claude", runtime: "agent-sdk", model: "sonnet", sessionDisposition: "new" } },
+        { type: "rate_limit", status: "allowed", utilization: 0.1 },
+        { type: "retry", kind: "api", text: "Retrying after a transient response.", attempt: 2, maxAttempts: 3, delayMs: 600 },
+        { type: "rate_limit", status: "allowed_warning", resetsAt: reset },
+        {
+          type: "error",
+          source: "runtime",
+          kind: "runtime",
+          code: "RUNTIME_CRASH_WITH_AN_EXTREMELY_LONG_UNBROKEN_IDENTIFIER_1234567890",
+          text: "A critical runtime message that must remain fully visible without relying on a tooltip.",
+          retryable: false,
+          requestId: "request-with-an-extremely-long-unbroken-identity-1234567890",
+        },
+        { type: "turn_end", status: "error", subtype: "runtime", reason: "runtime crash", stopReason: null, terminalReason: "runtime" },
+      ],
+    }]);
+
+    expect(await page.locator(".cc-session-notice-label").allTextContents()).toEqual([
+      "Route selected", "Retrying request", "Rate limit warning", "Runtime error", "Response failed",
+    ]);
+    const resetTime = page.locator(".cc-session-notice-reset time");
+    expect(await resetTime.getAttribute("datetime")).toBe(new Date(reset * 1_000).toISOString());
+    const danger = page.locator(".cc-session-notice-danger").first();
+    const measurements = await danger.evaluate((node) => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+      client: node.clientWidth,
+      scroll: node.scrollWidth,
+      metaWhiteSpace: getComputedStyle(node.querySelector(".cc-session-notice-meta")!).whiteSpace,
+      detailWhiteSpace: getComputedStyle(node.querySelector(".cc-session-notice-detail")!).whiteSpace,
+    }));
+    expect(measurements.viewport).toBe(320);
+    expect(measurements.document).toBeLessThanOrEqual(320);
+    expect(measurements.scroll).toBeLessThanOrEqual(measurements.client);
+    expect(measurements.metaWhiteSpace).toBe("normal");
+    expect(measurements.detailWhiteSpace).toBe("normal");
+    expect(await danger.getAttribute("title")).toBeNull();
+    expect(await page.locator('[role="alert"]').count()).toBe(0);
+  });
+
   it("replaces and reorders the exact transcript on an authoritative snapshot", async () => {
     const row = (id: string, turnId: string, text: string) => ({
       id,
@@ -309,6 +357,39 @@ describe("claude-chat canonical timeline in a real browser", () => {
       "AssistantLater answer",
     ]);
     expect(await page.getByText("Stale answer").count()).toBe(0);
+  });
+
+  it("applies durable tombstones while hydrating an authoritative transcript snapshot", async () => {
+    const obsolete = {
+      id: "obsolete-assistant",
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: "Obsolete assistant draft" }],
+    };
+    const terminal = {
+      id: "terminal-after-retraction",
+      role: "assistant",
+      ts: 2,
+      revision: 1,
+      retracts: ["obsolete-assistant"],
+      blocks: [{
+        type: "turn_end",
+        status: "completed",
+        subtype: "success",
+        reason: null,
+        stopReason: "end_turn",
+        terminalReason: null,
+        result: "Authoritative result",
+      }],
+    };
+    await page.evaluate(
+      ({ events }) => (window as any).__mountStream(events, false),
+      { events: [obsolete, terminal] }
+    );
+    expect(await page.getByText("Obsolete assistant draft").count()).toBe(0);
+    expect(await page.getByText("Authoritative result").count()).toBe(1);
+    expect(await page.locator(".cc-session-notice-label").filter({ hasText: "Response complete" }).count()).toBe(1);
   });
 
   it("reconnects a parked transcript when its queued producer starts without a live-prop change", async () => {

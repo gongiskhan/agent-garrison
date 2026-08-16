@@ -21,7 +21,11 @@ type Loose = Record<string, any>;
 interface ThreadsRunContext {
   sanitizeRouteMeta(raw: unknown): Loose | null;
   sanitizeRouting(raw: unknown): Loose | null;
+  sanitizeSpawnSignature(raw: unknown): Loose | null;
+  sanitizeRouteSession(raw: unknown): Loose | null;
+  sanitizeFailureInfo(raw: unknown): Loose | null;
   setThreadRouting(id: string, routing: unknown, opts?: { nowIso?: string }): Promise<Loose | null>;
+  setThreadRouteSession(id: string, routeSession: unknown, opts?: { nowIso?: string }): Promise<Loose | null>;
   setThreadSession(id: string, sessionId: string): Promise<Loose | null>;
   sanitizeSessionBlock(raw: unknown): Loose | null;
   sanitizeSessionEvent(raw: unknown): Loose | null;
@@ -214,17 +218,48 @@ describe("web-channel durable input FIFO", () => {
     });
     expect(await rc.markThreadInputStopping(id, "input-gen", "generation-old")).toBeNull();
     expect(await rc.settleThreadInput(id, "input-gen", "stopped", { generationId: "generation-old" })).toBeNull();
+    expect(await rc.settleThreadInput(id, "input-gen", "stopped")).toBeNull();
     expect(await rc.getThreadInput(id, "input-gen")).toMatchObject({ state: "running", generationId: "generation-1" });
     expect(await rc.markThreadInputStopping(id, "input-gen", "generation-1")).toMatchObject({ state: "stopping" });
-    expect(await rc.settleThreadInput(id, "input-gen", "stopped", { generationId: "generation-1" })).toMatchObject({
+    const failure = {
+      code: "user_interrupt",
+      kind: "execution",
+      source: "web",
+      text: "Stopped by the user.",
+      retryable: false,
+    };
+    expect(await rc.settleThreadInput(id, "input-gen", "stopped", { generationId: "generation-1", failure })).toMatchObject({
       state: "stopped",
       generationId: "generation-1",
+      failure,
     });
     expect(await rc.threadHasPendingInputs(id)).toBe(false);
     // The bounded receipt makes a retry idempotent even after the full prompt was removed.
     expect(await rc.admitThreadInput(id, { message: "retry", clientRequestId: "request-gen" })).toMatchObject({
       duplicate: true,
       input: { inputId: "input-gen", state: "stopped" },
+    });
+  });
+
+  it("allows a typed generation-less failure only before gateway open", async () => {
+    const id = "chat-input-preopen-failure";
+    await rc.ensureThread({ id });
+    await rc.admitThreadInput(id, { message: "run", clientRequestId: "request-preopen" }, { inputId: "input-preopen" });
+    await rc.claimNextThreadInput(id);
+    const failure = {
+      code: "gateway_http_503",
+      kind: "overloaded",
+      source: "gateway",
+      text: "The gateway is unavailable.",
+      retryable: true,
+      requestId: "request-upstream-503",
+      httpStatus: 503,
+      retryAt: 1_787_000_000,
+    };
+    expect(await rc.settleThreadInput(id, "input-preopen", "failed", { reason: failure.text, failure })).toMatchObject({
+      inputId: "input-preopen",
+      state: "failed",
+      failure,
     });
   });
 
@@ -287,6 +322,31 @@ describe("web-channel canonical session-event durability", () => {
         { id: "x", revision: 1, blocks: [{ text: "new" }] },
         { id: "y", revision: 0, blocks: [{ text: "second" }] },
       ]);
+  });
+
+  it("applies durable retraction tombstones before a superseded event can replay", async () => {
+    const id = "chat-session-retractions";
+    await rc.ensureThread({ id });
+    await rc.appendSessionEvent(id, event("refused-message", 0, 1, "refused draft"));
+    await rc.appendSessionEvent(id, {
+      ...event("fallback-notice", 1, 1, "model changed"),
+      retracts: ["refused-message"],
+    });
+    // A later snapshot of the retractor may omit the already-accepted tombstone;
+    // persistence must carry it forward rather than reopening the old provider row.
+    await rc.appendSessionEvent(id, event("fallback-notice", 1, 2, "fallback running"));
+    expect((await rc.getThread(id))?.sessionEvents.map((entry: Loose) => entry.id)).toEqual(["fallback-notice"]);
+    expect((await rc.getThread(id))?.sessionEvents[0].retracts).toEqual(["refused-message"]);
+    expect(await rc.appendSessionEvent(id, event("refused-message", 0, 99, "late replay"))).toBeNull();
+    expect((await rc.getThread(id))?.sessionEvents.map((entry: Loose) => entry.id)).toEqual(["fallback-notice"]);
+    expect(rc.sanitizeSessionEvent({
+      ...event("bad-retractor", 2, 1, "bad"),
+      retracts: ["bad-retractor"],
+    })).toBeNull();
+    expect(rc.sanitizeSessionEvent({
+      ...event("terminal-retractor", 2, 1, "bad"),
+      retracts: ['terminal:["generation-1"]'],
+    })).toBeNull();
   });
 
   it("makes stale and equal revisions total no-ops for the latest session pointer", async () => {
@@ -408,19 +468,47 @@ describe("web-channel canonical session-event durability", () => {
       revision: 0,
       blocks: [
         { type: "status", status: "running", text: "working", subtype: "init" },
-        { type: "error", kind: "runtime", text: "failed" },
-        { type: "rate_limit", status: "allowed", rateLimitType: "five_hour", resetsAt: 1_786_881_000, utilization: 0.5, overageStatus: "allowed", overageResetsAt: 1_788_220_800, isUsingOverage: false },
-        { type: "turn_end", status: "cancelled", subtype: "interrupted", stopReason: "user", result: "partial", errors: ["cancelled"] },
+        { type: "retry", kind: "api", text: "Retrying request.", attempt: 2, maxAttempts: 4, delayMs: 1_500, httpStatus: 529, errorKind: "overloaded" },
+        { type: "error", source: "runtime", kind: "runtime", code: "iterator_failed", text: "failed", retryable: true },
+        { type: "rate_limit", status: "allowed_warning", rateLimitType: "five_hour", resetsAt: 1_786_881_000, utilization: 0.5, overageStatus: "allowed", overageResetsAt: 1_788_220_800, overageDisabledReason: "policy", isUsingOverage: false, overageInUse: false, surpassedThreshold: 0.8 },
         { type: "permission_request", requestId: "permission-1", generationId: "generation-1", toolUseId: "tool-2", name: "Bash", displayName: "Shell command", input: "{\"command\":\"pwd\"}", inputComplete: true, suggestionsComplete: true, title: "Run command?", description: "Needs shell access", blockedPath: "/private/file", status: "pending", suggestions: [{ type: "addRules", rules: ["Bash(pwd)"] }] },
       ],
     });
     expect(clean?.blocks).toEqual([
       { type: "status", status: "running", text: "working", subtype: "init" },
-      { type: "error", kind: "runtime", text: "failed" },
-      { type: "rate_limit", status: "allowed", rateLimitType: "five_hour", resetsAt: 1_786_881_000, utilization: 0.5, overageStatus: "allowed", overageResetsAt: 1_788_220_800, isUsingOverage: false },
-      { type: "turn_end", status: "cancelled", subtype: "interrupted", stopReason: "user", result: "partial", errors: ["cancelled"] },
+      { type: "retry", kind: "api", text: "Retrying request.", attempt: 2, maxAttempts: 4, delayMs: 1_500, httpStatus: 529, errorKind: "overloaded" },
+      { type: "error", source: "runtime", kind: "runtime", code: "iterator_failed", text: "failed", retryable: true },
+      { type: "rate_limit", status: "allowed_warning", rateLimitType: "five_hour", resetsAt: 1_786_881_000, utilization: 0.5, overageStatus: "allowed", overageResetsAt: 1_788_220_800, overageDisabledReason: "policy", isUsingOverage: false, overageInUse: false, surpassedThreshold: 0.8 },
       { type: "permission_request", requestId: "permission-1", generationId: "generation-1", toolUseId: "tool-2", name: "Bash", displayName: "Shell command", input: "{\"command\":\"pwd\"}", inputComplete: true, suggestionsComplete: true, title: "Run command?", description: "Needs shell access", blockedPath: "/private/file", status: "pending", suggestions: [{ type: "addRules", rules: ["Bash(pwd)"] }] },
     ]);
+    expect(rc.sanitizeSessionEvent({
+      id: 'terminal:["generation-typed"]',
+      role: "assistant",
+      ts: 201,
+      turnId: "turn-typed",
+      generationId: "generation-typed",
+      order: 3,
+      revision: 0,
+      blocks: [{ type: "turn_end", status: "cancelled", subtype: "interrupted", reason: "user_interrupt", stopReason: "user", terminalReason: "aborted_streaming", result: "partial", errors: ["cancelled"] }],
+    })?.blocks).toEqual([
+      { type: "turn_end", status: "cancelled", subtype: "interrupted", reason: "user_interrupt", stopReason: "user", terminalReason: "aborted_streaming", result: "partial", errors: ["cancelled"] },
+    ]);
+  });
+
+  it("rejects failure payloads whose optional identity or visible text is not exact", () => {
+    const base = {
+      source: "web",
+      kind: "transport",
+      code: "gateway_connection_failed",
+      text: "Connection failed.",
+      retryable: true,
+    };
+    expect(rc.sanitizeFailureInfo(base)).toEqual(base);
+    expect(rc.sanitizeFailureInfo({ ...base, text: "   " })).toBeNull();
+    expect(rc.sanitizeFailureInfo({ ...base, requestId: null })).toBeNull();
+    expect(rc.sanitizeSessionBlock({ type: "error", ...base, text: "\n\t" })).toBeNull();
+    expect(rc.sanitizeSessionBlock({ type: "error", ...base, requestId: null })).toBeNull();
+    expect(rc.sanitizeSessionBlock({ type: "retry", kind: "api", text: "Retrying", requestId: null })).toBeNull();
   });
 
   it("closed-validates permission status and decisions", () => {
@@ -558,6 +646,34 @@ describe("web-channel canonical session-event durability", () => {
       { ...valid, blocks: [{ type: "tool_result", text: "x", images: [{ mediaType: "image/png", data: 42 }] }] },
     ];
     for (const candidate of malformed) expect(await rc.appendSessionEvent(id, candidate)).toBeNull();
+    const terminalBase = {
+      role: "assistant",
+      ts: 500,
+      turnId: "input-terminal",
+      order: 5,
+      revision: 1,
+    };
+    expect(rc.sanitizeSessionEvent({
+      ...terminalBase,
+      id: 'terminal:["generation-terminal"]',
+      blocks: [{ type: "turn_end", status: "completed", subtype: "success", reason: null, stopReason: null, terminalReason: "completed" }],
+    })).toBeNull();
+    expect(rc.sanitizeSessionEvent({
+      ...terminalBase,
+      id: 'terminal:["generation-terminal"]',
+      generationId: "different-generation",
+      blocks: [{ type: "turn_end", status: "completed", subtype: "success", reason: null, stopReason: null, terminalReason: "completed" }],
+    })).toBeNull();
+    expect(rc.sanitizeSessionEvent({
+      ...terminalBase,
+      id: "ordinary-event",
+      blocks: [{ type: "turn_end", status: "completed", subtype: "success", reason: null, stopReason: null, terminalReason: "completed" }],
+    })).toBeNull();
+    expect(rc.sanitizeSessionEvent({
+      ...terminalBase,
+      id: 'terminal:["input-terminal"]',
+      blocks: [{ type: "turn_end", status: "completed" }],
+    })).toBeNull();
     expect((await rc.getThread(id))?.sessionEvents).toEqual([]);
   });
 });
@@ -750,6 +866,36 @@ describe("web-channel threads run context", () => {
     expect(await rc.setThreadRouting("chat-pin-missing", { target: "x" })).toBeNull();
     expect(rc.threadExistsSync("chat-pin-missing")).toBe(false);
     expect(await rc.setThreadRouting("", { target: "x" })).toBeNull();
+  });
+
+  it("stores an exact effort-free spawn signature behind a monotonic logical session epoch", async () => {
+    const id = "chat-route-session";
+    await rc.ensureThread({ id });
+    const signature = {
+      target: "opus-plan",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-opus-5",
+      account: "pro",
+      accountSource: "target",
+      projectPath: "/srv/garrison",
+    };
+    expect(rc.sanitizeSpawnSignature({ ...signature, effort: "high" })).toBeNull();
+    expect(rc.sanitizeSpawnSignature({ ...signature, projectPath: "relative/project" })).toBeNull();
+    expect(rc.sanitizeSpawnSignature({ ...signature, projectPath: `/${"p".repeat(2_500)}` }))
+      .toMatchObject({ projectPath: `/${"p".repeat(2_500)}` });
+    expect(rc.sanitizeRouteSession({ epoch: 1, signature })).toEqual({ epoch: 1, signature });
+    await expect(rc.setThreadRouteSession(id, { epoch: 1, signature })).resolves.toEqual({ epoch: 1, signature });
+    await expect(rc.setThreadRouteSession(id, { epoch: 0, signature })).resolves.toBeNull();
+    await expect(rc.setThreadRouteSession(id, {
+      epoch: 1,
+      signature: { ...signature, model: "claude-sonnet-5" },
+    })).resolves.toBeNull();
+    await expect(rc.setThreadRouteSession(id, {
+      epoch: 2,
+      signature: { ...signature, model: "claude-sonnet-5" },
+    })).resolves.toMatchObject({ epoch: 2, signature: { model: "claude-sonnet-5" } });
+    expect((await rc.getThread(id))?.routeSession).toMatchObject({ epoch: 2, signature: { model: "claude-sonnet-5" } });
   });
 
   it("setThreadRouting does not rewrite the file when the pin is unchanged", async () => {

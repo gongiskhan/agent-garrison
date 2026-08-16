@@ -411,7 +411,8 @@ describe("AgentSdkAdapter standing streaming-input turns", () => {
     expect(events.flatMap((event) => event.blocks).at(-1)).toMatchObject({
       type: "turn_end",
       status: "cancelled",
-      stopReason: "cancelled",
+      reason: "cancelled",
+      stopReason: null,
     });
 
     await adapter.sendTurn(session, "after stop", { generationId: "generation-after-stop" });
@@ -434,6 +435,42 @@ describe("AgentSdkAdapter standing streaming-input turns", () => {
     });
     await expect(nextResponse).resolves.toMatchObject({ text: "reused", stoppedReason: null });
     expect(clients).toHaveLength(1);
+    await adapter.teardown(session);
+  });
+
+  it("settles acknowledged interrupt EOF without a provider result as cancellation", async () => {
+    const { adapter, inputs, clients } = standingAdapterFixture();
+    const session = await adapter.spawn({
+      provider: "anthropic",
+      model: "sonnet",
+      compositionDir: "/tmp",
+      streamingInput: true,
+    });
+    const events: any[] = [];
+    await adapter.sendTurn(session, "stop before a result", {
+      generationId: "generation-stop-eof",
+      onEvent: (event: any) => events.push(event),
+    });
+    const response = adapter.awaitResponse(session);
+    await waitFor(() => inputs.length === 1 && clients.length === 1, "EOF interrupt input");
+    clients[0].onInterrupt = async () => clients[0].end();
+
+    await expect(adapter.cancel(session)).resolves.toBe(true);
+    await expect(response).resolves.toMatchObject({
+      text: "",
+      stoppedReason: "cancelled",
+      terminalStatus: "cancelled",
+      failure: null,
+      model: "sonnet",
+    });
+    expect(events.flatMap((event) => event.blocks)).toEqual([
+      expect.objectContaining({
+        type: "turn_end",
+        status: "cancelled",
+        subtype: "stream_complete",
+        reason: "cancelled",
+      }),
+    ]);
     await adapter.teardown(session);
   });
 
@@ -523,6 +560,70 @@ describe("AgentSdkAdapter standing streaming-input turns", () => {
     await adapter.teardown(session);
   });
 
+  it("resolves a provider error result with canonical failure metadata and one terminal boundary", async () => {
+    const { adapter, inputs, clients } = standingAdapterFixture();
+    const session = await adapter.spawn({
+      provider: "anthropic",
+      model: "sonnet",
+      compositionDir: "/tmp",
+      streamingInput: true,
+    });
+    const events: any[] = [];
+    await adapter.sendTurn(session, "hit the provider limit", {
+      generationId: "generation-provider-error",
+      onEvent: (event: any) => events.push(event),
+    });
+    const response = adapter.awaitResponse(session);
+    await waitFor(() => inputs.length === 1 && clients.length === 1, "provider error input");
+    clients[0].emit({
+      type: "result",
+      uuid: "result-provider-error",
+      session_id: "standing-provider-error",
+      subtype: "error_max_structured_output_retries",
+      is_error: true,
+      errors: ["Structured output never validated."],
+      stop_reason: "structured_output",
+      terminal_reason: "model_error",
+      usage: { output_tokens: 1 },
+    });
+    clients[0].emit({
+      type: "system",
+      subtype: "session_state_changed",
+      state: "idle",
+      uuid: "idle-provider-error",
+      session_id: "standing-provider-error",
+    });
+
+    await expect(response).resolves.toMatchObject({
+      stoppedReason: "error_max_structured_output_retries",
+      terminalStatus: "error",
+      failure: {
+        source: "result",
+        kind: "limit",
+        code: "error_max_structured_output_retries",
+        text: "Structured output never validated.",
+        retryable: false,
+      },
+      sessionId: "standing-provider-error",
+      model: "sonnet",
+    });
+    const terminalRows = events.flatMap((event) => event.blocks
+      .filter((block: any) => block.type === "turn_end")
+      .map((block: any) => ({ event, block })));
+    expect(terminalRows).toHaveLength(1);
+    expect(terminalRows[0]).toMatchObject({
+      event: { id: 'terminal:["generation-provider-error"]' },
+      block: {
+        status: "error",
+        subtype: "error_max_structured_output_retries",
+        reason: null,
+        stopReason: "structured_output",
+        terminalReason: "model_error",
+      },
+    });
+    await adapter.teardown(session);
+  });
+
   it("rejects EOF before idle and closes a pending standing Query on teardown", async () => {
     const eof = standingAdapterFixture();
     const eofSession = await eof.adapter.spawn({
@@ -544,7 +645,7 @@ describe("AgentSdkAdapter standing streaming-input turns", () => {
     expect(eof.clients[0].returnCount).toBe(0);
     expect(eofEvents.every((event) => event.generationId === "generation-eof")).toBe(true);
     expect(eofEvents.flatMap((event) => event.blocks)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "error", kind: "runtime_error" }),
+      expect.objectContaining({ type: "error", kind: "runtime", code: "runtime_error" }),
       expect.objectContaining({ type: "turn_end", status: "error" }),
     ]));
 

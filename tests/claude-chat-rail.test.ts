@@ -13,6 +13,7 @@ import {
   applyRouteFrame,
   buildSendMeta,
   compactRouting,
+  mergeRouteAttribution,
   type RouteFrameTurn,
 } from "../packages/claude-chat/src/ClaudeChat";
 import type { ChatTransport, RouteAttribution, TurnRouting } from "../packages/claude-chat/src/transport";
@@ -280,6 +281,16 @@ describe("menuForField", () => {
     expect(menuForField("effort", OPTIONS, {})?.freeText).toBeUndefined();
   });
 
+  it("states which pin changes start a new session and which apply only to the request", () => {
+    for (const field of ["target", "model", "account", "project"] as PinField[]) {
+      expect(menuForField(field, OPTIONS, {})?.effect).toBe("Starts a new session for your next message.");
+    }
+    expect(menuForField("effort", OPTIONS, {})?.effect).toBe(
+      "Applies to your next request without starting a new session."
+    );
+    expect(menuForField("duty", OPTIONS, {})?.effect).toBe("Applies to your next message.");
+  });
+
   it("says which source is empty instead of rendering a menu that looks broken", () => {
     const menu = menuForField("project", { projects: [] }, {});
     expect(menu?.rows).toHaveLength(2);
@@ -325,6 +336,14 @@ describe("applyRouteFrame", () => {
     });
     // ...and `pending` is NOT sticky: the settled turn is not still pending.
     expect(done[0].route).not.toHaveProperty("pending");
+  });
+
+  it("uses the same non-sticky pending merge for exact generated route frames", () => {
+    const pre = mergeRouteAttribution(undefined, { pending: true, route: "cc-sonnet-med", sessionEpoch: 4 });
+    expect(pre).toMatchObject({ pending: true, route: "cc-sonnet-med", sessionEpoch: 4 });
+    const final = mergeRouteAttribution(pre, { model: "claude-sonnet-4-6", sessionDisposition: "warm" });
+    expect(final).toMatchObject({ route: "cc-sonnet-med", model: "claude-sonnet-4-6", sessionDisposition: "warm" });
+    expect(final).not.toHaveProperty("pending");
   });
 
   it("DROPS a frame from an already-superseded turn (the misattribution bug)", () => {
@@ -413,6 +432,8 @@ describe("AttributionRail markup", () => {
     expect(html).toContain('aria-label="Run context for this reply"');
     expect(html).toContain('class="cc-railscroll"');
     expect(html).toContain("cc-rbadge");
+    expect(html).toContain('<span class="cc-rbadge-automark">auto</span>');
+    expect(html).not.toContain('class="cc-rbadge-automark" aria-hidden="true"');
     // The slash-command chips own .cc-badge; reusing it would inherit their styles.
     expect(html).not.toMatch(/class="[^"]*\bcc-badge\b/);
   });

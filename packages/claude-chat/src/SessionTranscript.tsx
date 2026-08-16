@@ -6,15 +6,16 @@ import { installSafeMarkdownRenderer, loadHostMap } from "./markdown-safety";
 import {
   collectRelatedTasks,
   groupSessionTurns,
+  hasVisibleSessionActivity,
   isSessionEvent,
   latestBlocksByToolUse,
   mergeSessionEvents,
   presentSessionTurn,
   sessionActivityBeats,
   sessionEventText,
-  sessionEventTerminalText,
   sessionThinkingSummary,
   sessionToolSummary,
+  type FailureInfo,
   type PermissionAnswer,
   type PermissionDecision,
   type RelatedTask,
@@ -466,6 +467,174 @@ function PermissionBlock({
   );
 }
 
+function finiteEpochTime(value: unknown): { dateTime: string; label: string } | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  const date = new Date(value * 1_000);
+  if (!Number.isFinite(date.getTime())) return null;
+  try {
+    return {
+      dateTime: date.toISOString(),
+      label: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function compactNoticeText(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function errorLabel(block: SessionBlock): string {
+  if (block.source === "runtime") return "Runtime error";
+  if (block.source === "transport") return "Connection error";
+  if (block.source === "gateway") return "Gateway error";
+  if (block.source === "web") return "Web error";
+  if (block.source === "session") return "Session error";
+  if (block.source === "result") return "Execution error";
+  if (block.source === "assistant") return "Request error";
+  return "Error";
+}
+
+function routeSummary(block: SessionBlock): string {
+  const attribution = block.attribution ?? {};
+  const signature = attribution.spawnSignature && typeof attribution.spawnSignature === "object"
+    ? attribution.spawnSignature
+    : {};
+  const field = (key: string): string => compactNoticeText(attribution[key] ?? signature[key]);
+  const target = field("route") || field("target");
+  const runtime = field("runtime");
+  const provider = field("provider");
+  const model = field("model");
+  const destination = [runtime, provider, model].filter(Boolean).join(" / ");
+  const selected = [target, destination].filter(Boolean).join(" · ");
+  const requested = compactNoticeText(block.requestedModel);
+  const disposition = compactNoticeText(attribution.sessionDisposition);
+  const lifecycle = disposition === "new"
+    ? "Started a new session."
+    : disposition === "resumed"
+      ? "Resumed the session."
+      : disposition === "warm"
+        ? "Continued the current session."
+        : "";
+  if (requested && model && requested !== model) {
+    return [lifecycle, `Requested ${requested}; using ${model}${target ? ` via ${target}` : ""}.`].filter(Boolean).join(" ");
+  }
+  const route = selected ? `Using ${selected}.` : compactNoticeText(block.text) || "Route resolved.";
+  return [lifecycle, route].filter(Boolean).join(" ");
+}
+
+function retrySummary(block: SessionBlock): string {
+  if (block.kind === "model_fallback") {
+    const from = compactNoticeText(block.fromModel);
+    const to = compactNoticeText(block.toModel);
+    if (from && to) return `Model changed from ${from} to ${to}.`;
+  }
+  const parts: string[] = [];
+  if (typeof block.attempt === "number" && Number.isFinite(block.attempt)) {
+    const attempt = Math.max(0, Math.trunc(block.attempt));
+    const maximum = typeof block.maxAttempts === "number" && Number.isFinite(block.maxAttempts)
+      ? Math.max(0, Math.trunc(block.maxAttempts))
+      : null;
+    parts.push(maximum !== null ? `attempt ${attempt} of ${maximum}` : `attempt ${attempt}`);
+  }
+  if (typeof block.delayMs === "number" && Number.isFinite(block.delayMs) && block.delayMs >= 0) {
+    const seconds = Math.max(0, Math.round(block.delayMs / 100) / 10);
+    parts.push(`in ${seconds} ${seconds === 1 ? "second" : "seconds"}`);
+  }
+  const text = compactNoticeText(block.text);
+  return [text, parts.join(" · ")].filter(Boolean).join(" ");
+}
+
+function terminalSummary(block: SessionBlock): string {
+  const reportedErrors = Array.isArray(block.errors)
+    ? block.errors.map(compactNoticeText).filter(Boolean).join("; ")
+    : "";
+  const candidates = [block.reason, block.terminalReason, block.stopReason, reportedErrors, block.subtype];
+  return candidates.map(compactNoticeText).find(Boolean) ?? "";
+}
+
+function SessionNotice({
+  block,
+  renderMarkdown,
+  renderTerminalResult = false,
+  terminalResultDuplicated = false,
+}: {
+  block: SessionBlock;
+  renderMarkdown?: (text: string) => string;
+  renderTerminalResult?: boolean;
+  terminalResultDuplicated?: boolean;
+}) {
+  let tone = "info";
+  let label = "Notice";
+  let detail = compactNoticeText(block.text);
+  let reset: { dateTime: string; label: string } | null = null;
+  let timePrefix = "Resets";
+
+  if (block.type === "error") {
+    tone = "danger";
+    label = errorLabel(block);
+    reset = finiteEpochTime(block.retryAt);
+    timePrefix = "Retry after";
+  } else if (block.type === "retry" || block.type === "status") {
+    const fallback = block.kind === "model_fallback" || block.subtype === "model_refusal_fallback";
+    tone = fallback ? "route" : "warning";
+    label = fallback ? "Route changed" : "Retrying request";
+    detail = retrySummary(block) || (fallback ? "The request moved to a fallback model." : "The request will retry automatically.");
+  } else if (block.type === "rate_limit") {
+    const rejected = block.status === "rejected" || block.overageStatus === "rejected";
+    const overageNeedsAttention = Boolean(block.overageStatus && block.overageStatus !== "allowed");
+    tone = rejected ? "danger" : "warning";
+    label = rejected ? "Rate limit reached" : "Rate limit warning";
+    detail = compactNoticeText(block.text) || (block.rateLimitType ? `${block.rateLimitType.replace(/_/g, " ")} usage window.` : "Usage is nearing its limit.");
+    reset = finiteEpochTime(block.status === "rejected"
+      ? block.resetsAt
+      : overageNeedsAttention ? block.overageResetsAt : block.resetsAt);
+  } else if (block.type === "route") {
+    tone = "route";
+    label = "Route selected";
+    detail = routeSummary(block);
+  } else if (block.type === "turn_end") {
+    const status = String(block.status ?? "completed");
+    tone = status === "error" ? "danger" : status === "cancelled" ? "warning" : "complete";
+    label = status === "error" ? "Response failed" : status === "cancelled" ? "Response stopped" : "Response complete";
+    detail = terminalSummary(block);
+  }
+
+  return (
+    <div className={`cc-session-notice cc-session-notice-${tone}${block.type === "error" ? " cc-session-error" : ""}`}>
+      <div className="cc-session-notice-head">
+        <span className="cc-session-notice-label">{label}</span>
+        {block.type === "error" && (block.code || block.requestId) && (
+          <span className="cc-session-notice-meta">
+            {[compactNoticeText(block.code), block.requestId ? `request ${compactNoticeText(block.requestId)}` : ""].filter(Boolean).join(" · ")}
+          </span>
+        )}
+        {block.type === "retry" && typeof block.httpStatus === "number" && (
+          <span className="cc-session-notice-meta">HTTP {block.httpStatus}</span>
+        )}
+      </div>
+      {detail && <div className="cc-session-notice-detail">{detail}</div>}
+      {reset && (
+        <div className="cc-session-notice-reset">
+          {timePrefix} <time dateTime={reset.dateTime}>{reset.label}</time>
+        </div>
+      )}
+      {block.type === "turn_end" && renderTerminalResult && !terminalResultDuplicated && typeof block.result === "string" && block.result.trim() && (
+        <div className="cc-session-terminal-text cc-session-markdown">
+          <TextBlock text={block.result} role="assistant" renderMarkdown={renderMarkdown} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Typed transport/admission failures use the same non-assertive visual language
+ * as durable canonical error blocks. The surrounding chat owns announcements. */
+export function FailureNotice({ failure }: { failure: FailureInfo }) {
+  return <SessionNotice block={{ type: "error", ...failure }} />;
+}
+
 function ActivityTimeline({
   events,
   includeText,
@@ -478,6 +647,7 @@ function ActivityTimeline({
   renderMarkdown,
   onPermissionDecision,
   permissionGenerationId,
+  renderTerminalResult = false,
 }: {
   events: SessionEvent[];
   includeText: boolean;
@@ -490,6 +660,7 @@ function ActivityTimeline({
   renderMarkdown?: (text: string) => string;
   onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
   permissionGenerationId?: string;
+  renderTerminalResult?: boolean;
 }) {
   const beats = sessionActivityBeats(events);
   return (
@@ -518,16 +689,33 @@ function ActivityTimeline({
           return (
             <div
               key={key}
-              className="cc-session-error"
               data-session-event-id={sourceEvent?.id ?? undefined}
               data-session-block-index={beat.blockIndex}
             >
-              <span className="cc-session-section-label">Error</span>
-              <div>{beat.text}</div>
+              <SessionNotice block={beat.block} />
             </div>
           );
         }
         const block = beat.block;
+        if (["retry", "rate_limit", "route", "turn_end", "status"].includes(beat.type)) {
+          const terminalResultDuplicated = block.type === "turn_end" && typeof block.result === "string" && events.some(
+            (event) => sessionEventText(event).trim() === block.result!.trim()
+          );
+          return (
+            <div
+              key={key}
+              data-session-event-id={sourceEvent?.id ?? undefined}
+              data-session-block-index={beat.blockIndex}
+            >
+              <SessionNotice
+                block={block}
+                renderMarkdown={renderMarkdown}
+                renderTerminalResult={renderTerminalResult}
+                terminalResultDuplicated={terminalResultDuplicated}
+              />
+            </div>
+          );
+        }
         if (beat.type === "thinking") {
           return <ThinkingBlock key={key} block={block} active={live && activeThinkingBlock === block} />;
         }
@@ -581,22 +769,6 @@ export function SessionEventTimeline({
   );
   const resultsByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_result"), [events]);
   const progressByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
-  const terminalText = useMemo(() => {
-    for (let eventIndex = assistantEvents.length - 1; eventIndex >= 0; eventIndex -= 1) {
-      const blocks = assistantEvents[eventIndex].blocks;
-      for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
-        const block = blocks[blockIndex];
-        if (block.type === "turn_end" && typeof block.result === "string" && block.result.trim()) {
-          return block.result;
-        }
-      }
-    }
-    return "";
-  }, [assistantEvents]);
-  const terminalDuplicatesText = useMemo(
-    () => Boolean(terminalText) && assistantEvents.some((event) => sessionEventText(event).trim() === terminalText.trim()),
-    [assistantEvents, terminalText]
-  );
   const activeThinkingBlock = useMemo(() => {
     if (!live) return null;
     let latest: SessionBlock | null = null;
@@ -625,12 +797,8 @@ export function SessionEventTimeline({
         renderMarkdown={renderMarkdown}
         onPermissionDecision={onPermissionDecision}
         permissionGenerationId={permissionGenerationId}
+        renderTerminalResult
       />
-      {terminalText && !terminalDuplicatesText && (
-        <div className="cc-session-terminal-text cc-session-markdown">
-          <TextBlock text={terminalText} role="assistant" renderMarkdown={renderMarkdown} />
-        </div>
-      )}
       {modalImage && <ImageModal image={modalImage.image} label={modalImage.label} onClose={() => setModalImage(null)} />}
     </div>
   );
@@ -831,7 +999,7 @@ export function SessionStream({
         return;
       }
       if (payload.type === "init") {
-        setEvents(Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : []);
+        setEvents(Array.isArray(payload.events) ? mergeSessionEvents([], payload.events.filter(isSessionEvent)) : []);
         if (payload.title) setTitle(String(payload.title));
         const nextStatus = payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended";
         setStatus(nextStatus);
@@ -848,7 +1016,7 @@ export function SessionStream({
         // Refuse malformed snapshots rather than accidentally clearing history.
         if (!Array.isArray(payload.events)) return;
         if (payload.title) setTitle(String(payload.title));
-        setEvents(payload.events.filter(isSessionEvent));
+        setEvents(mergeSessionEvents([], payload.events.filter(isSessionEvent)));
       } else if (payload.type === "end") {
         setStatus((current) => (current === "unavailable" ? current : "ended"));
         source.close();
@@ -886,10 +1054,9 @@ export function SessionStream({
     });
   }, [relatedTasks]);
   const visibleEvents = useMemo(
-    () => events.filter((event) => !event.toolResultsOnly && event.blocks.some((block) =>
-      ["text", "thinking", "tool_use", "error", "permission_request"].includes(block.type) ||
-      (block.type === "turn_end" && typeof block.result === "string" && block.result.trim() !== "")
-    )),
+    () => events.filter((event) => event.role === "assistant"
+      ? hasVisibleSessionActivity([event])
+      : !event.toolResultsOnly && Boolean(sessionEventText(event).trim())),
     [events]
   );
   const turns = useMemo(() => groupSessionTurns(visibleEvents), [visibleEvents]);
@@ -918,7 +1085,7 @@ export function SessionStream({
       </div>
       <RelatedTasks tasks={relatedTasks} onOpen={(task) => setRelatedView(task)} />
       <div className="cc-session-scroll" ref={scrollRef} onScroll={onScroll}>
-        {events.length === 0 && (
+        {visibleEvents.length === 0 && (
           <div className="cc-session-empty">
             {status === "connecting"
               ? "Opening the activity journal…"
@@ -933,14 +1100,24 @@ export function SessionStream({
           const turnLive = streamLive && turnIndex === turns.length - 1;
           const presentation = presentSessionTurn(turn, turnLive);
           const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
-          const terminalText = [...turn.assistantEvents].reverse().map(sessionEventTerminalText).find((text) => text.trim()) ?? "";
-          const terminalDuplicatesText = Boolean(terminalText) && turn.assistantEvents.some(
-            (event) => sessionEventText(event).trim() === terminalText.trim()
-          );
+          const hasSettlementNotice = turn.assistantEvents.some((event) => event.blocks.some((block) =>
+            block.type === "error" || block.type === "retry" || block.type === "route" || block.type === "turn_end" ||
+            (block.type === "rate_limit" && (
+              String(block.status ?? "").toLowerCase() !== "allowed" ||
+              Boolean(block.overageStatus && String(block.overageStatus).toLowerCase() !== "allowed")
+            )) ||
+            (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback"))
+          ));
           const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
             const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
             const activityCount = event.blocks.filter((block) =>
-              block.type === "thinking" || block.type === "tool_use" || block.type === "error" || block.type === "permission_request"
+              block.type === "thinking" || block.type === "tool_use" || block.type === "error" || block.type === "permission_request" ||
+              block.type === "retry" || block.type === "route" || block.type === "turn_end" ||
+              (block.type === "rate_limit" && (
+                String(block.status ?? "").toLowerCase() !== "allowed" ||
+                Boolean(block.overageStatus && String(block.overageStatus).toLowerCase() !== "allowed")
+              )) ||
+              (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback"))
             ).length;
             return count + textCount + activityCount;
           }, 0);
@@ -967,15 +1144,15 @@ export function SessionStream({
                         resultsByToolUse={resultsByToolUse}
                         progressByToolUse={progressByToolUse}
                         onImage={(image, label) => setModalImage({ image, label })}
+                        renderTerminalResult
                       />
-                      {terminalText && !terminalDuplicatesText && <TextBlock text={terminalText} role="assistant" />}
                     </>
                   )}
                   {turnLive && !presentation.primaryText && interimCount === 0 && (
                     <div className="cc-session-awaiting" role={announceLiveUpdates ? "status" : undefined}>Working…</div>
                   )}
                   {!turnLive && interimCount > 0 && (
-                    <InterimDetails count={interimCount} openByDefault={!presentation.primaryText}>
+                    <InterimDetails count={interimCount} openByDefault={!presentation.primaryText || hasSettlementNotice}>
                       <ActivityTimeline
                         events={turn.assistantEvents}
                         includeText

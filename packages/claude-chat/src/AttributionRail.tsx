@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { RouteAttribution, TurnRouting } from "./transport";
 import { railBadges, type RailBadge } from "./run-context";
 
@@ -337,6 +337,9 @@ export interface RailMenu {
   field: PinField;
   /** Popover heading, also its accessible name. */
   label: string;
+  /** Visible settlement effect. Route identity changes are session boundaries;
+   * effort is request-scoped and explicitly is not one. */
+  effect: string;
   rows: RailMenuRow[];
   /** The typed escape hatch. Model only: there is no model catalog anywhere in the
    *  repo, so a menu alone cannot express "the model I actually want". */
@@ -568,6 +571,11 @@ export function menuForField(
       field === "phasesOff"
         ? "Phases this run walks"
         : `Pin ${FIELD_LABEL[field]} for the next message`,
+    effect: (["target", "model", "account", "project"] as PinField[]).includes(field)
+      ? "Starts a new session for your next message."
+      : field === "effort"
+        ? "Applies to your next request without starting a new session."
+        : "Applies to your next message.",
     rows,
     ...(field === "model"
       ? { freeText: { field: "model" as PinField, label: "Any model id", placeholder: "model id" } }
@@ -624,6 +632,7 @@ export function AttributionRail({
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [menuIdx, setMenuIdx] = useState(0);
   const [freeText, setFreeText] = useState("");
+  const menuEffectId = useId();
   const itemsRef = useRef<(HTMLElement | null)[]>([]);
   const railRef = useRef<HTMLDivElement>(null);
 
@@ -804,7 +813,7 @@ export function AttributionRail({
           const mark = b.pending ? (
             <span className="cc-rbadge-next">next</span>
           ) : b.auto ? (
-            <span className="cc-rbadge-automark" aria-hidden="true">
+            <span className="cc-rbadge-automark">
               auto
             </span>
           ) : null;
@@ -873,8 +882,15 @@ export function AttributionRail({
               phone; CSS hides it above 560px, where the document listener above
               already handles an outside click. */}
           <div className="cc-railscrim" onClick={() => closeMenu(focusIdx)} />
-          <div className="cc-railmenu" role="menu" aria-label={menu.label} onKeyDown={onMenuKey}>
+          <div
+            className="cc-railmenu"
+            role="menu"
+            aria-label={menu.label}
+            aria-describedby={menuEffectId}
+            onKeyDown={onMenuKey}
+          >
             <div className="cc-railmenu-head">{menu.label}</div>
+            <div id={menuEffectId} className="cc-railmenu-effect">{menu.effect}</div>
             {menu.rows.map((row, i) =>
               row.href ? (
                 <a

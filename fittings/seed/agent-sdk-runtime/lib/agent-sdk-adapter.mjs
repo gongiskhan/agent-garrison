@@ -86,6 +86,10 @@ function isPostResultMaxTurnsError(err) {
   return /(?:Claude Code returned an error result:\s*)?Reached maximum number of turns \(\d+\)/i.test(message);
 }
 
+function isExpectedAbortError(err) {
+  return err?.name === "AbortError" || err?.code === "ABORT_ERR";
+}
+
 // Session ids become filesystem coordinates when the gateway exposes the SDK's
 // Claude journal. Accept the opaque id shape emitted by Claude Code, but reject
 // separators, control characters and unbounded input before publishing it to a
@@ -95,6 +99,31 @@ function validatedSessionId(value) {
   if (typeof value !== "string") return null;
   const id = value.trim();
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id) ? id : null;
+}
+
+function observedModelFor(message) {
+  const value = message?.subtype === "model_refusal_fallback"
+    ? message?.fallback_model
+    : message?.type === "assistant"
+      ? message?.message?.model
+      : message?.type === "stream_event" && message?.event?.type === "message_start"
+        ? message?.event?.message?.model
+        : message?.subtype === "init"
+          ? message?.model
+          : null;
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 200) : null;
+}
+
+function terminalError(error, normalizer, { sessionId = null, model = null } = {}) {
+  const normalized = error instanceof Error ? error : new Error(String(error ?? "runtime failed"));
+  // Iterator failures still reject the RuntimeAdapter promise, but carry the
+  // same safe outcome metadata as resolved provider-error results. This lets a
+  // gateway settle once without scraping an exception string.
+  normalized.terminalStatus = normalizer?.terminalStatus ?? "error";
+  normalized.failure = normalizer?.failure ?? null;
+  normalized.sessionId = sessionId;
+  normalized.model = model;
+  return normalized;
 }
 
 function jsonClone(value) {
@@ -438,6 +467,9 @@ export class AgentSdkAdapter {
       capabilities,
       vaultKey,
       model: config.model ?? null,
+      // Requested model remains `model`; refusal fallback is observed provider
+      // state and must not silently rewrite query options owned by the route.
+      observedModel: config.model ?? null,
       effort: config.effort ?? null,
       // buildQueryOptions forwards effort only for a provider whose capability
       // record says the installed Agent SDK can apply it. Unsupported providers
@@ -615,7 +647,8 @@ export class AgentSdkAdapter {
       eventNormalizer: createAgentSdkSessionEventNormalizer({
         turnId: hooks.turnId ?? null,
         generationId,
-        sessionId: session.sessionId
+        sessionId: session.sessionId,
+        model: session.observedModel ?? session.model
       }),
       eventTail: Promise.resolve(),
       deferred: deferred(),
@@ -624,6 +657,7 @@ export class AgentSdkAdapter {
       resultText: "",
       toolUses: [],
       stoppedReason: null,
+      hostReason: null,
       sessionId: session.sessionId,
       announcedSessionId: null,
       resultMessage: null,
@@ -631,7 +665,9 @@ export class AgentSdkAdapter {
       idleReceived: false,
       cancelRequested: false,
       interruptPromise: null,
-      failurePromise: null
+      finishPromise: null,
+      failurePromise: null,
+      observedModel: session.observedModel ?? session.model
     };
     turn.emitEvents = (events) => {
       if (!turn.onEvent || !Array.isArray(events) || events.length === 0) return turn.eventTail;
@@ -811,10 +847,21 @@ export class AgentSdkAdapter {
     } finally {
       const turn = session.activeTurn;
       if (turn && !turn.deferred.settled) {
-        const error = session.closing
-          ? new Error("AgentSdkAdapter: standing query was torn down")
-          : pumpError ?? new Error("AgentSdkAdapter: standing query ended before turn settlement");
-        await this._failStandingTurn(session, turn, error);
+        // An acknowledged interrupt may end some provider iterators instead of
+        // yielding result+idle. Wait for the control response before deciding:
+        // expected abort/EOF is cancellation, while a rejected interrupt or an
+        // unrelated iterator failure remains an error.
+        if (turn.interruptPromise) await turn.interruptPromise;
+        if (turn.cancelRequested && (pumpError === null || isExpectedAbortError(pumpError))) {
+          turn.stoppedReason = "cancelled";
+          turn.hostReason = "cancelled";
+          await this._finishStandingTurn(session, turn);
+        } else {
+          const error = session.closing
+            ? new Error("AgentSdkAdapter: standing query was torn down")
+            : pumpError ?? new Error("AgentSdkAdapter: standing query ended before turn settlement");
+          await this._failStandingTurn(session, turn, error);
+        }
       }
       inputQueue.close();
       if (session.standingClient === client) {
@@ -843,15 +890,32 @@ export class AgentSdkAdapter {
       throw new Error("AgentSdkAdapter: standing query emitted a message without an active turn");
     }
 
+    const observedSessionId = validatedSessionId(message?.session_id);
+    if (observedSessionId) {
+      turn.sessionId = observedSessionId;
+      session.sessionId = observedSessionId;
+    }
+    const observedModel = observedModelFor(message);
+    if (observedModel) {
+      turn.observedModel = observedModel;
+      session.observedModel = observedModel;
+    }
+
     if (isAuthoritativeIdle(message)) {
       turn.idleReceived = true;
       if (turn.resultSettleTimer) {
         clearTimeout(turn.resultSettleTimer);
         turn.resultSettleTimer = null;
       }
-      const idleSessionId = validatedSessionId(message?.session_id);
-      if (idleSessionId) this._announceStandingSession(session, turn, idleSessionId);
+      if (observedSessionId) this._announceStandingSession(session, turn, observedSessionId);
       if (!turn.resultMessage) {
+        if (turn.interruptPromise) await turn.interruptPromise;
+        if (turn.cancelRequested) {
+          turn.stoppedReason = "cancelled";
+          turn.hostReason = "cancelled";
+          await this._finishStandingTurn(session, turn);
+          return;
+        }
         throw new Error("AgentSdkAdapter: standing query became idle before a result");
       }
       await this._finishStandingTurn(session, turn);
@@ -871,10 +935,9 @@ export class AgentSdkAdapter {
         turn.stoppedReason = turn.stoppedReason ?? message.subtype;
       }
       if (typeof message.result === "string" && message.result.trim()) turn.resultText = message.result;
-      const resultSessionId = validatedSessionId(message.session_id);
-      if (resultSessionId) turn.sessionId = resultSessionId;
       if (session.budgetTokens != null && session.usedTokens >= session.budgetTokens) {
         turn.stoppedReason = turn.stoppedReason ?? "budget_exceeded";
+        turn.hostReason = "budget_exceeded";
       }
       // Do not normalize here: result is data. Native streamed input has no idle
       // marker, so a quiet-period fallback owns the terminal event there.
@@ -885,9 +948,8 @@ export class AgentSdkAdapter {
     try {
       await turn.normalizeAndEmit(message);
       const type = message?.type;
-      if (type === "system" && message.session_id) {
-        const announced = validatedSessionId(message.session_id);
-        if (announced) this._announceStandingSession(session, turn, announced);
+      if (type === "system" && observedSessionId) {
+        this._announceStandingSession(session, turn, observedSessionId);
         return;
       }
       if (type !== "assistant") return;
@@ -965,28 +1027,47 @@ export class AgentSdkAdapter {
 
   async _finishStandingTurn(session, turn) {
     if (session.activeTurn !== turn || turn.deferred.settled) return;
-    if (turn.resultSettleTimer) {
-      clearTimeout(turn.resultSettleTimer);
-      turn.resultSettleTimer = null;
-    }
-    // The idle frame can be read immediately after the interrupt control response.
-    // Wait for that response to settle so a rejected interrupt is never reported
-    // as cancellation and an acknowledged one cannot race terminal persistence.
-    if (turn.interruptPromise) await turn.interruptPromise;
-    if (turn.cancelRequested) turn.stoppedReason = "cancelled";
-    await turn.emitEvents(turn.eventNormalizer.finishResult(turn.resultMessage, turn.stoppedReason));
-    await turn.eventTail;
-    session.turns += 1;
-    session.sessionId = turn.sessionId;
-    session.activeTurn = null;
-    session.cancelRequested = false;
-    turn.deferred.resolve({
-      text: turn.resultText || turn.lastTextEnvelope || turn.textOut,
-      artifacts: [],
-      toolUses: turn.toolUses,
-      stoppedReason: turn.stoppedReason,
-      usedTokens: session.usedTokens
-    });
+    // Teardown/pump failure claims settlement synchronously by installing this
+    // promise before its event sink awaits. Never race a lower-precedence
+    // cancellation/completion revision against that in-flight error outcome.
+    if (turn.failurePromise) return turn.failurePromise;
+    if (turn.finishPromise) return turn.finishPromise;
+    turn.finishPromise = (async () => {
+      if (turn.resultSettleTimer) {
+        clearTimeout(turn.resultSettleTimer);
+        turn.resultSettleTimer = null;
+      }
+      // The idle frame can be read immediately after the interrupt control response.
+      // Wait for that response to settle so a rejected interrupt is never reported
+      // as cancellation and an acknowledged one cannot race terminal persistence.
+      if (turn.interruptPromise) await turn.interruptPromise;
+      if (turn.failurePromise) return turn.failurePromise;
+      if (turn.cancelRequested) {
+        turn.stoppedReason = "cancelled";
+        turn.hostReason = "cancelled";
+      }
+      await turn.emitEvents(turn.eventNormalizer.finishResult(turn.resultMessage, turn.hostReason));
+      await turn.eventTail;
+      if (turn.failurePromise) return turn.failurePromise;
+      if (turn.deferred.settled) return;
+      session.turns += 1;
+      session.sessionId = turn.sessionId;
+      session.observedModel = turn.observedModel;
+      session.activeTurn = null;
+      session.cancelRequested = false;
+      turn.deferred.resolve({
+        text: turn.resultText || turn.lastTextEnvelope || turn.textOut,
+        artifacts: [],
+        toolUses: turn.toolUses,
+        stoppedReason: turn.stoppedReason,
+        usedTokens: session.usedTokens,
+        terminalStatus: turn.eventNormalizer.terminalStatus,
+        failure: turn.eventNormalizer.failure,
+        sessionId: turn.sessionId,
+        model: turn.observedModel
+      });
+    })();
+    return turn.finishPromise;
   }
 
   _failStandingTurn(session, turn, error) {
@@ -999,12 +1080,20 @@ export class AgentSdkAdapter {
     }
     turn.failurePromise = (async () => {
       try {
-        await turn.emitEvents(turn.eventNormalizer.runtimeError(normalized));
+        await turn.emitEvents(turn.eventNormalizer.runtimeError(normalized, {
+          resultMessage: turn.resultMessage,
+          source: session.closing ? "session" : "runtime",
+          kind: "runtime",
+          code: session.closing ? "session_closed" : "runtime_error"
+        }));
         await turn.eventTail;
       } finally {
         if (session.activeTurn === turn) session.activeTurn = null;
         session.cancelRequested = false;
-        turn.deferred.reject(normalized);
+        turn.deferred.reject(terminalError(normalized, turn.eventNormalizer, {
+          sessionId: turn.sessionId,
+          model: turn.observedModel
+        }));
       }
     })();
     return turn.failurePromise;
@@ -1025,7 +1114,9 @@ export class AgentSdkAdapter {
     }
     const eventNormalizer = createAgentSdkSessionEventNormalizer({
       turnId: hooks.turnId ?? null,
-      sessionId: session.sessionId
+      generationId: permissionGenerationId || null,
+      sessionId: session.sessionId,
+      model: session.observedModel ?? session.model
     });
     let eventTail = Promise.resolve();
     const emitEvents = (events) => {
@@ -1127,8 +1218,11 @@ export class AgentSdkAdapter {
     let resultText = "";
     const toolUses = [];
     let stoppedReason = null;
+    let hostReason = null;
     let sessionId = session.sessionId;
+    let observedModel = session.observedModel ?? session.model;
     let announcedSessionId = null;
+    let resultMessage = null;
 
     try {
       for await (const msg of client) {
@@ -1137,18 +1231,36 @@ export class AgentSdkAdapter {
         // that braces: it covers a cancel observed before the abort propagates.
         if (session.cancelRequested) {
           stoppedReason = stoppedReason ?? "cancelled";
+          hostReason = "cancelled";
           break;
         }
-        await normalizeAndEmit(msg);
         const type = msg?.type;
-        if (type === "system" && msg.session_id) {
-          const announced = validatedSessionId(msg.session_id);
+        const observedSessionId = validatedSessionId(msg?.session_id);
+        if (observedSessionId) {
+          sessionId = observedSessionId;
+          session.sessionId = observedSessionId;
+        }
+        const messageModel = observedModelFor(msg);
+        if (messageModel) {
+          observedModel = messageModel;
+          session.observedModel = messageModel;
+        }
+        // Result is a candidate terminal boundary, not an immediate one. The SDK
+        // may emit prompt suggestions or fallback audit frames afterwards, and an
+        // unrelated iterator failure must win over an apparently-successful
+        // result without creating two terminal events.
+        if (type === "result") {
+          if (resultMessage) throw new Error("AgentSdkAdapter: SDK query emitted multiple results");
+          resultMessage = msg;
+        } else {
+          await normalizeAndEmit(msg);
+        }
+        if (type === "system" && observedSessionId) {
+          const announced = observedSessionId;
           if (announced) {
-            sessionId = announced;
             // Persist immediately: callers must be able to derive and expose the
             // journal while thinking and tools are still streaming, not only
             // after awaitResponse settles at the bottom of this method.
-            session.sessionId = announced;
             if (onSession && announced !== announcedSessionId) {
               announcedSessionId = announced;
               try {
@@ -1228,13 +1340,15 @@ export class AgentSdkAdapter {
           // shapes can omit result, in which case the last textual assistant
           // envelope is the best final answer (or partial answer after Stop).
           if (typeof msg.result === "string" && msg.result.trim()) resultText = msg.result;
-          const resultSessionId = validatedSessionId(msg.session_id);
-          if (resultSessionId) sessionId = resultSessionId;
         }
         // Hard budget ceiling.
         if (session.budgetTokens != null && session.usedTokens >= session.budgetTokens) {
           stoppedReason = stoppedReason ?? "budget_exceeded";
-          break;
+          hostReason = "budget_exceeded";
+          // Usage arrives on the result envelope. Keep draining its bounded
+          // postlude so fallback/retry/session attribution remains ordered before
+          // the one terminal event.
+          if (!resultMessage) break;
         }
       }
     } catch (err) {
@@ -1242,13 +1356,22 @@ export class AgentSdkAdapter {
       // asked for, not a runtime failure: settle with the partial text.
       if (session.cancelRequested) {
         stoppedReason = "cancelled";
+        hostReason = "cancelled";
       } else if (stoppedReason !== "max_turns" || !isPostResultMaxTurnsError(err)) {
         // SDK 0.3.179 reports max-turn twice: a structured result followed by this
         // iterator rejection. Normalize only that exact pair into the adapter's
         // documented stoppedReason response. A matching-looking throw without the
         // envelope, or any unrelated post-result error, still rejects.
-        await emitEvents(eventNormalizer.runtimeError(err));
-        throw err;
+        session.sessionId = sessionId;
+        session.observedModel = observedModel;
+        await emitEvents(eventNormalizer.runtimeError(err, {
+          resultMessage,
+          source: "runtime",
+          kind: "runtime",
+          code: "runtime_error"
+        }));
+        await eventTail;
+        throw terminalError(err, eventNormalizer, { sessionId, model: observedModel });
       }
     } finally {
       // The turn is over either way - the handle must not stay cancellable.
@@ -1257,10 +1380,16 @@ export class AgentSdkAdapter {
 
     // A query the user cancelled can also end by simply running out (the aborted
     // generator completes without throwing), so the reason is asserted here too.
-    if (session.cancelRequested) stoppedReason = stoppedReason ?? "cancelled";
-    await emitEvents(eventNormalizer.finish(stoppedReason));
+    if (session.cancelRequested) {
+      stoppedReason = stoppedReason ?? "cancelled";
+      hostReason = "cancelled";
+    }
+    await emitEvents(resultMessage
+      ? eventNormalizer.finishResult(resultMessage, hostReason)
+      : eventNormalizer.finish(hostReason));
     session.turns += 1;
     session.sessionId = sessionId;
+    session.observedModel = observedModel;
     // S1b: at the loop boundary, summarize-and-rebuild if usage crossed the
     // threshold. This may reset session.usedTokens to 0 and clear the resume id.
     // Skipped after a cancel: rebuilding fires ANOTHER model call, which is the
@@ -1273,7 +1402,11 @@ export class AgentSdkAdapter {
       artifacts: [],
       toolUses,
       stoppedReason,
-      usedTokens: session.usedTokens
+      usedTokens: session.usedTokens,
+      terminalStatus: eventNormalizer.terminalStatus,
+      failure: eventNormalizer.failure,
+      sessionId,
+      model: observedModel
     };
   }
 

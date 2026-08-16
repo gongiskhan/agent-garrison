@@ -140,6 +140,9 @@ const ROUTE_META_FIELDS = {
   duty: "id",
   level: "level",
   phase: "id",
+  flow: "id",
+  phasesOff: "text",
+  classifierSkipped: "bool",
   skill: "id",
   via: "id",
   account: "id",
@@ -154,6 +157,9 @@ const ROUTE_META_FIELDS = {
   stoppedReason: "text",
   overridesApplied: "strings",
   overridesRejected: "rejections",
+  sessionDisposition: "id",
+  sessionBoundaryReason: "id",
+  sessionEpoch: "seq",
   // `pending` is deliberately NOT persistable. It describes the FRAME ("this
   // attribution is provisional, the turn is still running"), not the turn, and the
   // server merges the pre-turn frame under the done payload - which carries no
@@ -210,11 +216,32 @@ const SESSION_BLOCK_TYPES = new Set([
   "tool_progress",
   "related_task",
   "status",
+  "route",
+  "retry",
   "error",
   "rate_limit",
   "turn_end",
   "permission_request",
 ]);
+const FAILURE_KINDS = new Set([
+  "authentication",
+  "authorization",
+  "billing",
+  "rate_limit",
+  "overloaded",
+  "invalid_request",
+  "not_found",
+  "limit",
+  "execution",
+  "runtime",
+  "transport",
+  "routing",
+  "protocol",
+  "permission",
+  "unknown",
+]);
+const FAILURE_SOURCES = new Set(["assistant", "result", "runtime", "session", "transport", "system", "gateway", "web"]);
+const RETRACTION_CAP = 64;
 const INVALID_SESSION_VALUE = Symbol("invalid-session-value");
 
 function cleanString(raw, max) {
@@ -283,7 +310,7 @@ function cleanField(kind, raw) {
 // truths. Dropping the null collapsed them, so a turn showed "machine login" live
 // and no account badge at all after a refresh. Same for `skill: null` -> "skill: none".
 // Everything else keeps the plain rule that null and absent are interchangeable.
-const MEANINGFUL_NULL_FIELDS = new Set(["account", "skill"]);
+const MEANINGFUL_NULL_FIELDS = new Set(["account", "skill", "sessionBoundaryReason"]);
 
 function sanitizeAgainst(fields, raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -307,12 +334,81 @@ function sanitizeAgainst(fields, raw) {
 
 /** Whitelist a resolved RouteAttribution for persistence. */
 export function sanitizeRouteMeta(raw) {
-  return sanitizeAgainst(ROUTE_META_FIELDS, raw);
+  const out = sanitizeAgainst(ROUTE_META_FIELDS, raw) ?? {};
+  if (Object.hasOwn(raw ?? {}, "projectPath")) {
+    const projectPath = typeof raw.projectPath === "string" && raw.projectPath === raw.projectPath.trim() &&
+      raw.projectPath.length <= 4_000 && path.isAbsolute(raw.projectPath)
+      ? raw.projectPath
+      : null;
+    if (projectPath) out.projectPath = projectPath;
+    else delete out.projectPath;
+  }
+  const spawnSignature = sanitizeSpawnSignature(raw?.spawnSignature);
+  if (spawnSignature) out.spawnSignature = spawnSignature;
+  return Object.keys(out).length ? out : null;
 }
 
 /** Whitelist a pinned TurnRouting for persistence. */
 export function sanitizeRouting(raw) {
   return sanitizeAgainst(ROUTING_FIELDS, raw);
+}
+
+/** Exact durable identity of the process/query that owns conversational state.
+ * Effort is deliberately absent: it rotates a Query by native resume without
+ * starting a new logical thread session. */
+export function sanitizeSpawnSignature(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const keys = ["target", "runtime", "provider", "model", "account", "accountSource", "projectPath"];
+  if (Object.keys(raw).sort().join("\0") !== keys.slice().sort().join("\0")) return null;
+  const required = ["target", "runtime", "provider", "model"];
+  const out = {};
+  for (const key of required) {
+    const value = cleanSessionLabel(raw[key], SESSION_ID_CAP);
+    if (!value) return null;
+    out[key] = value;
+  }
+  for (const key of ["account", "accountSource", "projectPath"]) {
+    if (raw[key] === null) out[key] = null;
+    else {
+      const value = cleanSessionLabel(raw[key], key === "projectPath" ? 4_000 : SESSION_ID_CAP);
+      if (!value) return null;
+      if (key === "projectPath" && !path.isAbsolute(value)) return null;
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+export function sanitizeRouteSession(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (Object.keys(raw).sort().join("\0") !== ["epoch", "signature"].sort().join("\0")) return null;
+  const epoch = cleanInt(raw.epoch, 1, Number.MAX_SAFE_INTEGER);
+  const signature = sanitizeSpawnSignature(raw.signature);
+  return epoch === null || !signature ? null : { epoch, signature };
+}
+
+export function sanitizeFailureInfo(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const code = cleanSessionLabel(raw.code, 200);
+  const kind = FAILURE_KINDS.has(raw.kind) ? raw.kind : null;
+  const source = FAILURE_SOURCES.has(raw.source) ? raw.source : null;
+  const text = capSessionText(raw.text);
+  if (!code || !kind || !source || text === null || !text.trim() || typeof raw.retryable !== "boolean") return null;
+  const out = { code, kind, source, text, retryable: raw.retryable };
+  const requestId = cleanOptionalId(raw.requestId, Object.hasOwn(raw, "requestId"));
+  if (requestId === INVALID_SESSION_VALUE || requestId === null) return null;
+  if (requestId !== undefined) out.requestId = requestId;
+  if (Object.hasOwn(raw, "httpStatus")) {
+    const status = cleanInt(raw.httpStatus, 100, 599);
+    if (status === null) return null;
+    out.httpStatus = status;
+  }
+  if (Object.hasOwn(raw, "retryAt")) {
+    const retryAt = cleanFiniteNumber(raw.retryAt, { min: Number.MIN_VALUE });
+    if (retryAt === null) return null;
+    out.retryAt = retryAt;
+  }
+  return out;
 }
 
 function cleanSessionId(raw) {
@@ -387,6 +483,8 @@ function sanitizeInputReceipt(raw) {
   if (!inputId || !clientRequestId || !acceptedAt || !settledAt || !state) return null;
   const generationId = cleanInputId(raw.generationId);
   const reason = cleanString(raw.reason, TEXT_CLIP);
+  const failure = Object.hasOwn(raw, "failure") ? sanitizeFailureInfo(raw.failure) : null;
+  if (Object.hasOwn(raw, "failure") && !failure) return null;
   return {
     inputId,
     clientRequestId,
@@ -396,6 +494,7 @@ function sanitizeInputReceipt(raw) {
     settledAt,
     ...(generationId ? { generationId } : {}),
     ...(reason ? { reason } : {}),
+    ...(failure ? { failure } : {}),
   };
 }
 
@@ -632,10 +731,78 @@ export function sanitizeSessionBlock(raw) {
     return out;
   }
 
-  if (type === "error") {
-    const kind = cleanSessionLabel(raw.kind, 200);
+  if (type === "route") {
+    const attribution = sanitizeRouteMeta(raw.attribution);
+    if (!attribution) return null;
+    const out = { type, attribution };
+    if (Object.hasOwn(raw, "requestedModel")) {
+      if (raw.requestedModel === null) out.requestedModel = null;
+      else if (!copyOptionalLabel(out, raw, "requestedModel", 200)) return null;
+    }
+    return out;
+  }
+
+  if (type === "retry") {
+    if (raw.kind !== "api" && raw.kind !== "model_fallback") return null;
     const text = capSessionText(raw.text);
-    return !kind || text === null ? null : { type, kind, text };
+    if (text === null || !text.trim()) return null;
+    const out = { type, kind: raw.kind, text };
+    if (!copyOptionalNumber(out, raw, "attempt", { integer: true, min: 1 })) return null;
+    if (!copyOptionalNumber(out, raw, "maxAttempts", { integer: true, min: 1 })) return null;
+    if (!copyOptionalNumber(out, raw, "delayMs", { min: 0 })) return null;
+    if (Object.hasOwn(raw, "httpStatus")) {
+      if (raw.httpStatus === null) out.httpStatus = null;
+      else {
+        const status = cleanInt(raw.httpStatus, 100, 599);
+        if (status === null) return null;
+        out.httpStatus = status;
+      }
+    }
+    for (const key of ["errorKind", "fromModel", "toModel", "direction"]) {
+      if (!copyOptionalLabel(out, raw, key, 200)) return null;
+    }
+    const requestId = cleanOptionalId(raw.requestId, Object.hasOwn(raw, "requestId"));
+    if (requestId === INVALID_SESSION_VALUE || requestId === null) return null;
+    if (requestId !== undefined) out.requestId = requestId;
+    return out;
+  }
+
+  if (type === "error") {
+    const rawKind = cleanSessionLabel(raw.kind, 200);
+    const text = capSessionText(raw.text);
+    if (!rawKind || text === null || !text.trim()) return null;
+    const legacyKind = rawKind === "permission_denied"
+      ? "permission"
+      : rawKind.includes("transport")
+        ? "transport"
+        : rawKind.includes("runtime")
+          ? "runtime"
+          : "execution";
+    const kind = FAILURE_KINDS.has(rawKind) ? rawKind : legacyKind;
+    const code = cleanSessionLabel(raw.code, 200) ?? rawKind;
+    const source = FAILURE_SOURCES.has(raw.source) ? raw.source : "runtime";
+    const out = {
+      type,
+      kind,
+      code,
+      source,
+      text,
+      retryable: typeof raw.retryable === "boolean" ? raw.retryable : false,
+    };
+    const requestId = cleanOptionalId(raw.requestId, Object.hasOwn(raw, "requestId"));
+    if (requestId === INVALID_SESSION_VALUE || requestId === null) return null;
+    if (requestId !== undefined) out.requestId = requestId;
+    if (Object.hasOwn(raw, "httpStatus")) {
+      const status = cleanInt(raw.httpStatus, 100, 599);
+      if (status === null) return null;
+      out.httpStatus = status;
+    }
+    if (Object.hasOwn(raw, "retryAt")) {
+      const retryAt = cleanFiniteNumber(raw.retryAt, { min: Number.MIN_VALUE });
+      if (retryAt === null) return null;
+      out.retryAt = retryAt;
+    }
+    return out;
   }
 
   if (type === "rate_limit") {
@@ -647,21 +814,35 @@ export function sanitizeSessionBlock(raw) {
     if (!copyOptionalNumber(out, raw, "utilization")) return null;
     if (!copyOptionalLabel(out, raw, "overageStatus", 200)) return null;
     if (!copyOptionalNumber(out, raw, "overageResetsAt")) return null;
+    if (!copyOptionalText(out, raw, "overageDisabledReason")) return null;
     if (Object.hasOwn(raw, "isUsingOverage")) {
       if (typeof raw.isUsingOverage !== "boolean") return null;
       out.isUsingOverage = raw.isUsingOverage;
     }
+    if (Object.hasOwn(raw, "overageInUse")) {
+      if (typeof raw.overageInUse !== "boolean") return null;
+      out.overageInUse = raw.overageInUse;
+    }
+    if (!copyOptionalNumber(out, raw, "surpassedThreshold")) return null;
     return out;
   }
 
   if (type === "turn_end") {
     if (!new Set(["completed", "error", "cancelled"]).has(raw.status)) return null;
-    const out = { type, status: raw.status };
-    if (!copyOptionalLabel(out, raw, "subtype", 200)) return null;
-    if (Object.hasOwn(raw, "stopReason")) {
-      if (raw.stopReason === null) out.stopReason = null;
-      else if (!copyOptionalText(out, raw, "stopReason")) return null;
-    }
+    const subtype = cleanSessionLabel(raw.subtype, 200);
+    if (
+      !subtype ||
+      !Object.hasOwn(raw, "reason") ||
+      !Object.hasOwn(raw, "stopReason") ||
+      !Object.hasOwn(raw, "terminalReason")
+    ) return null;
+    const out = { type, status: raw.status, subtype };
+    if (raw.reason === null) out.reason = null;
+    else if (!copyOptionalText(out, raw, "reason")) return null;
+    if (raw.stopReason === null) out.stopReason = null;
+    else if (!copyOptionalText(out, raw, "stopReason")) return null;
+    if (raw.terminalReason === null) out.terminalReason = null;
+    else if (!copyOptionalLabel(out, raw, "terminalReason", 200)) return null;
     if (!copyOptionalText(out, raw, "result")) return null;
     if (Object.hasOwn(raw, "errors")) {
       if (!Array.isArray(raw.errors)) return null;
@@ -759,11 +940,40 @@ export function sanitizeSessionEvent(raw) {
     generationId === INVALID_SESSION_VALUE || generationId === null
   ) return null;
   if (Object.hasOwn(raw, "toolResultsOnly") && typeof raw.toolResultsOnly !== "boolean") return null;
+  let retracts;
+  if (Object.hasOwn(raw, "retracts")) {
+    if (!Array.isArray(raw.retracts) || raw.retracts.length > RETRACTION_CAP) return null;
+    retracts = [];
+    const seen = new Set();
+    for (const candidate of raw.retracts) {
+      const target = cleanSessionId(candidate);
+      // A generation terminal is the durable settlement authority and can only
+      // advance by revision under its own stable id. No later provider message
+      // may tombstone that boundary.
+      if (!target || target.startsWith("terminal:") || target === id || seen.has(target)) return null;
+      seen.add(target);
+      retracts.push(target);
+    }
+    if (retracts.length === 0) return null;
+  }
   const blocks = [];
   for (const block of raw.blocks) {
     const clean = sanitizeSessionBlock(block);
     if (!clean) return null;
     blocks.push(clean);
+  }
+  const terminalBlocks = blocks.filter((block) => block.type === "turn_end");
+  if (id.startsWith("terminal:") || terminalBlocks.length > 0) {
+    const errorBlocks = blocks.filter((block) => block.type === "error");
+    const status = terminalBlocks[0]?.status ?? null;
+    const coordinate = generationId ?? turnId;
+    if (
+      role !== "assistant" ||
+      !coordinate ||
+      id !== `terminal:${JSON.stringify([coordinate])}` ||
+      terminalBlocks.length !== 1 ||
+      (status === "error" ? errorBlocks.length !== 1 : errorBlocks.length !== 0)
+    ) return null;
   }
   return {
     id,
@@ -774,6 +984,7 @@ export function sanitizeSessionEvent(raw) {
     ...(generationId !== undefined ? { generationId } : {}),
     order,
     revision,
+    ...(retracts ? { retracts } : {}),
     ...(Object.hasOwn(raw, "toolResultsOnly") ? { toolResultsOnly: raw.toolResultsOnly } : {}),
     blocks,
   };
@@ -784,20 +995,30 @@ export function sanitizeSessionEvent(raw) {
 export function mergeSessionEvents(existing, incoming) {
   const out = [];
   const indexById = new Map();
+  const tombstones = new Set();
   const upsert = (raw) => {
     const event = sanitizeSessionEvent(raw);
     if (!event) return;
+    if (tombstones.has(event.id)) return;
     const index = indexById.get(event.id);
     if (index === undefined) {
       indexById.set(event.id, out.length);
       out.push(event);
     } else if (event.revision > out[index].revision) {
-      out[index] = event;
+      // Retractions are permanent tombstones, not an ephemeral snapshot field.
+      // Carry every already-accepted target into the new revision so a replay
+      // cannot resurrect a superseded provider row.
+      const retracts = [...new Set([
+        ...(out[index].retracts ?? []),
+        ...(event.retracts ?? []),
+      ])].slice(0, RETRACTION_CAP);
+      out[index] = retracts.length ? { ...event, retracts } : event;
     }
+    for (const target of out[indexById.get(event.id)]?.retracts ?? []) tombstones.add(target);
   };
   for (const event of Array.isArray(existing) ? existing : []) upsert(event);
   for (const event of Array.isArray(incoming) ? incoming : incoming ? [incoming] : []) upsert(event);
-  return out;
+  return out.filter((event) => !tombstones.has(event.id));
 }
 
 function normalizedSessionIds(raw, events, latest) {
@@ -850,6 +1071,7 @@ function toMeta(thread) {
     // The pinned run context travels with the meta so the thread list / rail can
     // show a pin without a second full-thread read.
     routing: thread.routing ?? null,
+    routeSession: thread.routeSession ?? null,
   };
 }
 
@@ -879,6 +1101,7 @@ async function readThreadFile(id) {
     // re-walked here - they were whitelisted on the way in and a transcript can be
     // long.
     obj.routing = sanitizeRouting(obj.routing);
+    obj.routeSession = sanitizeRouteSession(obj.routeSession);
     return obj;
   } catch {
     return null;
@@ -962,6 +1185,7 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
       mode: mode ? String(mode) : null,
       context: context ?? undefined,
       routing: null, // set later via setThreadRouting; never seeded from open params
+      routeSession: null,
       createdAt: now,
       updatedAt: now,
       messages: [],
@@ -1011,16 +1235,16 @@ export async function appendSessionEvent(id, event, { nowIso } = {}) {
     // payload's session coordinate must not move the thread's latest-session
     // pointer away from the newer event that remains stored.
     if (index !== -1 && clean.revision <= current[index].revision) return current[index];
-    if (index === -1) {
-      thread.sessionEvents = [...current, clean];
-    } else {
-      thread.sessionEvents = current.slice();
-      thread.sessionEvents[index] = clean;
-    }
+    thread.sessionEvents = mergeSessionEvents(current, [clean]);
+    // A previously accepted tombstone permanently suppresses its target. Treat a
+    // later replay of that target as a no-op, while still accepting the retractor
+    // event itself and any new tombstones it carries.
+    const stored = thread.sessionEvents.find((candidate) => candidate.id === clean.id) ?? null;
+    if (!stored) return null;
     if (clean.sessionId) recordThreadSession(thread, clean.sessionId);
     thread.updatedAt = nowIso ?? new Date().toISOString();
     await atomicWriteJson(threadPath(safe), thread);
-    return clean;
+    return stored;
   });
 }
 
@@ -1047,6 +1271,29 @@ export async function setThreadRouting(id, routing, { nowIso } = {}) {
     // actually changed, so an idle thread is not rewritten (and re-sorted) every 10s.
     if (JSON.stringify(thread.routing ?? null) === JSON.stringify(next ?? null)) return next;
     thread.routing = next;
+    thread.updatedAt = nowIso ?? new Date().toISOString();
+    await atomicWriteJson(threadPath(safe), thread);
+    return next;
+  });
+}
+
+/** Persist the resolved spawn identity acknowledged by the gateway. Epochs are
+ * monotonic; an equal epoch may only restate the exact same signature. This keeps
+ * a delayed route frame from silently moving a thread back to an older process. */
+export async function setThreadRouteSession(id, raw, { nowIso } = {}) {
+  const safe = safeThreadId(id);
+  const next = sanitizeRouteSession(raw);
+  if (!safe || !next) return null;
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    const current = sanitizeRouteSession(thread.routeSession);
+    if (current && next.epoch < current.epoch) return current;
+    if (current && next.epoch === current.epoch && JSON.stringify(next.signature) !== JSON.stringify(current.signature)) {
+      return null;
+    }
+    if (JSON.stringify(current) === JSON.stringify(next)) return next;
+    thread.routeSession = next;
     thread.updatedAt = nowIso ?? new Date().toISOString();
     await atomicWriteJson(threadPath(safe), thread);
     return next;
@@ -1109,6 +1356,7 @@ export async function appendMessages(id, messages, { nowIso, idempotencyKey = nu
         pendingInputs: [],
         inputReceipts: [],
         inputRecoveryBlocks: [],
+        routeSession: null,
         inputRevision: 0,
       };
     }
@@ -1149,6 +1397,7 @@ function publicThreadInput(input, pendingInputs = []) {
     ...(position !== undefined ? { position } : {}),
     ...(input.settledAt ? { settledAt: input.settledAt } : {}),
     ...(input.reason ? { reason: input.reason } : {}),
+    ...(input.failure ? { failure: input.failure } : {}),
   };
 }
 
@@ -1317,12 +1566,13 @@ export async function markThreadInputStopping(id, inputId, generationId, { nowIs
 /** Remove a completed active input from the queue while retaining a bounded
  * idempotency receipt. A stale producer cannot settle a newer turn because both
  * the Web input id and (when assigned) gateway generation must match. */
-export async function settleThreadInput(id, inputId, outcome, { generationId, reason, nowIso } = {}) {
+export async function settleThreadInput(id, inputId, outcome, { generationId, reason, failure, nowIso } = {}) {
   const safe = safeThreadId(id);
   const cleanInput = cleanInputId(inputId);
   const state = INPUT_TERMINAL_STATES.has(outcome) ? outcome : null;
   const cleanGeneration = generationId === undefined ? null : cleanInputId(generationId);
-  if (!safe || !cleanInput || !state || (generationId !== undefined && !cleanGeneration)) return null;
+  const cleanFailure = failure === undefined ? null : sanitizeFailureInfo(failure);
+  if (!safe || !cleanInput || !state || (generationId !== undefined && !cleanGeneration) || (failure !== undefined && !cleanFailure)) return null;
   const now = nowIso ?? new Date().toISOString();
   return serializeThreadMutation(safe, async () => {
     const thread = await readThreadFile(safe);
@@ -1334,7 +1584,10 @@ export async function settleThreadInput(id, inputId, outcome, { generationId, re
       return prior ? publicThreadInput(prior, pending) : null;
     }
     const current = pending[index];
-    if (cleanGeneration && current.generationId && current.generationId !== cleanGeneration) return null;
+    // Once `open` binds a gateway generation, omitting it is just as unsafe as
+    // sending the wrong one. Generation-less settlement is reserved for genuine
+    // pre-open/admission failures whose durable input never acquired an owner.
+    if (current.generationId && cleanGeneration !== current.generationId) return null;
     const receipt = sanitizeInputReceipt({
       inputId: current.inputId,
       clientRequestId: current.clientRequestId,
@@ -1344,6 +1597,7 @@ export async function settleThreadInput(id, inputId, outcome, { generationId, re
       settledAt: now,
       generationId: current.generationId ?? cleanGeneration ?? undefined,
       reason,
+      ...(cleanFailure ? { failure: cleanFailure } : {}),
     });
     if (!receipt) return null;
     pending.splice(index, 1);
@@ -1359,7 +1613,43 @@ export async function settleThreadInput(id, inputId, outcome, { generationId, re
 }
 
 const RESTART_INPUT_FAILURE_REASON = "web channel restarted before the turn completed; input was not replayed";
-const RESTART_INPUT_FAILURE_TEXT = "_Turn did not complete because the Web channel restarted. It was not replayed automatically._";
+const RESTART_INPUT_FAILURE = Object.freeze({
+  code: "web_process_restarted",
+  kind: "transport",
+  source: "web",
+  text: "The Web channel restarted before this response completed. The input was not replayed automatically.",
+  retryable: true,
+});
+
+function terminalEventForInput(input, failure, now, existingEvents) {
+  const coordinate = input.generationId ?? input.inputId;
+  const id = `terminal:${JSON.stringify([coordinate])}`;
+  const current = (Array.isArray(existingEvents) ? existingEvents : []).find((event) => event.id === id);
+  const maxOrder = (Array.isArray(existingEvents) ? existingEvents : []).reduce(
+    (max, event) => Math.max(max, Number.isInteger(event?.order) ? event.order : 0),
+    0,
+  );
+  return sanitizeSessionEvent({
+    id,
+    role: "assistant",
+    ts: current?.ts ?? Date.parse(now),
+    turnId: input.inputId,
+    ...(input.generationId ? { generationId: input.generationId } : {}),
+    order: current?.order ?? maxOrder + 1,
+    revision: (current?.revision ?? 0) + 1,
+    blocks: [
+      { type: "error", ...failure },
+      {
+        type: "turn_end",
+        status: "error",
+        subtype: current?.blocks?.find((block) => block.type === "turn_end")?.subtype ?? failure.code,
+        reason: failure.code,
+        stopReason: null,
+        terminalReason: null,
+      },
+    ],
+  });
+}
 
 function cancelInterruptedCanonicalControls(events, activeInputs, reason) {
   const inputIds = new Set(activeInputs.map((input) => input.inputId));
@@ -1447,6 +1737,7 @@ export async function reconcileInterruptedThreadInputs({ nowIso, reason } = {}) 
           settledAt: now,
           generationId: input.generationId,
           reason: why,
+          failure: RESTART_INPUT_FAILURE,
         });
         if (!receipt) throw new Error(`could not reconcile interrupted input ${input.inputId}`);
         receipts = receipts.filter((candidate) =>
@@ -1470,7 +1761,7 @@ export async function reconcileInterruptedThreadInputs({ nowIso, reason } = {}) 
         if (!messageKeys.includes(failureKey)) {
           thread.messages.push({
             role: "assistant",
-            text: RESTART_INPUT_FAILURE_TEXT,
+            text: "",
             ts: now,
             turnId: input.inputId,
             // Server-owned durable boundary: the prior SDK journal may already
@@ -1491,6 +1782,10 @@ export async function reconcileInterruptedThreadInputs({ nowIso, reason } = {}) 
       thread.inputRecoveryBlocks = recoveryBlocks.slice(-INPUT_QUEUE_CAP);
       thread.messageKeys = messageKeys.slice(-512);
       thread.sessionEvents = cancelInterruptedCanonicalControls(thread.sessionEvents, active, why);
+      for (const input of active) {
+        const terminalEvent = terminalEventForInput(input, RESTART_INPUT_FAILURE, now, thread.sessionEvents);
+        if (terminalEvent) thread.sessionEvents = mergeSessionEvents(thread.sessionEvents, [terminalEvent]);
+      }
       thread.updatedAt = now;
       if (!thread.title) thread.title = deriveTitle(thread);
       await atomicWriteJson(threadPath(id), thread);

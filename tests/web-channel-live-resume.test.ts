@@ -393,6 +393,31 @@ describe("web-channel Agent SDK journal normalization", () => {
     }
   });
 
+  it("never resurrects a provider row retracted by the durable fallback", () => {
+    const durable = [{
+      id: "fallback-notice",
+      role: "assistant",
+      ts: 2,
+      turnId: "input-fallback",
+      sessionId: "session-fallback",
+      order: 2,
+      revision: 2,
+      retracts: ["refused-draft"],
+      blocks: [{ type: "retry", kind: "model_fallback", text: "Trying the fallback model." }],
+    }];
+    const recovered = [{
+      id: "refused-draft",
+      role: "assistant",
+      ts: 1,
+      turnId: "transcript-fallback",
+      sessionId: "session-fallback",
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: "provider-refused draft" }],
+    }];
+    expect(transcript.reconcileTranscriptSessionEvents(durable, recovered)).toEqual(durable);
+  });
+
   it("keeps a promoted stable event in its durable chronological slot", () => {
     const durable = [
       {

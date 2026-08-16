@@ -300,7 +300,10 @@ describe("Web process-restart input reconciliation", () => {
     expect(stored.messages.filter((message: any) =>
       message.role === "assistant" && message.turnId === "restart-store-input"
     )).toEqual([expect.objectContaining({
-      text: expect.stringContaining("not replayed automatically"),
+      text: "",
+      route: expect.objectContaining({
+        stoppedReason: expect.stringContaining("not replayed"),
+      }),
       agentSdkResumeBarrier: true,
     })]);
     expect(stored.messages.find((message: any) =>
@@ -540,7 +543,10 @@ describe("Web process-restart input reconciliation", () => {
     for (const threadId of [knownThread, retryThread, startingThread]) {
       const stored = await threads.getThread(threadId);
       expect(stored.messages.filter((message: any) =>
-        message.role === "assistant" && message.text.includes("not replayed automatically")
+        message.role === "assistant" &&
+        message.agentSdkResumeBarrier === true &&
+        message.text === "" &&
+        message.route?.stoppedReason?.includes("not replayed")
       )).toHaveLength(1);
       expect(stored.inputRecoveryBlocks).toEqual([]);
     }
