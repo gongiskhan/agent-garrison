@@ -125,7 +125,7 @@ describe("capture-service server", () => {
 
   it("boots sandboxed, writes the status file, serves /health, and keeps milestone surfaces honest", async () => {
     const cfg = loadConfig({ GARRISON_HOME: home });
-    handle = await startServer({ ...cfg, port: 0 });
+    handle = await startServer({ ...cfg, port: 0, env: { GARRISON_HOME: home } });
     const port = handle.cfg.port;
     expect(port).toBeGreaterThan(0);
     const base = `http://127.0.0.1:${port}`;
@@ -181,8 +181,17 @@ describe("capture-service server", () => {
     });
     expect(ackRes.status).toBe(200);
     const ackBody = await ackRes.json();
-    expect(ackBody).toMatchObject({ ok: true, registered: true, delivered: "push" });
-    expect(ackBody.receipts[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "notify disabled" });
+    expect(ackBody).toMatchObject({ ok: true, registered: true, delivered: "web-channel" });
+    expect(ackBody.receipts[0]).toMatchObject({
+      means: "companion-push",
+      ok: false,
+      skipped: "routine ack (web-channel only)"
+    });
+    expect(ackBody.receipts[1]).toMatchObject({
+      means: "web-channel",
+      ok: false,
+      skipped: "web channel not running"
+    });
     const notifyRes = await fetch(`${base}/notify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
