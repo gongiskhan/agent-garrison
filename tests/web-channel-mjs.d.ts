@@ -33,6 +33,11 @@ declare module "*/web-channel-default/scripts/threads.mjs" {
   export function newThreadId(): string;
   export function listThreads(): Promise<ThreadMeta[]>;
   export function getThread(id: string): Promise<Thread | null>;
+  export function getThreadSnapshot(id: string): Promise<{
+    thread: Thread;
+    pendingInputs: Array<Record<string, unknown>>;
+    inputRevision: number;
+  } | null>;
   export function ensureThread(opts: { id?: string; title?: string; source?: string; mode?: string; context?: unknown; nowIso?: string }): Promise<Thread>;
   export function appendMessages(id: string, messages: ThreadMessage[], opts?: { nowIso?: string; idempotencyKey?: string }): Promise<ThreadMeta>;
   export function deleteThread(id: string): Promise<boolean>;

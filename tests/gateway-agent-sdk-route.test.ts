@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
 // @ts-ignore — pure .mjs routing layer
-import { createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+import { AGENT_SDK_SESSION_CAP, createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 import { writeGatewayV4ExecutionModel } from "./helpers/gateway-v4-fixture";
 
 // The committed gate for routing a live channel turn to the agent-sdk runtime
@@ -59,10 +59,19 @@ class FakeAgentSdkAdapter {
   turns: string[] = [];
   turnHooks: any[] = [];
   eventsToEmit: any[] = [];
+  teardowns: any[] = [];
+  cancels: any[] = [];
   response: any = { text: "The capital of France is Paris.", toolUses: [], stoppedReason: null };
   async spawn(cfg: any) {
     this.spawned.push(cfg);
-    return { alive: true, harness: { promptMode: cfg.promptMode }, sessionId: "agent-sdk-sess", config: cfg };
+    return {
+      id: `sdk-session-${this.spawned.length}`,
+      alive: true,
+      streamingInput: cfg.streamingInput === true,
+      harness: { promptMode: cfg.promptMode },
+      sessionId: "agent-sdk-sess",
+      config: cfg,
+    };
   }
   async awaitReady() {}
   async sendTurn(_s: any, text: string, hooks: any = {}) {
@@ -78,7 +87,12 @@ class FakeAgentSdkAdapter {
     s.effortApplied = true;
   }
   async teardown(s: any) {
+    this.teardowns.push(s);
     s.alive = false;
+  }
+  async cancel(s: any) {
+    this.cancels.push(s);
+    return true;
   }
 }
 
@@ -292,6 +306,93 @@ describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route
       gw.shutdown();
     }
   });
+
+  it("opts only a stable streamed session into standing input and reuses its warm adapter session", async () => {
+    const { gw, agentSdk } = await bootGateway();
+    const route = {
+      targetId: "sdk-standing",
+      target: {
+        id: "sdk-standing",
+        type: "runtime-target",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        effort: "high",
+        maxTurns: 17,
+      },
+    };
+    try {
+      await gw.runAgentSdkTurn(route, "first", undefined, {
+        sessionKey: "thread-standing",
+        streamingInput: true,
+        generationId: "generation-first",
+      });
+      await gw.runAgentSdkTurn(route, "second", undefined, {
+        sessionKey: "thread-standing",
+        streamingInput: true,
+        generationId: "generation-second",
+      });
+
+      expect(agentSdk.spawned).toHaveLength(1);
+      expect(agentSdk.spawned[0]).toMatchObject({
+        streamingInput: true,
+        maxTurns: 17,
+        effort: "high",
+      });
+      expect(agentSdk.turns).toEqual(["first", "second"]);
+      expect(agentSdk.turnHooks.map((hooks) => hooks.generationId)).toEqual([
+        "generation-first",
+        "generation-second",
+      ]);
+
+      await gw.runAgentSdkTurn(route, "ordinary", undefined, {
+        sessionKey: "thread-ordinary",
+        generationId: "generation-ordinary",
+      });
+      await gw.runAgentSdkTurn(route, "threadless flag", undefined, {
+        streamingInput: true,
+        generationId: "generation-threadless",
+      });
+      expect(agentSdk.spawned).toHaveLength(3);
+      expect(agentSdk.spawned[1]).not.toHaveProperty("streamingInput");
+      expect(agentSdk.spawned[2]).not.toHaveProperty("streamingInput");
+      await expect(gw.runAgentSdkTurn(route, "missing generation", undefined, {
+        sessionKey: "thread-malformed",
+        streamingInput: true,
+      })).rejects.toThrow(/requires a generation id/i);
+      expect(agentSdk.spawned).toHaveLength(3);
+    } finally {
+      gw.shutdown();
+    }
+  });
+
+  it("tears down rather than interrupts a standing Query when its warm session is evicted", async () => {
+    const { gw, agentSdk } = await bootGateway();
+    const route = {
+      targetId: "sdk-standing-eviction",
+      target: {
+        id: "sdk-standing-eviction",
+        type: "runtime-target",
+        runtime: "agent-sdk",
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+      },
+    };
+    try {
+      for (let index = 0; index <= AGENT_SDK_SESSION_CAP; index += 1) {
+        await gw.runAgentSdkTurn(route, `turn ${index}`, undefined, {
+          sessionKey: `thread-${index}`,
+          streamingInput: true,
+          generationId: `generation-${index}`,
+        });
+      }
+      expect(agentSdk.spawned).toHaveLength(AGENT_SDK_SESSION_CAP + 1);
+      expect(agentSdk.teardowns.map((session) => session.id)).toEqual(["sdk-session-1"]);
+      expect(agentSdk.cancels).toEqual([]);
+    } finally {
+      gw.shutdown();
+    }
+  });
 });
 
 async function freePort(): Promise<number> {
@@ -342,11 +443,32 @@ describe("/chat/stream structured Agent SDK event forwarding", () => {
     const dir = mkdtempSync(join(tmpdir(), "gar-sdk-events-"));
     const agentSdkDir = join(dir, "agent-sdk-runtime");
     const runtimeStub = join(dir, "runtime-stub.mjs");
+    const visionCallScript = join(dir, "vision-call.mjs");
+    const visionImage = join(dir, "vision-image.bin");
+    const visionStarted = join(dir, "vision-started");
+    const claudeProjectsDir = join(dir, "claude-projects");
+    const transcriptDir = join(claudeProjectsDir, dir.replace(/[/.]/g, "-"));
     const stderr: string[] = [];
     let child: ChildProcess | undefined;
     try {
       mkdirSync(join(dir, ".garrison"), { recursive: true });
       mkdirSync(join(agentSdkDir, "lib"), { recursive: true });
+      mkdirSync(transcriptDir, { recursive: true });
+      writeFileSync(visionImage, "bounded image fixture", "utf8");
+      writeFileSync(
+        visionCallScript,
+        `import fs from "node:fs";
+let raw = "";
+process.stdin.setEncoding("utf8");
+for await (const chunk of process.stdin) raw += chunk;
+const spec = JSON.parse(raw);
+if (!Array.isArray(spec.images) || spec.images.length !== 1) process.exit(2);
+fs.writeFileSync(process.env.GARRISON_TEST_VISION_STARTED, "started");
+await new Promise((resolve) => setTimeout(resolve, 1200));
+process.stdout.write(JSON.stringify({ ok: true, text: "vision completed" }));
+`,
+        "utf8",
+      );
       const childConfig = {
         ...CONFIG,
         targets: [
@@ -361,7 +483,7 @@ describe("/chat/stream structured Agent SDK event forwarding", () => {
       writeFileSync(
         runtimeStub,
         `class StubSession {
-  constructor(config) { this.config = config; this.disposed = false; }
+  constructor(config) { this.config = config; this.disposed = false; this.handle = {}; }
   async runTurn({ message }) {
     if (/routing classifier/i.test(String(message))) {
       return { reply: JSON.stringify({ taskType: "other", tier: "T0-trivial", matchedException: null }), sessionId: "classifier" };
@@ -381,14 +503,61 @@ export async function spawnFn(config) { return new StubSession(config); }
       );
       writeFileSync(
         join(agentSdkDir, "lib", "agent-sdk-adapter.mjs"),
-        `export class AgentSdkAdapter {
+        `import fs from "node:fs";
+import path from "node:path";
+let nextSession = 0;
+export class AgentSdkAdapter {
   async spawn(config) {
-    return { alive: true, config, harness: { promptMode: config.promptMode }, sessionId: "sdk-stream-session" };
+    return { alive: true, config, harness: { promptMode: config.promptMode }, sessionId: "sdk-stream-session-" + (++nextSession) };
   }
   async awaitReady() {}
   async sendTurn(session, message, hooks = {}) {
     session.message = String(message ?? "");
-    if (session.config.model === "claude-haiku-4-5") return;
+    delete session.echoReply;
+    if (session.config.model === "claude-haiku-4-5") {
+      // Keep the routed lane unresolved long enough for the HTTP test to issue
+      // an exact interrupt after the open frame but before registerStop exists.
+      if (/pre-stop latch/i.test(session.message)) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+      return;
+    }
+    if (/gateway context continuity probe/i.test(session.message)) {
+      session.echoReply = session.message;
+      hooks.onText?.(session.echoReply);
+      return;
+    }
+    const questionMatch = session.message.match(/question stream ([AB])/i);
+    if (questionMatch) {
+      const owner = questionMatch[1].toUpperCase();
+      const transcript = path.join(process.env.GARRISON_TEST_TRANSCRIPT_DIR, session.sessionId + ".jsonl");
+      const event = {
+        type: "assistant",
+        message: {
+          content: [{
+            type: "tool_use",
+            id: "question-" + owner.toLowerCase(),
+            name: "AskUserQuestion",
+            input: { questions: [{ question: "Question for " + owner + "?", options: [{ label: "Yes" }] }] }
+          }]
+        }
+      };
+      fs.appendFileSync(transcript, JSON.stringify(event) + "\\n");
+      // A deliberately finishes first. B remains live after A's cleanup so a
+      // module-global save/restore cursor would lose or misroute B's ownership.
+      if (owner === "A") {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 1400));
+        event.message.content[0].id = "question-b-late";
+        event.message.content[0].input.questions[0].question = "Still B after A completed?";
+        fs.appendFileSync(transcript, JSON.stringify(event) + "\\n");
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+    if (session.config.streamingInput !== true) {
+      throw new Error("streamed Web turn did not opt into standing input");
+    }
     if (/permission flow/i.test(session.message)) {
       if (session.config.permissionMode !== "default") throw new Error("permission mode was not interactive");
       const request = {
@@ -421,6 +590,7 @@ export async function spawnFn(config) { return new StubSession(config); }
     if (session.config.model === "claude-haiku-4-5") {
       return { text: JSON.stringify({ duty: "other", level: 1, confidence: "high", clarity: "clear", reason: "fixture" }), toolUses: [], stoppedReason: null };
     }
+    if (session.echoReply) return { text: session.echoReply, toolUses: [], stoppedReason: null };
     if (session.permissionReply) return { text: session.permissionReply, toolUses: [{ name: "Bash", id: "tool-live" }], stoppedReason: null };
     return { text: "legacy reply", toolUses: [{ name: "Read", id: "tool-1" }], stoppedReason: null };
   }
@@ -441,6 +611,10 @@ export async function spawnFn(config) { return new StubSession(config); }
           GARRISON_HOME: dir,
           GARRISON_KANBAN_DIR: kanbanRoot,
           GARRISON_AGENT_SDK_DIR: agentSdkDir,
+          GARRISON_CALL_SCRIPT: visionCallScript,
+          GARRISON_TEST_VISION_STARTED: visionStarted,
+          GARRISON_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+          GARRISON_TEST_TRANSCRIPT_DIR: transcriptDir,
           GARRISON_GATEWAY_RUNTIME_STUB: runtimeStub,
           GARRISON_GATEWAY_NO_LISTEN: "0"
         },
@@ -463,11 +637,17 @@ export async function spawnFn(config) { return new StubSession(config); }
       });
       expect(response.status).toBe(200);
       const frames = parseSse(await response.text());
+      const streamGenerationId = frames.find((frame) => frame.event === "open")?.data.generationId;
+      expect(streamGenerationId).toBeTruthy();
       const sessionEvents = frames.filter((frame) => frame.event === "session_event");
       expect(sessionEvents.map((frame) => frame.data)).toEqual([
-        { id: "evt-1", type: "block_delta", turnId: "17", block: { type: "text", text: "alpha" }, nested: { keep: [1, "two", false] } },
-        { id: "evt-2", type: "tool_result", turnId: "17", block: { type: "tool_result", toolUseId: "tool-1", content: "ok" } }
+        { id: "evt-1", type: "block_delta", turnId: "17", block: { type: "text", text: "alpha" }, nested: { keep: [1, "two", false] }, generationId: streamGenerationId },
+        { id: "evt-2", type: "tool_result", turnId: "17", block: { type: "tool_result", toolUseId: "tool-1", content: "ok" }, generationId: streamGenerationId }
       ]);
+      const generationBoundEvents = new Set(["route", "chunk", "activity", "session_event", "error", "done"]);
+      for (const frame of frames.filter((candidate) => generationBoundEvents.has(candidate.event))) {
+        expect(frame.data.generationId, frame.event).toBe(streamGenerationId);
+      }
 
       const firstEvent = frames.findIndex((frame) => frame.event === "session_event" && frame.data.id === "evt-1");
       const chunk = frames.findIndex((frame) => frame.event === "chunk");
@@ -482,6 +662,35 @@ export async function spawnFn(config) { return new StubSession(config); }
       expect(frames[chunk].data).toMatchObject({ text: "legacy reply", replace: true });
       expect(frames[activity].data).toMatchObject({ kind: "tool", name: "Read", id: "tool-1" });
       expect(frames[done].data).toMatchObject({ reply: "legacy reply", runtime: "agent-sdk" });
+
+      // The Web server supplies materialized durable history on every request,
+      // but the standing Query needs it only when its SDK session is cold.
+      const contextTurn = async (message: string, context: string, turnSeq: number) => {
+        const contextResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message,
+            context,
+            channel: "web",
+            thread: "thread-context-continuity",
+            turnSeq,
+            routing: { target: "sdk-ollama-chat" },
+          }),
+        });
+        expect(contextResponse.status).toBe(200);
+        return parseSse(await contextResponse.text()).find((frame) => frame.event === "done")?.data.reply;
+      };
+      expect(await contextTurn(
+        "quick: gateway context continuity probe first",
+        "durable context before first",
+        171,
+      )).toBe("durable context before first\n\n---\n\nquick: gateway context continuity probe first");
+      expect(await contextTurn(
+        "quick: gateway context continuity probe second",
+        "durable context through first",
+        172,
+      )).toBe("quick: gateway context continuity probe second");
 
       // Full control-plane proof over the real child gateway: callback
       // registration publishes pending, the exact HTTP tuple releases it, then
@@ -565,6 +774,189 @@ export async function spawnFn(config) { return new StubSession(config); }
         .toBeLessThan(permissionFrames.findIndex((frame) => frame.event === "done"));
       expect(permissionFrames.find((frame) => frame.event === "done")?.data)
         .toMatchObject({ reply: "permission allow_always", runtime: "agent-sdk" });
+      for (const frame of permissionFrames.filter((candidate) => generationBoundEvents.has(candidate.event))) {
+        expect(frame.data.generationId, frame.event).toBe(opened.data.generationId);
+      }
+
+      // Two Web turns run concurrently on distinct warm SDK sessions and write
+      // AskUserQuestion tool uses into their own transcripts. Each SSE stream
+      // must see only its owner; A intentionally completes first while B remains
+      // active, pinning cleanup/ownership independently of completion order.
+      const startQuestionStream = (owner: "A" | "B") => fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: `quick: question stream ${owner}`,
+          channel: "web",
+          thread: `thread-question-${owner.toLowerCase()}`,
+          turnSeq: owner === "A" ? 30 : 31,
+          dutyKey: `CARD-${owner}:discuss`,
+          routing: { target: "sdk-ollama-chat" },
+        }),
+      });
+      const [questionAResponse, questionBResponse] = await Promise.all([
+        startQuestionStream("A"),
+        startQuestionStream("B"),
+      ]);
+      expect(questionAResponse.status).toBe(200);
+      expect(questionBResponse.status).toBe(200);
+      const completionOrder: string[] = [];
+      const [questionARaw, questionBRaw] = await Promise.all([
+        questionAResponse.text().then((raw) => { completionOrder.push("A"); return raw; }),
+        questionBResponse.text().then((raw) => { completionOrder.push("B"); return raw; }),
+      ]);
+      expect(completionOrder).toEqual(["A", "B"]);
+      const questionAFrames = parseSse(questionARaw);
+      const questionBFrames = parseSse(questionBRaw);
+      expect(questionAFrames.filter((frame) => frame.event === "tool").map((frame) => frame.data.tool_use_id))
+        .toEqual(["question-a"]);
+      expect(questionBFrames.filter((frame) => frame.event === "tool").map((frame) => frame.data.tool_use_id))
+        .toEqual(["question-b", "question-b-late"]);
+
+      // Real generation-control race: `open` is flushed while the fixture's
+      // dispatcher is deliberately paused, before the routed lane registers a
+      // primitive. A same-thread stream is rejected before SSE headers, the exact
+      // interrupt latches, and the eventual lane registration unwinds the turn.
+      const latchedResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "quick: pre-stop latch",
+          channel: "web",
+          thread: "thread-overlap",
+          turnSeq: 19,
+          routing: { target: "sdk-ollama-chat" },
+        }),
+      });
+      expect(latchedResponse.status).toBe(200);
+      const latchedReader = latchedResponse.body!.getReader();
+      const latchedDecoder = new TextDecoder();
+      let latchedRaw = "";
+      while (!latchedRaw.includes("event: open\n")) {
+        const chunk = await latchedReader.read();
+        if (chunk.done) break;
+        latchedRaw += latchedDecoder.decode(chunk.value, { stream: true });
+      }
+      const latchedOpen = parseSse(latchedRaw).find((frame) => frame.event === "open")!;
+      expect(latchedOpen.data.generationId).toBeTruthy();
+
+      const overlap = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "quick: second direct turn",
+          channel: "web",
+          thread: "thread-overlap",
+          turnSeq: 20,
+          routing: { target: "sdk-ollama-chat" },
+        }),
+      });
+      expect(overlap.status).toBe(409);
+      expect(overlap.headers.get("content-type")).toContain("application/json");
+      expect(await overlap.json()).toMatchObject({ code: "thread_generation_conflict" });
+
+      const wrongInterrupt = await fetch(`http://127.0.0.1:${port}/chat/interrupt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: "thread-overlap", generationId: "generation-wrong" }),
+      });
+      expect(wrongInterrupt.status).toBe(409);
+      const exactInterrupt = await fetch(`http://127.0.0.1:${port}/chat/interrupt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadId: "thread-overlap",
+          generationId: latchedOpen.data.generationId,
+        }),
+      });
+      expect(exactInterrupt.status).toBe(202);
+      expect(await exactInterrupt.json()).toMatchObject({ ok: true, state: "pending-stop" });
+
+      while (true) {
+        const chunk = await latchedReader.read();
+        if (chunk.done) break;
+        latchedRaw += latchedDecoder.decode(chunk.value, { stream: true });
+      }
+      latchedRaw += latchedDecoder.decode();
+      const latchedFrames = parseSse(latchedRaw);
+      expect(latchedFrames.find((frame) => frame.event === "error")).toBeUndefined();
+      expect(latchedFrames.find((frame) => frame.event === "done")?.data).toMatchObject({
+        generationId: latchedOpen.data.generationId,
+        stoppedByUser: true,
+        stoppedReason: "user-interrupt",
+      });
+
+      // The native Ollama vision subprocess has no supported cancellation seam.
+      // Once its marker proves inference is in flight, exact Stop must report a
+      // lane-specific 409 (and Retry must really retry), never a pending 202.
+      const visionResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "quick: inspect this image",
+          channel: "web",
+          thread: "thread-vision-stop",
+          turnSeq: 21,
+          images: [visionImage],
+          routing: { target: "sdk-ollama-chat" },
+        }),
+      });
+      expect(visionResponse.status).toBe(200);
+      const visionReader = visionResponse.body!.getReader();
+      const visionDecoder = new TextDecoder();
+      let visionRaw = "";
+      while (!visionRaw.includes("event: open\n")) {
+        const chunk = await visionReader.read();
+        if (chunk.done) break;
+        visionRaw += visionDecoder.decode(chunk.value, { stream: true });
+      }
+      const visionOpen = parseSse(visionRaw).find((frame) => frame.event === "open")!;
+      expect(visionOpen.data.generationId).toBeTruthy();
+      const visionDeadline = Date.now() + 3000;
+      while (!existsSync(visionStarted) && Date.now() < visionDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(existsSync(visionStarted)).toBe(true);
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const stop = await fetch(`http://127.0.0.1:${port}/chat/interrupt`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            threadId: "thread-vision-stop",
+            generationId: visionOpen.data.generationId,
+          }),
+        });
+        expect(stop.status).toBe(409);
+        expect(await stop.json()).toMatchObject({
+          ok: false,
+          error: "cancel-primitive-did-not-stop",
+          lane: "ollama-native",
+        });
+      }
+
+      while (true) {
+        const chunk = await visionReader.read();
+        if (chunk.done) break;
+        visionRaw += visionDecoder.decode(chunk.value, { stream: true });
+      }
+      visionRaw += visionDecoder.decode();
+      const visionFrames = parseSse(visionRaw);
+      expect(visionFrames.find((frame) => frame.event === "error")).toBeUndefined();
+      expect(visionFrames.find((frame) => frame.event === "done")?.data).toMatchObject({
+        generationId: visionOpen.data.generationId,
+        reply: "vision completed",
+        runtime: "ollama-native",
+      });
+      expect(visionFrames.find((frame) => frame.event === "done")?.data)
+        .not.toHaveProperty("stoppedByUser");
+
+      const malformedInterrupt = await fetch(`http://127.0.0.1:${port}/chat/interrupt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      });
+      expect(malformedInterrupt.status).toBe(400);
     } finally {
       try {
         child?.kill("SIGKILL");

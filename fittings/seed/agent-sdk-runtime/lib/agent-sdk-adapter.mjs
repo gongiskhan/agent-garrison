@@ -282,6 +282,123 @@ function sdkPermissionResult(decision, inputSnapshot, suggestions, disclosure) {
   throw new Error(`Invalid permission decision: ${String(decision)}`);
 }
 
+// One standing Query owns one stdin stream. Keep the provider transport queue
+// deliberately smaller than the product's durable FIFO: the gateway may offer a
+// new turn only after the previous result has reached its explicit-idle or
+// quiet-result settlement boundary, and at most one host-built SDK user message
+// may wait for streamInput() to consume it.
+class BoundedSdkInputQueue {
+  constructor() {
+    this._value = undefined;
+    this._waiter = null;
+    this._closed = false;
+  }
+
+  push(value) {
+    if (this._closed) throw new Error("AgentSdkAdapter: streaming input queue is closed");
+    if (this._waiter) {
+      const waiter = this._waiter;
+      this._waiter = null;
+      waiter({ done: false, value });
+      return;
+    }
+    if (this._value !== undefined) {
+      throw new Error("AgentSdkAdapter: streaming input queue already contains a message");
+    }
+    this._value = value;
+  }
+
+  close() {
+    if (this._closed) return;
+    this._closed = true;
+    this._value = undefined;
+    if (this._waiter) {
+      const waiter = this._waiter;
+      this._waiter = null;
+      waiter({ done: true, value: undefined });
+    }
+  }
+
+  next() {
+    if (this._value !== undefined) {
+      const value = this._value;
+      this._value = undefined;
+      return Promise.resolve({ done: false, value });
+    }
+    if (this._closed) return Promise.resolve({ done: true, value: undefined });
+    if (this._waiter) {
+      return Promise.reject(new Error("AgentSdkAdapter: streaming input queue has multiple consumers"));
+    }
+    return new Promise((resolve) => {
+      this._waiter = resolve;
+    });
+  }
+
+  return() {
+    this.close();
+    return Promise.resolve({ done: true, value: undefined });
+  }
+
+  [Symbol.asyncIterator]() {
+    return this;
+  }
+}
+
+function sdkUserMessage(text) {
+  // Match the pinned SDK's string-prompt envelope exactly. In particular, do not
+  // expose SDK priority as a shadow product queue: generation FIFO is gateway-
+  // owned and only one message is admitted between settled provider turns.
+  return {
+    type: "user",
+    session_id: "",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: String(text ?? "") }]
+    },
+    parent_tool_use_id: null
+  };
+}
+
+function isAuthoritativeIdle(message) {
+  return message?.type === "system" &&
+    message?.subtype === "session_state_changed" &&
+    message?.state === "idle";
+}
+
+// Pinned SDK 0.3.179's real streamed-input CLI emits one `result` per input but
+// does not emit `session_state_changed: idle` on the ordinary text path. Some
+// wrappers/channels do add post-result frames and an idle marker. Debounce the
+// result briefly so those frames retain their turn, while guaranteeing the native
+// path cannot deadlock forever waiting for an optional marker.
+const STANDING_RESULT_GRACE_MS = 50;
+
+function deferred() {
+  let resolvePromise;
+  let rejectPromise;
+  const state = {
+    settled: false,
+    promise: new Promise((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    }),
+    resolve(value) {
+      if (state.settled) return;
+      state.settled = true;
+      resolvePromise(value);
+    },
+    reject(error) {
+      if (state.settled) return;
+      state.settled = true;
+      rejectPromise(error);
+    }
+  };
+  // sendTurn/awaitResponse is a two-step adapter contract. Attach a handler now
+  // so an immediate process failure cannot become an unhandled rejection before
+  // the caller reaches awaitResponse.
+  state.promise.catch(() => {});
+  return state;
+}
+
 export class AgentSdkAdapter {
   constructor(opts = {}) {
     this.id = "agent-sdk";
@@ -333,6 +450,17 @@ export class AgentSdkAdapter {
       usedTokens: 0,
       turns: 0,
       sessionId: config.sessionId ?? null,
+      // M4 standing input is an explicit provider opt-in. All historical lanes
+      // continue to create a string-prompt Query per turn.
+      streamingInput: config.streamingInput === true,
+      inputQueue: null,
+      standingClient: null,
+      standingStart: null,
+      standingStartMarker: null,
+      standingPump: null,
+      standingAbortController: null,
+      activeTurn: null,
+      closing: false,
       // Cancel bookkeeping - the in-flight SDK query (stashed per turn by _consume)
       // and the user's Stop intent. Declared here so the session shape is honest.
       client: null,
@@ -410,6 +538,9 @@ export class AgentSdkAdapter {
   // lanes are silent for minutes and then dump a blob.
   async sendTurn(session, text, hooks = {}) {
     if (!session || !session.alive) throw new Error("AgentSdkAdapter: sendTurn on a dead session");
+    if (session.streamingInput === true) {
+      return this._sendStandingTurn(session, text, hooks);
+    }
     const options = this.buildQueryOptions(session);
     // A prior turn's cancel must never leak into this one, and the stale client
     // handle must not be cancellable once its turn is over.
@@ -426,6 +557,34 @@ export class AgentSdkAdapter {
   // consume loop, and sendTurn clears it for the next turn.
   async cancel(session) {
     if (!session) return false;
+    if (session.streamingInput === true) {
+      const turn = session.activeTurn;
+      if (!turn || turn.deferred.settled || turn.idleReceived) return false;
+      if (turn.interruptPromise) return turn.interruptPromise;
+      turn.interruptPromise = (async () => {
+        try {
+          if (session.standingStart) await session.standingStart;
+          const client = session.standingClient;
+          if (!client || typeof client.interrupt !== "function") {
+            return false;
+          }
+          // A standing Query survives Stop. iterator.return() would tear down the
+          // conversation and make the next generation impossible to attribute.
+          await client.interrupt();
+          turn.cancelRequested = true;
+          session.cancelRequested = true;
+          return true;
+        } catch {
+          // A rejected control request is not an acknowledged cancellation. Leave
+          // the turn running and allow a later Stop attempt to retry.
+          turn.cancelRequested = false;
+          session.cancelRequested = false;
+          turn.interruptPromise = null;
+          return false;
+        }
+      })();
+      return turn.interruptPromise;
+    }
     session.cancelRequested = true;
     const client = session.client ?? null;
     if (!client || typeof client.return !== "function") return false;
@@ -438,6 +597,417 @@ export class AgentSdkAdapter {
       /* an already-finished or already-aborted query is a successful cancel */
     }
     return true;
+  }
+
+  _newStandingTurn(session, hooks = {}) {
+    const generationId = typeof hooks.generationId === "string" ? hooks.generationId.trim() : "";
+    if (!generationId) {
+      throw new Error("AgentSdkAdapter: a standing streaming-input turn requires a generation id");
+    }
+    const turn = {
+      generationId,
+      onText: typeof hooks.onText === "function" ? hooks.onText : null,
+      onTool: typeof hooks.onTool === "function" ? hooks.onTool : null,
+      onThinking: typeof hooks.onThinking === "function" ? hooks.onThinking : null,
+      onSession: typeof hooks.onSession === "function" ? hooks.onSession : null,
+      onEvent: typeof hooks.onEvent === "function" ? hooks.onEvent : null,
+      onPermissionRequest: typeof hooks.onPermissionRequest === "function" ? hooks.onPermissionRequest : null,
+      eventNormalizer: createAgentSdkSessionEventNormalizer({
+        turnId: hooks.turnId ?? null,
+        generationId,
+        sessionId: session.sessionId
+      }),
+      eventTail: Promise.resolve(),
+      deferred: deferred(),
+      textOut: "",
+      lastTextEnvelope: "",
+      resultText: "",
+      toolUses: [],
+      stoppedReason: null,
+      sessionId: session.sessionId,
+      announcedSessionId: null,
+      resultMessage: null,
+      resultSettleTimer: null,
+      idleReceived: false,
+      cancelRequested: false,
+      interruptPromise: null,
+      failurePromise: null
+    };
+    turn.emitEvents = (events) => {
+      if (!turn.onEvent || !Array.isArray(events) || events.length === 0) return turn.eventTail;
+      turn.eventTail = turn.eventTail.then(async () => {
+        for (const event of events) {
+          try {
+            await turn.onEvent(event);
+          } catch {
+            /* a streaming observability sink must not kill the provider turn */
+          }
+        }
+      });
+      return turn.eventTail;
+    };
+    turn.normalizeAndEmit = async (message) => {
+      if (!turn.onEvent) return;
+      try {
+        await turn.emitEvents(turn.eventNormalizer.push(message));
+      } catch {
+        /* event normalization is observability and must not kill the turn */
+      }
+    };
+    return turn;
+  }
+
+  async _sendStandingTurn(session, text, hooks = {}) {
+    if (session.activeTurn || this._pending.has(session)) {
+      throw new Error("AgentSdkAdapter: standing streaming-input turn already active or awaiting collection");
+    }
+    const turn = this._newStandingTurn(session, hooks);
+    const options = this.buildQueryOptions(session);
+    session.cancelRequested = false;
+    session.activeTurn = turn;
+    this._pending.set(session, turn.deferred.promise);
+
+    // A rebuilt session may seed only the next admitted input. The queue receives
+    // the exact host-built SDK envelope and never browser-owned priority metadata.
+    const seeded = session.contextSeed ? `${session.contextSeed}\n\n---\n\n${text}` : text;
+    session.contextSeed = null;
+    turn.startPromise = (async () => {
+      try {
+        await this._ensureStandingQuery(session, options);
+        if (session.activeTurn !== turn || turn.deferred.settled) return;
+        session.inputQueue.push(sdkUserMessage(seeded));
+      } catch (error) {
+        await this._failStandingTurn(session, turn, error);
+      }
+    })();
+    turn.startPromise.catch(() => {});
+  }
+
+  async _ensureStandingQuery(session, options) {
+    if (session.standingClient) return session.standingClient;
+    if (session.standingStart) return session.standingStart;
+
+    const inputQueue = new BoundedSdkInputQueue();
+    const abortController = new AbortController();
+    session.inputQueue = inputQueue;
+    session.standingAbortController = abortController;
+    const standingOptions = { ...options, abortController };
+    if (standingOptions.permissionMode === "default") {
+      // The Query gets one callback for its whole lifetime. It must dispatch to
+      // the turn that is active when the SDK request arrives, never the first
+      // turn's resolver/generation captured at Query construction.
+      standingOptions.canUseTool = (toolName, input, sdkOptions = {}) =>
+        this._dispatchStandingPermission(session, toolName, input, sdkOptions);
+    }
+
+    const startMarker = {};
+    session.standingStartMarker = startMarker;
+    const start = (async () => {
+      try {
+        // The pinned wrapper accepts AsyncIterable<SDKUserMessage>. maxTurns and
+        // effort are fixed Query options; gateway session identity includes them.
+        // The hermetic pinned-native regression proves maxTurns is evaluated per
+        // streamed input and that ordinary text results need no idle marker.
+        const client = await Promise.resolve().then(() =>
+          this._createClient({ prompt: inputQueue, options: standingOptions })
+        );
+        if (!session.alive || session.closing) {
+          inputQueue.close();
+          try {
+            await client?.close?.();
+          } catch {
+            /* a never-started/closed query is already released */
+          }
+          throw new Error("AgentSdkAdapter: standing query closed during startup");
+        }
+        session.standingClient = client;
+        session.client = client;
+        session.standingPump = this._pumpStandingQuery(session, client, inputQueue);
+        session.standingPump.catch(() => {});
+        return client;
+      } finally {
+        if (session.standingStartMarker === startMarker) {
+          session.standingStart = null;
+          session.standingStartMarker = null;
+        }
+      }
+    })();
+    session.standingStart = start;
+    return start;
+  }
+
+  async _dispatchStandingPermission(session, toolName, input, sdkOptions = {}) {
+    // This read is the authorization binding point. Keep the object even while the
+    // user decides; idle cannot legitimately occur with the SDK request pending.
+    const turn = session?.activeTurn ?? null;
+    if (!session?.alive || !turn || turn.deferred.settled || turn.idleReceived) {
+      throw new Error("AgentSdkAdapter: permission request arrived without an active standing turn");
+    }
+    if (!turn.onPermissionRequest) {
+      throw new Error("AgentSdkAdapter: active standing turn has no permission resolver");
+    }
+    return this._requestPermission(turn, toolName, input, sdkOptions);
+  }
+
+  async _requestPermission(turn, toolName, input, sdkOptions = {}) {
+    const generated = this._permissionRequestId();
+    const requestId = typeof generated === "string" && generated.trim() ? generated.trim() : randomUUID();
+    const originalSuggestions = sdkOptions.suggestions;
+    const inputDisclosure = publicPermissionInput(input);
+    const permissionInputSnapshot = privatePermissionInputSnapshot(inputDisclosure);
+    const suggestionDisclosure = publicPermissionSuggestions(originalSuggestions);
+    const permissionSuggestionsSnapshot = Array.isArray(suggestionDisclosure.suggestions)
+      ? jsonClone(suggestionDisclosure.suggestions)
+      : null;
+    const publicRequest = {
+      type: "permission_request",
+      requestId,
+      generationId: turn.generationId,
+      toolUseId: sdkOptions.toolUseID ?? null,
+      name: String(toolName ?? "tool"),
+      ...inputDisclosure,
+      ...suggestionDisclosure,
+      ...(typeof sdkOptions.title === "string" && sdkOptions.title ? { title: sdkOptions.title } : {}),
+      ...(typeof sdkOptions.displayName === "string" && sdkOptions.displayName ? { displayName: sdkOptions.displayName } : {}),
+      ...(typeof sdkOptions.description === "string" && sdkOptions.description ? { description: sdkOptions.description } : {}),
+      ...(typeof sdkOptions.blockedPath === "string" && sdkOptions.blockedPath ? { blockedPath: sdkOptions.blockedPath } : {}),
+      ...(typeof sdkOptions.decisionReason === "string" && sdkOptions.decisionReason ? { reason: sdkOptions.decisionReason } : {}),
+      ...(typeof sdkOptions.agentID === "string" && sdkOptions.agentID ? { agentId: sdkOptions.agentID } : {}),
+      status: "pending"
+    };
+    const eventRequest = jsonClone(publicRequest) ?? { ...publicRequest };
+
+    let decisionPromise;
+    try {
+      decisionPromise = Promise.resolve(turn.onPermissionRequest(publicRequest, { signal: sdkOptions.signal }));
+    } catch (error) {
+      decisionPromise = Promise.reject(error);
+    }
+    decisionPromise.catch(() => {});
+
+    await turn.emitEvents(turn.eventNormalizer.permissionRequest(eventRequest));
+    try {
+      const decision = await awaitPermissionDecision(decisionPromise, sdkOptions.signal);
+      const result = sdkPermissionResult(decision, permissionInputSnapshot, permissionSuggestionsSnapshot, {
+        inputComplete: inputDisclosure.inputComplete,
+        suggestionsComplete: suggestionDisclosure.suggestionsComplete
+      });
+      await turn.emitEvents(turn.eventNormalizer.resolvePermissionRequest(requestId, decision));
+      return result;
+    } catch (error) {
+      await turn.emitEvents(turn.eventNormalizer.cancelPermissionRequest(requestId));
+      throw error;
+    }
+  }
+
+  async _pumpStandingQuery(session, client, inputQueue) {
+    let pumpError = null;
+    try {
+      for await (const message of client) {
+        await this._processStandingMessage(session, message);
+      }
+    } catch (error) {
+      pumpError = error instanceof Error ? error : new Error(String(error ?? "standing query failed"));
+    } finally {
+      const turn = session.activeTurn;
+      if (turn && !turn.deferred.settled) {
+        const error = session.closing
+          ? new Error("AgentSdkAdapter: standing query was torn down")
+          : pumpError ?? new Error("AgentSdkAdapter: standing query ended before turn settlement");
+        await this._failStandingTurn(session, turn, error);
+      }
+      inputQueue.close();
+      if (session.standingClient === client) {
+        session.standingClient = null;
+        session.client = null;
+        session.inputQueue = null;
+        session.standingAbortController = null;
+        session.standingPump = null;
+      }
+      if (!session.closing) {
+        try {
+          await client?.close?.();
+        } catch {
+          /* an exhausted query is already closed */
+        }
+      }
+    }
+  }
+
+  async _processStandingMessage(session, message) {
+    const turn = session.activeTurn;
+    if (!turn || turn.deferred.settled) {
+      // Duplicate idle can be harmless provider noise. Any other yielded frame has
+      // no gateway generation to which it can safely be attributed.
+      if (isAuthoritativeIdle(message)) return;
+      throw new Error("AgentSdkAdapter: standing query emitted a message without an active turn");
+    }
+
+    if (isAuthoritativeIdle(message)) {
+      turn.idleReceived = true;
+      if (turn.resultSettleTimer) {
+        clearTimeout(turn.resultSettleTimer);
+        turn.resultSettleTimer = null;
+      }
+      const idleSessionId = validatedSessionId(message?.session_id);
+      if (idleSessionId) this._announceStandingSession(session, turn, idleSessionId);
+      if (!turn.resultMessage) {
+        throw new Error("AgentSdkAdapter: standing query became idle before a result");
+      }
+      await this._finishStandingTurn(session, turn);
+      return;
+    }
+
+    if (message?.type === "result") {
+      if (turn.resultMessage) {
+        throw new Error("AgentSdkAdapter: standing query emitted multiple results before idle");
+      }
+      turn.resultMessage = message;
+      const usage = message.usage ?? {};
+      const turnTokens = (usage.output_tokens ?? 0) + (usage.input_tokens ?? 0) || (usage.total_tokens ?? 0);
+      session.usedTokens += turnTokens;
+      if (message.subtype === "error_max_turns") turn.stoppedReason = "max_turns";
+      else if (typeof message.subtype === "string" && message.subtype.startsWith("error")) {
+        turn.stoppedReason = turn.stoppedReason ?? message.subtype;
+      }
+      if (typeof message.result === "string" && message.result.trim()) turn.resultText = message.result;
+      const resultSessionId = validatedSessionId(message.session_id);
+      if (resultSessionId) turn.sessionId = resultSessionId;
+      if (session.budgetTokens != null && session.usedTokens >= session.budgetTokens) {
+        turn.stoppedReason = turn.stoppedReason ?? "budget_exceeded";
+      }
+      // Do not normalize here: result is data. Native streamed input has no idle
+      // marker, so a quiet-period fallback owns the terminal event there.
+      this._scheduleStandingResultFallback(session, turn);
+      return;
+    }
+
+    try {
+      await turn.normalizeAndEmit(message);
+      const type = message?.type;
+      if (type === "system" && message.session_id) {
+        const announced = validatedSessionId(message.session_id);
+        if (announced) this._announceStandingSession(session, turn, announced);
+        return;
+      }
+      if (type !== "assistant") return;
+
+      const content = message.message?.content ?? [];
+      const envelopeText = content
+        .filter((block) => block?.type === "text" && typeof block.text === "string")
+        .map((block) => block.text)
+        .join("");
+      if (envelopeText) {
+        turn.lastTextEnvelope = envelopeText;
+        if (turn.textOut && !turn.textOut.endsWith("\n") && !envelopeText.startsWith("\n")) {
+          turn.textOut = `${turn.textOut.replace(/[ \t]+$/, "")}\n\n${envelopeText.replace(/^[ \t]+/, "")}`;
+        } else {
+          turn.textOut += envelopeText;
+        }
+        if (turn.onText) {
+          try {
+            turn.onText(turn.textOut);
+          } catch {
+            /* streaming consumer error must not kill the turn */
+          }
+        }
+      }
+      for (const block of content) {
+        if (block?.type === "thinking" || block?.type === "redacted_thinking") {
+          if (turn.onThinking) {
+            try {
+              turn.onThinking(typeof block.thinking === "string" ? block.thinking : "");
+            } catch {
+              /* streaming consumer error must not kill the turn */
+            }
+          }
+        } else if (block?.type === "tool_use") {
+          turn.toolUses.push({ name: block.name, id: block.id });
+          if (turn.onTool) {
+            try {
+              turn.onTool({ name: block.name, id: block.id });
+            } catch {
+              /* streaming consumer error must not kill the turn */
+            }
+          }
+        }
+      }
+    } finally {
+      // A post-result prompt suggestion/status extends the grace window. The
+      // turn resolves only after the stream is quiet or an explicit idle arrives.
+      if (turn.resultMessage && !turn.idleReceived) this._scheduleStandingResultFallback(session, turn);
+    }
+  }
+
+  _scheduleStandingResultFallback(session, turn) {
+    if (session.activeTurn !== turn || turn.deferred.settled || turn.idleReceived || !turn.resultMessage) return;
+    if (turn.resultSettleTimer) clearTimeout(turn.resultSettleTimer);
+    turn.resultSettleTimer = setTimeout(() => {
+      turn.resultSettleTimer = null;
+      this._finishStandingTurn(session, turn).catch((error) => {
+        void this._failStandingTurn(session, turn, error);
+      });
+    }, STANDING_RESULT_GRACE_MS);
+    turn.resultSettleTimer.unref?.();
+  }
+
+  _announceStandingSession(session, turn, sessionId) {
+    turn.sessionId = sessionId;
+    session.sessionId = sessionId;
+    if (!turn.onSession || turn.announcedSessionId === sessionId) return;
+    turn.announcedSessionId = sessionId;
+    try {
+      turn.onSession(sessionId);
+    } catch {
+      /* streaming consumer error must not kill the turn */
+    }
+  }
+
+  async _finishStandingTurn(session, turn) {
+    if (session.activeTurn !== turn || turn.deferred.settled) return;
+    if (turn.resultSettleTimer) {
+      clearTimeout(turn.resultSettleTimer);
+      turn.resultSettleTimer = null;
+    }
+    // The idle frame can be read immediately after the interrupt control response.
+    // Wait for that response to settle so a rejected interrupt is never reported
+    // as cancellation and an acknowledged one cannot race terminal persistence.
+    if (turn.interruptPromise) await turn.interruptPromise;
+    if (turn.cancelRequested) turn.stoppedReason = "cancelled";
+    await turn.emitEvents(turn.eventNormalizer.finishResult(turn.resultMessage, turn.stoppedReason));
+    await turn.eventTail;
+    session.turns += 1;
+    session.sessionId = turn.sessionId;
+    session.activeTurn = null;
+    session.cancelRequested = false;
+    turn.deferred.resolve({
+      text: turn.resultText || turn.lastTextEnvelope || turn.textOut,
+      artifacts: [],
+      toolUses: turn.toolUses,
+      stoppedReason: turn.stoppedReason,
+      usedTokens: session.usedTokens
+    });
+  }
+
+  _failStandingTurn(session, turn, error) {
+    if (!turn || turn.deferred.settled) return Promise.resolve();
+    if (turn.failurePromise) return turn.failurePromise;
+    const normalized = error instanceof Error ? error : new Error(String(error ?? "standing query failed"));
+    if (turn.resultSettleTimer) {
+      clearTimeout(turn.resultSettleTimer);
+      turn.resultSettleTimer = null;
+    }
+    turn.failurePromise = (async () => {
+      try {
+        await turn.emitEvents(turn.eventNormalizer.runtimeError(normalized));
+        await turn.eventTail;
+      } finally {
+        if (session.activeTurn === turn) session.activeTurn = null;
+        session.cancelRequested = false;
+        turn.deferred.reject(normalized);
+      }
+    })();
+    return turn.failurePromise;
   }
 
   // Consume the SDK's structured message stream directly (NO scraping). Stops and
@@ -781,9 +1351,61 @@ export class AgentSdkAdapter {
   }
 
   async teardown(session) {
-    if (session) session.alive = false;
-    // Back-compat: teardown still aborts nothing (cancel() is the abort primitive),
-    // but it releases the query handle so a torn-down session never pins one.
-    if (session) session.client = null;
+    if (!session) return;
+    session.alive = false;
+    if (session.streamingInput !== true) {
+      // Preserve the historical one-shot contract: cancel() remains its explicit
+      // abort primitive and teardown only releases the stale handle.
+      session.client = null;
+      return;
+    }
+    if (session.closing) {
+      if (session.standingPump) await session.standingPump.catch(() => {});
+      return;
+    }
+    session.closing = true;
+    const turn = session.activeTurn;
+    const turnFailure = turn && !turn.deferred.settled
+      ? this._failStandingTurn(
+        session,
+        turn,
+        new Error("AgentSdkAdapter: standing query was torn down")
+      )
+      : null;
+    // Begin provider release synchronously. shutdown() intentionally does not
+    // await teardown, so an asynchronous event sink must not keep stdin/process
+    // resources alive after the warm-session map has been cleared.
+    session.inputQueue?.close?.();
+    try {
+      session.standingAbortController?.abort?.(
+        new Error("AgentSdkAdapter: standing query was torn down")
+      );
+    } catch {
+      /* already aborted */
+    }
+    const client = session.standingClient;
+    let closePromise = Promise.resolve();
+    try {
+      closePromise = Promise.resolve(client?.close?.());
+    } catch {
+      /* already closed */
+    }
+    if (turnFailure) await turnFailure;
+    await closePromise.catch(() => {});
+    if (session.standingStart) {
+      try {
+        const startingClient = await session.standingStart;
+        await startingClient?.close?.();
+      } catch {
+        /* startup observes the closing flag and releases itself */
+      }
+    }
+    if (session.standingPump) await session.standingPump.catch(() => {});
+    session.client = null;
+    session.standingClient = null;
+    session.inputQueue = null;
+    session.standingAbortController = null;
+    session.standingStart = null;
+    session.standingStartMarker = null;
   }
 }

@@ -133,6 +133,25 @@ work.
   explicit, while Always allow is offered only for complete SDK suggestions.
   JSON/headless, Kanban, scheduler, Slack, dispatch, and PTY lanes remain
   `bypassPermissions` so they never wait on a browser-only control surface.
+- **Streamed Web input ownership is a durable per-thread FIFO (implemented in
+  the 2026-08-16 Web-parity continuation; not deployed yet).** The browser
+  retries an opaque `clientRequestId`; the Web server admits it exactly once as
+  an `inputId`; and the gateway binds its own `generationId` in the first `open`
+  frame. Stop, live replay, tool questions, permission decisions, persistence,
+  and UI lifecycle updates all require those exact coordinates. One input runs
+  per thread while different threads remain concurrent. Warm Agent SDK Queries
+  are reused per compatible conversation, with active-lane-safe LRU eviction;
+  a cold replacement receives the bounded durable thread context once, while a
+  warm turn does not receive duplicate history.
+- **Process-restart reconciliation for active Web inputs is the next durability
+  boundary, not an implicit replay.** In-process network failures, ambiguous
+  admissions, upstream protocol failures, and transient thread-store write
+  failures are retried or failed durably before the FIFO advances. A process
+  restart can still orphan a persisted `starting`/`running`/`stopping` input;
+  automatically rerunning it could repeat side effects, so current releases
+  must quiesce Web turns before a stop/start. The follow-up must atomically mark
+  orphaned active work failed (without replay), then resume only queued
+  successors and expose that recovery in the thread.
 - **No multi-host compositions in v1.** One composition per host.
 - **Workbench-as-shell-area is gone.** The 2026-05-17 dissolution
   decision made `terminal`, `worktrees`, `session-view`,

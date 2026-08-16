@@ -45,6 +45,7 @@ beforeAll(async () => {
       req.resume();
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       gatewayTurn = res;
+      res.write(sse("open", { generationId: "generation-live", ts: Date.now() }));
       // Agent SDK-style route metadata plus PTY-style replacement chunks prove the
       // continuity layer is runtime-neutral while preserving producer semantics.
       res.write(sse("route", {
@@ -154,6 +155,10 @@ describe("web-channel live turn replay/resume", () => {
 
     const frames = parseFrames(liveRaw);
     expect(frames.map((frame) => frame.event)).toEqual([
+      "input",
+      "input",
+      "input",
+      "open",
       "route",
       "chunk",
       "chunk",
@@ -161,13 +166,20 @@ describe("web-channel live turn replay/resume", () => {
       "tool",
       "chunk",
       "done",
+      "input",
     ]);
-    const chunks = frames.filter((frame) => frame.event === "chunk").map((frame) => frame.payload);
+    const chunkFrames = frames.filter((frame) => frame.event === "chunk");
+    const chunks = chunkFrames.map((frame) => ({
+      text: frame.payload.text,
+      ...(frame.payload.replace ? { replace: true } : {}),
+    }));
     expect(chunks).toEqual([
       { text: "draft " },
       { text: "clean", replace: true },
       { text: " answer" },
     ]);
+    expect(chunkFrames.every((frame) => frame.payload.generationId === "generation-live")).toBe(true);
+    expect(new Set(chunkFrames.map((frame) => frame.payload.inputId)).size).toBe(1);
 
     const settled: any = await waitFor(async () => {
       const thread: any = await threads.getThread(id);

@@ -754,7 +754,10 @@ export function AttributionRail({
     [rows, menuIdx, closeMenu, focusIdx, applyRow]
   );
 
-  if (!badges.length) return null;
+  // The flight rail's control slot is safety-critical: generated Stop must stay
+  // reachable while route options are still hydrating (or unavailable). A
+  // settled, badge-less rail still has nothing to show and remains absent.
+  if (!badges.length && !children) return null;
 
   const badgeClass = (b: RailDisplayBadge) =>
     [
@@ -783,7 +786,7 @@ export function AttributionRail({
 
   return (
     <div className={`cc-rail cc-rail-${variant}`} ref={railRef}>
-      <div
+      {badges.length > 0 && <div
         className="cc-railscroll"
         role="toolbar"
         aria-label={label ?? "Run context"}
@@ -862,7 +865,7 @@ export function AttributionRail({
             </button>
           );
         })}
-      </div>
+      </div>}
       {children ? <div className="cc-railend">{children}</div> : null}
       {menu && (
         <>

@@ -862,12 +862,290 @@ describe("the interrupt registry (§9)", () => {
   });
 });
 
+describe("streamed Web generation interrupt control", () => {
+  it("latches before stop registration and coalesces concurrent duplicate interrupts", async () => {
+    const control = gw.createGenerationTurnControlPlane({ logFn: vi.fn() });
+    const claimed = control.claim("thread-a", "generation-a", { lane: "routing" });
+    expect(claimed.status).toBe(201);
+    const entry = claimed.entry;
+
+    // `open` is already visible but routing has not supplied a runtime primitive.
+    expect(await control.interrupt({ threadId: "thread-a", generationId: "generation-a" }))
+      .toMatchObject({ status: 202, body: { ok: true, state: "pending-stop" } });
+
+    let resolveStop!: (stopped: boolean) => void;
+    const stop = vi.fn(() => new Promise<boolean>((resolve) => { resolveStop = resolve; }));
+    expect(control.registerStop(entry, "agent-sdk", stop)).toEqual({
+      registered: true,
+      cancelRequested: true,
+    });
+    expect(stop).toHaveBeenCalledTimes(1);
+
+    const duplicateA = control.interrupt({ threadId: "thread-a", generationId: "generation-a" });
+    const duplicateB = control.interrupt({ threadId: "thread-a", generationId: "generation-a" });
+    resolveStop(true);
+
+    expect((await duplicateA).status).toBe(200);
+    expect((await duplicateB).status).toBe(200);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(entry.cancelled).toBe(true);
+  });
+
+  it("reports an in-flight non-cancellable Ollama vision lane honestly while preserving the pre-runtime latch", async () => {
+    const control = gw.createGenerationTurnControlPlane({ logFn: vi.fn() });
+    const running = control.claim("thread-vision", "generation-vision", { lane: "routing" });
+    const cannotStop = vi.fn(() => false);
+    expect(control.registerStop(running.entry, "ollama-native", cannotStop)).toEqual({
+      registered: true,
+      cancelRequested: false,
+    });
+
+    expect(await control.interrupt({ threadId: "thread-vision", generationId: "generation-vision" }))
+      .toMatchObject({
+        status: 409,
+        body: { error: "cancel-primitive-did-not-stop", lane: "ollama-native" },
+      });
+    expect(running.entry.cancelled).toBe(false);
+
+    const beforeRuntime = control.claim("thread-before-runtime", "generation-before-runtime", { lane: "routing" });
+    expect(await control.interrupt({
+      threadId: "thread-before-runtime",
+      generationId: "generation-before-runtime",
+    })).toMatchObject({ status: 202, body: { state: "pending-stop" } });
+    const latchedPrimitive = vi.fn(() => false);
+    expect(control.registerStop(beforeRuntime.entry, "ollama-native", latchedPrimitive)).toEqual({
+      registered: true,
+      cancelRequested: true,
+    });
+    expect(latchedPrimitive).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a refused exact stop after settling all callers coalesced on that attempt", async () => {
+    const control = gw.createGenerationTurnControlPlane({ logFn: vi.fn() });
+    const claimed = control.claim("thread-retry-false", "generation-retry-false");
+    let settleFirst!: (stopped: boolean) => void;
+    const stop = vi.fn()
+      .mockImplementationOnce(() => new Promise<boolean>((resolve) => { settleFirst = resolve; }))
+      .mockReturnValueOnce(true);
+    control.registerStop(claimed.entry, "agent-sdk", stop);
+
+    const firstA = control.interrupt({ threadId: "thread-retry-false", generationId: "generation-retry-false" });
+    const firstB = control.interrupt({ threadId: "thread-retry-false", generationId: "generation-retry-false" });
+    expect(stop).toHaveBeenCalledTimes(1);
+    settleFirst(false);
+    expect((await firstA).status).toBe(409);
+    expect((await firstB).status).toBe(409);
+
+    expect((await control.interrupt({
+      threadId: "thread-retry-false",
+      generationId: "generation-retry-false",
+    })).status).toBe(200);
+    // Success alone is memoized; another duplicate does not signal twice.
+    expect((await control.interrupt({
+      threadId: "thread-retry-false",
+      generationId: "generation-retry-false",
+    })).status).toBe(200);
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(claimed.entry.cancelled).toBe(true);
+  });
+
+  it("lets Retry reach a stop primitive after a transient synchronous failure", async () => {
+    const control = gw.createGenerationTurnControlPlane({ logFn: vi.fn() });
+    const claimed = control.claim("thread-retry-error", "generation-retry-error");
+    const stop = vi.fn()
+      .mockImplementationOnce(() => { throw new Error("runtime still starting"); })
+      .mockReturnValueOnce(true);
+    control.registerStop(claimed.entry, "secondary", stop);
+
+    expect(await control.interrupt({ threadId: "thread-retry-error", generationId: "generation-retry-error" }))
+      .toMatchObject({ status: 500, body: { error: "cancel-failed", lane: "secondary" } });
+    expect(await control.interrupt({ threadId: "thread-retry-error", generationId: "generation-retry-error" }))
+      .toMatchObject({ status: 200, body: { stopped: true, lane: "secondary" } });
+    expect(await control.interrupt({ threadId: "thread-retry-error", generationId: "generation-retry-error" }))
+      .toMatchObject({ status: 200 });
+    expect(stop).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects overlap and stale or wrong tuples without touching the current generation", async () => {
+    const control = gw.createGenerationTurnControlPlane();
+    const first = control.claim("thread-a", "generation-a");
+    expect(first.status).toBe(201);
+    expect(control.claim("thread-a", "generation-b")).toMatchObject({
+      status: 409,
+      body: { code: "thread_generation_conflict" },
+    });
+
+    const firstStop = vi.fn(() => true);
+    control.registerStop(first.entry, "agent-sdk", firstStop);
+    expect(await control.interrupt({ threadId: "thread-wrong", generationId: "generation-a" }))
+      .toMatchObject({ status: 409, body: { code: "turn_generation_unavailable" } });
+    expect(await control.interrupt({ threadId: "thread-a", generationId: "generation-wrong" }))
+      .toMatchObject({ status: 409, body: { code: "turn_generation_unavailable" } });
+    expect(firstStop).not.toHaveBeenCalled();
+
+    expect(control.release(first.entry)).toBe(true);
+    const current = control.claim("thread-a", "generation-b");
+    expect(current.status).toBe(201);
+    const currentStop = vi.fn(() => true);
+    control.registerStop(current.entry, "agent-sdk", currentStop);
+
+    expect(await control.interrupt({ threadId: "thread-a", generationId: "generation-a" }))
+      .toMatchObject({ status: 409, body: { code: "turn_generation_unavailable" } });
+    // Cleanup from the old request is identity-bound and cannot erase its successor.
+    expect(control.release(first.entry)).toBe(false);
+    expect(control.currentGenerationByThread.get("thread-a")).toBe("generation-b");
+    expect(currentStop).not.toHaveBeenCalled();
+  });
+
+  it("parses Web and legacy interrupt bodies as a strict, fail-closed union", async () => {
+    const control = gw.createGenerationTurnControlPlane();
+    const legacyStop = vi.fn(() => true);
+    const legacy = new Map([["legacy-session", { lane: "standing-pty", stop: legacyStop, cancelled: false }]]);
+
+    expect(await gw.handleInterrupt(
+      { threadId: "thread-a", generationId: "generation-a", sessionId: "legacy-session" },
+      legacy,
+      control,
+    )).toMatchObject({ status: 400 });
+    expect(await gw.handleInterrupt({ sessionId: "legacy-session", extra: true }, legacy, control))
+      .toMatchObject({ status: 400 });
+    expect(legacyStop).not.toHaveBeenCalled();
+
+    expect(await gw.handleInterrupt({ sessionId: "legacy-session" }, legacy, control))
+      .toMatchObject({ status: 200, body: { lane: "standing-pty" } });
+    expect(legacyStop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("concurrent AskUserQuestion stream ownership", () => {
+  it("delivers only to the transcript owner and remains correct when streams finish out of order", () => {
+    const pending = new Map();
+    const rich: any[] = [];
+    const registry = gw.createQuestionTurnRegistry({
+      pending,
+      broadcastRichFn: (type: string, payload: any) => rich.push({ type, payload }),
+      nowFn: () => 123,
+    });
+    const seenA: any[] = [];
+    const seenB: any[] = [];
+    const turnA = { questionCardId: "CARD-A", questionSink: (payload: any) => seenA.push(payload) };
+    const turnB = { questionCardId: "CARD-B", questionSink: (payload: any) => seenB.push(payload) };
+    const transcriptA = path.join(tmpdir(), "concurrent-question-a.jsonl");
+    const transcriptB = path.join(tmpdir(), "concurrent-question-b.jsonl");
+    registry.bind(turnA, { transcript_path: transcriptA });
+    registry.bind(turnB, { transcript_path: transcriptB });
+
+    registry.deliver(
+      { tool_use_id: "question-a", questions: [{ question: "A only?" }] },
+      { transcriptPath: transcriptA },
+    );
+    registry.deliver(
+      { tool_use_id: "question-b", questions: [{ question: "B only?" }] },
+      { transcriptPath: transcriptB },
+    );
+    expect(seenA.map((payload) => payload.tool_use_id)).toEqual(["question-a"]);
+    expect(seenB.map((payload) => payload.tool_use_id)).toEqual(["question-b"]);
+    expect(pending.get("question-a")).toMatchObject({ cardId: "CARD-A", at: 123 });
+    expect(pending.get("question-b")).toMatchObject({ cardId: "CARD-B", at: 123 });
+
+    // B completes first. Its cleanup neither removes A's pending question nor
+    // diverts a later watcher event from A into B's already-finished stream.
+    registry.release(turnB);
+    registry.deliver(
+      { tool_use_id: "question-a-2", questions: [{ question: "Still A?" }] },
+      { transcriptPath: transcriptA },
+    );
+    expect(seenA.map((payload) => payload.tool_use_id)).toEqual(["question-a", "question-a-2"]);
+    expect(seenB.map((payload) => payload.tool_use_id)).toEqual(["question-b"]);
+    expect(pending.has("question-b")).toBe(false);
+    expect(pending.has("question-a")).toBe(true);
+
+    // If a transcript coordinate is reclaimed, late cleanup by its older owner
+    // is identity-checked and cannot erase the new stream's binding.
+    registry.bind(turnB, { transcript_path: transcriptA });
+    registry.release(turnA);
+    registry.deliver(
+      { tool_use_id: "question-b-2", questions: [{ question: "Now B?" }] },
+      { transcriptPath: transcriptA },
+    );
+    expect(seenA).toHaveLength(2);
+    expect(seenB.map((payload) => payload.tool_use_id)).toEqual(["question-b", "question-b-2"]);
+    expect(rich).toHaveLength(4);
+  });
+
+  it("actuates concurrent answers only on the exact owning thread session", async () => {
+    const pending = new Map();
+    const writesA: string[] = [];
+    const writesB: string[] = [];
+    const question = { options: [{ label: "Yes" }, { label: "No" }] };
+    pending.set("tool-a", {
+      threadId: "thread-a",
+      questions: [question],
+      actuator: { available: () => true, write: (bytes: string) => writesA.push(bytes) },
+    });
+    pending.set("tool-b", {
+      threadId: "thread-b",
+      questions: [question],
+      actuator: { available: () => true, write: (bytes: string) => writesB.push(bytes) },
+    });
+
+    const [answerA, answerB] = await Promise.all([
+      gw.handleAnswer({ session_id: "thread-a", tool_use_id: "tool-a", label: "Yes" }, { pending }),
+      gw.handleAnswer({ session_id: "thread-b", tool_use_id: "tool-b", label: "No" }, { pending }),
+    ]);
+    expect(answerA).toMatchObject({ status: 200, body: { action: "select", label: "Yes" } });
+    expect(answerB).toMatchObject({ status: 200, body: { action: "select", label: "No" } });
+    expect(writesA).toHaveLength(1);
+    expect(writesB).toHaveLength(2);
+    expect(pending.size).toBe(0);
+  });
+
+  it("requires a tool id and refuses foreign-thread dismiss or free-text actuation", async () => {
+    const writes: string[] = [];
+    const actuator = { available: () => true, write: (bytes: string) => writes.push(bytes) };
+    const pending = new Map([
+      ["tool-dismiss", { threadId: "thread-a", questions: [{ options: [] }], actuator }],
+      ["tool-text", { threadId: "thread-a", questions: [{ options: [] }], actuator }],
+    ]);
+
+    expect(await gw.handleAnswer({ session_id: "thread-a", dismiss: true }, { pending }))
+      .toMatchObject({ status: 400, body: { code: "question_id_required" } });
+    expect(await gw.handleAnswer({
+      session_id: "thread-b",
+      tool_use_id: "tool-dismiss",
+      dismiss: true,
+    }, { pending })).toMatchObject({ status: 409, body: { code: "question_owner_mismatch" } });
+    expect(await gw.handleAnswer({
+      session_id: "thread-b",
+      tool_use_id: "tool-text",
+      text: "foreign answer",
+    }, { pending })).toMatchObject({ status: 409, body: { code: "question_owner_mismatch" } });
+    expect(writes).toEqual([]);
+    expect(pending.size).toBe(2);
+
+    expect(await gw.handleAnswer({
+      session_id: "thread-a",
+      tool_use_id: "tool-dismiss",
+      dismiss: true,
+    }, { pending })).toMatchObject({ status: 200, body: { action: "dismiss" } });
+    expect(await gw.handleAnswer({
+      session_id: "thread-a",
+      tool_use_id: "tool-text",
+      text: "owner answer",
+    }, { pending })).toMatchObject({ status: 200, body: { action: "text" } });
+    expect(writes).toHaveLength(4); // Escape; Ctrl-U, text, Enter.
+    expect(pending.size).toBe(0);
+  });
+});
+
 // A fake AgentSdkAdapter with the new cancel + streaming hooks.
 class FakeAgentSdk {
   id = "agent-sdk";
   spawned: any[] = [];
   cancelled: any[] = [];
+  tornDown: any[] = [];
   hooks: any[] = [];
+  turns: string[] = [];
   response: any = { text: "final answer", toolUses: [], stoppedReason: null };
   blocks: { text?: string; tool?: { name: string; id: string } }[] = [];
   initialSessionId: string | null | undefined = undefined;
@@ -883,7 +1161,8 @@ class FakeAgentSdk {
     };
   }
   async awaitReady() {}
-  async sendTurn(s: any, _text: string, hooks: any = {}) {
+  async sendTurn(s: any, text: string, hooks: any = {}) {
+    this.turns.push(text);
     this.hooks.push(hooks);
     if (this.systemSessionId) {
       s.sessionId = this.systemSessionId;
@@ -906,6 +1185,7 @@ class FakeAgentSdk {
     return true;
   }
   async teardown(s: any) {
+    this.tornDown.push(s.sessionId);
     s.alive = false;
   }
 }
@@ -938,6 +1218,36 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     expect(again.session_id).toBe(a.session_id);
     // §12: the transcript badge needs a real file for that session.
     expect(a.transcript_path).toContain(`${a.session_id}.jsonl`);
+  });
+
+  it("rotates an idle warm standing session when its effective named-account token changes", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const secrets: Record<string, string> = { ANTHROPIC_ACCOUNT__work: "token-version-one" };
+    gateway.secrets = secrets;
+    const route = sdkRoute();
+    (route.target as any).account = "work";
+
+    const first = await gateway.runAgentSdkTurn(route, "first", undefined, {
+      sessionKey: "credential-thread",
+      streamingInput: true,
+      generationId: "credential-generation-1",
+    });
+    secrets.ANTHROPIC_ACCOUNT__work = "token-version-two";
+    const second = await gateway.runAgentSdkTurn(route, "second", undefined, {
+      sessionKey: "credential-thread",
+      streamingInput: true,
+      generationId: "credential-generation-2",
+    });
+
+    expect(adapter.spawned).toHaveLength(2);
+    expect(second.session_id).not.toBe(first.session_id);
+    await vi.waitFor(() => expect(adapter.tornDown).toContain(first.session_id));
+    expect(adapter.cancelled).toEqual([]); // standing Query retirement closes; it does not interrupt
+    expect(gateway._agentSdkSessions.size).toBe(1);
+    const cacheIdentity = [...gateway._agentSdkSessions.keys()].join("\n");
+    expect(cacheIdentity).not.toContain("token-version-one");
+    expect(cacheIdentity).not.toContain("token-version-two");
   });
 
   it("reports a resumed SDK journal before send and de-duplicates its system frame", async () => {
@@ -996,6 +1306,80 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     expect(gateway._agentSdkSessions.size).toBe(AGENT_SDK_SESSION_CAP);
     // cancel() is the primitive that actually frees the query; teardown is a no-op.
     expect(adapter.cancelled).toEqual(["sdk-1"]);
+  });
+
+  it("allows temporary overflow instead of evicting the oldest in-flight standing Query, then trims on idle", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const releases = new Map<string, (value: any) => void>();
+    (adapter as any).awaitResponse = (session: any) => new Promise((resolve) => {
+      releases.set(session.sessionId, resolve);
+    });
+
+    const turns = Array.from({ length: AGENT_SDK_SESSION_CAP + 1 }, (_, index) =>
+      gateway.runAgentSdkTurn(sdkRoute(), `turn ${index}`, undefined, {
+        sessionKey: `busy-thread-${index}`,
+        streamingInput: true,
+        generationId: `busy-generation-${index}`,
+      })
+    );
+    await vi.waitFor(() => expect(releases.size).toBe(AGENT_SDK_SESSION_CAP + 1));
+    expect(gateway._agentSdkSessions.size).toBe(AGENT_SDK_SESSION_CAP + 1);
+    expect(adapter.cancelled).toEqual([]);
+    expect(adapter.tornDown).toEqual([]);
+    const oldestSession = [...gateway._agentSdkSessions.values()]
+      .find((session: any) => session.sessionId === "sdk-1");
+    expect(oldestSession?.alive).toBe(true);
+
+    // Only the newest lane becomes idle. It is the sole safe eviction candidate,
+    // even though sdk-1 is the oldest LRU entry and is still executing.
+    releases.get(`sdk-${AGENT_SDK_SESSION_CAP + 1}`)!({ text: "newest done", toolUses: [], stoppedReason: null });
+    await turns.at(-1);
+    await vi.waitFor(() => expect(gateway._agentSdkSessions.size).toBe(AGENT_SDK_SESSION_CAP));
+    expect(adapter.tornDown).toEqual([`sdk-${AGENT_SDK_SESSION_CAP + 1}`]);
+    expect(oldestSession?.alive).toBe(true);
+    expect([...gateway._agentSdkSessions.values()]).toContain(oldestSession);
+
+    for (let index = 1; index <= AGENT_SDK_SESSION_CAP; index += 1) {
+      releases.get(`sdk-${index}`)!({ text: `done ${index}`, toolUses: [], stoppedReason: null });
+    }
+    await Promise.all(turns.slice(0, -1));
+  });
+
+  it("re-seeds an evicted Web conversation from durable context without duplicating warm history", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const standingTurn = (sessionKey: string, message: string, generationId: string, coldStartContext: string) =>
+      gateway.runAgentSdkTurn(sdkRoute(), message, undefined, {
+        sessionKey,
+        streamingInput: true,
+        generationId,
+        coldStartContext,
+      });
+
+    await standingTurn("thread-a", "first", "generation-a-1", "durable A before first");
+    await standingTurn("thread-a", "second", "generation-a-2", "durable A through first");
+    expect(adapter.turns.slice(0, 2)).toEqual([
+      "durable A before first\n\n---\n\nfirst",
+      "second",
+    ]);
+
+    // A is the oldest warm entry. Filling the remaining cache plus one evicts it;
+    // the next A input therefore owns a fresh standing Query.
+    for (let index = 0; index < AGENT_SDK_SESSION_CAP; index += 1) {
+      await standingTurn(
+        `pressure-${index}`,
+        `pressure message ${index}`,
+        `pressure-generation-${index}`,
+        `durable pressure ${index}`,
+      );
+    }
+    expect(adapter.tornDown).toContain("sdk-1");
+
+    const spawnsBeforeReturn = adapter.spawned.length;
+    await standingTurn("thread-a", "third", "generation-a-3", "durable A through second");
+    expect(adapter.spawned).toHaveLength(spawnsBeforeReturn + 1);
+    expect(adapter.turns.at(-1)).toBe("durable A through second\n\n---\n\nthird");
   });
 
   it("streams text through onChunk(replace) and turns tool_use into an activity payload", async () => {

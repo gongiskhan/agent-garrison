@@ -171,7 +171,78 @@ export interface TurnRouting {
   phasesOff?: string | null;
 }
 
-export type ChatEvent =
+/** Client-generated correlation only. The host assigns the durable input id and
+ * the runtime assigns the generation id; neither authority is delegated to the
+ * browser. Keeping this in the ordinary per-send metadata lets legacy transports
+ * ignore it while an orchestrated transport can return an exact receipt. */
+export interface ChatSendMeta {
+  context?: unknown;
+  mode?: string;
+  autonomous?: boolean;
+  routing?: TurnRouting;
+  clientRequestId?: string;
+}
+
+export type ChatInputState =
+  | "queued"
+  | "starting"
+  | "running"
+  | "stopping"
+  | "settled"
+  | "stopped"
+  | "failed";
+
+/** Durable admission/lifecycle coordinates returned by an orchestrated host.
+ * `generationId` is absent while an accepted input is queued or still starting;
+ * exact Stop stays disabled until the runtime publishes it. */
+export interface ChatInputReceipt {
+  clientRequestId: string;
+  inputId: string;
+  state: ChatInputState;
+  position?: number;
+  generationId?: string;
+  acceptedAt?: string;
+  reason?: string;
+}
+
+const CHAT_INPUT_STATES: ReadonlySet<string> = new Set([
+  "queued", "starting", "running", "stopping", "settled", "stopped", "failed",
+]);
+
+export function isChatInputReceipt(value: unknown): value is ChatInputReceipt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const input = value as Record<string, unknown>;
+  const optionalText = (key: string, nonEmpty = false) => input[key] === undefined ||
+    (typeof input[key] === "string" && (!nonEmpty || Boolean((input[key] as string).trim())));
+  return typeof input.clientRequestId === "string" && Boolean(input.clientRequestId.trim()) &&
+    typeof input.inputId === "string" && Boolean(input.inputId.trim()) &&
+    typeof input.state === "string" && CHAT_INPUT_STATES.has(input.state) &&
+    optionalText("generationId", true) && optionalText("acceptedAt") && optionalText("reason") &&
+    (input.position === undefined ||
+      (typeof input.position === "number" && Number.isInteger(input.position) && input.position >= 0));
+}
+
+/** Coordinates stamped onto every generated chat frame. They stay optional so
+ * existing PTY/EventSource transports remain source-compatible. */
+export interface ChatFrameCoordinate {
+  inputId?: string;
+  generationId?: string;
+}
+
+/** Exact generated-turn stop. A missing argument is retained only for legacy
+ * transports; lifecycle-capable callers always provide the runtime generation. */
+export interface ChatInterruptRequest {
+  generationId: string;
+}
+
+export interface ChatInterruptResult {
+  generationId: string;
+  state: "stopping" | "stopped" | "settled";
+  inputId?: string;
+  reason?: string;
+}
+
+type ChatEventPayload =
   | { type: "hello"; mode: PermissionMode; status: ClaudeStatus; busy: boolean; assistant: string; screen: string[] }
   | { type: "assistant"; text: string }
   | { type: "session_event"; event: SessionEvent }
@@ -194,8 +265,11 @@ export type ChatEvent =
   // strongest liveness signal the lane has.
   | { type: "activity"; kind: "tool"; name: string; id?: string }
   | { type: "activity"; kind: "thinking"; name: string }
+  | ({ type: "input" } & ChatInputReceipt)
   | { type: "error"; message: string }
   | { type: "connection"; state: "open" | "closed" | "reconnecting" };
+
+export type ChatEvent = ChatEventPayload & ChatFrameCoordinate;
 
 export interface SlashCommand {
   name: string;
@@ -219,8 +293,11 @@ export interface ChatTransport {
    * compat with transports that don't set it.
    */
   base?: string;
+  /** Opt-in before the first send so the composer can expose Queue immediately.
+   * Omitted by legacy transports, whose global busy/Stop behavior is unchanged. */
+  inputLifecycle?: true;
   connect(onEvent: (ev: ChatEvent) => void): () => void; // returns an unsubscribe/close fn
-  sendMessage(text: string): Promise<void>;
+  sendMessage(text: string, meta?: ChatSendMeta): Promise<void | ChatInputReceipt>;
   /**
    * Submit a line into the live Claude PTY WITHOUT it being rendered as a user
    * turn in the chat transcript — used for slash commands that drive the TUI
@@ -231,7 +308,7 @@ export interface ChatTransport {
   sendCommand?(text: string): Promise<void>;
   sendKey(key: "escape" | "shift-tab" | "up" | "down" | "enter" | "tab" | "ctrl-c"): Promise<void>;
   setMode(mode: PermissionMode): Promise<{ mode: PermissionMode; reached: boolean }>;
-  interrupt(): Promise<void>;
+  interrupt(request?: ChatInterruptRequest): Promise<void | ChatInterruptResult>;
   fetchCommands(): Promise<SlashCommand[]>;
   /**
    * Answer an AskUserQuestion picker the operative raised (a tapped option label,

@@ -111,12 +111,20 @@ describe("gateway lib: createAskQuestionWatcher", () => {
     fs.writeFileSync(file, JSON.stringify(askEvent("toolu_A")) + "\n");
 
     const seen: any[] = [];
+    const sources: any[] = [];
     // No priming: read from offset 0 so the fixture already on disk is picked up.
-    const watcher = createAskQuestionWatcher({ projectDir: dir, onQuestion: (p: any) => seen.push(p) });
+    const watcher = createAskQuestionWatcher({
+      projectDir: dir,
+      onQuestion: (p: any, source: any) => {
+        seen.push(p);
+        sources.push(source);
+      },
+    });
 
     watcher.tickOnce();
     expect(seen).toHaveLength(1);
     expect(seen[0].tool_use_id).toBe("toolu_A");
+    expect(sources[0]).toEqual({ transcriptPath: file });
 
     // Second tick with no new content → no re-emit.
     watcher.tickOnce();

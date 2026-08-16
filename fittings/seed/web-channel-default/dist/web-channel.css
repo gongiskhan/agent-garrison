@@ -58,7 +58,9 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: var(--cc-bg);
   color: var(--cc-fg);
   font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -104,13 +106,13 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-scroll { flex: 1; overflow-y: auto; padding: 12px; min-height: 0; -webkit-overflow-scrolling: touch; }
 .cc-empty { color: var(--cc-fg-faint); text-align: center; margin-top: 24px; }
 
-.cc-turn { margin-bottom: 16px; }
+.cc-turn { min-width: 0; margin-bottom: 16px; }
 .cc-user {
   background: var(--cc-user-bg); color: var(--cc-user-fg); border-radius: 12px 12px 4px 12px;
   padding: 8px 12px; margin-left: auto; max-width: 85%; width: fit-content;
   white-space: pre-wrap; word-break: break-word;
 }
-.cc-assistant { margin-top: 8px; max-width: 95%; }
+.cc-assistant { min-width: 0; margin-top: 8px; max-width: 95%; overflow-wrap: anywhere; }
 .cc-md { word-break: break-word; }
 .cc-md p { margin: 0 0 8px; }
 .cc-md pre {
@@ -147,6 +149,80 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-working-hint {
   font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--cc-fg-faint);
   max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Durable orchestrated-input lifecycle ──
+   This is deliberately not a live region: the component owns one shared,
+   atomic announcer at the root, so queued/runtime updates are never spoken
+   twice. The chip is the durable visual record for every generated turn. */
+.cc-lifecycle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 0 7px;
+  padding: 5px 8px;
+  border: 1px solid var(--cc-border);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cc-bg-elev) 84%, transparent);
+  color: var(--cc-fg-dim);
+  font: 10px/1.35 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+.cc-lifecycle-mark { display: inline-flex; min-width: 0; color: var(--cc-accent); }
+.cc-lifecycle-label { flex: 0 0 auto; color: var(--cc-fg); font-weight: 700; }
+.cc-lifecycle-time {
+  flex: 0 0 auto;
+  color: var(--cc-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.cc-lifecycle-detail {
+  min-width: 0;
+  max-width: min(46ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cc-fg-dim);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.cc-lifecycle-queued { border-style: dashed; }
+.cc-lifecycle-starting,
+.cc-lifecycle-running,
+.cc-lifecycle-stopping { border-color: color-mix(in srgb, var(--cc-accent) 58%, var(--cc-border)); }
+.cc-lifecycle-stopped { border-color: var(--cc-danger-border); }
+.cc-lifecycle-failed { border-color: var(--cc-danger-border); color: var(--cc-rail-warn, #e8a598); }
+.cc-lifecycle-stoperror {
+  display: flex;
+  flex: 1 0 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 5px;
+  border-top: 1px solid var(--cc-border);
+  color: var(--cc-rail-warn, #e8a598);
+  text-transform: none;
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+.cc-lifecycle-stoperror > span { min-width: 0; }
+.cc-lifecycle-stoperror button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: 10px/1.2 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  letter-spacing: .055em;
+  text-transform: uppercase;
 }
 
 /* ── AskUserQuestion → tappable option buttons (D28) ── */
@@ -188,6 +264,9 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-question-othersend:disabled { opacity: 0.5; cursor: default; }
 .cc-question-answer { margin-top: 10px; }
+.cc-question-error {
+  margin-top: 10px; color: var(--cc-danger-text, #f85149); font-size: 12px; line-height: 1.4;
+}
 
 /* ── Rich code block (custom marked renderer): header + highlighted body ── */
 .cc-codeblock { margin: 0 0 10px; border: 1px solid var(--cc-code-border); border-radius: 8px; overflow: hidden; }
@@ -317,16 +396,17 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-mic-spin { width: 13px; height: 13px; }
 
 .cc-composer { position: relative; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
-.cc-composerrow { display: flex; gap: 8px; align-items: flex-end; }
+.cc-composerrow { display: flex; gap: 8px; align-items: flex-end; min-width: 0; }
 .cc-input {
-  flex: 1; resize: none; max-height: 160px; min-height: 38px;
+  flex: 1 1 auto; width: 100%; min-width: 0; resize: none; max-height: 160px; min-height: 38px;
   background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-border-strong); border-radius: 8px;
   padding: 9px 12px; font: 14px/1.4 inherit; outline: none;
 }
 .cc-input:focus { border-color: var(--cc-accent); }
-.cc-send, .cc-stop { min-height: 38px; padding: 0 16px; font-weight: 600; }
+.cc-send, .cc-stop { flex-shrink: 0; min-height: 38px; padding: 0 16px; font-weight: 600; }
 .cc-send:disabled { opacity: 0.4; cursor: default; }
 .cc-stop { background: var(--cc-danger-bg); border-color: var(--cc-danger-border); color: #fff; display: inline-flex; align-items: center; gap: 6px; }
+.cc-stop:disabled { opacity: .48; cursor: not-allowed; }
 .cc-stopsq { width: 9px; height: 9px; background: #fff; border-radius: 2px; display: inline-block; }
 
 /* ── Mic (push-to-talk) ── */
@@ -353,7 +433,10 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-attachment-icon { flex-shrink: 0; }
 .cc-attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-attachment-err { color: #f85149; font-weight: 700; }
-.cc-attachment-x { cursor: pointer; color: var(--cc-fg-faint); line-height: 1; padding: 0 2px; flex-shrink: 0; }
+.cc-attachment-x {
+  cursor: pointer; color: var(--cc-fg-faint); line-height: 1; padding: 0 2px; flex-shrink: 0;
+  border: 0; background: transparent; font: inherit;
+}
 .cc-attachment-x:hover { color: var(--cc-fg); }
 .cc-mic-dot { width: 12px; height: 12px; border-radius: 50%; background: #f85149; display: inline-block; animation: cc-pulse 1s ease-in-out infinite; }
 .cc-mic-busy { color: var(--cc-accent); border-color: var(--cc-accent); }
@@ -1133,8 +1216,14 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 .cc-root .cc-railend { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .cc-root .cc-railtime { font: 11px/1 var(--cc-mono); color: var(--cc-fg-faint); font-variant-numeric: tabular-nums; }
+.cc-root .cc-railqueued {
+  color: var(--cc-fg-dim);
+  font: 10px/1.2 var(--cc-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
 .cc-root .cc-rail .cc-railstop {
-  min-height: 32px; padding: 0 10px;
+  min-height: 44px; padding: 0 10px;
   font: 10px/1.2 var(--cc-mono); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
 }
 .cc-root .cc-rail .cc-railstop-change {
@@ -1207,6 +1296,24 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-root .cc-rail .cc-railfree-input,
   .cc-root .cc-rail .cc-railfree-set { min-height: 44px; }
   .cc-root .cc-railscrim { display: block; position: fixed; inset: 0; z-index: 25; background: rgba(9,12,10,.5); }
+}
+
+/* The shared chat is embedded in 320px mobile panes. Keep the composer and the
+   exact-generation stop controls inside that width without shrinking any touch
+   target below 44px; the horizontally scrolling rail owns the overflow. */
+@media (max-width: 360px) {
+  .cc-header,
+  .cc-scroll { padding-left: 8px; padding-right: 8px; }
+  .cc-composer { padding-left: 6px; padding-right: 6px; }
+  .cc-composerrow { gap: 5px; }
+  .cc-send,
+  .cc-stop { padding-left: 10px; padding-right: 10px; }
+  .cc-root .cc-rail { gap: 5px; }
+  .cc-root .cc-railend { gap: 4px; }
+  .cc-root .cc-railtime { display: none; }
+  .cc-root .cc-rail .cc-railstop { padding-left: 7px; padding-right: 7px; letter-spacing: .025em; }
+  .cc-lifecycle { width: 100%; }
+  .cc-lifecycle-stoperror { align-items: flex-start; flex-direction: column; }
 }
 
 @media (pointer: coarse) {
@@ -1633,9 +1740,23 @@ html, body {
   border-bottom: 1px solid #ece2cc; /* paper-3 hairline */
   border-left: 3px solid transparent;
   padding: 10px 10px 10px 13px;
-  cursor: pointer;
+  cursor: default;
   color: #18211c;               /* ink */
   font-family: inherit;
+}
+.wc-thread-open {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .wc-thread:hover { background: #efe7d6; }
 .wc-thread--active {
@@ -1679,6 +1800,9 @@ html, body {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   line-height: 20px;
   text-align: center;
   font-size: 17px;
@@ -2134,6 +2258,15 @@ body {
 .wc-thread-del:hover {
   background: rgba(150,63,53,.22);
 }
+.wc-thread-del:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
+.wc-thread-del:disabled {
+  color: var(--wc-fg-dim);
+  cursor: not-allowed;
+}
 
 .wc-main {
   background: var(--wc-stone-50);
@@ -2559,6 +2692,7 @@ body {
 @media (max-width: 720px) { .wc-xscript { width: 100%; } }
 @media (any-pointer: coarse) {
   .wc-xscript-close { min-width: 44px; min-height: 44px; }
+  .wc-thread-del { min-width: 44px; min-height: 44px; line-height: 42px; opacity: .75; }
 }
 
 /* ── Resumed-turn notice ─────────────────────────────────────────────────────

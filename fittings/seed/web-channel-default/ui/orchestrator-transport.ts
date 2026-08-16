@@ -13,7 +13,68 @@
 //     POST /api/chat/interrupt instead of the no-op that made Stop a lie.
 
 import { isSessionEvent } from "@garrison/claude-chat/journal";
-import type { ChatEvent, ChatTransport, ChatSendMeta, PermissionAnswer, QuestionAnswer, RouteAttribution } from "@garrison/claude-chat";
+import type {
+  ChatEvent,
+  ChatInputReceipt,
+  ChatInterruptRequest,
+  ChatInterruptResult,
+  ChatTransport,
+  ChatSendMeta,
+  PermissionAnswer,
+  QuestionAnswer,
+  RouteAttribution,
+} from "@garrison/claude-chat";
+
+const INPUT_STATES = new Set(["queued", "starting", "running", "stopping", "settled", "stopped", "failed"]);
+const ADMISSION_MAX_ATTEMPTS = 4;
+const ADMISSION_RETRY_BASE_MS = 100;
+const RESUME_MAX_RETRIES = 4;
+const RESUME_RETRY_BASE_MS = 250;
+
+function retryDelay(baseMs: number, retry: number, ceilingMs = 2_000): number {
+  return Math.min(baseMs * (2 ** Math.max(0, retry - 1)), ceilingMs);
+}
+
+function waitForRetry(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function cleanChatInputReceipt(value: unknown): ChatInputReceipt | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  const clientRequestId = typeof input.clientRequestId === "string" ? input.clientRequestId.trim() : "";
+  const inputId = typeof input.inputId === "string" ? input.inputId.trim() : "";
+  const state = typeof input.state === "string" && INPUT_STATES.has(input.state)
+    ? input.state as ChatInputReceipt["state"]
+    : null;
+  if (!clientRequestId || !inputId || !state) return null;
+  const generationId = typeof input.generationId === "string" && input.generationId.trim()
+    ? input.generationId.trim()
+    : undefined;
+  const position = typeof input.position === "number" && Number.isInteger(input.position) && input.position >= 0
+    ? input.position
+    : undefined;
+  return {
+    clientRequestId,
+    inputId,
+    state,
+    ...(generationId ? { generationId } : {}),
+    ...(position !== undefined ? { position } : {}),
+    ...(typeof input.acceptedAt === "string" ? { acceptedAt: input.acceptedAt.slice(0, 64) } : {}),
+    ...(typeof input.reason === "string" ? { reason: input.reason.slice(0, 200) } : {}),
+  };
+}
 
 // ── Run-context frame normalisation (contract §1) ──────────────────────────
 // The NEW attribution fields. Copied by PRESENCE, never with `?? null`: the badge
@@ -158,8 +219,12 @@ export interface OrchestratorTransportOptions {
   resumeOnConnect?: boolean;
   /** Lets the thread host suppress history polling while replay/follow is active. */
   onResumeState?: (active: boolean) => void;
-  /** Fires after the live endpoint closes cleanly (the settled reply is on disk). */
-  onResumeSettled?: () => void;
+  /**
+   * Fires when the durable parent snapshot should be refreshed. A painted live
+   * terminal does not require child-history recovery; races, rejected admissions,
+   * and malformed/unavailable resume state do.
+   */
+  onResumeSettled?: (result: { recovery: boolean }) => void;
 }
 
 export interface ResumableChatTransport extends ChatTransport {
@@ -175,7 +240,34 @@ export function createOrchestratorTransport(
   const b = base.replace(/\/$/, "");
   let listener: ((ev: ChatEvent) => void) | null = null;
   let resumeStarted = false;
-  let resumeController: AbortController | null = null;
+  let connectionEpoch = 0;
+  let connected = false;
+  let activeReported = false;
+  let resumeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let resumeRetryCount = 0;
+  const followers = new Map<string, { controller: AbortController; promise: Promise<void> }>();
+  const pendingRequests = new Set<AbortController>();
+  const isCurrentConnection = (epoch: number) => connected && epoch === connectionEpoch;
+  const reportActivity = () => {
+    const active = connected && (pendingRequests.size > 0 || followers.size > 0);
+    if (active === activeReported) return;
+    activeReported = active;
+    options.onResumeState?.(active);
+  };
+  const clearResumeRetry = () => {
+    if (resumeRetryTimer !== null) clearTimeout(resumeRetryTimer);
+    resumeRetryTimer = null;
+  };
+  const scheduleResumeRetry = (epoch: number) => {
+    if (!isCurrentConnection(epoch) || resumeRetryTimer !== null || resumeRetryCount >= RESUME_MAX_RETRIES) return;
+    resumeRetryCount += 1;
+    resumeRetryTimer = setTimeout(() => {
+      resumeRetryTimer = null;
+      if (!isCurrentConnection(epoch)) return;
+      resumeStarted = false;
+      void resume();
+    }, retryDelay(RESUME_RETRY_BASE_MS, resumeRetryCount));
+  };
   // Monotonic per-send turn number (contract §5). ClaudeChat keeps its OWN 1-based
   // counter (Turn.seq) in the same order and DROPS a frame stamped older than the
   // turn it would land on, so the two are a convention: bump this exactly once per
@@ -183,78 +275,112 @@ export function createOrchestratorTransport(
   let turnSeq = 0;
 
   interface StreamState {
+    epoch: number;
     seq: number;
+    generated: boolean;
+    clientRequestId?: string;
+    inputId?: string;
+    generationId?: string;
     acc: string;
     sawReply: boolean;
     settled: boolean;
-    /** Replay belongs to the synthetic restored turn, not the browser that
-     * originally produced the retained frames. */
-    resumed: boolean;
+    paintedTerminal: boolean;
+    seenIds: Set<string>;
   }
 
-  const newStreamState = (seq: number, resumed = false): StreamState => ({
+  const newStreamState = (seq: number, input?: Partial<ChatInputReceipt>, epoch = connectionEpoch): StreamState => ({
+    epoch,
     seq,
+    generated: Boolean(input?.inputId || input?.clientRequestId),
+    clientRequestId: input?.clientRequestId,
+    inputId: input?.inputId,
+    generationId: input?.generationId,
     acc: "",
     sawReply: false,
     settled: false,
-    resumed,
+    paintedTerminal: false,
+    seenIds: new Set(),
   });
 
+  const frameCoordinate = (state: StreamState, data: Record<string, unknown>) => {
+    if (typeof data.inputId === "string" && data.inputId.trim()) state.inputId = data.inputId;
+    if (typeof data.generationId === "string" && data.generationId.trim()) state.generationId = data.generationId;
+    return {
+      ...(state.inputId ? { inputId: state.inputId } : {}),
+      ...(state.generationId ? { generationId: state.generationId } : {}),
+    };
+  };
+
   const handleEvent = (state: StreamState, name: string, dataRaw: string) => {
+    if (!isCurrentConnection(state.epoch)) return;
     let data: any = {};
     try { data = dataRaw ? JSON.parse(dataRaw) : {}; } catch { /* ignore */ }
+    const coordinate = frameCoordinate(state, data);
+    if (name === "input") {
+      const input = cleanChatInputReceipt(data);
+      if (!input) return;
+      state.clientRequestId = input.clientRequestId;
+      state.inputId = input.inputId;
+      if (input.generationId) state.generationId = input.generationId;
+      if (input.state === "settled" || input.state === "stopped" || input.state === "failed") state.settled = true;
+      listener?.({ ...input, type: "input" });
+      return;
+    }
+    if (name === "open") return;
     if (name === "chunk" && typeof data.text === "string") {
       // PTY lanes re-emit the whole visible answer after a reflow. Preserve the
       // wire's replace flag during replay and run the exact same accumulator here.
       if (data.replace) state.acc = data.text;
       else state.acc += data.text;
       state.sawReply = true;
-      listener?.({ type: "assistant", text: state.acc });
+      listener?.({ type: "assistant", text: state.acc, ...coordinate });
     } else if (name === "tool") {
-      listener?.({ type: "tool", ...data } as ChatEvent);
+      listener?.({ type: "tool", ...data, ...coordinate } as ChatEvent);
     } else if (name === "session_event") {
       // The payload is already the channel-neutral canonical event. A live send
       // forwards the parsed object itself without spreading or selecting fields;
       // replay changes only its turn coordinate so the restored synthetic turn
       // owns it just as it owns replayed route frames.
       if (!isSessionEvent(data)) return;
-      const event = state.resumed ? { ...data, turnId: String(state.seq) } : data;
-      listener?.({ type: "session_event", event } as unknown as ChatEvent);
+      listener?.({ type: "session_event", event: data, ...coordinate } as unknown as ChatEvent);
     } else if (name === "route") {
       // A resumed turn targets the persisted trailing user exchange (seq 0), not
       // whatever turnSeq another browser originally placed on the wire. Restamping
       // here prevents route frames being dropped or attached to later history.
       const ev = routeEventFrom(data, state.seq);
-      if (ev) listener?.(ev);
+      if (ev) listener?.({ ...ev, ...coordinate });
     } else if (name === "activity") {
       if (data.kind === "thinking") {
         const text = typeof data.text === "string" ? data.text.trim() : "";
-        listener?.({ type: "activity", kind: "thinking", name: text || "thinking…" });
+        listener?.({ type: "activity", kind: "thinking", name: text || "thinking…", ...coordinate });
       } else if (typeof data.name === "string" && data.name) {
         listener?.({
           type: "activity",
           kind: "tool",
           name: data.name,
           ...(typeof data.id === "string" && data.id ? { id: data.id } : {}),
+          ...coordinate,
         });
       }
     } else if (name === "done") {
       if (typeof data.reply === "string" && data.reply.trim()) {
         state.acc = data.reply;
         state.sawReply = true;
-        listener?.({ type: "assistant", text: state.acc });
+        listener?.({ type: "assistant", text: state.acc, ...coordinate });
       }
       if (!state.sawReply) {
-        listener?.({ type: "assistant", text: "_The operative returned an empty reply. Try sending again._" });
+        listener?.({ type: "assistant", text: "_The operative returned an empty reply. Try sending again._", ...coordinate });
       }
       const routeEv = routeEventFrom(data, state.seq);
-      if (routeEv) listener?.(routeEv);
+      if (routeEv) listener?.({ ...routeEv, ...coordinate });
+      state.paintedTerminal = true;
       state.settled = true;
-      listener?.({ type: "turn", active: false });
+      if (!state.generated) listener?.({ type: "turn", active: false });
     } else if (name === "error") {
+      state.paintedTerminal = true;
       state.settled = true;
-      listener?.({ type: "error", message: String(data.error ?? "stream error") });
-      listener?.({ type: "turn", active: false });
+      listener?.({ type: "error", message: String(data.error ?? "stream error"), ...coordinate });
+      if (!state.generated) listener?.({ type: "turn", active: false });
     }
   };
 
@@ -273,6 +399,7 @@ export function createOrchestratorTransport(
         buf = buf.slice(boundary.index + boundary[0].length);
         let name = "message";
         const data: string[] = [];
+        let frameId = "";
         for (const line of block.split(/\r?\n/)) {
           if (!line || line.startsWith(":")) continue;
           const colon = line.indexOf(":");
@@ -281,7 +408,10 @@ export function createOrchestratorTransport(
           if (value.startsWith(" ")) value = value.slice(1);
           if (field === "event") name = value.trim();
           else if (field === "data") data.push(value);
+          else if (field === "id") frameId = value.trim();
         }
+        if (frameId && state.seenIds.has(frameId)) continue;
+        if (frameId) state.seenIds.add(frameId);
         if (name !== "message" || data.length > 0) handleEvent(state, name, data.join("\n"));
       }
     };
@@ -304,50 +434,135 @@ export function createOrchestratorTransport(
   // is the client-side fallback for a proxy/network truncation.
   const settleUnexpectedEof = (state: StreamState) => {
     if (state.settled) return;
-    state.settled = true;
-    listener?.({ type: "error", message: "chat stream ended without a completion event" });
-    listener?.({ type: "turn", active: false });
+    if (!state.generated) {
+      state.settled = true;
+      listener?.({ type: "error", message: "chat stream ended without a completion event" });
+      listener?.({ type: "turn", active: false });
+      return;
+    }
+    listener?.({
+      type: "connection",
+      state: "reconnecting",
+      ...(state.inputId ? { inputId: state.inputId } : {}),
+      ...(state.generationId ? { generationId: state.generationId } : {}),
+    });
+  };
+
+  const followInput = (input: ChatInputReceipt, epoch = connectionEpoch): Promise<void> => {
+    if (!threadId || !isCurrentConnection(epoch)) return Promise.resolve();
+    const existing = followers.get(input.inputId);
+    if (existing) return existing.promise;
+    const controller = new AbortController();
+    const state = newStreamState(turnSeq, input, epoch);
+    const promise = (async () => {
+      let shouldRefresh = false;
+      let recovery = true;
+      try {
+        await loadHostMap();
+        while (!controller.signal.aborted && isCurrentConnection(epoch) && !state.settled) {
+          try {
+            const res = await fetch(
+              `${b}/threads/${encodeURIComponent(threadId)}/inputs/${encodeURIComponent(input.inputId)}/live`,
+              {
+                method: "GET",
+                headers: { accept: "text/event-stream" },
+                cache: "no-store",
+                signal: controller.signal,
+              }
+            );
+            if (res.status === 404 || res.status === 409) {
+              shouldRefresh = true;
+              break;
+            }
+            if (!res.ok || !res.body) throw new Error(`input live ${res.status}`);
+            await readEventStream(res, state);
+            if (!state.settled) settleUnexpectedEof(state);
+          } catch (err: any) {
+            if (err?.name === "AbortError" || controller.signal.aborted || !isCurrentConnection(epoch)) break;
+            settleUnexpectedEof(state);
+          }
+          if (!state.settled && !controller.signal.aborted && isCurrentConnection(epoch)) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+        if (state.settled) {
+          shouldRefresh = true;
+          recovery = !state.paintedTerminal;
+        }
+      } finally {
+        const current = followers.get(input.inputId);
+        if (current?.controller === controller) followers.delete(input.inputId);
+        reportActivity();
+        if (!controller.signal.aborted && isCurrentConnection(epoch) && shouldRefresh) {
+          options.onResumeSettled?.({ recovery });
+        }
+      }
+    })();
+    followers.set(input.inputId, { controller, promise });
+    reportActivity();
+    return promise;
   };
 
   const resume = async () => {
-    if (resumeStarted || !threadId) return;
+    if (resumeStarted || !threadId || !connected) return;
+    clearResumeRetry();
     resumeStarted = true;
+    const epoch = connectionEpoch;
     const controller = new AbortController();
-    resumeController = controller;
-    const state = newStreamState(turnSeq, true); // restored history uses seq 0
-    listener?.({ type: "turn", active: true });
-    options.onResumeState?.(true);
+    pendingRequests.add(controller);
+    reportActivity();
+    let retryable = false;
     let shouldRefresh = false;
     try {
-      await loadHostMap();
-      const res = await fetch(`${b}/threads/${encodeURIComponent(threadId)}/live`, {
+      const res = await fetch(`${b}/threads/${encodeURIComponent(threadId)}/inputs`, {
         method: "GET",
-        headers: { accept: "text/event-stream" },
+        headers: { accept: "application/json" },
         cache: "no-store",
         signal: controller.signal,
       });
-      if (res.ok && res.body) {
-        await readEventStream(res, state);
-        settleUnexpectedEof(state);
+      if (!isCurrentConnection(epoch)) return;
+      if (!res.ok) {
+        retryable = true;
         shouldRefresh = true;
-      } else if (res.status === 404) {
-        // The turn settled between the thread read and this GET. Refresh history;
-        // do not render a fake error bubble for a benign race.
+        return;
+      }
+      const body = await res.json().catch(() => null);
+      const hasInputArray = Array.isArray(body?.inputs);
+      const inputs = hasInputArray
+        ? body.inputs.map(cleanChatInputReceipt).filter((input: ChatInputReceipt | null): input is ChatInputReceipt => input !== null)
+        : [];
+      if (!hasInputArray || inputs.length !== body.inputs.length) {
+        retryable = true;
         shouldRefresh = true;
+      }
+      if (inputs.length === 0) {
+        shouldRefresh = true;
+        return;
+      }
+      for (const input of inputs) {
+        if (!isCurrentConnection(epoch)) return;
+        listener?.({ type: "input", ...input });
+        void followInput(input, epoch);
       }
     } catch (err: any) {
-      if (err?.name !== "AbortError") shouldRefresh = true;
-    } finally {
-      if (resumeController === controller) resumeController = null;
-      if (!controller.signal.aborted) {
-        if (!state.settled) listener?.({ type: "turn", active: false });
-        options.onResumeState?.(false);
-        if (shouldRefresh) options.onResumeSettled?.();
+      if (err?.name !== "AbortError" && isCurrentConnection(epoch)) {
+        retryable = true;
+        shouldRefresh = true;
       }
+    } finally {
+      pendingRequests.delete(controller);
+      if (retryable) {
+        resumeStarted = false;
+        scheduleResumeRetry(epoch);
+      } else if (isCurrentConnection(epoch)) {
+        resumeRetryCount = 0;
+      }
+      reportActivity();
+      if (shouldRefresh && isCurrentConnection(epoch)) options.onResumeSettled?.({ recovery: true });
     }
   };
 
-  const send: (text: string, meta?: ChatSendMeta) => Promise<void> = async (text, meta) => {
+  const send: ChatTransport["sendMessage"] = async (text, meta) => {
     const state = newStreamState(++turnSeq);
     const payload: Record<string, unknown> = { message: text };
     if (threadId) payload.thread = threadId;
@@ -357,8 +572,76 @@ export function createOrchestratorTransport(
       payload.routing = meta.routing;
     }
     payload.turnSeq = state.seq;
-    await loadHostMap();
+    if (threadId && typeof meta?.clientRequestId === "string" && meta.clientRequestId.trim()) {
+      const clientRequestId = meta.clientRequestId.trim();
+      const epoch = connectionEpoch;
+      if (!isCurrentConnection(epoch)) throw new Error("chat transport is disconnected");
+      const controller = new AbortController();
+      pendingRequests.add(controller);
+      reportActivity();
+      delete payload.thread;
+      delete payload.context;
+      payload.clientRequestId = clientRequestId;
+      const requestBody = JSON.stringify(payload);
+      let admitted = false;
+      try {
+        await loadHostMap();
+        if (!isCurrentConnection(epoch)) throw new Error("chat transport disconnected during admission");
+        let receipt: ChatInputReceipt | null = null;
+        for (let attempt = 1; attempt <= ADMISSION_MAX_ATTEMPTS; attempt += 1) {
+          if (!isCurrentConnection(epoch) || controller.signal.aborted) {
+            throw new Error("chat transport disconnected during admission");
+          }
+          let res: Response;
+          try {
+            res = await fetch(`${b}/threads/${encodeURIComponent(threadId)}/inputs`, {
+              method: "POST",
+              headers: { "content-type": "application/json", accept: "application/json" },
+              body: requestBody,
+              signal: controller.signal,
+            });
+          } catch (err: any) {
+            if (err?.name === "AbortError") throw err;
+            if (controller.signal.aborted || !isCurrentConnection(epoch)) {
+              throw new Error("chat transport disconnected during admission");
+            }
+            if (attempt === ADMISSION_MAX_ATTEMPTS) {
+              throw new Error(`input admission could not be confirmed after ${attempt} attempts`);
+            }
+            await waitForRetry(retryDelay(ADMISSION_RETRY_BASE_MS, attempt), controller.signal);
+            continue;
+          }
+          const body = await res.json().catch(() => null);
+          if (!res.ok) {
+            throw new Error(typeof body?.error === "string" ? body.error : `input admission ${res.status}`);
+          }
+          const cleanInput = cleanChatInputReceipt(body?.input);
+          if (cleanInput?.clientRequestId === clientRequestId) {
+            receipt = cleanInput;
+            break;
+          }
+          // A 2xx without the exact durable receipt is indistinguishable from a
+          // response body lost in transit. Re-posting the SAME id is safe because
+          // admission is idempotent and returns the original receipt as duplicate.
+          if (attempt === ADMISSION_MAX_ATTEMPTS) {
+            throw new Error(`input admission response could not be confirmed after ${attempt} attempts`);
+          }
+          await waitForRetry(retryDelay(ADMISSION_RETRY_BASE_MS, attempt), controller.signal);
+        }
+        if (!receipt) throw new Error("input admission response could not be confirmed");
+        if (!isCurrentConnection(epoch)) throw new Error("chat transport disconnected during admission");
+        admitted = true;
+        listener?.({ ...receipt, type: "input" });
+        void followInput(receipt, epoch);
+        return receipt;
+      } finally {
+        pendingRequests.delete(controller);
+        reportActivity();
+        if (!admitted && isCurrentConnection(epoch)) options.onResumeSettled?.({ recovery: true });
+      }
+    }
     try {
+      await loadHostMap();
       const res = await fetch(`${b}/chat`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "text/event-stream" },
@@ -379,15 +662,27 @@ export function createOrchestratorTransport(
 
   return {
     base: b,
+    ...(threadId ? { inputLifecycle: true as const } : {}),
     connect(onEvent) {
+      const epoch = ++connectionEpoch;
+      connected = true;
+      clearResumeRetry();
+      resumeRetryCount = 0;
       listener = onEvent;
       onEvent({ type: "connection", state: "open" });
       if (options.resumeOnConnect) void resume();
       return () => {
-        options.onResumeState?.(false);
-        if (resumeController) resumeStarted = false;
-        resumeController?.abort();
-        resumeController = null;
+        if (!isCurrentConnection(epoch)) return;
+        connected = false;
+        connectionEpoch += 1;
+        clearResumeRetry();
+        resumeRetryCount = 0;
+        for (const controller of pendingRequests) controller.abort();
+        pendingRequests.clear();
+        resumeStarted = false;
+        for (const follower of followers.values()) follower.controller.abort();
+        followers.clear();
+        reportActivity();
         listener = null;
         onEvent({ type: "connection", state: "closed" });
       };
@@ -396,22 +691,33 @@ export function createOrchestratorTransport(
     sendMessage: send as ChatTransport["sendMessage"],
     async sendKey() { /* no key surface on the orchestrator channel */ },
     async setMode(mode) { return { mode, reached: false }; },
-    async interrupt() {
-      // Real cancel (contract §9). The gateway keys its in-flight turns by the
-      // session id it was handed, which for a channel turn is the THREAD id; the
-      // web-channel proxy does that mapping, so the client sends what it actually
-      // knows. A 404 ("no-active-turn") is SUCCESS as far as the UI is concerned -
-      // the turn settled between the tap and the request - so nothing here throws.
-      await fetch(`${b}/chat/interrupt`, {
+    async interrupt(request?: ChatInterruptRequest): Promise<void | ChatInterruptResult> {
+      if (!threadId) {
+        await fetch(`${b}/chat/interrupt`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+        return;
+      }
+      if (!request?.generationId) throw new Error("generationId is required to stop this response");
+      const res = await fetch(`${b}/threads/${encodeURIComponent(threadId)}/interrupt`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(threadId ? { thread: threadId } : {}),
-      }).catch(() => {});
+        body: JSON.stringify({ generationId: request.generationId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof body?.error === "string" ? body.error : `interrupt ${res.status}`);
+      return {
+        generationId: request.generationId,
+        state: "stopping",
+        ...(typeof body?.inputId === "string" ? { inputId: body.inputId } : {}),
+      };
     },
     async answerQuestion(answer: QuestionAnswer) {
       // POST the tap back to the gateway (via the web-channel /api/chat/answer
       // proxy); the gateway maps the label to an option index and drives the picker.
-      await fetch(`${b}/chat/answer`, {
+      const res = await fetch(`${b}/chat/answer`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -421,7 +727,11 @@ export function createOrchestratorTransport(
           ...(answer.text !== undefined ? { text: answer.text } : {}),
           ...(answer.dismiss ? { dismiss: true } : {}),
         }),
-      }).catch(() => {});
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(typeof body?.error === "string" ? body.error : `question answer ${res.status}`);
+      }
     },
     async answerPermission(answer: PermissionAnswer) {
       if (!threadId) throw new Error("a thread is required to answer a permission request");

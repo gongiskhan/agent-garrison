@@ -133,8 +133,12 @@ function blocksEqual(left, right) {
 }
 
 export class AgentSdkSessionEventNormalizer {
-  constructor({ turnId = null, sessionId = null, eventScope = null, now = () => Date.now() } = {}) {
+  constructor({ turnId = null, generationId = null, sessionId = null, eventScope = null, now = () => Date.now() } = {}) {
     this.turnId = turnId == null ? null : String(turnId);
+    // A standing SDK Query spans several gateway generations. The adapter creates
+    // one normalizer per input turn and supplies this only for the explicitly
+    // opted-in streaming path, keeping legacy one-shot event envelopes unchanged.
+    this.generationId = generationId == null ? null : String(generationId);
     this.sessionId = sessionId == null ? null : String(sessionId);
     // Browser-local turn counters restart after a remount, so they cannot
     // namespace fallback event ids. Provider message ids remain authoritative;
@@ -169,6 +173,7 @@ export class AgentSdkSessionEventNormalizer {
       role,
       ts,
       ...(this.turnId ? { turnId: this.turnId } : {}),
+      ...(this.generationId ? { generationId: this.generationId } : {}),
       ...(extra.sessionId || this.sessionId ? { sessionId: extra.sessionId || this.sessionId } : {}),
       order: meta.order,
       revision: meta.revision,
@@ -445,14 +450,17 @@ export class AgentSdkSessionEventNormalizer {
     return [this._event(state.id, "assistant", state.ts, [{ ...state.block }], { sessionId: state.sessionId })];
   }
 
-  _result(message) {
-    const subtype = String(message?.subtype ?? "result");
-    const isError = message?.is_error === true || subtype.startsWith("error");
+  _result(message, stoppedReason = null) {
+    const providerSubtype = String(message?.subtype ?? "result");
+    const cancelled = stoppedReason === "cancelled";
+    const forcedError = stoppedReason != null && !cancelled;
+    const isError = message?.is_error === true || providerSubtype.startsWith("error") || forcedError;
+    const subtype = stoppedReason ?? providerSubtype;
     const errors = Array.isArray(message?.errors)
       ? message.errors.map((value) => clampSessionText(value)).filter(Boolean)
       : [];
     const blocks = [];
-    if (isError) {
+    if (isError && !cancelled) {
       blocks.push({
         type: "error",
         kind: subtype,
@@ -461,9 +469,9 @@ export class AgentSdkSessionEventNormalizer {
     }
     blocks.push({
       type: "turn_end",
-      status: isError ? "error" : "completed",
+      status: cancelled ? "cancelled" : isError ? "error" : "completed",
       subtype,
-      stopReason: message?.stop_reason == null ? null : String(message.stop_reason),
+      stopReason: stoppedReason ?? (message?.stop_reason == null ? null : String(message.stop_reason)),
       ...(typeof message?.result === "string" && message.result ? { result: clampSessionText(message.result) } : {}),
       ...(errors.length ? { errors } : {})
     });
@@ -471,6 +479,16 @@ export class AgentSdkSessionEventNormalizer {
     const sessionId = sessionIdFor(message, this.sessionId);
     if (sessionId) this.sessionId = sessionId;
     return [this._event(message?.uuid ?? `turn:${this.eventScope}:${this.turnId ?? "turn"}:end`, "assistant", timestampFor(message, this.now), blocks, { sessionId })];
+  }
+
+  // Standing streaming-input queries keep yielding after `result` (for example,
+  // prompt_suggestion can follow it). The adapter buffers that result and calls
+  // this only after the SDK's authoritative session_state_changed/idle frame.
+  // One-shot callers continue to use push(result), preserving their old boundary.
+  finishResult(message, stoppedReason = null) {
+    if (this.terminalEmitted) return [];
+    if (!message || typeof message !== "object") return this.finish(stoppedReason);
+    return this._result(message, stoppedReason);
   }
 
   _system(message) {

@@ -24,6 +24,7 @@ import {
   ClaudeChat,
   createHttpTransport,
   SessionStream,
+  type ChatInputReceipt,
   type ComposerAdornmentApi,
   type RailOptions,
   type RouteAttribution,
@@ -40,7 +41,14 @@ import { enablePush, pushState, registerServiceWorker, onNotification, type Push
 // built-in batch voice (feature `voice`) in the web channel - we omit that
 // feature so there is a single, streaming mic rather than two.
 function voiceAdornment(api: ComposerAdornmentApi) {
-  return <VoiceConversation send={api.send} busy={api.busy} lastReply={api.lastReply} />;
+  return (
+    <VoiceConversation
+      send={api.send}
+      busy={api.busy}
+      queueLocked={api.queueLocked}
+      lastReply={api.lastReply}
+    />
+  );
 }
 
 // A private marked instance for the brief PREVIEW (kept separate from the chat's).
@@ -160,6 +168,12 @@ interface ThreadMeta {
    *  that distinguishes "still working" from "finished" - persisted history stays
    *  empty until the turn settles. */
   runningSince?: string | null;
+  pendingInputCount?: number;
+  inputRevision?: number;
+}
+interface ThreadInput extends ChatInputReceipt {
+  message: string;
+  turnSeq?: number;
 }
 interface ThreadMessage {
   role: "user" | "assistant";
@@ -191,13 +205,15 @@ interface Thread extends ThreadMeta {
   sessionIds?: string[];
   /** Backward-compatible latest-id pointer retained by the server. */
   claudeSessionId?: string | null;
+  /** Durable inputs not yet terminal, ordered active-first then FIFO queue. */
+  pendingInputs?: ThreadInput[];
 }
 
 /** Lightweight durable-history identity used by idle/replay refreshes. Canonical
  * snapshots can advance in place (same array length, higher revision), so message
  * count alone is not a completeness signal. Event payload bytes/images stay out
  * of this key; accepted durable replacements are revisioned by contract. */
-export function threadHistoryRevision(thread: Pick<Thread, "messages" | "sessionEvents">): string {
+export function threadHistoryRevision(thread: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputRevision">): string {
   const messages = (thread.messages ?? []).map((message) => [
     message.role,
     message.ts ?? null,
@@ -214,8 +230,27 @@ export function threadHistoryRevision(thread: Pick<Thread, "messages" | "session
     event.ts ?? null,
     event.turnId ?? null,
     event.sessionId ?? null,
+    event.generationId ?? null,
   ]);
-  return JSON.stringify([messages, events]);
+  const inputs = (thread.pendingInputs ?? []).map((input) => [
+    input.inputId,
+    input.clientRequestId,
+    input.state,
+    input.generationId ?? null,
+    input.position ?? null,
+    input.acceptedAt ?? null,
+    input.reason ?? null,
+    input.message,
+  ]);
+  return JSON.stringify([messages, events, thread.inputRevision ?? 0, inputs]);
+}
+
+export function shouldRemountAfterResume(
+  current: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputRevision">,
+  fresh: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputRevision">,
+  recovery: boolean,
+): boolean {
+  return recovery && threadHistoryRevision(fresh) !== threadHistoryRevision(current);
 }
 
 /** The durable store enriches the shared rendering vocabulary with ordering and
@@ -237,6 +272,7 @@ interface HistoryExchange {
   route?: RouteAttribution;
   overrides?: TurnRouting;
   sessionEvents?: ThreadSessionEvent[];
+  input?: ChatInputReceipt;
 }
 
 // The Turn Rail's menu vocabulary, read from the web-channel's OWN same-origin
@@ -256,9 +292,9 @@ async function apiListThreads(): Promise<ThreadMeta[]> {
     return Array.isArray(d.threads) ? d.threads : [];
   } catch { return []; }
 }
-async function apiGetThread(id: string): Promise<Thread | null> {
+async function apiGetThread(id: string, signal?: AbortSignal): Promise<Thread | null> {
   try {
-    const r = await fetch(`/api/threads/${encodeURIComponent(id)}`, { cache: "no-store" });
+    const r = await fetch(`/api/threads/${encodeURIComponent(id)}`, { cache: "no-store", signal });
     if (!r.ok) return null;
     const d = await r.json();
     return d.thread ?? null;
@@ -275,8 +311,13 @@ async function apiEnsureThread(payload: { id?: string; title?: string; source?: 
     return d.thread ?? null;
   } catch { return null; }
 }
-async function apiDelete(id: string): Promise<void> {
-  try { await fetch(`/api/threads/${encodeURIComponent(id)}`, { method: "DELETE" }); } catch { /* ignore */ }
+async function apiDelete(id: string): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/threads/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 // Autosave, no Save button (house rule): every rail tap PUTs the whole pin set.
 async function apiSetRouting(id: string, routing: TurnRouting): Promise<void> {
@@ -343,7 +384,11 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
 // travels with the pair: `route` (what RAN) comes off the assistant message,
 // `overrides` (what was ASKED for) off the user message that provoked it, and both
 // land on the exchange so ClaudeChat can seed the turn's badges.
-export function toHistory(messages: ThreadMessage[], sessionEvents: ThreadSessionEvent[] = []): HistoryExchange[] {
+export function toHistory(
+  messages: ThreadMessage[],
+  sessionEvents: ThreadSessionEvent[] = [],
+  pendingInputs: ThreadInput[] = []
+): HistoryExchange[] {
   interface HistorySlot {
     exchange: HistoryExchange;
     startTs: number | null;
@@ -353,7 +398,6 @@ export function toHistory(messages: ThreadMessage[], sessionEvents: ThreadSessio
     events: ThreadSessionEvent[];
   }
   const slots: HistorySlot[] = [];
-  let pendingUser: ThreadMessage | null = null;
   const asTimestamp = (value: unknown): number | null => {
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value !== "string" || !value) return null;
@@ -366,7 +410,9 @@ export function toHistory(messages: ThreadMessage[], sessionEvents: ThreadSessio
     const trimmed = value.trim();
     return trimmed || null;
   };
-  const pushSlot = (user: ThreadMessage | null, assistant: ThreadMessage | null) => {
+  const messageTurnId = (message: ThreadMessage | null): string | null =>
+    asCoordinate(message?.turnId ?? (message?.role === "assistant" ? message.route?.turnSeq : null));
+  const pushSlot = (user: ThreadMessage | null, assistant: ThreadMessage | null): number => {
     const route = assistant?.route;
     const exchange: HistoryExchange = {
       user: user?.text ?? "",
@@ -384,18 +430,88 @@ export function toHistory(messages: ThreadMessage[], sessionEvents: ThreadSessio
       sessionId: asCoordinate(assistant?.sessionId ?? user?.sessionId ?? route?.sessionId),
       events: [],
     });
+    return slots.length - 1;
   };
+  const attachAssistant = (index: number, assistant: ThreadMessage) => {
+    const slot = slots[index];
+    const route = assistant.route;
+    slot.exchange = {
+      ...slot.exchange,
+      assistant: assistant.text,
+      ...(route ? { route } : {}),
+    };
+    const assistantTs = asTimestamp(assistant.ts);
+    if (slot.startTs === null) slot.startTs = assistantTs;
+    slot.endTs = assistantTs ?? slot.endTs;
+    slot.turnId = messageTurnId(assistant) ?? slot.turnId;
+    slot.sessionId = asCoordinate(assistant.sessionId ?? route?.sessionId) ?? slot.sessionId;
+  };
+  const keyedUsers = new Map<string, number[]>();
+  let pendingLegacyUser: number | null = null;
   for (const m of messages ?? []) {
     if (m.role === "user") {
-      if (pendingUser !== null) pushSlot(pendingUser, null);
-      pendingUser = m;
+      const index = pushSlot(m, null);
+      const turnId = messageTurnId(m);
+      if (turnId) {
+        const waiting = keyedUsers.get(turnId) ?? [];
+        waiting.push(index);
+        keyedUsers.set(turnId, waiting);
+      } else {
+        pendingLegacyUser = index;
+      }
     } else if (m.role === "assistant") {
-      pushSlot(pendingUser, m);
-      pendingUser = null;
+      const turnId = messageTurnId(m);
+      if (turnId) {
+        const waiting = keyedUsers.get(turnId);
+        const index = waiting?.shift();
+        if (waiting?.length === 0) keyedUsers.delete(turnId);
+        if (index !== undefined) attachAssistant(index, m);
+        else if (pendingLegacyUser !== null) {
+          // Before durable input ids, only the assistant's route carried a
+          // browser-local turnSeq. Preserve that legacy adjacency fallback when
+          // the user itself has no coordinate; an explicitly keyed user never
+          // reaches this branch, so external unkeyed notices remain isolated.
+          attachAssistant(pendingLegacyUser, m);
+          pendingLegacyUser = null;
+        }
+        else pushSlot(null, m);
+      } else if (pendingLegacyUser !== null) {
+        attachAssistant(pendingLegacyUser, m);
+        pendingLegacyUser = null;
+      } else {
+        pushSlot(null, m);
+      }
     }
   }
-  if (pendingUser !== null) pushSlot(pendingUser, null);
+  const attachPendingInputs = () => {
+    for (const input of Array.isArray(pendingInputs) ? pendingInputs : []) {
+      if (!input || typeof input.inputId !== "string" || typeof input.clientRequestId !== "string") continue;
+      const receipt: ChatInputReceipt = {
+        clientRequestId: input.clientRequestId,
+        inputId: input.inputId,
+        state: input.state,
+        ...(input.position !== undefined ? { position: input.position } : {}),
+        ...(input.generationId ? { generationId: input.generationId } : {}),
+        ...(input.acceptedAt ? { acceptedAt: input.acceptedAt } : {}),
+        ...(input.reason ? { reason: input.reason } : {}),
+      };
+      const existing = slots.find((slot) => slot.turnId === input.inputId);
+      if (existing) {
+        existing.exchange.input = receipt;
+        continue;
+      }
+      slots.push({
+        exchange: { user: input.message, assistant: "", input: receipt },
+        startTs: asTimestamp(input.acceptedAt),
+        endTs: asTimestamp(input.acceptedAt),
+        turnId: input.inputId,
+        sessionId: null,
+        events: [],
+      });
+    }
+  };
   if (slots.length === 0 || !Array.isArray(sessionEvents) || sessionEvents.length === 0) {
+    attachPendingInputs();
     return slots.map((slot) => slot.exchange);
   }
 
@@ -476,6 +592,7 @@ export function toHistory(messages: ThreadMessage[], sessionEvents: ThreadSessio
     sequenceCursor = Math.max(sequenceCursor, index);
   }
 
+  attachPendingInputs();
   return slots.map(({ exchange, events }) => events.length > 0 ? { ...exchange, sessionEvents: events } : exchange);
 }
 
@@ -636,13 +753,24 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // the spawned session is not a separate place, it is a drill-down on the bubble it
   // produced.
   const [transcriptSession, setTranscriptSession] = useState<string | null>(null);
+  const openThreadEpochRef = useRef(0);
+  const openThreadAbortRef = useRef<AbortController | null>(null);
+  const activityEpochRef = useRef(0);
 
-  const refreshList = useCallback(async () => {
-    setThreads(await apiListThreads());
+  const refreshList = useCallback(async (expectedEpoch = activityEpochRef.current) => {
+    const list = await apiListThreads();
+    if (expectedEpoch !== activityEpochRef.current) return false;
+    setThreads(list);
+    return true;
   }, []);
 
   const openThread = useCallback(async (id: string, opts?: { kickoff?: boolean }) => {
-    const t = await apiGetThread(id);
+    const epoch = ++openThreadEpochRef.current;
+    openThreadAbortRef.current?.abort();
+    const controller = new AbortController();
+    openThreadAbortRef.current = controller;
+    const t = await apiGetThread(id, controller.signal);
+    if (controller.signal.aborted || epoch !== openThreadEpochRef.current) return;
     setActiveId(id);
     setActiveThread(t);
     setPins(t?.routing ?? null);
@@ -650,6 +778,8 @@ function ThreadedApp({ url }: { url: UrlState }) {
     setKickoffFor(opts?.kickoff && (!t || t.messages.length === 0) ? id : null);
     setSidebarOpen(false);
   }, []);
+
+  useEffect(() => () => openThreadAbortRef.current?.abort(), []);
 
   // One options read per mount, revalidated when the tab regains focus (the user was
   // just in Muster, or has only now started the board). A failed read leaves the rail
@@ -742,11 +872,12 @@ function ThreadedApp({ url }: { url: UrlState }) {
     await openThread(id);
   }, [activeId, openThread]);
 
-  const removeThread = useCallback(async (id: string, e: React.MouseEvent) => {
+  const removeThread = useCallback(async (id: string, e: React.SyntheticEvent) => {
     e.stopPropagation();
-    await apiDelete(id);
+    const deleted = await apiDelete(id);
     const list = await apiListThreads();
     setThreads(list);
+    if (!deleted) return;
     if (id === activeId) {
       if (list.length > 0) await openThread(list[0].id);
       else await newChat();
@@ -778,16 +909,22 @@ function ThreadedApp({ url }: { url: UrlState }) {
   }, []);
 
   const onTurnSettled = useCallback(async () => {
-    busyRef.current = false;
-    await refreshList();
+    // Generated FIFO activity owns the authoritative sidebar count. A reply can
+    // settle while the next admission/follower is already active; committing a
+    // list snapshot from that overlap could briefly re-enable Delete on a live
+    // thread. The transport's post-cleanup refresh will reconcile once idle.
+    if (busyRef.current) return;
+    const activityEpoch = activityEpochRef.current;
+    await refreshList(activityEpoch);
   }, [refreshList]);
   useEffect(() => {
     if (!activeId) return;
     const tick = async () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (busyRef.current && Date.now() - busySinceRef.current < 20 * 60_000) return;
+      const activityEpoch = activityEpochRef.current;
       const fresh = await apiGetThread(activeId);
-      if (!fresh) return;
+      if (!fresh || busyRef.current || activityEpoch !== activityEpochRef.current) return;
       setActiveThread((current) => {
         if (!current || fresh.id !== current.id) return current;
         if (threadHistoryRevision(fresh) !== threadHistoryRevision(current)) {
@@ -804,7 +941,11 @@ function ThreadedApp({ url }: { url: UrlState }) {
 
   const history = useMemo(() => {
     if (!activeThread) return [] as HistoryExchange[];
-    const h: HistoryExchange[] = toHistory(activeThread.messages, activeThread.sessionEvents);
+    const h: HistoryExchange[] = toHistory(
+      activeThread.messages,
+      activeThread.sessionEvents,
+      activeThread.pendingInputs
+    );
     // A reopened Discuss thread's first exchange is the auto-sent kickoff instruction -
     // hide its user bubble so the transcript starts with the Discuss duty's question, not the prompt.
     const isDiscuss = activeThread.source === "discuss";
@@ -864,21 +1005,24 @@ function ThreadedApp({ url }: { url: UrlState }) {
   useEffect(() => {
     if (kickoff) setKickoffFor(null);
   }, [kickoff]);
-  const refreshAfterResume = useCallback(async () => {
+  const refreshAfterResume = useCallback(async ({ recovery }: { recovery: boolean }) => {
     if (!activeId) return;
-    const [fresh] = await Promise.all([apiGetThread(activeId), refreshList()]);
-    if (!fresh) return;
+    const activityEpoch = activityEpochRef.current;
+    const [fresh, list] = await Promise.all([apiGetThread(activeId), apiListThreads()]);
+    if (!fresh || busyRef.current || activityEpoch !== activityEpochRef.current) return;
+    setThreads(list);
     setActiveThread((current) => {
       if (!current || current.id !== fresh.id) return current;
-      // The replay already painted the final reply. Re-mount from disk when any
-      // durable message or canonical revision advanced; this also covers the benign
-      // race where the turn settled just before /live connected (no frames to paint).
-      if (threadHistoryRevision(fresh) !== threadHistoryRevision(current)) {
+      // A normal follower terminal was already reduced into ClaudeChat. Keep that
+      // component mounted so an in-flight spoken reply, focus, and local controls
+      // survive the durable metadata refresh. Only missed/empty/malformed replay
+      // paths need to rebuild child history from disk.
+      if (shouldRemountAfterResume(current, fresh, recovery)) {
         setHistoryRev((r) => r + 1);
       }
       return fresh;
     });
-  }, [activeId, refreshList]);
+  }, [activeId]);
   // One transport per open thread (ClaudeChat re-mounts on activeId anyway), so
   // every send carries the thread id the server persists under. sendMessage is
   // wrapped to mark the turn busy — the idle poll must never re-mount the chat
@@ -886,26 +1030,30 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // to replay/follow its server-owned event journal; no second event reducer exists.
   const transport = useMemo(() => {
     const resumedSince = activeThread?.runningSince ?? null;
+    const hasPendingInputs = Boolean(activeThread?.pendingInputs?.length);
     const t = createOrchestratorTransport("/api", activeId ?? undefined, {
-      resumeOnConnect: Boolean(resumedSince),
+      resumeOnConnect: hasPendingInputs,
       onResumeState(active) {
+        activityEpochRef.current += 1;
         busyRef.current = active;
         if (active) {
+          if (activeId) {
+            setThreads((current) => current.map((thread) => thread.id === activeId
+              ? {
+                  ...thread,
+                  pendingInputCount: Math.max(1, thread.pendingInputCount ?? 0),
+                  runningSince: thread.runningSince ?? new Date().toISOString(),
+                }
+              : thread));
+          }
           const started = Date.parse(resumedSince ?? "");
           busySinceRef.current = Number.isFinite(started) ? started : Date.now();
         }
       },
-      onResumeSettled() { void refreshAfterResume(); },
+      onResumeSettled(result) { void refreshAfterResume(result); },
     });
-    return {
-      ...t,
-      sendMessage: ((...args: Parameters<typeof t.sendMessage>) => {
-        busyRef.current = true;
-        busySinceRef.current = Date.now();
-        return t.sendMessage(...args);
-      }) as typeof t.sendMessage
-    };
-  }, [activeId, activeThread?.runningSince, refreshAfterResume]);
+    return t;
+  }, [activeId, activeThread?.runningSince, activeThread?.inputRevision, refreshAfterResume]);
 
   return (
     <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}`}>
@@ -926,31 +1074,42 @@ function ThreadedApp({ url }: { url: UrlState }) {
         </div>
         <div className="wc-thread-list">
           {threads.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
-          {threads.map((t) => (
-            <button
-              key={t.id}
-              className={`wc-thread${t.id === activeId ? " wc-thread--active" : ""}`}
-              onClick={() => selectThread(t.id)}
-              title={t.title}
-            >
-              <span className="wc-thread-main">
-                <span className="wc-thread-title">{t.title || "New conversation"}</span>
-                <span className="wc-thread-meta">
-                  {t.source && t.source !== "chat" && <span className="wc-thread-src">{t.source}</span>}
-                  <span className="wc-thread-when">{fmtWhen(t.updatedAt)}</span>
-                </span>
-              </span>
-              <span
-                className="wc-thread-del"
-                role="button"
-                aria-label="Delete conversation"
-                title="Delete"
-                onClick={(e) => removeThread(t.id, e)}
-              >
-                ×
-              </span>
-            </button>
-          ))}
+          {threads.map((t) => {
+            const deleteDisabled = (t.pendingInputCount ?? 0) > 0;
+            return (
+              <div key={t.id} className={`wc-thread${t.id === activeId ? " wc-thread--active" : ""}`}>
+                <button
+                  type="button"
+                  className="wc-thread-open"
+                  onClick={() => selectThread(t.id)}
+                  title={t.title}
+                >
+                  <span className="wc-thread-main">
+                    <span className="wc-thread-title">{t.title || "New conversation"}</span>
+                    <span className="wc-thread-meta">
+                      {t.source && t.source !== "chat" && <span className="wc-thread-src">{t.source}</span>}
+                      {t.runningSince ? (
+                        <span className="wc-thread-src">Working</span>
+                      ) : deleteDisabled ? (
+                        <span className="wc-thread-src">{t.pendingInputCount} queued</span>
+                      ) : null}
+                      <span className="wc-thread-when">{fmtWhen(t.updatedAt)}</span>
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="wc-thread-del"
+                  aria-label={deleteDisabled ? "Conversation has pending messages" : "Delete conversation"}
+                  disabled={deleteDisabled}
+                  title={deleteDisabled ? "Finish or stop pending messages before deleting" : "Delete"}
+                  onClick={(e) => { void removeThread(t.id, e); }}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
       </aside>
       <div className="wc-sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />

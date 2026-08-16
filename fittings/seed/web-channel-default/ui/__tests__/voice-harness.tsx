@@ -15,8 +15,10 @@ function absWs(path: string): string {
 
 function Harness() {
   const scenario = new URLSearchParams(window.location.search).get("scenario") || "interim-final";
+  const [queueLocked, setQueueLocked] = useState(new URLSearchParams(window.location.search).get("queueLocked") === "1");
   const [lastReply, setLastReply] = useState<{ id: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  (window as any).__setQueueLocked = setQueueLocked;
 
   // Absolute WS urls carrying the scenario so the mock relay knows how to behave.
   const streamUrl = absWs(`/api/voice/stream?sample_rate=16000&utterance_end_ms=1500&scenario=${scenario}`);
@@ -32,6 +34,7 @@ function Harness() {
       setBusy(false);
       setLastReply({ id: "r" + Date.now(), text: "This is the spoken reply." });
     }, 120);
+    return null;
   }, []);
 
   // position:relative mimics the .cc-composer container the panel anchors to.
@@ -40,6 +43,7 @@ function Harness() {
       <VoiceConversation
         send={send}
         busy={busy}
+        queueLocked={queueLocked}
         lastReply={lastReply}
         streamUrl={streamUrl}
         ttsUrl={ttsUrl}

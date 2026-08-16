@@ -102,6 +102,9 @@ export interface SessionEvent {
   turnId?: string | number | null;
   /** Runtime-owned Claude/Agent SDK session identity. */
   sessionId?: string | null;
+  /** Gateway-owned turn generation. Present on generated Web streams so a
+   * reconnect can bind retained canonical frames without trusting turn order. */
+  generationId?: string | null;
   /** First-seen chronological position assigned by the runtime normalizer. */
   order?: number | null;
   /** Monotonic snapshot revision for a stable event id. */

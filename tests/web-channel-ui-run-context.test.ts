@@ -102,6 +102,74 @@ describe("web-channel toHistory: run context survives a reload (contract §10)",
     expect(ui.threadHistoryRevision(revised)).not.toBe(ui.threadHistoryRevision(base));
   });
 
+  it("refreshes a painted terminal snapshot without remounting, but remounts missed replay recovery", () => {
+    const before: any = {
+      messages: [{ role: "user", text: "speak this", turnId: "input-voice" }],
+      sessionEvents: [],
+      pendingInputs: [{ inputId: "input-voice", clientRequestId: "voice-client", state: "running" }],
+      inputRevision: 2,
+    };
+    const settled: any = {
+      messages: [
+        ...before.messages,
+        { role: "assistant", text: "spoken answer", turnId: "input-voice" },
+      ],
+      sessionEvents: [],
+      pendingInputs: [],
+      inputRevision: 3,
+    };
+    expect(ui.shouldRemountAfterResume(before, settled, false)).toBe(false);
+    expect(ui.shouldRemountAfterResume(before, settled, true)).toBe(true);
+  });
+
+  it("hydrates the active input onto its durable user row and appends queued rows in FIFO order", () => {
+    const active = {
+      clientRequestId: "client-active",
+      inputId: "input-active",
+      state: "running" as const,
+      generationId: "generation-active",
+      acceptedAt: "2026-08-16T10:00:00.000Z",
+      message: "active ask",
+    };
+    const queued = {
+      clientRequestId: "client-queued",
+      inputId: "input-queued",
+      state: "queued" as const,
+      position: 1,
+      acceptedAt: "2026-08-16T10:00:01.000Z",
+      message: "queued ask",
+    };
+    const history = ui.toHistory([
+      { role: "user", text: "active ask", turnId: "input-active", ts: active.acceptedAt },
+    ], [], [active, queued]);
+    expect(history).toEqual([
+      {
+        user: "active ask",
+        assistant: "",
+        input: {
+          clientRequestId: "client-active",
+          inputId: "input-active",
+          state: "running",
+          generationId: "generation-active",
+          acceptedAt: active.acceptedAt,
+        },
+      },
+      {
+        user: "queued ask",
+        assistant: "",
+        input: {
+          clientRequestId: "client-queued",
+          inputId: "input-queued",
+          state: "queued",
+          position: 1,
+          acceptedAt: queued.acceptedAt,
+        },
+      },
+    ]);
+    expect(ui.threadHistoryRevision({ messages: [], sessionEvents: [], inputRevision: 2, pendingInputs: [active, queued] }))
+      .not.toBe(ui.threadHistoryRevision({ messages: [], sessionEvents: [], inputRevision: 1, pendingInputs: [active] }));
+  });
+
   it("carries the assistant message's route and the user message's overrides onto the pair", () => {
     const h = ui.toHistory([
       { role: "user", text: "plan it", overrides: { duty: "plan", level: 2 } },
@@ -161,6 +229,28 @@ describe("web-channel toHistory: run context survives a reload (contract §10)",
     expect(h).toEqual([
       { user: "one", assistant: "", overrides: { duty: "plan" } },
       { user: "two", assistant: "2", route: { duty: "execute" } },
+    ]);
+  });
+
+  it("keeps an interleaved external assistant notice separate from an exact input reply", () => {
+    const history = ui.toHistory([
+      { role: "user", text: "run the input", turnId: "input-1", ts: "2026-08-16T10:00:00.000Z" },
+      { role: "assistant", text: "external card update", ts: "2026-08-16T10:00:01.000Z" },
+      {
+        role: "assistant",
+        text: "exact input answer",
+        turnId: "input-1",
+        ts: "2026-08-16T10:00:02.000Z",
+        route: { runtime: "agent-sdk", generationId: "generation-1" },
+      },
+    ] as any);
+    expect(history).toEqual([
+      {
+        user: "run the input",
+        assistant: "exact input answer",
+        route: { runtime: "agent-sdk", generationId: "generation-1" },
+      },
+      { user: "", assistant: "external card update" },
     ]);
   });
 

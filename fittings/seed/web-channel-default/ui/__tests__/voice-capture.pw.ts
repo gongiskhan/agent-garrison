@@ -216,3 +216,52 @@ test("push-to-talk: hold opens capture, release sends the transcript", async ({ 
   await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 5000 })
     .toContain("hello world");
 });
+
+test("push-to-talk: Space and Enter hold/release work from the keyboard without repeat starts", async ({ page }) => {
+  await page.goto(`${baseUrl}/?scenario=interim-final`);
+  const mic = page.getByTestId("wcv-mic");
+  await mic.focus();
+
+  await page.keyboard.down("Space");
+  await expect(mic).toHaveAttribute("aria-pressed", "true");
+  await expect(mic).toHaveAttribute("aria-label", "Release push-to-talk");
+  await page.keyboard.down("Space");
+  await expect.poll(() => state.sttConnections, { timeout: 5000 }).toBe(1);
+  await expect(page.getByTestId("wcv-final")).toHaveText("hello world", { timeout: 5000 });
+  await page.keyboard.up("Space");
+  await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 5000 })
+    .toEqual(["hello world"]);
+
+  await expect(mic).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.down("Enter");
+  await expect(mic).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => state.sttConnections, { timeout: 5000 }).toBe(2);
+  await expect(page.getByTestId("wcv-final")).toHaveText("hello world", { timeout: 5000 });
+  await page.keyboard.up("Enter");
+  await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 5000 })
+    .toEqual(["hello world", "hello world"]);
+  await expect(mic).toHaveAttribute("aria-pressed", "false");
+});
+
+test("queue lock blocks new voice starts and stops conversation re-arm only after its current reply", async ({ page }) => {
+  await page.goto(`${baseUrl}/?scenario=full`);
+  const talk = page.getByTestId("wcv-convo");
+  const mic = page.getByTestId("wcv-mic");
+  await talk.click();
+  await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 6000 })
+    .toContain("hello world");
+
+  // A typed/backlogged turn becomes active while this voice turn is awaiting its
+  // own reply. The current voice cycle may finish and be read aloud, but TTS_DONE
+  // must not reopen capture into the unrelated queued turn.
+  await page.evaluate(() => (window as any).__setQueueLocked(true));
+  await expect.poll(() => state.ttsConnections, { timeout: 6000 }).toBeGreaterThan(0);
+  await expect(page.getByTestId("wcv-panel")).toHaveCount(0, { timeout: 6000 });
+  await expect(talk).toBeDisabled();
+  await expect(mic).toBeDisabled();
+  await expect(talk).toHaveAttribute("title", /pending messages/i);
+
+  await page.evaluate(() => (window as any).__setQueueLocked(false));
+  await expect(talk).toBeEnabled();
+  await expect(mic).toBeEnabled();
+});

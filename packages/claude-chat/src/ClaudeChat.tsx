@@ -15,7 +15,21 @@ import sql from "highlight.js/lib/languages/sql";
 import rust from "highlight.js/lib/languages/rust";
 import go from "highlight.js/lib/languages/go";
 import diff from "highlight.js/lib/languages/diff";
-import type { ChatEvent, ChatTransport, ClaudeStatus, PermissionMode, RouteAttribution, SlashCommand, ToolQuestion, TurnRouting } from "./transport";
+import { isChatInputReceipt } from "./transport";
+import type {
+  ChatEvent,
+  ChatFrameCoordinate,
+  ChatInputReceipt,
+  ChatInputState,
+  ChatSendMeta as TransportChatSendMeta,
+  ChatTransport,
+  ClaudeStatus,
+  PermissionMode,
+  RouteAttribution,
+  SlashCommand,
+  ToolQuestion,
+  TurnRouting,
+} from "./transport";
 import { AttributionRail, type PinField, type PinPatch, type RailOptions } from "./AttributionRail";
 import {
   getChatMode,
@@ -231,6 +245,9 @@ interface Turn {
   answered?: string;
   /** True while the answer POST is in flight (buttons show a pending state). */
   answering?: boolean;
+  /** Safe, retryable answer-delivery failure. The transport's raw error is not
+   * rendered because it may contain server markup or operational detail. */
+  questionError?: string;
   /** Structured runtime attribution for this turn's reply (gateway `done`
    *  payload → transport `route` event). The Turn Rail renders this; the legacy
    *  routing chip is the fallback for a turn that carries none (a pre-migration
@@ -239,6 +256,180 @@ interface Turn {
   /** The pins that were in force when this turn was SENT (the intent), kept apart
    *  from `route` (what actually ran) so a refused pin can never read as honored. */
   overrides?: TurnRouting;
+  /** Orchestrated input identity. The browser owns only clientRequestId; inputId
+   * and generationId are bound from the host receipt/lifecycle stream. */
+  clientRequestId?: string;
+  inputId?: string;
+  generationId?: string;
+  inputState?: ChatInputState;
+  inputPosition?: number;
+  inputReason?: string;
+  inputAcceptedAt?: string;
+  /** Last runtime activity for this exact generated turn. */
+  activity?: string;
+  /** Exact interrupt failure. It belongs to this turn and cannot leak onto a
+   * newer generation that starts while a retry is visible. */
+  stopError?: string;
+}
+
+export interface GeneratedTurnCoordinate extends ChatFrameCoordinate {
+  clientRequestId?: string;
+}
+
+export interface GeneratedTurnState extends GeneratedTurnCoordinate {
+  streaming: boolean;
+  inputState?: ChatInputState;
+  inputPosition?: number;
+  inputReason?: string;
+  inputAcceptedAt?: string;
+  stopError?: string;
+}
+
+function generatedCoordinateKeys(coordinate: GeneratedTurnCoordinate): string[] {
+  const keys: string[] = [];
+  if (coordinate.clientRequestId) keys.push(`client:${coordinate.clientRequestId}`);
+  if (coordinate.inputId) keys.push(`input:${coordinate.inputId}`);
+  if (coordinate.generationId) keys.push(`generation:${coordinate.generationId}`);
+  return keys;
+}
+
+/** One generated frame may arrive after a newer input was queued. Resolve only
+ * an explicit, non-conflicting identity; there is deliberately no trailing-turn
+ * fallback on this path. */
+export function findGeneratedTurnIndex(
+  turns: readonly GeneratedTurnCoordinate[],
+  coordinate: GeneratedTurnCoordinate
+): number {
+  const fields: (keyof GeneratedTurnCoordinate)[] = ["clientRequestId", "inputId", "generationId"];
+  const matched = new Set<number>();
+  let supplied = false;
+  for (const field of fields) {
+    const value = coordinate[field];
+    if (typeof value !== "string" || !value.trim()) continue;
+    supplied = true;
+    const indices: number[] = [];
+    turns.forEach((turn, index) => {
+      if (turn[field] === value) indices.push(index);
+    });
+    // Duplicate durable coordinates are unsafe to guess between.
+    if (indices.length > 1) return -1;
+    if (indices.length === 1) matched.add(indices[0]);
+  }
+  if (!supplied || matched.size !== 1) return -1;
+  const index = [...matched][0];
+  for (const field of fields) {
+    const incoming = coordinate[field];
+    const existing = turns[index][field];
+    if (
+      typeof incoming === "string" && incoming.trim() &&
+      typeof existing === "string" && existing.trim() &&
+      incoming !== existing
+    ) return -1;
+  }
+  return index;
+}
+
+export function applyGeneratedTurn<T extends GeneratedTurnCoordinate>(
+  turns: readonly T[],
+  coordinate: GeneratedTurnCoordinate,
+  update: (turn: T) => T
+): T[] {
+  const index = findGeneratedTurnIndex(turns, coordinate);
+  if (index < 0) return turns as T[];
+  const updated = update(turns[index]);
+  const bindings: GeneratedTurnCoordinate = {};
+  if (!updated.clientRequestId && coordinate.clientRequestId) bindings.clientRequestId = coordinate.clientRequestId;
+  if (!updated.inputId && coordinate.inputId) bindings.inputId = coordinate.inputId;
+  if (!updated.generationId && coordinate.generationId) bindings.generationId = coordinate.generationId;
+  const nextTurn = Object.keys(bindings).length ? { ...updated, ...bindings } : updated;
+  if (nextTurn === turns[index]) return turns as T[];
+  const next = turns.slice() as T[];
+  next[index] = nextTurn;
+  return next;
+}
+
+const INPUT_STATE_ORDER: Record<ChatInputState, number> = {
+  queued: 0,
+  starting: 1,
+  running: 2,
+  stopping: 3,
+  settled: 4,
+  stopped: 4,
+  failed: 4,
+};
+
+export function isActiveInputState(state?: ChatInputState): boolean {
+  return state === "starting" || state === "running" || state === "stopping";
+}
+
+export function isPendingInputState(state?: ChatInputState): boolean {
+  return state === "queued" || isActiveInputState(state);
+}
+
+export function inputLifecycleAnnouncement(input: Pick<ChatInputReceipt, "state" | "position" | "reason">): string {
+  const position = typeof input.position === "number" && Number.isFinite(input.position)
+    ? Math.max(0, Math.trunc(input.position))
+    : null;
+  const reason = typeof input.reason === "string" ? input.reason.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  switch (input.state) {
+    case "queued": return position && position > 0 ? `Message queued, position ${position}.` : "Message queued.";
+    case "starting": return "Starting response.";
+    case "running": return "Response started.";
+    case "stopping": return "Stopping current response.";
+    case "settled": return "Response complete.";
+    case "stopped": return "Response stopped.";
+    case "failed": return reason ? `Message failed: ${reason}.` : "Message failed.";
+  }
+}
+
+/** Bind a host receipt or lifecycle event to its optimistic turn. State never
+ * regresses when the POST receipt races a newer SSE update. */
+export function applyInputLifecycle<T extends GeneratedTurnState>(
+  turns: readonly T[],
+  input: ChatInputReceipt
+): T[] {
+  return applyGeneratedTurn(turns, input, (turn) => {
+    if (turn.inputId && turn.inputId !== input.inputId) return turn;
+    if (turn.generationId && input.generationId && turn.generationId !== input.generationId) return turn;
+    if (turn.clientRequestId && turn.clientRequestId !== input.clientRequestId) return turn;
+
+    const currentState = turn.inputState;
+    const currentTerminal = currentState ? INPUT_STATE_ORDER[currentState] === 4 : false;
+    // The first host binding replaces our optimistic guess even when the host
+    // says `queued` after we painted `starting`. Once inputId is bound, only
+    // monotonic lifecycle movement is accepted, so a late POST receipt cannot
+    // regress a newer SSE `running`/terminal event.
+    const stateAdvances = !currentState || !turn.inputId || currentState === input.state ||
+      (!currentTerminal && INPUT_STATE_ORDER[input.state] >= INPUT_STATE_ORDER[currentState]);
+    const nextState = stateAdvances ? input.state : currentState;
+    const nextStreaming = isActiveInputState(nextState);
+    const position = typeof input.position === "number" && Number.isFinite(input.position)
+      ? Math.max(0, Math.trunc(input.position))
+      : turn.inputPosition;
+    const next: T = {
+      ...turn,
+      clientRequestId: turn.clientRequestId ?? input.clientRequestId,
+      inputId: turn.inputId ?? input.inputId,
+      generationId: turn.generationId ?? input.generationId,
+      inputState: nextState,
+      inputPosition: position,
+      inputAcceptedAt: turn.inputAcceptedAt ?? input.acceptedAt,
+      inputReason: stateAdvances && input.reason !== undefined ? input.reason : turn.inputReason,
+      streaming: nextStreaming,
+      ...(stateAdvances && INPUT_STATE_ORDER[input.state] === 4 ? { stopError: undefined } : {}),
+    };
+    const unchanged =
+      next.clientRequestId === turn.clientRequestId &&
+      next.inputId === turn.inputId &&
+      next.generationId === turn.generationId &&
+      next.inputState === turn.inputState &&
+      next.inputPosition === turn.inputPosition &&
+      next.inputAcceptedAt === turn.inputAcceptedAt &&
+      next.inputReason === turn.inputReason &&
+      next.streaming === turn.streaming &&
+      next.stopError === turn.stopError;
+    return unchanged ? turn : next;
+  });
 }
 
 /** The slice of {@link Turn} the route-frame reducer reads. Exported so the frame
@@ -527,12 +718,14 @@ export function QuestionBlock({
   q,
   answered,
   answering,
+  error,
   onSelect,
   onOther,
 }: {
   q: ToolQuestion;
   answered?: string;
   answering?: boolean;
+  error?: string;
   onSelect: (label: string) => void;
   onOther: (text: string) => void;
 }) {
@@ -591,6 +784,51 @@ export function QuestionBlock({
         </div>
       )}
       {answered && <div className="cc-user cc-question-answer">{answered}</div>}
+      {error && <div className="cc-question-error" role="alert">{error}</div>}
+    </div>
+  );
+}
+
+function InputLifecycleStatus({
+  turn,
+  elapsed,
+  hint,
+  onRetryStop,
+}: {
+  turn: Turn;
+  elapsed: number;
+  hint: string;
+  onRetryStop: () => void;
+}) {
+  const state = turn.inputState;
+  if (!state) return null;
+  const label: Record<ChatInputState, string> = {
+    queued: "Queued",
+    starting: "Starting",
+    running: "Working",
+    stopping: "Stopping",
+    settled: "Complete",
+    stopped: "Stopped",
+    failed: "Failed",
+  };
+  const active = state === "starting" || state === "running" || state === "stopping";
+  const detail = state === "queued" && typeof turn.inputPosition === "number"
+    ? `Position ${turn.inputPosition}`
+    : turn.inputReason || (active ? hint : "");
+  return (
+    <div className={`cc-lifecycle cc-lifecycle-${state}`} data-input-state={state}>
+      <span className="cc-lifecycle-mark" aria-hidden="true">
+        {active ? <span className="cc-working-dots"><i /><i /><i /></span> : null}
+      </span>
+      <span className="cc-lifecycle-label">{label[state]}</span>
+      {active && <span className="cc-lifecycle-time">{fmtElapsed(elapsed)}</span>}
+      {detail && <span className="cc-lifecycle-detail" title={detail}>{detail}</span>}
+      {turn.stopError && turn.generationId && (state === "starting" || state === "running") && (
+        <span className="cc-lifecycle-stoperror">
+          <span>Stop failed: {turn.stopError}</span>
+          <button type="button" onClick={onRetryStop}>Retry stop</button>
+        </span>
+      )}
     </div>
   );
 }
@@ -665,6 +903,15 @@ const SWITCHABLE: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassP
 
 let uid = 0;
 const nextId = () => `t${Date.now()}_${uid++}`;
+const nextClientRequestId = () => {
+  try {
+    const generated = globalThis.crypto?.randomUUID?.();
+    if (generated) return generated;
+  } catch {
+    /* deterministic local fallback below */
+  }
+  return `chat-${Date.now()}-${uid++}`;
+};
 
 // m:ss elapsed for the working indicator (e.g. 7 → "0:07", 75 → "1:15").
 function fmtElapsed(sec: number): string {
@@ -712,25 +959,10 @@ const THEME_ICONS: { mode: ChatThemeMode; label: string; icon: React.ReactNode }
   },
 ];
 
-// Optional per-send metadata a host fitting can attach to every turn. GENERIC
-// by design: `context` is an OPAQUE blob and `mode` an opaque string - this
-// component never inspects either. A transport that wants them reads a second
-// `meta` argument on sendMessage; transports that don't (createHttpTransport)
-// ignore it, so default behavior is byte-for-byte unchanged.
-export interface ChatSendMeta {
-  context?: unknown;
-  mode?: string;
-  /** D21/D8: the explicit autonomous marker (the toolbar chip). */
-  autonomous?: boolean;
-  /**
-   * The pinned routing INTENT for this send (the Turn Rail's dropdowns). Rides
-   * `ChatSendMeta.routing` → `payload.routing` → `body.routing` → `hints.routing`
-   * → `applyTurnOverride`, per the 2026-07-25 run-context contract §3. Sparse: only
-   * the dimensions the user actually pinned are present.
-   */
-  routing?: TurnRouting;
-}
-type ContextAwareSend = (text: string, meta?: ChatSendMeta) => Promise<void>;
+// Kept exported from this module for source compatibility; the canonical
+// transport contract owns the shape now because it also carries clientRequestId.
+export type ChatSendMeta = TransportChatSendMeta;
+type ContextAwareSend = ChatTransport["sendMessage"];
 
 // A file the user pasted/dropped/picked into the composer, mid-upload or done.
 // `path` is null until the upload settles; `previewUrl` (image paste only) is
@@ -803,13 +1035,19 @@ export function compactRouting(routing?: TurnRouting | null): TurnRouting | unde
  * as a real turn and read each settled reply aloud.
  */
 export interface ComposerAdornmentApi {
-  /** Submit `text` as a real chat turn (renders the user bubble, streams the reply). */
-  send: (text: string) => void;
+  /** Submit `text` as a real chat turn and return its browser-owned correlation
+   * id when the transport supports durable input lifecycle. */
+  send: (text: string) => string | null;
   /** True while a turn is in flight. */
   busy: boolean;
+  /** True while generated work is active or queued. Voice adornments should
+   * keep their state mounted, but refuse a NEW idle capture until this clears;
+   * an already-running conversation may still expose its Stop control and wait
+   * for/read the correlated reply. False for legacy transports. */
+  queueLocked: boolean;
   /** The latest SETTLED assistant reply, or null while streaming/empty. Its `id`
    *  changes once per completed turn, so an adornment can react to each reply. */
-  lastReply: { id: string; text: string } | null;
+  lastReply: { id: string; text: string; clientRequestId?: string } | null;
 }
 
 export interface ClaudeChatProps {
@@ -879,6 +1117,9 @@ export interface ClaudeChatProps {
     route?: RouteAttribution;
     /** The pins that were in force when that exchange was sent. */
     overrides?: TurnRouting;
+    /** Durable orchestrated-input state. Queued/running prompts remain visible
+     * and correctly bound after a remount instead of being inferred as settled. */
+    input?: ChatInputReceipt;
   }[];
   /**
    * Fires once per turn when its assistant reply has fully settled (non-empty),
@@ -954,7 +1195,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         id: nextId(),
         user: h.user,
         assistant: h.assistant,
-        streaming: false,
+        streaming: h.input ? isActiveInputState(h.input.state) : false,
         hideUser: h.hideUser,
         // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
         // stamped frame can never be mis-attached to one of them.
@@ -962,13 +1203,43 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         sessionEvents: mergeSessionEvents([], h.sessionEvents ?? []),
         route: h.route,
         overrides: h.overrides,
+        clientRequestId: h.input?.clientRequestId,
+        inputId: h.input?.inputId,
+        generationId: h.input?.generationId,
+        inputState: h.input?.state,
+        inputPosition: h.input?.position,
+        inputReason: h.input?.reason,
+        inputAcceptedAt: h.input?.acceptedAt,
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
   const [turns, setTurns] = useState<Turn[]>(seededTurns);
+  // Lifecycle callbacks can be followed by a click in the same browser task,
+  // before React has removed a stale Retry button. Record terminal coordinates
+  // synchronously at event receipt so that stale handler can never call Stop or
+  // paint the terminal turn active again.
+  const terminalCoordinatesRef = useRef(new Set(
+    seededTurns
+      .filter((turn) => turn.inputState && INPUT_STATE_ORDER[turn.inputState] === 4)
+      .flatMap(generatedCoordinateKeys)
+  ));
+  const rememberTerminalCoordinate = useCallback((coordinate: GeneratedTurnCoordinate) => {
+    for (const key of generatedCoordinateKeys(coordinate)) terminalCoordinatesRef.current.add(key);
+  }, []);
+  const isRememberedTerminalCoordinate = useCallback((coordinate: GeneratedTurnCoordinate) => (
+    generatedCoordinateKeys(coordinate).some((key) => terminalCoordinatesRef.current.has(key))
+  ), []);
   const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
-  const [busy, setBusy] = useState(false);
+  const generatedMode = transport.inputLifecycle === true;
+  const [legacyBusy, setLegacyBusy] = useState(false);
+  const generatedWork = generatedMode && turns.some((turn) => isPendingInputState(turn.inputState));
+  const activeGeneratedTurn = generatedMode
+    ? turns.find((turn) => isActiveInputState(turn.inputState)) ?? null
+    : null;
+  const busy = generatedMode ? generatedWork : legacyBusy;
+  const generatedWorkRef = useRef(generatedWork);
+  generatedWorkRef.current = generatedWork;
   const [turnAnnouncement, setTurnAnnouncement] = useState("");
   const announcedBusyRef = useRef(false);
   const [conn, setConn] = useState<"open" | "closed" | "reconnecting">("reconnecting");
@@ -979,9 +1250,12 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [menuIdx, setMenuIdx] = useState(0);
   // ── Attachments (paste / drop / pick a file) — gated on the transport
-  // actually exposing uploadFile; a transport that omits it (e.g. dev-env's
-  // server has no /attachments backend yet) hides the affordance entirely. ──
-  const canAttach = typeof transport.uploadFile === "function";
+  // actually exposing uploadFile; generated queue mode locks attachment admission
+  // while any input is active/queued because the legacy attachment store is one
+  // global slot rather than a per-input snapshot. ──
+  const hasAttachmentTransport = typeof transport.uploadFile === "function";
+  const attachmentLocked = generatedMode && generatedWork;
+  const canAttach = hasAttachmentTransport && !attachmentLocked;
   const [attachments, setAttachments] = useState<PendingAttachment[]>(() => loadDraftAttachments(draftKey));
   const attachmentsRef = useRef<PendingAttachment[]>(attachments);
   attachmentsRef.current = attachments;
@@ -1197,12 +1471,15 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   // user gets unmistakable "it's working" feedback (modeled on leading chat
   // UIs). Resets to 0 each turn; ticks once a second only while busy. ──
   const [elapsed, setElapsed] = useState(0);
+  const activeTimerKey = generatedMode
+    ? (activeGeneratedTurn?.generationId ?? activeGeneratedTurn?.inputId ?? activeGeneratedTurn?.clientRequestId ?? "")
+    : (busy ? "legacy-active" : "");
   useEffect(() => {
     if (!busy) { setElapsed(0); return; }
     setElapsed(0);
     const id = window.setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => window.clearInterval(id);
-  }, [busy]);
+  }, [busy, activeTimerKey]);
 
   // A compact activity hint pulled from the PTY status line (e.g.
   // "esc to interrupt · 2.1k tokens"). Absent on the orchestrator transport
@@ -1270,8 +1547,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
       switch (ev.type) {
         case "hello": {
           setStatus(ev.status);
-          setBusy(ev.busy);
           setScreen(ev.screen ?? []);
+          if (generatedMode) break;
+          setLegacyBusy(ev.busy);
           // Rebind a reloaded client: when the operative already has a reply on
           // screen (possibly still streaming) and this client has no transcript,
           // seed a turn from the hello snapshot instead of showing an empty chat.
@@ -1286,10 +1564,22 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           break;
         }
         case "assistant":
-          applyAssistant(ev.text);
+          if (generatedMode) {
+            setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) =>
+              turn.assistant === ev.text ? turn : { ...turn, assistant: ev.text }
+            ));
+          } else {
+            applyAssistant(ev.text);
+          }
           break;
         case "session_event":
           setTurns((prev) => {
+            if (generatedMode) {
+              return applyGeneratedTurn(prev, ev, (turn) => {
+                const sessionEvents = mergeSessionEvents(turn.sessionEvents, [ev.event]);
+                return sessionEvents === turn.sessionEvents ? turn : { ...turn, sessionEvents };
+              });
+            }
             const base = prev.length > 0
               ? prev
               : [{ id: nextId(), user: "", assistant: "", streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
@@ -1300,7 +1590,10 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
           break;
         case "turn":
-          setBusy(ev.active);
+          // Generated lifecycle events are authoritative. A legacy `turn:false`
+          // from an older stream must never settle whichever queued turn is last.
+          if (generatedMode) break;
+          setLegacyBusy(ev.active);
           // The activity hint describes the turn that just ended; keeping it would
           // leave a stale tool name under the next "Working" indicator.
           setActivity("");
@@ -1317,6 +1610,12 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           // option buttons. Ignore other tools and malformed payloads.
           if (ev.name !== "AskUserQuestion" || !Array.isArray(ev.questions) || ev.questions.length === 0) break;
           setTurns((prev) => {
+            if (generatedMode) {
+              return applyGeneratedTurn(prev, ev, (turn) => ({
+                ...turn,
+                question: { toolUseId: ev.tool_use_id, questions: ev.questions },
+              }));
+            }
             if (prev.length === 0) return prev;
             const copy = prev.slice();
             const last = copy[copy.length - 1];
@@ -1328,8 +1627,13 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         case "route": {
           // Merge into the turn this frame belongs to (and drop it if that turn is
           // already history) - see applyRouteFrame for why both halves matter.
-          const { type: _type, ...attribution } = ev;
-          setTurns((prev) => applyRouteFrame(prev, attribution));
+          const { type: _type, inputId: _inputId, generationId: _generationId, ...attribution } = ev;
+          setTurns((prev) => generatedMode
+            ? applyGeneratedTurn(prev, ev, (turn) => ({
+                ...turn,
+                route: { ...(turn.route ?? {}), ...attribution },
+              }))
+            : applyRouteFrame(prev, attribution));
           break;
         }
         case "activity": {
@@ -1342,20 +1646,47 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           // Thinking is prose, so it gets more room than a tool name and is
           // marked so the hint reads "thinking: <line>" rather than looking like
           // a tool called <line>.
-          if (name) setActivity(ev.kind === "thinking" ? `thinking: ${name.slice(0, 72)}` : name.slice(0, 40));
+          if (name) {
+            const nextActivity = ev.kind === "thinking" ? `thinking: ${name.slice(0, 72)}` : name.slice(0, 40);
+            if (generatedMode) {
+              setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) => ({ ...turn, activity: nextActivity })));
+            } else {
+              setActivity(nextActivity);
+            }
+          }
+          break;
+        }
+        case "input": {
+          if (INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
+          setTurns((prev) => applyInputLifecycle(prev, ev));
+          setTurnAnnouncement(inputLifecycleAnnouncement(ev));
           break;
         }
         case "connection":
           setConn(ev.state);
           break;
         case "error":
-          // Surface as an assistant note on the latest turn.
-          applyAssistant(`_error: ${ev.message}_`);
+          if (generatedMode) {
+            rememberTerminalCoordinate(ev);
+            setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) => ({
+              ...turn,
+              assistant: `_error: ${ev.message}_`,
+              streaming: false,
+              inputState: "failed",
+              inputReason: ev.message,
+              activity: "",
+              stopError: undefined,
+            })));
+            setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: ev.message }));
+          } else {
+            // Surface as an assistant note on the latest turn.
+            applyAssistant(`_error: ${ev.message}_`);
+          }
           break;
       }
     });
     return off;
-  }, [transport, applyAssistant]);
+  }, [transport, applyAssistant, generatedMode, rememberTerminalCoordinate]);
 
   useEffect(() => {
     transport.fetchCommands().then(setCommands).catch(() => setCommands([]));
@@ -1409,13 +1740,17 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const pendingSendRef = useRef<{ text: string; opts?: { hideUser?: boolean } } | null>(null);
 
   const send = useCallback(
-    (text: string, opts?: { hideUser?: boolean }) => {
+    (text: string, opts?: { hideUser?: boolean }): string | null => {
+      if (generatedMode && generatedWorkRef.current && attachmentsRef.current.length > 0) {
+        setTurnAnnouncement("Attachments cannot be queued while another message is pending.");
+        return null;
+      }
       // Hold the turn until every in-flight upload settles (resolved or errored),
       // so its path is present when we build the attachment suffix.
       if (attachmentsRef.current.some((a) => a.uploading)) {
         pendingSendRef.current = { text, opts };
         setInput("");
-        return;
+        return null;
       }
       const t = text.trim();
       const ready = attachmentsRef.current.filter((a) => a.path && !a.uploading);
@@ -1423,29 +1758,43 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         ? `\n\n${ready.length === 1 ? "Attached file" : "Attached files"}:\n${ready.map((a) => `- ${a.path}`).join("\n")}`
         : "";
       const full = `${t}${attachmentSuffix}`.trim();
-      if (!full) return;
+      if (!full) return null;
       // Effort directive (Think / Think hard / Ultrathink) is prepended to the
       // wire text only - the transcript shows what the user actually typed
       // (attachments included, since they're user-visible content).
       const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
       const wire = dir ? `${dir}\n\n${full}` : full;
       const sentPins = railOn ? compactRouting(pinsRef.current) : undefined;
+      const clientRequestId = generatedMode ? nextClientRequestId() : undefined;
+      const optimisticState: ChatInputState | undefined = generatedMode
+        ? (generatedWorkRef.current ? "queued" : "starting")
+        : undefined;
+      if (generatedMode) generatedWorkRef.current = true;
       inFlightTextRef.current = full;
-      setTurns((prev) => [
-        ...prev,
-        {
+      setTurns((prev) => {
+        const optimisticPosition = optimisticState === "queued"
+          ? prev.filter((turn) => turn.inputState === "queued").length + 1
+          : undefined;
+        return [...prev, {
           id: nextId(),
           user: full,
           assistant: "",
-          streaming: true,
+          streaming: generatedMode ? isActiveInputState(optimisticState) : true,
           hideUser: opts?.hideUser,
           seq: ++turnSeqRef.current,
           sessionEvents: [],
           overrides: sentPins,
-        },
-      ]);
-      setBusy(true);
-      setActivity("");
+          clientRequestId,
+          inputState: optimisticState,
+          inputPosition: optimisticPosition,
+        }];
+      });
+      if (!generatedMode) {
+        setLegacyBusy(true);
+        setActivity("");
+      } else if (optimisticState) {
+        setTurnAnnouncement(inputLifecycleAnnouncement({ state: optimisticState }));
+      }
       // The pins have now reached a turn, so they stop reading "applies next turn".
       setPendingPins([]);
       setResendArmed(false);
@@ -1453,18 +1802,41 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
       // Pass opaque context/mode as an optional second arg ONLY when present, so
       // a context-unaware transport (createHttpTransport) is called exactly as
       // before. The transport decides whether to read `meta`.
-      const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : undefined, sentPins);
+      const baseMeta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : undefined, sentPins);
+      const meta: ChatSendMeta | undefined = generatedMode
+        ? { ...(baseMeta ?? {}), clientRequestId }
+        : baseMeta;
       const sendFn = transport.sendMessage as ContextAwareSend;
       const p = meta ? sendFn(wire, meta) : sendFn(wire);
-      p.catch(() => {});
+      if (generatedMode && clientRequestId) {
+        p.then((receipt) => {
+          if (!isChatInputReceipt(receipt)) return;
+          setTurns((prev) => applyInputLifecycle(prev, receipt));
+          setTurnAnnouncement(inputLifecycleAnnouncement(receipt));
+        }).catch((error) => {
+          const reason = error instanceof Error ? error.message : String(error ?? "input admission failed");
+          rememberTerminalCoordinate({ clientRequestId });
+          setTurns((prev) => applyGeneratedTurn(prev, { clientRequestId }, (turn) => ({
+            ...turn,
+            streaming: false,
+            inputState: "failed",
+            inputReason: reason,
+          })));
+          setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason }));
+        });
+      } else {
+        p.catch(() => {});
+      }
       setInput("");
+      if (generatedMode) taRef.current?.focus();
       if (ready.length) {
         const sentIds = new Set(ready.map((a) => a.id));
         ready.forEach((a) => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); });
         setAttachments((prev) => prev.filter((a) => !sentIds.has(a.id)));
       }
+      return clientRequestId ?? null;
     },
-    [transport, effortOn, railOn, feat.autonomous]
+    [transport, effortOn, railOn, feat.autonomous, generatedMode, rememberTerminalCoordinate]
   );
 
   // Fire a deferred send once every upload has settled. Clearing the ref before
@@ -1616,13 +1988,22 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   // turn). The id guard makes it idempotent across the streaming re-renders.
   // Seeded from the LAST restored turn's id so the persist effect never re-appends
   // history that was loaded from the store (which would duplicate on every open).
-  const persistedRef = useRef<string>(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
+  const persistedRef = useRef<Set<string>>(new Set(seededTurns.map((turn) => turn.id)));
   const onTurnCompleteRef = useRef(onTurnComplete);
   onTurnCompleteRef.current = onTurnComplete;
 
   // Auto-read each new COMPLETED assistant turn when read-aloud is on.
-  const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  const latestTurn = turns.length ? turns[turns.length - 1] : null;
+  const latestAssistant = generatedMode ? (activeGeneratedTurn ?? latestTurn) : latestTurn;
+  const latestSettledAssistant = generatedMode
+    ? [...turns].reverse().find((turn) =>
+        !turn.streaming &&
+        (!turn.inputState || turn.inputState === "settled" || turn.inputState === "stopped" || turn.inputState === "failed") &&
+        resolvedAssistantText(turn).trim().length > 0
+      ) ?? null
+    : latestTurn;
   useEffect(() => {
+    if (generatedMode) return;
     if (busy) {
       announcedBusyRef.current = true;
       setTurnAnnouncement(liveSessionAnnouncement(latestAssistant?.sessionEvents ?? [], workingHint));
@@ -1630,33 +2011,39 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
       announcedBusyRef.current = false;
       setTurnAnnouncement("Response complete.");
     }
-  }, [busy, latestAssistant?.sessionEvents, workingHint]);
+  }, [busy, latestAssistant?.sessionEvents, workingHint, generatedMode]);
   // The latest SETTLED reply, exposed to a function-form composerAdornment (S6b
   // voice) so it can read replies aloud. Null while streaming/empty; `id` changes
   // once per completed turn.
   const settledReply = useMemo<ComposerAdornmentApi["lastReply"]>(() => {
-    if (!latestAssistant || latestAssistant.streaming) return null;
-    const text = resolvedAssistantText(latestAssistant).trim();
-    return text ? { id: latestAssistant.id, text } : null;
+    if (!latestSettledAssistant || latestSettledAssistant.streaming) return null;
+    const text = resolvedAssistantText(latestSettledAssistant).trim();
+    return text
+      ? {
+          id: latestSettledAssistant.id,
+          text,
+          ...(latestSettledAssistant.clientRequestId ? { clientRequestId: latestSettledAssistant.clientRequestId } : {}),
+        }
+      : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming]);
+  }, [latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming]);
   useEffect(() => {
     const cb = onTurnCompleteRef.current;
-    if (!cb || !latestAssistant || latestAssistant.streaming) return;
-    const assistant = resolvedAssistantRaw(latestAssistant).trim();
+    if (!cb || !latestSettledAssistant || latestSettledAssistant.streaming) return;
+    const assistant = resolvedAssistantRaw(latestSettledAssistant).trim();
     if (!assistant) return;
-    if (persistedRef.current === latestAssistant.id) return;
-    persistedRef.current = latestAssistant.id;
-    cb({ user: latestAssistant.user, assistant });
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming]);
+    if (persistedRef.current.has(latestSettledAssistant.id)) return;
+    persistedRef.current.add(latestSettledAssistant.id);
+    cb({ user: latestSettledAssistant.user, assistant });
+  }, [latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming]);
   useEffect(() => {
-    if (!readAloud || !voiceUsable || !latestAssistant) return;
-    if (latestAssistant.streaming) return;
-    const text = resolvedAssistantText(latestAssistant).trim();
+    if (!readAloud || !voiceUsable || !latestSettledAssistant) return;
+    if (latestSettledAssistant.streaming) return;
+    const text = resolvedAssistantText(latestSettledAssistant).trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
-    void speak(text, latestAssistant.id);
-  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming, speak]);
+    void speak(text, latestSettledAssistant.id);
+  }, [readAloud, voiceUsable, latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming, speak]);
 
   // ── Voice: push-to-talk. Record from the mic; on stop, POST to /voice/stt
   // and drop the transcript into the composer for review/edit. ──
@@ -1666,7 +2053,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     // otherwise both pass and the second would orphan the first recorder/stream
     // (leaking a live mic). The ref stays set through the active recording and
     // clears on stop / bail / error.
-    if (!voiceClient || recBusyRef.current) return;
+    if (!voiceClient || recBusyRef.current || generatedWorkRef.current) return;
     // getUserMedia exists only in a secure context (https / localhost). Over a
     // plain-http LAN origin `navigator.mediaDevices` is undefined and the old
     // code threw a TypeError into an empty catch - the button did nothing, with
@@ -1683,9 +2070,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     setVoiceError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!voiceMountedRef.current) {
-        // Unmounted while the permission prompt was pending - release the mic
-        // and bail before constructing/starting the recorder.
+      if (!voiceMountedRef.current || generatedWorkRef.current) {
+        // Unmounted or generated work began while the permission prompt was
+        // pending: release the mic and bail before constructing the recorder.
         stream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
         recBusyRef.current = false;
         return;
@@ -1835,15 +2222,41 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const answerQuestion = useCallback(
     (turnId: string, toolUseId: string, choice: { label?: string; text?: string }) => {
       const chosen = choice.label ?? choice.text ?? "";
-      setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answered: chosen, answering: true } : t)));
+      setTurns((prev) => prev.map((t) => (
+        t.id === turnId && t.question?.toolUseId === toolUseId
+          ? { ...t, answered: chosen, answering: true, questionError: undefined }
+          : t
+      )));
       const fn = transport.answerQuestion;
       if (!fn) {
-        setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answering: false } : t)));
+        setTurns((prev) => prev.map((t) => (
+          t.id === turnId && t.question?.toolUseId === toolUseId
+            ? {
+                ...t,
+                answered: undefined,
+                answering: false,
+                questionError: "Could not send the answer. Please try again.",
+              }
+            : t
+        )));
         return;
       }
       Promise.resolve(fn.call(transport, { toolUseId, ...choice }))
-        .catch(() => {})
-        .finally(() => setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, answering: false } : t))));
+        .then(() => setTurns((prev) => prev.map((t) => (
+          t.id === turnId && t.question?.toolUseId === toolUseId
+            ? { ...t, answering: false, questionError: undefined }
+            : t
+        ))))
+        .catch(() => setTurns((prev) => prev.map((t) => (
+          t.id === turnId && t.question?.toolUseId === toolUseId
+            ? {
+                ...t,
+                answered: undefined,
+                answering: false,
+                questionError: "Could not send the answer. Please try again.",
+              }
+            : t
+        ))));
     },
     [transport]
   );
@@ -1878,14 +2291,75 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     [busy, onPinChange]
   );
 
+  const requestGeneratedStop = useCallback(async (turn: Turn, restore: boolean) => {
+    // A Retry control can race a terminal lifecycle frame. Guard before any
+    // optimistic mutation or interrupt call so a stale handler cannot resurrect
+    // a failed/completed turn as `stopping`.
+    if (
+      !turn.generationId ||
+      (turn.inputState !== "starting" && turn.inputState !== "running") ||
+      isRememberedTerminalCoordinate(turn)
+    ) return;
+    const coordinate: GeneratedTurnCoordinate = {
+      clientRequestId: turn.clientRequestId,
+      inputId: turn.inputId,
+      generationId: turn.generationId,
+    };
+    setTurns((prev) => applyGeneratedTurn(prev, coordinate, (current) => ({
+      ...current,
+      inputState: "stopping",
+      streaming: true,
+      stopError: undefined,
+    })));
+    setTurnAnnouncement("Stopping current response.");
+    try {
+      await transport.interrupt({ generationId: turn.generationId });
+      if (restore) {
+        // Existing queued Turns are untouched. A later manual send appends this
+        // restored text at the tail; nothing is auto-sent or reordered.
+        setInput(turn.user);
+        setResendArmed(true);
+        setRailOpen(true);
+        taRef.current?.focus();
+      }
+    } catch (error) {
+      // The runtime may settle while the interrupt request is still in flight.
+      // Its terminal lifecycle is authoritative; do not replace its announcement
+      // with a stale "retry available" failure after that point.
+      if (isRememberedTerminalCoordinate(coordinate)) return;
+      const message = (error instanceof Error ? error.message : String(error ?? "stop failed"))
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 160) || "stop failed";
+      setTurns((prev) => applyGeneratedTurn(prev, coordinate, (current) => {
+        const terminal = current.inputState === "settled" || current.inputState === "stopped" || current.inputState === "failed";
+        return terminal ? current : {
+          ...current,
+          inputState: "running",
+          streaming: true,
+          stopError: message,
+        };
+      }));
+      setTurnAnnouncement(`Stop failed: ${message}. Retry is available.`);
+    }
+  }, [transport, isRememberedTerminalCoordinate]);
+
   const stopTurn = useCallback(() => {
+    if (generatedMode) {
+      if (activeGeneratedTurn) void requestGeneratedStop(activeGeneratedTurn, false);
+      return;
+    }
     transport.interrupt().catch(() => {});
-  }, [transport]);
+  }, [transport, generatedMode, activeGeneratedTurn, requestGeneratedStop]);
 
   /** Cancel, put the sent text back in the composer, open the rail, and swap Send
    *  for Resend. Deliberately does NOT resend: the whole point is to change
    *  something first. */
   const stopAndChange = useCallback(() => {
+    if (generatedMode) {
+      if (activeGeneratedTurn) void requestGeneratedStop(activeGeneratedTurn, true);
+      return;
+    }
     stopTurn();
     const text = inFlightTextRef.current;
     if (text) {
@@ -1894,7 +2368,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     }
     setRailOpen(true);
     taRef.current?.focus();
-  }, [stopTurn]);
+  }, [stopTurn, generatedMode, activeGeneratedTurn, requestGeneratedStop]);
 
   // The Stop button has promised `title="Stop (Esc)"` since it was written and
   // Escape never did anything. Bind it for real, scoped to this chat: dev-env
@@ -1920,7 +2394,38 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const showFlightRail = railOn && (busy || hasPins || railOpen);
   // The flight rail's right-hand slot: the live elapsed time and the Stop pair
   // while busy; otherwise a way to put the rail away again.
-  const flightRailEnd = busy ? (
+  const generatedStopDisabled = !activeGeneratedTurn?.generationId || activeGeneratedTurn.inputState === "stopping";
+  const generatedStopLabel = activeGeneratedTurn?.inputState === "stopping"
+    ? "Stopping…"
+    : activeGeneratedTurn?.stopError
+      ? "Retry stop"
+      : "Stop";
+  const flightRailEnd = generatedMode && busy ? (
+    activeGeneratedTurn ? (
+      <>
+        <span className="cc-railtime" title="Elapsed on this turn">{fmtElapsed(elapsed)}</span>
+        <button
+          type="button"
+          className="cc-stop cc-railstop"
+          onClick={stopTurn}
+          disabled={generatedStopDisabled}
+          aria-busy={activeGeneratedTurn.inputState === "stopping"}
+          title={!activeGeneratedTurn.generationId ? "Stop is available once the response starts" : "Stop this response (Esc)"}
+        >
+          <span className="cc-stopsq" /> {generatedStopLabel}
+        </button>
+        <button
+          type="button"
+          className="cc-stop cc-railstop cc-railstop-change"
+          onClick={stopAndChange}
+          disabled={generatedStopDisabled}
+          title="Stop this response, restore its message, and append any manual resend after the existing queue"
+        >
+          Stop &amp; change
+        </button>
+      </>
+    ) : <span className="cc-railqueued">Queued</span>
+  ) : busy ? (
     <>
       <span className="cc-railtime" title="Elapsed on this turn">{fmtElapsed(elapsed)}</span>
       <button type="button" className="cc-stop cc-railstop" onClick={stopTurn} title="Stop (Esc)">
@@ -1999,6 +2504,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           const hasCanonicalActivity = hasVisibleSessionActivity(t.sessionEvents);
           const legacyFallback = hasCanonicalActivity ? legacyAssistantFallback(t.assistant, t.sessionEvents) : "";
           const actionText = resolvedAssistantText(t);
+          const turnWorkingHint = generatedMode ? (t.activity ?? "") : workingHint;
           // Prefer the STRUCTURED runtime attribution the gateway sends on the
           // settled turn (runtime/model/tier); fall back to the model-emitted
           // "[route: …]" text badge lifted into clean.meta when it is absent.
@@ -2026,8 +2532,16 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             {/* `t.route` joins the gate: a carded or cancelled turn can settle with
                 NO prose at all, and its rail (card / stopped / transcript badges) is
                 then the only record the user gets. */}
-            {(clean.text || hasCanonicalActivity || t.streaming || t.question || t.route) && (
+            {(clean.text || hasCanonicalActivity || t.streaming || t.question || t.route || t.inputState || t.stopError) && (
               <div className="cc-assistant">
+                {t.inputState && (
+                  <InputLifecycleStatus
+                    turn={t}
+                    elapsed={isActiveInputState(t.inputState) ? elapsed : 0}
+                    hint={turnWorkingHint}
+                    onRetryStop={() => { if (t.generationId) void requestGeneratedStop(t, false); }}
+                  />
+                )}
                 {hasCanonicalActivity ? (
                   <SessionEventTimeline
                     events={t.sessionEvents}
@@ -2051,15 +2565,15 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 {/* Rich "working" indicator before any prose lands (while James is
                     only doing tool activity, clean.text is empty → show this, not the
                     raw scrape): animated dots + label + live elapsed + activity hint. */}
-                {!hasCanonicalActivity && t.streaming && !clean.text && (
+                {!t.inputState && !hasCanonicalActivity && t.streaming && !clean.text && (
                   <div className="cc-working">
                     <span className="cc-working-dots"><i /><i /><i /></span>
                     <span className="cc-working-label">Working</span>
                     <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
-                    {workingHint && (
+                    {turnWorkingHint && (
                       <>
                         <span className="cc-working-sep" aria-hidden="true">-</span>
-                        <span className="cc-working-hint" title={workingHint}>{workingHint}</span>
+                        <span className="cc-working-hint" title={turnWorkingHint}>{turnWorkingHint}</span>
                       </>
                     )}
                   </div>
@@ -2071,6 +2585,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     q={t.question.questions[0]}
                     answered={t.answered}
                     answering={t.answering}
+                    error={t.questionError}
                     onSelect={(label) => answerQuestion(t.id, t.question!.toolUseId, { label })}
                     onOther={(text) => answerQuestion(t.id, t.question!.toolUseId, { text })}
                   />
@@ -2397,14 +2912,14 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 <span className="cc-attachment-name">{a.name}</span>
                 {a.uploading && <span className="cc-mic-spin" aria-hidden="true" />}
                 {a.error && <span className="cc-attachment-err" aria-hidden="true">!</span>}
-                <span
+                <button
+                  type="button"
                   className="cc-attachment-x"
-                  role="button"
                   aria-label={`Remove ${a.name}`}
                   onClick={() => removeAttachment(a.id)}
                 >
                   ×
-                </span>
+                </button>
               </div>
             ))}
           </div>
@@ -2416,9 +2931,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           onDrop={onComposerDrop}
         >
           {typeof composerAdornment === "function"
-            ? composerAdornment({ send: (text: string) => send(text), busy, lastReply: settledReply })
+            ? composerAdornment({ send: (text: string) => send(text), busy, queueLocked: generatedWork, lastReply: settledReply })
             : composerAdornment}
-          {canAttach && (
+          {hasAttachmentTransport && (
             <>
               <input
                 ref={fileInputRef}
@@ -2433,7 +2948,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               <button
                 type="button"
                 className="cc-mic"
-                title="Attach a file"
+                disabled={attachmentLocked}
+                aria-label="Attach a file"
+                title={attachmentLocked ? "Attachments are unavailable while messages are pending" : "Attach a file"}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
@@ -2453,11 +2970,13 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             <button
               type="button"
               className={`cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`}
-              disabled={!voiceUsable || transcribing}
+              disabled={!voiceUsable || transcribing || (generatedWork && !recording)}
               aria-pressed={recording}
               title={
                 !voiceUsable
                   ? "Voice fitting not running"
+                  : generatedWork && !recording
+                    ? "Voice input is unavailable while messages are pending"
                   : transcribing
                     ? "Transcribing…"
                     : recording
@@ -2483,20 +3002,50 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             className="cc-input"
             value={input}
             placeholder={placeholder ?? "Message Claude…  (/ for commands)"}
+            aria-label={`Message ${title ?? "Claude"}`}
             rows={1}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             onPaste={onComposerPaste}
           />
-          {busy && !showFlightRail ? (
+          {generatedMode ? (
+            <>
+              {activeGeneratedTurn && !showFlightRail && (
+                <button
+                  type="button"
+                  className="cc-stop"
+                  onClick={stopTurn}
+                  disabled={generatedStopDisabled}
+                  aria-busy={activeGeneratedTurn.inputState === "stopping"}
+                  title={!activeGeneratedTurn.generationId ? "Stop is available once the response starts" : "Stop this response (Esc)"}
+                >
+                  <span className="cc-stopsq" /> {generatedStopLabel}
+                </button>
+              )}
+              <button
+                type="button"
+                className="cc-send"
+                onClick={() => send(input)}
+                disabled={(!input.trim() && !attachments.some((a) => a.path)) || attachments.some((a) => a.uploading) || (attachmentLocked && attachments.length > 0)}
+                title={generatedWork
+                  ? "Append this message after the existing queue"
+                  : resendArmed
+                    ? "Resend the stopped message"
+                    : "Send"}
+              >
+                {generatedWork ? "Queue" : resendArmed ? "Resend" : "Send"}
+              </button>
+            </>
+          ) : busy && !showFlightRail ? (
             // Classic single Stop for a host without the rail (dev-env): with the
             // rail mounted the Stop pair lives at its right-hand end instead, so the
             // two are never on screen at once.
-            <button className="cc-stop" onClick={stopTurn} title="Stop (Esc)">
+            <button type="button" className="cc-stop" onClick={stopTurn} title="Stop (Esc)">
               <span className="cc-stopsq" /> Stop
             </button>
           ) : busy ? null : (
             <button
+              type="button"
               className="cc-send"
               onClick={() => send(input)}
               disabled={(!input.trim() && !attachments.some((a) => a.path)) || attachments.some((a) => a.uploading)}

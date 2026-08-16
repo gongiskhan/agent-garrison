@@ -1,16 +1,22 @@
 export {
   ClaudeChat,
+  applyGeneratedTurn,
+  applyInputLifecycle,
   applySessionEvent,
   applyTurnActive,
   buildSendMeta,
   canonicalAssistantReply,
+  findGeneratedTurnIndex,
+  inputLifecycleAnnouncement,
+  isActiveInputState,
+  isPendingInputState,
   legacyAssistantFallback,
   liveSessionAnnouncement,
   QuestionBlock,
   resolvedAssistantText,
   rewriteRouteForHost,
 } from "./ClaudeChat";
-export type { SessionEventTurn } from "./ClaudeChat";
+export type { GeneratedTurnCoordinate, GeneratedTurnState, SessionEventTurn } from "./ClaudeChat";
 export { SessionEventTimeline, SessionStream } from "./SessionTranscript";
 export type { SessionEventTimelineProps, SessionStreamProps } from "./SessionTranscript";
 export {
@@ -36,8 +42,8 @@ export type {
   SessionEvent,
   SessionImage,
 } from "./journal";
-export type { ClaudeChatProps, ChatFeatures, ChatSendMeta, ComposerAdornmentApi } from "./ClaudeChat";
-export { createHttpTransport } from "./transport";
+export type { ClaudeChatProps, ChatFeatures, ComposerAdornmentApi } from "./ClaudeChat";
+export { createHttpTransport, isChatInputReceipt } from "./transport";
 export { createVoiceClient } from "./voice";
 export type { VoiceClient, VoiceHealth } from "./voice";
 export { sanitizeAssistantBadges, sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
@@ -71,6 +77,12 @@ export type { ChatThemeMode } from "./chat-theme";
 export type {
   ChatTransport,
   ChatEvent,
+  ChatFrameCoordinate,
+  ChatInputReceipt,
+  ChatInputState,
+  ChatInterruptRequest,
+  ChatInterruptResult,
+  ChatSendMeta,
   ClaudeStatus,
   PermissionMode,
   SlashCommand,

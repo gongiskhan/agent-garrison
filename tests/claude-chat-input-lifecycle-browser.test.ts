@@ -1,0 +1,426 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { build } from "esbuild";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+
+const REPO = path.resolve(__dirname, "..");
+const css = readFileSync(path.join(REPO, "packages/claude-chat/src/claude-chat.css"), "utf8");
+let browser: Browser;
+let context: BrowserContext;
+let page: Page;
+let bundle = "";
+
+beforeAll(async () => {
+  const built = await build({
+    stdin: {
+      sourcefile: "input-lifecycle-browser-entry.tsx",
+      resolveDir: REPO,
+      contents: `
+        import * as React from "react";
+        import { createRoot } from "react-dom/client";
+        import { ClaudeChat } from "./packages/claude-chat/src/ClaudeChat";
+
+        let root;
+        let listener;
+        window.__adornment = { mounts: 0, unmounts: 0, queueLocked: false, lastReply: null };
+        function QueueAwareAdornment({ api }) {
+          React.useEffect(() => {
+            window.__adornment.mounts += 1;
+            return () => { window.__adornment.unmounts += 1; };
+          }, []);
+          window.__adornment.queueLocked = api.queueLocked;
+          window.__adornment.lastReply = api.lastReply;
+          return React.createElement("button", {
+            type: "button",
+            className: "cc-mic",
+            "aria-label": "Start mock voice",
+            disabled: api.queueLocked,
+          }, "Voice");
+        }
+        const composerAdornment = (api) => React.createElement(QueueAwareAdornment, { api });
+        const mock = {
+          inputLifecycle: true,
+          sends: [],
+          interrupts: [],
+          answers: [],
+          rejectInterrupt: false,
+          rejectAnswer: false,
+          rejectNextAdmission: false,
+          connect(onEvent) {
+            listener = onEvent;
+            onEvent({ type: "connection", state: "open" });
+            return () => {};
+          },
+          async sendMessage(message, meta) {
+            const number = mock.sends.length + 1;
+            const inputId = "input-" + number;
+            const receipt = {
+              clientRequestId: meta.clientRequestId,
+              inputId,
+              state: number === 1 ? "starting" : "queued",
+              acceptedAt: "2026-08-16T12:00:0" + number + "Z",
+              ...(number === 1 ? {} : { position: number - 1 }),
+            };
+            mock.sends.push({ message, meta: { ...meta }, receipt });
+            if (mock.rejectNextAdmission) {
+              mock.rejectNextAdmission = false;
+              throw new Error("admission failed");
+            }
+            return receipt;
+          },
+          async sendKey() {},
+          async setMode(mode) { return { mode, reached: true }; },
+          async interrupt(request) {
+            mock.interrupts.push({ ...request });
+            if (mock.rejectInterrupt) throw new Error("<b>stop endpoint unavailable</b>");
+            return { generationId: request.generationId, state: "stopping" };
+          },
+          async answerQuestion(answer) {
+            mock.answers.push({ ...answer });
+            if (mock.rejectAnswer) throw new Error('<img src=x onerror="window.__unsafe = true">');
+          },
+          async fetchCommands() { return []; },
+          async uploadFile() { return { path: "/tmp/unused" }; },
+        };
+
+        window.__mock = mock;
+        window.__mount = (initialHistory = []) => {
+          if (!root) root = createRoot(document.getElementById("root"));
+          root.render(React.createElement(ClaudeChat, {
+            key: JSON.stringify(initialHistory.map((exchange) => exchange.input?.inputId || exchange.user)),
+            transport: mock,
+            title: "James",
+            features: { routing: true },
+            composerAdornment,
+            initialHistory,
+          }));
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        };
+        window.__emit = (event) => {
+          listener(event);
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        };
+        window.__emitInput = (number, state, extra = {}) => {
+          const sent = mock.sends[number - 1];
+          return window.__emit({
+            type: "input",
+            clientRequestId: sent.receipt.clientRequestId,
+            inputId: sent.receipt.inputId,
+            state,
+            ...extra,
+          });
+        };
+        window.__emitAssistant = (number, text, generationId) => {
+          const sent = mock.sends[number - 1];
+          return window.__emit({
+            type: "assistant",
+            text,
+            inputId: sent.receipt.inputId,
+            generationId,
+          });
+        };
+        window.__emitQuestion = (number, toolUseId) => {
+          const sent = mock.sends[number - 1];
+          return window.__emit({
+            type: "tool",
+            name: "AskUserQuestion",
+            tool_use_id: toolUseId,
+            questions: [{
+              header: "Choose a route",
+              question: "Which route should run?",
+              options: [
+                { label: "A", description: "Use route A" },
+                { label: "B", description: "Use route B" },
+              ],
+            }],
+            inputId: sent.receipt.inputId,
+            generationId: "generation-" + number,
+          });
+        };
+        window.__failThenClickRetry = (number) => {
+          const sent = mock.sends[number - 1];
+          listener({
+            type: "input",
+            clientRequestId: sent.receipt.clientRequestId,
+            inputId: sent.receipt.inputId,
+            generationId: "generation-" + number,
+            state: "failed",
+            reason: "runtime failed",
+          });
+          document.querySelector(".cc-lifecycle-stoperror button")?.click();
+        };
+      `,
+    },
+    bundle: true,
+    write: false,
+    platform: "browser",
+    format: "iife",
+    jsx: "automatic",
+    define: { "process.env.NODE_ENV": '"production"' },
+  });
+  bundle = built.outputFiles[0].text;
+  browser = await chromium.launch({ headless: true });
+  context = await browser.newContext({ viewport: { width: 320, height: 700 } });
+  page = await context.newPage();
+}, 30_000);
+
+beforeEach(async () => {
+  await page.setContent(
+    `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+    `<style>html,body,#root{width:100%;height:100%;margin:0}${css.replace(/<\/style/gi, "<\\/style")}</style>` +
+    `<div id="root"></div>`
+  );
+  await page.addScriptTag({ content: bundle });
+  await page.evaluate(() => (window as any).__mount());
+});
+
+afterAll(async () => {
+  await page?.close();
+  await context?.close();
+  await browser?.close();
+});
+
+const composer = () => page.getByRole("textbox", { name: "Message James" });
+const button = (name: string) => page.getByRole("button", { name, exact: true });
+const stopButton = () => page.locator("button.cc-railstop:not(.cc-railstop-change)");
+
+async function emitInput(number: number, state: string, extra: Record<string, unknown> = {}) {
+  await page.evaluate(
+    ({ number, state, extra }) => (window as any).__emitInput(number, state, extra),
+    { number, state, extra }
+  );
+}
+
+describe("ClaudeChat generated input lifecycle in real Chromium", () => {
+  it("keeps the composer usable, queues with click/Enter parity, and binds late frames to the exact turn", async () => {
+    await composer().fill("first message");
+    await button("Send").click();
+    await expect.poll(() => page.locator('[data-input-state="starting"]').count()).toBe(1);
+    expect(await composer().isEnabled()).toBe(true);
+    expect(await composer().evaluate((node) => node === document.activeElement)).toBe(true);
+    expect(await page.getByRole("button", { name: "Start mock voice" }).isDisabled()).toBe(true);
+    expect(await page.evaluate(() => (window as any).__adornment)).toMatchObject({ mounts: 1, unmounts: 0, queueLocked: true });
+    expect(await stopButton().isDisabled({ timeout: 2_000 })).toBe(true);
+    expect(await page.getByRole("button", { name: "Attach a file" }).isDisabled()).toBe(true);
+
+    await emitInput(1, "running", { generationId: "generation-1" });
+    expect(await stopButton().isEnabled({ timeout: 2_000 })).toBe(true);
+
+    await composer().fill("second message");
+    await composer().press("Enter");
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.sends.length)).toBe(2);
+    expect(await page.evaluate(() => (window as any).__mock.sends.map((send: any) => send.message))).toEqual([
+      "first message",
+      "second message",
+    ]);
+    expect(await page.locator('[data-input-state="queued"]').textContent()).toContain("Position 1");
+    expect(await button("Queue").isVisible({ timeout: 2_000 })).toBe(true);
+
+    await page.evaluate(() => (window as any).__emitAssistant(1, "late first-generation reply", "generation-1"));
+    const turns = page.locator(".cc-turn");
+    await expect.poll(() => turns.nth(0).textContent()).toMatch(/late first-generation reply/);
+    expect(await turns.nth(1).textContent()).not.toContain("late first-generation reply");
+
+    const measurements = await page.evaluate(() => {
+      const controls = [...document.querySelectorAll(".cc-input, .cc-send, .cc-railstop, .cc-mic")]
+        .filter((node) => (node as HTMLElement).offsetParent !== null)
+        .map((node) => ({
+          name: (node as HTMLElement).textContent || node.getAttribute("aria-label") || node.className,
+          height: node.getBoundingClientRect().height,
+        }));
+      const input = document.querySelector(".cc-input") as HTMLElement;
+      input.focus();
+      return {
+        width: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        rootWidth: document.querySelector(".cc-root")?.scrollWidth,
+        controls,
+        focusShadow: getComputedStyle(input).boxShadow,
+        liveRegions: document.querySelectorAll('[role="status"][aria-live]').length,
+      };
+    });
+    expect(measurements.width).toBe(320);
+    expect(measurements.documentWidth).toBeLessThanOrEqual(320);
+    expect(measurements.rootWidth).toBeLessThanOrEqual(320);
+    expect(measurements.controls.length).toBeGreaterThanOrEqual(4);
+    expect(measurements.controls.every((control) => control.height >= 44)).toBe(true);
+    expect(measurements.focusShadow).not.toBe("none");
+    expect(measurements.liveRegions).toBe(1);
+
+    await emitInput(1, "settled", { generationId: "generation-1" });
+    expect(await page.locator('[data-input-state="settled"]').count()).toBe(1);
+    expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
+  });
+
+  it("stops the exact generation, surfaces a text-only error, retries, and preserves queued input", async () => {
+    await composer().fill("running message");
+    await button("Send").click();
+    await emitInput(1, "running", { generationId: "generation-1" });
+    await composer().fill("queued message");
+    await button("Queue").click();
+
+    await page.evaluate(() => { (window as any).__mock.rejectInterrupt = true; });
+    await stopButton().click();
+    const error = page.locator(".cc-lifecycle-stoperror");
+    await expect.poll(() => error.textContent()).toContain("<b>stop endpoint unavailable</b>");
+    expect(await error.locator("b").count()).toBe(0);
+    expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
+    expect(await page.evaluate(() => (window as any).__mock.interrupts)).toEqual([
+      { generationId: "generation-1" },
+    ]);
+
+    await page.evaluate(() => { (window as any).__mock.rejectInterrupt = false; });
+    await error.getByRole("button", { name: "Retry stop" }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.interrupts.length)).toBe(2);
+    expect(await page.evaluate(() => (window as any).__mock.interrupts[1])).toEqual({ generationId: "generation-1" });
+    await emitInput(1, "stopped", { generationId: "generation-1", reason: "user requested" });
+    expect(await page.locator('[data-input-state="stopped"]').count()).toBe(1);
+    expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
+  });
+
+  it("clears a rejected stop when the exact input fails and cannot resurrect the terminal turn", async () => {
+    await composer().fill("terminal race");
+    await button("Send").click();
+    await emitInput(1, "running", { generationId: "generation-1" });
+
+    await page.evaluate(() => { (window as any).__mock.rejectInterrupt = true; });
+    await stopButton().click();
+    const retry = page.locator(".cc-lifecycle-stoperror button");
+    await expect.poll(() => retry.isVisible()).toBe(true);
+
+    // Deliver the terminal event and click the still-mounted Retry control in
+    // the same JS task. The durable terminal-coordinate guard must win even if
+    // React has not painted the failed state yet.
+    await page.evaluate(() => (window as any).__failThenClickRetry(1));
+    await expect.poll(() => page.locator('[data-input-state="failed"]').isVisible()).toBe(true);
+    await expect.poll(() => page.locator(".cc-lifecycle-stoperror").count()).toBe(0);
+    expect(await retry.count()).toBe(0);
+    expect(await page.evaluate(() => (window as any).__mock.interrupts)).toEqual([
+      { generationId: "generation-1" },
+    ]);
+  });
+
+  it("rolls back a rejected question answer, renders a safe error, and permits a successful retry", async () => {
+    await composer().fill("ask me");
+    await button("Send").click();
+    await emitInput(1, "running", { generationId: "generation-1" });
+    await page.evaluate(() => (window as any).__emitQuestion(1, "toolu-question"));
+    const optionA = page.locator(".cc-question-opt").filter({ hasText: "Use route A" });
+    const optionB = page.locator(".cc-question-opt").filter({ hasText: "Use route B" });
+
+    await page.evaluate(() => { (window as any).__mock.rejectAnswer = true; });
+    await optionA.click();
+    const error = page.getByRole("alert");
+    await expect.poll(() => error.textContent()).toBe("Could not send the answer. Please try again.");
+    expect(await error.locator("img").count()).toBe(0);
+    expect(await page.evaluate(() => (window as any).__unsafe ?? false)).toBe(false);
+    expect(await page.locator(".cc-question-answer").count()).toBe(0);
+    expect(await optionA.isEnabled()).toBe(true);
+
+    await page.evaluate(() => { (window as any).__mock.rejectAnswer = false; });
+    await optionB.click();
+    await expect.poll(() => page.locator(".cc-question-answer").textContent()).toBe("B");
+    expect(await error.count()).toBe(0);
+    expect(await optionA.isDisabled()).toBe(true);
+    expect(await page.evaluate(() => (window as any).__mock.answers)).toEqual([
+      { toolUseId: "toolu-question", label: "A" },
+      { toolUseId: "toolu-question", label: "B" },
+    ]);
+  });
+
+  it("uses a focusable native button to remove an attachment", async () => {
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("notes"),
+    });
+    const remove = page.getByRole("button", { name: "Remove notes.txt" });
+    await expect.poll(() => remove.isVisible()).toBe(true);
+    expect(await remove.evaluate((node) => node.tagName)).toBe("BUTTON");
+    await remove.focus();
+    expect(await remove.evaluate((node) => node === document.activeElement)).toBe(true);
+    await remove.press("Enter");
+    await expect.poll(() => remove.count()).toBe(0);
+    expect(await page.locator(".cc-attachment-chip").count()).toBe(0);
+  });
+
+  it("restores Stop & change text without auto-resending or reordering the queue", async () => {
+    await composer().fill("change this message");
+    await button("Send").click();
+    await emitInput(1, "running", { generationId: "generation-1" });
+    await composer().fill("already queued");
+    await button("Queue").click();
+
+    await button("Stop & change").click();
+    await expect.poll(() => composer().inputValue()).toBe("change this message");
+    expect(await page.evaluate(() => (window as any).__mock.sends.map((send: any) => send.message))).toEqual([
+      "change this message",
+      "already queued",
+    ]);
+    expect(await page.evaluate(() => (window as any).__mock.interrupts)).toEqual([
+      { generationId: "generation-1" },
+    ]);
+    expect(await page.locator(".cc-turn .cc-user").allTextContents()).toEqual([
+      "change this message",
+      "already queued",
+    ]);
+    expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
+  });
+
+  it("exposes the exact earlier voice reply even when a later admission failed", async () => {
+    await composer().fill("voice turn");
+    await button("Send").click();
+    await emitInput(1, "running", { generationId: "generation-voice" });
+
+    await page.evaluate(() => { (window as any).__mock.rejectNextAdmission = true; });
+    await composer().fill("later typed turn");
+    await button("Queue").click();
+    await expect.poll(() => page.locator('[data-input-state="failed"]').count()).toBe(1);
+
+    await page.evaluate(() => (window as any).__emitAssistant(1, "voice answer", "generation-voice"));
+    await emitInput(1, "settled", { generationId: "generation-voice" });
+    await expect.poll(
+      () => page.evaluate(() => (window as any).__adornment.lastReply),
+      { timeout: 3_000 }
+    ).toMatchObject({
+      text: "voice answer",
+      clientRequestId: expect.any(String),
+    });
+    const correlation = await page.evaluate(() => ({
+      reply: (window as any).__adornment.lastReply.clientRequestId,
+      sent: (window as any).__mock.sends[0].meta.clientRequestId,
+    }));
+    expect(correlation.reply).toBe(correlation.sent);
+  });
+
+  it("hydrates running and queued inputs as controlled lifecycle records", async () => {
+    await page.evaluate(() => (window as any).__mount([
+      {
+        user: "restored running",
+        assistant: "partial",
+        input: {
+          clientRequestId: "restored-client-1",
+          inputId: "restored-input-1",
+          generationId: "restored-generation-1",
+          state: "running",
+        },
+      },
+      {
+        user: "restored queued",
+        assistant: "",
+        input: {
+          clientRequestId: "restored-client-2",
+          inputId: "restored-input-2",
+          state: "queued",
+          position: 1,
+        },
+      },
+    ]));
+    expect(await page.locator('[data-input-state="running"]').count()).toBe(1);
+    expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
+    expect(await stopButton().isEnabled()).toBe(true);
+    expect(await button("Queue").isVisible()).toBe(true);
+    expect(await composer().isEnabled()).toBe(true);
+  });
+});

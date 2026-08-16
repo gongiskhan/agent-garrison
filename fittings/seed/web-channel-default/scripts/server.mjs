@@ -27,6 +27,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import {
   listThreads,
   getThread,
+  getThreadSnapshot,
   ensureThread,
   appendMessages,
   appendSessionEvent,
@@ -36,6 +37,19 @@ import {
   threadExistsSync,
   sanitizeRouteMeta,
   sanitizeRouting,
+  admitThreadInput,
+  claimNextThreadInput,
+  bindThreadInputGeneration,
+  markThreadInputStopping,
+  settleThreadInput,
+  getThreadInput,
+  threadHasPendingInputs,
+  startInputLive,
+  markInputActive,
+  activeInputId,
+  appendInputLiveFrame,
+  subscribeInputLive,
+  finishInputLive,
   markRunning,
   appendLiveFrame,
   subscribeLive,
@@ -734,7 +748,7 @@ async function handleBriefPut(req, res) {
 //   - context absent          → EXACTLY { message, channel: "web" }
 //   - context present          → adds `context` (forwarded untouched)
 // `message` is required upstream; `channel` is always pinned to "web".
-export function buildGatewayChatBody({ message, context, classification, sessionId, routing, turnSeq } = {}) {
+export function buildGatewayChatBody({ message, context, classification, sessionId, routing, turnSeq, autonomous } = {}) {
   const body = { message, channel: CHANNEL_ID };
   if (context !== undefined && context !== null) body.context = context;
   // D19: the conversation's thread id, forwarded as the gateway's session key so a
@@ -746,6 +760,7 @@ export function buildGatewayChatBody({ message, context, classification, session
   // "design a process" prompt trips Anthropic's usage-policy classifier). The gateway
   // validates it (routeHintsFromBody); a malformed hint is simply ignored there.
   if (classification && typeof classification === "object") body.classification = classification;
+  if (autonomous === true) body.autonomous = true;
   // The turn's effective pins (contract §3: body.routing -> routeHintsFromBody ->
   // applyTurnOverride). Emitted only when something is actually pinned - an unpinned
   // turn's body must stay byte-identical to the pre-run-context shape.
@@ -825,13 +840,14 @@ function buildContextBlock(threadMsgs, activeLines, doneLines, trailer, cap) {
   return out;
 }
 
-export async function assembleMaterializedContext(threadId) {
+export async function assembleMaterializedContext(threadId, { excludeTurnId } = {}) {
   const telemetry = { threadId: threadId ?? null, assembledChars: 0, messages: 0, activeCards: 0, doneCards: 0 };
   if (!threadId) return { context: null, telemetry };
   let threadMsgs = [];
   try {
     const thread = await getThread(threadId);
-    const msgs = Array.isArray(thread?.messages) ? thread.messages : [];
+    const msgs = (Array.isArray(thread?.messages) ? thread.messages : [])
+      .filter((message) => !excludeTurnId || String(message?.turnId ?? "") !== String(excludeTurnId));
     threadMsgs = msgs.slice(-THREAD_WINDOW).map((m) => `${m.role}: ${clip(String(m.text ?? ""), MSG_CLIP)}`);
   } catch {
     /* no thread yet */
@@ -873,6 +889,360 @@ async function appendMaterializedTurn(telemetry) {
   }
 }
 
+// ── Durable Web input FIFO ──────────────────────────────────────────────────
+// Browser requests are admissions, not runtime ownership. The server persists a
+// per-thread FIFO and promotes exactly one input at a time. `inputId` is the Web
+// admission coordinate; the gateway supplies a separate opaque `generationId`
+// in its first `open` frame. Every live frame carries both once known.
+const inputWorkers = new Map();
+const DEFAULT_GATEWAY_OPEN_TIMEOUT_MS = 30_000;
+
+async function retryAuthoritativeWrites(writes, label) {
+  let pending = [...writes];
+  let delayMs = 100;
+  while (pending.length > 0) {
+    const retry = [];
+    for (const work of pending) {
+      try {
+        await work();
+      } catch (err) {
+        retry.push(work);
+        console.error(`[web-channel] authoritative persistence retry failed for ${label}: ${err.message}`);
+      }
+    }
+    pending = retry;
+    if (pending.length > 0) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, delayMs);
+        timer.unref?.();
+      });
+      delayMs = Math.min(delayMs * 2, 5_000);
+    }
+  }
+}
+
+function workerKey(opts, threadId) {
+  return `${opts.gatewayUrl}\n${threadId}`;
+}
+
+function inputLifecycle(input, extra = {}) {
+  return {
+    inputId: input.inputId,
+    clientRequestId: input.clientRequestId,
+    state: input.state,
+    ...(input.acceptedAt ? { acceptedAt: input.acceptedAt } : {}),
+    ...(input.startedAt ? { startedAt: input.startedAt } : {}),
+    ...(input.generationId ? { generationId: input.generationId } : {}),
+    ...(Number.isInteger(input.position) ? { position: input.position } : {}),
+    ...extra,
+  };
+}
+
+function publishInputLifecycle(input, extra = {}) {
+  appendInputLiveFrame(input.inputId, { event: "input", data: inputLifecycle(input, extra) });
+}
+
+function parseFrameObject(data) {
+  try {
+    const parsed = data ? JSON.parse(data) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function stampInputFrame(name, data, inputId, generationId) {
+  const parsed = parseFrameObject(data);
+  if (!parsed) return { event: name, data };
+  const stamped = {
+    ...parsed,
+    inputId,
+    ...(generationId ? { generationId } : {}),
+  };
+  if (name === "session_event") stamped.turnId = inputId;
+  return { event: name, data: JSON.stringify(stamped), payload: stamped };
+}
+
+async function runQueuedInput(threadId, input, opts) {
+  const target = new URL("/chat/stream", opts.gatewayUrl);
+  const { context: assembledContext, telemetry } = await assembleMaterializedContext(threadId, {
+    excludeTurnId: input.inputId,
+  });
+  void appendMaterializedTurn(telemetry);
+  const payload = JSON.stringify(buildGatewayChatBody({
+    message: input.message,
+    context: assembledContext,
+    classification: input.classification,
+    sessionId: threadId,
+    routing: input.routing,
+    turnSeq: input.turnSeq,
+    autonomous: input.autonomous,
+  }));
+
+  let generationId = null;
+  let protocolFailed = false;
+  let cancelOpenWatchdog = () => {};
+  let preRoute = null;
+  let terminal = null;
+  let persistence = Promise.resolve();
+  const failedWrites = [];
+  const queueThreadWrite = (work) => {
+    persistence = persistence.then(work).catch((err) => {
+      failedWrites.push(work);
+      console.error(`[web-channel] failed to persist input ${input.inputId} in thread ${threadId}: ${err.message}`);
+    });
+    return persistence;
+  };
+  const queueSession = (frame) => {
+    const sessionId = frame?.session_id ?? frame?.sessionId;
+    if (sessionId) queueThreadWrite(() => setThreadSession(threadId, String(sessionId)));
+  };
+  const persistDone = (frame) => {
+    if (terminal) return;
+    terminal = frame?.stopped_by_user === true || frame?.stoppedByUser === true ? "stopped" : "settled";
+    const reply = frame?.reply;
+    const durableReply = typeof reply === "string" && reply.trim()
+      ? reply
+      : "_The operative returned an empty reply. Try sending again._";
+    queueThreadWrite(() => appendMessages(threadId, [{
+      role: "assistant",
+      text: durableReply,
+      turnId: input.inputId,
+      route: attributionFromFrame({ ...(preRoute ?? {}), ...frame }) ?? undefined,
+    }], { idempotencyKey: `input-reply:${input.inputId}` }));
+    queueSession(frame);
+  };
+  const persistFailed = (reason) => {
+    if (terminal) return;
+    terminal = "failed";
+    const why = String(reason || "turn did not complete").slice(0, 200);
+    const route = attributionFromFrame({ ...(preRoute ?? {}), pending: null, stoppedReason: why });
+    queueThreadWrite(() => appendMessages(threadId, [{
+      role: "assistant",
+      text: `_Turn did not complete: ${why}._`,
+      turnId: input.inputId,
+      route: route ?? undefined,
+    }], { idempotencyKey: `input-reply:${input.inputId}` }));
+  };
+  const failProtocol = (reason) => {
+    if (protocolFailed || terminal) return;
+    protocolFailed = true;
+    const stampedError = stampInputFrame("error", JSON.stringify({ error: reason }), input.inputId, generationId);
+    appendInputLiveFrame(input.inputId, stampedError);
+    persistFailed(reason);
+  };
+
+  let frameChain = Promise.resolve();
+  const handleFrame = async ({ event: name, data }) => {
+    const raw = parseFrameObject(data);
+    if (name === "open") {
+      const candidate = typeof raw?.generationId === "string" ? raw.generationId.trim() : "";
+      if (!candidate) {
+        failProtocol("gateway open frame did not include a generationId");
+        return;
+      }
+      if (generationId) {
+        if (candidate !== generationId) {
+          failProtocol("gateway emitted a conflicting generationId after open");
+        }
+        return;
+      }
+      if (protocolFailed || terminal) return;
+      const running = await bindThreadInputGeneration(threadId, input.inputId, candidate);
+      if (!running) {
+        failProtocol("gateway generation did not match the promoted input");
+        return;
+      }
+      generationId = candidate;
+      cancelOpenWatchdog();
+      publishInputLifecycle(running);
+    } else if (!generationId) {
+      failProtocol(`gateway emitted ${name || "data"} before its open frame`);
+      return;
+    }
+
+    if (protocolFailed || terminal) return;
+
+    const stamped = stampInputFrame(name, data, input.inputId, generationId);
+    appendInputLiveFrame(input.inputId, stamped);
+    const frame = stamped.payload ?? raw ?? {};
+    if (name === "session_event") {
+      queueThreadWrite(() => appendSessionEvent(threadId, frame));
+    } else if (name === "route") {
+      preRoute = { ...(preRoute ?? {}), ...frame };
+      queueSession(frame);
+    } else if (name === "error") {
+      persistFailed(String(frame?.error ?? "stream error"));
+    } else if (name === "done") {
+      persistDone(frame);
+    }
+  };
+  const decoder = new SseFrameDecoder((frame) => {
+    frameChain = frameChain.then(() => handleFrame(frame));
+  });
+
+  await new Promise((resolve) => {
+    let finished = false;
+    let upstreamResponse = null;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      cancelOpenWatchdog();
+      resolve();
+    };
+    const upstream = http.request({
+      method: "POST",
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        Accept: "text/event-stream",
+      },
+    }, (up) => {
+      upstreamResponse = up;
+      if (up.statusCode && up.statusCode >= 400) {
+        const reason = `upstream ${up.statusCode}`;
+        const frame = stampInputFrame("error", JSON.stringify({ error: reason }), input.inputId, generationId);
+        appendInputLiveFrame(input.inputId, frame);
+        persistFailed(reason);
+        up.resume();
+        up.on("end", finish);
+        return;
+      }
+      up.on("data", (chunk) => decoder.push(chunk));
+      up.on("end", finish);
+      up.on("error", (err) => {
+        const frame = stampInputFrame("error", JSON.stringify({ error: err.message }), input.inputId, generationId);
+        appendInputLiveFrame(input.inputId, frame);
+        persistFailed(err.message);
+        finish();
+      });
+    });
+    upstream.on("error", (err) => {
+      const frame = stampInputFrame("error", JSON.stringify({ error: err.message }), input.inputId, generationId);
+      appendInputLiveFrame(input.inputId, frame);
+      persistFailed(err.message);
+      finish();
+    });
+    const configuredTimeout = Number(opts.gatewayOpenTimeoutMs);
+    const openTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? configuredTimeout
+      : DEFAULT_GATEWAY_OPEN_TIMEOUT_MS;
+    const watchdog = setTimeout(() => {
+      if (generationId || terminal) return;
+      const reason = `gateway did not open the input within ${openTimeoutMs}ms`;
+      failProtocol(reason);
+      upstreamResponse?.destroy(new Error(reason));
+      upstream.destroy(new Error(reason));
+      finish();
+    }, openTimeoutMs);
+    watchdog.unref?.();
+    cancelOpenWatchdog = () => clearTimeout(watchdog);
+    upstream.write(payload);
+    upstream.end();
+  });
+
+  await frameChain;
+  if (!terminal) {
+    const reason = "the gateway stream ended without a done event";
+    const frame = stampInputFrame("error", JSON.stringify({ error: reason }), input.inputId, generationId);
+    appendInputLiveFrame(input.inputId, frame);
+    persistFailed(reason);
+  }
+  await persistence;
+  await retryAuthoritativeWrites(failedWrites, `input ${input.inputId} in thread ${threadId}`);
+  let settled = null;
+  await retryAuthoritativeWrites([async () => {
+    settled = await settleThreadInput(threadId, input.inputId, terminal ?? "failed", {
+      ...(generationId ? { generationId } : {}),
+      ...(terminal === "failed" ? { reason: "turn did not complete" } : {}),
+    });
+    if (!settled) throw new Error("durable input identity no longer matched its terminal outcome");
+  }], `settlement ${input.inputId} in thread ${threadId}`);
+  publishInputLifecycle(settled);
+  finishInputLive(threadId, input.inputId, terminal ?? "failed");
+}
+
+async function processThreadInputs(threadId, opts) {
+  for (;;) {
+    const input = await claimNextThreadInput(threadId);
+    if (!input) return;
+    if (!markInputActive(threadId, input.inputId, input.startedAt)) {
+      await settleThreadInput(threadId, input.inputId, "failed", { reason: "thread already has an active input" });
+      finishInputLive(threadId, input.inputId, "failed");
+      return;
+    }
+    publishInputLifecycle(input);
+    try {
+      await runQueuedInput(threadId, input, opts);
+    } catch (err) {
+      const reason = String(err?.message ?? "queued input failed");
+      appendInputLiveFrame(input.inputId, stampInputFrame("error", JSON.stringify({ error: reason }), input.inputId, null));
+      await retryAuthoritativeWrites([() => appendMessages(threadId, [{
+          role: "assistant",
+          text: `_Turn did not complete: ${reason.slice(0, 200)}._`,
+          turnId: input.inputId,
+          route: { stoppedReason: reason.slice(0, 200) },
+        }], { idempotencyKey: `input-reply:${input.inputId}` })],
+      `worker failure ${input.inputId} in thread ${threadId}`);
+      // Never acknowledge/remove the only durable copy of an input unless there
+      // is also a durable assistant outcome. Keep the exact worker/live owner
+      // while storage is unavailable, then continue the FIFO after recovery.
+      let failed = null;
+      await retryAuthoritativeWrites([async () => {
+        failed = await settleThreadInput(threadId, input.inputId, "failed", { reason });
+        if (!failed) throw new Error("durable input identity no longer matched its worker failure");
+      }], `worker failure settlement ${input.inputId} in thread ${threadId}`);
+      publishInputLifecycle(failed);
+      finishInputLive(threadId, input.inputId, "failed");
+    }
+  }
+}
+
+function scheduleThreadInputs(threadId, opts) {
+  const key = workerKey(opts, threadId);
+  if (inputWorkers.has(key)) return;
+  const worker = processThreadInputs(threadId, opts).finally(() => {
+    if (inputWorkers.get(key) === worker) inputWorkers.delete(key);
+  });
+  inputWorkers.set(key, worker);
+}
+
+async function admitWebInput(threadId, raw, opts, { legacy = false } = {}) {
+  const thread = await getThread(threadId) ?? (legacy ? await ensureThread({ id: threadId }) : null);
+  if (!thread) return { status: 404, error: "thread not found" };
+  const routing = mergeTurnRouting(thread.routing ?? null, raw?.routing);
+  const clientRequestId = typeof raw?.clientRequestId === "string" && raw.clientRequestId.trim()
+    ? raw.clientRequestId.trim()
+    : (legacy ? `legacy:${Date.now()}:${Math.random().toString(36).slice(2)}` : "");
+  let admitted;
+  try {
+    admitted = await admitThreadInput(threadId, {
+      message: raw?.message,
+      clientRequestId,
+      routing,
+      classification: raw?.classification,
+      autonomous: raw?.autonomous,
+      turnSeq: raw?.turnSeq,
+    });
+  } catch (err) {
+    return { status: err?.code === "QUEUE_FULL" ? 429 : 400, error: err.message };
+  }
+  if (!admitted) return { status: 404, error: "thread not found" };
+  const input = admitted.input;
+  if (!admitted.duplicate) {
+    startInputLive(input.inputId, input.acceptedAt);
+    publishInputLifecycle(input);
+    setImmediate(() => scheduleThreadInputs(threadId, opts));
+  } else if (input.state === "queued") {
+    startInputLive(input.inputId, input.acceptedAt);
+    setImmediate(() => scheduleThreadInputs(threadId, opts));
+  }
+  return { status: 202, input, duplicate: admitted.duplicate };
+}
+
 async function handleChat(req, res, opts) {
   let body;
   try {
@@ -890,49 +1260,31 @@ async function handleChat(req, res, opts) {
   // persisted into it server-side. The USER side is written before the upstream
   // opens; the assistant side lands only when that upstream settles.
   const threadId = typeof body?.thread === "string" && body.thread.trim() ? body.thread.trim() : null;
-  // The pins in force for THIS turn: the thread's persisted (conversation-sticky)
-  // TurnRouting with the request's own `routing` laid over it. Read the thread again
-  // rather than threading it out of the context assembly above - that helper's return
-  // shape is a pinned contract of its own (tests/s3b-materialized.test.ts) and a
-  // thread file is a couple of KB.
-  const pinned = threadId ? (await getThread(threadId))?.routing ?? null : null;
-  const routing = mergeTurnRouting(pinned, body?.routing);
-  // S3b: MATERIALIZE the turn — assemble bounded deterministic context from this
-  // thread's PRIOR history + board cards, and record the bounded-context telemetry.
-  // This deliberately runs before appending the current ask: the explicit gateway
-  // `message` is authoritative and must not also appear inside its own context.
-  const { context: assembledContext, telemetry } = await assembleMaterializedContext(threadId);
-  void appendMaterializedTurn(telemetry);
   if (threadId) {
-    // Await this tiny atomic write before opening the upstream: navigating away
-    // can never reopen a running thread that has forgotten the ask. The trailing
-    // unanswered user message is already a supported history shape (toHistory).
-    try {
-      await appendMessages(threadId, [{
-        role: "user",
-        text: message,
-        overrides: routing ?? undefined,
-        ...(Number.isInteger(body?.turnSeq) && body.turnSeq >= 0 ? { turnId: String(body.turnSeq) } : {}),
-      }]);
-    } catch (err) {
-      // A persistence fault must be visible in logs, but it must not silently turn
-      // the chat channel into a runtime outage.
-      console.error(`[web-channel] failed to persist user turn into thread ${threadId}: ${err.message}`);
+    // Compatibility wrapper: old clients still POST /api/chat and expect the SSE
+    // on that response, but execution now goes through the same durable FIFO as
+    // the receipt-first endpoint. Closing this response never cancels the worker.
+    const admitted = await admitWebInput(threadId, { ...body, message }, opts, { legacy: true });
+    if (admitted.error) return jsonRes(res, admitted.status, { error: admitted.error });
+    if (!admitted.input || !["queued", "starting", "running", "stopping"].includes(admitted.input.state)) {
+      return jsonRes(res, 409, { error: "input already settled", input: admitted.input ?? null });
     }
+    return handleInputLive(req, res, admitted.input.inputId);
   }
-  // Forward assembled context and explicit routing through to the gateway.
+
+  // A threadless legacy request has no durable FIFO owner. Preserve that narrow
+  // compatibility path; the primary Web UI always has a thread and uses inputs.
   const payload = JSON.stringify(
     buildGatewayChatBody({
       message,
-      context: assembledContext ?? body?.context,
+      context: body?.context,
       classification: body?.classification,
-      sessionId: threadId,
-      routing,
-      turnSeq: body?.turnSeq
+      routing: sanitizeRouting(body?.routing),
+      turnSeq: body?.turnSeq,
+      autonomous: body?.autonomous,
     })
   );
   const target = new URL("/chat/stream", opts.gatewayUrl);
-  if (threadId) markRunning(threadId);
   pipeChatSse(req, res, {
     method: "POST",
     hostname: target.hostname,
@@ -943,7 +1295,7 @@ async function handleChat(req, res, opts) {
       "Content-Length": Buffer.byteLength(payload),
       Accept: "text/event-stream"
     }
-  }, payload, { threadId });
+  }, payload);
 }
 
 // POST a JSON object to a gateway path and stream the reply straight back. The
@@ -1005,6 +1357,12 @@ async function handleChatInterrupt(req, res, opts) {
   const raw = typeof body?.sessionId === "string" && body.sessionId.trim()
     ? body.sessionId
     : (typeof body?.thread === "string" && body.thread.trim() ? body.thread : CHANNEL_ID);
+  if (activeInputId(raw.trim())) {
+    return jsonRes(res, 409, {
+      error: "an exact generationId is required for an active Web input",
+      endpoint: `/api/threads/${encodeURIComponent(raw.trim())}/interrupt`,
+    });
+  }
   postGatewayJson(res, opts, "/chat/interrupt", { sessionId: raw.trim() });
 }
 
@@ -1127,18 +1485,25 @@ async function handleThreadCreate(req, res) {
 }
 
 async function handleThreadGet(res, id) {
-  const thread = await getThread(id);
-  if (!thread) return jsonRes(res, 404, { error: "thread not found" });
+  const snapshot = await getThreadSnapshot(id);
+  if (!snapshot) return jsonRes(res, 404, { error: "thread not found" });
   // The client rebuilds a reopened thread from persisted history, which is empty
   // for a turn still in flight. Without this it cannot tell "idle" from "working"
   // and the conversation looks dead until the reply lands.
-  jsonRes(res, 200, { thread: { ...thread, runningSince: runningSince(id) } });
+  jsonRes(res, 200, {
+    thread: {
+      ...snapshot.thread,
+      pendingInputs: snapshot.pendingInputs,
+      inputRevision: snapshot.inputRevision,
+      runningSince: runningSince(id),
+    },
+  });
 }
 
 // Replay the buffered prefix of a running turn, then follow new frames until the
 // producer settles. The URL is deliberately same-origin and contains only the
 // opaque thread id; no gateway address or machine-local path reaches the browser.
-function handleThreadLive(req, res, id) {
+function handleInputLive(req, res, inputId) {
   let closed = false;
   let keep = null;
   let subscription = null;
@@ -1160,8 +1525,8 @@ function handleThreadLive(req, res, id) {
     }
   };
 
-  subscription = subscribeLive(id, { onFrame: writeFrame, onEnd: end });
-  if (!subscription) return jsonRes(res, 404, { error: "thread has no running turn" });
+  subscription = subscribeInputLive(inputId, { onFrame: writeFrame, onEnd: end });
+  if (!subscription) return jsonRes(res, 404, { error: "input has no live stream" });
 
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/event-stream");
@@ -1179,6 +1544,12 @@ function handleThreadLive(req, res, id) {
   res.on("close", stop);
 }
 
+function handleThreadLive(req, res, id) {
+  const inputId = activeInputId(id);
+  if (!inputId) return jsonRes(res, 404, { error: "thread has no running turn" });
+  return handleInputLive(req, res, inputId);
+}
+
 async function handleThreadAppend(req, res, id) {
   let body;
   try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
@@ -1189,6 +1560,87 @@ async function handleThreadAppend(req, res, id) {
   } catch (err) {
     jsonRes(res, 400, { error: err.message });
   }
+}
+
+async function handleThreadInputsGet(res, id) {
+  const snapshot = await getThreadSnapshot(id);
+  if (!snapshot) return jsonRes(res, 404, { error: "thread not found" });
+  jsonRes(res, 200, { inputs: snapshot.pendingInputs, inputRevision: snapshot.inputRevision });
+}
+
+async function handleThreadInputCreate(req, res, opts, id) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return jsonRes(res, 400, { error: "input body must be an object" });
+  }
+  const allowed = new Set(["message", "clientRequestId", "routing", "classification", "autonomous", "turnSeq"]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) {
+    return jsonRes(res, 400, { error: "input body contains unsupported fields" });
+  }
+  const admitted = await admitWebInput(id, body, opts);
+  if (admitted.error) return jsonRes(res, admitted.status, { error: admitted.error });
+  jsonRes(res, 202, { input: admitted.input, duplicate: admitted.duplicate });
+}
+
+async function handleThreadInputLive(req, res, id, inputId) {
+  const input = await getThreadInput(id, inputId);
+  if (!input) return jsonRes(res, 404, { error: "input not found" });
+  if (!["queued", "starting", "running", "stopping"].includes(input.state)) {
+    return jsonRes(res, 409, { error: "input is already settled", input });
+  }
+  return handleInputLive(req, res, inputId);
+}
+
+async function gatewayJsonRequest(opts, pathname, body) {
+  try {
+    const response = await fetch(new URL(pathname, opts.gatewayUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const text = await response.text();
+    let payload;
+    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { error: text || `gateway ${response.status}` }; }
+    return { status: response.status, payload };
+  } catch (err) {
+    return { status: 502, payload: { error: `gateway: ${err.message}` } };
+  }
+}
+
+async function handleThreadInterrupt(req, res, opts, id) {
+  const thread = await getThread(id);
+  if (!thread) return jsonRes(res, 404, { error: "thread not found" });
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || !Object.hasOwn(body, "generationId")) {
+    return jsonRes(res, 400, { error: "only generationId is accepted" });
+  }
+  const generationId = typeof body.generationId === "string" ? body.generationId.trim() : "";
+  if (!generationId || generationId.length > 512) return jsonRes(res, 400, { error: "valid generationId required" });
+  const inputId = activeInputId(id);
+  const input = inputId ? await getThreadInput(id, inputId) : null;
+  if (!input || !input.generationId) {
+    return jsonRes(res, 409, { error: input ? "input is still starting" : "thread has no active input" });
+  }
+  if (input.generationId !== generationId || !["running", "stopping"].includes(input.state)) {
+    return jsonRes(res, 409, { error: "generation does not own the active input" });
+  }
+  const gateway = await gatewayJsonRequest(opts, "/chat/interrupt", { threadId: id, generationId });
+  if (gateway.status >= 200 && gateway.status < 300) {
+    const stopping = await markThreadInputStopping(id, input.inputId, generationId);
+    if (stopping) publishInputLifecycle(stopping);
+  }
+  jsonRes(res, gateway.status, gateway.payload);
 }
 
 // The thread's pinned run context (contract §13). Autosave semantics, no Save
@@ -1253,6 +1705,7 @@ async function handleThreadPermission(req, res, opts, id, requestId) {
 }
 
 async function handleThreadDelete(res, id) {
+  if (await threadHasPendingInputs(id)) return jsonRes(res, 409, { ok: false, error: "thread has pending inputs" });
   const ok = await deleteThread(id);
   jsonRes(res, ok ? 200 : 404, { ok });
 }
@@ -1271,6 +1724,13 @@ function routeThreads(req, res, pathname, method, opts) {
     if (id && parts.length === 1 && method === "GET") { void handleThreadGet(res, id); return true; }
     if (id && parts.length === 1 && method === "DELETE") { void handleThreadDelete(res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "live" && method === "GET") { handleThreadLive(req, res, id); return true; }
+    if (id && parts.length === 2 && parts[1] === "inputs" && method === "GET") { void handleThreadInputsGet(res, id); return true; }
+    if (id && parts.length === 2 && parts[1] === "inputs" && method === "POST") { void handleThreadInputCreate(req, res, opts, id); return true; }
+    if (id && parts.length === 2 && parts[1] === "interrupt" && method === "POST") { void handleThreadInterrupt(req, res, opts, id); return true; }
+    if (id && parts.length === 4 && parts[1] === "inputs" && parts[2] && parts[3] === "live" && method === "GET") {
+      void handleThreadInputLive(req, res, id, parts[2]);
+      return true;
+    }
     if (id && parts.length === 2 && parts[1] === "messages" && method === "POST") { void handleThreadAppend(req, res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "routing" && method === "GET") { void handleThreadRoutingGet(res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "routing" && method === "PUT") { void handleThreadRoutingPut(req, res, id); return true; }

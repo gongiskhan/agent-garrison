@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// node_modules/@xterm/xterm/lib/xterm.js
+// ../../../node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// node_modules/@xterm/addon-fit/lib/addon-fit.js
+// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// node_modules/highlight.js/lib/core.js
+// ../../../node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "node_modules/highlight.js/lib/core.js"(exports, module) {
+  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// fittings/seed/dev-env/ui/main.tsx
+// ui/main.tsx
 var import_react9 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// fittings/seed/dev-env/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// fittings/seed/dev-env/ui/terminal-theme.ts
+// ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// fittings/seed/dev-env/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// fittings/seed/dev-env/ui/chat-pane.tsx
+// ui/chat-pane.tsx
 var import_react5 = __toESM(require_react());
 
-// packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
 var import_react4 = __toESM(require_react(), 1);
 
-// node_modules/marked/lib/marked.esm.js
+// ../../../node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// node_modules/highlight.js/es/core.js
+// ../../../node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// node_modules/highlight.js/es/languages/typescript.js
+// ../../../node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// node_modules/highlight.js/es/languages/javascript.js
+// ../../../node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/python.js
+// ../../../node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/bash.js
+// ../../../node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/json.js
+// ../../../node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/css.js
+// ../../../node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/xml.js
+// ../../../node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/markdown.js
+// ../../../node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/yaml.js
+// ../../../node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/sql.js
+// ../../../node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/rust.js
+// ../../../node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/go.js
+// ../../../node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/diff.js
+// ../../../node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,10 +39813,379 @@ function diff(hljs) {
   };
 }
 
-// packages/claude-chat/src/AttributionRail.tsx
+// ../../../packages/claude-chat/src/journal.ts
+var FANOUT_TOOL_NAMES = /* @__PURE__ */ new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
+function isSessionEvent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const event = value;
+  if (event.id !== null && typeof event.id !== "string") return false;
+  if (typeof event.role !== "string" || !Array.isArray(event.blocks)) return false;
+  return event.blocks.every(
+    (block2) => Boolean(block2) && typeof block2 === "object" && !Array.isArray(block2) && typeof block2.type === "string"
+  );
+}
+function sessionEventText(event) {
+  return (event.blocks ?? []).filter((block2) => block2.type === "text" && typeof block2.text === "string").map((block2) => block2.text ?? "").join("");
+}
+function sessionEventTerminalText(event) {
+  for (let index = event.blocks.length - 1; index >= 0; index -= 1) {
+    const block2 = event.blocks[index];
+    if (block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim()) return block2.result;
+  }
+  return "";
+}
+function sessionActivityBeats(events) {
+  const beats = [];
+  for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
+    const event = events[eventIndex];
+    for (let blockIndex = 0; blockIndex < event.blocks.length; blockIndex += 1) {
+      const block2 = event.blocks[blockIndex];
+      if (block2.type === "text" && typeof block2.text === "string") {
+        const previous = beats[beats.length - 1];
+        if (previous?.type === "text" && previous.eventIndex === eventIndex) {
+          previous.text += block2.text;
+        } else {
+          beats.push({ type: "text", eventIndex, blockIndex, text: block2.text });
+        }
+      } else if (block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "") {
+        beats.push({ type: "error", eventIndex, blockIndex, text: block2.text });
+      } else if (block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request") {
+        beats.push({ type: block2.type, eventIndex, blockIndex, block: block2 });
+      }
+    }
+  }
+  return beats;
+}
+function groupSessionTurns(events) {
+  const turns = [];
+  let current = null;
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (event.role === "user" && !event.toolResultsOnly) {
+      current = {
+        key: event.id || `user-turn-${index}`,
+        userEvents: [event],
+        assistantEvents: []
+      };
+      turns.push(current);
+      continue;
+    }
+    if (event.role !== "assistant") continue;
+    if (!current) {
+      current = {
+        key: event.id ? `assistant-turn-${event.id}` : `assistant-turn-${index}`,
+        userEvents: [],
+        assistantEvents: []
+      };
+      turns.push(current);
+    }
+    current.assistantEvents.push(event);
+  }
+  return turns;
+}
+function presentSessionTurn(turn, live) {
+  const textual = turn.assistantEvents.map((event, eventIndex) => ({ eventIndex, text: sessionEventTerminalText(event) || sessionEventText(event) })).filter((entry) => entry.text.trim() !== "");
+  if (live) {
+    return {
+      primaryText: textual.map((entry) => entry.text).join("\n\n"),
+      interimText: [],
+      finalTextEventIndex: null
+    };
+  }
+  const final = textual[textual.length - 1] ?? null;
+  return {
+    primaryText: final?.text ?? "",
+    interimText: final ? textual.slice(0, -1).map((entry) => entry.text) : [],
+    finalTextEventIndex: final?.eventIndex ?? null
+  };
+}
+function parseToolInput(input) {
+  if (!input) return null;
+  if (typeof input === "object" && !Array.isArray(input)) return input;
+  if (typeof input !== "string") return null;
+  try {
+    const parsed = JSON.parse(input);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function compact(value, cap = 110) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > cap ? `${text.slice(0, cap - 1)}\u2026` : text;
+}
+function stringField(input, ...keys) {
+  for (const key of keys) {
+    const value = input?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+function sessionToolSummary(block2) {
+  const input = parseToolInput(block2.input);
+  const name = String(block2.name ?? "tool").split(/[.:/]/).pop()?.toLowerCase() ?? "tool";
+  if (name === "bash" || name === "shell" || name === "exec" || name === "exec_command") {
+    return compact(stringField(input, "command", "cmd") || block2.input);
+  }
+  if (name === "read" || name === "write" || name === "edit" || name === "multiedit") {
+    return compact(stringField(input, "file_path", "path", "file"));
+  }
+  if (name === "grep" || name === "glob" || name === "search") {
+    const pattern = stringField(input, "pattern", "query");
+    const where = stringField(input, "path", "cwd");
+    return compact([pattern, where && `in ${where}`].filter(Boolean).join(" "));
+  }
+  if (isFanoutTool(block2.name)) {
+    return compact(stringField(input, "description", "task", "name", "prompt"));
+  }
+  return compact(
+    stringField(input, "description", "query", "url", "path", "file_path", "command", "cmd", "pattern", "prompt") || (typeof block2.input === "string" ? block2.input : JSON.stringify(block2.input))
+  );
+}
+function sessionThinkingSummary(text) {
+  const clean = String(text ?? "").replace(/[`*_>#-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!clean) return "Reasoning";
+  const sentence = clean.match(/^(.{1,110}?)(?:[.!?](?:\s|$)|$)/)?.[1] ?? clean;
+  return compact(sentence, 96);
+}
+function isFanoutTool(name) {
+  const leaf = String(name ?? "").split(/[.:/]/).pop()?.toLowerCase() ?? "";
+  return FANOUT_TOOL_NAMES.has(leaf);
+}
+function latestBlocksByToolUse(events, type) {
+  const out = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    for (const block2 of event.blocks ?? []) {
+      if (block2.type === type && block2.toolUseId) out.set(block2.toolUseId, block2);
+    }
+  }
+  return out;
+}
+function hasVisibleSessionActivity(events) {
+  return events.some(
+    (event) => event.role === "assistant" && !event.toolResultsOnly && event.blocks.some(
+      (block2) => block2.type === "text" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== "" || block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request"
+    )
+  );
+}
+function canonicalRevision(event) {
+  const revision = event.revision;
+  return typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : null;
+}
+function shouldReplaceSessionEvent(current, incoming) {
+  const currentRevision = canonicalRevision(current);
+  const incomingRevision = canonicalRevision(incoming);
+  if (currentRevision !== null && incomingRevision !== null) return incomingRevision > currentRevision;
+  if (currentRevision !== null) return false;
+  if (incomingRevision !== null) return true;
+  return current !== incoming;
+}
+function mergeSessionEvents(current, incoming) {
+  if (!incoming.length) return current;
+  let next = current;
+  const indexes = /* @__PURE__ */ new Map();
+  current.forEach((event, index) => {
+    if (event.id && !indexes.has(event.id)) indexes.set(event.id, index);
+  });
+  for (const event of incoming) {
+    const index = event.id ? indexes.get(event.id) : void 0;
+    if (index === void 0) {
+      if (next === current) next = current.slice();
+      if (event.id) indexes.set(event.id, next.length);
+      next.push(event);
+    } else if (shouldReplaceSessionEvent(next[index], event)) {
+      if (next === current) next = current.slice();
+      next[index] = event;
+    }
+  }
+  return next;
+}
+function normaliseTaskStatus(value, fallback) {
+  const status = String(value ?? "").toLowerCase();
+  if (["running", "active", "streaming", "started", "pending"].includes(status)) return "running";
+  if (["complete", "completed", "done", "success", "succeeded"].includes(status)) return "completed";
+  if (["failed", "error", "cancelled", "canceled"].includes(status)) return "failed";
+  return fallback;
+}
+function sameOriginStreamUrl(value) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!/^\/(?!\/)/.test(url) || url.includes("\\") || /(?:^|\/)\.\.(?:\/|$)/.test(url)) return null;
+  return url;
+}
+function collectRelatedTasks(events, live = false) {
+  const results = latestBlocksByToolUse(events, "tool_result");
+  const progress = latestBlocksByToolUse(events, "tool_progress");
+  const byKey = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    for (const block2 of event.blocks ?? []) {
+      if (block2.type === "related_task") {
+        const key2 = block2.taskId || block2.toolUseId || event.id;
+        if (!key2) continue;
+        const aliased = block2.toolUseId ? [...byKey.values()].find((candidate) => candidate.toolUseId === block2.toolUseId) : void 0;
+        const previous = byKey.get(key2) ?? aliased;
+        if (aliased && aliased.key !== key2) byKey.delete(aliased.key);
+        const result2 = block2.toolUseId ? results.get(block2.toolUseId) : void 0;
+        const fallback2 = result2 ? result2.isError ? "failed" : "completed" : previous?.status ?? "unknown";
+        byKey.set(key2, {
+          key: key2,
+          toolUseId: block2.toolUseId ?? previous?.toolUseId ?? null,
+          taskId: block2.taskId ?? previous?.taskId ?? null,
+          label: compact(block2.name || previous?.label || "Related task", 80),
+          detail: compact(block2.detail || previous?.detail || "", 60) || null,
+          status: result2 ? fallback2 : normaliseTaskStatus(block2.status, fallback2),
+          text: block2.text ? compact(block2.text, 160) : previous?.text ?? null,
+          streamUrl: sameOriginStreamUrl(block2.streamUrl) ?? previous?.streamUrl ?? null
+        });
+        continue;
+      }
+      if (block2.type !== "tool_use" || !isFanoutTool(block2.name)) continue;
+      const toolUseId = block2.toolUseId ?? null;
+      const input = parseToolInput(block2.input);
+      const result = toolUseId ? results.get(toolUseId) : void 0;
+      const beat = toolUseId ? progress.get(toolUseId) : void 0;
+      const taskId = beat?.taskId ?? (stringField(input, "task_id", "taskId", "resume") || null);
+      const label = compact(stringField(input, "description", "task", "name") || sessionToolSummary(block2) || block2.name || "Related task", 80);
+      const detail = compact(stringField(input, "subagent_type", "subagentType", "kind", "model"), 60) || null;
+      const fallback = result ? result.isError ? "failed" : "completed" : live ? "running" : "unknown";
+      const key = taskId || toolUseId || `${event.id ?? "event"}:${label}`;
+      byKey.set(key, {
+        key,
+        toolUseId,
+        taskId,
+        label,
+        detail,
+        status: result ? fallback : normaliseTaskStatus(beat?.status, fallback),
+        text: beat?.text ? compact(beat.text, 160) : null,
+        streamUrl: sameOriginStreamUrl(beat?.streamUrl)
+      });
+    }
+  }
+  return [...byKey.values()];
+}
+
+// ../../../packages/claude-chat/src/transport.ts
+var CHAT_INPUT_STATES = /* @__PURE__ */ new Set([
+  "queued",
+  "starting",
+  "running",
+  "stopping",
+  "settled",
+  "stopped",
+  "failed"
+]);
+function isChatInputReceipt(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const input = value;
+  const optionalText = (key, nonEmpty = false) => input[key] === void 0 || typeof input[key] === "string" && (!nonEmpty || Boolean(input[key].trim()));
+  return typeof input.clientRequestId === "string" && Boolean(input.clientRequestId.trim()) && typeof input.inputId === "string" && Boolean(input.inputId.trim()) && typeof input.state === "string" && CHAT_INPUT_STATES.has(input.state) && optionalText("generationId", true) && optionalText("acceptedAt") && optionalText("reason") && (input.position === void 0 || typeof input.position === "number" && Number.isInteger(input.position) && input.position >= 0);
+}
+function createHttpTransport(base = "/api", opts) {
+  const b = base.replace(/\/$/, "");
+  const post = async (path, body) => {
+    const res = await fetch(`${b}/claude/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : void 0
+    });
+    if (!res.ok) throw new Error(`${path} ${res.status}`);
+    return res.json().catch(() => ({}));
+  };
+  return {
+    base: b,
+    connect(onEvent) {
+      let es = null;
+      let closed = false;
+      const open = () => {
+        if (closed) return;
+        es = new EventSource(`${b}/claude/stream`);
+        es.addEventListener("open", () => onEvent({ type: "connection", state: "open" }));
+        const on = (name) => es.addEventListener(name, (e) => {
+          try {
+            onEvent({ type: name, ...JSON.parse(e.data) });
+          } catch {
+          }
+        });
+        on("hello");
+        on("assistant");
+        es.addEventListener("session_event", (e) => {
+          try {
+            const event = JSON.parse(e.data);
+            if (isSessionEvent(event)) onEvent({ type: "session_event", event });
+          } catch {
+          }
+        });
+        on("status");
+        on("turn");
+        on("screen");
+        on("tool");
+        on("route");
+        on("activity");
+        on("error");
+        es.onerror = () => {
+          onEvent({ type: "connection", state: "reconnecting" });
+          if (es && es.readyState === EventSource.CLOSED && !closed) {
+            es.close();
+            setTimeout(open, 1500);
+          }
+        };
+      };
+      open();
+      return () => {
+        closed = true;
+        es?.close();
+        onEvent({ type: "connection", state: "closed" });
+      };
+    },
+    async sendMessage(text) {
+      await post("message", { text });
+    },
+    async sendCommand(text) {
+      await post("message", { text });
+    },
+    async sendKey(key) {
+      await post("keys", { key });
+    },
+    async setMode(mode3) {
+      return await post("mode", { mode: mode3 });
+    },
+    async interrupt() {
+      await post("interrupt");
+    },
+    async answerQuestion(answer) {
+      await post("answer", {
+        tool_use_id: answer.toolUseId,
+        ...answer.label !== void 0 ? { label: answer.label } : {},
+        ...answer.text !== void 0 ? { text: answer.text } : {},
+        ...answer.dismiss ? { dismiss: true } : {}
+      });
+    },
+    async fetchCommands() {
+      const res = await fetch(`${b}/claude/commands`);
+      if (!res.ok) return [];
+      const j = await res.json().catch(() => ({ commands: [] }));
+      return j.commands ?? [];
+    },
+    ...opts?.uploads ? {
+      async uploadFile(file) {
+        const res = await fetch(`${b}/attachments`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ filename: file.name, content_base64: file.base64 })
+        });
+        if (!res.ok) throw new Error(`attachments ${res.status}`);
+        const j = await res.json().catch(() => ({}));
+        return { path: String(j.path ?? ""), bytes: typeof j.bytes === "number" ? j.bytes : void 0 };
+      }
+    } : {}
+  };
+}
+
+// ../../../packages/claude-chat/src/AttributionRail.tsx
 var import_react2 = __toESM(require_react(), 1);
 
-// packages/claude-chat/src/run-context.ts
+// ../../../packages/claude-chat/src/run-context.ts
 function effortState(route) {
   const effort = str(route.effort);
   if (!effort) return null;
@@ -40007,7 +40376,7 @@ function railBadges(route) {
   return badges;
 }
 
-// packages/claude-chat/src/AttributionRail.tsx
+// ../../../packages/claude-chat/src/AttributionRail.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var BADGE_FIELDS = {
   duty: ["duty", "level"],
@@ -40476,7 +40845,7 @@ function AttributionRail({
     },
     [rows, menuIdx, closeMenu, focusIdx, applyRow]
   );
-  if (!badges.length) return null;
+  if (!badges.length && !children) return null;
   const badgeClass = (b) => [
     "cc-rbadge",
     b.tone ? `cc-rbadge-${b.tone}` : "",
@@ -40495,7 +40864,7 @@ function AttributionRail({
     b.pending ? "applies next turn" : null
   ].filter(Boolean).join(" - ");
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `cc-rail cc-rail-${variant}`, ref: railRef, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    badges.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       "div",
       {
         className: "cc-railscroll",
@@ -40642,7 +41011,7 @@ function AttributionRail({
   ] });
 }
 
-// packages/claude-chat/src/chat-theme.ts
+// ../../../packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -40709,7 +41078,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// packages/claude-chat/src/voice.ts
+// ../../../packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -40752,7 +41121,7 @@ function createVoiceClient(base = "") {
   };
 }
 
-// packages/claude-chat/src/sanitize.ts
+// ../../../packages/claude-chat/src/sanitize.ts
 function sanitizeAssistantBadges(raw) {
   const input = typeof raw === "string" ? raw : "";
   const meta = {};
@@ -40830,7 +41199,7 @@ function routeChipFromAttribution(route) {
   return { label, title: title2 || void 0 };
 }
 
-// packages/claude-chat/src/host-rewrite.ts
+// ../../../packages/claude-chat/src/host-rewrite.ts
 var LOOPBACK = /^(https?:\/\/)(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?=[:/?#]|$)/i;
 function rewriteHostUrl(raw, ctx) {
   if (!raw || !LOOPBACK.test(raw)) return raw;
@@ -40909,7 +41278,7 @@ function filePathMarkedExtension() {
   };
 }
 
-// packages/claude-chat/src/markdown-safety.ts
+// ../../../packages/claude-chat/src/markdown-safety.ts
 var serveMap = {};
 var hostMapPromise = null;
 function loadHostMap() {
@@ -40968,263 +41337,9 @@ function installSafeMarkdownRenderer(marked2, hostContext = hostCtx) {
   });
 }
 
-// packages/claude-chat/src/SessionTranscript.tsx
+// ../../../packages/claude-chat/src/SessionTranscript.tsx
 var React2 = __toESM(require_react(), 1);
 var import_react3 = __toESM(require_react(), 1);
-
-// packages/claude-chat/src/journal.ts
-var FANOUT_TOOL_NAMES = /* @__PURE__ */ new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
-function isSessionEvent(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const event = value;
-  if (event.id !== null && typeof event.id !== "string") return false;
-  if (typeof event.role !== "string" || !Array.isArray(event.blocks)) return false;
-  return event.blocks.every(
-    (block2) => Boolean(block2) && typeof block2 === "object" && !Array.isArray(block2) && typeof block2.type === "string"
-  );
-}
-function sessionEventText(event) {
-  return (event.blocks ?? []).filter((block2) => block2.type === "text" && typeof block2.text === "string").map((block2) => block2.text ?? "").join("");
-}
-function sessionEventTerminalText(event) {
-  for (let index = event.blocks.length - 1; index >= 0; index -= 1) {
-    const block2 = event.blocks[index];
-    if (block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim()) return block2.result;
-  }
-  return "";
-}
-function sessionActivityBeats(events) {
-  const beats = [];
-  for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
-    const event = events[eventIndex];
-    for (let blockIndex = 0; blockIndex < event.blocks.length; blockIndex += 1) {
-      const block2 = event.blocks[blockIndex];
-      if (block2.type === "text" && typeof block2.text === "string") {
-        const previous = beats[beats.length - 1];
-        if (previous?.type === "text" && previous.eventIndex === eventIndex) {
-          previous.text += block2.text;
-        } else {
-          beats.push({ type: "text", eventIndex, blockIndex, text: block2.text });
-        }
-      } else if (block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "") {
-        beats.push({ type: "error", eventIndex, blockIndex, text: block2.text });
-      } else if (block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request") {
-        beats.push({ type: block2.type, eventIndex, blockIndex, block: block2 });
-      }
-    }
-  }
-  return beats;
-}
-function groupSessionTurns(events) {
-  const turns = [];
-  let current = null;
-  for (let index = 0; index < events.length; index += 1) {
-    const event = events[index];
-    if (event.role === "user" && !event.toolResultsOnly) {
-      current = {
-        key: event.id || `user-turn-${index}`,
-        userEvents: [event],
-        assistantEvents: []
-      };
-      turns.push(current);
-      continue;
-    }
-    if (event.role !== "assistant") continue;
-    if (!current) {
-      current = {
-        key: event.id ? `assistant-turn-${event.id}` : `assistant-turn-${index}`,
-        userEvents: [],
-        assistantEvents: []
-      };
-      turns.push(current);
-    }
-    current.assistantEvents.push(event);
-  }
-  return turns;
-}
-function presentSessionTurn(turn, live) {
-  const textual = turn.assistantEvents.map((event, eventIndex) => ({ eventIndex, text: sessionEventTerminalText(event) || sessionEventText(event) })).filter((entry) => entry.text.trim() !== "");
-  if (live) {
-    return {
-      primaryText: textual.map((entry) => entry.text).join("\n\n"),
-      interimText: [],
-      finalTextEventIndex: null
-    };
-  }
-  const final = textual[textual.length - 1] ?? null;
-  return {
-    primaryText: final?.text ?? "",
-    interimText: final ? textual.slice(0, -1).map((entry) => entry.text) : [],
-    finalTextEventIndex: final?.eventIndex ?? null
-  };
-}
-function parseToolInput(input) {
-  if (!input) return null;
-  if (typeof input === "object" && !Array.isArray(input)) return input;
-  if (typeof input !== "string") return null;
-  try {
-    const parsed = JSON.parse(input);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-function compact(value, cap = 110) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (!text) return "";
-  return text.length > cap ? `${text.slice(0, cap - 1)}\u2026` : text;
-}
-function stringField(input, ...keys) {
-  for (const key of keys) {
-    const value = input?.[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
-function sessionToolSummary(block2) {
-  const input = parseToolInput(block2.input);
-  const name = String(block2.name ?? "tool").split(/[.:/]/).pop()?.toLowerCase() ?? "tool";
-  if (name === "bash" || name === "shell" || name === "exec" || name === "exec_command") {
-    return compact(stringField(input, "command", "cmd") || block2.input);
-  }
-  if (name === "read" || name === "write" || name === "edit" || name === "multiedit") {
-    return compact(stringField(input, "file_path", "path", "file"));
-  }
-  if (name === "grep" || name === "glob" || name === "search") {
-    const pattern = stringField(input, "pattern", "query");
-    const where = stringField(input, "path", "cwd");
-    return compact([pattern, where && `in ${where}`].filter(Boolean).join(" "));
-  }
-  if (isFanoutTool(block2.name)) {
-    return compact(stringField(input, "description", "task", "name", "prompt"));
-  }
-  return compact(
-    stringField(input, "description", "query", "url", "path", "file_path", "command", "cmd", "pattern", "prompt") || (typeof block2.input === "string" ? block2.input : JSON.stringify(block2.input))
-  );
-}
-function sessionThinkingSummary(text) {
-  const clean = String(text ?? "").replace(/[`*_>#-]+/g, " ").replace(/\s+/g, " ").trim();
-  if (!clean) return "Reasoning";
-  const sentence = clean.match(/^(.{1,110}?)(?:[.!?](?:\s|$)|$)/)?.[1] ?? clean;
-  return compact(sentence, 96);
-}
-function isFanoutTool(name) {
-  const leaf = String(name ?? "").split(/[.:/]/).pop()?.toLowerCase() ?? "";
-  return FANOUT_TOOL_NAMES.has(leaf);
-}
-function latestBlocksByToolUse(events, type) {
-  const out = /* @__PURE__ */ new Map();
-  for (const event of events) {
-    for (const block2 of event.blocks ?? []) {
-      if (block2.type === type && block2.toolUseId) out.set(block2.toolUseId, block2);
-    }
-  }
-  return out;
-}
-function hasVisibleSessionActivity(events) {
-  return events.some(
-    (event) => event.role === "assistant" && !event.toolResultsOnly && event.blocks.some(
-      (block2) => block2.type === "text" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== "" || block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request"
-    )
-  );
-}
-function canonicalRevision(event) {
-  const revision = event.revision;
-  return typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : null;
-}
-function shouldReplaceSessionEvent(current, incoming) {
-  const currentRevision = canonicalRevision(current);
-  const incomingRevision = canonicalRevision(incoming);
-  if (currentRevision !== null && incomingRevision !== null) return incomingRevision > currentRevision;
-  if (currentRevision !== null) return false;
-  if (incomingRevision !== null) return true;
-  return current !== incoming;
-}
-function mergeSessionEvents(current, incoming) {
-  if (!incoming.length) return current;
-  let next = current;
-  const indexes = /* @__PURE__ */ new Map();
-  current.forEach((event, index) => {
-    if (event.id && !indexes.has(event.id)) indexes.set(event.id, index);
-  });
-  for (const event of incoming) {
-    const index = event.id ? indexes.get(event.id) : void 0;
-    if (index === void 0) {
-      if (next === current) next = current.slice();
-      if (event.id) indexes.set(event.id, next.length);
-      next.push(event);
-    } else if (shouldReplaceSessionEvent(next[index], event)) {
-      if (next === current) next = current.slice();
-      next[index] = event;
-    }
-  }
-  return next;
-}
-function normaliseTaskStatus(value, fallback) {
-  const status = String(value ?? "").toLowerCase();
-  if (["running", "active", "streaming", "started", "pending"].includes(status)) return "running";
-  if (["complete", "completed", "done", "success", "succeeded"].includes(status)) return "completed";
-  if (["failed", "error", "cancelled", "canceled"].includes(status)) return "failed";
-  return fallback;
-}
-function sameOriginStreamUrl(value) {
-  if (typeof value !== "string") return null;
-  const url = value.trim();
-  if (!/^\/(?!\/)/.test(url) || url.includes("\\") || /(?:^|\/)\.\.(?:\/|$)/.test(url)) return null;
-  return url;
-}
-function collectRelatedTasks(events, live = false) {
-  const results = latestBlocksByToolUse(events, "tool_result");
-  const progress = latestBlocksByToolUse(events, "tool_progress");
-  const byKey = /* @__PURE__ */ new Map();
-  for (const event of events) {
-    for (const block2 of event.blocks ?? []) {
-      if (block2.type === "related_task") {
-        const key2 = block2.taskId || block2.toolUseId || event.id;
-        if (!key2) continue;
-        const aliased = block2.toolUseId ? [...byKey.values()].find((candidate) => candidate.toolUseId === block2.toolUseId) : void 0;
-        const previous = byKey.get(key2) ?? aliased;
-        if (aliased && aliased.key !== key2) byKey.delete(aliased.key);
-        const result2 = block2.toolUseId ? results.get(block2.toolUseId) : void 0;
-        const fallback2 = result2 ? result2.isError ? "failed" : "completed" : previous?.status ?? "unknown";
-        byKey.set(key2, {
-          key: key2,
-          toolUseId: block2.toolUseId ?? previous?.toolUseId ?? null,
-          taskId: block2.taskId ?? previous?.taskId ?? null,
-          label: compact(block2.name || previous?.label || "Related task", 80),
-          detail: compact(block2.detail || previous?.detail || "", 60) || null,
-          status: result2 ? fallback2 : normaliseTaskStatus(block2.status, fallback2),
-          text: block2.text ? compact(block2.text, 160) : previous?.text ?? null,
-          streamUrl: sameOriginStreamUrl(block2.streamUrl) ?? previous?.streamUrl ?? null
-        });
-        continue;
-      }
-      if (block2.type !== "tool_use" || !isFanoutTool(block2.name)) continue;
-      const toolUseId = block2.toolUseId ?? null;
-      const input = parseToolInput(block2.input);
-      const result = toolUseId ? results.get(toolUseId) : void 0;
-      const beat = toolUseId ? progress.get(toolUseId) : void 0;
-      const taskId = beat?.taskId ?? (stringField(input, "task_id", "taskId", "resume") || null);
-      const label = compact(stringField(input, "description", "task", "name") || sessionToolSummary(block2) || block2.name || "Related task", 80);
-      const detail = compact(stringField(input, "subagent_type", "subagentType", "kind", "model"), 60) || null;
-      const fallback = result ? result.isError ? "failed" : "completed" : live ? "running" : "unknown";
-      const key = taskId || toolUseId || `${event.id ?? "event"}:${label}`;
-      byKey.set(key, {
-        key,
-        toolUseId,
-        taskId,
-        label,
-        detail,
-        status: result ? fallback : normaliseTaskStatus(beat?.status, fallback),
-        text: beat?.text ? compact(beat.text, 160) : null,
-        streamUrl: sameOriginStreamUrl(beat?.streamUrl)
-      });
-    }
-  }
-  return [...byKey.values()];
-}
-
-// packages/claude-chat/src/SessionTranscript.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
 installSafeMarkdownRenderer(md);
@@ -42035,7 +42150,7 @@ function SessionStream({
   ] });
 }
 
-// packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 var md2 = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
@@ -42141,6 +42256,113 @@ function saveDraft(key, text, attachments) {
     else sessionStorage.removeItem(DRAFT_ATTACH_PREFIX + key);
   } catch {
   }
+}
+function generatedCoordinateKeys(coordinate) {
+  const keys = [];
+  if (coordinate.clientRequestId) keys.push(`client:${coordinate.clientRequestId}`);
+  if (coordinate.inputId) keys.push(`input:${coordinate.inputId}`);
+  if (coordinate.generationId) keys.push(`generation:${coordinate.generationId}`);
+  return keys;
+}
+function findGeneratedTurnIndex(turns, coordinate) {
+  const fields = ["clientRequestId", "inputId", "generationId"];
+  const matched = /* @__PURE__ */ new Set();
+  let supplied = false;
+  for (const field of fields) {
+    const value = coordinate[field];
+    if (typeof value !== "string" || !value.trim()) continue;
+    supplied = true;
+    const indices = [];
+    turns.forEach((turn, index2) => {
+      if (turn[field] === value) indices.push(index2);
+    });
+    if (indices.length > 1) return -1;
+    if (indices.length === 1) matched.add(indices[0]);
+  }
+  if (!supplied || matched.size !== 1) return -1;
+  const index = [...matched][0];
+  for (const field of fields) {
+    const incoming = coordinate[field];
+    const existing = turns[index][field];
+    if (typeof incoming === "string" && incoming.trim() && typeof existing === "string" && existing.trim() && incoming !== existing) return -1;
+  }
+  return index;
+}
+function applyGeneratedTurn(turns, coordinate, update) {
+  const index = findGeneratedTurnIndex(turns, coordinate);
+  if (index < 0) return turns;
+  const updated = update(turns[index]);
+  const bindings = {};
+  if (!updated.clientRequestId && coordinate.clientRequestId) bindings.clientRequestId = coordinate.clientRequestId;
+  if (!updated.inputId && coordinate.inputId) bindings.inputId = coordinate.inputId;
+  if (!updated.generationId && coordinate.generationId) bindings.generationId = coordinate.generationId;
+  const nextTurn = Object.keys(bindings).length ? { ...updated, ...bindings } : updated;
+  if (nextTurn === turns[index]) return turns;
+  const next = turns.slice();
+  next[index] = nextTurn;
+  return next;
+}
+var INPUT_STATE_ORDER = {
+  queued: 0,
+  starting: 1,
+  running: 2,
+  stopping: 3,
+  settled: 4,
+  stopped: 4,
+  failed: 4
+};
+function isActiveInputState(state) {
+  return state === "starting" || state === "running" || state === "stopping";
+}
+function isPendingInputState(state) {
+  return state === "queued" || isActiveInputState(state);
+}
+function inputLifecycleAnnouncement(input) {
+  const position = typeof input.position === "number" && Number.isFinite(input.position) ? Math.max(0, Math.trunc(input.position)) : null;
+  const reason = typeof input.reason === "string" ? input.reason.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  switch (input.state) {
+    case "queued":
+      return position && position > 0 ? `Message queued, position ${position}.` : "Message queued.";
+    case "starting":
+      return "Starting response.";
+    case "running":
+      return "Response started.";
+    case "stopping":
+      return "Stopping current response.";
+    case "settled":
+      return "Response complete.";
+    case "stopped":
+      return "Response stopped.";
+    case "failed":
+      return reason ? `Message failed: ${reason}.` : "Message failed.";
+  }
+}
+function applyInputLifecycle(turns, input) {
+  return applyGeneratedTurn(turns, input, (turn) => {
+    if (turn.inputId && turn.inputId !== input.inputId) return turn;
+    if (turn.generationId && input.generationId && turn.generationId !== input.generationId) return turn;
+    if (turn.clientRequestId && turn.clientRequestId !== input.clientRequestId) return turn;
+    const currentState = turn.inputState;
+    const currentTerminal = currentState ? INPUT_STATE_ORDER[currentState] === 4 : false;
+    const stateAdvances = !currentState || !turn.inputId || currentState === input.state || !currentTerminal && INPUT_STATE_ORDER[input.state] >= INPUT_STATE_ORDER[currentState];
+    const nextState = stateAdvances ? input.state : currentState;
+    const nextStreaming = isActiveInputState(nextState);
+    const position = typeof input.position === "number" && Number.isFinite(input.position) ? Math.max(0, Math.trunc(input.position)) : turn.inputPosition;
+    const next = {
+      ...turn,
+      clientRequestId: turn.clientRequestId ?? input.clientRequestId,
+      inputId: turn.inputId ?? input.inputId,
+      generationId: turn.generationId ?? input.generationId,
+      inputState: nextState,
+      inputPosition: position,
+      inputAcceptedAt: turn.inputAcceptedAt ?? input.acceptedAt,
+      inputReason: stateAdvances && input.reason !== void 0 ? input.reason : turn.inputReason,
+      streaming: nextStreaming,
+      ...stateAdvances && INPUT_STATE_ORDER[input.state] === 4 ? { stopError: void 0 } : {}
+    };
+    const unchanged = next.clientRequestId === turn.clientRequestId && next.inputId === turn.inputId && next.generationId === turn.generationId && next.inputState === turn.inputState && next.inputPosition === turn.inputPosition && next.inputAcceptedAt === turn.inputAcceptedAt && next.inputReason === turn.inputReason && next.streaming === turn.streaming && next.stopError === turn.stopError;
+    return unchanged ? turn : next;
+  });
 }
 function numericSessionTurnId(value) {
   if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0) return value;
@@ -42326,6 +42548,7 @@ function QuestionBlock({
   q,
   answered,
   answering,
+  error,
   onSelect,
   onOther
 }) {
@@ -42383,7 +42606,45 @@ function QuestionBlock({
         }
       )
     ] }),
-    answered && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user cc-question-answer", children: answered })
+    answered && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user cc-question-answer", children: answered }),
+    error && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-error", role: "alert", children: error })
+  ] });
+}
+function InputLifecycleStatus({
+  turn,
+  elapsed,
+  hint,
+  onRetryStop
+}) {
+  const state = turn.inputState;
+  if (!state) return null;
+  const label = {
+    queued: "Queued",
+    starting: "Starting",
+    running: "Working",
+    stopping: "Stopping",
+    settled: "Complete",
+    stopped: "Stopped",
+    failed: "Failed"
+  };
+  const active = state === "starting" || state === "running" || state === "stopping";
+  const detail = state === "queued" && typeof turn.inputPosition === "number" ? `Position ${turn.inputPosition}` : turn.inputReason || (active ? hint : "");
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `cc-lifecycle cc-lifecycle-${state}`, "data-input-state": state, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-mark", "aria-hidden": "true", children: active ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-working-dots", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {})
+    ] }) : null }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-label", children: label[state] }),
+    active && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-time", children: fmtElapsed(elapsed) }),
+    detail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-lifecycle-detail", title: detail, children: detail }),
+    turn.stopError && turn.generationId && (state === "starting" || state === "running") && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-lifecycle-stoperror", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { children: [
+        "Stop failed: ",
+        turn.stopError
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", onClick: onRetryStop, children: "Retry stop" })
+    ] })
   ] });
 }
 var MODELS = [
@@ -42416,6 +42677,14 @@ var MODE_LABELS = {
 var SWITCHABLE = ["default", "acceptEdits", "plan", "bypassPermissions"];
 var uid = 0;
 var nextId = () => `t${Date.now()}_${uid++}`;
+var nextClientRequestId = () => {
+  try {
+    const generated = globalThis.crypto?.randomUUID?.();
+    if (generated) return generated;
+  } catch {
+  }
+  return `chat-${Date.now()}-${uid++}`;
+};
 function fmtElapsed(sec) {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
@@ -42494,21 +42763,41 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
       id: nextId(),
       user: h.user,
       assistant: h.assistant,
-      streaming: false,
+      streaming: h.input ? isActiveInputState(h.input.state) : false,
       hideUser: h.hideUser,
       // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
       // stamped frame can never be mis-attached to one of them.
       seq: 0,
       sessionEvents: mergeSessionEvents([], h.sessionEvents ?? []),
       route: h.route,
-      overrides: h.overrides
+      overrides: h.overrides,
+      clientRequestId: h.input?.clientRequestId,
+      inputId: h.input?.inputId,
+      generationId: h.input?.generationId,
+      inputState: h.input?.state,
+      inputPosition: h.input?.position,
+      inputReason: h.input?.reason,
+      inputAcceptedAt: h.input?.acceptedAt
     })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
   const [turns, setTurns] = (0, import_react4.useState)(seededTurns);
+  const terminalCoordinatesRef = (0, import_react4.useRef)(new Set(
+    seededTurns.filter((turn) => turn.inputState && INPUT_STATE_ORDER[turn.inputState] === 4).flatMap(generatedCoordinateKeys)
+  ));
+  const rememberTerminalCoordinate = (0, import_react4.useCallback)((coordinate) => {
+    for (const key of generatedCoordinateKeys(coordinate)) terminalCoordinatesRef.current.add(key);
+  }, []);
+  const isRememberedTerminalCoordinate = (0, import_react4.useCallback)((coordinate) => generatedCoordinateKeys(coordinate).some((key) => terminalCoordinatesRef.current.has(key)), []);
   const [status, setStatus] = (0, import_react4.useState)({ rows: [], mode: "unknown", contextPct: null, model: null });
-  const [busy, setBusy] = (0, import_react4.useState)(false);
+  const generatedMode = transport.inputLifecycle === true;
+  const [legacyBusy, setLegacyBusy] = (0, import_react4.useState)(false);
+  const generatedWork = generatedMode && turns.some((turn) => isPendingInputState(turn.inputState));
+  const activeGeneratedTurn = generatedMode ? turns.find((turn) => isActiveInputState(turn.inputState)) ?? null : null;
+  const busy = generatedMode ? generatedWork : legacyBusy;
+  const generatedWorkRef = (0, import_react4.useRef)(generatedWork);
+  generatedWorkRef.current = generatedWork;
   const [turnAnnouncement, setTurnAnnouncement] = (0, import_react4.useState)("");
   const announcedBusyRef = (0, import_react4.useRef)(false);
   const [conn, setConn] = (0, import_react4.useState)("reconnecting");
@@ -42518,7 +42807,9 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const [input, setInput] = (0, import_react4.useState)(() => loadDraftText(draftKey));
   const [commands, setCommands] = (0, import_react4.useState)([]);
   const [menuIdx, setMenuIdx] = (0, import_react4.useState)(0);
-  const canAttach = typeof transport.uploadFile === "function";
+  const hasAttachmentTransport = typeof transport.uploadFile === "function";
+  const attachmentLocked = generatedMode && generatedWork;
+  const canAttach = hasAttachmentTransport && !attachmentLocked;
   const [attachments, setAttachments] = (0, import_react4.useState)(() => loadDraftAttachments(draftKey));
   const attachmentsRef = (0, import_react4.useRef)(attachments);
   attachmentsRef.current = attachments;
@@ -42686,6 +42977,7 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const voiceUsable = voiceOn && voiceHealth.available && voiceHealth.keyConfigured !== false;
   const [copied, setCopied] = (0, import_react4.useState)(false);
   const [elapsed, setElapsed] = (0, import_react4.useState)(0);
+  const activeTimerKey = generatedMode ? activeGeneratedTurn?.generationId ?? activeGeneratedTurn?.inputId ?? activeGeneratedTurn?.clientRequestId ?? "" : busy ? "legacy-active" : "";
   (0, import_react4.useEffect)(() => {
     if (!busy) {
       setElapsed(0);
@@ -42694,7 +42986,7 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     setElapsed(0);
     const id = window.setInterval(() => setElapsed((e) => e + 1), 1e3);
     return () => window.clearInterval(id);
-  }, [busy]);
+  }, [busy, activeTimerKey]);
   const workingHint = (0, import_react4.useMemo)(() => {
     if (activity) return activity;
     const row = [...status.rows].reverse().find((r) => /esc to interrupt|tokens/i.test(r));
@@ -42743,8 +43035,9 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
       switch (ev.type) {
         case "hello": {
           setStatus(ev.status);
-          setBusy(ev.busy);
           setScreen(ev.screen ?? []);
+          if (generatedMode) break;
+          setLegacyBusy(ev.busy);
           const helloAssistant = typeof ev.assistant === "string" ? ev.assistant : "";
           if (ev.busy) {
             setTurns((prev) => rebindActiveTurn(prev, helloAssistant));
@@ -42754,10 +43047,24 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
           break;
         }
         case "assistant":
-          applyAssistant(ev.text);
+          if (generatedMode) {
+            setTurns((prev) => applyGeneratedTurn(
+              prev,
+              ev,
+              (turn) => turn.assistant === ev.text ? turn : { ...turn, assistant: ev.text }
+            ));
+          } else {
+            applyAssistant(ev.text);
+          }
           break;
         case "session_event":
           setTurns((prev) => {
+            if (generatedMode) {
+              return applyGeneratedTurn(prev, ev, (turn) => {
+                const sessionEvents = mergeSessionEvents(turn.sessionEvents, [ev.event]);
+                return sessionEvents === turn.sessionEvents ? turn : { ...turn, sessionEvents };
+              });
+            }
             const base = prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: "", streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
             return applySessionEvent(base, ev.event);
           });
@@ -42766,7 +43073,8 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
           setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
           break;
         case "turn":
-          setBusy(ev.active);
+          if (generatedMode) break;
+          setLegacyBusy(ev.active);
           setActivity("");
           setTurns((prev) => {
             if (ev.active) return rebindActiveTurn(prev);
@@ -42779,6 +43087,12 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
         case "tool": {
           if (ev.name !== "AskUserQuestion" || !Array.isArray(ev.questions) || ev.questions.length === 0) break;
           setTurns((prev) => {
+            if (generatedMode) {
+              return applyGeneratedTurn(prev, ev, (turn) => ({
+                ...turn,
+                question: { toolUseId: ev.tool_use_id, questions: ev.questions }
+              }));
+            }
             if (prev.length === 0) return prev;
             const copy = prev.slice();
             const last = copy[copy.length - 1];
@@ -42788,26 +43102,56 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
           break;
         }
         case "route": {
-          const { type: _type, ...attribution } = ev;
-          setTurns((prev) => applyRouteFrame(prev, attribution));
+          const { type: _type, inputId: _inputId, generationId: _generationId, ...attribution } = ev;
+          setTurns((prev) => generatedMode ? applyGeneratedTurn(prev, ev, (turn) => ({
+            ...turn,
+            route: { ...turn.route ?? {}, ...attribution }
+          })) : applyRouteFrame(prev, attribution));
           break;
         }
         case "activity": {
           if (ev.kind !== "tool" && ev.kind !== "thinking") break;
           const name = typeof ev.name === "string" ? ev.name.trim() : "";
-          if (name) setActivity(ev.kind === "thinking" ? `thinking: ${name.slice(0, 72)}` : name.slice(0, 40));
+          if (name) {
+            const nextActivity = ev.kind === "thinking" ? `thinking: ${name.slice(0, 72)}` : name.slice(0, 40);
+            if (generatedMode) {
+              setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) => ({ ...turn, activity: nextActivity })));
+            } else {
+              setActivity(nextActivity);
+            }
+          }
+          break;
+        }
+        case "input": {
+          if (INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
+          setTurns((prev) => applyInputLifecycle(prev, ev));
+          setTurnAnnouncement(inputLifecycleAnnouncement(ev));
           break;
         }
         case "connection":
           setConn(ev.state);
           break;
         case "error":
-          applyAssistant(`_error: ${ev.message}_`);
+          if (generatedMode) {
+            rememberTerminalCoordinate(ev);
+            setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) => ({
+              ...turn,
+              assistant: `_error: ${ev.message}_`,
+              streaming: false,
+              inputState: "failed",
+              inputReason: ev.message,
+              activity: "",
+              stopError: void 0
+            })));
+            setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: ev.message }));
+          } else {
+            applyAssistant(`_error: ${ev.message}_`);
+          }
           break;
       }
     });
     return off;
-  }, [transport, applyAssistant]);
+  }, [transport, applyAssistant, generatedMode, rememberTerminalCoordinate]);
   (0, import_react4.useEffect)(() => {
     transport.fetchCommands().then(setCommands).catch(() => setCommands([]));
   }, [transport]);
@@ -42841,10 +43185,14 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const pendingSendRef = (0, import_react4.useRef)(null);
   const send = (0, import_react4.useCallback)(
     (text, opts) => {
+      if (generatedMode && generatedWorkRef.current && attachmentsRef.current.length > 0) {
+        setTurnAnnouncement("Attachments cannot be queued while another message is pending.");
+        return null;
+      }
       if (attachmentsRef.current.some((a) => a.uploading)) {
         pendingSendRef.current = { text, opts };
         setInput("");
-        return;
+        return null;
       }
       const t = text.trim();
       const ready = attachmentsRef.current.filter((a) => a.path && !a.uploading);
@@ -42853,37 +43201,67 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
 ${ready.length === 1 ? "Attached file" : "Attached files"}:
 ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
       const full = `${t}${attachmentSuffix}`.trim();
-      if (!full) return;
+      if (!full) return null;
       const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
       const wire = dir ? `${dir}
 
 ${full}` : full;
       const sentPins = railOn ? compactRouting(pinsRef.current) : void 0;
+      const clientRequestId = generatedMode ? nextClientRequestId() : void 0;
+      const optimisticState = generatedMode ? generatedWorkRef.current ? "queued" : "starting" : void 0;
+      if (generatedMode) generatedWorkRef.current = true;
       inFlightTextRef.current = full;
-      setTurns((prev) => [
-        ...prev,
-        {
+      setTurns((prev) => {
+        const optimisticPosition = optimisticState === "queued" ? prev.filter((turn) => turn.inputState === "queued").length + 1 : void 0;
+        return [...prev, {
           id: nextId(),
           user: full,
           assistant: "",
-          streaming: true,
+          streaming: generatedMode ? isActiveInputState(optimisticState) : true,
           hideUser: opts?.hideUser,
           seq: ++turnSeqRef.current,
           sessionEvents: [],
-          overrides: sentPins
-        }
-      ]);
-      setBusy(true);
-      setActivity("");
+          overrides: sentPins,
+          clientRequestId,
+          inputState: optimisticState,
+          inputPosition: optimisticPosition
+        }];
+      });
+      if (!generatedMode) {
+        setLegacyBusy(true);
+        setActivity("");
+      } else if (optimisticState) {
+        setTurnAnnouncement(inputLifecycleAnnouncement({ state: optimisticState }));
+      }
       setPendingPins([]);
       setResendArmed(false);
       pinnedRef.current = true;
-      const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : void 0, sentPins);
+      const baseMeta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : void 0, sentPins);
+      const meta = generatedMode ? { ...baseMeta ?? {}, clientRequestId } : baseMeta;
       const sendFn = transport.sendMessage;
       const p = meta ? sendFn(wire, meta) : sendFn(wire);
-      p.catch(() => {
-      });
+      if (generatedMode && clientRequestId) {
+        p.then((receipt) => {
+          if (!isChatInputReceipt(receipt)) return;
+          setTurns((prev) => applyInputLifecycle(prev, receipt));
+          setTurnAnnouncement(inputLifecycleAnnouncement(receipt));
+        }).catch((error) => {
+          const reason = error instanceof Error ? error.message : String(error ?? "input admission failed");
+          rememberTerminalCoordinate({ clientRequestId });
+          setTurns((prev) => applyGeneratedTurn(prev, { clientRequestId }, (turn) => ({
+            ...turn,
+            streaming: false,
+            inputState: "failed",
+            inputReason: reason
+          })));
+          setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason }));
+        });
+      } else {
+        p.catch(() => {
+        });
+      }
       setInput("");
+      if (generatedMode) taRef.current?.focus();
       if (ready.length) {
         const sentIds = new Set(ready.map((a) => a.id));
         ready.forEach((a) => {
@@ -42891,8 +43269,9 @@ ${full}` : full;
         });
         setAttachments((prev) => prev.filter((a) => !sentIds.has(a.id)));
       }
+      return clientRequestId ?? null;
     },
-    [transport, effortOn, railOn, feat.autonomous]
+    [transport, effortOn, railOn, feat.autonomous, generatedMode, rememberTerminalCoordinate]
   );
   (0, import_react4.useEffect)(() => {
     if (!pendingSendRef.current) return;
@@ -43010,11 +43389,16 @@ ${full}` : full;
       setPaused(true);
     }
   }, []);
-  const persistedRef = (0, import_react4.useRef)(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
+  const persistedRef = (0, import_react4.useRef)(new Set(seededTurns.map((turn) => turn.id)));
   const onTurnCompleteRef = (0, import_react4.useRef)(onTurnComplete);
   onTurnCompleteRef.current = onTurnComplete;
-  const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  const latestTurn = turns.length ? turns[turns.length - 1] : null;
+  const latestAssistant = generatedMode ? activeGeneratedTurn ?? latestTurn : latestTurn;
+  const latestSettledAssistant = generatedMode ? [...turns].reverse().find(
+    (turn) => !turn.streaming && (!turn.inputState || turn.inputState === "settled" || turn.inputState === "stopped" || turn.inputState === "failed") && resolvedAssistantText(turn).trim().length > 0
+  ) ?? null : latestTurn;
   (0, import_react4.useEffect)(() => {
+    if (generatedMode) return;
     if (busy) {
       announcedBusyRef.current = true;
       setTurnAnnouncement(liveSessionAnnouncement(latestAssistant?.sessionEvents ?? [], workingHint));
@@ -43022,31 +43406,35 @@ ${full}` : full;
       announcedBusyRef.current = false;
       setTurnAnnouncement("Response complete.");
     }
-  }, [busy, latestAssistant?.sessionEvents, workingHint]);
+  }, [busy, latestAssistant?.sessionEvents, workingHint, generatedMode]);
   const settledReply = (0, import_react4.useMemo)(() => {
-    if (!latestAssistant || latestAssistant.streaming) return null;
-    const text = resolvedAssistantText(latestAssistant).trim();
-    return text ? { id: latestAssistant.id, text } : null;
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming]);
+    if (!latestSettledAssistant || latestSettledAssistant.streaming) return null;
+    const text = resolvedAssistantText(latestSettledAssistant).trim();
+    return text ? {
+      id: latestSettledAssistant.id,
+      text,
+      ...latestSettledAssistant.clientRequestId ? { clientRequestId: latestSettledAssistant.clientRequestId } : {}
+    } : null;
+  }, [latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming]);
   (0, import_react4.useEffect)(() => {
     const cb = onTurnCompleteRef.current;
-    if (!cb || !latestAssistant || latestAssistant.streaming) return;
-    const assistant = resolvedAssistantRaw(latestAssistant).trim();
+    if (!cb || !latestSettledAssistant || latestSettledAssistant.streaming) return;
+    const assistant = resolvedAssistantRaw(latestSettledAssistant).trim();
     if (!assistant) return;
-    if (persistedRef.current === latestAssistant.id) return;
-    persistedRef.current = latestAssistant.id;
-    cb({ user: latestAssistant.user, assistant });
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming]);
+    if (persistedRef.current.has(latestSettledAssistant.id)) return;
+    persistedRef.current.add(latestSettledAssistant.id);
+    cb({ user: latestSettledAssistant.user, assistant });
+  }, [latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming]);
   (0, import_react4.useEffect)(() => {
-    if (!readAloud || !voiceUsable || !latestAssistant) return;
-    if (latestAssistant.streaming) return;
-    const text = resolvedAssistantText(latestAssistant).trim();
+    if (!readAloud || !voiceUsable || !latestSettledAssistant) return;
+    if (latestSettledAssistant.streaming) return;
+    const text = resolvedAssistantText(latestSettledAssistant).trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
-    void speak(text, latestAssistant.id);
-  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming, speak]);
+    void speak(text, latestSettledAssistant.id);
+  }, [readAloud, voiceUsable, latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming, speak]);
   const startRecording = (0, import_react4.useCallback)(async () => {
-    if (!voiceClient || recBusyRef.current) return;
+    if (!voiceClient || recBusyRef.current || generatedWorkRef.current) return;
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setVoiceError("Microphone needs a secure context (https or localhost)");
       return;
@@ -43059,7 +43447,7 @@ ${full}` : full;
     setVoiceError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!voiceMountedRef.current) {
+      if (!voiceMountedRef.current || generatedWorkRef.current) {
         stream.getTracks().forEach((t) => {
           try {
             t.stop();
@@ -43215,14 +43603,23 @@ ${full}` : full;
   const answerQuestion = (0, import_react4.useCallback)(
     (turnId, toolUseId, choice) => {
       const chosen = choice.label ?? choice.text ?? "";
-      setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answered: chosen, answering: true } : t));
+      setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? { ...t, answered: chosen, answering: true, questionError: void 0 } : t));
       const fn = transport.answerQuestion;
       if (!fn) {
-        setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answering: false } : t));
+        setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? {
+          ...t,
+          answered: void 0,
+          answering: false,
+          questionError: "Could not send the answer. Please try again."
+        } : t));
         return;
       }
-      Promise.resolve(fn.call(transport, { toolUseId, ...choice })).catch(() => {
-      }).finally(() => setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answering: false } : t)));
+      Promise.resolve(fn.call(transport, { toolUseId, ...choice })).then(() => setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? { ...t, answering: false, questionError: void 0 } : t))).catch(() => setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? {
+        ...t,
+        answered: void 0,
+        answering: false,
+        questionError: "Could not send the answer. Please try again."
+      } : t)));
     },
     [transport]
   );
@@ -43251,11 +43648,56 @@ ${full}` : full;
     },
     [busy, onPinChange]
   );
+  const requestGeneratedStop = (0, import_react4.useCallback)(async (turn, restore) => {
+    if (!turn.generationId || turn.inputState !== "starting" && turn.inputState !== "running" || isRememberedTerminalCoordinate(turn)) return;
+    const coordinate = {
+      clientRequestId: turn.clientRequestId,
+      inputId: turn.inputId,
+      generationId: turn.generationId
+    };
+    setTurns((prev) => applyGeneratedTurn(prev, coordinate, (current) => ({
+      ...current,
+      inputState: "stopping",
+      streaming: true,
+      stopError: void 0
+    })));
+    setTurnAnnouncement("Stopping current response.");
+    try {
+      await transport.interrupt({ generationId: turn.generationId });
+      if (restore) {
+        setInput(turn.user);
+        setResendArmed(true);
+        setRailOpen(true);
+        taRef.current?.focus();
+      }
+    } catch (error) {
+      if (isRememberedTerminalCoordinate(coordinate)) return;
+      const message = (error instanceof Error ? error.message : String(error ?? "stop failed")).replace(/\s+/g, " ").trim().slice(0, 160) || "stop failed";
+      setTurns((prev) => applyGeneratedTurn(prev, coordinate, (current) => {
+        const terminal = current.inputState === "settled" || current.inputState === "stopped" || current.inputState === "failed";
+        return terminal ? current : {
+          ...current,
+          inputState: "running",
+          streaming: true,
+          stopError: message
+        };
+      }));
+      setTurnAnnouncement(`Stop failed: ${message}. Retry is available.`);
+    }
+  }, [transport, isRememberedTerminalCoordinate]);
   const stopTurn = (0, import_react4.useCallback)(() => {
+    if (generatedMode) {
+      if (activeGeneratedTurn) void requestGeneratedStop(activeGeneratedTurn, false);
+      return;
+    }
     transport.interrupt().catch(() => {
     });
-  }, [transport]);
+  }, [transport, generatedMode, activeGeneratedTurn, requestGeneratedStop]);
   const stopAndChange = (0, import_react4.useCallback)(() => {
+    if (generatedMode) {
+      if (activeGeneratedTurn) void requestGeneratedStop(activeGeneratedTurn, true);
+      return;
+    }
     stopTurn();
     const text = inFlightTextRef.current;
     if (text) {
@@ -43264,7 +43706,7 @@ ${full}` : full;
     }
     setRailOpen(true);
     taRef.current?.focus();
-  }, [stopTurn]);
+  }, [stopTurn, generatedMode, activeGeneratedTurn, requestGeneratedStop]);
   (0, import_react4.useEffect)(() => {
     if (!busy) return;
     const onKey = (e) => {
@@ -43281,7 +43723,38 @@ ${full}` : full;
   }, [busy, stopTurn]);
   const hasPins = Object.keys(pins).length > 0;
   const showFlightRail = railOn && (busy || hasPins || railOpen);
-  const flightRailEnd = busy ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+  const generatedStopDisabled = !activeGeneratedTurn?.generationId || activeGeneratedTurn.inputState === "stopping";
+  const generatedStopLabel = activeGeneratedTurn?.inputState === "stopping" ? "Stopping\u2026" : activeGeneratedTurn?.stopError ? "Retry stop" : "Stop";
+  const flightRailEnd = generatedMode && busy ? activeGeneratedTurn ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-railtime", title: "Elapsed on this turn", children: fmtElapsed(elapsed) }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+      "button",
+      {
+        type: "button",
+        className: "cc-stop cc-railstop",
+        onClick: stopTurn,
+        disabled: generatedStopDisabled,
+        "aria-busy": activeGeneratedTurn.inputState === "stopping",
+        title: !activeGeneratedTurn.generationId ? "Stop is available once the response starts" : "Stop this response (Esc)",
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq" }),
+          " ",
+          generatedStopLabel
+        ]
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      "button",
+      {
+        type: "button",
+        className: "cc-stop cc-railstop cc-railstop-change",
+        onClick: stopAndChange,
+        disabled: generatedStopDisabled,
+        title: "Stop this response, restore its message, and append any manual resend after the existing queue",
+        children: "Stop & change"
+      }
+    )
+  ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-railqueued", children: "Queued" }) : busy ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-railtime", title: "Elapsed on this turn", children: fmtElapsed(elapsed) }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", className: "cc-stop cc-railstop", onClick: stopTurn, title: "Stop (Esc)", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq" }),
@@ -43345,6 +43818,7 @@ ${full}` : full;
           const hasCanonicalActivity = hasVisibleSessionActivity(t.sessionEvents);
           const legacyFallback = hasCanonicalActivity ? legacyAssistantFallback(t.assistant, t.sessionEvents) : "";
           const actionText = resolvedAssistantText(t);
+          const turnWorkingHint = generatedMode ? t.activity ?? "" : workingHint;
           const displayRoute = rewriteRouteForHost(t.route, hostCtx());
           const showRail = railOn && Boolean(displayRoute);
           const structuredChip = displayRoute ? routeChipFromAttribution(displayRoute) : null;
@@ -43354,7 +43828,18 @@ ${full}` : full;
           const routeTitle = structuredChip ? structuredChip.title : metaTitle;
           return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-turn", children: [
             !t.hideUser && t.user.trim() !== "" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user", children: t.user }),
-            (clean.text || hasCanonicalActivity || t.streaming || t.question || t.route) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-assistant", children: [
+            (clean.text || hasCanonicalActivity || t.streaming || t.question || t.route || t.inputState || t.stopError) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-assistant", children: [
+              t.inputState && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                InputLifecycleStatus,
+                {
+                  turn: t,
+                  elapsed: isActiveInputState(t.inputState) ? elapsed : 0,
+                  hint: turnWorkingHint,
+                  onRetryStop: () => {
+                    if (t.generationId) void requestGeneratedStop(t, false);
+                  }
+                }
+              ),
               hasCanonicalActivity ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 SessionEventTimeline,
                 {
@@ -43372,7 +43857,7 @@ ${full}` : full;
                 }
               ),
               !hasCanonicalActivity && t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
-              !hasCanonicalActivity && t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-working", children: [
+              !t.inputState && !hasCanonicalActivity && t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-working", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-working-dots", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
@@ -43380,9 +43865,9 @@ ${full}` : full;
                 ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-label", children: "Working" }),
                 /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-time", children: fmtElapsed(elapsed) }),
-                workingHint && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+                turnWorkingHint && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-sep", "aria-hidden": "true", children: "-" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-hint", title: workingHint, children: workingHint })
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-hint", title: turnWorkingHint, children: turnWorkingHint })
                 ] })
               ] }),
               t.question && t.question.questions[0] && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
@@ -43391,6 +43876,7 @@ ${full}` : full;
                   q: t.question.questions[0],
                   answered: t.answered,
                   answering: t.answering,
+                  error: t.questionError,
                   onSelect: (label) => answerQuestion(t.id, t.question.toolUseId, { label }),
                   onOther: (text) => answerQuestion(t.id, t.question.toolUseId, { text })
                 }
@@ -43645,10 +44131,10 @@ ${full}` : full;
         a.uploading && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }),
         a.error && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-attachment-err", "aria-hidden": "true", children: "!" }),
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-          "span",
+          "button",
           {
+            type: "button",
             className: "cc-attachment-x",
-            role: "button",
             "aria-label": `Remove ${a.name}`,
             onClick: () => removeAttachment(a.id),
             children: "\xD7"
@@ -43668,8 +44154,8 @@ ${full}` : full;
           onDragLeave: () => setDragOver(false),
           onDrop: onComposerDrop,
           children: [
-            typeof composerAdornment === "function" ? composerAdornment({ send: (text) => send(text), busy, lastReply: settledReply }) : composerAdornment,
-            canAttach && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+            typeof composerAdornment === "function" ? composerAdornment({ send: (text) => send(text), busy, queueLocked: generatedWork, lastReply: settledReply }) : composerAdornment,
+            hasAttachmentTransport && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
               /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 "input",
                 {
@@ -43688,7 +44174,9 @@ ${full}` : full;
                 {
                   type: "button",
                   className: "cc-mic",
-                  title: "Attach a file",
+                  disabled: attachmentLocked,
+                  "aria-label": "Attach a file",
+                  title: attachmentLocked ? "Attachments are unavailable while messages are pending" : "Attach a file",
                   onClick: () => fileInputRef.current?.click(),
                   children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                     "path",
@@ -43709,9 +44197,9 @@ ${full}` : full;
               {
                 type: "button",
                 className: `cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`,
-                disabled: !voiceUsable || transcribing,
+                disabled: !voiceUsable || transcribing || generatedWork && !recording,
                 "aria-pressed": recording,
-                title: !voiceUsable ? "Voice fitting not running" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk - record then transcribe into the composer",
+                title: !voiceUsable ? "Voice fitting not running" : generatedWork && !recording ? "Voice input is unavailable while messages are pending" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk - record then transcribe into the composer",
                 onClick: () => recording ? stopRecording() : void startRecording(),
                 children: transcribing ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }) : recording ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-mic-dot", "aria-hidden": "true" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "5.5", y: "1.5", width: "5", height: "8", rx: "2.5", fill: "currentColor" }),
@@ -43726,23 +44214,53 @@ ${full}` : full;
                 className: "cc-input",
                 value: input,
                 placeholder: placeholder ?? "Message Claude\u2026  (/ for commands)",
+                "aria-label": `Message ${title2 ?? "Claude"}`,
                 rows: 1,
                 onChange: (e) => setInput(e.target.value),
                 onKeyDown,
                 onPaste: onComposerPaste
               }
             ),
-            busy && !showFlightRail ? (
+            generatedMode ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+              activeGeneratedTurn && !showFlightRail && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-stop",
+                  onClick: stopTurn,
+                  disabled: generatedStopDisabled,
+                  "aria-busy": activeGeneratedTurn.inputState === "stopping",
+                  title: !activeGeneratedTurn.generationId ? "Stop is available once the response starts" : "Stop this response (Esc)",
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq" }),
+                    " ",
+                    generatedStopLabel
+                  ]
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-send",
+                  onClick: () => send(input),
+                  disabled: !input.trim() && !attachments.some((a) => a.path) || attachments.some((a) => a.uploading) || attachmentLocked && attachments.length > 0,
+                  title: generatedWork ? "Append this message after the existing queue" : resendArmed ? "Resend the stopped message" : "Send",
+                  children: generatedWork ? "Queue" : resendArmed ? "Resend" : "Send"
+                }
+              )
+            ] }) : busy && !showFlightRail ? (
               // Classic single Stop for a host without the rail (dev-env): with the
               // rail mounted the Stop pair lives at its right-hand end instead, so the
               // two are never on screen at once.
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { className: "cc-stop", onClick: stopTurn, title: "Stop (Esc)", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", className: "cc-stop", onClick: stopTurn, title: "Stop (Esc)", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq" }),
                 " Stop"
               ] })
             ) : busy ? null : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
               "button",
               {
+                type: "button",
                 className: "cc-send",
                 onClick: () => send(input),
                 disabled: !input.trim() && !attachments.some((a) => a.path) || attachments.some((a) => a.uploading),
@@ -43757,109 +44275,7 @@ ${full}` : full;
   ] });
 }
 
-// packages/claude-chat/src/transport.ts
-function createHttpTransport(base = "/api", opts) {
-  const b = base.replace(/\/$/, "");
-  const post = async (path, body) => {
-    const res = await fetch(`${b}/claude/${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: body ? JSON.stringify(body) : void 0
-    });
-    if (!res.ok) throw new Error(`${path} ${res.status}`);
-    return res.json().catch(() => ({}));
-  };
-  return {
-    base: b,
-    connect(onEvent) {
-      let es = null;
-      let closed = false;
-      const open = () => {
-        if (closed) return;
-        es = new EventSource(`${b}/claude/stream`);
-        es.addEventListener("open", () => onEvent({ type: "connection", state: "open" }));
-        const on = (name) => es.addEventListener(name, (e) => {
-          try {
-            onEvent({ type: name, ...JSON.parse(e.data) });
-          } catch {
-          }
-        });
-        on("hello");
-        on("assistant");
-        es.addEventListener("session_event", (e) => {
-          try {
-            const event = JSON.parse(e.data);
-            if (isSessionEvent(event)) onEvent({ type: "session_event", event });
-          } catch {
-          }
-        });
-        on("status");
-        on("turn");
-        on("screen");
-        on("tool");
-        on("route");
-        on("activity");
-        on("error");
-        es.onerror = () => {
-          onEvent({ type: "connection", state: "reconnecting" });
-          if (es && es.readyState === EventSource.CLOSED && !closed) {
-            es.close();
-            setTimeout(open, 1500);
-          }
-        };
-      };
-      open();
-      return () => {
-        closed = true;
-        es?.close();
-        onEvent({ type: "connection", state: "closed" });
-      };
-    },
-    async sendMessage(text) {
-      await post("message", { text });
-    },
-    async sendCommand(text) {
-      await post("message", { text });
-    },
-    async sendKey(key) {
-      await post("keys", { key });
-    },
-    async setMode(mode3) {
-      return await post("mode", { mode: mode3 });
-    },
-    async interrupt() {
-      await post("interrupt");
-    },
-    async answerQuestion(answer) {
-      await post("answer", {
-        tool_use_id: answer.toolUseId,
-        ...answer.label !== void 0 ? { label: answer.label } : {},
-        ...answer.text !== void 0 ? { text: answer.text } : {},
-        ...answer.dismiss ? { dismiss: true } : {}
-      });
-    },
-    async fetchCommands() {
-      const res = await fetch(`${b}/claude/commands`);
-      if (!res.ok) return [];
-      const j = await res.json().catch(() => ({ commands: [] }));
-      return j.commands ?? [];
-    },
-    ...opts?.uploads ? {
-      async uploadFile(file) {
-        const res = await fetch(`${b}/attachments`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ filename: file.name, content_base64: file.base64 })
-        });
-        if (!res.ok) throw new Error(`attachments ${res.status}`);
-        const j = await res.json().catch(() => ({}));
-        return { path: String(j.path ?? ""), bytes: typeof j.bytes === "number" ? j.bytes : void 0 };
-      }
-    } : {}
-  };
-}
-
-// fittings/seed/dev-env/ui/chat-pane.tsx
+// ui/chat-pane.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
   const transport = (0, import_react5.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
@@ -43873,7 +44289,7 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// fittings/seed/dev-env/ui/browser-pane.tsx
+// ui/browser-pane.tsx
 var import_react6 = __toESM(require_react());
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
@@ -44207,10 +44623,10 @@ function BrowserPane({
   ] });
 }
 
-// fittings/seed/dev-env/ui/dialogs.tsx
+// ui/dialogs.tsx
 var import_react7 = __toESM(require_react());
 
-// fittings/seed/dev-env/ui/session-request.ts
+// ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "operative", label: "Operative \u2014 Orchestrator identity (default)" },
   { value: "plain", label: "Plain claude, for debugging Garrison itself (unorchestrated, logged)" }
@@ -44233,7 +44649,7 @@ function buildSessionRequest({
   return body;
 }
 
-// fittings/seed/dev-env/ui/dialogs.tsx
+// ui/dialogs.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
@@ -44441,7 +44857,7 @@ function Toast({ message }) {
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "toast", children: message });
 }
 
-// fittings/seed/dev-env/ui/session-panels.tsx
+// ui/session-panels.tsx
 var import_react8 = __toESM(require_react());
 var import_jsx_runtime8 = __toESM(require_jsx_runtime());
 function basename2(p) {
@@ -44560,7 +44976,7 @@ function SessionsPanel({
   ] });
 }
 
-// fittings/seed/dev-env/ui/main.tsx
+// ui/main.tsx
 var import_jsx_runtime9 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {

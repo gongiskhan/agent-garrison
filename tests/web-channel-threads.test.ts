@@ -31,6 +31,20 @@ interface ThreadsRunContext {
   ensureThread(opts: Loose): Promise<Loose>;
   getThread(id: string): Promise<Loose | null>;
   listThreads(): Promise<Loose[]>;
+  admitThreadInput(id: string, input: Loose, opts?: Loose): Promise<Loose | null>;
+  listThreadInputs(id: string): Promise<Loose[] | null>;
+  claimNextThreadInput(id: string, opts?: Loose): Promise<Loose | null>;
+  bindThreadInputGeneration(id: string, inputId: string, generationId: string, opts?: Loose): Promise<Loose | null>;
+  markThreadInputStopping(id: string, inputId: string, generationId: string, opts?: Loose): Promise<Loose | null>;
+  settleThreadInput(id: string, inputId: string, state: string, opts?: Loose): Promise<Loose | null>;
+  getThreadInput(id: string, inputId: string): Promise<Loose | null>;
+  threadHasPendingInputs(id: string): Promise<boolean>;
+  startInputLive(inputId: string, at?: string): Loose | null;
+  markInputActive(threadId: string, inputId: string, at?: string): boolean;
+  activeInputId(threadId: string): string | null;
+  appendInputLiveFrame(inputId: string, frame: Loose): Loose | null;
+  inputLiveFrames(inputId: string): Loose[];
+  finishInputLive(threadId: string, inputId: string, reason?: string): boolean;
   threadExistsSync(id: string): boolean;
   _threadsDirForTest(): string;
 }
@@ -147,6 +161,97 @@ describe("web-channel threads store", () => {
       { role: "assistant", text: 42 } as any,
     ]);
     expect(meta.messageCount).toBe(1);
+  });
+});
+
+describe("web-channel durable input FIFO", () => {
+  it("deduplicates admission and promotes one exact input at a time", async () => {
+    const id = "chat-input-fifo";
+    await rc.ensureThread({ id, nowIso: "2026-08-16T12:00:00.000Z" });
+    const first = await rc.admitThreadInput(id, {
+      message: "first ask",
+      clientRequestId: "request-1",
+      routing: { target: "sonnet-plan", effort: "high" },
+      turnSeq: 7,
+    }, { nowIso: "2026-08-16T12:00:01.000Z", inputId: "input-1" });
+    const duplicate = await rc.admitThreadInput(id, {
+      message: "a retry must not replace the accepted ask",
+      clientRequestId: "request-1",
+    }, { nowIso: "2026-08-16T12:00:02.000Z", inputId: "input-other" });
+    const second = await rc.admitThreadInput(id, {
+      message: "second ask",
+      clientRequestId: "request-2",
+    }, { nowIso: "2026-08-16T12:00:03.000Z", inputId: "input-2" });
+
+    expect(first).toMatchObject({ duplicate: false, input: { inputId: "input-1", state: "queued", position: 1 } });
+    expect(duplicate).toMatchObject({ duplicate: true, input: { inputId: "input-1", message: "first ask" } });
+    expect(second).toMatchObject({ duplicate: false, input: { inputId: "input-2", position: 2 } });
+
+    const promoted = await rc.claimNextThreadInput(id, { nowIso: "2026-08-16T12:00:04.000Z" });
+    expect(promoted).toMatchObject({ inputId: "input-1", state: "starting", message: "first ask" });
+    expect(await rc.claimNextThreadInput(id)).toBeNull();
+    const stored = await rc.getThread(id);
+    expect(stored?.messages).toMatchObject([{
+      role: "user",
+      text: "first ask",
+      turnId: "input-1",
+      overrides: { target: "sonnet-plan", effort: "high" },
+    }]);
+    expect(await rc.listThreadInputs(id)).toMatchObject([
+      { inputId: "input-1", state: "starting" },
+      { inputId: "input-2", state: "queued", position: 1 },
+    ]);
+  });
+
+  it("requires the exact gateway generation for stopping and settlement", async () => {
+    const id = "chat-input-generation";
+    await rc.ensureThread({ id });
+    await rc.admitThreadInput(id, { message: "run", clientRequestId: "request-gen" }, { inputId: "input-gen" });
+    await rc.claimNextThreadInput(id);
+    expect(await rc.bindThreadInputGeneration(id, "input-gen", "generation-1")).toMatchObject({
+      state: "running",
+      generationId: "generation-1",
+    });
+    expect(await rc.markThreadInputStopping(id, "input-gen", "generation-old")).toBeNull();
+    expect(await rc.settleThreadInput(id, "input-gen", "stopped", { generationId: "generation-old" })).toBeNull();
+    expect(await rc.getThreadInput(id, "input-gen")).toMatchObject({ state: "running", generationId: "generation-1" });
+    expect(await rc.markThreadInputStopping(id, "input-gen", "generation-1")).toMatchObject({ state: "stopping" });
+    expect(await rc.settleThreadInput(id, "input-gen", "stopped", { generationId: "generation-1" })).toMatchObject({
+      state: "stopped",
+      generationId: "generation-1",
+    });
+    expect(await rc.threadHasPendingInputs(id)).toBe(false);
+    // The bounded receipt makes a retry idempotent even after the full prompt was removed.
+    expect(await rc.admitThreadInput(id, { message: "retry", clientRequestId: "request-gen" })).toMatchObject({
+      duplicate: true,
+      input: { inputId: "input-gen", state: "stopped" },
+    });
+  });
+
+  it("keeps live producers isolated by input id", () => {
+    rc.startInputLive("stream-input-1", "2026-08-16T13:00:00.000Z");
+    rc.startInputLive("stream-input-2", "2026-08-16T13:00:01.000Z");
+    expect(rc.markInputActive("stream-thread", "stream-input-1")).toBe(true);
+    expect(rc.markInputActive("stream-thread", "stream-input-2")).toBe(false);
+    rc.appendInputLiveFrame("stream-input-1", { event: "chunk", data: { text: "one" } });
+    expect(rc.inputLiveFrames("stream-input-1")).toHaveLength(1);
+    expect(rc.inputLiveFrames("stream-input-2")).toHaveLength(0);
+    expect(rc.finishInputLive("stream-thread", "stream-input-1")).toBe(true);
+    expect(rc.markInputActive("stream-thread", "stream-input-2")).toBe(true);
+    // A late cleanup from input 1 cannot clear the newer active mapping.
+    rc.finishInputLive("stream-thread", "stream-input-1", "late");
+    expect(rc.activeInputId("stream-thread")).toBe("stream-input-2");
+    rc.finishInputLive("stream-thread", "stream-input-2");
+  });
+
+  it("refuses deletion while an input is pending", async () => {
+    const id = "chat-input-delete";
+    await rc.ensureThread({ id });
+    await rc.admitThreadInput(id, { message: "keep me", clientRequestId: "request-delete" }, { inputId: "input-delete" });
+    expect(await threads.deleteThread(id)).toBe(false);
+    expect(await rc.getThread(id)).not.toBeNull();
+    await rc.settleThreadInput(id, "input-delete", "failed", { reason: "test cleanup" });
+    expect(await threads.deleteThread(id)).toBe(true);
   });
 });
 

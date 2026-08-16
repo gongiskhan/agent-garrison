@@ -413,9 +413,23 @@ html, body {
   border-bottom: 1px solid #ece2cc; /* paper-3 hairline */
   border-left: 3px solid transparent;
   padding: 10px 10px 10px 13px;
-  cursor: pointer;
+  cursor: default;
   color: #18211c;               /* ink */
   font-family: inherit;
+}
+.wc-thread-open {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .wc-thread:hover { background: #efe7d6; }
 .wc-thread--active {
@@ -459,6 +473,9 @@ html, body {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   line-height: 20px;
   text-align: center;
   font-size: 17px;
@@ -914,6 +931,15 @@ body {
 .wc-thread-del:hover {
   background: rgba(150,63,53,.22);
 }
+.wc-thread-del:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
+.wc-thread-del:disabled {
+  color: var(--wc-fg-dim);
+  cursor: not-allowed;
+}
 
 .wc-main {
   background: var(--wc-stone-50);
@@ -1339,6 +1365,7 @@ body {
 @media (max-width: 720px) { .wc-xscript { width: 100%; } }
 @media (any-pointer: coarse) {
   .wc-xscript-close { min-width: 44px; min-height: 44px; }
+  .wc-thread-del { min-width: 44px; min-height: 44px; line-height: 42px; opacity: .75; }
 }
 
 /* ── Resumed-turn notice ─────────────────────────────────────────────────────

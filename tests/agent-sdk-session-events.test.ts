@@ -230,6 +230,69 @@ describe("Agent SDK channel-neutral session events", () => {
     expect(firstIds.filter((id: string) => secondIds.includes(id))).toEqual([]);
   });
 
+  it("finalizes a buffered standing result only after postlude events and carries generation authority on every event", () => {
+    const normalizer = new AgentSdkSessionEventNormalizer({
+      turnId: "turn-standing",
+      generationId: "generation-standing",
+      sessionId: "session-standing",
+      eventScope: "scope-standing",
+      now: () => 7654,
+    });
+    const events = [
+      ...normalizer.push({
+        type: "assistant",
+        uuid: "assistant-standing",
+        session_id: "session-standing",
+        message: { content: [{ type: "text", text: "answer" }] },
+      }),
+      // The adapter deliberately withholds result here and continues through the
+      // SDK-permitted post-result prompt suggestion.
+      ...normalizer.push({
+        type: "prompt_suggestion",
+        uuid: "suggestion-standing",
+        session_id: "session-standing",
+        suggestion: "follow up",
+      }),
+    ];
+    expect(events.flatMap((event) => event.blocks).some((block) => block.type === "turn_end")).toBe(false);
+    events.push(...normalizer.finishResult({
+      type: "result",
+      uuid: "result-standing",
+      session_id: "session-standing",
+      subtype: "success",
+      result: "answer",
+      stop_reason: "end_turn",
+    }));
+
+    expect(events.map((event) => event.generationId)).toEqual([
+      "generation-standing",
+      "generation-standing",
+      "generation-standing",
+    ]);
+    expect(events.map((event) => event.order)).toEqual([1, 2, 3]);
+    expect(events.at(-1)?.blocks).toEqual([
+      expect.objectContaining({ type: "turn_end", status: "completed", result: "answer" }),
+    ]);
+    expect(normalizer.finishResult({ type: "result", subtype: "success" })).toEqual([]);
+
+    const cancelled = new AgentSdkSessionEventNormalizer({ generationId: "generation-cancelled" });
+    const [terminal] = cancelled.finishResult({
+      type: "result",
+      uuid: "result-cancelled",
+      subtype: "success",
+      result: "partial",
+    }, "cancelled");
+    expect(terminal).toMatchObject({
+      generationId: "generation-cancelled",
+      blocks: [expect.objectContaining({
+        type: "turn_end",
+        status: "cancelled",
+        subtype: "cancelled",
+        stopReason: "cancelled",
+      })],
+    });
+  });
+
   it("revises one stable permission event from pending to resolved", () => {
     const normalizer = new AgentSdkSessionEventNormalizer({
       turnId: "turn-permission",

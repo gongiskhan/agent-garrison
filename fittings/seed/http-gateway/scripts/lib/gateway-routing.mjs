@@ -24,6 +24,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { createHmac, randomBytes } from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn, claudeProjectDirForCwd } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
@@ -58,6 +59,49 @@ export const TURN_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 // so the ceiling is what stops a busy day of web threads from accumulating SDK
 // queries forever.
 export const AGENT_SDK_SESSION_CAP = 8;
+
+// Cache compatibility must change when the credential that will actually reach
+// the SDK subprocess changes. The process-local HMAC key makes this a one-way,
+// non-portable version marker: useful for equality inside this gateway process,
+// useless as a credential oracle in logs, cache keys, or diagnostics.
+const SDK_CREDENTIAL_FINGERPRINT_KEY = randomBytes(32);
+const SDK_PROVIDER_VAULT_KEYS = {
+  "zai-glm": "ZAI_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  minimax: "MINIMAX_API_KEY",
+  "llm-proxy": "LLM_PROXY_API_KEY",
+};
+
+export function effectiveAgentSdkCredentialVersion(target = {}, { secrets = null, env = {} } = {}) {
+  const provider = String(target?.provider ?? "");
+  const account = String(target?.account ?? "").trim();
+  let source = "none";
+  let credential = "";
+  if (isAnthropicProviderId(provider)) {
+    if (account) {
+      source = `anthropic-account:${account}`;
+      credential = String(secrets?.[`${ANTHROPIC_ACCOUNT_PREFIX}${account}`] ?? "missing");
+    } else if (env?.GARRISON_ACCOUNT && env?.ANTHROPIC_AUTH_TOKEN) {
+      source = `anthropic-inherited:${env.GARRISON_ACCOUNT}`;
+      credential = String(env.ANTHROPIC_AUTH_TOKEN);
+    } else {
+      // Stored /login state is outside the materialized env and the warm cache;
+      // a gateway restart is its lifecycle boundary.
+      source = "anthropic-stored-login";
+    }
+  } else if (SDK_PROVIDER_VAULT_KEYS[provider]) {
+    const vaultKey = SDK_PROVIDER_VAULT_KEYS[provider];
+    source = `vault:${vaultKey}`;
+    credential = String(secrets?.[vaultKey] ?? "missing");
+  } else {
+    source = `keyless:${provider || "unknown"}`;
+  }
+  return createHmac("sha256", SDK_CREDENTIAL_FINGERPRINT_KEY)
+    .update(source)
+    .update("\0")
+    .update(credential)
+    .digest("hex");
+}
 
 // The vault prefixes an account's secret is sealed under. MIRROR of
 // src/lib/account-env.ts (same reason: no src/lib import from a fitting); the
@@ -1165,7 +1209,18 @@ export class RoutedGateway {
     const tail = run.catch(() => {});
     queues.set(laneKey, tail);
     tail.then(() => {
-      if (queues.get(laneKey) === tail) queues.delete(laneKey);
+      if (queues.get(laneKey) === tail) {
+        queues.delete(laneKey);
+        // Session insertion may temporarily overflow the SDK LRU when every
+        // candidate is active/queued. The first lane to become genuinely idle
+        // re-runs trimming; fire-and-observe so cleanup never changes the turn's
+        // already-settled result.
+        if (laneKey.startsWith("sdk:")) {
+          Promise.resolve(this._retireStaleAgentSdkSessions?.(this._agentSdkAdapter))
+            .then(() => this._evictAgentSdkSessions?.(this._agentSdkAdapter))
+            .catch(() => {});
+        }
+      }
     });
     return run;
   }
@@ -1228,10 +1283,15 @@ export class RoutedGateway {
   //                   on the same target share ONE SDK session and one session_id,
   //                   so the per-message transcript badge would point at the wrong
   //                   conversation.
+  //   coldStartContext - caller-owned durable conversation seed. Applied only when
+  //                   this call actually spawns a new SDK session; a warm standing
+  //                   Query already owns its history and must not receive it twice.
   //   onEvent(event) - channel-neutral structured session event observer.
   //   turnId         - caller-owned stable turn identity attached by the adapter.
   //   generationId   - caller-owned permission-control generation identity.
   //   permissionMode - trusted SDK mode override; omitted remains bypass.
+  //   streamingInput - explicit streamed-Web opt-in. Requires sessionKey and
+  //                   keeps one SDK Query open across settled input boundaries.
   //   onPermissionRequest(request,{signal}) - resolves one SDK tool prompt.
   //   onActivity({kind,name,id}) - tool_use liveness (the `activity` SSE frame).
   //   registerStop(stop)         - hands the caller a real cancel primitive for
@@ -1245,6 +1305,19 @@ export class RoutedGateway {
     // though AgentSdkAdapter itself defaults to the full harness and 12 turns.
     const promptMode = t.promptMode ?? "full";
     const requestedEffort = t.effort ?? null;
+    const sessionKey = typeof opts.sessionKey === "string" && opts.sessionKey ? opts.sessionKey : null;
+    const generationId = typeof opts.generationId === "string" ? opts.generationId.trim() : "";
+    const coldStartContext =
+      typeof opts.coldStartContext === "string" && opts.coldStartContext.trim()
+        ? opts.coldStartContext.trim()
+        : "";
+    // A standing Query has a long-lived control callback and therefore requires
+    // a stable conversation coordinate. Threadless/one-shot callers remain on the
+    // historical string-prompt path even if they accidentally pass the flag.
+    if (opts.streamingInput === true && sessionKey !== null && !generationId) {
+      throw new Error("standing Agent SDK streaming input requires a generation id");
+    }
+    const streamingInput = opts.streamingInput === true && sessionKey !== null && Boolean(generationId);
     const spawnArgs = {
       provider: t.provider,
       model: t.model,
@@ -1273,6 +1346,7 @@ export class RoutedGateway {
       // empty baseEnv would strip config-dir isolation and the account token.
       env: process.env,
       permissionMode: opts.permissionMode ?? "bypassPermissions",
+      ...(streamingInput ? { streamingInput: true } : {}),
     };
     // Every target-owned execution knob participates in session identity. A live
     // manifest edit from lean → full (or maxTurns/tool-policy changes) must spawn
@@ -1281,20 +1355,36 @@ export class RoutedGateway {
     // change on any unrelated env mutation, needlessly churning warm sessions.
     // sessionKey adds the CONVERSATION (§12) so two threads never share one SDK
     // session - and therefore never report each other's session_id/transcript.
-    const sessionKey = typeof opts.sessionKey === "string" && opts.sessionKey ? opts.sessionKey : null;
-    const key = JSON.stringify({ targetId: route.targetId, sessionKey, ...spawnArgs, secrets: undefined, env: undefined });
+    const compatibility = {
+      targetId: route.targetId,
+      sessionKey,
+      ...spawnArgs,
+      secrets: undefined,
+      env: undefined,
+    };
+    const compatibilityKey = JSON.stringify(compatibility);
+    const credentialVersion = effectiveAgentSdkCredentialVersion(t, {
+      secrets: spawnArgs.secrets,
+      env: spawnArgs.env,
+    });
+    const key = JSON.stringify({ ...compatibility, credentialVersion });
     // One warm SDK session is one conversation: turns on the SAME key serialize
     // on its lane; different targets/conversations run concurrently.
     return this._onLane(`sdk:${key}`, async () => {
     let session = this._agentSdkSessions.get(key);
+    let spawnedSession = false;
     if (!session || session.alive === false) {
       session = await adapter.spawn(spawnArgs);
+      spawnedSession = true;
     }
     // Re-insert so Map iteration order is least-recently-used first (see
     // _evictAgentSdkSessions: keying by conversation multiplies live sessions by
     // thread count, so the map needs a real cap).
     this._agentSdkSessions.delete(key);
     this._agentSdkSessions.set(key, session);
+    (this._agentSdkSessionMeta ??= new Map()).set(key, { compatibilityKey, credentialVersion });
+    (this._currentAgentSdkKeyByCompatibility ??= new Map()).set(compatibilityKey, key);
+    await this._retireStaleAgentSdkSessions(adapter);
     await this._evictAgentSdkSessions(adapter);
     if (typeof opts.registerStop === "function") {
       // Bind the cancel to THIS turn's session (the warm session is reused, so a
@@ -1364,7 +1454,11 @@ export class RoutedGateway {
             }
           : undefined
     };
-    await adapter.sendTurn(session, message, streamHooks);
+    const coldSessionMessage = coldStartContext
+      ? `${coldStartContext}\n\n---\n\n${message}`
+      : message;
+    const sessionMessage = spawnedSession ? coldSessionMessage : message;
+    await adapter.sendTurn(session, sessionMessage, streamHooks);
     let resp = await adapter.awaitResponse(session);
     // BUILD MODE (buildWorkspace set): local models can't drive file-edit tools
     // over ollama's Anthropic-compat endpoint (tool_use is not surfaced), so the
@@ -1380,7 +1474,7 @@ export class RoutedGateway {
         this.logFn({ kind: "agent-sdk-regenerate", attempt, provider: t.provider, model: t.model });
         session = await adapter.spawn(spawnArgs);
         await adapter.awaitReady(session);
-        await adapter.sendTurn(session, message, streamHooks);
+        await adapter.sendTurn(session, coldSessionMessage, streamHooks);
         resp = await adapter.awaitResponse(session);
         committed = commitGeneratedFile(this.buildWorkspace, message, resp.text ?? "");
       }
@@ -1414,24 +1508,60 @@ export class RoutedGateway {
   }
 
   // Cap the warm agent-sdk session map. Conversation-keyed sessions (§12) grow
-  // with thread count against a Map that had no eviction at all. Eviction does NOT
-  // go through adapter.teardown: that is `session.alive = false` and frees nothing
-  // - cancel() is the primitive that actually aborts the stashed SDK query, so an
-  // evicted session with a turn still in flight is aborted, then marked dead so a
-  // later lookup re-spawns instead of reusing a released handle.
+  // with thread count against a Map that had no eviction at all. A standing Query
+  // must be closed, not merely interrupted (interrupt intentionally preserves it
+  // for the next turn). Historical one-shot sessions retain cancel-before-teardown.
+  async _releaseAgentSdkSession(adapter, key, session, kind = "evicted") {
+    this._agentSdkSessions.delete(key);
+    const meta = this._agentSdkSessionMeta?.get(key) ?? null;
+    this._agentSdkSessionMeta?.delete(key);
+    if (meta && this._currentAgentSdkKeyByCompatibility?.get(meta.compatibilityKey) === key) {
+      const hasOlderSibling = [...(this._agentSdkSessionMeta?.values() ?? [])]
+        .some((candidate) => candidate.compatibilityKey === meta.compatibilityKey);
+      // If an older-credential sibling is still active, retain the desired key
+      // even when cap pressure evicts the newer idle session. That sibling must
+      // still retire on idle and can never become the compatibility winner.
+      if (!hasOlderSibling) this._currentAgentSdkKeyByCompatibility.delete(meta.compatibilityKey);
+    }
+    try {
+      if (session?.streamingInput === true || session?.config?.streamingInput === true) {
+        await adapter?.teardown?.(session);
+      } else {
+        await adapter?.cancel?.(session);
+        await adapter?.teardown?.(session);
+      }
+    } catch {
+      /* an already-finished query is a successful release */
+    }
+    if (session) session.alive = false;
+    this.logFn({ kind: `agent-sdk-session-${kind}`, live: this._agentSdkSessions.size });
+  }
+
+  async _retireStaleAgentSdkSessions(adapter) {
+    const metadata = this._agentSdkSessionMeta ?? new Map();
+    const current = this._currentAgentSdkKeyByCompatibility ?? new Map();
+    const queues = this._laneQueues ?? new Map();
+    for (const [key, session] of [...this._agentSdkSessions]) {
+      const meta = metadata.get(key);
+      if (!meta || current.get(meta.compatibilityKey) === key) continue;
+      if (queues.has(`sdk:${key}`)) continue;
+      await this._releaseAgentSdkSession(adapter, key, session, "credential-retired");
+    }
+  }
+
   async _evictAgentSdkSessions(adapter) {
     while (this._agentSdkSessions.size > AGENT_SDK_SESSION_CAP) {
-      const oldest = this._agentSdkSessions.keys().next();
-      if (oldest.done) return;
-      const session = this._agentSdkSessions.get(oldest.value);
-      this._agentSdkSessions.delete(oldest.value);
-      try {
-        await adapter?.cancel?.(session);
-      } catch {
-        /* an already-finished query is a successful release */
-      }
-      if (session) session.alive = false;
-      this.logFn({ kind: "agent-sdk-session-evicted", live: this._agentSdkSessions.size });
+      const queues = this._laneQueues ?? new Map();
+      // An SDK lane remains present for both its active turn and everything
+      // queued behind it. Evicting any such key can interrupt the oldest live
+      // conversation merely because a ninth distinct thread arrived. Prefer the
+      // oldest IDLE entry; if all are busy, bounded correctness beats a hard
+      // instantaneous cap and the lane-idle callback above trims the overflow.
+      const oldestIdleKey = [...this._agentSdkSessions.keys()]
+        .find((candidate) => !queues.has(`sdk:${candidate}`));
+      if (oldestIdleKey === undefined) return;
+      const session = this._agentSdkSessions.get(oldestIdleKey);
+      await this._releaseAgentSdkSession(adapter, oldestIdleKey, session, "evicted");
     }
   }
 
@@ -1546,18 +1676,21 @@ export class RoutedGateway {
       session.__garrisonEffortApplied = effortApplied;
       this._claudeDelegateSessions.set(key, session);
     }
-    if (typeof opts.onJournal === "function") {
-      try {
-        const sessionId = session.getClaudeSessionId?.() ?? session.sessionId ?? null;
-        if (sessionId) {
-          opts.onJournal({
-            session_id: sessionId,
-            transcript_path: this.claudeTranscriptPathFor(session.compositionDir ?? cwd, sessionId)
-          });
-        }
-      } catch {
-        /* an observability sink must never break a turn */
+    try {
+      const sessionId = session.getClaudeSessionId?.() ?? session.sessionId ?? null;
+      if (sessionId) {
+        const journalIdentity = {
+          session_id: sessionId,
+          transcript_path: this.claudeTranscriptPathFor(session.compositionDir ?? cwd, sessionId)
+        };
+        // AskUserQuestion actuation is session-owned, not process-global. Give
+        // the gateway the concrete delegate before the transcript watcher can
+        // surface a picker from it; observability remains independently optional.
+        opts.registerQuestionSession?.(session, journalIdentity);
+        opts.onJournal?.(journalIdentity);
       }
+    } catch {
+      /* question/observability sinks must never break a turn */
     }
     this.logFn({ kind: "runtime-turn", runtime: "claude-code", provider, model, effort, target: route.targetId, delegated: true });
     // §9: a delegate is a real Claude session, so ESC is its stop primitive (the
@@ -3383,6 +3516,8 @@ export class RoutedGateway {
       }
     }
     this._agentSdkSessions.clear();
+    this._agentSdkSessionMeta?.clear();
+    this._currentAgentSdkKeyByCompatibility?.clear();
     for (const session of this._claudeDelegateSessions.values()) {
       try {
         Promise.resolve(this._claudeDelegateAdapter?.teardown?.(session)).catch(() => {});

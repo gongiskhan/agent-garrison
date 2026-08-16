@@ -11,6 +11,7 @@
  * web-channel and slack-channel relays work unchanged:
  *   POST /chat          { message }            → { reply, session_id, cost_usd }
  *   POST /chat/stream    { message }           → SSE open/session_event/chunk/tool/done/error
+ *   POST /chat/interrupt { threadId, generationId } | { sessionId?, cardId? }
  *   POST /chat/permission { threadId, generationId, requestId, decision } → one live SDK resolver
  *   POST /jobs           { kind, ... }         → { ack, deduped } or retryable 503
  *   POST /attachments    { filename, content_base64 } → { path, bytes }
@@ -336,8 +337,10 @@ function sessionJournalIdentity(sess, cwd = sess?.compositionDir ?? CANONICAL_CO
   };
 }
 
-function reportJournal(opts, identity) {
-  if (!identity?.session_id || typeof opts?.onJournal !== "function") return identity;
+function reportJournal(opts, identity, questionSession = null) {
+  if (!identity?.session_id) return identity;
+  bindQuestionJournal(identity, questionSession);
+  if (typeof opts?.onJournal !== "function") return identity;
   try {
     opts.onJournal(identity);
   } catch {
@@ -608,37 +611,124 @@ function contextTelemetry() {
 // JSONL, emits ONE `tool` SSE event per tool_use id (buttons on the client), and
 // the answer POST drives the picker via keySequence. See lib/ask-question.mjs.
 const pendingQuestions = new Map(); // tool_use_id -> { questions, at, cardId } (for label->index + binding)
-const toolListeners = new Set(); // fn(payload) - sinks for the CURRENT /chat/stream turn
 let askWatcher = null;
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// S3d review R1: the cardId of the turn currently holding the operative session (parsed
-// from the engine's dutyKey "cardId:phase"). broadcastTool STAMPS it onto each pending
-// question so the HTTP-seam reply-as-answer can bind an answer to THIS card's live
-// discuss picker - never a stale entry from another card. Null for a non-dispatch turn
-// (web one-shot / plain chat), so those questions stay UNBOUND (conservative routing).
-let currentTurnCardId = null;
+/**
+ * Route watcher-originated AskUserQuestion payloads by their transcript, the
+ * durable coordinate the watcher actually observed. Multiple runtime lanes can
+ * finish in any order, so release is identity-checked: A finishing after B has
+ * claimed a reused transcript can never erase B's ownership.
+ */
+export function createQuestionTurnRegistry({
+  pending = new Map(),
+  broadcastRichFn = () => {},
+  nowFn = Date.now,
+} = {}) {
+  const ownersByTranscript = new Map();
+  const transcriptsByOwner = new WeakMap();
+  const transcriptKey = (value) =>
+    typeof value === "string" && value.trim() ? path.resolve(value) : null;
 
-// S3d review R1: drop pending questions bound to a turn that ENDED (answered elsewhere,
-// timed out, or parked) so a stale entry can never hijack a later thread's reply.
-function sweepPendingQuestions(cardId) {
-  if (!cardId) return;
-  for (const [id, entry] of pendingQuestions) {
-    if (entry?.cardId === cardId) pendingQuestions.delete(id);
-  }
-}
-
-function broadcastTool(payload) {
-  if (payload?.tool_use_id) pendingQuestions.set(payload.tool_use_id, { questions: payload.questions, at: Date.now(), cardId: currentTurnCardId });
-  broadcastRich("tool", payload); // rich /claude/stream observers
-  for (const fn of toolListeners) {
-    try {
-      fn(payload);
-    } catch {
-      /* listener gone */
+  const bind = (owner, identity, { actuator = null } = {}) => {
+    const transcript = transcriptKey(identity?.transcript_path);
+    if (!owner || typeof owner !== "object" || !transcript) return false;
+    const previous = ownersByTranscript.get(transcript);
+    ownersByTranscript.set(transcript, {
+      owner,
+      // reportJournal may bind once with the concrete PTY session and its
+      // observer may immediately bind the same identity again. Preserve the
+      // exact actuator across that additive observability callback.
+      actuator: actuator ?? (previous?.owner === owner ? previous.actuator ?? null : null),
+    });
+    let owned = transcriptsByOwner.get(owner);
+    if (!owned) {
+      owned = new Set();
+      transcriptsByOwner.set(owner, owned);
     }
-  }
+    owned.add(transcript);
+    return true;
+  };
+
+  const lookup = (source = {}) => {
+    const transcript = transcriptKey(source?.transcriptPath);
+    return transcript ? ownersByTranscript.get(transcript) ?? null : null;
+  };
+
+  const deliver = (payload, source = {}) => {
+    const binding = lookup(source);
+    const owner = binding?.owner ?? null;
+    if (payload?.tool_use_id) {
+      pending.set(payload.tool_use_id, {
+        questions: payload.questions,
+        at: nowFn(),
+        cardId: owner?.questionCardId ?? null,
+        threadId: owner?.questionThreadId ?? null,
+        actuator: binding?.actuator ?? null,
+        owner,
+      });
+    }
+    broadcastRichFn("tool", payload); // rich /claude/stream observers
+    if (typeof owner?.questionSink === "function") {
+      try {
+        owner.questionSink(payload);
+      } catch {
+        /* a disconnected stream must never break the owning turn */
+      }
+    }
+    return binding;
+  };
+
+  const release = (owner) => {
+    if (!owner || typeof owner !== "object") return;
+    for (const transcript of transcriptsByOwner.get(owner) ?? []) {
+      if (ownersByTranscript.get(transcript)?.owner === owner) ownersByTranscript.delete(transcript);
+    }
+    transcriptsByOwner.delete(owner);
+    // A question that outlived its exact turn (answered elsewhere, timed out, or
+    // parked) must not hijack a later message, even when two turns share a card.
+    for (const [id, entry] of pending) {
+      if (entry?.owner === owner) pending.delete(id);
+    }
+  };
+
+  return { ownersByTranscript, bind, lookup, deliver, release };
 }
+
+const questionTurns = createQuestionTurnRegistry({
+  pending: pendingQuestions,
+  broadcastRichFn: (type, payload) => broadcastRich(type, payload),
+});
+
+function questionActuatorForSession(questionSession) {
+  if (!questionSession || typeof questionSession.writeKeys !== "function") return null;
+  return {
+    sessionId: runtimeSessionId(questionSession),
+    available: () => richPtyAvailable(questionSession),
+    write: (bytes) => questionSession.writeKeys(bytes),
+  };
+}
+
+function bindQuestionJournal(identity, questionSession = null) {
+  return questionTurns.bind(turnContext.getStore(), identity, {
+    actuator: questionActuatorForSession(questionSession),
+  });
+}
+
+function registerQuestionSession(questionSession, identity = null) {
+  const owner = turnContext.getStore();
+  if (!owner) return false;
+  const resolvedIdentity = identity ?? sessionJournalIdentity(questionSession);
+  return questionTurns.bind(owner, resolvedIdentity, {
+    actuator: questionActuatorForSession(questionSession),
+  });
+}
+
+const richQuestionOwner = {
+  questionCardId: null,
+  questionThreadId: null,
+  questionSink: null,
+};
 
 // Start the JSONL AskUserQuestion watcher once the operative is ready. Idempotent.
 function startAskWatcher() {
@@ -653,9 +743,26 @@ function startAskWatcher() {
   }
   askWatcher = createAskQuestionWatcher({
     projectDir,
-    onQuestion: (payload) => {
+    onQuestion: (payload, source) => {
       logEvent("stdout", { kind: "ask-question", tool_use_id: payload.tool_use_id, questions: payload.questions?.length ?? 0 });
-      broadcastTool(payload);
+      // Raw /claude/* input does not pass through runTurn, but its question still
+      // has an exact transcript and PTY. Bind that session only when the watcher
+      // source equals the currently active operative transcript; never fall back
+      // from an unrelated one-shot/delegate transcript to the module-global PTY.
+      if (!questionTurns.lookup(source)) {
+        const active = activeRuntimeSession();
+        const activeIdentity = sessionJournalIdentity(active);
+        if (
+          activeIdentity?.transcript_path &&
+          path.resolve(activeIdentity.transcript_path) === path.resolve(String(source?.transcriptPath ?? ""))
+        ) {
+          questionTurns.release(richQuestionOwner);
+          questionTurns.bind(richQuestionOwner, activeIdentity, {
+            actuator: questionActuatorForSession(active),
+          });
+        }
+      }
+      questionTurns.deliver(payload, source);
     },
     logFn: (e) => logEvent("stderr", e),
   });
@@ -664,11 +771,11 @@ function startAskWatcher() {
 
 // Drive the live TUI picker with an ordered list of key names (down/enter/escape).
 // A short dwell between keys lets each keypress register in the picker.
-async function drivePicker(keyNames) {
+async function drivePicker(actuator, keyNames) {
   for (const name of keyNames) {
     const bytes = keySequence(name);
     if (!bytes) continue;
-    session.writeKeys(bytes);
+    await Promise.resolve(actuator.write(bytes));
     await sleepMs(140);
   }
 }
@@ -677,34 +784,98 @@ async function drivePicker(keyNames) {
 // text?, dismiss? }. A matching option label drives arrow-down×index + Enter; a
 // free-text ("Other...") answer types the text + Enter (best-effort - the picker
 // may reject free text); dismiss sends Escape. Returns {status, body}.
-async function handleAnswer(body) {
+export async function handleAnswer(body, {
+  pending = pendingQuestions,
+  trustedCardId = null,
+} = {}) {
   const toolUseId = typeof body?.tool_use_id === "string" ? body.tool_use_id.trim() : "";
   const label = typeof body?.label === "string" ? body.label : "";
   const text = typeof body?.text === "string" ? body.text : "";
   const dismiss = body?.dismiss === true;
-  if (!runtimeSessionAlive()) return { status: 503, body: { error: "operative not ready" } };
-  if (!richPtyAvailable()) return { status: 503, body: richUnavailable() };
+  if (!toolUseId) {
+    return { status: 400, body: { error: "tool_use_id is required", code: "question_id_required" } };
+  }
+  const entry = pending.get(toolUseId) ?? null;
+  if (!entry) {
+    // Preserve the runtime-neutral refusal used by non-PTY primaries, but never
+    // use the process-global operative as an actuator for a known question.
+    if (pending === pendingQuestions && !richPtyAvailable()) {
+      return { status: 503, body: richUnavailable() };
+    }
+    return { status: 404, body: { error: "unknown or expired question", tool_use_id: toolUseId } };
+  }
 
-  if (dismiss) {
-    await drivePicker(["escape"]);
-    if (toolUseId) pendingQuestions.delete(toolUseId);
-    return { status: 200, body: { ok: true, action: "dismiss" } };
+  const suppliedThreads = [body?.session_id, body?.thread_id, body?.threadId]
+    .filter((value) => typeof value === "string" && value.trim())
+    .map((value) => value.trim());
+  if (new Set(suppliedThreads).size > 1) {
+    return { status: 400, body: { error: "conflicting question owner coordinates", code: "question_owner_invalid" } };
   }
-  if (!label && text) {
-    session.writeKeys("\x15"); // Ctrl-U clear, in case the picker exposes a text field
-    session.writeKeys(text);
-    await sleepMs(140);
-    await drivePicker(["enter"]);
-    if (toolUseId) pendingQuestions.delete(toolUseId);
-    return { status: 200, body: { ok: true, action: "text" } };
+  const suppliedThread = suppliedThreads[0] ?? null;
+  if (entry.threadId) {
+    if (!suppliedThread) {
+      return { status: 400, body: { error: "session_id is required for this question", code: "question_owner_required" } };
+    }
+    if (suppliedThread !== entry.threadId) {
+      return { status: 409, body: { error: "question belongs to another thread", code: "question_owner_mismatch" } };
+    }
+  } else if (suppliedThread) {
+    // A Web thread may never actuate an unscoped rich/card question just because
+    // it learned a tool id from another surface.
+    return { status: 409, body: { error: "question does not belong to this thread", code: "question_owner_mismatch" } };
   }
-  const pending = toolUseId ? pendingQuestions.get(toolUseId) : null;
-  const question = pending?.questions?.[0] ?? null;
+  if (entry.cardId && trustedCardId && entry.cardId !== trustedCardId) {
+    return { status: 409, body: { error: "question belongs to another card", code: "question_owner_mismatch" } };
+  }
+
+  const actionCount = Number(dismiss) + Number(label.length > 0) + Number(text.length > 0);
+  if (actionCount !== 1) {
+    return { status: 400, body: { error: "exactly one of label, text, or dismiss is required", code: "question_action_invalid" } };
+  }
+  const question = entry.questions?.[0] ?? null;
   const index = question ? resolveOptionIndex(question, label) : -1;
-  if (index < 0) return { status: 404, body: { error: "unknown or expired question", tool_use_id: toolUseId } };
-  await drivePicker(answerKeySequence(index));
-  if (toolUseId) pendingQuestions.delete(toolUseId);
-  return { status: 200, body: { ok: true, action: "select", index, label } };
+  if (label && index < 0) {
+    return { status: 404, body: { error: "unknown option for question", tool_use_id: toolUseId } };
+  }
+  const actuator = entry.actuator;
+  let available = false;
+  try {
+    available = !!actuator && actuator.available() !== false;
+  } catch {
+    available = false;
+  }
+  if (!available || typeof actuator?.write !== "function") {
+    return { status: 409, body: { error: "question owner is no longer interactive", code: "question_owner_unavailable" } };
+  }
+  if (entry.answering) {
+    return { status: 409, body: { error: "question answer is already in progress", code: "question_answer_in_progress" } };
+  }
+
+  entry.answering = true;
+  try {
+    if (dismiss) {
+      await drivePicker(actuator, ["escape"]);
+    } else if (text) {
+      await Promise.resolve(actuator.write("\x15")); // Ctrl-U clear
+      await Promise.resolve(actuator.write(text));
+      await sleepMs(140);
+      await drivePicker(actuator, ["enter"]);
+    } else {
+      await drivePicker(actuator, answerKeySequence(index));
+    }
+  } catch (err) {
+    entry.answering = false;
+    return {
+      status: 500,
+      body: { error: "question actuation failed", code: "question_actuation_failed" }
+    };
+  }
+  if (pending.get(toolUseId) === entry) pending.delete(toolUseId);
+  return dismiss
+    ? { status: 200, body: { ok: true, action: "dismiss" } }
+    : text
+      ? { status: 200, body: { ok: true, action: "text" } }
+      : { status: 200, body: { ok: true, action: "select", index, label } };
 }
 
 // Routing is ON whenever the model-router fitting is resolvable, unless
@@ -1195,6 +1366,208 @@ export function pendingRouteFrame(pre, hints, extra = {}) {
 // interrupt arriving before then reports the honest "no cancel primitive yet".
 const activeTurns = new Map(); // sessionId -> { lane, stop: fn|null, cancelled, dutyKey, cardIds }
 const INTERRUPT_FALLBACK_KEY = "operative";
+
+/**
+ * Exact-generation control for streamed Web turns. Unlike the legacy/card
+ * registry above, a thread can have only one claimed generation and cleanup is
+ * identity-checked so an older turn can never erase a newer claimant.
+ */
+export function createGenerationTurnControlPlane({ logFn = () => {} } = {}) {
+  const turnsByGeneration = new Map();
+  const currentGenerationByThread = new Map();
+
+  const isCurrent = (entry) =>
+    !!entry &&
+    turnsByGeneration.get(entry.generationId) === entry &&
+    currentGenerationByThread.get(entry.threadId) === entry.generationId;
+
+  const claim = (threadId, generationId, { lane = null } = {}) => {
+    const thread = exactPermissionId(threadId);
+    const generation = exactPermissionId(generationId);
+    if (!thread || !generation) {
+      return {
+        status: 400,
+        body: { ok: false, error: "threadId and generationId are required", code: "invalid_turn_generation" }
+      };
+    }
+    const currentGeneration = currentGenerationByThread.get(thread);
+    if (currentGeneration) {
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          error: "thread already has an active generation",
+          code: "thread_generation_conflict"
+        }
+      };
+    }
+    if (turnsByGeneration.has(generation)) {
+      return {
+        status: 409,
+        body: { ok: false, error: "generation is already active", code: "turn_generation_conflict" }
+      };
+    }
+    const entry = {
+      kind: "web-generation",
+      threadId: thread,
+      generationId: generation,
+      lane,
+      stop: null,
+      stopPromise: null,
+      stopOutcome: null,
+      cancelRequested: false,
+      cancelled: false,
+      dutyKey: null,
+      cardIds: []
+    };
+    turnsByGeneration.set(generation, entry);
+    currentGenerationByThread.set(thread, generation);
+    return { status: 201, entry };
+  };
+
+  const beginStop = (entry) => {
+    if (entry.stopPromise) return entry.stopPromise;
+    if (entry.stopOutcome) return Promise.resolve(entry.stopOutcome);
+    if (!isCurrent(entry) || typeof entry.stop !== "function") return null;
+
+    // Assign the shared promise before invoking user/runtime code. Concurrent
+    // duplicate interrupts therefore converge on exactly one primitive call.
+    // Invoke the primitive synchronously after that assignment: a latched stop
+    // registered immediately before runtime entry must take effect before the
+    // lane can advance to send/runTurn in the same JavaScript turn.
+    let settleStop;
+    const stopPromise = new Promise((resolve) => {
+      settleStop = resolve;
+    });
+    entry.stopPromise = stopPromise;
+    const settle = (outcome, { memoize = false } = {}) => {
+      // A successful stop is terminal for this generation, so later duplicate
+      // requests can reuse it without signalling the runtime again. A refused
+      // or failed attempt is not terminal: settle every waiter coalesced onto
+      // THIS attempt, then reopen the exact tuple so the UI's explicit Retry can
+      // reach a primitive that has since become usable.
+      entry.stopOutcome = memoize ? outcome : null;
+      if (entry.stopPromise === stopPromise) entry.stopPromise = null;
+      settleStop(outcome);
+    };
+    const succeeded = (value) => {
+      const didStop = value !== false;
+      if (!didStop) {
+        logFn("stderr", {
+          kind: "generation-interrupt-refused",
+          lane: entry.lane,
+          threadId: entry.threadId,
+          generationId: entry.generationId
+        });
+        settle({
+          status: 409,
+          body: { ok: false, error: "cancel-primitive-did-not-stop", lane: entry.lane }
+        });
+        return;
+      }
+      entry.cancelled = true;
+      logFn("stdout", {
+        kind: "generation-interrupt",
+        lane: entry.lane,
+        threadId: entry.threadId,
+        generationId: entry.generationId,
+        stopped: true
+      });
+      settle(
+        { status: 200, body: { ok: true, lane: entry.lane, stopped: true } },
+        { memoize: true }
+      );
+    };
+    const failed = (err) => {
+      logFn("stderr", {
+        kind: "generation-interrupt-failed",
+        lane: entry.lane,
+        threadId: entry.threadId,
+        generationId: entry.generationId,
+        error: String(err?.message ?? err)
+      });
+      settle({ status: 500, body: { ok: false, error: "cancel-failed", lane: entry.lane } });
+    };
+    try {
+      Promise.resolve(entry.stop()).then(succeeded, failed);
+    } catch (err) {
+      failed(err);
+    }
+    // Keep the attempt-local handle: a synchronously throwing primitive clears
+    // entry.stopPromise while settling, but this caller still needs its 500
+    // result rather than mistaking the cleared registry slot for a pre-stop
+    // latch and returning 202.
+    return stopPromise;
+  };
+
+  const registerStop = (entry, lane, stop) => {
+    if (!isCurrent(entry) || typeof stop !== "function") {
+      return { registered: false, cancelRequested: false };
+    }
+    entry.lane = lane;
+    // One generation owns one runtime primitive. A late duplicate registration
+    // cannot replace the primitive an in-flight interrupt is already calling.
+    if (typeof entry.stop !== "function") entry.stop = stop;
+    if (entry.cancelRequested) void beginStop(entry);
+    return { registered: true, cancelRequested: entry.cancelRequested };
+  };
+
+  const interrupt = async (raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { status: 400, body: { ok: false, error: "interrupt body must be an object" } };
+    }
+    const keys = Object.keys(raw).sort();
+    if (keys.length !== 2 || keys[0] !== "generationId" || keys[1] !== "threadId") {
+      return {
+        status: 400,
+        body: { ok: false, error: "Web interrupt accepts only threadId and generationId" }
+      };
+    }
+    const threadId = exactPermissionId(raw.threadId);
+    const generationId = exactPermissionId(raw.generationId);
+    if (!threadId || !generationId) {
+      return {
+        status: 400,
+        body: { ok: false, error: "threadId and generationId are required", code: "invalid_turn_generation" }
+      };
+    }
+    const entry = turnsByGeneration.get(generationId);
+    if (!entry || entry.threadId !== threadId || !isCurrent(entry)) {
+      return {
+        status: 409,
+        body: { ok: false, error: "turn generation is unavailable", code: "turn_generation_unavailable" }
+      };
+    }
+
+    entry.cancelRequested = true;
+    const stop = beginStop(entry);
+    if (!stop) {
+      // The request is latched. Registration will call the primitive (at most
+      // once) and abort entry into the runtime before it can start useful work.
+      return { status: 202, body: { ok: true, state: "pending-stop" } };
+    }
+    return stop;
+  };
+
+  const release = (entry) => {
+    if (!isCurrent(entry)) return false;
+    turnsByGeneration.delete(entry.generationId);
+    currentGenerationByThread.delete(entry.threadId);
+    return true;
+  };
+
+  return {
+    turnsByGeneration,
+    currentGenerationByThread,
+    claim,
+    interrupt,
+    registerStop,
+    release,
+    isCurrent
+  };
+}
+
+const generationTurnControl = createGenerationTurnControlPlane({ logFn: logEvent });
 // Concurrent turns (2026-08-07) can no longer share one module-global "current
 // turn" cursor: each turn's registry entry rides its own async context, so a
 // lane registering its stop primitive always lands on ITS turn even while other
@@ -1205,6 +1578,15 @@ const turnContext = new AsyncLocalStorage();
 function registerTurnStop(lane, stop) {
   const entry = turnContext.getStore();
   if (!entry) return;
+  if (entry.kind === "web-generation") {
+    const registration = generationTurnControl.registerStop(entry, lane, stop);
+    if (registration.cancelRequested) {
+      const error = new Error("turn interrupted before runtime start");
+      error.code = "turn_interrupted_before_runtime";
+      throw error;
+    }
+    return;
+  }
   entry.lane = lane;
   entry.stop = stop;
 }
@@ -1218,7 +1600,20 @@ function registerTurnStop(lane, stop) {
  * deliberately carry every member: panicking any one member stops the shared
  * runtime turn and the batch engine parks all of them.
  */
-export async function handleInterrupt(body, turns = activeTurns) {
+export async function handleInterrupt(body, turns = activeTurns, webTurns = generationTurnControl) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { status: 400, body: { ok: false, error: "interrupt body must be an object" } };
+  }
+  // Presence of either generation coordinate commits the request to the strict
+  // Web union. A malformed/mixed request must never fall through to the legacy
+  // fallback key and stop a card or operative turn.
+  if (Object.hasOwn(body, "threadId") || Object.hasOwn(body, "generationId")) {
+    return webTurns.interrupt(body);
+  }
+  const keys = Object.keys(body);
+  if (keys.some((key) => key !== "sessionId" && key !== "cardId")) {
+    return { status: 400, body: { ok: false, error: "legacy interrupt accepts only sessionId and cardId" } };
+  }
   const sessionId =
     typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : INTERRUPT_FALLBACK_KEY;
   const entry = turns.get(sessionId);
@@ -1923,6 +2318,12 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   if (typeof router.isOllamaVisionTurn === "function" && router.isOllamaVisionTurn(pre.route, hints?.images)) {
     broadcastRich("turn", { active: true });
     try {
+      // garrison-call owns a bounded child process, but its public invocation
+      // seam exposes no cancellation handle. Publish that fact as the lane's
+      // primitive before entering it: an already-latched stop still unwinds via
+      // registerTurnStop's pre-runtime sentinel, while a genuinely in-flight
+      // stop gets an honest 409 instead of remaining a misleading 202 forever.
+      registerTurnStop("ollama-native", () => false);
       const r = await router.runOllamaVisionTurn(pre.route, message, hints.images);
       broadcastRich("assistant", { text: r.reply });
       logEvent("stdout", {
@@ -1961,6 +2362,22 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // §12: the warm SDK session is keyed by CONVERSATION as well as target, so
       // two web threads never share one session_id (and one transcript badge).
       sessionKey: hints?.sessionId ?? null,
+      // Web history is durable outside the SDK process. A warm standing Query
+      // already owns that history, but a cache eviction or credential rotation
+      // creates a genuinely cold Query and must seed it from the materialized
+      // thread context the channel supplied.
+      coldStartContext:
+        hints?.channel === "web" && typeof hints?.context === "string"
+          ? hints.context
+          : null,
+      // Only a streamed Web turn owns both coordinates required by the standing
+      // Agent SDK input protocol. JSON chat, Kanban, and threadless probes retain
+      // the historical per-turn string Query path.
+      ...(hints?.channel === "web" &&
+        exactPermissionId(hints?.sessionId) &&
+        exactPermissionId(opts?.generationId)
+        ? { streamingInput: true }
+        : {}),
       // Interactive permissions are confined to a real Web thread. Every other
       // caller retains the historical bypass mode, including threadless Web
       // probes: without a stable thread coordinate there is no safe answer path.
@@ -2089,6 +2506,8 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // §8: honor a pinned project here too, else the badge overstates the scope.
       cwd: pre.projectPath ?? workspaceCwdFallback(),
       onJournal: opts.onJournal,
+      registerQuestionSession: (questionSession, identity) =>
+        registerQuestionSession(questionSession, identity),
       registerStop: (stop) => registerTurnStop("claude-delegate", stop)
     });
     broadcastRich("status", {
@@ -2151,6 +2570,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // the standing path below); the final onChunk(reply, true) after the turn
       // remains the authoritative replace.
       let osSession = null;
+      let osTurnStarted = false;
       let osEmitted = "";
       const osOnScreen =
         onChunk
@@ -2179,15 +2599,29 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
         onScreen: osOnScreen,
         onSession: (s) => {
           osSession = s;
-          reportJournal(opts, sessionJournalIdentity(s, s?.compositionDir ?? pre.projectPath ?? COMPOSITION_DIR));
+          reportJournal(
+            opts,
+            sessionJournalIdentity(s, s?.compositionDir ?? pre.projectPath ?? COMPOSITION_DIR),
+            s
+          );
           // §9: ESC on the disposable session is the one-shot lane's stop
           // primitive; waitForTurnComplete's liveness check then settles the turn
           // with its partial reply instead of hanging to the 5-minute timeout.
           registerTurnStop("web-one-shot", () => {
+            // A latched generation interrupt reaches this callback before the
+            // one-shot helper enters session.runTurn. Dispose in that narrow
+            // window because an ESC written before a turn starts cannot cancel
+            // the future input. During a live turn, preserve the ordinary ESC
+            // primitive so the partial reply can settle normally.
+            if (!osTurnStarted && typeof s?.dispose === "function") {
+              s.dispose();
+              return true;
+            }
             if (typeof s?.writeKeys !== "function") return false;
             s.writeKeys("\x1b");
             return true;
           });
+          osTurnStarted = true;
         },
       });
       reply = os1.reply ?? "";
@@ -2244,7 +2678,8 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   let lastEmitted = "";
   const journal = reportJournal(
     opts,
-    sessionJournalIdentity(session, session?.compositionDir ?? pre.projectPath ?? CANONICAL_COMPOSITION_DIR)
+    sessionJournalIdentity(session, session?.compositionDir ?? pre.projectPath ?? CANONICAL_COMPOSITION_DIR),
+    session
   );
   // Runs even when onChunk is absent: the activity hint is the ONLY feedback a
   // caller gets on this lane, so it must not be gated on text streaming.
@@ -2340,16 +2775,29 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   });
 }
 
+function interruptedBeforeRuntimeResult(entry) {
+  return {
+    reply: "",
+    session_id: null,
+    cost_usd: null,
+    stoppedByUser: true,
+    runtimeStoppedReason: null,
+    stoppedReason: "user-interrupt",
+    interruptedByCardId: null,
+    affectedCardIds: Array.isArray(entry?.cardIds) ? entry.cardIds : []
+  };
+}
+
 /** Run one turn against the live operative. Spawns/respawns on demand.
  *  onChunk(text) streams the growing assistant reply (screen-derived).
- *  opts: { onPreRoute, onActivity, onJournal } - the §4/§12 SSE frame sinks. */
+ *  opts: { onPreRoute, onActivity, onJournal, turnControlEntry } - the
+ *  §4/§12 SSE frame sinks plus an exact streamed-Web generation claim. */
 async function runTurn(message, onChunk, hints, opts = {}) {
-  // S3d review R1: bind AskUserQuestions raised during THIS turn to its card (the
-  // engine's dutyKey = "cardId:phase"), and sweep any that outlive the turn. Turns are
-  // serialized, so this module-level cursor is race-free.
+  // Bind AskUserQuestions raised during THIS turn to its card (the engine's
+  // dutyKey = "cardId:phase") and exact stream sink. Runtime lanes are
+  // concurrent, so this identity rides the AsyncLocalStorage entry rather than
+  // a module-global cursor whose save/restore order can corrupt another turn.
   const turnCardId = typeof hints?.dutyKey === "string" ? (hints.dutyKey.split(":")[0] || null) : null;
-  const prevTurnCardId = currentTurnCardId;
-  currentTurnCardId = turnCardId;
   // §9: publish this turn in the cancel registry for the whole of its life. The
   // lane fills in the actual `stop` as soon as it owns something interruptible; an
   // interrupt before that answers "no cancel primitive yet" rather than lying.
@@ -2358,15 +2806,29 @@ async function runTurn(message, onChunk, hints, opts = {}) {
     ? hints.cardIds.filter((id) => typeof id === "string" && id).slice(0, 100)
     : [];
   const cardIds = [...new Set([turnCardId, ...hintedCardIds].filter(Boolean))];
-  const entry = {
+  const generationEntry = opts?.turnControlEntry?.kind === "web-generation"
+    ? opts.turnControlEntry
+    : null;
+  const entry = generationEntry ?? {
     lane: primaryRuntime(),
     stop: null,
     cancelled: false,
     dutyKey: typeof hints?.dutyKey === "string" ? hints.dutyKey : null,
     cardIds
   };
-  activeTurns.set(turnKey, entry);
+  entry.dutyKey = typeof hints?.dutyKey === "string" ? hints.dutyKey : null;
+  entry.cardIds = cardIds;
+  entry.questionCardId = turnCardId;
+  entry.questionThreadId = hints?.channel === "web"
+    ? exactPermissionId(hints?.sessionId)
+    : null;
+  entry.questionSink = typeof opts?.onQuestion === "function" ? opts.onQuestion : null;
+  if (!generationEntry) activeTurns.set(turnKey, entry);
   try {
+    // An interrupt can arrive in the small but real window after `open` and
+    // before this function begins. Honor the latched generation without ever
+    // entering a runtime lane.
+    if (generationEntry?.cancelRequested) return interruptedBeforeRuntimeResult(entry);
     if (router) {
       const result = await turnContext.run(entry, () => runRoutedTurn(message, onChunk, hints, opts));
       // A cancelled turn settles NORMALLY with its partial reply - the stop is not
@@ -2415,7 +2877,7 @@ async function runTurn(message, onChunk, hints, opts = {}) {
         session.writeKeys("\x1b");
         return true;
       });
-      const journal = reportJournal(opts, sessionJournalIdentity(session));
+      const journal = reportJournal(opts, sessionJournalIdentity(session), session);
       const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
       await markPriorSession();
       return {
@@ -2433,14 +2895,23 @@ async function runTurn(message, onChunk, hints, opts = {}) {
           : {})
       };
     }));
+  } catch (err) {
+    // Stop registration happens immediately before a lane starts its runtime.
+    // If the generation was interrupted while routing/queueing, registration
+    // invokes the primitive once and this sentinel unwinds before send/runTurn.
+    if (generationEntry?.cancelRequested && err?.code === "turn_interrupted_before_runtime") {
+      return interruptedBeforeRuntimeResult(entry);
+    }
+    throw err;
   } finally {
-    // The turn ended (returned, timed out, or threw) - an unanswered question it raised
-    // is now dead; drop it so it cannot answer a future thread's reply.
-    sweepPendingQuestions(turnCardId);
-    currentTurnCardId = prevTurnCardId;
+    // The turn ended (returned, timed out, or threw): release only transcript
+    // mappings and unanswered questions still owned by THIS entry. An older
+    // turn completing after a newer claimant cannot erase the newer owner.
+    questionTurns.release(entry);
     // Only clear the registry slot if it is still OURS (a later turn on the same
     // conversation key must not be un-cancellable because an older one finished).
-    if (activeTurns.get(turnKey) === entry) activeTurns.delete(turnKey);
+    if (generationEntry) generationTurnControl.release(generationEntry);
+    else if (activeTurns.get(turnKey) === entry) activeTurns.delete(turnKey);
   }
 }
 
@@ -2614,7 +3085,10 @@ async function dispatchDiscussIntercept(body) {
     });
     if (!decision) return null;
     if (decision.action === "answer") {
-      const r = await handleAnswer({ tool_use_id: decision.toolUseId, text: message });
+      const r = await handleAnswer(
+        { tool_use_id: decision.toolUseId, text: message },
+        { trustedCardId: decision.card.id }
+      );
       const reply =
         r?.status === 200
           ? "Got it - passing that to the discussion."
@@ -2839,7 +3313,12 @@ const server = http.createServer(async (request, response) => {
     // normally with its partial reply and stoppedByUser on the done frame - this
     // endpoint never ends the SSE stream itself.
     if (request.method === "POST" && url.pathname === "/chat/interrupt") {
-      const body = await readJsonBody(request);
+      let body;
+      try {
+        body = await readJsonBody(request);
+      } catch (err) {
+        return sendJson(response, 400, { ok: false, error: `invalid json: ${err.message}` });
+      }
       const r = await handleInterrupt(body);
       return sendJson(response, r.status, r.body);
     }
@@ -2936,7 +3415,14 @@ const server = http.createServer(async (request, response) => {
         response.setHeader("x-accel-buffering", "no");
         response.flushHeaders?.();
         sseWrite(response, "open", { ts: Date.now(), generationId: interceptedGenerationId });
-        sseWrite(response, "done", { reply: intercepted.reply, session_id: null, cost_usd: null, card: intercepted.card, [intercepted.action]: true });
+        sseWrite(response, "done", {
+          reply: intercepted.reply,
+          session_id: null,
+          cost_usd: null,
+          card: intercepted.card,
+          [intercepted.action]: true,
+          generationId: interceptedGenerationId
+        });
         logEvent("stdout", { kind: "chat-stream-intercept", action: intercepted.action, card: intercepted.card });
         response.end();
         return;
@@ -2946,73 +3432,90 @@ const server = http.createServer(async (request, response) => {
       // that fails before here has no handle to leak.
       const permissionGenerationId = permissionEnabled ? permissionControl.openGeneration(hints.sessionId) : null;
       const generationId = permissionGenerationId ?? interceptedGenerationId;
-
-      response.statusCode = 200;
-      response.setHeader("content-type", "text/event-stream");
-      response.setHeader("cache-control", "no-cache, no-transform");
-      response.setHeader("connection", "keep-alive");
-      response.setHeader("x-accel-buffering", "no");
-      response.flushHeaders?.();
-      sseWrite(response, "open", { ts: Date.now(), generationId });
-      const heartbeat = setInterval(() => {
+      const webThreadId = hints.channel === "web" ? exactPermissionId(hints.sessionId) : null;
+      const turnClaim = webThreadId
+        ? generationTurnControl.claim(webThreadId, generationId, { lane: primaryRuntime() })
+        : null;
+      if (turnClaim && turnClaim.status !== 201) {
+        if (permissionGenerationId) permissionControl.closeGeneration(permissionGenerationId);
+        return sendJson(response, turnClaim.status, turnClaim.body);
+      }
+      const turnControlEntry = turnClaim?.entry ?? null;
+      const withGeneration = (payload) =>
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? { ...payload, generationId }
+          : { value: payload, generationId };
+      const writeStreamEvent = (event, payload) => sseWrite(response, event, withGeneration(payload));
+      let heartbeat = null;
+      // The watcher delivers only questions observed in this turn's transcript
+      // to this sink. It is stored on the exact AsyncLocalStorage turn entry;
+      // there is deliberately no process-global listener fanout.
+      const onQuestion = (payload) => {
         try {
-          response.write(": keepalive\n\n");
-        } catch {
-          /* ignore */
-        }
-      }, 15_000);
-
-      // Forward AskUserQuestion tool events on THIS stream while the turn runs, so
-      // the client renders tappable option buttons (answered via POST /chat/answer).
-      const onTool = (payload) => {
-        try {
-          sseWrite(response, "tool", payload);
-        } catch {
-          /* client gone */
-        }
-      };
-      toolListeners.add(onTool);
-
-      // §4: the FIRST `route` frame, emitted the moment preRoute resolves, so the
-      // badge row appears ~1s into the turn instead of after the reply. `pending`
-      // marks it as refinable; the client merges the done frame over it and drops
-      // any frame from an older turnSeq (§5).
-      let pendingPre = null;
-      const emitPendingRoute = (extra = {}) => {
-        try {
-          sseWrite(response, "route", pendingRouteFrame(pendingPre, hints, extra));
-        } catch {
-          /* client gone */
-        }
-      };
-      const onPreRoute = (pre) => {
-        pendingPre = pre;
-        emitPendingRoute();
-      };
-      // Follow-up `route` frame once the selected runtime has a journal. It
-      // merges into the same pending attribution client-side, giving the host a
-      // session id early enough to open SessionStream during the turn.
-      const onJournal = (identity) => emitPendingRoute(identity);
-      // §12: tool activity from a routed runtime, for the working-hint slot.
-      const onActivity = (payload) => {
-        try {
-          sseWrite(response, "activity", payload);
-        } catch {
-          /* client gone */
-        }
-      };
-      // Structured session events are already in the runtime-neutral vocabulary.
-      // Forward each payload immediately and unchanged; legacy activity/chunk/done
-      // frames remain alongside it while existing consumers migrate.
-      const onSessionEvent = (payload) => {
-        try {
-          sseWrite(response, "session_event", payload);
+          writeStreamEvent("tool", payload);
         } catch {
           /* client gone */
         }
       };
 
       try {
+        response.statusCode = 200;
+        response.setHeader("content-type", "text/event-stream");
+        response.setHeader("cache-control", "no-cache, no-transform");
+        response.setHeader("connection", "keep-alive");
+        response.setHeader("x-accel-buffering", "no");
+        response.flushHeaders?.();
+        writeStreamEvent("open", { ts: Date.now() });
+        heartbeat = setInterval(() => {
+          try {
+            response.write(": keepalive\n\n");
+          } catch {
+            /* ignore */
+          }
+        }, 15_000);
+
+        // §4: the FIRST `route` frame, emitted the moment preRoute resolves, so the
+        // badge row appears ~1s into the turn instead of after the reply. `pending`
+        // marks it as refinable; the client merges the done frame over it and drops
+        // any frame from an older turnSeq (§5).
+        let pendingPre = null;
+        const emitPendingRoute = (extra = {}) => {
+          try {
+            writeStreamEvent("route", pendingRouteFrame(pendingPre, hints, extra));
+          } catch {
+            /* client gone */
+          }
+        };
+        const onPreRoute = (pre) => {
+          pendingPre = pre;
+          emitPendingRoute();
+        };
+        // Follow-up `route` frame once the selected runtime has a journal. It
+        // merges into the same pending attribution client-side, giving the host a
+        // session id early enough to open SessionStream during the turn.
+        const onJournal = (identity) => {
+          bindQuestionJournal(identity);
+          emitPendingRoute(identity);
+        };
+        // §12: tool activity from a routed runtime, for the working-hint slot.
+        const onActivity = (payload) => {
+          try {
+            writeStreamEvent("activity", payload);
+          } catch {
+            /* client gone */
+          }
+        };
+        // Structured session events are already in the runtime-neutral vocabulary.
+        // Forward each payload immediately, adding only the gateway-owned generation
+        // coordinate; legacy activity/chunk/done frames remain alongside it.
+        const onSessionEvent = (payload) => {
+          try {
+            writeStreamEvent("session_event", payload);
+          } catch {
+            /* client gone */
+          }
+        };
+
         await readyPromise;
         const result = await enqueueTurn(message, (text, replace) => {
           try {
@@ -3021,7 +3524,7 @@ const server = http.createServer(async (request, response) => {
             // REPLACES its accumulator instead of appending (the duplication bug that
             // turned a short reply into kilobytes of repeated text). Additive field:
             // older clients that ignore it are unaffected.
-            sseWrite(response, "chunk", { type: "chunk", text, replace: replace === true });
+            writeStreamEvent("chunk", { type: "chunk", text, replace: replace === true });
           } catch {
             /* client gone */
           }
@@ -3029,9 +3532,11 @@ const server = http.createServer(async (request, response) => {
           onPreRoute,
           onActivity,
           onJournal,
+          onQuestion,
           onSessionEvent,
           generationId,
           permissionMode,
+          turnControlEntry,
           ...(permissionGenerationId
             ? {
                 onPermissionRequest: (publicRequest, context = {}) =>
@@ -3048,15 +3553,15 @@ const server = http.createServer(async (request, response) => {
         // compactions, read off the operative session that just ran. A nested
         // `context` object so consumers (the kanban engine) opt in without any
         // change to the existing result shape.
-        sseWrite(response, "done", { ...result, context: contextTelemetry() });
+        writeStreamEvent("done", { ...result, context: contextTelemetry() });
         logEvent("stdout", { kind: "chat-stream-out", reply: result.reply.slice(0, 200) });
       } catch (err) {
-        sseWrite(response, "error", { error: err.message });
+        writeStreamEvent("error", { error: err.message });
         logEvent("stderr", { kind: "chat-stream-failed", error: err.message });
       } finally {
         if (permissionGenerationId) permissionControl.closeGeneration(permissionGenerationId);
-        toolListeners.delete(onTool);
-        clearInterval(heartbeat);
+        if (turnControlEntry) generationTurnControl.release(turnControlEntry);
+        if (heartbeat) clearInterval(heartbeat);
         response.end();
       }
       return;

@@ -45,6 +45,7 @@ let turnScript: TurnScript = {};
 let lastChatBody: any = null;
 let lastInterruptBody: any = null;
 let lastPermissionBody: any = null;
+let gatewayGenerationSeq = 0;
 let permissionStatus = 200;
 let routeOptionsMode: "ok" | "fail" = "ok";
 let routeOptionsHits = 0;
@@ -87,6 +88,7 @@ beforeAll(async () => {
         return;
       }
       res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(sse("open", { generationId: `generation-${++gatewayGenerationSeq}`, ts: Date.now() }));
       for (const frame of turnScript.frames ?? []) res.write(frame);
       res.end();
       return;
@@ -300,10 +302,12 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
 
     const t = await waitForMessages(id, 2);
     // The ask carries the INTENT that was in force...
-    expect(t.messages[0]).toMatchObject({ role: "user", text: "ship it", turnId: "3", overrides: { target: "sonnet-plan", effort: "low" } });
+    expect(t.messages[0]).toMatchObject({ role: "user", text: "ship it", overrides: { target: "sonnet-plan", effort: "low" } });
+    expect(t.messages[0].turnId).toEqual(expect.any(String));
     // ...and the reply carries what actually RAN, pre-turn frame folded in.
     expect(t.messages[1].role).toBe("assistant");
     expect(t.messages[1].text).toBe("shipped it");
+    expect(t.messages[1].turnId).toBe(t.messages[0].turnId);
     expect(t.messages[1].route).toMatchObject({
       route: "sonnet-plan",
       runtime: "agent-sdk",
@@ -366,8 +370,12 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
 
     const turn = await runTurn({ message: "show the durable journal", thread: id });
     expect(turn.status).toBe(200);
-    // The persistence seam must not rewrite or consume the low-latency SSE frame.
-    expect(turn.text).toContain(`event: session_event\ndata: ${JSON.stringify(draft)}`);
+    // The persistence seam retains the canonical payload while stamping the exact
+    // Web input/gateway generation coordinates used for concurrency-safe routing.
+    expect(turn.text).toContain('event: session_event');
+    expect(turn.text).toContain('"id":"assistant-1"');
+    expect(turn.text).toContain('"inputId":');
+    expect(turn.text).toContain('"generationId":');
     const stored = await waitForMessages(id, 2);
     expect(stored.sessionEvents.map((entry: any) => entry.id)).toEqual(["assistant-1", "result-1"]);
     expect(stored.sessionEvents[0]).toMatchObject({ revision: 1, blocks: [{ type: "text", text: "canonical answer" }] });

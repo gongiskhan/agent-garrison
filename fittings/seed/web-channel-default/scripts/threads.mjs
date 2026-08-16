@@ -29,7 +29,7 @@
 // They are durable thread state: updates reuse a stable event id with a higher
 // revision and replace that event IN PLACE, preserving the original timeline.
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -192,6 +192,12 @@ const ROUTING_FIELDS = {
 const SESSION_TEXT_CAP = 20_000;
 const SESSION_ID_CAP = 512;
 const SESSION_LABEL_CAP = 1_000;
+const INPUT_MESSAGE_CAP = 200_000;
+const INPUT_QUEUE_CAP = 128;
+const INPUT_QUEUE_BYTES_CAP = 2 * 1024 * 1024;
+const INPUT_RECEIPT_CAP = 512;
+const INPUT_ACTIVE_STATES = new Set(["queued", "starting", "running", "stopping"]);
+const INPUT_TERMINAL_STATES = new Set(["settled", "stopped", "failed"]);
 const PERMISSION_SUGGESTION_CAP = 64;
 const PERMISSION_STATUSES = new Set(["pending", "resolved", "cancelled"]);
 const PERMISSION_DECISIONS = new Set(["allow_once", "allow_always", "deny"]);
@@ -314,6 +320,113 @@ function cleanSessionId(raw) {
   // Reject rather than truncate identity: two distinct overlong ids must never
   // collapse into the same durable event/session coordinate.
   return value && value.length <= SESSION_ID_CAP ? value : null;
+}
+
+function cleanInputId(raw) {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  return value && value.length <= SESSION_ID_CAP ? value : null;
+}
+
+function cleanIso(raw) {
+  if (typeof raw !== "string" || raw.length > ID_CLIP) return null;
+  const value = raw.trim();
+  return value && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+function sanitizeClassification(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out = {};
+  for (const key of ["taskType", "tier"]) {
+    if (!Object.hasOwn(raw, key)) continue;
+    const value = cleanString(raw[key], ID_CLIP);
+    if (value) out[key] = value;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function sanitizePendingInput(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const inputId = cleanInputId(raw.inputId);
+  const clientRequestId = cleanInputId(raw.clientRequestId);
+  const acceptedAt = cleanIso(raw.acceptedAt);
+  const state = typeof raw.state === "string" && INPUT_ACTIVE_STATES.has(raw.state) ? raw.state : null;
+  const message = typeof raw.message === "string" && raw.message.trim() && raw.message.length <= INPUT_MESSAGE_CAP
+    ? raw.message
+    : null;
+  if (!inputId || !clientRequestId || !acceptedAt || !state || message === null) return null;
+  const generationId = cleanInputId(raw.generationId);
+  const startedAt = cleanIso(raw.startedAt);
+  const routing = sanitizeRouting(raw.routing);
+  const classification = sanitizeClassification(raw.classification);
+  const turnSeq = cleanInt(raw.turnSeq, 0, Number.MAX_SAFE_INTEGER);
+  return {
+    inputId,
+    clientRequestId,
+    message,
+    state,
+    acceptedAt,
+    ...(startedAt ? { startedAt } : {}),
+    ...(generationId ? { generationId } : {}),
+    ...(routing ? { routing } : {}),
+    ...(classification ? { classification } : {}),
+    ...(typeof raw.autonomous === "boolean" ? { autonomous: raw.autonomous } : {}),
+    ...(turnSeq !== null ? { turnSeq } : {}),
+  };
+}
+
+function sanitizeInputReceipt(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const inputId = cleanInputId(raw.inputId);
+  const clientRequestId = cleanInputId(raw.clientRequestId);
+  const acceptedAt = cleanIso(raw.acceptedAt);
+  const settledAt = cleanIso(raw.settledAt);
+  const state = typeof raw.state === "string" && INPUT_TERMINAL_STATES.has(raw.state) ? raw.state : null;
+  if (!inputId || !clientRequestId || !acceptedAt || !settledAt || !state) return null;
+  const generationId = cleanInputId(raw.generationId);
+  const reason = cleanString(raw.reason, TEXT_CLIP);
+  return {
+    inputId,
+    clientRequestId,
+    state,
+    acceptedAt,
+    settledAt,
+    ...(generationId ? { generationId } : {}),
+    ...(reason ? { reason } : {}),
+  };
+}
+
+function normalizedPendingInputs(raw) {
+  const out = [];
+  const inputIds = new Set();
+  const requestIds = new Set();
+  let bytes = 0;
+  for (const candidate of Array.isArray(raw) ? raw : []) {
+    const input = sanitizePendingInput(candidate);
+    if (!input || inputIds.has(input.inputId) || requestIds.has(input.clientRequestId)) continue;
+    const inputBytes = Buffer.byteLength(input.message, "utf8");
+    if (bytes + inputBytes > INPUT_QUEUE_BYTES_CAP) break;
+    inputIds.add(input.inputId);
+    requestIds.add(input.clientRequestId);
+    out.push(input);
+    bytes += inputBytes;
+    if (out.length >= INPUT_QUEUE_CAP) break;
+  }
+  return out;
+}
+
+function normalizedInputReceipts(raw) {
+  const out = [];
+  const inputIds = new Set();
+  const requestIds = new Set();
+  for (const candidate of Array.isArray(raw) ? raw : []) {
+    const receipt = sanitizeInputReceipt(candidate);
+    if (!receipt || inputIds.has(receipt.inputId) || requestIds.has(receipt.clientRequestId)) continue;
+    inputIds.add(receipt.inputId);
+    requestIds.add(receipt.clientRequestId);
+    out.push(receipt);
+  }
+  return out.slice(-INPUT_RECEIPT_CAP);
 }
 
 function cleanSessionLabel(raw, max = SESSION_LABEL_CAP) {
@@ -607,7 +720,12 @@ export function sanitizeSessionEvent(raw) {
   }
   const turnId = cleanOptionalId(raw.turnId, Object.hasOwn(raw, "turnId"));
   const sessionId = cleanOptionalId(raw.sessionId, Object.hasOwn(raw, "sessionId"));
-  if (turnId === INVALID_SESSION_VALUE || turnId === null || sessionId === INVALID_SESSION_VALUE || sessionId === null) return null;
+  const generationId = cleanOptionalId(raw.generationId, Object.hasOwn(raw, "generationId"));
+  if (
+    turnId === INVALID_SESSION_VALUE || turnId === null ||
+    sessionId === INVALID_SESSION_VALUE || sessionId === null ||
+    generationId === INVALID_SESSION_VALUE || generationId === null
+  ) return null;
   if (Object.hasOwn(raw, "toolResultsOnly") && typeof raw.toolResultsOnly !== "boolean") return null;
   const blocks = [];
   for (const block of raw.blocks) {
@@ -621,6 +739,7 @@ export function sanitizeSessionEvent(raw) {
     ts,
     ...(turnId !== undefined ? { turnId } : {}),
     ...(sessionId !== undefined ? { sessionId } : {}),
+    ...(generationId !== undefined ? { generationId } : {}),
     order,
     revision,
     ...(Object.hasOwn(raw, "toolResultsOnly") ? { toolResultsOnly: raw.toolResultsOnly } : {}),
@@ -686,6 +805,7 @@ function deriveTitle(thread) {
 }
 
 function toMeta(thread) {
+  const pendingInputs = normalizedPendingInputs(thread.pendingInputs);
   return {
     id: thread.id,
     title: deriveTitle(thread),
@@ -693,6 +813,8 @@ function toMeta(thread) {
     createdAt: thread.createdAt ?? null,
     updatedAt: thread.updatedAt ?? thread.createdAt ?? null,
     messageCount: Array.isArray(thread.messages) ? thread.messages.length : 0,
+    pendingInputCount: pendingInputs.length,
+    inputRevision: cleanInt(thread.inputRevision, 0, Number.MAX_SAFE_INTEGER) ?? 0,
     // The pinned run context travels with the meta so the thread list / rail can
     // show a pin without a second full-thread read.
     routing: thread.routing ?? null,
@@ -714,6 +836,9 @@ async function readThreadFile(id) {
     if (latestSessionId) obj.claudeSessionId = latestSessionId;
     else delete obj.claudeSessionId;
     obj.sessionIds = normalizedSessionIds(obj.sessionIds, obj.sessionEvents, latestSessionId);
+    obj.pendingInputs = normalizedPendingInputs(obj.pendingInputs);
+    obj.inputReceipts = normalizedInputReceipts(obj.inputReceipts);
+    obj.inputRevision = cleanInt(obj.inputRevision, 0, Number.MAX_SAFE_INTEGER) ?? 0;
     // Legacy files (every thread written before the run-context contract) have no
     // `routing` key at all; normalise to an explicit null so every reader can treat
     // "no pin" uniformly. Re-sanitising also means a hand-edited file cannot inject
@@ -750,6 +875,21 @@ export async function getThread(id) {
   const safe = safeThreadId(id);
   if (!safe) return null;
   return readThreadFile(safe);
+}
+
+/** Read the transcript and its public input lifecycle from one immutable file
+ * snapshot. HTTP hydration must not combine a pre-settlement message list with a
+ * post-settlement queue read (or the inverse), because that can make a completed
+ * turn look like an unanswered idle user message until another refresh. */
+export async function getThreadSnapshot(id) {
+  const thread = await getThread(id);
+  if (!thread) return null;
+  const pending = normalizedPendingInputs(thread.pendingInputs);
+  return {
+    thread,
+    pendingInputs: pending.map((input) => publicThreadInput(input, pending)),
+    inputRevision: cleanInt(thread.inputRevision, 0, Number.MAX_SAFE_INTEGER) ?? 0,
+  };
 }
 
 /**
@@ -794,6 +934,9 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
       messages: [],
       sessionEvents: [],
       sessionIds: [],
+      pendingInputs: [],
+      inputReceipts: [],
+      inputRevision: 0,
     };
     await atomicWriteJson(threadPath(safe), thread);
     return thread;
@@ -929,6 +1072,9 @@ export async function appendMessages(id, messages, { nowIso, idempotencyKey = nu
         messages: [],
         sessionEvents: [],
         sessionIds: [],
+        pendingInputs: [],
+        inputReceipts: [],
+        inputRevision: 0,
       };
     }
     if (deliveryKey && Array.isArray(thread.messageKeys) && thread.messageKeys.includes(deliveryKey)) {
@@ -944,11 +1090,252 @@ export async function appendMessages(id, messages, { nowIso, idempotencyKey = nu
   });
 }
 
+function inputPosition(pendingInputs, inputId) {
+  const queued = pendingInputs.filter((input) => input.state === "queued");
+  const index = queued.findIndex((input) => input.inputId === inputId);
+  return index === -1 ? undefined : index + 1;
+}
+
+function publicThreadInput(input, pendingInputs = []) {
+  if (!input) return null;
+  const position = inputPosition(pendingInputs, input.inputId);
+  return {
+    inputId: input.inputId,
+    clientRequestId: input.clientRequestId,
+    state: input.state,
+    acceptedAt: input.acceptedAt,
+    ...(input.startedAt ? { startedAt: input.startedAt } : {}),
+    ...(input.generationId ? { generationId: input.generationId } : {}),
+    ...(input.message !== undefined ? { message: input.message } : {}),
+    ...(input.routing ? { routing: input.routing } : {}),
+    ...(input.classification ? { classification: input.classification } : {}),
+    ...(typeof input.autonomous === "boolean" ? { autonomous: input.autonomous } : {}),
+    ...(Number.isInteger(input.turnSeq) ? { turnSeq: input.turnSeq } : {}),
+    ...(position !== undefined ? { position } : {}),
+    ...(input.settledAt ? { settledAt: input.settledAt } : {}),
+    ...(input.reason ? { reason: input.reason } : {}),
+  };
+}
+
+function bumpInputRevision(thread) {
+  const current = cleanInt(thread.inputRevision, 0, Number.MAX_SAFE_INTEGER) ?? 0;
+  thread.inputRevision = current >= Number.MAX_SAFE_INTEGER ? current : current + 1;
+}
+
+/** Admit one browser input into the durable per-thread FIFO. The caller supplies
+ * a stable clientRequestId so a lost 202 response can be retried without creating
+ * a second operative turn. Routing is already the server-resolved admission
+ * snapshot; later rail edits cannot reorder or retarget queued work. */
+export async function admitThreadInput(id, raw, { nowIso, inputId: requestedInputId } = {}) {
+  const safe = safeThreadId(id);
+  if (!safe) throw new Error("admitThreadInput: invalid thread id");
+  const message = typeof raw?.message === "string" && raw.message.trim() && raw.message.length <= INPUT_MESSAGE_CAP
+    ? raw.message
+    : null;
+  const clientRequestId = cleanInputId(raw?.clientRequestId);
+  if (message === null) throw new Error("message is required");
+  if (!clientRequestId) throw new Error("valid clientRequestId is required");
+  const now = nowIso ?? new Date().toISOString();
+  const inputId = cleanInputId(requestedInputId) ?? randomUUID();
+  const routing = sanitizeRouting(raw?.routing);
+  const classification = sanitizeClassification(raw?.classification);
+  const turnSeq = cleanInt(raw?.turnSeq, 0, Number.MAX_SAFE_INTEGER);
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    const pending = normalizedPendingInputs(thread.pendingInputs);
+    const receipts = normalizedInputReceipts(thread.inputReceipts);
+    const duplicate = pending.find((input) => input.clientRequestId === clientRequestId)
+      ?? receipts.find((input) => input.clientRequestId === clientRequestId);
+    if (duplicate) return { input: publicThreadInput(duplicate, pending), duplicate: true };
+    const queuedBytes = pending.reduce((total, input) => total + Buffer.byteLength(input.message, "utf8"), 0);
+    if (pending.length >= INPUT_QUEUE_CAP || queuedBytes + Buffer.byteLength(message, "utf8") > INPUT_QUEUE_BYTES_CAP) {
+      const error = new Error(`thread input queue is full (${INPUT_QUEUE_CAP} inputs / 2 MiB)`);
+      error.code = "QUEUE_FULL";
+      throw error;
+    }
+    const input = {
+      inputId,
+      clientRequestId,
+      message,
+      state: "queued",
+      acceptedAt: now,
+      ...(routing ? { routing } : {}),
+      ...(classification ? { classification } : {}),
+      ...(typeof raw?.autonomous === "boolean" ? { autonomous: raw.autonomous } : {}),
+      ...(turnSeq !== null ? { turnSeq } : {}),
+    };
+    thread.pendingInputs = [...pending, input];
+    thread.inputReceipts = receipts;
+    bumpInputRevision(thread);
+    thread.updatedAt = now;
+    await atomicWriteJson(threadPath(safe), thread);
+    return { input: publicThreadInput(input, thread.pendingInputs), duplicate: false };
+  });
+}
+
+/** Pending inputs in durable FIFO order. Full text is returned because the owning
+ * thread UI needs to reconstruct queued user bubbles after a reload. */
+export async function listThreadInputs(id) {
+  const thread = await getThread(id);
+  if (!thread) return null;
+  const pending = normalizedPendingInputs(thread.pendingInputs);
+  return pending.map((input) => publicThreadInput(input, pending));
+}
+
+/** Atomically promote the oldest queued input when the thread has no active one.
+ * The user message is written in the same mutation and keyed by inputId, so a
+ * promoted turn can never be invisible in durable history. */
+export async function claimNextThreadInput(id, { nowIso } = {}) {
+  const safe = safeThreadId(id);
+  if (!safe) return null;
+  const now = nowIso ?? new Date().toISOString();
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    const pending = normalizedPendingInputs(thread.pendingInputs);
+    if (pending.some((input) => input.state !== "queued")) return null;
+    const index = pending.findIndex((input) => input.state === "queued");
+    if (index === -1) return null;
+    const input = { ...pending[index], state: "starting", startedAt: now };
+    pending[index] = input;
+    thread.pendingInputs = pending;
+    const messageKey = `input:${input.inputId}`;
+    const keys = Array.isArray(thread.messageKeys) ? thread.messageKeys : [];
+    if (!keys.includes(messageKey)) {
+      thread.messages.push({
+        role: "user",
+        text: input.message,
+        ts: input.acceptedAt,
+        turnId: input.inputId,
+        ...(input.routing ? { overrides: input.routing } : {}),
+      });
+      thread.messageKeys = [...keys, messageKey].slice(-512);
+      if (!thread.title) thread.title = deriveTitle(thread);
+    }
+    bumpInputRevision(thread);
+    thread.updatedAt = now;
+    await atomicWriteJson(threadPath(safe), thread);
+    return publicThreadInput(input, pending);
+  });
+}
+
+/** Bind the gateway-owned generation only after its `open` frame. */
+export async function bindThreadInputGeneration(id, inputId, generationId, { nowIso } = {}) {
+  const safe = safeThreadId(id);
+  const cleanInput = cleanInputId(inputId);
+  const cleanGeneration = cleanInputId(generationId);
+  if (!safe || !cleanInput || !cleanGeneration) return null;
+  const now = nowIso ?? new Date().toISOString();
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    const pending = normalizedPendingInputs(thread.pendingInputs);
+    const index = pending.findIndex((input) => input.inputId === cleanInput);
+    if (index === -1) return null;
+    const current = pending[index];
+    if (current.state === "running" && current.generationId === cleanGeneration) {
+      return publicThreadInput(current, pending);
+    }
+    if (current.state !== "starting" || (current.generationId && current.generationId !== cleanGeneration)) return null;
+    pending[index] = { ...current, state: "running", generationId: cleanGeneration };
+    thread.pendingInputs = pending;
+    bumpInputRevision(thread);
+    thread.updatedAt = now;
+    await atomicWriteJson(threadPath(safe), thread);
+    return publicThreadInput(pending[index], pending);
+  });
+}
+
+export async function markThreadInputStopping(id, inputId, generationId, { nowIso } = {}) {
+  const safe = safeThreadId(id);
+  const cleanInput = cleanInputId(inputId);
+  const cleanGeneration = cleanInputId(generationId);
+  if (!safe || !cleanInput || !cleanGeneration) return null;
+  const now = nowIso ?? new Date().toISOString();
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    const pending = normalizedPendingInputs(thread.pendingInputs);
+    const index = pending.findIndex((input) => input.inputId === cleanInput);
+    if (index === -1) return null;
+    const current = pending[index];
+    if (!((current.state === "running" || current.state === "stopping") && current.generationId === cleanGeneration)) return null;
+    if (current.state === "stopping") return publicThreadInput(current, pending);
+    pending[index] = { ...current, state: "stopping" };
+    thread.pendingInputs = pending;
+    bumpInputRevision(thread);
+    thread.updatedAt = now;
+    await atomicWriteJson(threadPath(safe), thread);
+    return publicThreadInput(pending[index], pending);
+  });
+}
+
+/** Remove a completed active input from the queue while retaining a bounded
+ * idempotency receipt. A stale producer cannot settle a newer turn because both
+ * the Web input id and (when assigned) gateway generation must match. */
+export async function settleThreadInput(id, inputId, outcome, { generationId, reason, nowIso } = {}) {
+  const safe = safeThreadId(id);
+  const cleanInput = cleanInputId(inputId);
+  const state = INPUT_TERMINAL_STATES.has(outcome) ? outcome : null;
+  const cleanGeneration = generationId === undefined ? null : cleanInputId(generationId);
+  if (!safe || !cleanInput || !state || (generationId !== undefined && !cleanGeneration)) return null;
+  const now = nowIso ?? new Date().toISOString();
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    const pending = normalizedPendingInputs(thread.pendingInputs);
+    const index = pending.findIndex((input) => input.inputId === cleanInput);
+    if (index === -1) {
+      const prior = normalizedInputReceipts(thread.inputReceipts).find((input) => input.inputId === cleanInput);
+      return prior ? publicThreadInput(prior, pending) : null;
+    }
+    const current = pending[index];
+    if (cleanGeneration && current.generationId && current.generationId !== cleanGeneration) return null;
+    const receipt = sanitizeInputReceipt({
+      inputId: current.inputId,
+      clientRequestId: current.clientRequestId,
+      state,
+      acceptedAt: current.acceptedAt,
+      settledAt: now,
+      generationId: current.generationId ?? cleanGeneration ?? undefined,
+      reason,
+    });
+    if (!receipt) return null;
+    pending.splice(index, 1);
+    const receipts = normalizedInputReceipts(thread.inputReceipts)
+      .filter((candidate) => candidate.inputId !== receipt.inputId && candidate.clientRequestId !== receipt.clientRequestId);
+    thread.pendingInputs = pending;
+    thread.inputReceipts = [...receipts, receipt].slice(-INPUT_RECEIPT_CAP);
+    bumpInputRevision(thread);
+    thread.updatedAt = now;
+    await atomicWriteJson(threadPath(safe), thread);
+    return publicThreadInput(receipt, pending);
+  });
+}
+
+export async function getThreadInput(id, inputId) {
+  const cleanInput = cleanInputId(inputId);
+  const thread = cleanInput ? await getThread(id) : null;
+  if (!thread) return null;
+  const pending = normalizedPendingInputs(thread.pendingInputs);
+  const input = pending.find((candidate) => candidate.inputId === cleanInput)
+    ?? normalizedInputReceipts(thread.inputReceipts).find((candidate) => candidate.inputId === cleanInput);
+  return input ? publicThreadInput(input, pending) : null;
+}
+
+export async function threadHasPendingInputs(id) {
+  const thread = await getThread(id);
+  return Boolean(thread && normalizedPendingInputs(thread.pendingInputs).length);
+}
+
 /** Delete a thread. Returns true if a file was removed. */
 export async function deleteThread(id) {
   const safe = safeThreadId(id);
   if (!safe) return false;
   return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (thread && normalizedPendingInputs(thread.pendingInputs).length) return false;
     try {
       await unlink(threadPath(safe));
       return true;
@@ -990,37 +1377,92 @@ export function _readThreadSync(id) {
 // on-disk "running" flag would be a lie no one could clear. The generic registry
 // retains the ordered SSE prefix as well as the start time so another browser can
 // replay and then follow the same turn after navigating back.
-const runningTurns = new LiveEventStreamRegistry();
+const inputStreams = new LiveEventStreamRegistry();
+const activeInputByThread = new Map();
 
+export function startInputLive(inputId, at = new Date().toISOString()) {
+  const clean = cleanInputId(inputId);
+  if (!clean) return null;
+  // Admission retries must not supersede followers of the already-owned input.
+  if (inputStreams.since(clean)) return { at: inputStreams.since(clean) };
+  return inputStreams.start(clean, at);
+}
+
+export function markInputActive(threadId, inputId, at = new Date().toISOString()) {
+  const thread = safeThreadId(threadId);
+  const input = cleanInputId(inputId);
+  if (!thread || !input) return false;
+  const current = activeInputByThread.get(thread);
+  if (current && current.inputId !== input) return false;
+  if (!inputStreams.since(input)) inputStreams.start(input, at);
+  activeInputByThread.set(thread, { inputId: input, at });
+  return true;
+}
+
+export function activeInputId(threadId) {
+  const thread = safeThreadId(threadId);
+  return thread ? activeInputByThread.get(thread)?.inputId ?? null : null;
+}
+
+export function appendInputLiveFrame(inputId, frame) {
+  const clean = cleanInputId(inputId);
+  return clean ? inputStreams.append(clean, frame) : null;
+}
+
+export function inputLiveFrames(inputId) {
+  const clean = cleanInputId(inputId);
+  return clean ? inputStreams.frames(clean) : [];
+}
+
+export function subscribeInputLive(inputId, subscriber) {
+  const clean = cleanInputId(inputId);
+  return clean ? inputStreams.subscribe(clean, subscriber) : null;
+}
+
+export function finishInputLive(threadId, inputId, reason = "settled") {
+  const thread = safeThreadId(threadId);
+  const input = cleanInputId(inputId);
+  if (!input) return false;
+  if (thread && activeInputByThread.get(thread)?.inputId === input) activeInputByThread.delete(thread);
+  return inputStreams.finish(input, reason);
+}
+
+// Backward-compatible thread-keyed helpers. New producers always carry inputId;
+// these resolve only the exact active input and therefore cannot let an old
+// producer append into or settle a newer stream.
 export function markRunning(threadId, at = new Date().toISOString()) {
-  if (!threadId) return null;
-  return runningTurns.start(threadId, at);
+  const legacyInputId = `legacy:${safeThreadId(threadId) ?? "web"}:${randomUUID()}`;
+  startInputLive(legacyInputId, at);
+  return markInputActive(threadId, legacyInputId, at) ? legacyInputId : null;
 }
 
 export function appendLiveFrame(threadId, frame) {
-  if (!threadId) return null;
-  return runningTurns.append(threadId, frame);
+  const inputId = activeInputId(threadId);
+  return inputId ? appendInputLiveFrame(inputId, frame) : null;
 }
 
 export function liveFrames(threadId) {
-  return threadId ? runningTurns.frames(threadId) : [];
+  const inputId = activeInputId(threadId);
+  return inputId ? inputLiveFrames(inputId) : [];
 }
 
 export function subscribeLive(threadId, subscriber) {
-  return threadId ? runningTurns.subscribe(threadId, subscriber) : null;
+  const inputId = activeInputId(threadId);
+  return inputId ? subscribeInputLive(inputId, subscriber) : null;
 }
 
 export function clearRunning(threadId) {
-  if (!threadId) return;
-  runningTurns.finish(threadId);
+  const inputId = activeInputId(threadId);
+  if (inputId) finishInputLive(threadId, inputId);
 }
 
-// ISO timestamp the live turn started, or null when the thread is idle. The
-// client renders elapsed time from this, so it survives a reload mid-turn.
+// ISO timestamp the active input started, or null when the thread is idle. Queued
+// inputs do not claim running state; their own receipts carry acceptedAt/position.
 export function runningSince(threadId) {
-  return runningTurns.since(threadId);
+  const thread = safeThreadId(threadId);
+  return thread ? activeInputByThread.get(thread)?.at ?? null : null;
 }
 
 export function runningThreadIds() {
-  return runningTurns.keys();
+  return [...activeInputByThread.keys()];
 }
