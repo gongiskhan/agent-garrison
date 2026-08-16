@@ -1328,11 +1328,18 @@ body {
   color: var(--wc-olive-700); font-size: 20px; line-height: 1;
 }
 .wc-xscript-close:hover { color: var(--wc-ink); }
+.wc-xscript-close:focus-visible {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
 /* SessionStream expects an ANCESTOR to own the scrolling (inside the chat that is
    .cc-scroll); its own .cc-session-scroll sets no overflow. */
 .wc-xscript-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
 .wc-xscript-body .cc-session { min-width: 0; }
 @media (max-width: 720px) { .wc-xscript { width: 100%; } }
+@media (any-pointer: coarse) {
+  .wc-xscript-close { min-width: 44px; min-height: 44px; }
+}
 
 /* ── Resumed-turn notice ─────────────────────────────────────────────────────
    Shown when a thread is reopened while its turn is still running server-side.

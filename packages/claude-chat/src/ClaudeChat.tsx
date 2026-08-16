@@ -25,9 +25,22 @@ import {
   type ChatThemeMode,
 } from "./chat-theme";
 import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
-import { sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
-import { rewriteHostUrl, filePathMarkedExtension, type HostContext, type ServeMap } from "./host-rewrite";
-import { SessionStream } from "./SessionTranscript";
+import { sanitizeAssistantBadges, sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
+import { rewriteHostUrl, filePathMarkedExtension, type HostContext } from "./host-rewrite";
+import {
+  escapeMarkdownHtml,
+  hostCtx,
+  installSafeMarkdownRenderer,
+  loadHostMap,
+} from "./markdown-safety";
+import { SessionEventTimeline, SessionStream } from "./SessionTranscript";
+import {
+  hasVisibleSessionActivity,
+  isSessionEvent,
+  mergeSessionEvents,
+  sessionEventText,
+  type SessionEvent,
+} from "./journal";
 
 // A PRIVATE marked instance for the chat. We deliberately do NOT mutate the
 // process-wide `marked` singleton: the chat-specific link/code renderers
@@ -57,39 +70,6 @@ function writeClipboard(text: string): Promise<boolean> {
   return cb.writeText(text).then(() => true, () => false);
 }
 
-// Escape text destined for HTML element content (used for the code fallback and
-// the language label). Mirrors escapeAttr but for text nodes.
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// Escape a value before it goes into an HTML attribute (the rendered markdown is
-// injected via dangerouslySetInnerHTML, so an unescaped href/title could break out
-// of the attribute or inject markup).
-function escapeAttr(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// Allow ONLY safe link targets. Active-content schemes (javascript:, data:,
-// vbscript:, file:, …) are rejected so a produced document / an injected reply
-// cannot smuggle a script payload through the chat's markdown renderer. Relative,
-// root-relative (incl. the translated /fitting/… path), anchor, query, and
-// protocol-relative links are allowed, plus the http/https/mailto/tel schemes.
-function isSafeHref(url: string): boolean {
-  const u = url.trim();
-  if (u === "") return false;
-  if (/^(?:\/|#|\?|\.\/|\.\.\/)/.test(u)) return true; // relative / anchor / query
-  if (/^\/\//.test(u)) return true;                     // protocol-relative //host
-  return /^(?:https?:|mailto:|tel:)/i.test(u);          // explicit safe schemes only
-}
-
 // Generic link handling for rendered assistant markdown. Content-agnostic (no
 // kanban / dev-env knowledge):
 //   1. `garrison://<fitting-id>/<rest>` cross-fitting links → `/fitting/<id>/<rest>`
@@ -101,43 +81,9 @@ function isSafeHref(url: string): boolean {
 //      the dangerous href is dropped. href/title are HTML-attribute-escaped.
 // Additive: only the <a> attributes change; link text/structure is untouched, so
 // dev-env's existing rendering is unaffected (and safer).
+installSafeMarkdownRenderer(md, hostCtx);
 md.use({
   renderer: {
-    // Neutralize RAW HTML in the assistant stream. The parsed markdown is
-    // injected via dangerouslySetInnerHTML, and marked does NOT sanitize, so a
-    // reply carrying `<img src=x onerror=…>` or `<script>` (e.g. the Operative
-    // relaying a fetched page / a produced document / third-party content) would
-    // otherwise become active DOM. Escaping the raw-HTML token keeps it visible
-    // as text. Block AND inline HTML tokens both route through this method.
-    html({ text }: { text: string }) {
-      return escapeHtml(text);
-    },
-    link({ href, title, tokens }: { href: string; title?: string | null; tokens: any[] }) {
-      const text = this.parser.parseInline(tokens);
-      let url = href || "";
-      const g = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
-      if (g) {
-        url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
-      }
-      // Drop the link (keep the text) for any non-allowlisted/active-content scheme.
-      if (!isSafeHref(url)) return text;
-      // Host-aware rewrite: a loopback URL the operative/gateway baked into the
-      // reply (e.g. a Kanban card link `http://127.0.0.1:<port>/#/cards/…`) is
-      // rewritten to whatever THIS client can actually reach - the HTTPS tailnet
-      // serve URL for that port, or a host rebind. "" => the port is not
-      // tailnet-published on an HTTPS page (mixed content): keep the text, drop
-      // the dead link so the user isn't sent to their own localhost.
-      if (/^https?:\/\//i.test(url)) {
-        const reachable = rewriteHostUrl(url, hostCtx());
-        if (reachable === "") return `<span class="cc-unreachable">${text}</span>`;
-        url = reachable;
-      }
-      const attrs = /^https?:\/\//i.test(url) || /^\/\//.test(url)
-        ? ` target="_blank" rel="noopener noreferrer"`
-        : "";
-      const t = title ? ` title="${escapeAttr(title)}"` : "";
-      return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
-    },
     // Rich fenced code block: a dark "card" with a header (uppercase mono
     // language label + a Copy button) over a syntax-highlighted <pre>. The Copy
     // button carries no inline handler (the markdown is injected via
@@ -157,12 +103,12 @@ md.use({
         try {
           body = hljs.highlight(text, { language, ignoreIllegals: true }).value;
         } catch {
-          body = escapeHtml(text);
+          body = escapeMarkdownHtml(text);
         }
       } else {
-        body = escapeHtml(text);
+        body = escapeMarkdownHtml(text);
       }
-      const label = escapeHtml(language || "text");
+      const label = escapeMarkdownHtml(language || "text");
       return (
         `<div class="cc-codeblock">` +
         `<div class="cc-codehead">` +
@@ -180,32 +126,14 @@ md.use({
 // (marked tokenizes fences/spans separately).
 md.use({ extensions: [filePathMarkedExtension()] });
 
-// Serve map (localPort -> https tailnet URL), fetched once from the same-origin
-// /host-map endpoint and read by the link renderer above. Module-level because
-// the marked renderer is a process-wide singleton; a component re-render once the
-// map lands re-runs md.parse, so the first paint's host-rebind fallback upgrades
-// to the exact serve URL. Cached on a shared promise so N chat instances share
-// one fetch.
-let chatServeMap: ServeMap = {};
-let hostMapPromise: Promise<void> | null = null;
-function loadHostMap(): Promise<void> {
-  if (!hostMapPromise) {
-    hostMapPromise = fetch("/host-map")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.map && typeof d.map === "object") chatServeMap = d.map as ServeMap;
-      })
-      .catch(() => {});
-  }
-  return hostMapPromise;
+function renderChatMarkdown(text: string): string {
+  return md.parse(text) as string;
 }
-// Current client host context for rewriteHostUrl (SSR-safe: empty host -> no-op).
-function hostCtx() {
-  return {
-    hostname: typeof window !== "undefined" ? window.location.hostname : "",
-    protocol: typeof window !== "undefined" ? window.location.protocol : "",
-    serveMap: chatServeMap,
-  };
+
+/** Canonical assistant blocks cross the same display sanitizer as the legacy
+ * scraped reply, so control tokens never leak beside the structured route rail. */
+function renderAssistantMarkdown(text: string): string {
+  return renderChatMarkdown(sanitizeAssistantBadges(text).text);
 }
 
 // Persisted thread history bypasses the live Web Channel transport normaliser.
@@ -287,6 +215,10 @@ interface Turn {
    *  this client did not send (a reload rebinding a server-side turn, seeded
    *  history) carry 0 - the same value an unstamped transport reports. */
   seq: number;
+  /** Canonical Agent SDK activity for this exchange. Stable-id revisions replace
+   * themselves in place; this timeline supersedes the legacy assistant scrape
+   * when it contains visible text/thinking/tool activity. */
+  sessionEvents: SessionEvent[];
   /** Hide the user bubble for this turn (e.g. a host kickoff that primes the operative
    *  but shouldn't be shown as a chat message - the reply still renders normally). */
   hideUser?: boolean;
@@ -315,6 +247,218 @@ export interface RouteFrameTurn {
   seq: number;
   streaming: boolean;
   route?: RouteAttribution;
+}
+
+/** The slice of Turn used by the canonical event attachment reducer. */
+export interface SessionEventTurn {
+  seq: number;
+  streaming: boolean;
+  sessionEvents: SessionEvent[];
+}
+
+function numericSessionTurnId(value: SessionEvent["turnId"]): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+/** Attach one canonical runtime event to its chat exchange.
+ *
+ * A numeric turnId first targets the matching Turn.seq, including a late event
+ * for a historical turn. If a client reloaded and only knows seq 0, or its
+ * current streaming turn predates a newer server counter, the latest turn may be
+ * rebound and adopts that counter. Unstamped events may fall back only to the
+ * latest streaming/reloaded turn; a settled identified turn is never guessed.
+ */
+export function applySessionEvent<T extends SessionEventTurn>(turns: T[], event: SessionEvent): T[] {
+  if (turns.length === 0 || !isSessionEvent(event)) return turns;
+  const turnId = numericSessionTurnId(event.turnId);
+  let index = -1;
+  if (turnId !== null) {
+    for (let candidate = turns.length - 1; candidate >= 0; candidate -= 1) {
+      if (turns[candidate].seq === turnId) {
+        index = candidate;
+        break;
+      }
+    }
+  }
+
+  let adoptTurnId = false;
+  if (index === -1) {
+    const latestIndex = turns.length - 1;
+    const latest = turns[latestIndex];
+    if (turnId === null) {
+      if (!latest.streaming && latest.seq !== 0) return turns;
+    } else if (latest.seq === 0 || (latest.streaming && turnId > latest.seq)) {
+      adoptTurnId = latest.seq !== turnId;
+    } else {
+      return turns;
+    }
+    index = latestIndex;
+  }
+
+  const target = turns[index];
+  const sessionEvents = mergeSessionEvents(target.sessionEvents, [event]);
+  if (sessionEvents === target.sessionEvents && !adoptTurnId) return turns;
+  const copy = turns.slice();
+  copy[index] = {
+    ...target,
+    ...(adoptTurnId && turnId !== null ? { seq: turnId } : {}),
+    sessionEvents,
+  };
+  return copy;
+}
+
+/** Change only the trailing exchange's live/settled presentation. This is used
+ * by both the HTTP `hello.busy` rebind and Web replay's `turn active` signal. */
+export function applyTurnActive<T extends { streaming: boolean }>(turns: T[], active: boolean): T[] {
+  if (turns.length === 0) return turns;
+  const index = turns.length - 1;
+  if (turns[index].streaming === active) return turns;
+  const copy = turns.slice();
+  copy[index] = { ...turns[index], streaming: active };
+  return copy;
+}
+
+function canonicalResponseCandidates(events: SessionEvent[]): string[] {
+  const candidates: string[] = [];
+  for (const event of events) {
+    if (event.role !== "assistant") continue;
+    const text = sessionEventText(event);
+    if (text.trim()) candidates.push(text);
+    for (const block of event.blocks) {
+      if (block.type === "error" && typeof block.text === "string" && block.text.trim()) {
+        candidates.push(block.text);
+      } else if (block.type === "turn_end" && typeof block.result === "string" && block.result.trim()) {
+        candidates.push(block.result);
+      }
+    }
+  }
+  return candidates;
+}
+
+/** Latest canonical response/error text, including the authoritative result on
+ * a typed turn boundary when no final assistant envelope survived. */
+export function canonicalAssistantReply(events: SessionEvent[]): string {
+  return canonicalResponseCandidates(events).at(-1) ?? "";
+}
+
+/** A successful typed turn boundary is the runtime's final answer authority. It
+ * outranks the parallel legacy accumulator, which may still contain a streamed
+ * draft or the channel's empty-reply fallback. Error/cancelled boundaries do not
+ * use this override: their differing durable fallback remains useful context. */
+function canonicalSuccessfulTerminalReply(events: SessionEvent[]): string {
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex];
+    if (event.role !== "assistant") continue;
+    for (let blockIndex = event.blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block = event.blocks[blockIndex];
+      if (
+        block.type === "turn_end" &&
+        block.status === "completed" &&
+        typeof block.result === "string" &&
+        block.result.trim()
+      ) {
+        return block.result;
+      }
+    }
+  }
+  return "";
+}
+
+interface AssistantTextTurn {
+  assistant: string;
+  sessionEvents: SessionEvent[];
+}
+
+/** Text used by copy, TTS, composer adornments, and completion callbacks. A
+ * successful typed terminal result is authoritative; otherwise real legacy TUI
+ * prose remains primary and canonical-only recovery supplies empty accumulators. */
+export function resolvedAssistantText(turn: AssistantTextTurn): string {
+  const terminal = canonicalSuccessfulTerminalReply(turn.sessionEvents);
+  if (terminal) return sanitizeAssistantBadges(terminal).text;
+  const legacy = sanitizeAssistantText(turn.assistant).text;
+  if (legacy.trim()) return legacy;
+  return sanitizeAssistantBadges(canonicalAssistantReply(turn.sessionEvents)).text;
+}
+
+export function resolvedAssistantRaw(turn: AssistantTextTurn): string {
+  const terminal = canonicalSuccessfulTerminalReply(turn.sessionEvents);
+  if (terminal) return terminal;
+  return sanitizeAssistantText(turn.assistant).text.trim()
+    ? turn.assistant
+    : canonicalAssistantReply(turn.sessionEvents);
+}
+
+/** A done/error reply can be more complete than the canonical activity retained
+ * before it. Keep it below the timeline unless canonical text already says the
+ * same thing, avoiding both hidden failures and duplicate successful replies. */
+export function legacyAssistantFallback(assistant: string, events: SessionEvent[]): string {
+  const legacy = sanitizeAssistantText(assistant).text;
+  if (!legacy.trim()) return "";
+  if (canonicalSuccessfulTerminalReply(events)) return "";
+  const duplicated = canonicalResponseCandidates(events).some(
+    (candidate) => sanitizeAssistantBadges(candidate).text.trim() === legacy.trim()
+  );
+  return duplicated ? "" : legacy;
+}
+
+function liveSessionAnnouncement(events: SessionEvent[], fallback: string): string {
+  const toolNames = new Map<string, string>();
+  for (const event of events) {
+    for (const block of event.blocks) {
+      if (block.type === "tool_use" && block.toolUseId) toolNames.set(block.toolUseId, block.name?.trim() || "Tool");
+    }
+  }
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const blocks = events[eventIndex].blocks;
+    for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block = blocks[blockIndex];
+      const tool = block.toolUseId ? toolNames.get(block.toolUseId) ?? block.name?.trim() ?? "Tool" : block.name?.trim() || "Tool";
+      if (block.type === "error") return "Turn failed.";
+      if (block.type === "turn_end") {
+        if (block.status === "cancelled") return "Turn cancelled.";
+        if (block.status === "error" || block.status === "failed") return "Turn failed.";
+        return "Response complete.";
+      }
+      if (block.type === "tool_result") return `${tool} ${block.isError ? "failed" : "completed"}.`;
+      if (block.type === "tool_progress") return `${tool} is running.`;
+      if (block.type === "tool_use") return `${tool} started.`;
+      if (block.type === "thinking") return "Thinking.";
+      if (block.type === "text" && block.text?.trim()) return "Response updating.";
+    }
+  }
+  const hint = fallback.replace(/\s+/g, " ").trim().slice(0, 80);
+  return hint ? `Working: ${hint}` : "Working.";
+}
+
+function hasCanonicalTurnEnd(events: SessionEvent[]): boolean {
+  return events.some((event) => event.blocks.some((block) => block.type === "turn_end"));
+}
+
+/** Bind an authoritative active signal to a restored trailing exchange. Partial
+ * canonical prose does not make that exchange settled. If the latest exchange
+ * already has a durable final reply/boundary, the signal describes a new hidden
+ * turn and must not revive history. */
+function rebindActiveTurn(turns: Turn[], assistantSnapshot = ""): Turn[] {
+  if (turns.length === 0) {
+    return [{ id: nextId(), user: "", assistant: assistantSnapshot, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+  }
+  const last = turns.at(-1)!;
+  if (last.streaming) {
+    if (!assistantSnapshot.trim() || last.assistant === assistantSnapshot) return turns;
+    const copy = turns.slice();
+    copy[copy.length - 1] = { ...last, assistant: assistantSnapshot };
+    return copy;
+  }
+  if (last.assistant.trim() || hasCanonicalTurnEnd(last.sessionEvents)) {
+    return [...turns, { id: nextId(), user: "", assistant: assistantSnapshot, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+  }
+  const copy = applyTurnActive(turns, true);
+  if (!assistantSnapshot.trim()) return copy;
+  copy[copy.length - 1] = { ...copy.at(-1)!, assistant: assistantSnapshot };
+  return copy;
 }
 
 /**
@@ -711,6 +855,8 @@ export interface ClaudeChatProps {
   initialHistory?: {
     user: string;
     assistant: string;
+    /** Durable canonical activity already associated with this exchange. */
+    sessionEvents?: SessionEvent[];
     hideUser?: boolean;
     /** The persisted attribution for that exchange's reply (threads.mjs keeps a
      *  whitelisted `route` per assistant message). Carried onto the Turn so the
@@ -798,6 +944,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
         // stamped frame can never be mis-attached to one of them.
         seq: 0,
+        sessionEvents: mergeSessionEvents([], h.sessionEvents ?? []),
         route: h.route,
         overrides: h.overrides,
       })),
@@ -807,6 +954,8 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const [turns, setTurns] = useState<Turn[]>(seededTurns);
   const [status, setStatus] = useState<ClaudeStatus>({ rows: [], mode: "unknown", contextPct: null, model: null });
   const [busy, setBusy] = useState(false);
+  const [turnAnnouncement, setTurnAnnouncement] = useState("");
+  const announcedBusyRef = useRef(false);
   const [conn, setConn] = useState<"open" | "closed" | "reconnecting">("reconnecting");
   const [screen, setScreen] = useState<string[]>([]);
   const [showRaw, setShowRaw] = useState(false);
@@ -1091,7 +1240,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const applyAssistant = useCallback((text: string) => {
     setTurns((prev) => {
       if (prev.length === 0) {
-        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true, seq: 0 }];
+        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
       }
       const last = prev[prev.length - 1];
       if (last.assistant === text) return prev;
@@ -1112,18 +1261,25 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           // screen (possibly still streaming) and this client has no transcript,
           // seed a turn from the hello snapshot instead of showing an empty chat.
           const helloAssistant = typeof ev.assistant === "string" ? ev.assistant : "";
-          if (helloAssistant.trim()) {
-            const stillStreaming = ev.busy;
-            setTurns((prev) =>
-              prev.length > 0
-                ? prev
-                : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: stillStreaming, hideUser: true, seq: 0 }]
-            );
+          if (ev.busy) {
+            setTurns((prev) => rebindActiveTurn(prev, helloAssistant));
+          } else if (helloAssistant.trim()) {
+            setTurns((prev) => prev.length > 0
+              ? prev
+              : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: false, hideUser: true, seq: 0, sessionEvents: [] }]);
           }
           break;
         }
         case "assistant":
           applyAssistant(ev.text);
+          break;
+        case "session_event":
+          setTurns((prev) => {
+            const base = prev.length > 0
+              ? prev
+              : [{ id: nextId(), user: "", assistant: "", streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+            return applySessionEvent(base, ev.event);
+          });
           break;
         case "status":
           setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
@@ -1133,9 +1289,10 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           // The activity hint describes the turn that just ended; keeping it would
           // leave a stale tool name under the next "Working" indicator.
           setActivity("");
-          if (!ev.active) {
-            setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 ? { ...t, streaming: false } : t)));
-          }
+          setTurns((prev) => {
+            if (ev.active) return rebindActiveTurn(prev);
+            return applyTurnActive(prev, false);
+          });
           break;
         case "screen":
           setScreen(ev.lines);
@@ -1268,6 +1425,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           streaming: true,
           hideUser: opts?.hideUser,
           seq: ++turnSeqRef.current,
+          sessionEvents: [],
           overrides: sentPins,
         },
       ]);
@@ -1341,9 +1499,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
 
   // Copy the most recent assistant response to the clipboard.
   const copyLast = useCallback(async () => {
-    const last = [...turns].reverse().find((t) => sanitizeAssistantText(t.assistant).text.trim());
+    const last = [...turns].reverse().find((t) => resolvedAssistantText(t).trim());
     if (!last) return;
-    const cleanText = sanitizeAssistantText(last.assistant).text;
+    const cleanText = resolvedAssistantText(last);
     // Only flash "Copied" when the write actually succeeded (writeClipboard
     // resolves false on a missing API or a rejected write).
     if (await writeClipboard(cleanText)) {
@@ -1449,32 +1607,41 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
 
   // Auto-read each new COMPLETED assistant turn when read-aloud is on.
   const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  useEffect(() => {
+    if (busy) {
+      announcedBusyRef.current = true;
+      setTurnAnnouncement(liveSessionAnnouncement(latestAssistant?.sessionEvents ?? [], workingHint));
+    } else if (announcedBusyRef.current) {
+      announcedBusyRef.current = false;
+      setTurnAnnouncement("Response complete.");
+    }
+  }, [busy, latestAssistant?.sessionEvents, workingHint]);
   // The latest SETTLED reply, exposed to a function-form composerAdornment (S6b
   // voice) so it can read replies aloud. Null while streaming/empty; `id` changes
   // once per completed turn.
   const settledReply = useMemo<ComposerAdornmentApi["lastReply"]>(() => {
     if (!latestAssistant || latestAssistant.streaming) return null;
-    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
+    const text = resolvedAssistantText(latestAssistant).trim();
     return text ? { id: latestAssistant.id, text } : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming]);
   useEffect(() => {
     const cb = onTurnCompleteRef.current;
     if (!cb || !latestAssistant || latestAssistant.streaming) return;
-    const assistant = latestAssistant.assistant.trim();
+    const assistant = resolvedAssistantRaw(latestAssistant).trim();
     if (!assistant) return;
     if (persistedRef.current === latestAssistant.id) return;
     persistedRef.current = latestAssistant.id;
-    cb({ user: latestAssistant.user, assistant: latestAssistant.assistant });
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
+    cb({ user: latestAssistant.user, assistant });
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming]);
   useEffect(() => {
     if (!readAloud || !voiceUsable || !latestAssistant) return;
     if (latestAssistant.streaming) return;
-    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
+    const text = resolvedAssistantText(latestAssistant).trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
     void speak(text, latestAssistant.id);
-  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
+  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming, speak]);
 
   // ── Voice: push-to-talk. Record from the mic; on stop, POST to /voice/stt
   // and drop the transcript into the composer for review/edit. ──
@@ -1761,6 +1928,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
 
   return (
     <div className="cc-root" ref={rootRef} data-theme={themeOn ? scheme : undefined}>
+      <div className="cc-sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {turnAnnouncement}
+      </div>
       <header className="cc-header">
         <span className="cc-title">{title ?? "Claude"}</span>
         <span className={`cc-conn cc-conn-${conn}`} title={`connection: ${conn}`} />
@@ -1800,7 +1970,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
 
       <div className="cc-scroll" ref={scrollRef} onScroll={onScroll} onClick={onCodeCopyClick}>
         {showTranscript && transcriptUrl ? (
-          <SessionStream url={transcriptUrl} live={busy} />
+          <SessionStream url={transcriptUrl} live={busy} announceLiveUpdates={false} />
         ) : (
         <>
         {turns.length === 0 && (
@@ -1811,6 +1981,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           // counters, thinking blocks) and lift the router status badge out of the
           // prose into a compact chip. Cheap + pure, so per-render is fine.
           const clean = sanitizeAssistantText(t.assistant);
+          const hasCanonicalActivity = hasVisibleSessionActivity(t.sessionEvents);
+          const legacyFallback = hasCanonicalActivity ? legacyAssistantFallback(t.assistant, t.sessionEvents) : "";
+          const actionText = resolvedAssistantText(t);
           // Prefer the STRUCTURED runtime attribution the gateway sends on the
           // settled turn (runtime/model/tier); fall back to the model-emitted
           // "[route: …]" text badge lifted into clean.meta when it is absent.
@@ -1838,16 +2011,30 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             {/* `t.route` joins the gate: a carded or cancelled turn can settle with
                 NO prose at all, and its rail (card / stopped / transcript badges) is
                 then the only record the user gets. */}
-            {(clean.text || t.streaming || t.question || t.route) && (
+            {(clean.text || hasCanonicalActivity || t.streaming || t.question || t.route) && (
               <div className="cc-assistant">
-                <div className="cc-md" dangerouslySetInnerHTML={{ __html: md.parse(clean.text || "") as string }} />
+                {hasCanonicalActivity ? (
+                  <SessionEventTimeline
+                    events={t.sessionEvents}
+                    live={t.streaming}
+                    renderMarkdown={renderAssistantMarkdown}
+                  />
+                ) : (
+                  <div className="cc-md" dangerouslySetInnerHTML={{ __html: renderChatMarkdown(clean.text || "") }} />
+                )}
+                {legacyFallback && (
+                  <div
+                    className="cc-md cc-canonical-fallback"
+                    dangerouslySetInnerHTML={{ __html: renderChatMarkdown(legacyFallback) }}
+                  />
+                )}
                 {/* Streaming cursor once prose is arriving. */}
-                {t.streaming && clean.text && <span className="cc-cursor" aria-hidden="true" />}
+                {!hasCanonicalActivity && t.streaming && clean.text && <span className="cc-cursor" aria-hidden="true" />}
                 {/* Rich "working" indicator before any prose lands (while James is
                     only doing tool activity, clean.text is empty → show this, not the
                     raw scrape): animated dots + label + live elapsed + activity hint. */}
-                {t.streaming && !clean.text && (
-                  <div className="cc-working" role="status" aria-live="polite">
+                {!hasCanonicalActivity && t.streaming && !clean.text && (
+                  <div className="cc-working">
                     <span className="cc-working-dots"><i /><i /><i /></span>
                     <span className="cc-working-label">Working</span>
                     <span className="cc-working-time">{fmtElapsed(elapsed)}</span>
@@ -1872,13 +2059,13 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 )}
                 {/* Per-message actions: copy (always) + read-aloud (voice) + a subtle
                     routing chip (replaces the inline "[route: …]" badge). */}
-                {clean.text.trim() && !t.streaming && (
+                {actionText.trim() && !t.streaming && (
                   <div className="cc-msgactions">
                     <button
                       type="button"
                       className="cc-msgcopy"
                       title="Copy this response"
-                      onClick={() => copyMsg(t.id, clean.text)}
+                      onClick={() => copyMsg(t.id, actionText)}
                     >
                       {copiedId === t.id ? "Copied" : "Copy"}
                     </button>
@@ -1902,7 +2089,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                           title={label}
                           aria-label={label}
                           aria-pressed={isThis}
-                          onClick={() => (isThis ? togglePause() : void speak(clean.text, t.id))}
+                          onClick={() => (isThis ? togglePause() : void speak(actionText, t.id))}
                         >
                           {playing ? (
                             <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
@@ -2055,7 +2242,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             type="button"
             className="cc-chip"
             title="Copy the last response"
-            disabled={!turns.some((t) => t.assistant.trim())}
+            disabled={!turns.some((t) => resolvedAssistantText(t).trim())}
             onClick={() => void copyLast()}
           >
             {copied ? "Copied" : "Copy last"}

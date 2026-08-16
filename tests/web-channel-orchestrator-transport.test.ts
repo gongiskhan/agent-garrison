@@ -10,9 +10,22 @@
 // new `activity` frame become ChatEvents; and `interrupt()` is a real POST.
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import type { ChatEvent } from "@garrison/claude-chat";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import type { ChatEvent, SessionEvent } from "@garrison/claude-chat";
 import { createHttpTransport } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "../fittings/seed/web-channel-default/ui/orchestrator-transport";
+// @ts-ignore — dependency-free fitting JavaScript intentionally has no .d.ts.
+import { normalizeAgentSdkMessages } from "../fittings/seed/agent-sdk-runtime/lib/session-events.mjs";
+
+const SDK_FIXTURE = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./fixtures/agent-sdk-web-parity-events.json", import.meta.url)), "utf8")
+);
+
+function canonicalFixtureEvents(turnId: string) {
+  let now = 1_786_880_000_000;
+  return normalizeAgentSdkMessages(SDK_FIXTURE.messages, { turnId, now: () => now++ });
+}
 
 const QUESTIONS = [
   {
@@ -123,6 +136,55 @@ describe("orchestrator transport: AskUserQuestion", () => {
     const t = createOrchestratorTransport("/api");
     await t.answerQuestion!({ toolUseId: "toolu_9", dismiss: true });
     expect(calls[0].body).toMatchObject({ tool_use_id: "toolu_9", dismiss: true });
+  });
+});
+
+describe("orchestrator transport: canonical session events", () => {
+  it("forwards the authentic two-tool fixture without selecting or reshaping payload fields", async () => {
+    const canonical = canonicalFixtureEvents("fixture-turn");
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      if (String(raw) === "/host-map") {
+        return new Response(JSON.stringify({ map: {} }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return sseResponse([
+        ...canonical.map((event: any) => `event: session_event\ndata: ${JSON.stringify(event)}\n\n`),
+        `event: done\ndata: ${JSON.stringify({ reply: "WEB_PARITY_FIXTURE" })}\n\n`,
+      ]);
+    }) as unknown as typeof fetch;
+
+    const create = await freshTransport();
+    const transport = create("/api", "thread-events");
+    const events: ChatEvent[] = [];
+    transport.connect((event) => events.push(event));
+    await transport.sendMessage("run fixture");
+
+    const sessionFrames = events.filter((event: any) => event.type === "session_event") as any[];
+    expect(sessionFrames.map((frame) => frame.event)).toEqual(canonical);
+    expect(sessionFrames.every((frame) => Object.keys(frame).sort().join(",") === "event,type")).toBe(true);
+    expect(sessionFrames.map((frame) => frame.event.id)).toEqual(canonical.map((event: any) => event.id));
+    expect(sessionFrames.every((frame) => frame.event.turnId === "fixture-turn")).toBe(true);
+  });
+
+  it("ignores malformed JSON and malformed session-event shapes", async () => {
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      if (String(raw) === "/host-map") {
+        return new Response(JSON.stringify({ map: {} }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return sseResponse([
+        "event: session_event\ndata: {not-json\n\n",
+        `event: session_event\ndata: ${JSON.stringify({ id: "missing-blocks", role: "assistant", ts: 1 })}\n\n`,
+        `event: done\ndata: ${JSON.stringify({ reply: "safe fallback" })}\n\n`,
+      ]);
+    }) as unknown as typeof fetch;
+
+    const create = await freshTransport();
+    const transport = create("/api", "thread-malformed-events");
+    const events: ChatEvent[] = [];
+    transport.connect((event) => events.push(event));
+    await transport.sendMessage("ignore corrupt activity");
+
+    expect(events.filter((event) => event.type === "session_event")).toEqual([]);
+    expect(events.find((event) => event.type === "assistant")).toMatchObject({ text: "safe fallback" });
   });
 });
 
@@ -398,6 +460,42 @@ describe("orchestrator transport: activity frames (contract §12)", () => {
   });
 });
 
+describe("orchestrator transport: terminal EOF", () => {
+  it("surfaces and settles an SSE body that closes without done or error", async () => {
+    recordingFetch([]);
+    const t = createOrchestratorTransport("/api", "thread-truncated");
+    const events: ChatEvent[] = [];
+    t.connect((event) => events.push(event));
+
+    await t.sendMessage("go");
+
+    expect(events.filter((event) => event.type === "error")).toEqual([
+      { type: "error", message: "chat stream ended without a completion event" },
+    ]);
+    expect(events.filter((event) => event.type === "turn")).toEqual([
+      { type: "turn", active: false },
+    ]);
+  });
+
+  it("does not add a second EOF failure after the server's terminal error frame", async () => {
+    recordingFetch([
+      `event: error\ndata: ${JSON.stringify({ error: "the gateway stream ended without a done event" })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-server-eof");
+    const events: ChatEvent[] = [];
+    t.connect((event) => events.push(event));
+
+    await t.sendMessage("go");
+
+    expect(events.filter((event) => event.type === "error")).toEqual([
+      { type: "error", message: "the gateway stream ended without a done event" },
+    ]);
+    expect(events.filter((event) => event.type === "turn")).toEqual([
+      { type: "turn", active: false },
+    ]);
+  });
+});
+
 describe("orchestrator transport: card links are made reachable for THIS client", () => {
   const cardFrames = (cardUrl: string) => [
     `event: done\ndata: ${JSON.stringify({ reply: "carded", card: "c-7", cardUrl })}\n\n`,
@@ -442,12 +540,16 @@ describe("orchestrator transport: card links are made reachable for THIS client"
 
 describe("orchestrator transport: replay/follow a running thread", () => {
   it("uses the normal reducer, preserves replace, restamps route seq, and owns busy state", async () => {
+    const replayEvent = canonicalFixtureEvents("77").find((event: any) =>
+      event.blocks.some((block: any) => block.type === "tool_use" && block.name === "Write")
+    );
     const frames = [
       `id: 1\nevent: route\ndata: ${JSON.stringify({ runtime: "agent-sdk", session_id: "sess-live", turnSeq: 77, pending: true })}\n\n`,
-      `id: 2\nevent: chunk\ndata: ${JSON.stringify({ text: "draft " })}\n\n`,
-      `id: 3\nevent: chunk\ndata: ${JSON.stringify({ text: "clean", replace: true })}\n\n`,
-      `id: 4\nevent: chunk\ndata: ${JSON.stringify({ text: " answer" })}\n\n`,
-      `id: 5\nevent: done\ndata: ${JSON.stringify({ reply: "clean answer", runtime: "agent-sdk", session_id: "sess-live", turnSeq: 77 })}\n\n`,
+      `id: 2\nevent: session_event\ndata: ${JSON.stringify(replayEvent)}\n\n`,
+      `id: 3\nevent: chunk\ndata: ${JSON.stringify({ text: "draft " })}\n\n`,
+      `id: 4\nevent: chunk\ndata: ${JSON.stringify({ text: "clean", replace: true })}\n\n`,
+      `id: 5\nevent: chunk\ndata: ${JSON.stringify({ text: " answer" })}\n\n`,
+      `id: 6\nevent: done\ndata: ${JSON.stringify({ reply: "clean answer", runtime: "agent-sdk", session_id: "sess-live", turnSeq: 77 })}\n\n`,
     ];
     const calls: string[] = [];
     globalThis.fetch = vi.fn(async (raw: any) => {
@@ -484,6 +586,9 @@ describe("orchestrator transport: replay/follow a running thread", () => {
     // The wire came from another client's send #77. Restored history is seq 0,
     // so both route frames are deliberately rebound to 0 before ClaudeChat sees them.
     expect(events.filter((event) => event.type === "route").map((event: any) => event.turnSeq)).toEqual([0, 0]);
+    const restored = events.find((event: any) => event.type === "session_event") as any;
+    expect(restored.event).toEqual({ ...replayEvent, turnId: "0" });
+    expect(restored.event.blocks).toEqual(replayEvent.blocks);
   });
 });
 
@@ -516,5 +621,70 @@ describe("createHttpTransport (rich path): answerQuestion", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("/api/claude/answer");
     expect(calls[0].body).toMatchObject({ tool_use_id: "toolu_2", label: "B" });
+  });
+});
+
+describe("createHttpTransport (rich path): canonical session events", () => {
+  it("forwards an exact canonical EventSource payload and ignores malformed frames", () => {
+    const originalEventSource = globalThis.EventSource;
+    const sources: FakeEventSource[] = [];
+
+    class FakeEventSource {
+      static readonly CLOSED = 2;
+      readonly url: string;
+      readyState = 1;
+      onerror: ((event: Event) => void) | null = null;
+      private readonly listeners = new Map<string, Array<(event: MessageEvent) => void>>();
+
+      constructor(url: string | URL) {
+        this.url = String(url);
+        sources.push(this);
+      }
+
+      addEventListener(name: string, listener: (event: MessageEvent) => void) {
+        const current = this.listeners.get(name) ?? [];
+        current.push(listener);
+        this.listeners.set(name, current);
+      }
+
+      emit(name: string, data: string) {
+        for (const listener of this.listeners.get(name) ?? []) listener({ data } as MessageEvent);
+      }
+
+      close() {}
+    }
+
+    const canonical: SessionEvent = {
+      id: "http-session-event",
+      role: "assistant",
+      ts: 1_786_880_000_000,
+      turnId: "7",
+      sessionId: "session-http",
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: "exact payload" }],
+    };
+
+    try {
+      (globalThis as any).EventSource = FakeEventSource;
+      const transport = createHttpTransport("/api");
+      const events: ChatEvent[] = [];
+      const disconnect = transport.connect((event) => events.push(event));
+      expect(sources).toHaveLength(1);
+      expect(sources[0].url).toBe("/api/claude/stream");
+
+      sources[0].emit("session_event", JSON.stringify(canonical));
+      sources[0].emit("session_event", "{not-json");
+      sources[0].emit("session_event", JSON.stringify({ id: "missing-blocks", role: "assistant", ts: 1 }));
+
+      expect(events.filter((event) => event.type === "session_event")).toEqual([
+        { type: "session_event", event: canonical },
+      ]);
+      expect(Object.keys(events.find((event) => event.type === "session_event") ?? {}).sort()).toEqual(["event", "type"]);
+      disconnect();
+    } finally {
+      if (originalEventSource === undefined) delete (globalThis as any).EventSource;
+      else globalThis.EventSource = originalEventSource;
+    }
   });
 });

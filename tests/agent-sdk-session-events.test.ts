@@ -202,6 +202,34 @@ describe("Agent SDK channel-neutral session events", () => {
     expect(events.every((event) => event.ts === 1234)).toBe(true);
   });
 
+  it("namespaces fallback and terminal ids when browser turn ids repeat", () => {
+    const first = new AgentSdkSessionEventNormalizer({
+      turnId: "1",
+      eventScope: "scope-first",
+      now: () => 100,
+    });
+    const second = new AgentSdkSessionEventNormalizer({
+      turnId: "1",
+      eventScope: "scope-second",
+      now: () => 200,
+    });
+
+    const firstEvents = [...first.push(null), ...first.finish()];
+    const secondEvents = [...second.push(null), ...second.finish()];
+    const firstIds = firstEvents.map((event: any) => event.id);
+    const secondIds = secondEvents.map((event: any) => event.id);
+
+    expect(firstIds).toEqual([
+      "session:scope-first:1:1",
+      "turn:scope-first:1:end",
+    ]);
+    expect(secondIds).toEqual([
+      "session:scope-second:1:1",
+      "turn:scope-second:1:end",
+    ]);
+    expect(firstIds.filter((id: string) => secondIds.includes(id))).toEqual([]);
+  });
+
   it("isolates throwing and rejecting onEvent consumers", async () => {
     let calls = 0;
     const adapter = new AgentSdkAdapter({

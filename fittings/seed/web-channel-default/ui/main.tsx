@@ -27,6 +27,7 @@ import {
   type ComposerAdornmentApi,
   type RailOptions,
   type RouteAttribution,
+  type SessionEvent,
   type TurnRouting,
 } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "./orchestrator-transport";
@@ -164,6 +165,11 @@ interface ThreadMessage {
   role: "user" | "assistant";
   text: string;
   ts?: string;
+  /** Optional durable turn/session coordinates. Current settled assistant rows
+   * normally carry these through route, but accepting them directly keeps older
+   * and recovery-produced thread files attachable without guessing. */
+  turnId?: string | null;
+  sessionId?: string | null;
   /** The run context of an assistant reply, persisted per message by threads.mjs
    *  (contract §10). Carried onto the seeded Turn so the rail's badges survive a
    *  reload AND the 10s poll's re-mount - the in-memory Turn.route did not. */
@@ -178,6 +184,48 @@ interface Thread extends ThreadMeta {
    *  user across devices over the tailnet; null when nothing is pinned. */
   routing?: TurnRouting | null;
   messages: ThreadMessage[];
+  /** Canonical, revision-merged activity retained independently of the lossy
+   * user/assistant text projection. */
+  sessionEvents?: ThreadSessionEvent[];
+  /** Append-only Claude session chain; a resume can mint a new id. */
+  sessionIds?: string[];
+  /** Backward-compatible latest-id pointer retained by the server. */
+  claudeSessionId?: string | null;
+}
+
+/** Lightweight durable-history identity used by idle/replay refreshes. Canonical
+ * snapshots can advance in place (same array length, higher revision), so message
+ * count alone is not a completeness signal. Event payload bytes/images stay out
+ * of this key; accepted durable replacements are revisioned by contract. */
+export function threadHistoryRevision(thread: Pick<Thread, "messages" | "sessionEvents">): string {
+  const messages = (thread.messages ?? []).map((message) => [
+    message.role,
+    message.ts ?? null,
+    message.turnId ?? null,
+    message.sessionId ?? null,
+    message.text,
+    message.route ?? null,
+    message.overrides ?? null,
+  ]);
+  const events = (thread.sessionEvents ?? []).map((event) => [
+    event.id,
+    event.revision ?? null,
+    event.order ?? null,
+    event.ts ?? null,
+    event.turnId ?? null,
+    event.sessionId ?? null,
+  ]);
+  return JSON.stringify([messages, events]);
+}
+
+/** The durable store enriches the shared rendering vocabulary with ordering and
+ * thread/session coordinates. The event blocks themselves remain the shared
+ * SessionEvent shape. */
+interface ThreadSessionEvent extends SessionEvent {
+  turnId?: string | null;
+  sessionId?: string | null;
+  order?: number;
+  revision?: number;
 }
 
 /** One completed exchange as ClaudeChat seeds it, with the run context attached to
@@ -188,6 +236,7 @@ interface HistoryExchange {
   hideUser?: boolean;
   route?: RouteAttribution;
   overrides?: TurnRouting;
+  sessionEvents?: ThreadSessionEvent[];
 }
 
 // The Turn Rail's menu vocabulary, read from the web-channel's OWN same-origin
@@ -294,30 +343,140 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
 // travels with the pair: `route` (what RAN) comes off the assistant message,
 // `overrides` (what was ASKED for) off the user message that provoked it, and both
 // land on the exchange so ClaudeChat can seed the turn's badges.
-export function toHistory(messages: ThreadMessage[]): HistoryExchange[] {
-  const out: HistoryExchange[] = [];
+export function toHistory(messages: ThreadMessage[], sessionEvents: ThreadSessionEvent[] = []): HistoryExchange[] {
+  interface HistorySlot {
+    exchange: HistoryExchange;
+    startTs: number | null;
+    endTs: number | null;
+    turnId: string | null;
+    sessionId: string | null;
+    events: ThreadSessionEvent[];
+  }
+  const slots: HistorySlot[] = [];
   let pendingUser: ThreadMessage | null = null;
-  const unanswered = (m: ThreadMessage): HistoryExchange => ({
-    user: m.text,
-    assistant: "",
-    ...(m.overrides ? { overrides: m.overrides } : {}),
-  });
+  const asTimestamp = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value !== "string" || !value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const asCoordinate = (value: unknown): string | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed || null;
+  };
+  const pushSlot = (user: ThreadMessage | null, assistant: ThreadMessage | null) => {
+    const route = assistant?.route;
+    const exchange: HistoryExchange = {
+      user: user?.text ?? "",
+      assistant: assistant?.text ?? "",
+      ...(route ? { route } : {}),
+      ...(user?.overrides ? { overrides: user.overrides } : {}),
+    };
+    const userTs = asTimestamp(user?.ts);
+    const assistantTs = asTimestamp(assistant?.ts);
+    slots.push({
+      exchange,
+      startTs: userTs ?? assistantTs,
+      endTs: assistantTs ?? userTs,
+      turnId: asCoordinate(assistant?.turnId ?? user?.turnId ?? route?.turnSeq),
+      sessionId: asCoordinate(assistant?.sessionId ?? user?.sessionId ?? route?.sessionId),
+      events: [],
+    });
+  };
   for (const m of messages ?? []) {
     if (m.role === "user") {
-      if (pendingUser !== null) out.push(unanswered(pendingUser));
+      if (pendingUser !== null) pushSlot(pendingUser, null);
       pendingUser = m;
     } else if (m.role === "assistant") {
-      out.push({
-        user: pendingUser?.text ?? "",
-        assistant: m.text,
-        ...(m.route ? { route: m.route } : {}),
-        ...(pendingUser?.overrides ? { overrides: pendingUser.overrides } : {}),
-      });
+      pushSlot(pendingUser, m);
       pendingUser = null;
     }
   }
-  if (pendingUser !== null) out.push(unanswered(pendingUser));
-  return out;
+  if (pendingUser !== null) pushSlot(pendingUser, null);
+  if (slots.length === 0 || !Array.isArray(sessionEvents) || sessionEvents.length === 0) {
+    return slots.map((slot) => slot.exchange);
+  }
+
+  // First retain turn groups as the server stored them. A page reload can reset
+  // turnSeq while the Claude session stays alive, so equal coordinates split again
+  // when canonical order resets; revisions of the same event id stay together.
+  interface EventGroup {
+    events: ThreadSessionEvent[];
+    turnId: string | null;
+    sessionId: string | null;
+    ts: number | null;
+    lastOrder: number | null;
+    lastId: string | null;
+  }
+  const groups: EventGroup[] = [];
+  for (const event of sessionEvents) {
+    if (!event || typeof event !== "object") continue;
+    const turnId = asCoordinate(event.turnId);
+    const sessionId = asCoordinate(event.sessionId);
+    const order = typeof event.order === "number" && Number.isFinite(event.order) ? event.order : null;
+    const id = asCoordinate(event.id);
+    const previous = groups.at(-1);
+    const sameCoordinate = Boolean(
+      previous && previous.turnId === turnId && previous.sessionId === sessionId
+    );
+    const orderReset = Boolean(
+      previous && order !== null && previous.lastOrder !== null && order <= previous.lastOrder && id !== previous.lastId
+    );
+    const startsUserTurn = event.role === "user" && event.toolResultsOnly !== true;
+    let group = previous;
+    if (!group || !sameCoordinate || orderReset || startsUserTurn) {
+      group = { events: [], turnId, sessionId, ts: null, lastOrder: null, lastId: null };
+      groups.push(group);
+    }
+    group.events.push(event);
+    const eventTs = asTimestamp(event.ts);
+    if (eventTs !== null && (group.ts === null || eventTs < group.ts)) group.ts = eventTs;
+    group.lastOrder = order;
+    group.lastId = id;
+  }
+
+  let sequenceCursor = 0;
+  const byTimestamp = (candidates: number[], ts: number | null): number | null => {
+    if (ts === null) return null;
+    const timed = candidates
+      .map((index) => ({ index, at: slots[index].startTs ?? slots[index].endTs }))
+      .filter((entry): entry is { index: number; at: number } => entry.at !== null);
+    if (timed.length === 0) return null;
+    const before = timed.filter((entry) => entry.at <= ts);
+    if (before.length > 0) return before.reduce((best, entry) => entry.at >= best.at ? entry : best).index;
+    return timed.reduce((best, entry) => Math.abs(entry.at - ts) < Math.abs(best.at - ts) ? entry : best).index;
+  };
+  const bySequence = (candidates: number[]): number => {
+    const atOrAfter = candidates.filter((index) => index >= sequenceCursor);
+    const pool = atOrAfter.length > 0 ? atOrAfter : candidates;
+    const empty = pool.find((index) => slots[index].events.length === 0);
+    return empty ?? pool[pool.length - 1] ?? 0;
+  };
+
+  for (const group of groups) {
+    const all = slots.map((_slot, index) => index);
+    let candidates = all;
+    if (group.turnId !== null) {
+      const sameTurn = all.filter((index) => slots[index].turnId === group.turnId);
+      if (sameTurn.length > 0) candidates = sameTurn;
+    }
+    // Browser-local turn counters can repeat after reload, while one SDK session
+    // can span turns (and can also roll to a new id inside one turn). Time is
+    // therefore the discriminator inside an explicit turn-coordinate set;
+    // session id is only a no-time fallback, never a key that can force a live
+    // group onto an older answered exchange.
+    const timedIndex = byTimestamp(candidates, group.ts);
+    const sameSession = group.sessionId === null
+      ? []
+      : candidates.filter((index) => slots[index].sessionId === group.sessionId);
+    const index = timedIndex ?? bySequence(sameSession.length > 0 ? sameSession : candidates);
+    slots[index].events.push(...group.events);
+    sequenceCursor = Math.max(sequenceCursor, index);
+  }
+
+  return slots.map(({ exchange, events }) => events.length > 0 ? { ...exchange, sessionEvents: events } : exchange);
 }
 
 function fmtWhen(iso: string | null): string {
@@ -443,7 +602,7 @@ function ResumedWorkingNotice({ since }: { since: string }) {
   const secs = Math.max(0, Math.floor((now - started) / 1000));
   const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   return (
-    <div className="wc-resumed" role="status" aria-live="polite">
+    <div className="wc-resumed">
       <span className="wc-resumed-dot" aria-hidden />
       <span>Still working on this conversation</span>
       <span className="wc-resumed-clock">{clock}</span>
@@ -600,9 +759,9 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // it. On turn completion the client only refreshes the session list metadata.
   // Server-side appends land in the thread file without a client turn — the run
   // engine posts a card's outcome back to its originating thread (kanban
-  // notify-origin). Poll the open thread while idle and, when its message count
-  // GREW server-side, bump historyRev so ClaudeChat re-mounts with the fresh
-  // transcript. Suppressed mid-turn (a re-mount would orphan the streaming
+  // notify-origin). Poll the open thread while idle and, when its durable messages
+  // or canonical event revisions advance, bump historyRev so ClaudeChat re-mounts
+  // with the fresh transcript. Suppressed mid-turn (a re-mount would orphan the streaming
   // reply), with a 20-minute expiry so a lost turn can't mute feedback forever.
   const busyRef = useRef(false);
   const busySinceRef = useRef(0);
@@ -631,11 +790,12 @@ function ThreadedApp({ url }: { url: UrlState }) {
       if (!fresh) return;
       setActiveThread((current) => {
         if (!current || fresh.id !== current.id) return current;
-        if ((fresh.messages?.length ?? 0) > (current.messages?.length ?? 0)) {
+        if (threadHistoryRevision(fresh) !== threadHistoryRevision(current)) {
           setHistoryRev((r) => r + 1);
-          return fresh;
         }
-        return current;
+        // Even without transcript growth, runningSince/session metadata may have
+        // settled and the parent notice must stop reflecting stale state.
+        return fresh;
       });
     };
     const timer = window.setInterval(() => { void tick(); }, 10_000);
@@ -644,7 +804,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
 
   const history = useMemo(() => {
     if (!activeThread) return [] as HistoryExchange[];
-    const h: HistoryExchange[] = toHistory(activeThread.messages);
+    const h: HistoryExchange[] = toHistory(activeThread.messages, activeThread.sessionEvents);
     // A reopened Discuss thread's first exchange is the auto-sent kickoff instruction -
     // hide its user bubble so the transcript starts with the Discuss duty's question, not the prompt.
     const isDiscuss = activeThread.source === "discuss";
@@ -710,10 +870,10 @@ function ThreadedApp({ url }: { url: UrlState }) {
     if (!fresh) return;
     setActiveThread((current) => {
       if (!current || current.id !== fresh.id) return current;
-      // The replay already painted the final reply. Re-mount from disk only when
-      // the canonical transcript actually advanced; this also covers the benign
+      // The replay already painted the final reply. Re-mount from disk when any
+      // durable message or canonical revision advanced; this also covers the benign
       // race where the turn settled just before /live connected (no frames to paint).
-      if ((fresh.messages?.length ?? 0) > (current.messages?.length ?? 0)) {
+      if (threadHistoryRevision(fresh) !== threadHistoryRevision(current)) {
         setHistoryRev((r) => r + 1);
       }
       return fresh;
@@ -871,7 +1031,6 @@ function ThreadedApp({ url }: { url: UrlState }) {
             initialHistory={history}
             onTurnComplete={() => { void onTurnSettled(); void checkBriefAfterTurn(); }}
             transcriptUrl={activeId ? `/api/session-stream?thread=${encodeURIComponent(activeId)}` : undefined}
-            autoShowTranscript
             // The Turn Rail (contract §13). `voice` stays OFF - the streaming mic in
             // the composer adornment supersedes the component's batch voice - so
             // `routing` is what brings the toolbar (and its Route chip) into the web

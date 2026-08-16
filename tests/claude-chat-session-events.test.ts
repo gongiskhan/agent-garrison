@@ -1,0 +1,326 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { createElement as h } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { Marked } from "marked";
+import {
+  ClaudeChat,
+  SessionEventTimeline,
+  applySessionEvent,
+  applyTurnActive,
+  legacyAssistantFallback,
+  mergeSessionEvents,
+  resolvedAssistantText,
+  type ChatTransport,
+  type SessionEvent,
+  type SessionEventTurn,
+} from "../packages/claude-chat/src/index";
+import { resolvedAssistantRaw } from "../packages/claude-chat/src/ClaudeChat";
+import { installSafeMarkdownRenderer } from "../packages/claude-chat/src/markdown-safety";
+// @ts-ignore — dependency-free fitting JavaScript intentionally has no .d.ts.
+import { normalizeAgentSdkMessages } from "../fittings/seed/agent-sdk-runtime/lib/session-events.mjs";
+
+const SDK_FIXTURE = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./fixtures/agent-sdk-web-parity-events.json", import.meta.url)), "utf8")
+);
+
+function fixtureEvents(turnId = "1"): SessionEvent[] {
+  let now = 1_786_880_000_000;
+  const revisions = normalizeAgentSdkMessages(SDK_FIXTURE.messages, { turnId, now: () => now++ });
+  return mergeSessionEvents([], revisions);
+}
+
+function event(
+  id: string,
+  revision: number,
+  text: string,
+  turnId: string | number | null = "1"
+): SessionEvent {
+  return {
+    id,
+    role: "assistant",
+    ts: null,
+    turnId,
+    order: 1,
+    revision,
+    blocks: [{ type: "text", text }],
+  };
+}
+
+function stubTransport(): ChatTransport {
+  return {
+    connect: () => () => {},
+    sendMessage: async () => {},
+    sendKey: async () => {},
+    setMode: async (mode) => ({ mode, reached: false }),
+    interrupt: async () => {},
+    fetchCommands: async () => [],
+  };
+}
+
+describe("claude-chat canonical session events", () => {
+  it("renders the authentic Write/Read fixture in canonical chronological order", () => {
+    const html = renderToStaticMarkup(h(SessionEventTimeline, { events: fixtureEvents(), live: false }));
+    const write = html.indexOf('<b class="cc-session-tool-name" title="Write">Write</b>');
+    const writeResult = html.indexOf("File created successfully");
+    const read = html.indexOf('<b class="cc-session-tool-name" title="Read">Read</b>');
+    const readResult = html.indexOf("1\tWEB_PARITY_FIXTURE");
+    const answer = html.lastIndexOf("WEB_PARITY_FIXTURE");
+
+    expect(write).toBeGreaterThanOrEqual(0);
+    expect(writeResult).toBeGreaterThan(write);
+    expect(read).toBeGreaterThan(writeResult);
+    expect(readResult).toBeGreaterThan(read);
+    expect(answer).toBeGreaterThan(readResult);
+    expect(html).toContain("cc-session-tool is-complete");
+    expect(html).not.toContain("cc-session-tool is-complete\" open");
+  });
+
+  it("keeps completed thinking and image results expandable inside the tool card", () => {
+    const events: SessionEvent[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        ts: 1,
+        revision: 1,
+        blocks: [
+          { type: "thinking", text: "Inspecting the screenshot carefully." },
+          { type: "tool_use", name: "Read", toolUseId: "read-1", input: "{\"path\":\"shot.png\"}" },
+        ],
+      },
+      {
+        id: "result-1",
+        role: "user",
+        ts: 2,
+        revision: 1,
+        toolResultsOnly: true,
+        blocks: [{
+          type: "tool_result",
+          toolUseId: "read-1",
+          text: "image ready",
+          images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+        }],
+      },
+    ];
+    const html = renderToStaticMarkup(h(SessionEventTimeline, { events, live: false }));
+
+    expect(html).toContain("cc-session-thinking is-complete");
+    expect(html).toContain("Inspecting the screenshot carefully.");
+    expect(html).toContain('alt="Read result image 1"');
+    expect(html).toContain("src=\"data:image/png;base64,aW1hZ2U=\"");
+    expect(html.indexOf("image ready")).toBeLessThan(html.indexOf("Open Read result image 1"));
+  });
+
+  it("attaches a late event to its explicit historical turn and ignores a stale revision", () => {
+    const turns: SessionEventTurn[] = [
+      { seq: 1, streaming: false, sessionEvents: [] },
+      { seq: 2, streaming: true, sessionEvents: [] },
+    ];
+    const attached = applySessionEvent(turns, event("message-1", 2, "settled", "1"));
+    expect(attached[0].sessionEvents[0].blocks[0].text).toBe("settled");
+    expect(attached[1]).toBe(turns[1]);
+
+    const stale = applySessionEvent(attached, event("message-1", 1, "stale", "1"));
+    expect(stale).toBe(attached);
+    expect(stale[0].sessionEvents[0].blocks[0].text).toBe("settled");
+  });
+
+  it("rebinds a resumed event to the trailing synthetic history turn", () => {
+    const turns: SessionEventTurn[] = [
+      { seq: 0, streaming: false, sessionEvents: [] },
+      { seq: 0, streaming: true, sessionEvents: [] },
+    ];
+    const attached = applySessionEvent(turns, event("resumed", 1, "continued", "0"));
+    expect(attached[0]).toBe(turns[0]);
+    expect(attached[1].sessionEvents.map((entry) => entry.id)).toEqual(["resumed"]);
+  });
+
+  it("uses canonical activity in the main assistant bubble and preserves legacy fallback", () => {
+    const canonical = renderToStaticMarkup(h(ClaudeChat, {
+      transport: stubTransport(),
+      initialHistory: [{
+        user: "show activity",
+        assistant: "CANONICAL_RENDERED",
+        sessionEvents: [event("canonical", 1, "CANONICAL_RENDERED")],
+      }],
+    }));
+    expect(canonical).toContain("CANONICAL_RENDERED");
+    expect(canonical.match(/CANONICAL_RENDERED/g)).toHaveLength(1);
+
+    const fallback = renderToStaticMarkup(h(ClaudeChat, {
+      transport: stubTransport(),
+      initialHistory: [{
+        user: "old runtime",
+        assistant: "LEGACY_RENDERED",
+        sessionEvents: [{
+          id: "status-only",
+          role: "assistant",
+          ts: null,
+          blocks: [{ type: "status", text: "not part of M2" }],
+        }],
+      }],
+    }));
+    expect(fallback).toContain("LEGACY_RENDERED");
+  });
+
+  it("keeps unsafe links inert and rewrites cross-fitting and remote loopback links", () => {
+    const marked = new Marked({ gfm: true });
+    installSafeMarkdownRenderer(marked, () => ({
+      hostname: "dev-madrid.tail31efa.ts.net",
+      protocol: "https:",
+      serveMap: { "8081": "https://dev-madrid.tail31efa.ts.net:8443" },
+    }));
+    const html = marked.parse(
+      "[unsafe](javascript:alert(1)) [board](garrison://kanban/card/c-1) " +
+      "[loopback](http://127.0.0.1:8081/card/c-1) <script>alert(2)</script>"
+    ) as string;
+
+    expect(html).not.toContain('href="javascript:');
+    expect(html).toContain('<a href="/fitting/kanban/card/c-1">board</a>');
+    expect(html).toContain('href="https://dev-madrid.tail31efa.ts.net:8443/card/c-1"');
+    expect(html).toContain('rel="noopener noreferrer"');
+    expect(html).not.toContain("<script>");
+  });
+
+  it("removes only route badges from canonical prose and mounts one stable live region", () => {
+    const html = renderToStaticMarkup(h(ClaudeChat, {
+      transport: stubTransport(),
+      initialHistory: [{
+        user: "explain",
+        assistant: "",
+        sessionEvents: [event(
+          "canonical-badges",
+          1,
+          "Thinking\n\nLegitimate canonical prose.\n\n```ts\nconst safe = true;\n```\n" +
+          "[route: cc-opus-high | rule: row:research]\n[orchestrator-active]"
+        )],
+      }],
+    }));
+
+    expect(html).toContain("Thinking");
+    expect(html).toContain("Legitimate canonical prose.");
+    expect(html).not.toContain("[route:");
+    expect(html).not.toContain("[orchestrator-active]");
+    expect(html).toContain("cc-codeblock");
+    expect(html).toContain('class="cc-codecopy" aria-label="Copy code"');
+    expect(html.match(/aria-live=/g)).toHaveLength(1);
+    expect(html).toContain('class="cc-sr-only" role="status" aria-live="polite" aria-atomic="true"');
+    expect(html).toContain('class="cc-msgcopy" title="Copy this response"');
+  });
+
+  it("renders typed errors and a differing durable fallback instead of hiding failure text", () => {
+    const html = renderToStaticMarkup(h(ClaudeChat, {
+      transport: stubTransport(),
+      initialHistory: [{
+        user: "run it",
+        assistant: "_Turn did not complete. Please retry._",
+        sessionEvents: [
+          {
+            id: "tool-before-error",
+            role: "assistant",
+            ts: 1,
+            revision: 1,
+            blocks: [{ type: "tool_use", name: "Bash", toolUseId: "bash-1", input: '{"cmd":"false"}' }],
+          },
+          {
+            id: "typed-error",
+            role: "assistant",
+            ts: 2,
+            revision: 1,
+            blocks: [{ type: "error", text: "runtime exploded", kind: "runtime_error" }],
+          },
+        ],
+      }],
+    }));
+
+    expect(html).toContain("runtime exploded");
+    expect(html).toContain("Turn did not complete. Please retry.");
+    expect(html).toContain("cc-session-error");
+    expect(html).toContain("cc-canonical-fallback");
+  });
+
+  it("makes a successful terminal result authoritative over stale legacy text", () => {
+    const sessionEvents: SessionEvent[] = [{
+      id: "terminal-authority",
+      role: "assistant",
+      ts: 2,
+      revision: 1,
+      blocks: [{ type: "turn_end", status: "completed", result: "authoritative final" }],
+    }];
+    const turn = { assistant: "stale streamed draft", sessionEvents };
+
+    // These are the shared response seams for per-message/global copy, TTS,
+    // composer lastReply and onTurnComplete respectively.
+    expect(resolvedAssistantText(turn)).toBe("authoritative final");
+    expect(resolvedAssistantRaw(turn)).toBe("authoritative final");
+    expect(legacyAssistantFallback(turn.assistant, sessionEvents)).toBe("");
+    expect(legacyAssistantFallback(
+      "_The operative returned an empty reply. Try sending again._",
+      sessionEvents
+    )).toBe("");
+
+    const html = renderToStaticMarkup(h(ClaudeChat, {
+      transport: stubTransport(),
+      initialHistory: [{ user: "finish it", ...turn }],
+    }));
+    expect(html).toContain("authoritative final");
+    expect(html).not.toContain("stale streamed draft");
+    expect(html).not.toContain("cc-canonical-fallback");
+  });
+
+  it("shows an authoritative terminal result and does not reuse stale progress for an image-only result", () => {
+    const events: SessionEvent[] = [
+      {
+        id: "tool",
+        role: "assistant",
+        ts: 1,
+        revision: 1,
+        blocks: [{ type: "tool_use", name: "Read", toolUseId: "read-image" }],
+      },
+      {
+        id: "progress",
+        role: "assistant",
+        ts: 2,
+        revision: 1,
+        blocks: [{ type: "tool_progress", name: "Read", toolUseId: "read-image", text: "Read is running.", status: "running" }],
+      },
+      {
+        id: "image-result",
+        role: "user",
+        ts: 3,
+        revision: 1,
+        toolResultsOnly: true,
+        blocks: [{
+          type: "tool_result",
+          toolUseId: "read-image",
+          images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+        }],
+      },
+      {
+        id: "terminal",
+        role: "assistant",
+        ts: 4,
+        revision: 1,
+        blocks: [{ type: "turn_end", status: "completed", result: "authoritative final" }],
+      },
+    ];
+    const html = renderToStaticMarkup(h(SessionEventTimeline, { events, live: false }));
+
+    expect(html).toContain("authoritative final");
+    expect(html).toContain("Read result image 1");
+    expect(html).not.toContain("Read is running.");
+  });
+
+  it("marks a restored trailing turn live and settled without rewriting earlier turns", () => {
+    const turns = [
+      { id: "old", streaming: false },
+      { id: "tail", streaming: false },
+    ];
+    const active = applyTurnActive(turns, true);
+    expect(active[0]).toBe(turns[0]);
+    expect(active[1]).toEqual({ id: "tail", streaming: true });
+    expect(applyTurnActive(active, true)).toBe(active);
+    expect(applyTurnActive(active, false)[1]).toEqual({ id: "tail", streaming: false });
+  });
+});

@@ -424,17 +424,20 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId } = {}) {
     persisted = true;
     if (!threadId) return markSettled();
     const reply = payload?.reply;
-    if (typeof reply === "string" && reply.trim()) {
-      // The whole turn, not just its text: the resolved attribution rides in the
-      // message so the badges survive a reload and the 10s thread poll's remount
-      // (contract §10), and so the per-turn sessionId can open THIS turn's transcript
-      // rather than the thread-level last-write-wins one (§12).
-      queueThreadWrite(() => appendMessages(threadId, [{
-        role: "assistant",
-        text: reply,
-        route: attributionFromFrame({ ...(preRoute ?? {}), ...payload }) ?? undefined
-      }]));
-    }
+    const durableReply = typeof reply === "string" && reply.trim()
+      ? reply
+      : "_The operative returned an empty reply. Try sending again._";
+    // The whole turn, not just its text: the resolved attribution rides in the
+    // message so the badges survive a reload and the 10s thread poll's remount
+    // (contract §10), and so the per-turn sessionId can open THIS turn's transcript
+    // rather than the thread-level last-write-wins one (§12). Persist the same
+    // explicit empty-reply fallback the live transport renders; otherwise a valid
+    // `done` with no prose becomes a lone unanswered user after reload.
+    queueThreadWrite(() => appendMessages(threadId, [{
+      role: "assistant",
+      text: durableReply,
+      route: attributionFromFrame({ ...(preRoute ?? {}), ...payload }) ?? undefined
+    }]));
     // The Claude session id is also thread-level so /api/session-stream?thread=<id>
     // resolves without a message id. A pre-turn route may already have stored it;
     // setThreadSession is idempotent.
@@ -513,8 +516,13 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId } = {}) {
     });
     up.on("end", () => {
       // End WITHOUT a done frame: the gateway died, was restarted, or the turn was
-      // killed upstream. The latch means a normal end after `done` is a no-op.
-      persistFailed("the gateway stream ended without a done event");
+      // killed upstream. Publish the same failure to both the attached client and
+      // the replay journal before settling; otherwise the durable note exists but
+      // a no-text/tool-only turn can keep the host's history poll suppressed. The
+      // latch means a normal end after `done` (or a forwarded error) is a no-op.
+      const reason = "the gateway stream ended without a done event";
+      if (!persisted) emitLocalError(reason);
+      persistFailed(reason);
       clientEnd();
     });
     up.on("error", (err) => {
@@ -899,7 +907,12 @@ async function handleChat(req, res, opts) {
     // can never reopen a running thread that has forgotten the ask. The trailing
     // unanswered user message is already a supported history shape (toHistory).
     try {
-      await appendMessages(threadId, [{ role: "user", text: message, overrides: routing ?? undefined }]);
+      await appendMessages(threadId, [{
+        role: "user",
+        text: message,
+        overrides: routing ?? undefined,
+        ...(Number.isInteger(body?.turnSeq) && body.turnSeq >= 0 ? { turnId: String(body.turnSeq) } : {}),
+      }]);
     } catch (err) {
       // A persistence fault must be visible in logs, but it must not silently turn
       // the chat channel into a runtime outage.

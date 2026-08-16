@@ -12,6 +12,7 @@
 //     `activity` frame are surfaced as ChatEvents, and `interrupt()` is a real
 //     POST /api/chat/interrupt instead of the no-op that made Stop a lie.
 
+import { isSessionEvent } from "@garrison/claude-chat/journal";
 import type { ChatEvent, ChatTransport, ChatSendMeta, QuestionAnswer, RouteAttribution } from "@garrison/claude-chat";
 
 // ── Run-context frame normalisation (contract §1) ──────────────────────────
@@ -186,9 +187,18 @@ export function createOrchestratorTransport(
     acc: string;
     sawReply: boolean;
     settled: boolean;
+    /** Replay belongs to the synthetic restored turn, not the browser that
+     * originally produced the retained frames. */
+    resumed: boolean;
   }
 
-  const newStreamState = (seq: number): StreamState => ({ seq, acc: "", sawReply: false, settled: false });
+  const newStreamState = (seq: number, resumed = false): StreamState => ({
+    seq,
+    acc: "",
+    sawReply: false,
+    settled: false,
+    resumed,
+  });
 
   const handleEvent = (state: StreamState, name: string, dataRaw: string) => {
     let data: any = {};
@@ -202,6 +212,14 @@ export function createOrchestratorTransport(
       listener?.({ type: "assistant", text: state.acc });
     } else if (name === "tool") {
       listener?.({ type: "tool", ...data } as ChatEvent);
+    } else if (name === "session_event") {
+      // The payload is already the channel-neutral canonical event. A live send
+      // forwards the parsed object itself without spreading or selecting fields;
+      // replay changes only its turn coordinate so the restored synthetic turn
+      // owns it just as it owns replayed route frames.
+      if (!isSessionEvent(data)) return;
+      const event = state.resumed ? { ...data, turnId: String(state.seq) } : data;
+      listener?.({ type: "session_event", event } as unknown as ChatEvent);
     } else if (name === "route") {
       // A resumed turn targets the persisted trailing user exchange (seq 0), not
       // whatever turnSeq another browser originally placed on the wire. Restamping
@@ -278,12 +296,25 @@ export function createOrchestratorTransport(
     drain();
   };
 
+  // A clean byte-stream EOF is not a successful turn unless a named `done` or
+  // `error` frame settled it first. Surface the break as assistant-visible text
+  // before clearing busy; Web's completion callback can then release its polling
+  // guard and hydrate the server's durable failure note instead of waiting for the
+  // 20-minute lost-turn expiry. The server normally emits this error itself; this
+  // is the client-side fallback for a proxy/network truncation.
+  const settleUnexpectedEof = (state: StreamState) => {
+    if (state.settled) return;
+    state.settled = true;
+    listener?.({ type: "error", message: "chat stream ended without a completion event" });
+    listener?.({ type: "turn", active: false });
+  };
+
   const resume = async () => {
     if (resumeStarted || !threadId) return;
     resumeStarted = true;
     const controller = new AbortController();
     resumeController = controller;
-    const state = newStreamState(turnSeq); // restored history uses seq 0
+    const state = newStreamState(turnSeq, true); // restored history uses seq 0
     listener?.({ type: "turn", active: true });
     options.onResumeState?.(true);
     let shouldRefresh = false;
@@ -297,6 +328,7 @@ export function createOrchestratorTransport(
       });
       if (res.ok && res.body) {
         await readEventStream(res, state);
+        settleUnexpectedEof(state);
         shouldRefresh = true;
       } else if (res.status === 404) {
         // The turn settled between the thread read and this GET. Refresh history;
@@ -338,7 +370,7 @@ export function createOrchestratorTransport(
         return;
       }
       await readEventStream(res, state);
-      if (!state.settled) listener?.({ type: "turn", active: false });
+      settleUnexpectedEof(state);
     } catch (err: any) {
       listener?.({ type: "error", message: String(err?.message ?? "chat stream failed") });
       listener?.({ type: "turn", active: false });

@@ -16,6 +16,12 @@ export type RelatedTaskStatus = "running" | "completed" | "failed" | "unknown";
 export interface SessionBlock {
   type: string;
   text?: string;
+  /** Typed terminal/error metadata emitted by channel-neutral runtimes. */
+  kind?: string;
+  result?: string;
+  errors?: string[];
+  subtype?: string | null;
+  stopReason?: string | null;
   name?: string;
   input?: string;
   toolUseId?: string | null;
@@ -37,6 +43,15 @@ export interface SessionEvent {
   id: string | null;
   role: string;
   ts: number | null;
+  /** Optional channel turn identity. Numeric values (or numeric strings) bind
+   * the event to the matching chat Turn.seq. */
+  turnId?: string | number | null;
+  /** Runtime-owned Claude/Agent SDK session identity. */
+  sessionId?: string | null;
+  /** First-seen chronological position assigned by the runtime normalizer. */
+  order?: number | null;
+  /** Monotonic snapshot revision for a stable event id. */
+  revision?: number | null;
   toolResultsOnly?: boolean;
   blocks: SessionBlock[];
 }
@@ -63,6 +78,7 @@ export interface SessionTurnPresentation {
 
 export type SessionActivityBeat =
   | { type: "text"; eventIndex: number; blockIndex: number; text: string }
+  | { type: "error"; eventIndex: number; blockIndex: number; text: string }
   | { type: "thinking" | "tool_use"; eventIndex: number; blockIndex: number; block: SessionBlock };
 
 export interface RelatedTask {
@@ -79,12 +95,35 @@ export interface RelatedTask {
 type JsonRecord = Record<string, unknown>;
 const FANOUT_TOOL_NAMES = new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
 
+/** Runtime guard for the live canonical-event boundary. The server deliberately
+ * keeps malformed frames observable on its SSE stream for diagnostics, but a
+ * renderer must never accept a shape that can make `blocks.some()` throw. */
+export function isSessionEvent(value: unknown): value is SessionEvent {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const event = value as Record<string, unknown>;
+  if (event.id !== null && typeof event.id !== "string") return false;
+  if (typeof event.role !== "string" || !Array.isArray(event.blocks)) return false;
+  return event.blocks.every(
+    (block) => Boolean(block) && typeof block === "object" && !Array.isArray(block) && typeof (block as Record<string, unknown>).type === "string"
+  );
+}
+
 /** Text blocks inside one assistant envelope are fragments of the same message. */
 export function sessionEventText(event: SessionEvent): string {
   return (event.blocks ?? [])
     .filter((block) => block.type === "text" && typeof block.text === "string")
     .map((block) => block.text ?? "")
     .join("");
+}
+
+/** The final response carried on a typed turn boundary, if present. Some SDK
+ * failures/recoveries have no separate final text envelope. */
+export function sessionEventTerminalText(event: SessionEvent): string {
+  for (let index = event.blocks.length - 1; index >= 0; index -= 1) {
+    const block = event.blocks[index];
+    if (block.type === "turn_end" && typeof block.result === "string" && block.result.trim()) return block.result;
+  }
+  return "";
 }
 
 /**
@@ -106,6 +145,8 @@ export function sessionActivityBeats(events: SessionEvent[]): SessionActivityBea
         } else {
           beats.push({ type: "text", eventIndex, blockIndex, text: block.text });
         }
+      } else if (block.type === "error" && typeof block.text === "string" && block.text.trim() !== "") {
+        beats.push({ type: "error", eventIndex, blockIndex, text: block.text });
       } else if (block.type === "thinking" || block.type === "tool_use") {
         beats.push({ type: block.type, eventIndex, blockIndex, block });
       }
@@ -151,7 +192,7 @@ export function groupSessionTurns(events: SessionEvent[]): SessionTurn[] {
 /** Select the one text surface a visual assistant turn should show. */
 export function presentSessionTurn(turn: SessionTurn, live: boolean): SessionTurnPresentation {
   const textual = turn.assistantEvents
-    .map((event, eventIndex) => ({ eventIndex, text: sessionEventText(event) }))
+    .map((event, eventIndex) => ({ eventIndex, text: sessionEventTerminalText(event) || sessionEventText(event) }))
     .filter((entry) => entry.text.trim() !== "");
   if (live) {
     return {
@@ -241,6 +282,45 @@ export function latestBlocksByToolUse(events: SessionEvent[], type: string): Map
   return out;
 }
 
+/** Whether a turn has canonical assistant activity that belongs in the primary
+ * bubble. Tool results/progress are attachments to a visible tool_use and do not
+ * create a timeline on their own; terminal text and errors are independently
+ * visible so a recovered turn cannot disappear when no text envelope survived. */
+export function hasVisibleSessionActivity(events: SessionEvent[]): boolean {
+  return events.some(
+    (event) =>
+      event.role === "assistant" &&
+      !event.toolResultsOnly &&
+      event.blocks.some(
+        (block) =>
+          (block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") ||
+          (block.type === "error" && typeof block.text === "string" && block.text.trim() !== "") ||
+          (block.type === "turn_end" && typeof block.result === "string" && block.result.trim() !== "") ||
+          block.type === "thinking" ||
+          block.type === "tool_use"
+      )
+  );
+}
+
+function canonicalRevision(event: SessionEvent): number | null {
+  const revision = event.revision;
+  return typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : null;
+}
+
+/** Decide whether a stable-id snapshot may replace the first-seen slot.
+ * Canonical revisions are strict: newer wins; equal/lower is an idempotent
+ * no-op. A canonical snapshot also outranks a legacy unrevisioned row, while an
+ * unrevisioned replay can never erase canonical live state. Two legacy rows keep
+ * the historical latest-wins behavior used by transcript polling. */
+function shouldReplaceSessionEvent(current: SessionEvent, incoming: SessionEvent): boolean {
+  const currentRevision = canonicalRevision(current);
+  const incomingRevision = canonicalRevision(incoming);
+  if (currentRevision !== null && incomingRevision !== null) return incomingRevision > currentRevision;
+  if (currentRevision !== null) return false;
+  if (incomingRevision !== null) return true;
+  return current !== incoming;
+}
+
 /**
  * Merge a streamed journal batch by stable event identity. Ordinary append-only
  * rows retain their order; snapshot rows may replace themselves in place as
@@ -248,15 +328,17 @@ export function latestBlocksByToolUse(events: SessionEvent[], type: string): Map
  */
 export function mergeSessionEvents(current: SessionEvent[], incoming: SessionEvent[]): SessionEvent[] {
   if (!incoming.length) return current;
-  const next = current.slice();
+  let next = current;
   const indexes = new Map<string, number>();
-  next.forEach((event, index) => { if (event.id) indexes.set(event.id, index); });
+  current.forEach((event, index) => { if (event.id && !indexes.has(event.id)) indexes.set(event.id, index); });
   for (const event of incoming) {
     const index = event.id ? indexes.get(event.id) : undefined;
     if (index === undefined) {
+      if (next === current) next = current.slice();
       if (event.id) indexes.set(event.id, next.length);
       next.push(event);
-    } else {
+    } else if (shouldReplaceSessionEvent(next[index], event)) {
+      if (next === current) next = current.slice();
       next[index] = event;
     }
   }

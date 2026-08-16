@@ -34,7 +34,7 @@ The legacy target ids remain unchanged so authored matrix references and sticky 
 |---|---|---|---|---|
 | M0 — Gap map | done | `PROGRESS-WEB-PARITY.md` | 8 focused files / 216 tests green; `git diff --check` green | Apply the Opus 5 precondition, capture one SDK fixture, and build the channel-neutral event layer. |
 | M1 — Event layer | done | Opus config; Agent SDK normalizer/adapter; gateway event forwarding; Web thread event store; capture script/fixture; focused tests | 10 files / 216 tests green; full typecheck + diff check green; live count 1 | Render the canonical stream in the main thread from fixtures. |
-| M2 — Rendering | pending | — | — | Await M1. |
+| M2 — Rendering | done | canonical per-turn timeline; shared safe Markdown; durable identity/hydration; accessible transcript controls; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 362 tests; full suite 514 files / 5,728 tests green (6 files / 21 tests skipped); typecheck, 3 builds, and diff check green | Implement durable, non-expiring SDK permission prompts with explicit allow/deny resolution. |
 | M3 — Permissions | pending | — | — | Await M2 and design gate. |
 | M4 — Interrupt/input | pending | — | — | Await M3. |
 | M5 — Continuity | pending | — | — | Await M4. |
@@ -158,6 +158,21 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
 
 `npm test -- tests/agent-sdk-session-events.test.ts tests/agent-sdk-runtime.test.ts tests/runtime-cancel.test.ts tests/api-runtime-compaction.test.ts tests/gateway-agent-sdk-route.test.ts tests/gateway-run-context.test.ts tests/web-channel-threads.test.ts tests/web-channel-run-context.test.ts tests/web-channel-live-resume.test.ts tests/web-channel-orchestrator-transport.test.ts` — **10 files, 216 tests passed**. `npm run typecheck -- --pretty false` and `git diff --check` passed. No live process was launched after the one fixture capture.
 
+## M2 — Rendering text, tools, and thinking
+
+- Chosen rendering seam: reuse the shared `SessionTranscript` vocabulary inside each chat turn rather than maintain a second tool/thinking renderer. Canonical text, thinking, tools, results, images, typed errors, and terminal results now render chronologically in the primary chat; older/non-SDK turns retain the legacy text path.
+- Live revisions merge by stable event id and monotonically increasing revision, keeping the outer timeline and Markdown node mounted while partial code fences grow. Tool results associate by `toolUseId`, so a late result attaches to its earlier call without reordering intervening text. Successful `turn_end.result` is authoritative over stale legacy drafts for rendering, copy, TTS, completion callbacks, and composer context; differing failure/cancellation fallbacks remain visible.
+- Canonical Markdown now uses the established chat renderer and its syntax-highlighted copy cards, safe-scheme/HTML policy, `garrison://` translation, and live loopback-to-tailnet host map. Structured prose receives only the route/orchestrator badge scrub, not the TUI-noise heuristics used on legacy scraped text.
+- Durable reload hydration groups stored events by turn coordinate and timestamps, tolerates one SDK turn rolling through several session ids, and disambiguates browser turn counters reused after remount. Synthesized event ids carry a per-normalizer scope; user rows persist their turn coordinate; malformed event shapes are dropped at both transports.
+- Thread mutations are serialized per normalized thread id so concurrent event, routing, session, and message writes cannot erase one another. Stale/equal event revisions are total no-ops. Idle/resume refresh compares durable message plus event revisions rather than message count, and an upstream EOF without a terminal frame is surfaced, persisted, settled, and replayable instead of leaving polling suppressed.
+- Completed tool calls and thinking blocks default closed; active calls may remain open. Full output and inline base64 images live inside disclosures. Image and related-task overlays are native modal dialogs with initial focus, Tab containment, Escape/backdrop close, scroll lock, and opener restoration. One polite live region owns turn announcements; coarse-pointer controls are at least 44×44 px; genuine 320px browser coverage checks overflow, disclosure state, focus, contrast, and modal behavior.
+
+### M2 verification
+
+- `npm test -- tests/agent-sdk-session-events.test.ts tests/agent-sdk-runtime.test.ts tests/runtime-cancel.test.ts tests/api-runtime-compaction.test.ts tests/gateway-agent-sdk-route.test.ts tests/gateway-run-context.test.ts tests/web-channel-threads.test.ts tests/web-channel-run-context.test.ts tests/web-channel-live-resume.test.ts tests/web-channel-orchestrator-transport.test.ts tests/web-channel-ui-run-context.test.ts tests/claude-chat-journal.test.ts tests/claude-chat-sanitize.test.ts tests/claude-chat-run-context.test.ts tests/claude-chat-rail.test.ts tests/claude-chat-session-events.test.ts tests/claude-chat-session-events-browser.test.ts` — **17 files, 362 tests passed**.
+- `node fittings/seed/web-channel-default/ui/build.mjs`, `node fittings/seed/dev-env/ui/build.mjs`, and `node fittings/seed/kanban-loop/ui/build.mjs` rebuilt every consumer of the shared renderer. `npm run typecheck -- --pretty false` and `git diff --check` passed.
+- Repository-wide `npm test` — **514 files, 5,728 tests passed; 6 files / 21 opt-in tests skipped**. No process was deployed and no additional live model session was launched.
+
 ## Resolved questions
 
 - **Which checkout may execute tests?** This process is on `dev-madrid`, not macOS, so the repository's Linux commands are permitted here. Production deployment remains separately unauthorized.
@@ -165,5 +180,5 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
 
 ## Open questions
 
-- The authentic partial-message ordering and whether one streaming-input query remains open across `result`/`idle` are intentionally left to M1's single bounded fixture capture.
+- The authentic partial-message ordering is recorded by M1's bounded fixture. Whether one streaming-input query remains open across `result`/`idle` is intentionally left to M4's offline standing-query fixture.
 - The exact priority/timing semantics for input submitted during a running SDK turn remain M4's offline fixture task after M1 records the standing query shape.

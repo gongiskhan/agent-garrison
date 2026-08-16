@@ -36,6 +36,28 @@ export interface SanitizedReply {
   hadBadges: boolean;
 }
 
+/** Strip only the model-emitted routing control badges. Canonical SDK blocks are
+ * already structured prose, so unlike scraped TUI text they must not pass through
+ * the thinking/activity-line heuristics in {@link sanitizeAssistantText}. */
+export function sanitizeAssistantBadges(raw: string | null | undefined): SanitizedReply {
+  const input = typeof raw === "string" ? raw : "";
+  const meta: AssistantRouteMeta = {};
+  const routeMatch = ROUTE_RE.exec(input);
+  if (routeMatch) {
+    if (routeMatch[1]?.trim()) meta.route = routeMatch[1].trim();
+    if (routeMatch[2]?.trim()) meta.rule = routeMatch[2].trim();
+    if (routeMatch[3]?.trim()) meta.profile = routeMatch[3].trim();
+  }
+  const hadBadges = routeMatch != null || /\[orchestrator-active\]/i.test(input);
+  const text = input
+    .replace(ROUTE_RE_G, " ")
+    .replace(ORCH_RE_G, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { text, meta, hadBadges };
+}
+
 // "[route: <target> | rule: <id> | profile: <name>]" — the model-router status badge.
 // Capture the three fields; rule/profile are optional so a partial badge still parses.
 const ROUTE_RE =
@@ -91,25 +113,15 @@ function isNoiseLine(line: string): boolean {
  * render and be unit-tested. Empty/blank input round-trips to an empty result.
  */
 export function sanitizeAssistantText(raw: string | null | undefined): SanitizedReply {
-  const input = typeof raw === "string" ? raw : "";
-  const meta: AssistantRouteMeta = {};
-  const routeMatch = ROUTE_RE.exec(input);
-  if (routeMatch) {
-    if (routeMatch[1]?.trim()) meta.route = routeMatch[1].trim();
-    if (routeMatch[2]?.trim()) meta.rule = routeMatch[2].trim();
-    if (routeMatch[3]?.trim()) meta.profile = routeMatch[3].trim();
-  }
-  const hadBadges = routeMatch != null || /\[orchestrator-active\]/i.test(input);
-
-  const withoutBadges = input.replace(ROUTE_RE_G, " ").replace(ORCH_RE_G, " ");
-  const kept = withoutBadges.split("\n").filter((l) => !isNoiseLine(l));
+  const badges = sanitizeAssistantBadges(raw);
+  const kept = badges.text.split("\n").filter((l) => !isNoiseLine(l));
   const text = kept
     .join("\n")
     .replace(/[ \t]+\n/g, "\n") // trailing whitespace a stripped badge left behind
     .replace(/\n{3,}/g, "\n\n") // collapse the gaps stripped noise lines left
     .trim();
 
-  return { text, meta, hadBadges };
+  return { text, meta: badges.meta, hadBadges: badges.hadBadges };
 }
 
 /** A short, human label for the routing chip, e.g. "cc-sonnet-med" → "Sonnet".

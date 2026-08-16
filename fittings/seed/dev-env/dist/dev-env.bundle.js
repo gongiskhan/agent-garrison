@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../node_modules/react-dom/client.js"(exports) {
+  "node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../node_modules/@xterm/xterm/lib/xterm.js
+// node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
+// node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ../../../node_modules/highlight.js/lib/core.js
+// node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
+  "node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// ui/main.tsx
+// fittings/seed/dev-env/ui/main.tsx
 var import_react9 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// ui/terminal-pane.tsx
+// fittings/seed/dev-env/ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// ui/terminal-theme.ts
+// fittings/seed/dev-env/ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// ui/terminal-pane.tsx
+// fittings/seed/dev-env/ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// ui/chat-pane.tsx
+// fittings/seed/dev-env/ui/chat-pane.tsx
 var import_react5 = __toESM(require_react());
 
-// ../../../packages/claude-chat/src/ClaudeChat.tsx
+// packages/claude-chat/src/ClaudeChat.tsx
 var import_react4 = __toESM(require_react(), 1);
 
-// ../../../node_modules/marked/lib/marked.esm.js
+// node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// ../../../node_modules/highlight.js/es/core.js
+// node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// ../../../node_modules/highlight.js/es/languages/typescript.js
+// node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// ../../../node_modules/highlight.js/es/languages/javascript.js
+// node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/python.js
+// node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/bash.js
+// node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/json.js
+// node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/css.js
+// node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/xml.js
+// node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/markdown.js
+// node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/yaml.js
+// node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/sql.js
+// node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/rust.js
+// node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/go.js
+// node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/diff.js
+// node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,10 +39813,10 @@ function diff(hljs) {
   };
 }
 
-// ../../../packages/claude-chat/src/AttributionRail.tsx
+// packages/claude-chat/src/AttributionRail.tsx
 var import_react2 = __toESM(require_react(), 1);
 
-// ../../../packages/claude-chat/src/run-context.ts
+// packages/claude-chat/src/run-context.ts
 function effortState(route) {
   const effort = str(route.effort);
   if (!effort) return null;
@@ -40007,7 +40007,7 @@ function railBadges(route) {
   return badges;
 }
 
-// ../../../packages/claude-chat/src/AttributionRail.tsx
+// packages/claude-chat/src/AttributionRail.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var BADGE_FIELDS = {
   duty: ["duty", "level"],
@@ -40642,7 +40642,7 @@ function AttributionRail({
   ] });
 }
 
-// ../../../packages/claude-chat/src/chat-theme.ts
+// packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -40709,7 +40709,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// ../../../packages/claude-chat/src/voice.ts
+// packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -40752,7 +40752,20 @@ function createVoiceClient(base = "") {
   };
 }
 
-// ../../../packages/claude-chat/src/sanitize.ts
+// packages/claude-chat/src/sanitize.ts
+function sanitizeAssistantBadges(raw) {
+  const input = typeof raw === "string" ? raw : "";
+  const meta = {};
+  const routeMatch = ROUTE_RE.exec(input);
+  if (routeMatch) {
+    if (routeMatch[1]?.trim()) meta.route = routeMatch[1].trim();
+    if (routeMatch[2]?.trim()) meta.rule = routeMatch[2].trim();
+    if (routeMatch[3]?.trim()) meta.profile = routeMatch[3].trim();
+  }
+  const hadBadges = routeMatch != null || /\[orchestrator-active\]/i.test(input);
+  const text = input.replace(ROUTE_RE_G, " ").replace(ORCH_RE_G, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { text, meta, hadBadges };
+}
 var ROUTE_RE = /\[route:\s*([^|\]]+?)\s*(?:\|\s*rule:\s*([^|\]]+?)\s*)?(?:\|\s*profile:\s*([^\]]+?)\s*)?\]/i;
 var ROUTE_RE_G = new RegExp(ROUTE_RE.source, "gi");
 var ORCH_RE_G = /\[orchestrator-active\]/gi;
@@ -40778,19 +40791,10 @@ function isNoiseLine(line) {
   return false;
 }
 function sanitizeAssistantText(raw) {
-  const input = typeof raw === "string" ? raw : "";
-  const meta = {};
-  const routeMatch = ROUTE_RE.exec(input);
-  if (routeMatch) {
-    if (routeMatch[1]?.trim()) meta.route = routeMatch[1].trim();
-    if (routeMatch[2]?.trim()) meta.rule = routeMatch[2].trim();
-    if (routeMatch[3]?.trim()) meta.profile = routeMatch[3].trim();
-  }
-  const hadBadges = routeMatch != null || /\[orchestrator-active\]/i.test(input);
-  const withoutBadges = input.replace(ROUTE_RE_G, " ").replace(ORCH_RE_G, " ");
-  const kept = withoutBadges.split("\n").filter((l) => !isNoiseLine(l));
+  const badges = sanitizeAssistantBadges(raw);
+  const kept = badges.text.split("\n").filter((l) => !isNoiseLine(l));
   const text = kept.join("\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  return { text, meta, hadBadges };
+  return { text, meta: badges.meta, hadBadges: badges.hadBadges };
 }
 function routeChipLabel(meta) {
   const route = meta.route;
@@ -40826,13 +40830,13 @@ function routeChipFromAttribution(route) {
   return { label, title: title2 || void 0 };
 }
 
-// ../../../packages/claude-chat/src/host-rewrite.ts
+// packages/claude-chat/src/host-rewrite.ts
 var LOOPBACK = /^(https?:\/\/)(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?=[:/?#]|$)/i;
 function rewriteHostUrl(raw, ctx) {
   if (!raw || !LOOPBACK.test(raw)) return raw;
   const hostname = ctx?.hostname ?? "";
   const protocol = ctx?.protocol ?? "";
-  const serveMap = ctx?.serveMap ?? {};
+  const serveMap2 = ctx?.serveMap ?? {};
   if (!hostname || hostname === "127.0.0.1" || hostname === "localhost") return raw;
   let u;
   try {
@@ -40841,7 +40845,7 @@ function rewriteHostUrl(raw, ctx) {
     return raw;
   }
   const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
-  const base = serveMap[String(port)];
+  const base = serveMap2[String(port)];
   if (base) {
     try {
       const b = new URL(base);
@@ -40905,14 +40909,89 @@ function filePathMarkedExtension() {
   };
 }
 
-// ../../../packages/claude-chat/src/SessionTranscript.tsx
+// packages/claude-chat/src/markdown-safety.ts
+var serveMap = {};
+var hostMapPromise = null;
+function loadHostMap() {
+  if (!hostMapPromise) {
+    hostMapPromise = fetch("/host-map").then((response) => response.ok ? response.json() : null).then((payload) => {
+      if (payload?.map && typeof payload.map === "object") serveMap = payload.map;
+    }).catch(() => {
+    });
+  }
+  return hostMapPromise;
+}
+function hostCtx() {
+  return {
+    hostname: typeof window !== "undefined" ? window.location.hostname : "",
+    protocol: typeof window !== "undefined" ? window.location.protocol : "",
+    serveMap
+  };
+}
+function escapeMarkdownHtml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escapeMarkdownAttribute(value) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function isSafeHref(url) {
+  const value = url.trim();
+  if (value === "") return false;
+  if (/^(?:\/|#|\?|\.\/|\.\.\/)/.test(value)) return true;
+  if (/^\/\//.test(value)) return true;
+  return /^(?:https?:|mailto:|tel:)/i.test(value);
+}
+function installSafeMarkdownRenderer(marked2, hostContext = hostCtx) {
+  marked2.use({
+    renderer: {
+      html({ text }) {
+        return escapeMarkdownHtml(text);
+      },
+      link({ href, title: title2, tokens }) {
+        const text = this.parser.parseInline(tokens);
+        let url = href || "";
+        const garrison = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
+        if (garrison) {
+          url = `/fitting/${garrison[1]}${garrison[2] ? `/${garrison[2]}` : ""}`;
+        }
+        if (!isSafeHref(url)) return text;
+        if (/^https?:\/\//i.test(url)) {
+          const reachable = rewriteHostUrl(url, hostContext());
+          if (reachable === "") return `<span class="cc-unreachable">${text}</span>`;
+          url = reachable;
+        }
+        const external = /^https?:\/\//i.test(url) || /^\/\//.test(url) ? ` target="_blank" rel="noopener noreferrer"` : "";
+        const label = title2 ? ` title="${escapeMarkdownAttribute(title2)}"` : "";
+        return `<a href="${escapeMarkdownAttribute(url)}"${label}${external}>${text}</a>`;
+      }
+    }
+  });
+}
+
+// packages/claude-chat/src/SessionTranscript.tsx
 var React2 = __toESM(require_react(), 1);
 var import_react3 = __toESM(require_react(), 1);
 
-// ../../../packages/claude-chat/src/journal.ts
+// packages/claude-chat/src/journal.ts
 var FANOUT_TOOL_NAMES = /* @__PURE__ */ new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
+function isSessionEvent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const event = value;
+  if (event.id !== null && typeof event.id !== "string") return false;
+  if (typeof event.role !== "string" || !Array.isArray(event.blocks)) return false;
+  return event.blocks.every(
+    (block2) => Boolean(block2) && typeof block2 === "object" && !Array.isArray(block2) && typeof block2.type === "string"
+  );
+}
 function sessionEventText(event) {
   return (event.blocks ?? []).filter((block2) => block2.type === "text" && typeof block2.text === "string").map((block2) => block2.text ?? "").join("");
+}
+function sessionEventTerminalText(event) {
+  for (let index = event.blocks.length - 1; index >= 0; index -= 1) {
+    const block2 = event.blocks[index];
+    if (block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim()) return block2.result;
+  }
+  return "";
 }
 function sessionActivityBeats(events) {
   const beats = [];
@@ -40927,6 +41006,8 @@ function sessionActivityBeats(events) {
         } else {
           beats.push({ type: "text", eventIndex, blockIndex, text: block2.text });
         }
+      } else if (block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "") {
+        beats.push({ type: "error", eventIndex, blockIndex, text: block2.text });
       } else if (block2.type === "thinking" || block2.type === "tool_use") {
         beats.push({ type: block2.type, eventIndex, blockIndex, block: block2 });
       }
@@ -40962,7 +41043,7 @@ function groupSessionTurns(events) {
   return turns;
 }
 function presentSessionTurn(turn, live) {
-  const textual = turn.assistantEvents.map((event, eventIndex) => ({ eventIndex, text: sessionEventText(event) })).filter((entry) => entry.text.trim() !== "");
+  const textual = turn.assistantEvents.map((event, eventIndex) => ({ eventIndex, text: sessionEventTerminalText(event) || sessionEventText(event) })).filter((entry) => entry.text.trim() !== "");
   if (live) {
     return {
       primaryText: textual.map((entry) => entry.text).join("\n\n"),
@@ -41038,19 +41119,40 @@ function latestBlocksByToolUse(events, type) {
   }
   return out;
 }
+function hasVisibleSessionActivity(events) {
+  return events.some(
+    (event) => event.role === "assistant" && !event.toolResultsOnly && event.blocks.some(
+      (block2) => block2.type === "text" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== "" || block2.type === "thinking" || block2.type === "tool_use"
+    )
+  );
+}
+function canonicalRevision(event) {
+  const revision = event.revision;
+  return typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : null;
+}
+function shouldReplaceSessionEvent(current, incoming) {
+  const currentRevision = canonicalRevision(current);
+  const incomingRevision = canonicalRevision(incoming);
+  if (currentRevision !== null && incomingRevision !== null) return incomingRevision > currentRevision;
+  if (currentRevision !== null) return false;
+  if (incomingRevision !== null) return true;
+  return current !== incoming;
+}
 function mergeSessionEvents(current, incoming) {
   if (!incoming.length) return current;
-  const next = current.slice();
+  let next = current;
   const indexes = /* @__PURE__ */ new Map();
-  next.forEach((event, index) => {
-    if (event.id) indexes.set(event.id, index);
+  current.forEach((event, index) => {
+    if (event.id && !indexes.has(event.id)) indexes.set(event.id, index);
   });
   for (const event of incoming) {
     const index = event.id ? indexes.get(event.id) : void 0;
     if (index === void 0) {
+      if (next === current) next = current.slice();
       if (event.id) indexes.set(event.id, next.length);
       next.push(event);
-    } else {
+    } else if (shouldReplaceSessionEvent(next[index], event)) {
+      if (next === current) next = current.slice();
       next[index] = event;
     }
   }
@@ -41120,20 +41222,16 @@ function collectRelatedTasks(events, live = false) {
   return [...byKey.values()];
 }
 
-// ../../../packages/claude-chat/src/SessionTranscript.tsx
+// packages/claude-chat/src/SessionTranscript.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
-md.use({
-  renderer: {
-    // The transcript is injected via dangerouslySetInnerHTML; marked doesn't
-    // sanitize, so escape any raw HTML in a text block.
-    html({ text }) {
-      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-  }
-});
+installSafeMarkdownRenderer(md);
 md.use({ extensions: [filePathMarkedExtension()] });
-function TextBlock({ text, role }) {
+function TextBlock({
+  text,
+  role,
+  renderMarkdown = (value) => md.parse(value)
+}) {
   if (role === "user" && text.length > 280) {
     const head = text.slice(0, 140).split("\n")[0];
     return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("details", { className: "cc-session-longtext", children: [
@@ -41141,10 +41239,10 @@ function TextBlock({ text, role }) {
         head,
         "\u2026"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: md.parse(text) } })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: renderMarkdown(text) } })
     ] });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: md.parse(text || "") } });
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: renderMarkdown(text || "") } });
 }
 function ActivityDetails({
   active,
@@ -41195,63 +41293,72 @@ function ToolBlock({
   const hint = sessionToolSummary(block2);
   const progressDone = /^(?:complete|completed|done|success|succeeded|failed|error|cancelled|canceled)$/i.test(String(progress?.status ?? ""));
   const active = live && !result && !progressDone;
-  const output = result?.text || progress?.text || "";
+  const output = result ? result.text ?? "" : progress?.text ?? "";
   const elapsed = elapsedLabel(progress?.elapsedMs);
   const status = result?.isError ? "failed" : result ? "done" : active ? "running" : progress?.status || "pending";
   const isCommand = /(?:^|[.:/])(bash|shell|exec|exec_command)$/i.test(block2.name ?? "");
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-toolwrap", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-      ActivityDetails,
-      {
-        active,
-        className: `cc-session-tool${isCommand ? " cc-session-command" : ""}`,
-        id: toolAnchorId(block2.toolUseId),
-        summary: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-tool-ico", "aria-hidden": "true" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: block2.name || "Tool" }),
-          hint && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-tool-hint", children: hint }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: `cc-session-state ${result?.isError ? "error" : active ? "live" : ""}`, children: [
-            active && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-live-dot", "aria-hidden": "true" }),
-            status,
-            elapsed ? ` \xB7 ${elapsed}` : ""
-          ] })
-        ] }),
-        children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-toolbody", children: [
-          block2.input && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: "Input" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre", children: block2.input })
-          ] }),
-          output && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: active ? "Live output" : "Result" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              "pre",
-              {
-                className: `cc-session-pre cc-session-result${active ? " is-live" : ""}`,
-                "aria-live": active ? "polite" : void 0,
-                children: output
-              }
-            )
-          ] }),
-          active && !output && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-awaiting", children: "Waiting for output\u2026" })
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-toolwrap", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+    ActivityDetails,
+    {
+      active,
+      className: `cc-session-tool${isCommand ? " cc-session-command" : ""}`,
+      id: toolAnchorId(block2.toolUseId),
+      summary: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-tool-ico", "aria-hidden": "true" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { className: "cc-session-tool-name", title: block2.name || "Tool", children: block2.name || "Tool" }),
+        hint && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-tool-hint", children: hint }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: `cc-session-state ${result?.isError ? "error" : active ? "live" : ""}`, children: [
+          active && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-live-dot", "aria-hidden": "true" }),
+          status,
+          elapsed ? ` \xB7 ${elapsed}` : ""
         ] })
-      }
-    ),
-    (result?.images ?? []).map((image, index) => {
-      const label = `${block2.name ?? "tool"} screenshot ${index + 1}`;
-      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: "cc-session-imgbtn", onClick: () => onImage(image, label), "aria-label": `Open ${label}`, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-          "img",
-          {
-            className: "cc-session-img",
-            src: `data:${image.mediaType};base64,${image.data}`,
-            alt: label,
-            loading: "lazy"
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: "Open screenshot" })
-      ] }, index);
-    })
-  ] });
+      ] }),
+      children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-toolbody", children: [
+        block2.input && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: "Input" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre", children: block2.input })
+        ] }),
+        output && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: active ? "Live output" : "Result" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            "pre",
+            {
+              className: `cc-session-pre cc-session-result${active ? " is-live" : ""}`,
+              children: output
+            }
+          )
+        ] }),
+        active && !output && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-awaiting", children: "Waiting for output\u2026" }),
+        (result?.images ?? []).map((image, index) => {
+          const label = `${block2.name ?? "tool"} result image ${index + 1}`;
+          return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+            "button",
+            {
+              type: "button",
+              className: "cc-session-imgbtn",
+              onClick: () => onImage(image, label),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                  "img",
+                  {
+                    className: "cc-session-img",
+                    src: `data:${image.mediaType};base64,${image.data}`,
+                    alt: label,
+                    loading: "lazy"
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+                  "Open ",
+                  label
+                ] })
+              ]
+            },
+            `${image.mediaType}:${index}`
+          );
+        })
+      ] })
+    }
+  ) });
 }
 function ThinkingBlock({ block: block2, active }) {
   const summary = sessionThinkingSummary(block2.text);
@@ -41277,14 +41384,41 @@ function ActivityTimeline({
   activeThinkingBlock,
   resultsByToolUse,
   progressByToolUse,
-  onImage
+  onImage,
+  renderMarkdown
 }) {
   const beats = sessionActivityBeats(events);
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: `cc-session-activity${live ? " is-live" : ""}`, children: beats.map((beat) => {
-    const key = `${beat.eventIndex}:${beat.blockIndex}:${beat.type}`;
+    const sourceEvent = events[beat.eventIndex];
+    const eventKey = sourceEvent?.id ?? `event-${beat.eventIndex}`;
+    const key = `${eventKey}:${beat.blockIndex}:${beat.type}`;
     if (beat.type === "text") {
       if (!includeText || beat.eventIndex === omittedTextEventIndex || !beat.text.trim()) return null;
-      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-interim-text", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: beat.text, role: "assistant" }) }, key);
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        "div",
+        {
+          className: "cc-session-interim-text cc-session-markdown",
+          "data-session-event-id": sourceEvent?.id ?? void 0,
+          "data-session-block-index": beat.blockIndex,
+          children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: beat.text, role: "assistant", renderMarkdown })
+        },
+        key
+      );
+    }
+    if (beat.type === "error") {
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+        "div",
+        {
+          className: "cc-session-error",
+          "data-session-event-id": sourceEvent?.id ?? void 0,
+          "data-session-block-index": beat.blockIndex,
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: "Error" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: beat.text })
+          ]
+        },
+        key
+      );
     }
     const block2 = beat.block;
     if (beat.type === "thinking") {
@@ -41302,6 +41436,76 @@ function ActivityTimeline({
       key
     );
   }) });
+}
+function SessionEventTimeline({ events, live = false, className = "", renderMarkdown }) {
+  const [modalImage, setModalImage] = (0, import_react3.useState)(null);
+  const [, setHostMapReady] = (0, import_react3.useState)(false);
+  (0, import_react3.useEffect)(() => {
+    let alive = true;
+    void loadHostMap().then(() => {
+      if (alive) setHostMapReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const assistantEvents = (0, import_react3.useMemo)(
+    () => events.filter((event) => event.role === "assistant" && !event.toolResultsOnly),
+    [events]
+  );
+  const resultsByToolUse = (0, import_react3.useMemo)(() => latestBlocksByToolUse(events, "tool_result"), [events]);
+  const progressByToolUse = (0, import_react3.useMemo)(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
+  const terminalText = (0, import_react3.useMemo)(() => {
+    for (let eventIndex = assistantEvents.length - 1; eventIndex >= 0; eventIndex -= 1) {
+      const blocks = assistantEvents[eventIndex].blocks;
+      for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+        const block2 = blocks[blockIndex];
+        if (block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim()) {
+          return block2.result;
+        }
+      }
+    }
+    return "";
+  }, [assistantEvents]);
+  const terminalDuplicatesText = (0, import_react3.useMemo)(
+    () => Boolean(terminalText) && assistantEvents.some((event) => sessionEventText(event).trim() === terminalText.trim()),
+    [assistantEvents, terminalText]
+  );
+  const activeThinkingBlock = (0, import_react3.useMemo)(() => {
+    if (!live) return null;
+    let latest = null;
+    for (const event of events) {
+      for (const block2 of event.blocks ?? []) {
+        if (block2.type === "related_task") continue;
+        latest = block2;
+      }
+    }
+    return latest?.type === "thinking" ? latest : null;
+  }, [events, live]);
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+    "div",
+    {
+      className: `cc-session-inline${className ? ` ${className}` : ""}`,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          ActivityTimeline,
+          {
+            events: assistantEvents,
+            includeText: true,
+            omittedTextEventIndex: null,
+            live,
+            activeThinkingBlock,
+            resultsByToolUse,
+            progressByToolUse,
+            onImage: (image, label) => setModalImage({ image, label }),
+            renderMarkdown
+          }
+        ),
+        terminalText && !terminalDuplicatesText && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-terminal-text cc-session-markdown", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: terminalText, role: "assistant", renderMarkdown }) }),
+        modalImage && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ImageModal, { image: modalImage.image, label: modalImage.label, onClose: () => setModalImage(null) })
+      ]
+    }
+  );
 }
 function InterimDetails({ count, openByDefault, children }) {
   const [open, setOpen] = (0, import_react3.useState)(openByDefault);
@@ -41351,35 +41555,128 @@ function RelatedTasks({ tasks, onOpen }) {
     }
   );
 }
-function ImageModal({ image, label, onClose }) {
+function useModalLifecycle(dialogRef, initialFocusRef) {
   (0, import_react3.useEffect)(() => {
-    const onKey = (event) => {
-      if (event.key === "Escape") onClose();
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    if (!dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+    initialFocusRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (dialog.open) dialog.close();
+      opener?.focus();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-modal", role: "dialog", "aria-modal": "true", "aria-label": label, onClick: (event) => {
-    if (event.target === event.currentTarget) onClose();
-  }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-modal-card", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-modal-head", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: label }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: onClose, "aria-label": "Close screenshot", children: "Close" })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("img", { src: `data:${image.mediaType};base64,${image.data}`, alt: label })
-  ] }) });
+  }, []);
 }
-function SessionStream({ url, live = false, title: titleProp }) {
+function trapDialogTab(event, dialog) {
+  if (event.key !== "Tab") return;
+  const focusable = dialog?.querySelectorAll(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  );
+  if (!focusable?.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first || !event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+function ImageModal({ image, label, onClose }) {
+  const dialogRef = (0, import_react3.useRef)(null);
+  const closeRef = (0, import_react3.useRef)(null);
+  useModalLifecycle(dialogRef, closeRef);
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+    "dialog",
+    {
+      ref: dialogRef,
+      className: "cc-session-modal",
+      "aria-label": label,
+      onCancel: (event) => {
+        event.preventDefault();
+        onClose();
+      },
+      onKeyDown: (event) => trapDialogTab(event, dialogRef.current),
+      onClick: (event) => {
+        if (event.target === event.currentTarget) onClose();
+      },
+      children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-modal-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-modal-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: label }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { ref: closeRef, type: "button", onClick: onClose, "aria-label": `Close ${label}`, children: "Close" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("img", { src: `data:${image.mediaType};base64,${image.data}`, alt: label })
+      ] })
+    }
+  );
+}
+function RelatedTaskModal({ task, onClose }) {
+  const dialogRef = (0, import_react3.useRef)(null);
+  const closeRef = (0, import_react3.useRef)(null);
+  useModalLifecycle(dialogRef, closeRef);
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+    "dialog",
+    {
+      ref: dialogRef,
+      className: "cc-related-view",
+      "aria-label": task.label,
+      onCancel: (event) => {
+        event.preventDefault();
+        onClose();
+      },
+      onKeyDown: (event) => trapDialogTab(event, dialogRef.current),
+      onClick: (event) => {
+        if (event.target === event.currentTarget) onClose();
+      },
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-related-view-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: task.label }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { ref: closeRef, type: "button", onClick: onClose, children: "Close" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          SessionStream,
+          {
+            url: task.streamUrl,
+            live: task.status === "running",
+            title: task.detail ?? "Related task",
+            announceLiveUpdates: false
+          }
+        )
+      ]
+    }
+  );
+}
+function SessionStream({
+  url,
+  live = false,
+  title: titleProp,
+  announceLiveUpdates = true
+}) {
   const [events, setEvents] = (0, import_react3.useState)([]);
   const [title2, setTitle] = (0, import_react3.useState)(titleProp ?? null);
   const [status, setStatus] = (0, import_react3.useState)("connecting");
   const [retryToken, setRetryToken] = (0, import_react3.useState)(0);
+  const [, setHostMapReady] = (0, import_react3.useState)(false);
   const [modalImage, setModalImage] = (0, import_react3.useState)(null);
   const [relatedView, setRelatedView] = (0, import_react3.useState)(null);
   const scrollRef = (0, import_react3.useRef)(null);
   const stickRef = (0, import_react3.useRef)(true);
   const liveRef = (0, import_react3.useRef)(live);
   liveRef.current = live;
+  (0, import_react3.useEffect)(() => {
+    let alive = true;
+    void loadHostMap().then(() => {
+      if (alive) setHostMapReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   (0, import_react3.useEffect)(() => {
     setEvents([]);
     setTitle(titleProp ?? null);
@@ -41401,7 +41698,7 @@ function SessionStream({ url, live = false, title: titleProp }) {
         return;
       }
       if (payload.type === "init") {
-        setEvents(Array.isArray(payload.events) ? payload.events : []);
+        setEvents(Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : []);
         if (payload.title) setTitle(String(payload.title));
         const nextStatus = payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended";
         sawAvailable = payload.available !== false;
@@ -41409,7 +41706,8 @@ function SessionStream({ url, live = false, title: titleProp }) {
         if (payload.available === false) retryWhileLive();
       } else if (payload.type === "events") {
         if (payload.title) setTitle(String(payload.title));
-        if (Array.isArray(payload.events) && payload.events.length) setEvents((current) => mergeSessionEvents(current, payload.events));
+        const incoming = Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : [];
+        if (incoming.length) setEvents((current) => mergeSessionEvents(current, incoming));
       } else if (payload.type === "end") {
         setStatus((current) => current === "unavailable" ? current : "ended");
         source.close();
@@ -41445,7 +41743,9 @@ function SessionStream({ url, live = false, title: titleProp }) {
     });
   }, [relatedTasks]);
   const visibleEvents = (0, import_react3.useMemo)(
-    () => events.filter((event) => !event.toolResultsOnly && event.blocks.some((block2) => ["text", "thinking", "tool_use"].includes(block2.type))),
+    () => events.filter((event) => !event.toolResultsOnly && event.blocks.some(
+      (block2) => ["text", "thinking", "tool_use", "error"].includes(block2.type) || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== ""
+    )),
     [events]
   );
   const turns = (0, import_react3.useMemo)(() => groupSessionTurns(visibleEvents), [visibleEvents]);
@@ -41478,9 +41778,15 @@ function SessionStream({ url, live = false, title: titleProp }) {
         const turnLive = streamLive && turnIndex === turns.length - 1;
         const presentation = presentSessionTurn(turn, turnLive);
         const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
+        const terminalText = [...turn.assistantEvents].reverse().map(sessionEventTerminalText).find((text) => text.trim()) ?? "";
+        const terminalDuplicatesText = Boolean(terminalText) && turn.assistantEvents.some(
+          (event) => sessionEventText(event).trim() === terminalText.trim()
+        );
         const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
           const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
-          const activityCount = event.blocks.filter((block2) => block2.type === "thinking" || block2.type === "tool_use").length;
+          const activityCount = event.blocks.filter(
+            (block2) => block2.type === "thinking" || block2.type === "tool_use" || block2.type === "error"
+          ).length;
           return count + textCount + activityCount;
         }, 0);
         return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(React2.Fragment, { children: [
@@ -41491,20 +41797,23 @@ function SessionStream({ url, live = false, title: titleProp }) {
           (turn.assistantEvents.length > 0 || turnLive) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-turn assistant", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-role", children: "Assistant" }),
             !turnLive && presentation.primaryText && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: presentation.primaryText, role: "assistant" }),
-            turnLive && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              ActivityTimeline,
-              {
-                events: turn.assistantEvents,
-                includeText: true,
-                omittedTextEventIndex: null,
-                live: true,
-                activeThinkingBlock,
-                resultsByToolUse,
-                progressByToolUse,
-                onImage: (image, label) => setModalImage({ image, label })
-              }
-            ),
-            turnLive && !presentation.primaryText && interimCount === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-awaiting", role: "status", children: "Working\u2026" }),
+            turnLive && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                ActivityTimeline,
+                {
+                  events: turn.assistantEvents,
+                  includeText: true,
+                  omittedTextEventIndex: null,
+                  live: true,
+                  activeThinkingBlock,
+                  resultsByToolUse,
+                  progressByToolUse,
+                  onImage: (image, label) => setModalImage({ image, label })
+                }
+              ),
+              terminalText && !terminalDuplicatesText && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: terminalText, role: "assistant" })
+            ] }),
+            turnLive && !presentation.primaryText && interimCount === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-awaiting", role: announceLiveUpdates ? "status" : void 0, children: "Working\u2026" }),
             !turnLive && interimCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(InterimDetails, { count: interimCount, openByDefault: !presentation.primaryText, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
               ActivityTimeline,
               {
@@ -41523,17 +41832,11 @@ function SessionStream({ url, live = false, title: titleProp }) {
       })
     ] }),
     modalImage && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ImageModal, { image: modalImage.image, label: modalImage.label, onClose: () => setModalImage(null) }),
-    relatedView?.streamUrl && relatedView.streamUrl !== url && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-related-view", role: "dialog", "aria-modal": "true", "aria-label": relatedView.label, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-related-view-head", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: relatedView.label }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: () => setRelatedView(null), children: "Close" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(SessionStream, { url: relatedView.streamUrl, live: relatedView.status === "running", title: relatedView.detail ?? "Related task" })
-    ] })
+    relatedView?.streamUrl && relatedView.streamUrl !== url && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RelatedTaskModal, { task: relatedView, onClose: () => setRelatedView(null) })
   ] });
 }
 
-// ../../../packages/claude-chat/src/ClaudeChat.tsx
+// packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 var md2 = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
@@ -41561,47 +41864,9 @@ function writeClipboard(text) {
   if (!cb?.writeText) return Promise.resolve(false);
   return cb.writeText(text).then(() => true, () => false);
 }
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function escapeAttr(s) {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function isSafeHref(url) {
-  const u = url.trim();
-  if (u === "") return false;
-  if (/^(?:\/|#|\?|\.\/|\.\.\/)/.test(u)) return true;
-  if (/^\/\//.test(u)) return true;
-  return /^(?:https?:|mailto:|tel:)/i.test(u);
-}
+installSafeMarkdownRenderer(md2, hostCtx);
 md2.use({
   renderer: {
-    // Neutralize RAW HTML in the assistant stream. The parsed markdown is
-    // injected via dangerouslySetInnerHTML, and marked does NOT sanitize, so a
-    // reply carrying `<img src=x onerror=…>` or `<script>` (e.g. the Operative
-    // relaying a fetched page / a produced document / third-party content) would
-    // otherwise become active DOM. Escaping the raw-HTML token keeps it visible
-    // as text. Block AND inline HTML tokens both route through this method.
-    html({ text }) {
-      return escapeHtml(text);
-    },
-    link({ href, title: title2, tokens }) {
-      const text = this.parser.parseInline(tokens);
-      let url = href || "";
-      const g = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
-      if (g) {
-        url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
-      }
-      if (!isSafeHref(url)) return text;
-      if (/^https?:\/\//i.test(url)) {
-        const reachable = rewriteHostUrl(url, hostCtx());
-        if (reachable === "") return `<span class="cc-unreachable">${text}</span>`;
-        url = reachable;
-      }
-      const attrs = /^https?:\/\//i.test(url) || /^\/\//.test(url) ? ` target="_blank" rel="noopener noreferrer"` : "";
-      const t = title2 ? ` title="${escapeAttr(title2)}"` : "";
-      return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
-    },
     // Rich fenced code block: a dark "card" with a header (uppercase mono
     // language label + a Copy button) over a syntax-highlighted <pre>. The Copy
     // button carries no inline handler (the markdown is injected via
@@ -41617,34 +41882,22 @@ md2.use({
         try {
           body = core_default.highlight(text, { language, ignoreIllegals: true }).value;
         } catch {
-          body = escapeHtml(text);
+          body = escapeMarkdownHtml(text);
         }
       } else {
-        body = escapeHtml(text);
+        body = escapeMarkdownHtml(text);
       }
-      const label = escapeHtml(language || "text");
+      const label = escapeMarkdownHtml(language || "text");
       return `<div class="cc-codeblock"><div class="cc-codehead"><span class="cc-codelang">${label}</span><button type="button" class="cc-codecopy" aria-label="Copy code">Copy</button></div><pre class="hljs"><code>${body}</code></pre></div>`;
     }
   }
 });
 md2.use({ extensions: [filePathMarkedExtension()] });
-var chatServeMap = {};
-var hostMapPromise = null;
-function loadHostMap() {
-  if (!hostMapPromise) {
-    hostMapPromise = fetch("/host-map").then((r) => r.ok ? r.json() : null).then((d) => {
-      if (d?.map && typeof d.map === "object") chatServeMap = d.map;
-    }).catch(() => {
-    });
-  }
-  return hostMapPromise;
+function renderChatMarkdown(text) {
+  return md2.parse(text);
 }
-function hostCtx() {
-  return {
-    hostname: typeof window !== "undefined" ? window.location.hostname : "",
-    protocol: typeof window !== "undefined" ? window.location.protocol : "",
-    serveMap: chatServeMap
-  };
+function renderAssistantMarkdown(text) {
+  return renderChatMarkdown(sanitizeAssistantBadges(text).text);
 }
 function rewriteRouteForHost(route, ctx) {
   if (!route || typeof route.cardUrl !== "string") return route;
@@ -41689,6 +41942,159 @@ function saveDraft(key, text, attachments) {
     else sessionStorage.removeItem(DRAFT_ATTACH_PREFIX + key);
   } catch {
   }
+}
+function numericSessionTurnId(value) {
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+function applySessionEvent(turns, event) {
+  if (turns.length === 0 || !isSessionEvent(event)) return turns;
+  const turnId = numericSessionTurnId(event.turnId);
+  let index = -1;
+  if (turnId !== null) {
+    for (let candidate = turns.length - 1; candidate >= 0; candidate -= 1) {
+      if (turns[candidate].seq === turnId) {
+        index = candidate;
+        break;
+      }
+    }
+  }
+  let adoptTurnId = false;
+  if (index === -1) {
+    const latestIndex = turns.length - 1;
+    const latest = turns[latestIndex];
+    if (turnId === null) {
+      if (!latest.streaming && latest.seq !== 0) return turns;
+    } else if (latest.seq === 0 || latest.streaming && turnId > latest.seq) {
+      adoptTurnId = latest.seq !== turnId;
+    } else {
+      return turns;
+    }
+    index = latestIndex;
+  }
+  const target = turns[index];
+  const sessionEvents = mergeSessionEvents(target.sessionEvents, [event]);
+  if (sessionEvents === target.sessionEvents && !adoptTurnId) return turns;
+  const copy = turns.slice();
+  copy[index] = {
+    ...target,
+    ...adoptTurnId && turnId !== null ? { seq: turnId } : {},
+    sessionEvents
+  };
+  return copy;
+}
+function applyTurnActive(turns, active) {
+  if (turns.length === 0) return turns;
+  const index = turns.length - 1;
+  if (turns[index].streaming === active) return turns;
+  const copy = turns.slice();
+  copy[index] = { ...turns[index], streaming: active };
+  return copy;
+}
+function canonicalResponseCandidates(events) {
+  const candidates = [];
+  for (const event of events) {
+    if (event.role !== "assistant") continue;
+    const text = sessionEventText(event);
+    if (text.trim()) candidates.push(text);
+    for (const block2 of event.blocks) {
+      if (block2.type === "error" && typeof block2.text === "string" && block2.text.trim()) {
+        candidates.push(block2.text);
+      } else if (block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim()) {
+        candidates.push(block2.result);
+      }
+    }
+  }
+  return candidates;
+}
+function canonicalAssistantReply(events) {
+  return canonicalResponseCandidates(events).at(-1) ?? "";
+}
+function canonicalSuccessfulTerminalReply(events) {
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex];
+    if (event.role !== "assistant") continue;
+    for (let blockIndex = event.blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block2 = event.blocks[blockIndex];
+      if (block2.type === "turn_end" && block2.status === "completed" && typeof block2.result === "string" && block2.result.trim()) {
+        return block2.result;
+      }
+    }
+  }
+  return "";
+}
+function resolvedAssistantText(turn) {
+  const terminal = canonicalSuccessfulTerminalReply(turn.sessionEvents);
+  if (terminal) return sanitizeAssistantBadges(terminal).text;
+  const legacy = sanitizeAssistantText(turn.assistant).text;
+  if (legacy.trim()) return legacy;
+  return sanitizeAssistantBadges(canonicalAssistantReply(turn.sessionEvents)).text;
+}
+function resolvedAssistantRaw(turn) {
+  const terminal = canonicalSuccessfulTerminalReply(turn.sessionEvents);
+  if (terminal) return terminal;
+  return sanitizeAssistantText(turn.assistant).text.trim() ? turn.assistant : canonicalAssistantReply(turn.sessionEvents);
+}
+function legacyAssistantFallback(assistant, events) {
+  const legacy = sanitizeAssistantText(assistant).text;
+  if (!legacy.trim()) return "";
+  if (canonicalSuccessfulTerminalReply(events)) return "";
+  const duplicated = canonicalResponseCandidates(events).some(
+    (candidate) => sanitizeAssistantBadges(candidate).text.trim() === legacy.trim()
+  );
+  return duplicated ? "" : legacy;
+}
+function liveSessionAnnouncement(events, fallback) {
+  const toolNames = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    for (const block2 of event.blocks) {
+      if (block2.type === "tool_use" && block2.toolUseId) toolNames.set(block2.toolUseId, block2.name?.trim() || "Tool");
+    }
+  }
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const blocks = events[eventIndex].blocks;
+    for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block2 = blocks[blockIndex];
+      const tool = block2.toolUseId ? toolNames.get(block2.toolUseId) ?? block2.name?.trim() ?? "Tool" : block2.name?.trim() || "Tool";
+      if (block2.type === "error") return "Turn failed.";
+      if (block2.type === "turn_end") {
+        if (block2.status === "cancelled") return "Turn cancelled.";
+        if (block2.status === "error" || block2.status === "failed") return "Turn failed.";
+        return "Response complete.";
+      }
+      if (block2.type === "tool_result") return `${tool} ${block2.isError ? "failed" : "completed"}.`;
+      if (block2.type === "tool_progress") return `${tool} is running.`;
+      if (block2.type === "tool_use") return `${tool} started.`;
+      if (block2.type === "thinking") return "Thinking.";
+      if (block2.type === "text" && block2.text?.trim()) return "Response updating.";
+    }
+  }
+  const hint = fallback.replace(/\s+/g, " ").trim().slice(0, 80);
+  return hint ? `Working: ${hint}` : "Working.";
+}
+function hasCanonicalTurnEnd(events) {
+  return events.some((event) => event.blocks.some((block2) => block2.type === "turn_end"));
+}
+function rebindActiveTurn(turns, assistantSnapshot = "") {
+  if (turns.length === 0) {
+    return [{ id: nextId(), user: "", assistant: assistantSnapshot, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+  }
+  const last = turns.at(-1);
+  if (last.streaming) {
+    if (!assistantSnapshot.trim() || last.assistant === assistantSnapshot) return turns;
+    const copy2 = turns.slice();
+    copy2[copy2.length - 1] = { ...last, assistant: assistantSnapshot };
+    return copy2;
+  }
+  if (last.assistant.trim() || hasCanonicalTurnEnd(last.sessionEvents)) {
+    return [...turns, { id: nextId(), user: "", assistant: assistantSnapshot, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+  }
+  const copy = applyTurnActive(turns, true);
+  if (!assistantSnapshot.trim()) return copy;
+  copy[copy.length - 1] = { ...copy.at(-1), assistant: assistantSnapshot };
+  return copy;
 }
 function applyRouteFrame(turns, frame) {
   if (turns.length === 0) return turns;
@@ -41882,6 +42288,7 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
       // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
       // stamped frame can never be mis-attached to one of them.
       seq: 0,
+      sessionEvents: mergeSessionEvents([], h.sessionEvents ?? []),
       route: h.route,
       overrides: h.overrides
     })),
@@ -41891,6 +42298,8 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const [turns, setTurns] = (0, import_react4.useState)(seededTurns);
   const [status, setStatus] = (0, import_react4.useState)({ rows: [], mode: "unknown", contextPct: null, model: null });
   const [busy, setBusy] = (0, import_react4.useState)(false);
+  const [turnAnnouncement, setTurnAnnouncement] = (0, import_react4.useState)("");
+  const announcedBusyRef = (0, import_react4.useRef)(false);
   const [conn, setConn] = (0, import_react4.useState)("reconnecting");
   const [screen, setScreen] = (0, import_react4.useState)([]);
   const [showRaw, setShowRaw] = (0, import_react4.useState)(false);
@@ -42109,7 +42518,7 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const applyAssistant = (0, import_react4.useCallback)((text) => {
     setTurns((prev) => {
       if (prev.length === 0) {
-        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true, seq: 0 }];
+        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
       }
       const last = prev[prev.length - 1];
       if (last.assistant === text) return prev;
@@ -42126,16 +42535,21 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
           setBusy(ev.busy);
           setScreen(ev.screen ?? []);
           const helloAssistant = typeof ev.assistant === "string" ? ev.assistant : "";
-          if (helloAssistant.trim()) {
-            const stillStreaming = ev.busy;
-            setTurns(
-              (prev) => prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: stillStreaming, hideUser: true, seq: 0 }]
-            );
+          if (ev.busy) {
+            setTurns((prev) => rebindActiveTurn(prev, helloAssistant));
+          } else if (helloAssistant.trim()) {
+            setTurns((prev) => prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: false, hideUser: true, seq: 0, sessionEvents: [] }]);
           }
           break;
         }
         case "assistant":
           applyAssistant(ev.text);
+          break;
+        case "session_event":
+          setTurns((prev) => {
+            const base = prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: "", streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+            return applySessionEvent(base, ev.event);
+          });
           break;
         case "status":
           setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
@@ -42143,9 +42557,10 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
         case "turn":
           setBusy(ev.active);
           setActivity("");
-          if (!ev.active) {
-            setTurns((prev) => prev.map((t, i) => i === prev.length - 1 ? { ...t, streaming: false } : t));
-          }
+          setTurns((prev) => {
+            if (ev.active) return rebindActiveTurn(prev);
+            return applyTurnActive(prev, false);
+          });
           break;
         case "screen":
           setScreen(ev.lines);
@@ -42243,6 +42658,7 @@ ${full}` : full;
           streaming: true,
           hideUser: opts?.hideUser,
           seq: ++turnSeqRef.current,
+          sessionEvents: [],
           overrides: sentPins
         }
       ]);
@@ -42298,9 +42714,9 @@ ${full}` : full;
     [runCommand]
   );
   const copyLast = (0, import_react4.useCallback)(async () => {
-    const last = [...turns].reverse().find((t) => sanitizeAssistantText(t.assistant).text.trim());
+    const last = [...turns].reverse().find((t) => resolvedAssistantText(t).trim());
     if (!last) return;
-    const cleanText = sanitizeAssistantText(last.assistant).text;
+    const cleanText = resolvedAssistantText(last);
     if (await writeClipboard(cleanText)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
@@ -42387,28 +42803,37 @@ ${full}` : full;
   const onTurnCompleteRef = (0, import_react4.useRef)(onTurnComplete);
   onTurnCompleteRef.current = onTurnComplete;
   const latestAssistant = turns.length ? turns[turns.length - 1] : null;
+  (0, import_react4.useEffect)(() => {
+    if (busy) {
+      announcedBusyRef.current = true;
+      setTurnAnnouncement(liveSessionAnnouncement(latestAssistant?.sessionEvents ?? [], workingHint));
+    } else if (announcedBusyRef.current) {
+      announcedBusyRef.current = false;
+      setTurnAnnouncement("Response complete.");
+    }
+  }, [busy, latestAssistant?.sessionEvents, workingHint]);
   const settledReply = (0, import_react4.useMemo)(() => {
     if (!latestAssistant || latestAssistant.streaming) return null;
-    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
+    const text = resolvedAssistantText(latestAssistant).trim();
     return text ? { id: latestAssistant.id, text } : null;
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming]);
   (0, import_react4.useEffect)(() => {
     const cb = onTurnCompleteRef.current;
     if (!cb || !latestAssistant || latestAssistant.streaming) return;
-    const assistant = latestAssistant.assistant.trim();
+    const assistant = resolvedAssistantRaw(latestAssistant).trim();
     if (!assistant) return;
     if (persistedRef.current === latestAssistant.id) return;
     persistedRef.current = latestAssistant.id;
-    cb({ user: latestAssistant.user, assistant: latestAssistant.assistant });
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
+    cb({ user: latestAssistant.user, assistant });
+  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming]);
   (0, import_react4.useEffect)(() => {
     if (!readAloud || !voiceUsable || !latestAssistant) return;
     if (latestAssistant.streaming) return;
-    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
+    const text = resolvedAssistantText(latestAssistant).trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
     void speak(text, latestAssistant.id);
-  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
+  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.sessionEvents, latestAssistant?.streaming, speak]);
   const startRecording = (0, import_react4.useCallback)(async () => {
     if (!voiceClient || recBusyRef.current) return;
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -42663,6 +43088,7 @@ ${full}` : full;
     )
   ] }) : railOpen && !hasPins ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "cc-railclose", onClick: () => setRailOpen(false), title: "Hide the routing rail", children: "Close" }) : null;
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-root", ref: rootRef, "data-theme": themeOn ? scheme : void 0, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-sr-only", role: "status", "aria-live": "polite", "aria-atomic": "true", children: turnAnnouncement }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("header", { className: "cc-header", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-title", children: title2 ?? "Claude" }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: `cc-conn cc-conn-${conn}`, title: `connection: ${conn}` }),
@@ -42701,10 +43127,13 @@ ${full}` : full;
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { className: "cc-rawtoggle", onClick: () => setShowRaw((v) => !v), title: "Show raw terminal", children: showRaw ? "Hide raw" : "Raw" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-scroll", ref: scrollRef, onScroll, onClick: onCodeCopyClick, children: [
-      showTranscript && transcriptUrl ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SessionStream, { url: transcriptUrl, live: busy }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+      showTranscript && transcriptUrl ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SessionStream, { url: transcriptUrl, live: busy, announceLiveUpdates: false }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
         turns.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-empty", children: "Send a message to begin \xB7 type / for commands and skills" }),
         turns.map((t) => {
           const clean = sanitizeAssistantText(t.assistant);
+          const hasCanonicalActivity = hasVisibleSessionActivity(t.sessionEvents);
+          const legacyFallback = hasCanonicalActivity ? legacyAssistantFallback(t.assistant, t.sessionEvents) : "";
+          const actionText = resolvedAssistantText(t);
           const displayRoute = rewriteRouteForHost(t.route, hostCtx());
           const showRail = railOn && Boolean(displayRoute);
           const structuredChip = displayRoute ? routeChipFromAttribution(displayRoute) : null;
@@ -42714,10 +43143,24 @@ ${full}` : full;
           const routeTitle = structuredChip ? structuredChip.title : metaTitle;
           return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-turn", children: [
             !t.hideUser && t.user.trim() !== "" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user", children: t.user }),
-            (clean.text || t.streaming || t.question || t.route) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-assistant", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: md2.parse(clean.text || "") } }),
-              t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
-              t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-working", role: "status", "aria-live": "polite", children: [
+            (clean.text || hasCanonicalActivity || t.streaming || t.question || t.route) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-assistant", children: [
+              hasCanonicalActivity ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                SessionEventTimeline,
+                {
+                  events: t.sessionEvents,
+                  live: t.streaming,
+                  renderMarkdown: renderAssistantMarkdown
+                }
+              ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: renderChatMarkdown(clean.text || "") } }),
+              legacyFallback && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "div",
+                {
+                  className: "cc-md cc-canonical-fallback",
+                  dangerouslySetInnerHTML: { __html: renderChatMarkdown(legacyFallback) }
+                }
+              ),
+              !hasCanonicalActivity && t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
+              !hasCanonicalActivity && t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-working", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-working-dots", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
                   /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
@@ -42740,14 +43183,14 @@ ${full}` : full;
                   onOther: (text) => answerQuestion(t.id, t.question.toolUseId, { text })
                 }
               ),
-              clean.text.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-msgactions", children: [
+              actionText.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-msgactions", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                   "button",
                   {
                     type: "button",
                     className: "cc-msgcopy",
                     title: "Copy this response",
-                    onClick: () => copyMsg(t.id, clean.text),
+                    onClick: () => copyMsg(t.id, actionText),
                     children: copiedId === t.id ? "Copied" : "Copy"
                   }
                 ),
@@ -42763,7 +43206,7 @@ ${full}` : full;
                       title: label,
                       "aria-label": label,
                       "aria-pressed": isThis,
-                      onClick: () => isThis ? togglePause() : void speak(clean.text, t.id),
+                      onClick: () => isThis ? togglePause() : void speak(actionText, t.id),
                       children: playing ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
                         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
                         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
@@ -42881,7 +43324,7 @@ ${full}` : full;
           type: "button",
           className: "cc-chip",
           title: "Copy the last response",
-          disabled: !turns.some((t) => t.assistant.trim()),
+          disabled: !turns.some((t) => resolvedAssistantText(t).trim()),
           onClick: () => void copyLast(),
           children: copied ? "Copied" : "Copy last"
         }
@@ -43102,7 +43545,7 @@ ${full}` : full;
   ] });
 }
 
-// ../../../packages/claude-chat/src/transport.ts
+// packages/claude-chat/src/transport.ts
 function createHttpTransport(base = "/api", opts) {
   const b = base.replace(/\/$/, "");
   const post = async (path, body) => {
@@ -43131,6 +43574,13 @@ function createHttpTransport(base = "/api", opts) {
         });
         on("hello");
         on("assistant");
+        es.addEventListener("session_event", (e) => {
+          try {
+            const event = JSON.parse(e.data);
+            if (isSessionEvent(event)) onEvent({ type: "session_event", event });
+          } catch {
+          }
+        });
         on("status");
         on("turn");
         on("screen");
@@ -43197,7 +43647,7 @@ function createHttpTransport(base = "/api", opts) {
   };
 }
 
-// ui/chat-pane.tsx
+// fittings/seed/dev-env/ui/chat-pane.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
   const transport = (0, import_react5.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
@@ -43211,7 +43661,7 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// ui/browser-pane.tsx
+// fittings/seed/dev-env/ui/browser-pane.tsx
 var import_react6 = __toESM(require_react());
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
@@ -43545,10 +43995,10 @@ function BrowserPane({
   ] });
 }
 
-// ui/dialogs.tsx
+// fittings/seed/dev-env/ui/dialogs.tsx
 var import_react7 = __toESM(require_react());
 
-// ui/session-request.ts
+// fittings/seed/dev-env/ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "operative", label: "Operative \u2014 Orchestrator identity (default)" },
   { value: "plain", label: "Plain claude, for debugging Garrison itself (unorchestrated, logged)" }
@@ -43571,7 +44021,7 @@ function buildSessionRequest({
   return body;
 }
 
-// ui/dialogs.tsx
+// fittings/seed/dev-env/ui/dialogs.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
@@ -43779,7 +44229,7 @@ function Toast({ message }) {
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "toast", children: message });
 }
 
-// ui/session-panels.tsx
+// fittings/seed/dev-env/ui/session-panels.tsx
 var import_react8 = __toESM(require_react());
 var import_jsx_runtime8 = __toESM(require_jsx_runtime());
 function basename2(p) {
@@ -43898,7 +44348,7 @@ function SessionsPanel({
   ] });
 }
 
-// ui/main.tsx
+// fittings/seed/dev-env/ui/main.tsx
 var import_jsx_runtime9 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {

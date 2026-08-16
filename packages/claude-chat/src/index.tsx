@@ -1,12 +1,26 @@
-export { ClaudeChat, buildSendMeta, QuestionBlock, rewriteRouteForHost } from "./ClaudeChat";
-export { SessionStream } from "./SessionTranscript";
-export type { SessionStreamProps } from "./SessionTranscript";
+export {
+  ClaudeChat,
+  applySessionEvent,
+  applyTurnActive,
+  buildSendMeta,
+  canonicalAssistantReply,
+  legacyAssistantFallback,
+  QuestionBlock,
+  resolvedAssistantText,
+  rewriteRouteForHost,
+} from "./ClaudeChat";
+export type { SessionEventTurn } from "./ClaudeChat";
+export { SessionEventTimeline, SessionStream } from "./SessionTranscript";
+export type { SessionEventTimelineProps, SessionStreamProps } from "./SessionTranscript";
 export {
   collectRelatedTasks,
+  hasVisibleSessionActivity,
+  isSessionEvent,
   isFanoutTool,
   latestBlocksByToolUse,
   mergeSessionEvents,
   parseToolInput,
+  sessionEventTerminalText,
   sessionThinkingSummary,
   sessionToolSummary,
 } from "./journal";
@@ -21,7 +35,7 @@ export type { ClaudeChatProps, ChatFeatures, ChatSendMeta, ComposerAdornmentApi 
 export { createHttpTransport } from "./transport";
 export { createVoiceClient } from "./voice";
 export type { VoiceClient, VoiceHealth } from "./voice";
-export { sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
+export { sanitizeAssistantBadges, sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
 export type { SanitizedReply, AssistantRouteMeta } from "./sanitize";
 export { railBadges, effortState } from "./run-context";
 export type { RailBadge, RailBadgeTone, EffortState } from "./run-context";

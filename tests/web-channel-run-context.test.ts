@@ -292,7 +292,7 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
 
     const t = await waitForMessages(id, 2);
     // The ask carries the INTENT that was in force...
-    expect(t.messages[0]).toMatchObject({ role: "user", text: "ship it", overrides: { target: "sonnet-plan", effort: "low" } });
+    expect(t.messages[0]).toMatchObject({ role: "user", text: "ship it", turnId: "3", overrides: { target: "sonnet-plan", effort: "low" } });
     // ...and the reply carries what actually RAN, pre-turn frame folded in.
     expect(t.messages[1].role).toBe("assistant");
     expect(t.messages[1].text).toBe("shipped it");
@@ -419,7 +419,9 @@ describe("POST /api/chat - failure persistence (the ask is never lost)", () => {
   it("persists when the stream ends without a done frame", async () => {
     const id = "chat-fail-truncated";
     turnScript = { frames: [sse("chunk", { text: "half an answ" })] };
-    await runTurn({ message: "truncated", thread: id });
+    const { text } = await runTurn({ message: "truncated", thread: id });
+    expect(text).toContain("event: error");
+    expect(text).toContain("gateway stream ended without a done event");
     const t = await waitForMessages(id, 2);
     expect(t.messages[1].text).toContain("ended without a done event");
   });
@@ -435,6 +437,16 @@ describe("POST /api/chat - failure persistence (the ask is never lost)", () => {
     expect(after.messages).toHaveLength(2);
     expect(after.messages[1].text).toBe("all good");
     void t;
+  });
+
+  it("persists the live transport's explicit fallback when done has an empty reply", async () => {
+    const id = "chat-empty-done";
+    turnScript = { frames: [sse("done", { reply: "", runtime: "agent-sdk" })] };
+    await runTurn({ message: "return nothing", thread: id });
+    const t = await waitForMessages(id, 2);
+    expect(t.messages[1]).toMatchObject({ role: "assistant" });
+    expect(t.messages[1].text).toContain("operative returned an empty reply");
+    expect(t.messages[1].route).toMatchObject({ runtime: "agent-sdk" });
   });
 });
 

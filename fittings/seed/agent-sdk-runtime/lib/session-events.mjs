@@ -133,9 +133,15 @@ function blocksEqual(left, right) {
 }
 
 export class AgentSdkSessionEventNormalizer {
-  constructor({ turnId = null, sessionId = null, now = () => Date.now() } = {}) {
+  constructor({ turnId = null, sessionId = null, eventScope = null, now = () => Date.now() } = {}) {
     this.turnId = turnId == null ? null : String(turnId);
     this.sessionId = sessionId == null ? null : String(sessionId);
+    // Browser-local turn counters restart after a remount, so they cannot
+    // namespace fallback event ids. Provider message ids remain authoritative;
+    // only locally synthesized ids use this per-normalizer scope.
+    this.eventScope = eventScope == null || String(eventScope).trim() === ""
+      ? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+      : String(eventScope);
     this.now = typeof now === "function" ? now : () => Date.now();
     this.nextOrder = 1;
     this.fallbackId = 1;
@@ -145,8 +151,12 @@ export class AgentSdkSessionEventNormalizer {
     this.terminalEmitted = false;
   }
 
+  _fallbackStableId(kind) {
+    return `${kind}:${this.eventScope}:${this.turnId ?? "turn"}:${this.fallbackId++}`;
+  }
+
   _event(id, role, ts, blocks, extra = {}) {
-    const stableId = String(id || `session:${this.turnId ?? "turn"}:${this.fallbackId++}`);
+    const stableId = String(id || this._fallbackStableId("session"));
     let meta = this.meta.get(stableId);
     if (!meta) {
       meta = { order: this.nextOrder++, revision: 0 };
@@ -195,7 +205,7 @@ export class AgentSdkSessionEventNormalizer {
     if (sessionId) this.sessionId = sessionId;
 
     if (raw.type === "message_start") {
-      const id = raw.message?.id ?? message.uuid ?? `assistant:${this.fallbackId++}`;
+      const id = raw.message?.id ?? message.uuid ?? this._fallbackStableId("assistant");
       this.currentAssistantId = String(id);
       const state = this._assistantState(this.currentAssistantId, ts, sessionId);
       const initial = contentArray(raw.message?.content).map(settledBlock).filter(Boolean);
@@ -303,7 +313,7 @@ export class AgentSdkSessionEventNormalizer {
     const ts = timestampFor(message, this.now);
     const sessionId = sessionIdFor(message, this.sessionId);
     if (sessionId) this.sessionId = sessionId;
-    const id = message?.message?.id ?? this.currentAssistantId ?? message?.uuid ?? `assistant:${this.fallbackId++}`;
+    const id = message?.message?.id ?? this.currentAssistantId ?? message?.uuid ?? this._fallbackStableId("assistant");
     const state = this._assistantState(String(id), ts, sessionId);
     const blocks = contentArray(message?.message?.content).map(settledBlock).filter(Boolean);
     if (message?.error) {
@@ -341,7 +351,7 @@ export class AgentSdkSessionEventNormalizer {
       });
     }
     const toolResultsOnly = blocks.every((block) => block.type === "tool_result");
-    const id = message?.message?.id ?? message?.uuid ?? `user:${this.fallbackId++}`;
+    const id = message?.message?.id ?? message?.uuid ?? this._fallbackStableId("user");
     return [this._event(id, "user", ts, blocks, { sessionId, toolResultsOnly })];
   }
 
@@ -408,7 +418,7 @@ export class AgentSdkSessionEventNormalizer {
     this.terminalEmitted = true;
     const sessionId = sessionIdFor(message, this.sessionId);
     if (sessionId) this.sessionId = sessionId;
-    return [this._event(message?.uuid ?? `turn:${this.turnId ?? "turn"}:end`, "assistant", timestampFor(message, this.now), blocks, { sessionId })];
+    return [this._event(message?.uuid ?? `turn:${this.eventScope}:${this.turnId ?? "turn"}:end`, "assistant", timestampFor(message, this.now), blocks, { sessionId })];
   }
 
   _system(message) {
@@ -469,7 +479,7 @@ export class AgentSdkSessionEventNormalizer {
       blocks.push({ type: "turn_end", status: "error", subtype: "runtime_error", stopReason: "runtime_error" });
     }
     return [
-      this._event(`turn:${this.turnId ?? "turn"}:error`, "assistant", this.now(), blocks)
+      this._event(`turn:${this.eventScope}:${this.turnId ?? "turn"}:error`, "assistant", this.now(), blocks)
     ];
   }
 
@@ -479,7 +489,7 @@ export class AgentSdkSessionEventNormalizer {
     const cancelled = stoppedReason === "cancelled";
     const errored = stoppedReason != null && !cancelled;
     return [
-      this._event(`turn:${this.turnId ?? "turn"}:end`, "assistant", this.now(), [
+      this._event(`turn:${this.eventScope}:${this.turnId ?? "turn"}:end`, "assistant", this.now(), [
         {
           type: "turn_end",
           status: cancelled ? "cancelled" : errored ? "error" : "completed",

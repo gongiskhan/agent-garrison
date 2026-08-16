@@ -83,6 +83,26 @@ async function atomicWriteJson(file, obj) {
   await rename(tmp, file);
 }
 
+// Atomic rename prevents a torn JSON file, but it does not make two independent
+// read-modify-write operations atomic as a UNIT: both can read the same snapshot
+// and the later rename then erases the earlier mutation. Keep one promise tail per
+// normalized thread id so every in-process mutation observes its predecessor's
+// committed state. Different threads remain fully concurrent. A rejected mutation
+// is isolated to its caller; the fulfilled tail still lets the next write proceed.
+const threadMutationTails = new Map();
+
+function serializeThreadMutation(id, mutate) {
+  const previous = threadMutationTails.get(id) ?? Promise.resolve();
+  const result = previous.then(mutate);
+  let tail;
+  const release = () => {
+    if (threadMutationTails.get(id) === tail) threadMutationTails.delete(id);
+  };
+  tail = result.then(release, release);
+  threadMutationTails.set(id, tail);
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Run-context sanitizers (whitelist only)
 //
@@ -706,42 +726,44 @@ export async function getThread(id) {
  */
 export async function ensureThread({ id, title, source, mode, context, nowIso }) {
   const safe = id ? safeThreadId(id) : newThreadId();
-  const existing = await readThreadFile(safe);
-  const now = nowIso ?? new Date().toISOString();
-  if (existing) {
-    let changed = false;
-    if (title && !existing.title) { existing.title = String(title).slice(0, 120); changed = true; }
-    // "chat" is the DEFAULT this function stamps on any thread created without a
-    // declared source, so it means "nobody said" rather than "the user chose
-    // chat". A host that later opens the same thread as a Discuss must be able to
-    // fill it in — otherwise whichever code path happened to touch the thread
-    // first wins, the transcript never hides the kickoff bubble, and the Discuss
-    // duty pin is never applied. Any other existing source is a real declaration
-    // and is left alone.
-    if (source && String(source) !== "chat" && (!existing.source || existing.source === "chat")) {
-      existing.source = String(source);
-      changed = true;
+  return serializeThreadMutation(safe, async () => {
+    const existing = await readThreadFile(safe);
+    const now = nowIso ?? new Date().toISOString();
+    if (existing) {
+      let changed = false;
+      if (title && !existing.title) { existing.title = String(title).slice(0, 120); changed = true; }
+      // "chat" is the DEFAULT this function stamps on any thread created without a
+      // declared source, so it means "nobody said" rather than "the user chose
+      // chat". A host that later opens the same thread as a Discuss must be able to
+      // fill it in — otherwise whichever code path happened to touch the thread
+      // first wins, the transcript never hides the kickoff bubble, and the Discuss
+      // duty pin is never applied. Any other existing source is a real declaration
+      // and is left alone.
+      if (source && String(source) !== "chat" && (!existing.source || existing.source === "chat")) {
+        existing.source = String(source);
+        changed = true;
+      }
+      if (mode && !existing.mode) { existing.mode = String(mode); changed = true; }
+      if (context !== undefined && existing.context === undefined) { existing.context = context; changed = true; }
+      if (changed) { existing.updatedAt = now; await atomicWriteJson(threadPath(safe), existing); }
+      return existing;
     }
-    if (mode && !existing.mode) { existing.mode = String(mode); changed = true; }
-    if (context !== undefined && existing.context === undefined) { existing.context = context; changed = true; }
-    if (changed) { existing.updatedAt = now; await atomicWriteJson(threadPath(safe), existing); }
-    return existing;
-  }
-  const thread = {
-    id: safe,
-    title: title ? String(title).slice(0, 120) : "",
-    source: source ? String(source) : "chat",
-    mode: mode ? String(mode) : null,
-    context: context ?? undefined,
-    routing: null, // set later via setThreadRouting; never seeded from open params
-    createdAt: now,
-    updatedAt: now,
-    messages: [],
-    sessionEvents: [],
-    sessionIds: [],
-  };
-  await atomicWriteJson(threadPath(safe), thread);
-  return thread;
+    const thread = {
+      id: safe,
+      title: title ? String(title).slice(0, 120) : "",
+      source: source ? String(source) : "chat",
+      mode: mode ? String(mode) : null,
+      context: context ?? undefined,
+      routing: null, // set later via setThreadRouting; never seeded from open params
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+      sessionEvents: [],
+      sessionIds: [],
+    };
+    await atomicWriteJson(threadPath(safe), thread);
+    return thread;
+  });
 }
 
 /**
@@ -752,11 +774,13 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
 export async function setThreadSession(id, sessionId) {
   const safe = safeThreadId(id);
   if (!safe || !cleanSessionId(sessionId)) return null;
-  const thread = await readThreadFile(safe);
-  if (!thread) return null;
-  if (!recordThreadSession(thread, sessionId)) return toMeta(thread);
-  await atomicWriteJson(threadPath(safe), thread);
-  return toMeta(thread);
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    if (!recordThreadSession(thread, sessionId)) return toMeta(thread);
+    await atomicWriteJson(threadPath(safe), thread);
+    return toMeta(thread);
+  });
 }
 
 /** Persist one canonical session event. A higher revision replaces the stable id's
@@ -767,26 +791,26 @@ export async function appendSessionEvent(id, event, { nowIso } = {}) {
   const safe = safeThreadId(id);
   const clean = sanitizeSessionEvent(event);
   if (!safe || !clean) return null;
-  const thread = await readThreadFile(safe);
-  if (!thread) return null;
-  const current = Array.isArray(thread.sessionEvents) ? thread.sessionEvents : [];
-  const index = current.findIndex((candidate) => candidate.id === clean.id);
-  let changed = false;
-  let storedEvent = index === -1 ? clean : current[index];
-  if (index === -1) {
-    thread.sessionEvents = [...current, clean];
-    changed = true;
-  } else if (clean.revision > current[index].revision) {
-    thread.sessionEvents = current.slice();
-    thread.sessionEvents[index] = clean;
-    storedEvent = clean;
-    changed = true;
-  }
-  if (clean.sessionId) changed = recordThreadSession(thread, clean.sessionId) || changed;
-  if (!changed) return storedEvent;
-  thread.updatedAt = nowIso ?? new Date().toISOString();
-  await atomicWriteJson(threadPath(safe), thread);
-  return storedEvent;
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    const current = Array.isArray(thread.sessionEvents) ? thread.sessionEvents : [];
+    const index = current.findIndex((candidate) => candidate.id === clean.id);
+    // Stable-id revision rejection is a TOTAL no-op. In particular, a stale
+    // payload's session coordinate must not move the thread's latest-session
+    // pointer away from the newer event that remains stored.
+    if (index !== -1 && clean.revision <= current[index].revision) return current[index];
+    if (index === -1) {
+      thread.sessionEvents = [...current, clean];
+    } else {
+      thread.sessionEvents = current.slice();
+      thread.sessionEvents[index] = clean;
+    }
+    if (clean.sessionId) recordThreadSession(thread, clean.sessionId);
+    thread.updatedAt = nowIso ?? new Date().toISOString();
+    await atomicWriteJson(threadPath(safe), thread);
+    return clean;
+  });
 }
 
 /**
@@ -804,16 +828,18 @@ export async function appendSessionEvent(id, event, { nowIso } = {}) {
 export async function setThreadRouting(id, routing, { nowIso } = {}) {
   const safe = safeThreadId(id);
   if (!safe) return null;
-  const thread = await readThreadFile(safe);
-  if (!thread) return null;
   const next = sanitizeRouting(routing);
-  // The client re-asserts the current pin on every poll; only write when the pin
-  // actually changed, so an idle thread is not rewritten (and re-sorted) every 10s.
-  if (JSON.stringify(thread.routing ?? null) === JSON.stringify(next ?? null)) return next;
-  thread.routing = next;
-  thread.updatedAt = nowIso ?? new Date().toISOString();
-  await atomicWriteJson(threadPath(safe), thread);
-  return next;
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    // The client re-asserts the current pin on every poll; only write when the pin
+    // actually changed, so an idle thread is not rewritten (and re-sorted) every 10s.
+    if (JSON.stringify(thread.routing ?? null) === JSON.stringify(next ?? null)) return next;
+    thread.routing = next;
+    thread.updatedAt = nowIso ?? new Date().toISOString();
+    await atomicWriteJson(threadPath(safe), thread);
+    return next;
+  });
 }
 
 /**
@@ -827,25 +853,7 @@ export async function appendMessages(id, messages, { nowIso, idempotencyKey = nu
   const safe = safeThreadId(id);
   if (!safe) throw new Error("appendMessages: invalid thread id");
   const now = nowIso ?? new Date().toISOString();
-  let thread = await readThreadFile(safe);
-  if (!thread) {
-    thread = {
-      id: safe,
-      title: "",
-      source: "chat",
-      mode: null,
-      routing: null,
-      createdAt: now,
-      updatedAt: now,
-      messages: [],
-      sessionEvents: [],
-      sessionIds: [],
-    };
-  }
   const deliveryKey = cleanString(idempotencyKey, 200);
-  if (deliveryKey && Array.isArray(thread.messageKeys) && thread.messageKeys.includes(deliveryKey)) {
-    return toMeta(thread);
-  }
   const clean = (Array.isArray(messages) ? messages : [])
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.text === "string")
     .map((m) => {
@@ -853,6 +861,10 @@ export async function appendMessages(id, messages, { nowIso, idempotencyKey = nu
       // `ts` is caller-supplied, so clip it too instead of storing whatever JSON
       // value arrived.
       const out = { role: m.role, text: m.text, ts: cleanString(m.ts, ID_CLIP) ?? now };
+      const turnId = cleanString(m.turnId, ID_CLIP);
+      const sessionId = cleanString(m.sessionId, ID_CLIP);
+      if (turnId) out.turnId = turnId;
+      if (sessionId) out.sessionId = sessionId;
       if (m.role === "assistant") {
         // What actually RAN, incl. the routed runtime's own sessionId/transcriptPath.
         // Persisted per message because the thread-level claudeSessionId is
@@ -869,25 +881,47 @@ export async function appendMessages(id, messages, { nowIso, idempotencyKey = nu
       }
       return out;
     });
-  if (!clean.length) return toMeta(thread);
-  thread.messages.push(...clean);
-  if (deliveryKey) thread.messageKeys = [...(Array.isArray(thread.messageKeys) ? thread.messageKeys : []), deliveryKey].slice(-512);
-  thread.updatedAt = now;
-  if (!thread.title) thread.title = deriveTitle(thread);
-  await atomicWriteJson(threadPath(safe), thread);
-  return toMeta(thread);
+  return serializeThreadMutation(safe, async () => {
+    let thread = await readThreadFile(safe);
+    if (!thread) {
+      thread = {
+        id: safe,
+        title: "",
+        source: "chat",
+        mode: null,
+        routing: null,
+        createdAt: now,
+        updatedAt: now,
+        messages: [],
+        sessionEvents: [],
+        sessionIds: [],
+      };
+    }
+    if (deliveryKey && Array.isArray(thread.messageKeys) && thread.messageKeys.includes(deliveryKey)) {
+      return toMeta(thread);
+    }
+    if (!clean.length) return toMeta(thread);
+    thread.messages.push(...clean);
+    if (deliveryKey) thread.messageKeys = [...(Array.isArray(thread.messageKeys) ? thread.messageKeys : []), deliveryKey].slice(-512);
+    thread.updatedAt = now;
+    if (!thread.title) thread.title = deriveTitle(thread);
+    await atomicWriteJson(threadPath(safe), thread);
+    return toMeta(thread);
+  });
 }
 
 /** Delete a thread. Returns true if a file was removed. */
 export async function deleteThread(id) {
   const safe = safeThreadId(id);
   if (!safe) return false;
-  try {
-    await unlink(threadPath(safe));
-    return true;
-  } catch {
-    return false;
-  }
+  return serializeThreadMutation(safe, async () => {
+    try {
+      await unlink(threadPath(safe));
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 // Synchronous existence probe (used only in tests / quick checks).

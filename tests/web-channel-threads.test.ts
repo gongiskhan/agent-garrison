@@ -183,6 +183,70 @@ describe("web-channel canonical session-event durability", () => {
       ]);
   });
 
+  it("makes stale and equal revisions total no-ops for the latest session pointer", async () => {
+    const id = "chat-session-stale-pointer";
+    await rc.ensureThread({ id, nowIso: "2026-08-16T10:00:00.000Z" });
+    await rc.appendSessionEvent(
+      id,
+      event("stable-event", 0, 2, "newest", "session-new"),
+      { nowIso: "2026-08-16T10:00:01.000Z" },
+    );
+
+    // Neither an older snapshot nor a conflicting equal revision may contribute
+    // session identity after its event body was rejected.
+    await rc.appendSessionEvent(
+      id,
+      event("stable-event", 0, 1, "stale", "session-old"),
+      { nowIso: "2026-08-16T10:00:02.000Z" },
+    );
+    await rc.appendSessionEvent(
+      id,
+      event("stable-event", 0, 2, "equal-conflict", "session-equal"),
+      { nowIso: "2026-08-16T10:00:03.000Z" },
+    );
+
+    const stored = await rc.getThread(id);
+    expect(stored?.sessionEvents).toMatchObject([
+      { id: "stable-event", revision: 2, sessionId: "session-new", blocks: [{ text: "newest" }] },
+    ]);
+    expect(stored?.sessionIds).toEqual(["session-new"]);
+    expect(stored?.claudeSessionId).toBe("session-new");
+    expect(stored?.updatedAt).toBe("2026-08-16T10:00:01.000Z");
+  });
+
+  it("serializes concurrent thread mutations so no read-modify-write update is lost", async () => {
+    const id = "chat-concurrent-mutations";
+    await rc.ensureThread({ id, nowIso: "2026-08-16T11:00:00.000Z" });
+
+    // Invocation order is deterministic, while all four promises are deliberately
+    // left outstanding together. Without the per-thread queue they all read the
+    // same initial file and the last rename retains only one mutation.
+    await Promise.all([
+      rc.appendSessionEvent(
+        id,
+        event("concurrent-event", 0, 0, "durable activity", "session-event"),
+        { nowIso: "2026-08-16T11:00:01.000Z" },
+      ),
+      rc.setThreadSession(id, "session-direct"),
+      rc.setThreadRouting(id, { target: "opus-plan", effort: "high" }, { nowIso: "2026-08-16T11:00:03.000Z" }),
+      rc.appendMessages(
+        id,
+        [{ role: "user", text: "keep this message" }],
+        { nowIso: "2026-08-16T11:00:04.000Z" },
+      ),
+    ]);
+
+    const stored = await rc.getThread(id);
+    expect(stored?.sessionEvents).toMatchObject([
+      { id: "concurrent-event", blocks: [{ text: "durable activity" }] },
+    ]);
+    expect(stored?.sessionIds).toEqual(["session-event", "session-direct"]);
+    expect(stored?.claudeSessionId).toBe("session-direct");
+    expect(stored?.routing).toEqual({ target: "opus-plan", effort: "high" });
+    expect(stored?.messages).toMatchObject([{ role: "user", text: "keep this message" }]);
+    expect(stored?.updatedAt).toBe("2026-08-16T11:00:04.000Z");
+  });
+
   it("durably keeps text, tool results and whole base64 images with honest 20k caps", async () => {
     const id = "chat-session-blocks";
     const long = "x".repeat(20_007);

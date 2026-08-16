@@ -11,6 +11,23 @@
 //     have no projects" (§11).
 
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import type { SessionBlock } from "@garrison/claude-chat";
+// @ts-ignore — dependency-free fitting JavaScript intentionally has no .d.ts.
+import { normalizeAgentSdkMessages } from "../fittings/seed/agent-sdk-runtime/lib/session-events.mjs";
+
+const SDK_FIXTURE = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./fixtures/agent-sdk-web-parity-events.json", import.meta.url)), "utf8")
+);
+
+function settledFixtureEvents(turnId: string) {
+  let now = 1_786_880_000_000;
+  const revisions = normalizeAgentSdkMessages(SDK_FIXTURE.messages, { turnId, now: () => now++ });
+  const latest = new Map<string, any>();
+  for (const event of revisions) latest.set(event.id, event);
+  return [...latest.values()];
+}
 
 // react-dom/client is the ONLY import with a real DOM requirement at module scope.
 vi.mock("react-dom/client", () => ({
@@ -73,6 +90,18 @@ describe("web-channel push notices", () => {
 });
 
 describe("web-channel toHistory: run context survives a reload (contract §10)", () => {
+  it("detects an in-place canonical revision even when message and event counts stay fixed", () => {
+    const base: any = {
+      messages: [{ role: "user", text: "run it", ts: "2026-08-16T10:00:00.000Z" }],
+      sessionEvents: [{ id: "tool", role: "assistant", ts: 1, order: 1, revision: 1, blocks: [{ type: "tool_use" }] }],
+    };
+    const revised = {
+      ...base,
+      sessionEvents: [{ ...base.sessionEvents[0], revision: 2, blocks: [{ type: "tool_use", input: "complete" }] }],
+    };
+    expect(ui.threadHistoryRevision(revised)).not.toBe(ui.threadHistoryRevision(base));
+  });
+
   it("carries the assistant message's route and the user message's overrides onto the pair", () => {
     const h = ui.toHistory([
       { role: "user", text: "plan it", overrides: { duty: "plan", level: 2 } },
@@ -133,6 +162,169 @@ describe("web-channel toHistory: run context survives a reload (contract §10)",
       { user: "one", assistant: "", overrides: { duty: "plan" } },
       { user: "two", assistant: "2", route: { duty: "execute" } },
     ]);
+  });
+
+  it("hydrates the authentic two-tool fixture onto its explicitly numbered exchange", () => {
+    const canonical = settledFixtureEvents("1");
+    const h = ui.toHistory([
+      { role: "user", text: "run the fixture", ts: "2026-08-16T10:00:00.000Z" },
+      {
+        role: "assistant",
+        text: "WEB_PARITY_FIXTURE",
+        ts: "2026-08-16T10:00:05.000Z",
+        route: { turnSeq: 1, sessionId: "session-53" },
+      },
+    ], canonical);
+
+    expect(h[0].sessionEvents).toEqual(canonical);
+    expect(h[0].sessionEvents?.[0]).toBe(canonical[0]);
+    const blocks = h[0].sessionEvents?.flatMap((event: any) => event.blocks) ?? [];
+    expect(blocks.filter((block: any) => block.type === "tool_use").map((block: any) => block.name)).toEqual(["Write", "Read"]);
+    expect(blocks.find((block: any) => block.type === "text" && block.text === "WEB_PARITY_FIXTURE")).toBeDefined();
+  });
+
+  it("prefers explicit turnId coordinates over contradictory timestamps", () => {
+    const event = (id: string, turnId: string, ts: number) => ({
+      id,
+      role: "assistant",
+      ts,
+      turnId,
+      sessionId: "same-session",
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: id }],
+    });
+    const first = event("first-event", "1", Date.parse("2026-08-16T10:01:30.000Z"));
+    const second = event("second-event", "2", Date.parse("2026-08-16T10:00:30.000Z"));
+    const h = ui.toHistory([
+      { role: "user", text: "one", ts: "2026-08-16T10:00:00.000Z" },
+      { role: "assistant", text: "1", ts: "2026-08-16T10:00:10.000Z", route: { turnSeq: 1, sessionId: "same-session" } },
+      { role: "user", text: "two", ts: "2026-08-16T10:01:00.000Z" },
+      { role: "assistant", text: "2", ts: "2026-08-16T10:01:10.000Z", route: { turnSeq: 2, sessionId: "same-session" } },
+    ], [first, second]);
+
+    expect(h[0].sessionEvents?.map((entry: any) => entry.id)).toEqual(["first-event"]);
+    expect(h[1].sessionEvents?.map((entry: any) => entry.id)).toEqual(["second-event"]);
+  });
+
+  it("uses timestamps before session id when a reloaded client reuses its turn counter", () => {
+    const h = ui.toHistory([
+      { role: "user", text: "old", ts: "2026-08-16T10:00:00.000Z", turnId: "1" },
+      {
+        role: "assistant",
+        text: "old reply",
+        ts: "2026-08-16T10:00:10.000Z",
+        route: { turnSeq: 1, sessionId: "session-old" },
+      },
+      // The ask is persisted before routing settles, so it has the repeated
+      // client turn id but no runtime session id yet.
+      { role: "user", text: "new", ts: "2026-08-16T10:01:00.000Z", turnId: "1" },
+    ], [{
+      id: "new-early-event",
+      role: "assistant",
+      ts: Date.parse("2026-08-16T10:01:05.000Z"),
+      turnId: "1",
+      sessionId: "session-old",
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "tool_use", name: "Read", toolUseId: "read-new" }],
+    }]);
+
+    expect(h[0].sessionEvents).toBeUndefined();
+    expect(h[1].sessionEvents?.map((entry: any) => entry.id)).toEqual(["new-early-event"]);
+  });
+
+  it("keeps early s2 activity on a trailing repeated turn after the prior turn rolls from s2 to s53", () => {
+    const sessionEvent = (
+      id: string,
+      ts: string,
+      sessionId: string,
+      order: number,
+      blocks: SessionBlock[]
+    ) => ({
+      id,
+      role: "assistant",
+      ts: Date.parse(ts),
+      turnId: "1",
+      sessionId,
+      order,
+      revision: 1,
+      blocks,
+    });
+    const h = ui.toHistory([
+      { role: "user", text: "old turn", ts: "2026-08-16T10:00:00.000Z", turnId: "1" },
+      {
+        role: "assistant",
+        text: "old reply",
+        ts: "2026-08-16T10:00:10.000Z",
+        route: { turnSeq: 1, sessionId: "s2" },
+      },
+      // A browser remount resets turnSeq to 1. This ask is already durable, but
+      // it is intentionally unanswered while its early SDK activity arrives.
+      { role: "user", text: "new turn", ts: "2026-08-16T10:01:00.000Z", turnId: "1" },
+    ], [
+      sessionEvent("old-early-s2", "2026-08-16T10:00:02.000Z", "s2", 1, [
+        { type: "tool_use", name: "Write", toolUseId: "write-old" },
+      ]),
+      sessionEvent("old-terminal-s53", "2026-08-16T10:00:08.000Z", "s53", 2, [
+        { type: "turn_end", status: "completed" },
+      ]),
+      // A new normalizer starts at order 1 and initially reports s2 again. Exact
+      // session matching must not drag this group back onto the old s2 reply.
+      sessionEvent("new-early-s2", "2026-08-16T10:01:02.000Z", "s2", 1, [
+        { type: "tool_use", name: "Read", toolUseId: "read-new" },
+      ]),
+    ]);
+
+    expect(h).toHaveLength(2);
+    expect(h[0].sessionEvents?.map((event: any) => event.id)).toEqual([
+      "old-early-s2",
+      "old-terminal-s53",
+    ]);
+    expect(h[1]).toMatchObject({ user: "new turn", assistant: "" });
+    expect(h[1].sessionEvents?.map((event: any) => event.id)).toEqual(["new-early-s2"]);
+  });
+
+  it("falls back to message timestamps when no explicit turn coordinate matches", () => {
+    const event = (id: string, ts: string) => ({
+      id,
+      role: "assistant",
+      ts: Date.parse(ts),
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: id }],
+    });
+    const h = ui.toHistory([
+      { role: "user", text: "one", ts: "2026-08-16T10:00:00.000Z" },
+      { role: "assistant", text: "1", ts: "2026-08-16T10:00:20.000Z" },
+      { role: "user", text: "two", ts: "2026-08-16T10:01:00.000Z" },
+      { role: "assistant", text: "2", ts: "2026-08-16T10:01:20.000Z" },
+    ], [
+      event("first-by-time", "2026-08-16T10:00:10.000Z"),
+      event("second-by-time", "2026-08-16T10:01:10.000Z"),
+    ]);
+
+    expect(h.map((exchange: any) => exchange.sessionEvents?.[0]?.id)).toEqual(["first-by-time", "second-by-time"]);
+  });
+
+  it("uses stable persisted sequence when neither coordinates nor timestamps can disambiguate", () => {
+    const events = ["first-by-sequence", "second-by-sequence"].map((id, index) => ({
+      id,
+      role: "assistant",
+      ts: null,
+      turnId: `legacy-${index}`,
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: id }],
+    }));
+    const h = ui.toHistory([
+      { role: "user", text: "one" },
+      { role: "assistant", text: "1" },
+      { role: "user", text: "two" },
+      { role: "assistant", text: "2" },
+    ], events);
+
+    expect(h.map((exchange: any) => exchange.sessionEvents?.[0]?.id)).toEqual(["first-by-sequence", "second-by-sequence"]);
   });
 });
 

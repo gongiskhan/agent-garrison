@@ -2,6 +2,8 @@
 // and dev-env both expose the same /claude/* shape, so a single HTTP transport
 // serves both — only the base path differs.
 
+import { isSessionEvent, type SessionEvent } from "./journal";
+
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "unknown";
 
 export interface ClaudeStatus {
@@ -172,6 +174,7 @@ export interface TurnRouting {
 export type ChatEvent =
   | { type: "hello"; mode: PermissionMode; status: ClaudeStatus; busy: boolean; assistant: string; screen: string[] }
   | { type: "assistant"; text: string }
+  | { type: "session_event"; event: SessionEvent }
   | { type: "status"; rows: string[]; mode: PermissionMode; contextPct: number | null; model: string | null }
   | { type: "turn"; active: boolean }
   | { type: "screen"; lines: string[] }
@@ -282,6 +285,14 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
           });
         on("hello");
         on("assistant");
+        es.addEventListener("session_event", (e: MessageEvent) => {
+          try {
+            const event: unknown = JSON.parse(e.data);
+            if (isSessionEvent(event)) onEvent({ type: "session_event", event });
+          } catch {
+            /* ignore malformed */
+          }
+        });
         on("status");
         on("turn");
         on("screen");

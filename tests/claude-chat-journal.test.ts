@@ -213,4 +213,22 @@ describe("claude-chat activity journal", () => {
     expect(beats[0]).toMatchObject({ type: "text", text: "I'll read the file." });
     expect(beats[2]).toMatchObject({ type: "text", text: "Now I'll inspect the result." });
   });
+
+  it("uses a terminal result as settled primary text and retains typed errors as beats", () => {
+    const turns = groupSessionTurns([
+      event("tool", [{ type: "tool_use", name: "Bash", toolUseId: "bash-1" }]),
+      event("terminal", [
+        { type: "error", kind: "runtime_error", text: "subprocess failed" },
+        { type: "turn_end", status: "error", result: "Please retry the operation." },
+      ]),
+    ]);
+
+    expect(presentSessionTurn(turns[0], false)).toMatchObject({
+      primaryText: "Please retry the operation.",
+      finalTextEventIndex: 1,
+    });
+    expect(sessionActivityBeats(turns[0].assistantEvents)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "error", text: "subprocess failed" }),
+    ]));
+  });
 });
