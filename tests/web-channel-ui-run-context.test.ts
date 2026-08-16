@@ -66,6 +66,32 @@ const { renderToStaticMarkup } = await import("react-dom/server");
 
 const ui = await import("../fittings/seed/web-channel-default/ui/main");
 
+describe("web-channel Discuss kickoff admission guard", () => {
+  it("arms only a truly pristine thread across admission crash and reload windows", () => {
+    expect(ui.shouldArmDiscussKickoff(null)).toBe(false);
+    expect(ui.shouldArmDiscussKickoff({
+      messages: [], pendingInputs: [], inputReceipts: [], inputRevision: 0,
+    })).toBe(true);
+    expect(ui.shouldArmDiscussKickoff({
+      messages: [],
+      pendingInputs: [{ inputId: "input-kickoff", clientRequestId: "client-kickoff", state: "running" }],
+      inputReceipts: [],
+      inputRevision: 1,
+    })).toBe(false);
+    expect(ui.shouldArmDiscussKickoff({
+      messages: [],
+      pendingInputs: [],
+      inputReceipts: [{ inputId: "input-kickoff", clientRequestId: "client-kickoff", state: "failed" }],
+      inputRevision: 2,
+    })).toBe(false);
+    // The monotonic revision remains durable evidence even if bounded receipt
+    // cleanup has already removed the row itself.
+    expect(ui.shouldArmDiscussKickoff({
+      messages: [], pendingInputs: [], inputReceipts: [], inputRevision: 3,
+    })).toBe(false);
+  });
+});
+
 describe("web-channel push notices", () => {
   it("gives blocked/install notices and transient notifications a separate accessible close", () => {
     const dismissed = vi.fn();
@@ -163,8 +189,86 @@ describe("web-channel toHistory: run context survives a reload (contract §10)",
       pendingInputs: [],
       inputRevision: 3,
     };
-    expect(ui.shouldRemountAfterResume(before, settled, false)).toBe(false);
-    expect(ui.shouldRemountAfterResume(before, settled, true)).toBe(true);
+    expect(ui.shouldRemountAfterResume(before, settled, false, ["input-voice"])).toBe(false);
+    expect(ui.shouldRemountAfterResume(before, settled, true, ["input-voice"])).toBe(true);
+  });
+
+  it("remounts when a post-resume snapshot contains an unseen multi-client input", () => {
+    const before: any = {
+      messages: [{ role: "user", text: "A", turnId: "input-a" }],
+      sessionEvents: [],
+      pendingInputs: [{ inputId: "input-a", clientRequestId: "client-a", state: "running" }],
+      inputReceipts: [],
+      inputRevision: 10,
+    };
+    const settledA: any = {
+      messages: [...before.messages, { role: "assistant", text: "answer A", turnId: "input-a" }],
+      sessionEvents: [],
+      pendingInputs: [],
+      inputReceipts: [{ inputId: "input-a", clientRequestId: "client-a", state: "settled" }],
+      inputRevision: 11,
+    };
+    expect(ui.shouldRemountAfterResume(before, settledA, false, ["input-a"])).toBe(false);
+    expect(ui.shouldRemountAfterResume(
+      { messages: [], sessionEvents: [], pendingInputs: [], inputReceipts: [], inputRevision: 0 },
+      settledA,
+      false,
+      [],
+      ["client-a"],
+    )).toBe(false);
+
+    const bQueued: any = {
+      ...settledA,
+      pendingInputs: [{ inputId: "input-b", clientRequestId: "client-b", state: "queued", message: "B" }],
+      inputRevision: 12,
+    };
+    expect(ui.shouldRemountAfterResume(before, bQueued, false, ["input-a"])).toBe(true);
+
+    const bRunning: any = {
+      ...settledA,
+      messages: [...settledA.messages, { role: "user", text: "B", turnId: "input-b" }],
+      pendingInputs: [{ inputId: "input-b", clientRequestId: "client-b", state: "running", message: "B" }],
+      inputRevision: 13,
+    };
+    expect(ui.shouldRemountAfterResume(before, bRunning, false, ["input-a"])).toBe(true);
+
+    const bSettled: any = {
+      ...settledA,
+      messages: [
+        ...settledA.messages,
+        { role: "user", text: "B", turnId: "input-b" },
+        { role: "assistant", text: "answer B", turnId: "input-b" },
+      ],
+      inputReceipts: [
+        ...settledA.inputReceipts,
+        { inputId: "input-b", clientRequestId: "client-b", state: "settled" },
+      ],
+      inputRevision: 14,
+    };
+    expect(ui.shouldRemountAfterResume(before, bSettled, false, ["input-a"])).toBe(true);
+
+    const bEventOnly: any = {
+      ...settledA,
+      sessionEvents: [{
+        id: "external-b",
+        role: "assistant",
+        ts: 1,
+        turnId: "input-b",
+        revision: 1,
+        blocks: [{ type: "assistant_text", text: "B appeared elsewhere" }],
+      }],
+      inputRevision: 15,
+    };
+    expect(ui.shouldRemountAfterResume(before, bEventOnly, false, ["input-a"])).toBe(true);
+  });
+
+  it("remounts an uncoordinated external assistant notice after resume", () => {
+    const before: any = { messages: [], sessionEvents: [], inputRevision: 1 };
+    const fresh: any = {
+      ...before,
+      messages: [{ role: "assistant", text: "External completion notice" }],
+    };
+    expect(ui.shouldRemountAfterResume(before, fresh, false, ["input-local"])).toBe(true);
   });
 
   it("hydrates the active input onto its durable user row and appends queued rows in FIFO order", () => {

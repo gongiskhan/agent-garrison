@@ -212,49 +212,151 @@ interface Thread extends ThreadMeta {
   inputReceipts?: ThreadInput[];
 }
 
+type ThreadHistorySnapshot = Pick<
+  Thread,
+  "messages" | "sessionEvents" | "pendingInputs" | "inputReceipts" | "inputRevision"
+>;
+
+const messageRevisionRow = (message: ThreadMessage) => [
+  message.role,
+  message.ts ?? null,
+  message.turnId ?? null,
+  message.sessionId ?? null,
+  message.text,
+  message.route ?? null,
+  message.overrides ?? null,
+];
+
+const eventRevisionRow = (event: ThreadSessionEvent) => [
+  event.id,
+  event.revision ?? null,
+  event.order ?? null,
+  event.ts ?? null,
+  event.turnId ?? null,
+  event.sessionId ?? null,
+  event.generationId ?? null,
+];
+
+const inputRevisionRow = (input: ThreadInput) => [
+  input.inputId,
+  input.clientRequestId,
+  input.state,
+  input.generationId ?? null,
+  input.position ?? null,
+  input.acceptedAt ?? null,
+  input.reason ?? null,
+  input.failure ?? null,
+  input.message ?? null,
+];
+
+const stringCoordinate = (value: unknown): string | null =>
+  typeof value === "string" && value.trim() ? value.trim() : null;
+
+/** A Discuss kickoff is an admission, not merely a transcript row. The browser
+ * can reload after that admission was durably receipted but before either text
+ * row was committed, so every lifecycle coordinate (and its monotonic revision)
+ * is evidence that this is no longer a pristine thread. */
+export function shouldArmDiscussKickoff(
+  thread: Pick<Thread, "messages" | "pendingInputs" | "inputReceipts" | "inputRevision"> | null | undefined,
+): boolean {
+  // A missing snapshot is not proof of a fresh thread. Fail closed so a
+  // transient GET/JSON/network failure cannot replay an already-admitted host
+  // kickoff. A verified empty durable snapshot will arm it on the next load.
+  if (!thread) return false;
+  return (thread.messages?.length ?? 0) === 0 &&
+    (thread.pendingInputs?.length ?? 0) === 0 &&
+    (thread.inputReceipts?.length ?? 0) === 0 &&
+    !(typeof thread.inputRevision === "number" && thread.inputRevision > 0);
+}
+
 /** Lightweight durable-history identity used by idle/replay refreshes. Canonical
  * snapshots can advance in place (same array length, higher revision), so message
  * count alone is not a completeness signal. Event payload bytes/images stay out
  * of this key; accepted durable replacements are revisioned by contract. */
-export function threadHistoryRevision(thread: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputReceipts" | "inputRevision">): string {
-  const messages = (thread.messages ?? []).map((message) => [
-    message.role,
-    message.ts ?? null,
-    message.turnId ?? null,
-    message.sessionId ?? null,
-    message.text,
-    message.route ?? null,
-    message.overrides ?? null,
-  ]);
-  const events = (thread.sessionEvents ?? []).map((event) => [
-    event.id,
-    event.revision ?? null,
-    event.order ?? null,
-    event.ts ?? null,
-    event.turnId ?? null,
-    event.sessionId ?? null,
-    event.generationId ?? null,
-  ]);
-  const inputs = [...(thread.inputReceipts ?? []), ...(thread.pendingInputs ?? [])].map((input) => [
-    input.inputId,
-    input.clientRequestId,
-    input.state,
-    input.generationId ?? null,
-    input.position ?? null,
-    input.acceptedAt ?? null,
-    input.reason ?? null,
-    input.failure ?? null,
-    input.message ?? null,
-  ]);
+export function threadHistoryRevision(thread: ThreadHistorySnapshot): string {
+  const messages = (thread.messages ?? []).map(messageRevisionRow);
+  const events = (thread.sessionEvents ?? []).map(eventRevisionRow);
+  const inputs = [...(thread.inputReceipts ?? []), ...(thread.pendingInputs ?? [])].map(inputRevisionRow);
   return JSON.stringify([messages, events, thread.inputRevision ?? 0, inputs]);
 }
 
-export function shouldRemountAfterResume(
-  current: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputReceipts" | "inputRevision">,
-  fresh: Pick<Thread, "messages" | "sessionEvents" | "pendingInputs" | "inputReceipts" | "inputRevision">,
-  recovery: boolean,
+function hasRevisionOutsidePaintedInputs<T>(
+  currentRows: readonly T[],
+  freshRows: readonly T[],
+  revisionRow: (row: T) => unknown,
+  coordinate: (row: T) => string | null,
+  paintedInputIds: ReadonlySet<string>,
 ): boolean {
-  return recovery && threadHistoryRevision(fresh) !== threadHistoryRevision(current);
+  const current = new Map<string, T[]>();
+  for (const row of currentRows) {
+    const key = JSON.stringify(revisionRow(row));
+    const matches = current.get(key) ?? [];
+    matches.push(row);
+    current.set(key, matches);
+  }
+  for (const row of freshRows) {
+    const key = JSON.stringify(revisionRow(row));
+    const matches = current.get(key);
+    if (matches?.length) {
+      matches.pop();
+      continue;
+    }
+    const inputId = coordinate(row);
+    if (!inputId || !paintedInputIds.has(inputId)) return true;
+  }
+  // Durable rows normally only append or revise. A disappearance is equally a
+  // reason to reconcile unless it belongs to the exact input just painted (for
+  // example, its pending receipt moving into the bounded terminal receipt set).
+  for (const matches of current.values()) {
+    for (const row of matches) {
+      const inputId = coordinate(row);
+      if (!inputId || !paintedInputIds.has(inputId)) return true;
+    }
+  }
+  return false;
+}
+
+export function shouldRemountAfterResume(
+  current: ThreadHistorySnapshot,
+  fresh: ThreadHistorySnapshot,
+  recovery: boolean,
+  paintedInputIds: readonly string[] = [],
+  paintedClientRequestIds: readonly string[] = [],
+): boolean {
+  if (threadHistoryRevision(fresh) === threadHistoryRevision(current)) return false;
+  if (recovery) return true;
+
+  const painted = new Set(paintedInputIds.map((inputId) => inputId.trim()).filter(Boolean));
+  const currentInputs = [...(current.inputReceipts ?? []), ...(current.pendingInputs ?? [])];
+  const freshInputs = [...(fresh.inputReceipts ?? []), ...(fresh.pendingInputs ?? [])];
+  // The request id is owned before admission awaits its host receipt. Resolve it
+  // through the fresh snapshot so an immediate completion cannot race the
+  // sendMessage return that normally adds the input id directly.
+  const paintedRequests = new Set(
+    paintedClientRequestIds.map((clientRequestId) => clientRequestId.trim()).filter(Boolean),
+  );
+  for (const input of freshInputs) {
+    if (paintedRequests.has(input.clientRequestId)) painted.add(input.inputId);
+  }
+  return hasRevisionOutsidePaintedInputs(
+    current.messages ?? [],
+    fresh.messages ?? [],
+    messageRevisionRow,
+    (message) => stringCoordinate(message.turnId),
+    painted,
+  ) || hasRevisionOutsidePaintedInputs(
+    current.sessionEvents ?? [],
+    fresh.sessionEvents ?? [],
+    eventRevisionRow,
+    (event) => stringCoordinate(event.turnId),
+    painted,
+  ) || hasRevisionOutsidePaintedInputs(
+    currentInputs,
+    freshInputs,
+    inputRevisionRow,
+    (input) => stringCoordinate(input.inputId),
+    painted,
+  );
 }
 
 /** The durable store enriches the shared rendering vocabulary with ordering and
@@ -788,11 +890,19 @@ function ThreadedApp({ url }: { url: UrlState }) {
     openThreadAbortRef.current = controller;
     const t = await apiGetThread(id, controller.signal);
     if (controller.signal.aborted || epoch !== openThreadEpochRef.current) return;
+    // Do not mount a writable empty chat for an unverified durable thread. A
+    // transient GET/JSON/network failure is not an empty history; keeping the
+    // prior verified thread (or the loading surface on first open) prevents a
+    // new admission from hiding its existing messages and pending work.
+    if (!t) {
+      setKickoffFor(null);
+      return;
+    }
     setActiveId(id);
     setActiveThread(t);
     setPins(t?.routing ?? null);
     setTranscriptSession(null);
-    setKickoffFor(opts?.kickoff && (!t || t.messages.length === 0) ? id : null);
+    setKickoffFor(opts?.kickoff && shouldArmDiscussKickoff(t) ? id : null);
     setSidebarOpen(false);
   }, []);
 
@@ -963,16 +1073,11 @@ function ThreadedApp({ url }: { url: UrlState }) {
 
   const history = useMemo(() => {
     if (!activeThread) return [] as HistoryExchange[];
-    const h: HistoryExchange[] = toHistory(
+    return toHistory(
       activeThread.messages,
       activeThread.sessionEvents,
       [...(activeThread.inputReceipts ?? []), ...(activeThread.pendingInputs ?? [])]
     );
-    // A reopened Discuss thread's first exchange is the auto-sent kickoff instruction -
-    // hide its user bubble so the transcript starts with the Discuss duty's question, not the prompt.
-    const isDiscuss = activeThread.source === "discuss";
-    if (isDiscuss && h.length > 0) h[0] = { ...h[0], hideUser: true };
-    return h;
   }, [activeThread]);
   // Show a prominent Back button for a host-opened Discuss (Kanban / Automations set a
   // returnLabel). Clicking it returns to the page the user came from via history.back().
@@ -1027,7 +1132,15 @@ function ThreadedApp({ url }: { url: UrlState }) {
   useEffect(() => {
     if (kickoff) setKickoffFor(null);
   }, [kickoff]);
-  const refreshAfterResume = useCallback(async ({ recovery }: { recovery: boolean }) => {
+  const refreshAfterResume = useCallback(async ({
+    recovery,
+    paintedInputIds,
+    paintedClientRequestIds,
+  }: {
+    recovery: boolean;
+    paintedInputIds: readonly string[];
+    paintedClientRequestIds: readonly string[];
+  }) => {
     if (!activeId) return;
     if (recovery) recoveryPendingRef.current = activeId;
     const activityEpoch = activityEpochRef.current;
@@ -1039,9 +1152,16 @@ function ThreadedApp({ url }: { url: UrlState }) {
       if (!current || current.id !== fresh.id) return current;
       // A normal follower terminal was already reduced into ClaudeChat. Keep that
       // component mounted so an in-flight spoken reply, focus, and local controls
-      // survive the durable metadata refresh. Only missed/empty/malformed replay
-      // paths need to rebuild child history from disk.
-      if (shouldRemountAfterResume(current, fresh, needsRecovery)) {
+      // survive the durable metadata refresh. Missed/empty/malformed replay and
+      // durable coordinates owned by another client rebuild child history from
+      // disk; exact inputs painted by this transport do not.
+      if (shouldRemountAfterResume(
+        current,
+        fresh,
+        needsRecovery,
+        paintedInputIds,
+        paintedClientRequestIds,
+      )) {
         setHistoryRev((r) => r + 1);
       }
       if (recoveryPendingRef.current === activeId) recoveryPendingRef.current = null;
@@ -1056,6 +1176,16 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const transport = useMemo(() => {
     const resumedSince = activeThread?.runningSince ?? null;
     const hasPendingInputs = Boolean(activeThread?.pendingInputs?.length);
+    // Inputs already present at hydration are painted by resume; inputs admitted
+    // through this exact transport are painted by its follower. This closure is
+    // intentionally per transport/thread so a different browser's input can
+    // never be mistaken for a locally reconciled turn.
+    const paintedInputIds = new Set(
+      (activeThread?.pendingInputs ?? []).map((input) => input.inputId),
+    );
+    const paintedClientRequestIds = new Set(
+      (activeThread?.pendingInputs ?? []).map((input) => input.clientRequestId),
+    );
     const t = createOrchestratorTransport("/api", activeId ?? undefined, {
       resumeOnConnect: hasPendingInputs,
       initialInputRevision: activeThread?.inputRevision,
@@ -1077,8 +1207,21 @@ function ThreadedApp({ url }: { url: UrlState }) {
           busySinceRef.current = Number.isFinite(started) ? started : Date.now();
         }
       },
-      onResumeSettled(result) { void refreshAfterResume(result); },
+      onResumeSettled(result) {
+        void refreshAfterResume({
+          ...result,
+          paintedInputIds: [...paintedInputIds],
+          paintedClientRequestIds: [...paintedClientRequestIds],
+        });
+      },
     });
+    const sendMessage = t.sendMessage;
+    t.sendMessage = async (message, meta) => {
+      if (meta?.clientRequestId?.trim()) paintedClientRequestIds.add(meta.clientRequestId.trim());
+      const receipt = await sendMessage(message, meta);
+      if (receipt?.inputId) paintedInputIds.add(receipt.inputId);
+      return receipt;
+    };
     return t;
   }, [activeId, activeThread?.runningSince, activeThread?.inputRevision, refreshAfterResume]);
 
@@ -1213,7 +1356,6 @@ function ThreadedApp({ url }: { url: UrlState }) {
             composerAdornment={voiceAdornment}
             context={ctx}
             initialMessage={kickoff}
-            initialMessageHidden={Boolean(kickoff)}
             initialHistory={history}
             onTurnComplete={() => { void onTurnSettled(); void checkBriefAfterTurn(); }}
             transcriptUrl={activeId ? `/api/session-stream?thread=${encodeURIComponent(activeId)}` : undefined}
@@ -1445,7 +1587,11 @@ function App() {
   // Explicit ?console=1: the rich operative console (live PTY surface).
   return (
     <>
-      <ClaudeChat transport={createHttpTransport("/api", { uploads: true })} title="Operative" composerAdornment={voiceAdornment} />
+      <ClaudeChat
+        transport={createHttpTransport("/api", { uploads: true })}
+        title="Shared operative console"
+        composerAdornment={voiceAdornment}
+      />
       <PushEnroller />
     </>
   );

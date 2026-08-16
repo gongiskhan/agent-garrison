@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs routing layer
-import { RoutedGateway, createRoutedGateway, resolvePrimaryAdapter } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+import { RoutedGateway, createRoutedGateway, resolveClassifierAdapter, resolvePrimaryAdapter } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs
 import { planSwitch } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
 // @ts-ignore — pure .mjs package
@@ -311,6 +311,54 @@ describe("S2a.2b — adapter-resume retires the old operative cleanly (codex fin
 });
 
 describe("S2a.3 — classifier resolution per primary engine", () => {
+  it("agent-sdk classifier strips the operative's fixed prompt/tool assembly and stays pure lean", () => {
+    const adapter = { id: "agent-sdk" };
+    const classifier = resolveClassifierAdapter({
+      primaryEngine: "agent-sdk",
+      primary: {
+        adapter,
+        claude: false,
+        spawnConfig: {
+          provider: "anthropic",
+          model: "sonnet",
+          compositionDir: "/work",
+          appendSystemPrompt: "operative-only sentinel",
+          leanPrompt: "operative-lean sentinel",
+          fixedAssembly: { systemPrompt: "operative-fixed sentinel" },
+          systemPrompt: "operative-system sentinel",
+          settingSources: ["project"],
+          tools: ["Read"],
+          allowedTools: ["Read"],
+          disallowedTools: ["WebSearch"],
+          mcpServers: { operative: { command: "sentinel" } },
+          strictMcpConfig: true,
+          budgetTokens: 99,
+          streamingInput: true,
+          compactEnabled: true,
+        },
+      },
+      classifierSpawnConfig: { model: "haiku" },
+      opts: {},
+    });
+
+    expect(classifier.adapter).toBe(adapter);
+    expect(classifier.spawnConfig).toMatchObject({
+      provider: "anthropic",
+      model: "haiku",
+      compositionDir: "/work",
+      promptMode: "lean",
+      maxTurns: 1,
+      thinking: { type: "disabled" },
+    });
+    for (const operativeOnly of [
+      "appendSystemPrompt", "leanPrompt", "fixedAssembly", "systemPrompt", "settingSources", "tools",
+      "allowedTools", "disallowedTools", "mcpServers", "strictMcpConfig", "budgetTokens",
+      "streamingInput", "compactEnabled",
+    ]) {
+      expect(classifier.spawnConfig).not.toHaveProperty(operativeOnly);
+    }
+  });
+
   it("agent-sdk primary → classifier runs LEAN on the same engine (no PTY), even with claude-code absent", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "gar-s2a-classifier-"));
     const fakePrimary: any = { id: "agent-sdk", spawn: async () => ({ alive: true }) };

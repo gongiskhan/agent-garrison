@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, existsSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import net from "node:net";
 // @ts-ignore — pure .mjs routing layer
 import { AGENT_SDK_SESSION_CAP, createRoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
@@ -552,6 +553,7 @@ describe("/chat/stream structured Agent SDK event forwarding", () => {
     const visionCallScript = join(dir, "vision-call.mjs");
     const visionImage = join(dir, "vision-image.bin");
     const visionStarted = join(dir, "vision-started");
+    const operativeMessages = join(dir, "operative-messages.jsonl");
     const claudeProjectsDir = join(dir, "claude-projects");
     const transcriptDir = join(claudeProjectsDir, dir.replace(/[/.]/g, "-"));
     const stderr: string[] = [];
@@ -588,11 +590,15 @@ process.stdout.write(JSON.stringify({ ok: true, text: "vision completed" }));
       writeGatewayV4ExecutionModel(dir, kanbanRoot);
       writeFileSync(
         runtimeStub,
-        `class StubSession {
+        `import fs from "node:fs";
+class StubSession {
   constructor(config) { this.config = config; this.disposed = false; this.handle = {}; }
   async runTurn({ message }) {
     if (/routing classifier/i.test(String(message))) {
       return { reply: JSON.stringify({ taskType: "other", tier: "T0-trivial", matchedException: null }), sessionId: "classifier" };
+    }
+    if (/web console exact bytes probe/i.test(String(message))) {
+      fs.appendFileSync(process.env.GARRISON_TEST_OPERATIVE_MESSAGES, JSON.stringify({ message }) + "\\n");
     }
     return { reply: "operative unused", sessionId: "operative" };
   }
@@ -609,7 +615,8 @@ export async function spawnFn(config) { return new StubSession(config); }
       );
       writeFileSync(
         join(agentSdkDir, "lib", "agent-sdk-adapter.mjs"),
-        `import fs from "node:fs";
+        `export { resolveRoutedAgentSdkAssembly } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs")).href)};
+import fs from "node:fs";
 import path from "node:path";
 let nextSession = 0;
 export class AgentSdkAdapter {
@@ -735,6 +742,7 @@ export class AgentSdkAdapter {
           GARRISON_AGENT_SDK_DIR: agentSdkDir,
           GARRISON_CALL_SCRIPT: visionCallScript,
           GARRISON_TEST_VISION_STARTED: visionStarted,
+          GARRISON_TEST_OPERATIVE_MESSAGES: operativeMessages,
           GARRISON_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
           GARRISON_TEST_TRANSCRIPT_DIR: transcriptDir,
           GARRISON_GATEWAY_RUNTIME_STUB: runtimeStub,
@@ -747,6 +755,28 @@ export class AgentSdkAdapter {
       child.stderr?.on("data", (chunk) => stderr.push(String(chunk)));
       await waitForGateway(port, child, stderr);
 
+      // The rich console is an explicit view onto the standing operative, not a
+      // generated/routed Web thread. Preserve every admitted byte and bypass all
+      // route, duty, skill, workflow, and carryover prompt annotations.
+      const exactConsoleMessage = " \tweb console exact bytes probe\r\nline two  \n";
+      const consoleResponse = await fetch(`http://127.0.0.1:${port}/claude/message`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: exactConsoleMessage }),
+      });
+      expect(consoleResponse.status).toBe(202);
+      await expect(consoleResponse.json()).resolves.toEqual({ ack: true });
+      const consoleDeadline = Date.now() + 2_000;
+      while (!existsSync(operativeMessages) && Date.now() < consoleDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(existsSync(operativeMessages)).toBe(true);
+      const admittedConsoleMessages = readFileSync(operativeMessages, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line).message);
+      expect(admittedConsoleMessages).toEqual([exactConsoleMessage]);
+
       const response = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -754,6 +784,7 @@ export class AgentSdkAdapter {
           message: "quick: name the capital of France",
           channel: "web",
           thread: "thread-events",
+          inputId: "input-events",
           turnSeq: 17,
           routing: { target: "sdk-ollama-chat" }
         })
@@ -763,9 +794,18 @@ export class AgentSdkAdapter {
       const streamGenerationId = frames.find((frame) => frame.event === "open")?.data.generationId;
       expect(streamGenerationId).toBeTruthy();
       const sessionEvents = frames.filter((frame) => frame.event === "session_event");
+      const pendingRoute = frames.find((frame) => frame.event === "route");
+      expect(pendingRoute?.data).toMatchObject({
+        route: "sdk-ollama-chat",
+        runtime: "agent-sdk",
+        pending: true,
+      });
+      for (const field of ["sessionDisposition", "sessionBoundaryReason", "sessionEpoch", "spawnSignature"]) {
+        expect(pendingRoute?.data).not.toHaveProperty(field);
+      }
       const routeEvents = sessionEvents.filter((frame) => frame.data.id === `route:${streamGenerationId}`);
-      expect(routeEvents).toHaveLength(2);
-      expect(routeEvents.map((frame) => frame.data.revision)).toEqual([1, 2]);
+      expect(routeEvents).toHaveLength(3);
+      expect(routeEvents.map((frame) => frame.data.revision)).toEqual([1, 2, 3]);
       expect(new Set(routeEvents.map((frame) => frame.data.ts)).size).toBe(1);
       expect(routeEvents.every((frame) => frame.data.order === 0)).toBe(true);
       expect(routeEvents[0].data.blocks).toEqual([
@@ -775,10 +815,21 @@ export class AgentSdkAdapter {
             route: "sdk-ollama-chat",
             runtime: "agent-sdk",
             model: "qwen3:0.6b",
+          }),
+        }),
+      ]);
+      expect(routeEvents[0].data.blocks[0].attribution).not.toHaveProperty("sessionDisposition");
+      expect(routeEvents[0].data.blocks[0].attribution).not.toHaveProperty("sessionEpoch");
+      expect(routeEvents[0].data.blocks[0].attribution).not.toHaveProperty("spawnSignature");
+      expect(routeEvents[1].data.blocks).toEqual([
+        expect.objectContaining({
+          type: "route",
+          attribution: expect.objectContaining({
             sessionDisposition: "new",
             sessionBoundaryReason: "initial",
             sessionEpoch: 1,
-            spawnSignature: {
+            spawnSignature: expect.objectContaining({
+              version: 2,
               target: "sdk-ollama-chat",
               runtime: "agent-sdk",
               provider: "ollama-local",
@@ -786,11 +837,12 @@ export class AgentSdkAdapter {
               account: null,
               accountSource: null,
               projectPath: null,
-            },
+              assembly: expect.stringMatching(/^a1:[a-f0-9]{64}$/),
+            }),
           }),
         }),
       ]);
-      expect(routeEvents[1].data.blocks[0].attribution.sessionId).toMatch(/^sdk-stream-session-/);
+      expect(routeEvents[2].data.blocks[0].attribution.sessionId).toMatch(/^sdk-stream-session-/);
       const runtimeSessionEvents = sessionEvents.filter((frame) => /^evt-/.test(frame.data.id));
       expect(runtimeSessionEvents.map((frame) => frame.data)).toEqual([
         { id: "evt-1", type: "block_delta", turnId: "17", block: { type: "text", text: "alpha" }, nested: { keep: [1, "two", false] }, generationId: streamGenerationId },
@@ -828,8 +880,8 @@ export class AgentSdkAdapter {
         spawnSignature: expect.objectContaining({ target: "sdk-ollama-chat", model: "qwen3:0.6b" }),
       });
 
-      // The Web server supplies materialized durable history on every request,
-      // but the standing Query needs it only when its SDK session is cold.
+      // Legacy callers may still try to send `context`; the gateway ignores it.
+      // First, warm, restart-boundary, and resume paths all preserve user bytes.
       let contextRouteSession: any = null;
       const contextTurn = async (
         message: string,
@@ -845,6 +897,7 @@ export class AgentSdkAdapter {
             context,
             channel: "web",
             thread: "thread-context-continuity",
+            inputId: `input-context-${turnSeq}`,
             turnSeq,
             routing: { target: "sdk-ollama-chat" },
             ...(contextRouteSession ? { routeSession: contextRouteSession } : {}),
@@ -856,13 +909,14 @@ export class AgentSdkAdapter {
         contextRouteSession = { epoch: done.sessionEpoch, signature: done.spawnSignature };
         return done;
       };
+      const exactFirstContextMessage = " \tquick: gateway context continuity probe first\n ";
       const firstContext = await contextTurn(
-        "quick: gateway context continuity probe first",
+        exactFirstContextMessage,
         "durable context before first",
         171,
       );
       expect(firstContext).toMatchObject({
-        reply: "durable context before first\n\n---\n\nquick: gateway context continuity probe first",
+        reply: exactFirstContextMessage,
         sessionDisposition: "new",
         sessionBoundaryReason: "initial",
         sessionEpoch: 1,
@@ -885,15 +939,22 @@ export class AgentSdkAdapter {
         { agentSdkNewGeneration: true },
       );
       expect(recoveryContext).toMatchObject({
-        reply:
-          "durable context excluding uncertain turn\n\n---\n\n" +
-          "quick: gateway context continuity probe after durable barrier",
+        reply: "quick: gateway context continuity probe after durable barrier",
         sessionDisposition: "new",
         sessionBoundaryReason: "restart-recovery",
         sessionEpoch: 2,
       });
 
-      const resumeTurn = async (thread: string, model: string, turnSeq: number) => {
+      const compatibleResumeRouteSession = {
+        epoch: frames[done].data.sessionEpoch,
+        signature: frames[done].data.spawnSignature,
+      };
+      const resumeTurn = async (
+        thread: string,
+        model: string,
+        turnSeq: number,
+        routeSession?: Record<string, unknown>,
+      ) => {
         const resumeResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -902,8 +963,10 @@ export class AgentSdkAdapter {
             context: "durable history already stored by the SDK",
             channel: "web",
             thread,
+            inputId: `input-resume-${turnSeq}`,
             turnSeq,
             routing: { target: "sdk-ollama-chat" },
+            ...(routeSession ? { routeSession } : {}),
             agentSdkResume: {
               sessionId: "persisted-native-session",
               route: "sdk-ollama-chat",
@@ -914,6 +977,7 @@ export class AgentSdkAdapter {
               account: null,
               accountSource: null,
               projectPath: null,
+              spawnSignature: compatibleResumeRouteSession.signature,
             },
           }),
         });
@@ -921,23 +985,33 @@ export class AgentSdkAdapter {
         const resumeFrames = parseSse(await resumeResponse.text());
         return resumeFrames.find((frame) => frame.event === "done")?.data;
       };
-      const nativeResume = await resumeTurn("thread-native-resume", "qwen3:0.6b", 173);
+      // M7 native resume is accepted only when the host also supplies the exact
+      // signed route/assembly identity. A legacy journal id on its own cannot
+      // prove that system prompt, tools, MCP, and settings remain compatible.
+      const nativeResume = await resumeTurn(
+        "thread-native-resume",
+        "qwen3:0.6b",
+        173,
+        compatibleResumeRouteSession,
+      );
       expect(nativeResume).toMatchObject({
         reply: "quick: gateway context continuity probe resume 173",
         session_id: "persisted-native-session",
       });
 
+      const legacyResume = await resumeTurn("thread-legacy-resume", "qwen3:0.6b", 174);
+      expect(legacyResume.reply).toBe("quick: gateway context continuity probe resume 174");
+      expect(legacyResume.session_id).not.toBe("persisted-native-session");
+
       // A model mismatch is an explicit new conversation generation. The old
-      // journal id is ignored and coldStartContext remains the continuity seam.
-      const incompatibleResume = await resumeTurn("thread-incompatible-resume", "other-model", 174);
-      expect(incompatibleResume.reply).toBe(
-        "durable history already stored by the SDK\n\n---\n\nquick: gateway context continuity probe resume 174",
-      );
+      // journal id is ignored and the new boundary keeps the admitted text exact.
+      const incompatibleResume = await resumeTurn("thread-incompatible-resume", "other-model", 175);
+      expect(incompatibleResume.reply).toBe("quick: gateway context continuity probe resume 175");
       expect(incompatibleResume.session_id).not.toBe("persisted-native-session");
 
       // A dead Web owner can leave a standing Query with non-durable input in its
       // journal. Exact recovery must stop it, hold the generation through cache
-      // teardown, and tombstone that journal so the successor cold-materializes.
+      // teardown, and tombstone that journal so the successor starts clean.
       const recoveryBaseResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1035,14 +1109,13 @@ export class AgentSdkAdapter {
             account: null,
             accountSource: null,
             projectPath: null,
+            spawnSignature: recoveryBaseDone.spawnSignature,
           },
         }),
       });
       const successorDone = parseSse(await successorResponse.text())
         .find((frame) => frame.event === "done")!.data;
-      expect(successorDone.reply).toBe(
-        "durable history excluding orphan\n\n---\n\nquick: gateway context continuity probe recovery successor",
-      );
+      expect(successorDone.reply).toBe("quick: gateway context continuity probe recovery successor");
       expect(successorDone.session_id).not.toBe(recoveryBaseDone.session_id);
 
       // Full control-plane proof over the real child gateway: callback
@@ -1055,6 +1128,7 @@ export class AgentSdkAdapter {
           message: "quick: permission flow",
           channel: "web",
           thread: "thread-permission",
+          inputId: "input-permission",
           turnSeq: 18,
           routing: { target: "sdk-ollama-chat" }
         })
@@ -1142,6 +1216,7 @@ export class AgentSdkAdapter {
           message: `quick: question stream ${owner}`,
           channel: "web",
           thread: `thread-question-${owner.toLowerCase()}`,
+          inputId: `input-question-${owner.toLowerCase()}`,
           turnSeq: owner === "A" ? 30 : 31,
           dutyKey: `CARD-${owner}:discuss`,
           routing: { target: "sdk-ollama-chat" },
@@ -1221,6 +1296,7 @@ export class AgentSdkAdapter {
           message: "quick: second direct turn",
           channel: "web",
           thread: "thread-overlap",
+          inputId: "input-overlap-second",
           turnSeq: 20,
           routing: { target: "sdk-ollama-chat" },
         }),
@@ -1254,6 +1330,18 @@ export class AgentSdkAdapter {
       latchedRaw += latchedDecoder.decode();
       const latchedFrames = parseSse(latchedRaw);
       expect(latchedFrames.find((frame) => frame.event === "error")).toBeUndefined();
+      for (const frame of latchedFrames.filter((candidate) => candidate.event === "route")) {
+        expect(frame.data.sessionDisposition ?? null).toBeNull();
+        expect(frame.data.sessionEpoch ?? null).toBeNull();
+        expect(frame.data.spawnSignature ?? null).toBeNull();
+      }
+      for (const frame of latchedFrames.filter((candidate) => candidate.event === "session_event")) {
+        const route = frame.data?.blocks?.find((block: any) => block?.type === "route");
+        if (!route) continue;
+        expect(route.attribution).not.toHaveProperty("sessionDisposition");
+        expect(route.attribution).not.toHaveProperty("sessionEpoch");
+        expect(route.attribution).not.toHaveProperty("spawnSignature");
+      }
       expect(latchedFrames.find((frame) => frame.event === "done")?.data).toMatchObject({
         generationId: latchedOpen.data.generationId,
         stoppedByUser: true,
@@ -1324,6 +1412,7 @@ export class AgentSdkAdapter {
           message: "quick: inspect this image",
           channel: "web",
           thread: "thread-vision-stop",
+          inputId: "input-vision-stop",
           turnSeq: 21,
           images: [visionImage],
           routing: { target: "sdk-ollama-chat" },

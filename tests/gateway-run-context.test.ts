@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -27,6 +28,14 @@ import { writeGatewayV4ExecutionModel } from "./helpers/gateway-v4-fixture";
 import { sanitizeSessionEvent as sanitizeWebSessionEvent } from "../fittings/seed/web-channel-default/scripts/threads.mjs";
 // @ts-ignore — pure .mjs routing layer, no .d.ts
 import { applyTurnOverride, effortControllable, listVaultAccounts, resolveVaultAccount, readMaterializedSecrets, anthropicAccountEnv, createRoutedGateway, RoutedGateway, TURN_EFFORTS, AGENT_SDK_SESSION_CAP, normalizeFailureInfo } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+// @ts-ignore — pure .mjs adapter assembly resolver
+import { resolveRoutedAgentSdkAssembly } from "../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs";
+// @ts-ignore — shared harness constants prove the gateway has no divergent copy
+import { BUILTIN_TOOLS, LEAN_SYSTEM_PROMPT } from "../fittings/seed/agent-sdk-runtime/lib/harness.mjs";
+// @ts-ignore — provider-policy launch helpers are plain ESM.
+import { buildRespawnOpts } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
+// @ts-ignore — provider registry migration helper is plain ESM.
+import { ensureProviders } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
 
 const ROOT = path.resolve(__dirname, "..");
 const AGENT_SDK_STUB = path.join(ROOT, "tests", "fixtures", "gateway-agent-sdk-runtime");
@@ -102,6 +111,90 @@ function preFixture(overrides: Record<string, unknown> = {}) {
     ...overrides
   };
 }
+
+describe("routedClaudeMessage — Web text authority and internal routing prefixes (M7)", () => {
+  const routing = new RoutedGateway();
+
+  it("returns Web input byte-for-byte, without annotation or workflow instructions", () => {
+    const message = "  leading whitespace\nexact middle\r\ntrailing whitespace \t";
+    const pre = preFixture({
+      annotation: "[ANNOTATION-MUST-NOT-LEAK]",
+      route: {
+        targetId: "cc-sonnet-med",
+        target: { id: "cc-sonnet-med", type: "runtime-target", runtime: "claude-code", model: "sonnet" },
+      },
+    });
+
+    expect(gw.routedClaudeMessage(pre, message, { channel: "web" })).toBe(message);
+  });
+
+  it("fails a Web workflow target with the typed control-plane routing error", () => {
+    const pre = preFixture({
+      route: {
+        targetId: "workflow:weekly-review",
+        target: { type: "workflow", workflow: "weekly-review" },
+      },
+    });
+    let thrown: any;
+    try {
+      gw.routedClaudeMessage(pre, "run this", { channel: "web" }, routing);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "web_workflow_control_unavailable",
+      kind: "routing",
+      source: "gateway",
+      retryable: false,
+    });
+  });
+
+  it("fails a Web skill route with the typed control-plane routing error", () => {
+    const pre = preFixture({ skill: "garrison-review" });
+    let thrown: any;
+    try {
+      gw.routedClaudeMessage(pre, "run this", { channel: "web" }, routing);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "web_skill_control_unavailable",
+      kind: "routing",
+      source: "gateway",
+      retryable: false,
+    });
+  });
+
+  it("fails a legacy Web skill hint even when preRoute did not copy it onto the route", () => {
+    expect(() => gw.routedClaudeMessage(
+      preFixture({ skill: null }),
+      "run this",
+      { channel: "web", skill: "garrison-review" },
+      routing,
+    )).toThrowError(expect.objectContaining({
+      code: "web_skill_control_unavailable",
+      kind: "routing",
+    }));
+  });
+
+  it("keeps the legacy annotation and workflow prefix for non-Web internal routes", () => {
+    const message = "  internal request  ";
+    const pre = preFixture({
+      annotation: "[LEGACY-ANNOTATION]",
+      route: {
+        targetId: "workflow:weekly-review",
+        target: { type: "workflow", workflow: "weekly-review" },
+      },
+    });
+
+    const routed = gw.routedClaudeMessage(pre, message, { channel: "kanban" }, routing);
+    expect(routed).toContain("[LEGACY-ANNOTATION]\n");
+    expect(routed).toContain("[workflow: weekly-review]");
+    expect(routed.endsWith(message)).toBe(true);
+  });
+});
 
 describe("turnAttribution — the run context the gateway always knew and never reported (§6)", () => {
   it("reports duty, level, phase, skill, via, project, turnSeq and the override bookkeeping", () => {
@@ -233,10 +326,11 @@ describe("routeFieldsFrom — the pre-turn frame carries only what is already kn
   });
 
   it("additively refines the pending frame with a journal identity", () => {
-    expect(gw.pendingRouteFrame(preFixture(), { turnSeq: 4 }, {
+    const pending = gw.pendingRouteFrame(preFixture(), { turnSeq: 4 }, {
       session_id: "sdk-live",
       transcript_path: "/opaque/projects/sdk-live.jsonl"
-    })).toMatchObject({
+    });
+    expect(pending).toMatchObject({
       route: "cc-sonnet-med",
       runtime: "claude-code",
       pending: true,
@@ -244,6 +338,9 @@ describe("routeFieldsFrom — the pre-turn frame carries only what is already kn
       session_id: "sdk-live",
       transcript_path: "/opaque/projects/sdk-live.jsonl"
     });
+    for (const field of ["sessionDisposition", "sessionBoundaryReason", "sessionEpoch", "spawnSignature"]) {
+      expect(pending).not.toHaveProperty(field);
+    }
   });
 });
 
@@ -373,6 +470,17 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
   });
 
   it("accepts only a complete exact Agent SDK resume attribution and rejects incompatible generations", () => {
+    const spawnSignature = {
+      version: 2,
+      target: "sdk-haiku-chat",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      account: "work",
+      accountSource: "target",
+      projectPath: "/work/project",
+      assembly: `a1:${"a".repeat(64)}`,
+    };
     const candidate = {
       sessionId: "resume-session-1",
       route: "sdk-haiku-chat",
@@ -383,6 +491,7 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
       account: "work",
       accountSource: "target",
       projectPath: "/work/project",
+      spawnSignature,
     };
     expect(gw.sanitizeAgentSdkResume(candidate)).toEqual(candidate);
     expect(gw.routeHintsFromBody({ agentSdkResume: candidate }).agentSdkResume).toEqual(candidate);
@@ -394,12 +503,20 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
       { ...candidate, runtime: "claude-code" },
       { ...candidate, effort: "ultra" },
       { ...candidate, projectPath: "relative/project" },
+      { ...candidate, spawnSignature: { ...spawnSignature, assembly: "a1:not-a-digest" } },
+      { ...candidate, spawnSignature: { ...spawnSignature, model: "claude-sonnet-4-6" } },
+      {
+        ...candidate,
+        spawnSignature: Object.fromEntries(
+          Object.entries(spawnSignature).filter(([key]) => !["version", "assembly"].includes(key)),
+        ),
+      },
       Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== "accountSource")),
     ]) {
       expect(gw.sanitizeAgentSdkResume(malformed)).toBe(null);
     }
 
-    const pre = preFixture({
+    const pre: any = preFixture({
       projectPath: "/work/project",
       route: {
         targetId: "sdk-haiku-chat",
@@ -414,16 +531,33 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
         role: "fast",
       },
     });
+    pre.agentSdkAssembly = { digest: spawnSignature.assembly };
+    pre.routeSession = gw.resolveRouteSession(pre, {
+      routeSession: { epoch: 4, signature: spawnSignature },
+    });
+    expect(pre.routeSession).toMatchObject({ epoch: 4, disposition: "warm", boundaryReason: null });
     expect(gw.compatibleAgentSdkResumeSessionId(candidate, pre, {})).toBe("resume-session-1");
     expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, model: "claude-sonnet-4-6" }, pre, {})).toBe(null);
     expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, account: "personal" }, pre, {})).toBe(null);
     expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, projectPath: "/work/other" }, pre, {})).toBe(null);
     // Effort rotates the Query but remains the same logical journal/signature.
     expect(gw.compatibleAgentSdkResumeSessionId({ ...candidate, effort: "low" }, pre, {})).toBe("resume-session-1");
+
+    // S completed under assembly A. A later turn resolved assembly B and
+    // durably advanced routeSession, but failed before it could nominate a new
+    // completed session. A cold gateway must reject S rather than resume A's
+    // journal under B's prompt/tools/MCP/permission assembly.
+    const spawnSignatureB = { ...spawnSignature, assembly: `a1:${"b".repeat(64)}` };
+    pre.agentSdkAssembly = { digest: spawnSignatureB.assembly };
+    pre.routeSession = gw.resolveRouteSession(pre, {
+      routeSession: { epoch: 5, signature: spawnSignatureB },
+    });
+    expect(pre.routeSession).toMatchObject({ epoch: 5, disposition: "warm", boundaryReason: null });
+    expect(gw.compatibleAgentSdkResumeSessionId(candidate, pre, {})).toBe(null);
   });
 
   it("accepts only an exact durable routeSession and computes stable/boundary epochs", () => {
-    const signature = {
+    const legacySignature = {
       target: "sdk-haiku-chat",
       runtime: "agent-sdk",
       provider: "anthropic",
@@ -432,8 +566,14 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
       accountSource: null,
       projectPath: "/work/project",
     };
+    const assembly = `a1:${"a".repeat(64)}`;
+    const signature = { version: 2, ...legacySignature, assembly };
     const hint = { epoch: 4, signature };
     expect(gw.sanitizeRouteSession(hint)).toEqual(hint);
+    expect(gw.sanitizeRouteSession({ epoch: 3, signature: legacySignature })).toEqual({
+      epoch: 3,
+      signature: legacySignature,
+    });
     expect(gw.routeHintsFromBody({ routeSession: hint }).routeSession).toEqual(hint);
     expect(gw.sanitizeRouteSession({ ...hint, extra: true })).toBe(null);
     expect(gw.sanitizeRouteSession({ epoch: 0, signature })).toBe(null);
@@ -451,6 +591,7 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
         },
         role: "fast",
       },
+      agentSdkAssembly: { digest: assembly },
     });
     expect(gw.resolveRouteSession(pre, {})).toMatchObject({
       epoch: 1,
@@ -468,8 +609,121 @@ describe("sanitizeRouting — invalid pins are dropped AND recorded (§3)", () =
     expect(gw.resolveRouteSession(pre, {
       routeSession: { epoch: 4, signature: { ...signature, model: "claude-sonnet-4-6" } },
     })).toMatchObject({ epoch: 5, boundaryReason: "spawn-signature-changed", disposition: "new" });
+    pre.agentSdkAssembly = { digest: `a1:${"b".repeat(64)}` };
+    expect(gw.resolveRouteSession(pre, { routeSession: hint })).toMatchObject({
+      epoch: 5,
+      boundaryReason: "spawn-signature-changed",
+      disposition: "new",
+      signature: expect.objectContaining({ assembly: `a1:${"b".repeat(64)}` }),
+    });
+    pre.agentSdkAssembly = { digest: assembly };
     expect(gw.resolveRouteSession(pre, { routeSession: hint, agentSdkNewGeneration: true }))
       .toMatchObject({ epoch: 5, boundaryReason: "restart-recovery", disposition: "new" });
+
+    const statelessWeb = preFixture({
+      route: {
+        targetId: "sec-codex",
+        target: {
+          id: "sec-codex",
+          runtime: "codex",
+          provider: "openai",
+          model: "gpt-5-codex",
+        },
+      },
+    });
+    const firstStateless = gw.resolveRouteSession(statelessWeb, { channel: "web" });
+    expect(firstStateless).toMatchObject({
+      epoch: 1,
+      boundaryReason: "initial",
+      disposition: "new",
+    });
+    expect(gw.resolveRouteSession(statelessWeb, {
+      channel: "web",
+      routeSession: { epoch: firstStateless.epoch, signature: firstStateless.signature },
+    })).toMatchObject({
+      epoch: 2,
+      boundaryReason: "stateless-runtime",
+      disposition: "new",
+    });
+
+    const controlOnlyPre = {
+      ...pre,
+      routeSession: gw.resolveRouteSession(pre, { routeSession: hint }),
+    };
+    const controlAttribution = gw.controlTurnAttribution(controlOnlyPre, { channel: "web" }, {
+      card: "control-card",
+    });
+    expect(controlAttribution).toMatchObject({ card: "control-card" });
+    expect(controlAttribution).not.toHaveProperty("sessionDisposition");
+    expect(controlAttribution).not.toHaveProperty("sessionBoundaryReason");
+    expect(controlAttribution).not.toHaveProperty("sessionEpoch");
+    expect(controlAttribution).not.toHaveProperty("spawnSignature");
+
+    // The configured target is Agent SDK, but an image on ollama-local is
+    // executed by the native one-shot vision lane. Its durable status must name
+    // the runtime that actually owns continuity: there is no warm Query to reuse.
+    const nativeVisionWeb = preFixture({
+      route: {
+        targetId: "sdk-ollama-chat",
+        target: {
+          id: "sdk-ollama-chat",
+          runtime: "agent-sdk",
+          provider: "ollama-local",
+          model: "qwen3:0.6b",
+        },
+      },
+      agentSdkAssembly: { digest: assembly },
+    });
+    const firstVision = gw.resolveRouteSession(nativeVisionWeb, {
+      channel: "web",
+      images: ["/tmp/bounded-vision-fixture.png"],
+    });
+    expect(firstVision).toMatchObject({
+      epoch: 1,
+      boundaryReason: "initial",
+      disposition: "new",
+      signature: {
+        target: "sdk-ollama-chat",
+        runtime: "ollama-native",
+        provider: "ollama-local",
+        model: "qwen3:0.6b",
+      },
+    });
+    expect(firstVision.signature).not.toHaveProperty("assembly");
+    expect(gw.resolveRouteSession(nativeVisionWeb, {
+      channel: "web",
+      images: ["/tmp/bounded-vision-fixture.png"],
+      routeSession: { epoch: firstVision.epoch, signature: firstVision.signature },
+    })).toMatchObject({
+      epoch: 2,
+      boundaryReason: "stateless-runtime",
+      disposition: "new",
+    });
+
+    const textSdk = gw.resolveRouteSession(nativeVisionWeb, { channel: "web" });
+    expect(textSdk.signature).toMatchObject({
+      version: 2,
+      runtime: "agent-sdk",
+      assembly,
+    });
+    const visionAfterText = gw.resolveRouteSession(nativeVisionWeb, {
+      channel: "web",
+      images: ["/tmp/bounded-vision-fixture.png"],
+      routeSession: { epoch: textSdk.epoch, signature: textSdk.signature },
+    });
+    expect(visionAfterText).toMatchObject({
+      epoch: 2,
+      boundaryReason: "spawn-signature-changed",
+      signature: expect.objectContaining({ runtime: "ollama-native" }),
+    });
+    expect(gw.resolveRouteSession(nativeVisionWeb, {
+      channel: "web",
+      routeSession: { epoch: visionAfterText.epoch, signature: visionAfterText.signature },
+    })).toMatchObject({
+      epoch: 3,
+      boundaryReason: "spawn-signature-changed",
+      signature: expect.objectContaining({ runtime: "agent-sdk", assembly }),
+    });
 
     pre.routeSession = gw.resolveRouteSession(pre, {});
     const routeEvents: any[] = [];
@@ -1494,6 +1748,7 @@ function bareGateway(agentSdk: any) {
   gateway.compositionDir = compositionDir;
   gateway.config = CONFIG;
   gateway._agentSdkAdapter = agentSdk;
+  gateway._agentSdkAssemblyResolver = resolveRoutedAgentSdkAssembly;
   gateway._agentSdkSessions = new Map();
   gateway.secrets = null;
   gateway.secretsFn = null;
@@ -1501,6 +1756,114 @@ function bareGateway(agentSdk: any) {
 }
 
 describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, §12)", () => {
+  it("signs and retains one immutable prompt/tool/MCP assembly without leaking raw bytes into cache keys", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const mcp = {
+      garrison: {
+        command: "node",
+        args: ["/private/mcp-sentinel.mjs", "stdio"],
+        env: { SENTINEL: "mcp-secret-sentinel" },
+      },
+    };
+    gateway._agentSdkAppendSystemPrompt = "assembled prompt sentinel";
+    gateway._agentSdkMcpServers = mcp;
+    const route = sdkRoute();
+    (route.target as any).promptMode = "full";
+    (route.target as any).allowedTools = ["Write", "Read", "Write"];
+    (route.target as any).disallowedTools = ["WebSearch"];
+    const assembly = gateway.resolveAgentSdkAssembly(route, {
+      cwd: "/work/project",
+      permissionMode: "default",
+      streamingInput: true,
+    });
+
+    expect(assembly.digest).toMatch(/^a1:[a-f0-9]{64}$/);
+    expect(assembly.config).toMatchObject({
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: "assembled prompt sentinel",
+      },
+      settingSources: [],
+      tools: { type: "preset", preset: "claude_code" },
+      allowedTools: ["Read", "Write"],
+      disallowedTools: ["WebSearch"],
+      mcpServers: mcp,
+      strictMcpConfig: true,
+      permissionMode: "default",
+      compositionDir: "/work/project",
+      streamingInput: true,
+    });
+    expect(Object.isFrozen(assembly.config)).toBe(true);
+    expect(Object.isFrozen(assembly.config.mcpServers.garrison.args)).toBe(true);
+
+    const originalEffort = (route.target as any).effort;
+    (route.target as any).effort = "max";
+    const effortOnly = gateway.resolveAgentSdkAssembly(route, {
+      cwd: "/work/project",
+      permissionMode: "default",
+      streamingInput: true,
+    });
+    expect(effortOnly.digest).toBe(assembly.digest);
+    (route.target as any).effort = originalEffort;
+
+    mcp.garrison.args[0] = "/mutated.mjs";
+    (route.target as any).allowedTools.push("Bash");
+    await gateway.runAgentSdkTurn(route, "exact user text", undefined, {
+      sessionKey: "assembly-thread",
+      generationId: "assembly-generation",
+      streamingInput: true,
+      permissionMode: "default",
+      assembly,
+    });
+    expect(adapter.turns).toEqual(["exact user text"]);
+    expect(adapter.spawned[0]).toMatchObject({
+      fixedAssembly: {
+        systemPrompt: {
+          type: "preset",
+          preset: "claude_code",
+          append: "assembled prompt sentinel",
+        },
+        settingSources: [],
+        tools: { type: "preset", preset: "claude_code" },
+        allowedTools: ["Read", "Write"],
+        mcpServers: { garrison: { args: ["/private/mcp-sentinel.mjs", "stdio"] } },
+        strictMcpConfig: true,
+      },
+    });
+    const cacheIdentity = [...gateway._agentSdkSessions.keys()].join("\n");
+    expect(cacheIdentity).toContain(assembly.digest);
+    expect(cacheIdentity).not.toContain("assembled prompt sentinel");
+    expect(cacheIdentity).not.toContain("mcp-secret-sentinel");
+    expect(cacheIdentity).not.toContain("/private/mcp-sentinel.mjs");
+
+    gateway._agentSdkAppendSystemPrompt = "changed prompt bytes";
+    const changed = gateway.resolveAgentSdkAssembly(route, {
+      cwd: "/work/project",
+      permissionMode: "default",
+      streamingInput: true,
+    });
+    expect(changed.digest).not.toBe(assembly.digest);
+  });
+
+  it("signs the exact lean prompt and complete built-in tool denial with no setting rereads", () => {
+    const gateway = bareGateway(new FakeAgentSdk());
+    gateway._agentSdkAppendSystemPrompt = "lean assembled sentinel";
+    gateway._agentSdkMcpServers = {};
+    const route = sdkRoute();
+    (route.target as any).promptMode = "lean";
+
+    const assembly = gateway.resolveAgentSdkAssembly(route, { cwd: "/work/lean" });
+    expect(assembly.config.systemPrompt).toBe(`${LEAN_SYSTEM_PROMPT}\n\nlean assembled sentinel`);
+    expect(assembly.config.settingSources).toEqual([]);
+    expect(assembly.config.tools).toEqual([]);
+    expect(assembly.config.allowedTools).toEqual([]);
+    expect(assembly.config.disallowedTools).toEqual(BUILTIN_TOOLS);
+    expect(assembly.config.mcpServers).toEqual({});
+    expect(assembly.config.strictMcpConfig).toBe(true);
+  });
+
   it("keys the warm session by CONVERSATION so two threads never share one session_id", async () => {
     const adapter = new FakeAgentSdk();
     const gateway = bareGateway(adapter);
@@ -1512,6 +1875,41 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     expect(again.session_id).toBe(a.session_id);
     // §12: the transcript badge needs a real file for that session.
     expect(a.transcript_path).toContain(`${a.session_id}.jsonl`);
+  });
+
+  it("retires a Query rejected by a latched pre-runtime Stop so the next admitted turn is not warm", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const interrupted = Object.assign(new Error("turn interrupted before runtime start"), {
+      code: "turn_interrupted_before_runtime",
+    });
+    const firstAdmission = vi.fn();
+
+    await expect(gateway.runAgentSdkTurn(sdkRoute(), "must not be admitted", undefined, {
+      sessionKey: "pre-runtime-stop-thread",
+      streamingInput: true,
+      generationId: "pre-runtime-stop-1",
+      registerStop: () => { throw interrupted; },
+      onRuntimeAdmission: firstAdmission,
+    })).rejects.toBe(interrupted);
+
+    expect(firstAdmission).not.toHaveBeenCalled();
+    expect(adapter.turns).toEqual([]);
+    expect(adapter.tornDown).toEqual(["sdk-1"]);
+    expect(gateway._agentSdkSessions.size).toBe(0);
+
+    const observations: any[] = [];
+    const admitted = await gateway.runAgentSdkTurn(sdkRoute(), "first admitted input", undefined, {
+      sessionKey: "pre-runtime-stop-thread",
+      streamingInput: true,
+      generationId: "pre-runtime-stop-2",
+      onRuntimeAdmission: vi.fn(),
+      onRouteSession: (value: any) => observations.push(value),
+    });
+    expect(adapter.spawned).toHaveLength(2);
+    expect(adapter.turns).toEqual(["first admitted input"]);
+    expect(admitted.sessionDisposition).toBe("new");
+    expect(observations[0]?.sessionDisposition).toBe("new");
   });
 
   it("rotates an idle warm standing session when its effective named-account token changes", async () => {
@@ -1533,7 +1931,6 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       streamingInput: true,
       generationId: "credential-generation-2",
       resumeSessionId: first.session_id,
-      coldStartContext: "durable credential-thread history",
     });
 
     expect(adapter.spawned).toHaveLength(2);
@@ -1542,7 +1939,7 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     expect(adapter.cancelled).toEqual([]); // standing Query retirement closes; it does not interrupt
     expect(gateway._agentSdkSessions.size).toBe(1);
     expect(adapter.spawned[1]).not.toHaveProperty("sessionId");
-    expect(adapter.turns.at(-1)).toBe("durable credential-thread history\n\n---\n\nsecond");
+    expect(adapter.turns.at(-1)).toBe("second");
     const cacheIdentity = [...gateway._agentSdkSessions.keys()].join("\n");
     expect(cacheIdentity).not.toContain("token-version-one");
     expect(cacheIdentity).not.toContain("token-version-two");
@@ -1567,7 +1964,6 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       streamingInput: true,
       generationId: "effort-generation-1",
       routeSession: { epoch: 1, signature, boundaryReason: "initial", disposition: "new", hadPrior: false },
-      coldStartContext: "durable before first",
     });
 
     const order: string[] = [];
@@ -1592,7 +1988,6 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       generationId: "effort-generation-2",
       routeSession: { epoch: 1, signature, boundaryReason: null, disposition: "warm", hadPrior: true },
       resumeSessionId: first.session_id,
-      coldStartContext: "durable through first",
       onRouteSession: (value: any) => observations.push(value),
     });
 
@@ -1661,7 +2056,6 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       generationId: "signature-generation-2",
       forceNewSession: true,
       resumeSessionId: first.session_id,
-      coldStartContext: "durable through first",
       routeSession: {
         epoch: 3,
         signature,
@@ -1673,7 +2067,7 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
 
     expect(adapter.tornDown).toContain(first.session_id);
     expect(adapter.spawned.at(-1)).not.toHaveProperty("sessionId");
-    expect(adapter.turns.at(-1)).toBe("durable through first\n\n---\n\nsecond");
+    expect(adapter.turns.at(-1)).toBe("second");
     expect(second).toMatchObject({
       sessionDisposition: "new",
       sessionBoundaryReason: "spawn-signature-changed",
@@ -1841,7 +2235,6 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       streamingInput: true,
       generationId: "generation-process-restart",
       resumeSessionId: "sdk-persisted",
-      coldStartContext: "durable history that native resume already owns",
       onJournal: (identity: any) => journals.push(identity),
     });
 
@@ -1851,7 +2244,7 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     expect(result.session_id).toBe("sdk-resumed-refined");
   });
 
-  it("abandons a recovered SDK journal and cold-materializes the successor", async () => {
+  it("abandons a recovered SDK journal and starts the successor clean", async () => {
     const adapter = new FakeAgentSdk();
     const gateway = bareGateway(adapter);
     let recoverReset: null | (() => Promise<void>) = null;
@@ -1870,10 +2263,9 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       streamingInput: true,
       generationId: "generation-host-recovery-2",
       resumeSessionId: first.session_id,
-      coldStartContext: "durable history excluding orphan",
     });
     expect(adapter.spawned.at(-1)).not.toHaveProperty("sessionId");
-    expect(adapter.turns.at(-1)).toBe("durable history excluding orphan\n\n---\n\nsafe successor");
+    expect(adapter.turns.at(-1)).toBe("safe successor");
     expect(successor.session_id).not.toBe(first.session_id);
   });
 
@@ -1884,7 +2276,6 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       sessionKey: "thread-durable-barrier",
       streamingInput: true,
       generationId: "generation-durable-barrier-1",
-      coldStartContext: "durable before first",
     });
     const successor = await gateway.runAgentSdkTurn(sdkRoute(), "after recovered orphan", undefined, {
       sessionKey: "thread-durable-barrier",
@@ -1892,13 +2283,12 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
       generationId: "generation-durable-barrier-2",
       resumeSessionId: first.session_id,
       forceNewSession: true,
-      coldStartContext: "durable excluding recovered orphan",
     });
 
     expect(adapter.tornDown).toContain(first.session_id);
     expect(adapter.spawned).toHaveLength(2);
     expect(adapter.spawned.at(-1)).not.toHaveProperty("sessionId");
-    expect(adapter.turns.at(-1)).toBe("durable excluding recovered orphan\n\n---\n\nafter recovered orphan");
+    expect(adapter.turns.at(-1)).toBe("after recovered orphan");
     expect(successor.session_id).not.toBe(first.session_id);
   });
 
@@ -1951,23 +2341,19 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     await Promise.all(turns.slice(0, -1));
   });
 
-  it("re-seeds an evicted Web conversation from durable context without duplicating warm history", async () => {
+  it("starts an evicted Web conversation clean without rewriting its admitted messages", async () => {
     const adapter = new FakeAgentSdk();
     const gateway = bareGateway(adapter);
-    const standingTurn = (sessionKey: string, message: string, generationId: string, coldStartContext: string) =>
+    const standingTurn = (sessionKey: string, message: string, generationId: string) =>
       gateway.runAgentSdkTurn(sdkRoute(), message, undefined, {
         sessionKey,
         streamingInput: true,
         generationId,
-        coldStartContext,
       });
 
-    await standingTurn("thread-a", "first", "generation-a-1", "durable A before first");
-    await standingTurn("thread-a", "second", "generation-a-2", "durable A through first");
-    expect(adapter.turns.slice(0, 2)).toEqual([
-      "durable A before first\n\n---\n\nfirst",
-      "second",
-    ]);
+    await standingTurn("thread-a", "first", "generation-a-1");
+    await standingTurn("thread-a", "second", "generation-a-2");
+    expect(adapter.turns.slice(0, 2)).toEqual(["first", "second"]);
 
     // A is the oldest warm entry. Filling the remaining cache plus one evicts it;
     // the next A input therefore owns a fresh standing Query.
@@ -1976,15 +2362,14 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
         `pressure-${index}`,
         `pressure message ${index}`,
         `pressure-generation-${index}`,
-        `durable pressure ${index}`,
       );
     }
     expect(adapter.tornDown).toContain("sdk-1");
 
     const spawnsBeforeReturn = adapter.spawned.length;
-    await standingTurn("thread-a", "third", "generation-a-3", "durable A through second");
+    await standingTurn("thread-a", "third", "generation-a-3");
     expect(adapter.spawned).toHaveLength(spawnsBeforeReturn + 1);
-    expect(adapter.turns.at(-1)).toBe("durable A through second\n\n---\n\nthird");
+    expect(adapter.turns.at(-1)).toBe("third");
   });
 
   it("natively resumes an evicted standing Query and does not duplicate durable context", async () => {
@@ -1995,7 +2380,6 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
         sessionKey,
         streamingInput: true,
         generationId,
-        coldStartContext: `durable ${sessionKey}`,
         ...extra,
       });
 
@@ -2021,7 +2405,6 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
         sessionKey,
         streamingInput: true,
         generationId,
-        coldStartContext: `durable ${sessionKey}`,
         ...extra,
       });
 
@@ -2058,7 +2441,7 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     await overflowing;
 
     expect(resumedSpawn).not.toHaveProperty("sessionId");
-    expect(resumedMessage).toBe("durable release-a\n\n---\n\nafter eviction");
+    expect(resumedMessage).toBe("after eviction");
     expect(resumed.session_id).not.toBe(first.session_id);
   });
 
@@ -2185,6 +2568,65 @@ describe("secondary (codex/gemini) lane: cancel is feature-detected (§9)", () =
 });
 
 describe("web one-shot lane: project → real cwd, account → real env (§6, §8)", () => {
+  it("keeps a policy-selected non-plan provider env and forwards hostile message whitespace exactly", async () => {
+    const calls: any[] = [];
+    const provider = {
+      id: "ollama-local",
+      kind: "local",
+      baseUrl: "http://127.0.0.1:11434",
+      dummyToken: "ollama-test"
+    };
+    const gateway: any = new RoutedGateway({
+      core: { buildRespawnOpts, ensureProviders },
+      config: {
+        providers: [
+          { id: "anthropic-plan", kind: "anthropic-plan", baseUrl: null },
+          provider
+        ]
+      },
+      compositionDir,
+      operativeSpawnConfig: { compositionDir, model: "sonnet", permissionMode: "bypassPermissions" },
+      oneShotFn: async (opts: any) => {
+        calls.push(opts);
+        return { reply: "one-shot reply", sessionId: "provider-os-1", effortApplied: true };
+      }
+    });
+    gateway.secrets = {};
+    const target = {
+      id: "cc-ollama-local",
+      type: "runtime-target",
+      runtime: "claude-code",
+      provider: provider.id,
+      model: "qwen3:8b",
+      effort: "max"
+    };
+    const launch = gateway.resolveWebOneShotLaunch(target);
+    const exactMessage = " \t/effort low must stay user text\r\n--provider anthropic-plan \n ";
+
+    expect(launch.providerLaunch).toBe(true);
+    expect(launch.env.ANTHROPIC_BASE_URL).toBe(provider.baseUrl);
+    expect(launch.env.ANTHROPIC_AUTH_TOKEN).toBe(provider.dummyToken);
+    expect(launch.env.ANTHROPIC_API_KEY).toBeUndefined();
+
+    await gateway.runWebOneShot({
+      message: exactMessage,
+      model: target.model,
+      effort: target.effort,
+      cwd: compositionDir,
+      ...launch
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      message: exactMessage,
+      model: target.model,
+      effort: target.effort,
+      providerLaunch: true
+    });
+    expect(calls[0].env.ANTHROPIC_BASE_URL).toBe(provider.baseUrl);
+    expect(calls[0].env.ANTHROPIC_AUTH_TOKEN).toBe(provider.dummyToken);
+  });
+
   it("forwards the per-turn cwd and env to oneShotTurn, and reports the transcript under that cwd", async () => {
     const calls: any[] = [];
     const gateway: any = Object.create(RoutedGateway.prototype);
@@ -2193,16 +2635,21 @@ describe("web one-shot lane: project → real cwd, account → real env (§6, §
     gateway._operativeSpawnConfig = { compositionDir, model: "sonnet", claudeBinary: "claude" };
     gateway._oneShotFn = async (opts: any) => {
       calls.push(opts);
-      return { reply: "one-shot reply", sessionId: "os-1" };
+      return { reply: "one-shot reply", sessionId: "os-1", effortApplied: true };
     };
+    const exactMessage = " \tvisible text\r\nwith trailing space ";
     const out = await gateway.runWebOneShot({
-      message: "hi",
+      message: exactMessage,
       model: "opus",
+      effort: "high",
       cwd: compositionDir,
       env: { ...process.env, ANTHROPIC_AUTH_TOKEN: "tok", GARRISON_ACCOUNT: "work" }
     });
     expect(calls[0].cwd).toBe(compositionDir);
     expect(calls[0].env.GARRISON_ACCOUNT).toBe("work");
+    expect(calls[0].message).toBe(exactMessage);
+    expect(calls[0].effort).toBe("high");
+    expect(out.effortApplied).toBe(true);
     expect(out.transcriptPath).toContain("os-1.jsonl");
   });
 
@@ -2331,6 +2778,18 @@ describe("the materialized vault is the gateway's only account source (§6)", ()
   });
 });
 
+describe("generated Web dispatch boundary", () => {
+  const routed = {};
+
+  it("rejects both reload phases but preserves routed and explicit-console dispatch", () => {
+    expect(gw.shouldRejectGeneratedWebDispatch({ channel: "web" }, routed, "starting")).toBe(true);
+    expect(gw.shouldRejectGeneratedWebDispatch({ channel: "web" }, null, "ready")).toBe(true);
+    expect(gw.shouldRejectGeneratedWebDispatch({ channel: "web" }, routed, "ready")).toBe(false);
+    expect(gw.shouldRejectGeneratedWebDispatch({ channel: "web-console", directOperative: true }, null, "starting")).toBe(false);
+    expect(gw.shouldRejectGeneratedWebDispatch({ channel: "web", directOperative: true }, null, "starting")).toBe(false);
+  });
+});
+
 describe("GET /route/options + POST /chat/interrupt over real HTTP, while the operative is still spawning", () => {
   // Boots the REAL gateway-pty.mjs with a runtime stub whose spawn never
   // resolves, so `readyPromise` is permanently unresolved. That is the whole
@@ -2421,6 +2880,87 @@ describe("GET /route/options + POST /chat/interrupt over real HTTP, while the op
     expect(health.pty_status).toBe("spawning");
   }, 30_000);
 
+  it("rejects threadless generated Web turns before readiness or any routed runtime/cache lane", async () => {
+    const post = (pathname: "/chat" | "/chat/stream") => fetch(`http://127.0.0.1:${port}${pathname}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: "quick: this must never reach a runtime",
+        channel: "web",
+        routing: { target: "sdk-haiku-chat" },
+      }),
+      // The operative spawn deliberately never settles in this fixture. A
+      // response under this cap proves the Web identity gate is outside it.
+      signal: AbortSignal.timeout(2_000),
+    });
+
+    const [chat, stream] = await Promise.all([post("/chat"), post("/chat/stream")]);
+    for (const response of [chat, stream]) {
+      expect(response.status).toBe(400);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      await expect(response.json()).resolves.toEqual({
+        error: "Generated Web turns require a durable thread identity.",
+        failure: {
+          source: "gateway",
+          kind: "invalid_request",
+          code: "web_thread_required",
+          text: "Generated Web turns require a durable thread identity.",
+          retryable: false,
+          httpStatus: 400,
+        },
+      });
+    }
+
+    const nonStream = await fetch(`http://127.0.0.1:${port}/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: "quick: a durable Web turn still requires SSE generations",
+        channel: "web",
+        thread: "durable-thread",
+        routing: { target: "sdk-haiku-chat" },
+      }),
+      signal: AbortSignal.timeout(2_000),
+    });
+    expect(nonStream.status).toBe(400);
+    await expect(nonStream.json()).resolves.toMatchObject({
+      failure: {
+        source: "gateway",
+        kind: "invalid_request",
+        code: "web_stream_required",
+        retryable: false,
+        httpStatus: 400,
+      },
+    });
+
+    const missingInput = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: "quick: a generated stream needs its durable input coordinate",
+        channel: "web",
+        thread: "durable-thread",
+        routing: { target: "sdk-haiku-chat" },
+      }),
+      signal: AbortSignal.timeout(2_000),
+    });
+    expect(missingInput.status).toBe(400);
+    await expect(missingInput.json()).resolves.toEqual({
+      error: "Generated Web streams require a durable input identity.",
+      failure: {
+        source: "gateway",
+        kind: "invalid_request",
+        code: "web_input_required",
+        text: "Generated Web streams require a durable input identity.",
+        retryable: false,
+        httpStatus: 400,
+      },
+    });
+
+    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
+    expect(health.pty_status).toBe("spawning");
+  }, 10_000);
+
   it("404s an interrupt for a conversation with no in-flight turn", async () => {
     const r = await fetch(`http://127.0.0.1:${port}/chat/interrupt`, {
       method: "POST",
@@ -2454,6 +2994,382 @@ describe("GET /route/options + POST /chat/interrupt over real HTTP, while the op
     expect(stale.status).toBe(409);
     await expect(stale.json()).resolves.toMatchObject({ code: "permission_request_unavailable" });
   });
+});
+
+describe("router-disabled generated Web ingress over real HTTP", () => {
+  let child: ChildProcess | undefined;
+  let dir = "";
+  let port = 0;
+  let logs = "";
+  let capturedInput = "";
+
+  const readCapturedInput = () => {
+    try {
+      return readFileSync(capturedInput, "utf8");
+    } catch {
+      return "";
+    }
+  };
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "gar-routerless-web-"));
+    mkdirSync(path.join(dir, ".garrison"), { recursive: true });
+    mkdirSync(path.join(dir, "claude-home"), { recursive: true });
+    capturedInput = path.join(dir, "operative-input.bin");
+    const fakeClaude = path.join(dir, "fake-claude.mjs");
+    writeFileSync(
+      fakeClaude,
+      `#!/usr/bin/env node
+import fs from "node:fs";
+process.stdin.setRawMode?.(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => fs.appendFileSync(process.env.GARRISON_TEST_OPERATIVE_INPUT, chunk));
+process.stdout.write([
+  "Garrison fake Claude interactive runtime",
+  "Routerless regression screen remains stable.",
+  "❯ "
+].join("\\r\\n"));
+setInterval(() => {}, 1000);
+`,
+      { encoding: "utf8", mode: 0o755 },
+    );
+
+    port = await freePort();
+    child = spawn(process.execPath, [path.join(ROOT, "fittings/seed/http-gateway/scripts/gateway-pty.mjs")], {
+      env: {
+        ...process.env,
+        GARRISON_GATEWAY_HOST: "127.0.0.1",
+        GARRISON_GATEWAY_PORT: String(port),
+        GARRISON_COMPOSITION_DIR: dir,
+        GARRISON_HOME: dir,
+        GARRISON_CLAUDE_HOME: path.join(dir, "claude-home"),
+        GARRISON_CLAUDE_PROJECTS_DIR: path.join(dir, "claude-home", "projects"),
+        GARRISON_CLAUDE_CONFIG_PATH: path.join(dir, "claude-home", ".claude.json"),
+        GARRISON_CLAUDE_BINARY: fakeClaude,
+        GARRISON_PERMISSION_MODE: "default",
+        GARRISON_ROUTING: "0",
+        GARRISON_TEST_OPERATIVE_INPUT: capturedInput,
+        GARRISON_GATEWAY_NO_LISTEN: "0",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout?.on("data", (chunk) => (logs += String(chunk)));
+    child.stderr?.on("data", (chunk) => (logs += String(chunk)));
+
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      if (child.exitCode != null) throw new Error(`gateway exited early (${child.exitCode}): ${logs}`);
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/health`);
+        const health = await response.json();
+        if (health.pty_status === "failed") throw new Error(`gateway failed: ${health.error}\n${logs}`);
+        if (health.pty_status === "ready") return;
+      } catch (err) {
+        if (err instanceof Error && /gateway failed/.test(err.message)) throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`gateway never became ready: ${logs}`);
+  }, 20_000);
+
+  afterAll(async () => {
+    if (child && child.exitCode == null && child.signalCode == null) {
+      child.kill("SIGTERM");
+      await Promise.race([
+        new Promise<void>((resolve) => child?.once("exit", () => resolve())),
+        new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+      ]);
+      if (child.exitCode == null && child.signalCode == null) child.kill("SIGKILL");
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails a generated Web stream before the standing PTY, while preserving the explicit console", async () => {
+    const generatedBytes = "routerless generated Web bytes must never reach the operative";
+    const response = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: generatedBytes,
+        channel: "web",
+        thread: "durable-routerless-thread",
+        inputId: "durable-routerless-input",
+      }),
+      signal: AbortSignal.timeout(2_000),
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Generated Web turns require model routing, but the routed gateway is unavailable.",
+      failure: {
+        source: "gateway",
+        kind: "routing",
+        code: "gateway_route_unavailable",
+        text: "Generated Web turns require model routing, but the routed gateway is unavailable.",
+        retryable: true,
+        httpStatus: 503,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(readCapturedInput()).toBe("");
+    expect(logs).not.toContain(generatedBytes);
+
+    const consoleBytes = "explicit console bytes still reach the standing operative";
+    const consoleResponse = await fetch(`http://127.0.0.1:${port}/claude/message`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: consoleBytes }),
+    });
+    expect(consoleResponse.status).toBe(202);
+    await expect(consoleResponse.json()).resolves.toEqual({ ack: true });
+
+    const deadline = Date.now() + 2_000;
+    while (!readCapturedInput().includes(consoleBytes) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(readCapturedInput()).toContain(consoleBytes);
+    expect(readCapturedInput()).not.toContain(generatedBytes);
+  }, 10_000);
+});
+
+describe("prompt reload cannot race a generated Web turn onto the standing PTY", () => {
+  let child: ChildProcess | undefined;
+  let board: http.Server | undefined;
+  let dir = "";
+  let port = 0;
+  let logs = "";
+  let lookupStarted: Promise<void>;
+  let releaseLookup = () => {};
+  let holdReload = "";
+  let releaseReload = "";
+  let reloadSpawnStarted = "";
+  let legacyInput = "";
+  let routedMessages = "";
+
+  const readOptional = (file: string) => {
+    try {
+      return readFileSync(file, "utf8");
+    } catch {
+      return "";
+    }
+  };
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "gar-reload-web-race-"));
+    mkdirSync(path.join(dir, ".garrison"), { recursive: true });
+    mkdirSync(path.join(dir, "claude-home"), { recursive: true });
+    writeFileSync(path.join(dir, ".garrison", "routing.json"), JSON.stringify(CONFIG));
+    const kanbanRoot = path.join(dir, "kanban-loop");
+    writeGatewayV4ExecutionModel(dir, kanbanRoot);
+
+    let markLookupStarted = () => {};
+    lookupStarted = new Promise<void>((resolve) => (markLookupStarted = resolve));
+    let finishLookup = () => {};
+    const lookupRelease = new Promise<void>((resolve) => (finishLookup = resolve));
+    releaseLookup = finishLookup;
+    board = http.createServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (request.method === "GET" && url.pathname === "/cards" && url.searchParams.has("origin_id")) {
+        markLookupStarted();
+        await lookupRelease;
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ cards: [] }));
+        return;
+      }
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "not found" }));
+    });
+    const boardPort = await freePort();
+    await new Promise<void>((resolve, reject) => {
+      board?.once("error", reject);
+      board?.listen(boardPort, "127.0.0.1", () => resolve());
+    });
+    mkdirSync(path.join(dir, "ui-fittings"), { recursive: true });
+    writeFileSync(
+      path.join(dir, "ui-fittings", "kanban-loop.json"),
+      JSON.stringify({ url: `http://127.0.0.1:${boardPort}` }),
+    );
+
+    holdReload = path.join(dir, "hold-reload");
+    releaseReload = path.join(dir, "release-reload");
+    reloadSpawnStarted = path.join(dir, "reload-spawn-started");
+    legacyInput = path.join(dir, "legacy-pty-input.bin");
+    routedMessages = path.join(dir, "routed-runtime-messages.jsonl");
+    const runtimeStub = path.join(dir, "runtime-stub.mjs");
+    writeFileSync(
+      runtimeStub,
+      `import fs from "node:fs";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+class StubSession {
+  constructor(config) { this.config = config; this.disposed = false; this.handle = {}; }
+  async runTurn({ message }) {
+    fs.appendFileSync(process.env.GARRISON_TEST_ROUTED_MESSAGES, JSON.stringify({ message }) + "\\n");
+    return { reply: "routed reply", sessionId: "routed-stub" };
+  }
+  writeKeys() {}
+  isAlive() { return !this.disposed; }
+  isDisposed() { return this.disposed; }
+  getClaudeSessionId() { return "routed-stub"; }
+  status() { return { model: this.config?.model }; }
+  dispose() { this.disposed = true; }
+}
+export async function spawnFn(config) {
+  if (fs.existsSync(process.env.GARRISON_TEST_HOLD_RELOAD)) {
+    fs.writeFileSync(process.env.GARRISON_TEST_RELOAD_SPAWN_STARTED, "started");
+    while (!fs.existsSync(process.env.GARRISON_TEST_RELEASE_RELOAD)) await sleep(10);
+  }
+  return new StubSession(config);
+}
+`,
+      "utf8",
+    );
+    const fakeClaude = path.join(dir, "fake-claude.mjs");
+    writeFileSync(
+      fakeClaude,
+      `#!/usr/bin/env node
+import fs from "node:fs";
+process.stdin.setRawMode?.(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => fs.appendFileSync(process.env.GARRISON_TEST_LEGACY_INPUT, chunk));
+process.stdout.write([
+  "Garrison fake Claude reload-race runtime",
+  "Legacy fallback screen remains stable.",
+  "❯ "
+].join("\\r\\n"));
+setInterval(() => {}, 1000);
+`,
+      { encoding: "utf8", mode: 0o755 },
+    );
+
+    port = await freePort();
+    child = spawn(process.execPath, [path.join(ROOT, "fittings/seed/http-gateway/scripts/gateway-pty.mjs")], {
+      env: {
+        ...process.env,
+        GARRISON_GATEWAY_HOST: "127.0.0.1",
+        GARRISON_GATEWAY_PORT: String(port),
+        GARRISON_COMPOSITION_DIR: dir,
+        GARRISON_HOME: dir,
+        GARRISON_KANBAN_DIR: kanbanRoot,
+        GARRISON_AGENT_SDK_DIR: AGENT_SDK_STUB,
+        GARRISON_GATEWAY_RUNTIME_STUB: runtimeStub,
+        GARRISON_CLAUDE_HOME: path.join(dir, "claude-home"),
+        GARRISON_CLAUDE_PROJECTS_DIR: path.join(dir, "claude-home", "projects"),
+        GARRISON_CLAUDE_CONFIG_PATH: path.join(dir, "claude-home", ".claude.json"),
+        GARRISON_CLAUDE_BINARY: fakeClaude,
+        GARRISON_PERMISSION_MODE: "default",
+        GARRISON_ROUTING: "1",
+        GARRISON_TEST_HOLD_RELOAD: holdReload,
+        GARRISON_TEST_RELEASE_RELOAD: releaseReload,
+        GARRISON_TEST_RELOAD_SPAWN_STARTED: reloadSpawnStarted,
+        GARRISON_TEST_LEGACY_INPUT: legacyInput,
+        GARRISON_TEST_ROUTED_MESSAGES: routedMessages,
+        GARRISON_GATEWAY_NO_LISTEN: "0",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout?.on("data", (chunk) => (logs += String(chunk)));
+    child.stderr?.on("data", (chunk) => (logs += String(chunk)));
+
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      if (child.exitCode != null) throw new Error(`gateway exited early (${child.exitCode}): ${logs}`);
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/health`);
+        const health = await response.json();
+        if (health.pty_status === "failed") throw new Error(`gateway failed: ${health.error}\n${logs}`);
+        if (health.pty_status === "ready") return;
+      } catch (err) {
+        if (err instanceof Error && /gateway failed/.test(err.message)) throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`gateway never became ready: ${logs}`);
+  }, 25_000);
+
+  afterAll(async () => {
+    releaseLookup();
+    try {
+      writeFileSync(releaseReload, "release");
+    } catch {
+      /* fixture may have failed before paths were initialised */
+    }
+    if (child && child.exitCode == null && child.signalCode == null) {
+      child.kill("SIGTERM");
+      await Promise.race([
+        new Promise<void>((resolve) => child?.once("exit", () => resolve())),
+        new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+      ]);
+      if (child.exitCode == null && child.signalCode == null) child.kill("SIGKILL");
+    }
+    if (board) await new Promise<void>((resolve) => board?.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails typed at dispatch when reload starts during Discuss lookup and writes no PTY bytes", async () => {
+    const generatedBytes = "reload-race generated Web bytes must never reach a shared runtime";
+    const streamRequest = fetch(`http://127.0.0.1:${port}/chat/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: generatedBytes,
+        channel: "web",
+        thread: "durable-reload-race-thread",
+        sessionId: "durable-reload-race-thread",
+        inputId: "durable-reload-race-input",
+      }),
+      signal: AbortSignal.timeout(8_000),
+    });
+
+    await Promise.race([
+      lookupStarted,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`Discuss lookup did not start: ${logs}`)), 3_000)),
+    ]);
+    writeFileSync(holdReload, "hold");
+    const reloadResponse = await fetch(`http://127.0.0.1:${port}/control/reload-prompt`, { method: "POST" });
+    expect(reloadResponse.status).toBe(202);
+
+    const reloadDeadline = Date.now() + 3_000;
+    while (!readOptional(reloadSpawnStarted) && Date.now() < reloadDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(readOptional(reloadSpawnStarted)).toBe("started");
+    const reloadingHealth = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
+    expect(reloadingHealth.pty_status).toBe("starting");
+
+    releaseLookup();
+    const response = await streamRequest;
+    expect(response.status).toBe(200);
+    const frames = (await response.text())
+      .split("\n\n")
+      .filter(Boolean)
+      .map((frame) => {
+        const lines = frame.split("\n");
+        const event = lines.find((line) => line.startsWith("event: "))?.slice(7) ?? "message";
+        const data = lines.filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
+        return { event, data: JSON.parse(data) };
+      });
+    const failure = frames.find((frame) => frame.event === "error")?.data;
+    expect(failure).toMatchObject({
+      source: "gateway",
+      kind: "routing",
+      code: "gateway_route_unavailable",
+      text: "Generated Web turns require model routing, but the routed gateway is unavailable.",
+      retryable: true,
+      httpStatus: 503,
+      failure: {
+        source: "gateway",
+        kind: "routing",
+        code: "gateway_route_unavailable",
+        retryable: true,
+        httpStatus: 503,
+      },
+    });
+    expect(frames.some((frame) => frame.event === "done")).toBe(false);
+    expect(readOptional(legacyInput)).toBe("");
+    expect(readOptional(routedMessages)).toBe("");
+    expect(logs).not.toContain(generatedBytes);
+
+    writeFileSync(releaseReload, "release");
+  }, 15_000);
 });
 
 describe("GET /route/options — one read for every menu (§11)", () => {

@@ -37,6 +37,16 @@ function makeAdapter() {
     gates: new Map<string, { promise: Promise<unknown>; resolve: (v: unknown) => void }>()
   };
   const adapter = {
+    resolveRoutedAssembly: (config: any) => ({
+      ...config,
+      systemPrompt: typeof config.appendSystemPrompt === "string" ? config.appendSystemPrompt : "",
+      settingSources: [],
+      tools: config.tools ?? [],
+      allowedTools: config.allowedTools ?? [],
+      disallowedTools: config.disallowedTools ?? [],
+      mcpServers: config.mcpServers ?? {},
+      strictMcpConfig: config.strictMcpConfig === true,
+    }),
     spawn: async (args: any) => ({ id: `${args.model}`, model: args.model, alive: true, harness: { promptMode: args.promptMode } }),
     awaitReady: async () => {},
     sendTurn: async (session: any, message: string) => {

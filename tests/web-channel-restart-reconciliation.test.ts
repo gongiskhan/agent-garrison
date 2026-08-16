@@ -21,6 +21,18 @@ const {
 
 const sse = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
+const SIGNED_OPUS_ASSEMBLY = {
+  version: 2,
+  target: "claude-opus",
+  runtime: "agent-sdk",
+  provider: "anthropic",
+  model: "claude-opus-4-1",
+  account: null,
+  accountSource: null,
+  projectPath: null,
+  assembly: `a1:${"e".repeat(64)}`,
+};
+
 async function readBody(req: http.IncomingMessage): Promise<any> {
   let raw = "";
   for await (const chunk of req) raw += chunk;
@@ -214,6 +226,7 @@ describe("Web process-restart input reconciliation", () => {
         provider: "anthropic",
         model: "claude-opus-4-1",
         sessionId: "prior-sdk-session",
+        spawnSignature: SIGNED_OPUS_ASSEMBLY,
       },
     }], { nowIso: "2026-08-16T09:59:59.000Z" });
     await threads.setThreadSession(threadId, "prior-sdk-session");
@@ -353,6 +366,7 @@ describe("Web process-restart input reconciliation", () => {
         provider: "anthropic",
         model: "claude-opus-4-1",
         sessionId: "clean-sdk-session",
+        spawnSignature: SIGNED_OPUS_ASSEMBLY,
       },
     }], { nowIso: "2026-08-16T10:03:59.000Z" });
     await threads.setThreadSession(threadId, "clean-sdk-session");

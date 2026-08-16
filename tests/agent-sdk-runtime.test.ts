@@ -6,7 +6,7 @@ import { buildHarness, defaultPromptModeForRole, LEAN_SYSTEM_PROMPT } from "../f
 // @ts-ignore
 import { SDK_PROVIDERS, buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, assertSupportsBlocks, assertLitellmVersionAllowed, authModeFor } from "../fittings/seed/agent-sdk-runtime/lib/providers.mjs";
 // @ts-ignore
-import { AgentSdkAdapter } from "../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs";
+import { AgentSdkAdapter, resolveRoutedAgentSdkAssembly } from "../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs";
 // @ts-ignore
 import { delegate, validateDelegationResult, runAdapterConformance, MultiRuntimePool } from "../packages/claude-pty/src/index.mjs";
 // @ts-ignore
@@ -130,6 +130,15 @@ describe("THE HARNESS — per-target promptMode (harness-ok)", () => {
     expect(h.preset).toBe(null);
     expect(h.claudeMdLoaded).toBe(false);
     expect(h.skillsMounted).toBe(false);
+  });
+
+  it("lean includes the assembled append in its spawn-time system prompt", () => {
+    expect(buildHarness("lean", {
+      leanPrompt: "lean base",
+      append: "assembled garrison prompt",
+    }).systemPrompt).toBe("lean base\n\nassembled garrison prompt");
+    expect(buildHarness("lean", { append: "assembled garrison prompt" }).systemPrompt)
+      .toBe(`${LEAN_SYSTEM_PROMPT}\n\nassembled garrison prompt`);
   });
 
   it("never loads 'user' settings in full/lean (defence-in-depth for #217)", () => {
@@ -368,6 +377,154 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(opts.env.ANTHROPIC_BASE_URL).toBe("http://localhost:11434");
     expect(opts.env.ANTHROPIC_API_KEY).toBe("");
     expect(s.capabilities.provider).toBe("ollama-local");
+  });
+
+  it("freezes prompt/tool/MCP/query assembly at spawn and returns a fresh SDK options clone", async () => {
+    const adapter = adapterYielding([]);
+    const config: any = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work/original",
+      appendSystemPrompt: "frozen garrison prompt",
+      maxTurns: 5,
+      permissionMode: "default",
+      thinking: { type: "disabled" },
+      tools: ["Read", "Grep"],
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+      mcpServers: {
+        garrison: {
+          command: "node",
+          args: ["/srv/garrison.mjs", "stdio"],
+          env: { GARRISON_SCOPE: "original" },
+        },
+      },
+      strictMcpConfig: true,
+      effort: "high",
+    };
+    const session = await adapter.spawn(config);
+
+    config.compositionDir = "/work/mutated";
+    config.appendSystemPrompt = "mutated prompt";
+    config.maxTurns = 99;
+    config.permissionMode = "bypassPermissions";
+    config.thinking.type = "enabled";
+    config.tools.push("Write");
+    config.allowedTools.push("Write");
+    config.disallowedTools[0] = "Read";
+    config.mcpServers.garrison.command = "mutated-command";
+    config.mcpServers.garrison.args.push("mutated-arg");
+    config.mcpServers.garrison.env.GARRISON_SCOPE = "mutated";
+    config.strictMcpConfig = false;
+
+    const first = adapter.buildQueryOptions(session);
+    expect(first).toMatchObject({
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: "frozen garrison prompt",
+      },
+      settingSources: ["project"],
+      cwd: "/work/original",
+      maxTurns: 5,
+      permissionMode: "default",
+      thinking: { type: "disabled" },
+      tools: ["Read", "Grep"],
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+      mcpServers: {
+        garrison: {
+          command: "node",
+          args: ["/srv/garrison.mjs", "stdio"],
+          env: { GARRISON_SCOPE: "original" },
+        },
+      },
+      strictMcpConfig: true,
+      model: "claude-sonnet-4-6",
+      effort: "high",
+    });
+    expect(Object.isFrozen(session.queryAssembly)).toBe(true);
+    expect(Object.isFrozen(session.queryAssembly.systemPrompt)).toBe(true);
+    expect(Object.isFrozen(session.queryAssembly.tools)).toBe(true);
+    expect(Object.isFrozen(session.queryAssembly.mcpServers.garrison.args)).toBe(true);
+
+    // The SDK receives a mutable clone; normalizing one Query cannot alter the
+    // frozen assembly used by a later effort rotation.
+    first.systemPrompt.append = "sdk-mutated";
+    first.tools.push("Write");
+    first.mcpServers.garrison.args.push("sdk-mutated");
+    await adapter.setEffort(session, "max");
+    expect(adapter.buildQueryOptions(session)).toMatchObject({
+      systemPrompt: { append: "frozen garrison prompt" },
+      tools: ["Read", "Grep"],
+      mcpServers: { garrison: { args: ["/srv/garrison.mjs", "stdio"] } },
+      strictMcpConfig: true,
+      effort: "max",
+    });
+  });
+
+  it("consumes the signed routed assembly verbatim across effort rotation without setting-source rereads", async () => {
+    const adapter = adapterYielding([]);
+    const fixedAssembly = resolveRoutedAgentSdkAssembly({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work/routed",
+      promptMode: "full",
+      appendSystemPrompt: "layered routed sentinel",
+      tools: ["Read"],
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+      mcpServers: { garrison: { command: "node", args: ["/srv/garrison.mjs"] } },
+      strictMcpConfig: true,
+      streamingInput: true,
+    });
+    const session = await adapter.spawn({
+      fixedAssembly,
+      effort: "high",
+      env: {},
+    });
+
+    expect(adapter.buildQueryOptions(session)).toMatchObject({
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: "layered routed sentinel",
+      },
+      settingSources: [],
+      cwd: "/work/routed",
+      tools: ["Read"],
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+      mcpServers: { garrison: { args: ["/srv/garrison.mjs"] } },
+      strictMcpConfig: true,
+      effort: "high",
+    });
+    await adapter.setEffort(session, "max");
+    const rotated = adapter.buildQueryOptions(session);
+    expect(rotated.settingSources).toEqual([]);
+    expect(rotated.systemPrompt).toEqual(fixedAssembly.systemPrompt);
+    expect(rotated.disallowedTools).toEqual(fixedAssembly.disallowedTools);
+    expect(rotated.effort).toBe("max");
+  });
+
+  it("rejects summary compaction for standing streaming input", async () => {
+    const adapter = adapterYielding([]);
+    await expect(adapter.spawn({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work",
+      streamingInput: true,
+      compactEnabled: true,
+    })).rejects.toMatchObject({
+      code: "agent_sdk_streaming_compaction_unsupported",
+    });
+
+    await expect(adapter.spawn({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work",
+      compactEnabled: true,
+    })).resolves.toMatchObject({ compactEnabled: true, streamingInput: false });
   });
 
   it("defaults permissions to bypass and honors an explicit trusted SDK mode", async () => {

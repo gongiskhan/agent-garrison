@@ -640,9 +640,19 @@ export function createOrchestratorTransport(
         const returnedIds = new Set(inputs.map((input: ChatInputReceipt) => input.inputId));
         const membershipChanged = expectedIds.size > 0 &&
           (expectedIds.size !== returnedIds.size || [...expectedIds].some((id) => !returnedIds.has(id)));
-        if ((responseRevision !== null && initialRevision !== null && responseRevision !== initialRevision) || membershipChanged) {
+        const snapshotDrift =
+          (responseRevision !== null && initialRevision !== null && responseRevision !== initialRevision) ||
+          membershipChanged;
+        if (snapshotDrift) {
           shouldRefresh = true;
           recoveryRequired = true;
+          // Do not emit or follow a coordinate that was absent from the durable
+          // snapshot used to mount ClaudeChat. Exact reducers intentionally drop
+          // unknown input ids; following first would make another client's queued
+          // or running turn invisible until every follower settles. Let the host
+          // reconcile/remount from disk, then the replacement transport follows
+          // the now-known ids.
+          if (options.onResumeSettled) return;
         }
       }
       if (inputs.length === 0) {

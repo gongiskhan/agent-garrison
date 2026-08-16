@@ -1,22 +1,21 @@
-// FINDING 14 — web-channel-generic-context.
+// M7 — Web context is UI/thread metadata, never hidden chat input.
 //
-// The web channel is the ONE generic, context-driven chat surface: a fitting
-// hands it an OPAQUE `context` blob + a `mode` string and the channel forwards
-// them VERBATIM to the gateway; it never interprets them (no kanban / dev-env
-// knowledge). These tests pin that generic contract WITHOUT a browser:
+// A fitting may hand the browser an opaque `context` blob for thread identity,
+// briefs, and other visible UI. The Web server must not forward that value to the
+// gateway, where it would become an invisible user-message prefix. These tests
+// pin both sides of that boundary without a browser:
 //
-//   1. server.mjs buildGatewayChatBody — the pure helper /api/chat uses to build
-//      the gateway /chat/stream body. context+mode forwarded when present;
-//      absent → EXACTLY { message, channel: "web" } (backward-compatible).
+//   1. server.mjs buildGatewayChatBody always omits context and mode, preserving
+//      the exact admitted message.
 //   2. ClaudeChat — accepts the new optional `context`/`mode` props without
-//      changing default behavior (render parity), and the pure prop-mapping
-//      helper buildSendMeta threads them only when present (so a context-unaware
-//      transport, i.e. dev-env's createHttpTransport, is called exactly as
-//      before).
+//      changing render behavior, and buildSendMeta keeps them available to a
+//      transport that deliberately uses them as metadata.
 //   3. Doc render — assistant markdown links to produced docs/artifacts render
 //      as real links (garrison:// cross-fitting links translated; http links
 //      open in a new tab), never raw.
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -46,7 +45,7 @@ function recordingTransport() {
   };
 }
 
-describe("web-channel generic context contract — server", () => {
+describe("web-channel exact-message contract — server", () => {
   it("absent context → EXACTLY { message, channel: 'web' }", () => {
     expect(buildGatewayChatBody({ message: "hello" })).toEqual({
       message: "hello",
@@ -54,24 +53,22 @@ describe("web-channel generic context contract — server", () => {
     });
   });
 
-  it("forwards opaque context verbatim when present", () => {
+  it("omits opaque context even when a caller supplies it", () => {
     const context = { kind: "card", id: 42, nested: { board: "kanban" } };
     expect(buildGatewayChatBody({ message: "hi", context })).toEqual({
       message: "hi",
       channel: "web",
-      context,
     });
   });
 
-  it("does not forward the retired mode field", () => {
+  it("does not forward context or the retired mode field", () => {
     expect(buildGatewayChatBody({ message: "go", context: [1, 2, 3], mode: "james" })).toEqual({
       message: "go",
       channel: "web",
-      context: [1, 2, 3],
     });
   });
 
-  it("does NOT forward null/empty values", () => {
+  it("keeps absent and empty metadata out of the body", () => {
     expect(buildGatewayChatBody({ message: "hi", context: null, mode: "" })).toEqual({
       message: "hi",
       channel: "web",
@@ -94,14 +91,22 @@ describe("web-channel generic context contract — server", () => {
     expect(buildGatewayChatBody({ message: "hi" })).toEqual({ message: "hi", channel: "web" });
   });
 
-  it("channel is always pinned to 'web' (channel-generic, never caller-set)", () => {
-    // Even if a caller smuggled a channel field, the helper ignores it.
+  it("channel is always pinned to 'web' and context cannot smuggle fields", () => {
     const body = buildGatewayChatBody({ message: "hi", context: { channel: "evil" } });
-    expect(body.channel).toBe("web");
+    expect(body).toEqual({ message: "hi", channel: "web" });
   });
 });
 
-describe("ClaudeChat — new props are additive + backward-compatible", () => {
+describe("ClaudeChat — context remains available as UI metadata", () => {
+  it("labels the explicit shared-PTY console separately from generated threads", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "fittings/seed/web-channel-default/ui/main.tsx"),
+      "utf8"
+    );
+    expect(source).toContain('title="Shared operative console"');
+    expect(source).toContain('title="Operative"');
+  });
+
   it("buildSendMeta returns undefined when both context and mode are absent", () => {
     expect(buildSendMeta(undefined, undefined)).toBeUndefined();
     expect(buildSendMeta(null, undefined)).toBeUndefined();

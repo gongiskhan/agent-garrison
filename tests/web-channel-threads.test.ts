@@ -868,7 +868,7 @@ describe("web-channel threads run context", () => {
     expect(await rc.setThreadRouting("", { target: "x" })).toBeNull();
   });
 
-  it("stores an exact effort-free spawn signature behind a monotonic logical session epoch", async () => {
+  it("migrates legacy signatures and stores the opaque v2 assembly digest behind a monotonic epoch", async () => {
     const id = "chat-route-session";
     await rc.ensureThread({ id });
     const signature = {
@@ -885,6 +885,9 @@ describe("web-channel threads run context", () => {
     expect(rc.sanitizeSpawnSignature({ ...signature, projectPath: `/${"p".repeat(2_500)}` }))
       .toMatchObject({ projectPath: `/${"p".repeat(2_500)}` });
     expect(rc.sanitizeRouteSession({ epoch: 1, signature })).toEqual({ epoch: 1, signature });
+    const assembled = { version: 2, ...signature, assembly: `a1:${"a".repeat(64)}` };
+    expect(rc.sanitizeSpawnSignature(assembled)).toEqual(assembled);
+    expect(rc.sanitizeSpawnSignature({ ...assembled, assembly: "a1:not-a-digest" })).toBeNull();
     await expect(rc.setThreadRouteSession(id, { epoch: 1, signature })).resolves.toEqual({ epoch: 1, signature });
     await expect(rc.setThreadRouteSession(id, { epoch: 0, signature })).resolves.toBeNull();
     await expect(rc.setThreadRouteSession(id, {
@@ -895,7 +898,14 @@ describe("web-channel threads run context", () => {
       epoch: 2,
       signature: { ...signature, model: "claude-sonnet-5" },
     })).resolves.toMatchObject({ epoch: 2, signature: { model: "claude-sonnet-5" } });
-    expect((await rc.getThread(id))?.routeSession).toMatchObject({ epoch: 2, signature: { model: "claude-sonnet-5" } });
+    await expect(rc.setThreadRouteSession(id, {
+      epoch: 3,
+      signature: { ...assembled, model: "claude-sonnet-5" },
+    })).resolves.toMatchObject({ epoch: 3, signature: { version: 2, assembly: assembled.assembly } });
+    expect((await rc.getThread(id))?.routeSession).toMatchObject({
+      epoch: 3,
+      signature: { version: 2, model: "claude-sonnet-5", assembly: assembled.assembly },
+    });
   });
 
   it("setThreadRouting does not rewrite the file when the pin is unchanged", async () => {

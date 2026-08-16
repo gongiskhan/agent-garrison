@@ -134,6 +134,91 @@ function jsonClone(value) {
   }
 }
 
+// Query options are a spawn-time contract. Clone plain assembly data away from
+// the caller, freeze the retained snapshot, and hand the SDK a fresh mutable
+// clone for each Query. This prevents a manifest reload, caller mutation, or an
+// SDK-side normalization pass from silently changing a later effort rotation.
+// Non-plain SDK handles (for example an in-process MCP server instance) retain
+// identity; their surrounding declarative config is still cloned and frozen.
+function cloneAssemblyValue(value, seen = new Map()) {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return seen.get(value);
+  if (Array.isArray(value)) {
+    const out = [];
+    seen.set(value, out);
+    for (const entry of value) out.push(cloneAssemblyValue(entry, seen));
+    return out;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const out = Object.create(proto);
+  seen.set(value, out);
+  for (const [key, entry] of Object.entries(value)) {
+    out[key] = cloneAssemblyValue(entry, seen);
+  }
+  return out;
+}
+
+function freezeAssemblyValue(value, seen = new Set()) {
+  if (value === null || typeof value !== "object" || seen.has(value)) return value;
+  const proto = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && proto !== Object.prototype && proto !== null) return value;
+  seen.add(value);
+  for (const entry of Object.values(value)) freezeAssemblyValue(entry, seen);
+  return Object.freeze(value);
+}
+
+function assemblySnapshot(value) {
+  return freezeAssemblyValue(cloneAssemblyValue(value));
+}
+
+/** Build the complete, secret-free Query contract for a routed Garrison SDK
+ * session. The gateway signs this exact object and passes it back to spawn;
+ * spawn must consume it verbatim instead of resolving harness defaults again.
+ *
+ * Routed sessions deliberately disable SDK setting sources. The composition's
+ * layered assembled prompt is already the authoritative system-prompt source,
+ * and re-reading user/project settings on a later effort Query would mutate the
+ * contract without changing its signed assembly digest. */
+export function resolveRoutedAgentSdkAssembly(config = {}) {
+  const requestedMode = config.promptMode ?? "full";
+  const promptMode =
+    requestedMode === "coding" && !isAnthropicProvider(config.provider) ? "full" :
+      requestedMode === "lean" ? "lean" :
+        requestedMode === "coding" ? "coding" : "full";
+  const harness = buildHarness(promptMode, {
+    leanPrompt: config.leanPrompt,
+    append: config.appendSystemPrompt,
+  });
+  const configuredDisallowed = config.disallowedTools !== undefined
+    ? config.disallowedTools
+    : harness.disallowedTools;
+  return assemblySnapshot({
+    provider: config.provider ?? null,
+    model: config.model ?? null,
+    baseUrl: resolveProviderBaseUrl(config),
+    promptMode,
+    systemPrompt: harness.systemPrompt,
+    settingSources: [],
+    compositionDir: config.compositionDir,
+    maxTurns: config.maxTurns ?? 12,
+    budgetTokens: config.budgetTokens ?? null,
+    permissionMode: config.permissionMode ?? "bypassPermissions",
+    includePartialMessages: true,
+    thinking: config.thinking?.type === "disabled" ? { type: "disabled" } : null,
+    tools: config.tools !== undefined
+      ? config.tools
+      : promptMode === "lean"
+        ? []
+        : { type: "preset", preset: "claude_code" },
+    allowedTools: config.allowedTools ?? [],
+    disallowedTools: configuredDisallowed ?? [],
+    mcpServers: config.mcpServers ?? {},
+    strictMcpConfig: typeof config.strictMcpConfig === "boolean" ? config.strictMcpConfig : true,
+    streamingInput: config.streamingInput === true,
+  });
+}
+
 const PUBLIC_PERMISSION_SUGGESTION_CAP = 64;
 const PUBLIC_PERMISSION_DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
@@ -439,34 +524,110 @@ export class AgentSdkAdapter {
     this._pending = new WeakMap();
   }
 
+  resolveRoutedAssembly(config = {}) {
+    return resolveRoutedAgentSdkAssembly(config);
+  }
+
   async spawn(config = {}) {
+    const fixedAssembly = config.fixedAssembly
+      ? assemblySnapshot(config.fixedAssembly)
+      : null;
+    const streamingInput = fixedAssembly
+      ? fixedAssembly.streamingInput === true
+      : config.streamingInput === true;
+    if (streamingInput && config.compactEnabled === true) {
+      const error = new Error(
+        "AgentSdkAdapter: standing streaming input cannot use summary compaction or a context seed"
+      );
+      error.code = "agent_sdk_streaming_compaction_unsupported";
+      throw error;
+    }
     // `coding` (claude_code preset + the user's ~/.claude profile) is only
     // honored on the Anthropic subscription path — a third-party base-URL
     // provider downgrades to `full` so the user settings env block can never
     // redirect its endpoint (the #217 trap).
-    const requestedMode = config.promptMode ?? "full";
+    const requestedMode = fixedAssembly?.promptMode ?? config.promptMode ?? "full";
     const promptMode =
-      requestedMode === "coding" && !isAnthropicProvider(config.provider) ? "full" : requestedMode;
-    const harness = buildHarness(promptMode, {
-      leanPrompt: config.leanPrompt,
-      append: config.appendSystemPrompt
-    });
+      requestedMode === "coding" && !isAnthropicProvider(fixedAssembly?.provider ?? config.provider)
+        ? "full"
+        : requestedMode;
+    const harness = fixedAssembly
+      ? assemblySnapshot({
+          promptMode,
+          systemPrompt: fixedAssembly.systemPrompt,
+          settingSources: fixedAssembly.settingSources,
+          preset: fixedAssembly.systemPrompt?.type === "preset" ? fixedAssembly.systemPrompt.preset : null,
+          claudeMdLoaded: false,
+          skillsMounted: false,
+          disallowedTools: fixedAssembly.disallowedTools,
+        })
+      : assemblySnapshot(buildHarness(promptMode, {
+          leanPrompt: config.leanPrompt,
+          append: config.appendSystemPrompt
+        }));
 
     // Resolve the endpoint base URL (null for the Anthropic subscription path) and
     // the launch env (resolves the vault key; clears inherited Anthropic vars).
-    const baseUrl = resolveProviderBaseUrl(config);
-    const { env, vaultKey } = buildSdkEnv(config, { secrets: config.secrets ?? null, baseEnv: config.env ?? {} });
-    const capabilities = capabilityRecord(config);
+    const effectiveConfig = fixedAssembly
+      ? {
+          ...config,
+          provider: fixedAssembly.provider,
+          model: fixedAssembly.model,
+          baseUrl: fixedAssembly.baseUrl,
+          compositionDir: fixedAssembly.compositionDir,
+        }
+      : config;
+    const baseUrl = resolveProviderBaseUrl(effectiveConfig);
+    const { env, vaultKey } = buildSdkEnv(effectiveConfig, { secrets: config.secrets ?? null, baseEnv: config.env ?? {} });
+    const capabilities = capabilityRecord(effectiveConfig);
+    const maxTurns = fixedAssembly?.maxTurns ?? config.maxTurns ?? 12;
+    const queryAssembly = {
+      systemPrompt: fixedAssembly?.systemPrompt ?? harness.systemPrompt,
+      settingSources: fixedAssembly?.settingSources ?? harness.settingSources,
+      cwd: fixedAssembly?.compositionDir ?? config.compositionDir,
+      maxTurns,
+      env,
+      permissionMode: fixedAssembly?.permissionMode ?? config.permissionMode ?? "bypassPermissions",
+      // Channels need the same live text/thinking/tool input that Claude's TUI
+      // paints while a message is being generated. Settled assistant envelopes
+      // alone arrive too late and omit the incremental input JSON.
+      includePartialMessages: fixedAssembly?.includePartialMessages ?? true
+    };
+    // Dispatch inference accepts only the explicit disabled-thinking form.
+    const thinking = fixedAssembly?.thinking ?? config.thinking;
+    if (thinking?.type === "disabled") queryAssembly.thinking = { type: "disabled" };
+    // `tools` is the base inventory; allowed/disallowed tools are policy layered
+    // over it. Preserve an explicitly empty base inventory.
+    const tools = fixedAssembly ? fixedAssembly.tools : config.tools;
+    if (tools !== undefined) queryAssembly.tools = tools;
+    const allowedTools = fixedAssembly ? fixedAssembly.allowedTools : config.allowedTools;
+    if (allowedTools) queryAssembly.allowedTools = allowedTools;
+    const disallowedTools = fixedAssembly
+      ? fixedAssembly.disallowedTools
+      : config.disallowedTools ?? harness.disallowedTools;
+    if (fixedAssembly || (disallowedTools && disallowedTools.length)) {
+      queryAssembly.disallowedTools = disallowedTools ?? [];
+    }
+    const mcpServers = fixedAssembly ? fixedAssembly.mcpServers : config.mcpServers;
+    if (mcpServers) queryAssembly.mcpServers = mcpServers;
+    const strictMcpConfig = fixedAssembly?.strictMcpConfig ?? config.strictMcpConfig;
+    if (typeof strictMcpConfig === "boolean") {
+      queryAssembly.strictMcpConfig = strictMcpConfig;
+    }
+    const frozenQueryAssembly = assemblySnapshot(queryAssembly);
 
     return {
       config,
       alive: true,
       harness,
-      env,
+      // The retained assembly is immutable. buildQueryOptions clones it for the
+      // SDK so neither callers nor the SDK can mutate a later Query rotation.
+      queryAssembly: frozenQueryAssembly,
+      env: frozenQueryAssembly.env,
       baseUrl,
       capabilities,
       vaultKey,
-      model: config.model ?? null,
+      model: fixedAssembly?.model ?? config.model ?? null,
       // Requested model remains `model`; refusal fallback is observed provider
       // state and must not silently rewrite query options owned by the route.
       observedModel: config.model ?? null,
@@ -477,14 +638,14 @@ export class AgentSdkAdapter {
       effortApplied: config.effort != null && capabilities.effort === "supported",
       // SDK sessions have NO default turn limit and do not time out: a loop would
       // burn paid credits until stopped. Cap turns + an optional token budget.
-      maxTurns: config.maxTurns ?? 12,
-      budgetTokens: config.budgetTokens ?? null,
+      maxTurns,
+      budgetTokens: fixedAssembly?.budgetTokens ?? config.budgetTokens ?? null,
       usedTokens: 0,
       turns: 0,
       sessionId: config.sessionId ?? null,
       // M4 standing input is an explicit provider opt-in. All historical lanes
       // continue to create a string-prompt Query per turn.
-      streamingInput: config.streamingInput === true,
+      streamingInput,
       inputQueue: null,
       standingClient: null,
       standingStart: null,
@@ -517,35 +678,11 @@ export class AgentSdkAdapter {
 
   // Pure builder for the SDK query options — asserted by tests without spawning.
   buildQueryOptions(session) {
-    const opts = {
-      systemPrompt: session.harness.systemPrompt,
-      settingSources: session.harness.settingSources,
-      cwd: session.config.compositionDir,
-      maxTurns: session.maxTurns,
-      env: session.env,
-      permissionMode: session.config.permissionMode ?? "bypassPermissions",
-      // Channels need the same live text/thinking/tool input that Claude's TUI
-      // paints while a message is being generated. Settled assistant envelopes
-      // alone arrive too late and omit the incremental input JSON.
-      includePartialMessages: true
-    };
+    const opts = cloneAssemblyValue(session.queryAssembly);
     if (session.model) opts.model = session.model;
-    // Dispatch inference is deliberately a fast, non-reasoning classification
-    // turn. Keep the accepted surface narrow: callers may explicitly disable
-    // extended thinking, but cannot smuggle arbitrary thinking budgets through
-    // the generic runtime config.
-    if (session.config.thinking?.type === "disabled") {
-      opts.thinking = { type: "disabled" };
-    }
     if (session.effort != null && session.capabilities?.effort === "supported") {
       opts.effort = session.effort;
     }
-    if (session.config.allowedTools) opts.allowedTools = session.config.allowedTools;
-    // Tool policy: an explicit config.disallowedTools wins; else the harness's
-    // (lean = all built-ins disabled → pure chat; full = none).
-    const disallowed = session.config.disallowedTools ?? session.harness.disallowedTools;
-    if (disallowed && disallowed.length) opts.disallowedTools = disallowed;
-    if (session.config.mcpServers) opts.mcpServers = session.config.mcpServers;
     if (session.sessionId) opts.resume = session.sessionId;
     return opts;
   }
@@ -694,6 +831,11 @@ export class AgentSdkAdapter {
   }
 
   async _sendStandingTurn(session, text, hooks = {}) {
+    if (session.contextSeed) {
+      throw new Error(
+        "AgentSdkAdapter: standing streaming input cannot consume a context seed"
+      );
+    }
     if (session.activeTurn || this._pending.has(session)) {
       throw new Error("AgentSdkAdapter: standing streaming-input turn already active or awaiting collection");
     }
@@ -703,15 +845,14 @@ export class AgentSdkAdapter {
     session.activeTurn = turn;
     this._pending.set(session, turn.deferred.promise);
 
-    // A rebuilt session may seed only the next admitted input. The queue receives
-    // the exact host-built SDK envelope and never browser-owned priority metadata.
-    const seeded = session.contextSeed ? `${session.contextSeed}\n\n---\n\n${text}` : text;
-    session.contextSeed = null;
+    // Standing input is always one ordinary SDK user envelope containing exactly
+    // the admitted user text. Recovery/summary context must not be hidden inside
+    // that message; streaming compaction is rejected at spawn above.
     turn.startPromise = (async () => {
       try {
         await this._ensureStandingQuery(session, options);
         if (session.activeTurn !== turn || turn.deferred.settled) return;
-        session.inputQueue.push(sdkUserMessage(seeded));
+        session.inputQueue.push(sdkUserMessage(text));
       } catch (error) {
         await this._failStandingTurn(session, turn, error);
       }

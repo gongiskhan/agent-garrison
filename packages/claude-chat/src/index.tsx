@@ -89,6 +89,7 @@ export type {
   ChatTransport,
   ChatErrorEvent,
   ChatEvent,
+  ChatEffort,
   ChatFrameCoordinate,
   ChatInputReceipt,
   ChatInputState,

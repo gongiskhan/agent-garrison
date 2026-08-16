@@ -24,6 +24,10 @@ export class ChatTransportError extends Error {
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "unknown";
 
+/** Native Claude Code effort controls accepted by `/effort`. `auto` resets the
+ * session to the current model's default; the remaining values pin a level. */
+export type ChatEffort = "auto" | "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface ClaudeStatus {
   rows: string[];
   mode: PermissionMode;
@@ -203,6 +207,8 @@ export interface ChatSendMeta {
   mode?: string;
   autonomous?: boolean;
   routing?: TurnRouting;
+  /** Host-native effort control, carried separately from user-visible text. */
+  effort?: ChatEffort;
   clientRequestId?: string;
 }
 
@@ -458,8 +464,11 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
         onEvent({ type: "connection", state: "closed" });
       };
     },
-    async sendMessage(text) {
-      await post("message", { text });
+    async sendMessage(text, meta) {
+      await post("message", {
+        text,
+        ...(meta?.effort ? { effort: meta.effort } : {}),
+      });
     },
     async sendCommand(text) {
       // Identical wire call to sendMessage; the caller chooses this variant only

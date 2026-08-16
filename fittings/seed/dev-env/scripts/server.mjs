@@ -76,6 +76,12 @@ import {
 } from "./state.mjs";
 import { listHistory } from "./claude-sessions.mjs";
 import { tailnetUrlForPort } from "./tailnet.mjs";
+import {
+  CLAUDE_CHAT_EFFORTS,
+  createClaudeMessageGate,
+  isClaudeChatEffort,
+  writeClaudeChatMessage
+} from "./claude-message.mjs";
 
 const FITTING_ID = "dev-env";
 const DEFAULT_PORT = 7086;
@@ -761,6 +767,8 @@ function claudeRecFor(sessionId) {
   return rec;
 }
 
+const claudeMessageGate = createClaudeMessageGate();
+
 function handleClaudeStream(req, res, sessionId) {
   const rec = claudeRecFor(sessionId);
   if (!rec) {
@@ -788,17 +796,35 @@ function handleClaudeCommands(req, res, sessionId) {
 async function handleClaudeMessage(req, res, sessionId) {
   const rec = claudeRecFor(sessionId);
   if (!rec) return jsonRes(res, 409, { error: "no running claude PTY" });
-  const body = (await readBody(req)) || {};
-  const text = typeof body.text === "string" ? body.text : typeof body.message === "string" ? body.message : "";
-  if (!text.trim()) return jsonRes(res, 400, { error: "text required" });
+  const admission = claudeMessageGate.begin(sessionId);
+  if (!admission) {
+    req.resume?.();
+    return jsonRes(res, 409, { error: "a Claude message is already pending" });
+  }
   try {
-    rec.pty.write(text);
+    const body = (await readBody(req)) || {};
+    const text = typeof body.text === "string" ? body.text : typeof body.message === "string" ? body.message : "";
+    if (!text.trim()) return jsonRes(res, 400, { error: "text required" });
+    const hasEffort = Object.prototype.hasOwnProperty.call(body, "effort");
+    if (hasEffort && !isClaudeChatEffort(body.effort)) {
+      return jsonRes(res, 400, { error: `effort must be one of: ${CLAUDE_CHAT_EFFORTS.join(", ")}` });
+    }
     const delayMs = Number.isFinite(body.delayMs) ? Math.max(0, Math.min(5000, body.delayMs)) : 600;
-    await sleep(delayMs);
-    rec.pty.write("\r");
+    await writeClaudeChatMessage(rec.pty, text, {
+      ...(hasEffort ? { effort: body.effort } : {}),
+      delayMs,
+      wait: sleep,
+      signal: admission.signal,
+    });
     jsonRes(res, 202, { ack: true });
   } catch (err) {
-    jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    const cancelled = err?.name === "AbortError" && err?.code === "claude_message_cancelled";
+    jsonRes(res, cancelled ? 409 : 500, {
+      error: err instanceof Error ? err.message : String(err),
+      ...(cancelled ? { code: err.code } : {}),
+    });
+  } finally {
+    admission.release();
   }
 }
 
@@ -825,6 +851,7 @@ async function handleClaudeMode(req, res, sessionId) {
 function handleClaudeInterrupt(req, res, sessionId) {
   const rec = claudeRecFor(sessionId);
   if (!rec) return jsonRes(res, 409, { error: "no running claude PTY" });
+  claudeMessageGate.interrupt(sessionId);
   try { rec.pty.write("\x1b"); } catch {}
   jsonRes(res, 200, { ok: true });
 }

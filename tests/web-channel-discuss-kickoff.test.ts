@@ -42,7 +42,16 @@ describe("Discuss kickoff is sent exactly once", () => {
     expect(MAIN).toMatch(/useEffect\(\(\) => \{\s*if \(kickoff\) setKickoffFor\(null\);\s*\}, \[kickoff\]\);/);
   });
 
-  it("and only arms it for a thread that has no history yet", () => {
-    expect(MAIN).toContain("setKickoffFor(opts?.kickoff && (!t || t.messages.length === 0) ? id : null);");
+  it("and only arms it for a thread with no transcript or durable input evidence", () => {
+    expect(MAIN).toContain("setKickoffFor(opts?.kickoff && shouldArmDiscussKickoff(t) ? id : null);");
+    expect(MAIN).toContain("if (!thread) return false;");
+    expect(MAIN).toMatch(/const t = await apiGetThread\(id, controller\.signal\);[\s\S]*?if \(!t\) \{[\s\S]*?setKickoffFor\(null\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?setActiveId\(id\);/);
+    expect(MAIN).toContain("(thread.pendingInputs?.length ?? 0) === 0");
+    expect(MAIN).toContain("(thread.inputReceipts?.length ?? 0) === 0");
+  });
+
+  it("keeps the host-provided kickoff visible live and after hydration", () => {
+    expect(MAIN).not.toContain("initialMessageHidden={Boolean(kickoff)}");
+    expect(MAIN).not.toMatch(/h\[0\]\s*=\s*\{[^}]*hideUser:\s*true/);
   });
 });

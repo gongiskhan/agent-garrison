@@ -734,44 +734,24 @@ describe("orchestrator transport: replay/follow a running thread", () => {
     await vi.waitFor(() => expect(settlements).toEqual([{ recovery: false }]));
   });
 
-  it("keeps recovery sticky when a FIFO handoff happened before resume even if the returned input paints a terminal", async () => {
+  it("reconciles a FIFO handoff before following an input absent from the mounted snapshot", async () => {
     const input = {
       clientRequestId: "client-handoff-b",
       inputId: "input-handoff-b",
       generationId: "generation-handoff-b",
       state: "running" as const,
     };
-    const terminal = {
-      id: `terminal:${JSON.stringify([input.generationId])}`,
-      role: "assistant",
-      ts: Date.now(),
-      turnId: input.inputId,
-      generationId: input.generationId,
-      order: 2,
-      revision: 1,
-      blocks: [{
-        type: "turn_end",
-        status: "completed",
-        subtype: "success",
-        reason: null,
-        stopReason: null,
-        terminalReason: "completed",
-        result: "B completed",
-      }],
-    };
+    const requests: string[] = [];
     globalThis.fetch = vi.fn(async (raw: any) => {
       const requestUrl = String(raw);
+      requests.push(requestUrl);
       if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
       if (requestUrl.endsWith("/inputs")) {
         // A settled and B was claimed after the parent snapshot (revision 10)
         // but before this list request, so only B remains at revision 12.
         return new Response(JSON.stringify({ inputs: [input], inputRevision: 12 }), { status: 200 });
       }
-      return sseResponse([
-        `event: session_event\ndata: ${JSON.stringify(terminal)}\n\n`,
-        `event: done\ndata: ${JSON.stringify({ ...input, reply: "B completed", terminalStatus: "completed" })}\n\n`,
-        `event: input\ndata: ${JSON.stringify({ ...input, state: "settled" })}\n\n`,
-      ]);
+      throw new Error(`unexpected pre-reconciliation follow: ${requestUrl}`);
     }) as unknown as typeof fetch;
     const create = await freshTransport();
     const settlements: Array<{ recovery: boolean }> = [];
@@ -779,13 +759,15 @@ describe("orchestrator transport: replay/follow a running thread", () => {
     const transport = create("/api", "thread-handoff", {
       resumeOnConnect: true,
       initialInputRevision: 10,
-      initialInputIds: ["input-handoff-a", input.inputId],
+      initialInputIds: ["input-handoff-a"],
       onResumeState: (active: boolean) => { states.push(active); },
       onResumeSettled: (result) => { settlements.push(result); },
     });
     transport.connect(() => {});
     await vi.waitFor(() => expect(settlements).toEqual([{ recovery: true }]));
     expect(states).toEqual([true, false]);
+    expect(requests.filter((requestUrl) => requestUrl.includes("/inputs/") && requestUrl.endsWith("/live")))
+      .toEqual([]);
   });
 
   it("refreshes immediately when the input settles between thread hydration and resume", async () => {

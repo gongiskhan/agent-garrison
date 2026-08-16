@@ -40,8 +40,8 @@ The legacy target ids remain unchanged so authored matrix references and sticky 
 | M3 — Permissions | done | Agent SDK permission bridge; generation-bound gateway resolver; durable thread revisions; Web answer proxy/transports; shared accessible permission cards; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 393 tests; full suite 514 files / 5,759 tests green (6 files / 21 tests skipped); typecheck, 3 builds, and diff check green | Implement running-turn interrupt and queued/streaming input semantics. |
 | M4 — Interrupt/input | done | standing Agent SDK Query; durable Web FIFO/input receipts; exact generation stop/replay; recovery-safe transport; queue/voice UI; rebuilt Web/Dev Env/Kanban assets | 16 focused files / 290 tests; full suite 519 files / 5,819 tests green (6 files / 21 tests skipped); voice Playwright 6/6; typecheck, 3 builds, optimized build, and diff check green | Reconcile process-restart ownership and rebuild complete history from the SDK journal chain. |
 | M5 — Continuity | done | atomic no-replay restart reconciliation; exact SDK resume/cold-generation barrier; full-chain JSONL recovery; authoritative transcript snapshots; stale-control hardening; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 388 tests; full suite 520 files / 5,855 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Normalize typed route and failure state without weakening exact generation ownership. |
-| M6 — Routes/errors | done | effort-free spawn signature and logical session epoch; typed route/retry/rate-limit/failure/terminal events; exact Web settlement and recovery; shared notices and route-save UX; rebuilt Web/Dev Env/Kanban assets | 18 focused files / 479 tests; full suite 520 files / 5,922 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Remove hidden user-message prefixes while preserving explicit cold-start recovery context. |
-| M7 — Prefix guard | pending | — | — | Audit and remove dynamic materialized-context and effort prefixes; freeze prompt/tool/MCP assembly at the documented boundary. |
+| M6 — Routes/errors | done | effort-free spawn signature and logical session epoch; typed route/retry/rate-limit/failure/terminal events; exact Web settlement and recovery; shared notices and route-save UX; rebuilt Web/Dev Env/Kanban assets | 18 focused files / 479 tests; full suite 520 files / 5,922 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Remove hidden user-message prefixes while retaining exact signed native resume and explicit clean boundaries. |
+| M7 — Prefix guard | done | exact Web text/typed effort; no materialized context; signed frozen SDK assembly; exact resume or clean boundary; routed-ingress isolation; rebuilt Web/Dev Env/Kanban assets | 20 focused files / 439 tests; full suite 522 files / 5,960 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, diff, and final adversarial checks green | Run the bounded M8 live validation only after explicit authorization. |
 | M8 — Live validation | pending | — | — | Await offline milestones. |
 | M9 — Report | pending | — | — | Await M8. |
 
@@ -335,6 +335,69 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
   opt-in tests skipped**. No process was deployed and no additional live model
   session was launched.
 
+## M7 — Exact user text and frozen runtime assembly
+
+- The generated Web path now has one byte-authoritative user value. The browser
+  renders and durably admits that value, the Web worker forwards it without
+  materialized history/board/trailer context, gateway HTTP ingress validates
+  nonblank content without trimming it, and each runtime receives the same bytes.
+  Host-provided Discuss kickoffs are visible both live and after hydration.
+  Threadless generated Web requests and nonstreaming Web `/chat` requests fail
+  with typed errors; the explicit `/api/claude` console remains the separately
+  labelled exact-text view onto the shared operative.
+- Effort is metadata rather than prose. Shared chat maps legacy stored choices to
+  the native vocabulary and sends the visible text unchanged. Dev Env and Web
+  Claude one-shots apply the validated native effort control before the exact
+  message; a Stop latched during control settlement prevents submission. Web
+  workflow/skill selections without a native execution seam fail visibly instead
+  of prepending instructions. Internal orchestrator-only channels retain their
+  existing explicit route/workflow annotation contract.
+- Routed Agent SDK work uses one signed, immutable assembly capsule per logical
+  route epoch. Its v2 digest covers the effective system prompt, explicit tools,
+  allow/deny policy, MCP servers, strict mode, cwd, permission mode, and empty
+  setting sources; effort and secrets are excluded. The adapter deep-clones and
+  freezes the capsule at spawn, and each standing input is exactly one ordinary
+  SDK user envelope. Streaming context seeds, compaction, and synthetic recovery
+  user messages fail closed. The classifier remains deliberately lean and cannot
+  inherit operative prompt/tool assembly.
+- A cold gateway natively resumes only when both provider attribution and the
+  signed v2 route/assembly identity match. Legacy, incompatible, restart-barrier,
+  assembly, or detected in-process credential changes retire the old owner and
+  start a disclosed clean session—never a hidden reconstructed-history prefix.
+  Every non-Agent generated Web lane is explicitly stateless. The gateway's
+  direct native-vision lane likewise crosses signed runtime boundaries instead
+  of silently reusing an Agent SDK journal that missed the image turn. Durable
+  Web attachments remain exact visible path text; this milestone does not invent
+  a hidden native-image coordinate transport. Route session state activates only
+  immediately before a runtime; steering,
+  card registration, and autonomy holds report selection without claiming a Query
+  was started, warmed, or resumed.
+- Provider/account controls for disposable Claude lanes reuse the policy's native
+  launch environment, while user bytes remain separate. Standing-operative
+  carryover is now call-owned rather than a shared last-message slot, so concurrent
+  Web Agent/secondary/one-shot routing cannot leak its text into a later internal
+  respawn annotation. Turn-boundary compaction likewise runs only when the result
+  explicitly proves the standing operative executed.
+- Generated Web execution requires exact durable thread and input coordinates plus
+  a ready routed gateway. Disabled, absent, and prompt-reloading routers fail with
+  typed `gateway_route_unavailable` state at both HTTP ingress and the irreversible
+  runtime-dispatch boundary. Real process regressions prove those paths write zero
+  bytes to the shared standing PTY, while the visibly labelled shared-operative
+  console retains its explicit exact-text carveout. Browser admission is likewise
+  serialized in submission order, including attachment-upload deferral, without
+  delaying optimistic bubbles or erasing a newer draft.
+
+### M7 verification
+
+- Focused exact-text, assembly, native-effort, Web FIFO, route-boundary, transport,
+  and real Chromium regressions are green: **20 files / 439 tests**. The final
+  repository-wide run is green: **522 files / 5,960 tests passed**, with **6 files /
+  21 opt-in tests skipped**. Typecheck, all three consumer builds, the optimized
+  production build, MJS syntax checks, `git diff --check`, and the independent
+  adversarial review are green.
+- No process was deployed, no live thread/card was mutated, and no additional live
+  model session was launched.
+
 ## Resolved questions
 
 - **Which checkout may execute tests?** This process is on `dev-madrid`, not macOS, so the repository's Linux commands are permitted here. Production deployment remains separately unauthorized.
@@ -343,9 +406,16 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
   spawn signature and logical epoch, one stable generation terminal, a closed
   provider-neutral failure shape, nonterminal retry telemetry, and actionable
   rate-limit state. Provider-specific subtypes remain data rather than UI logic.
+- **What restores Web model context after M7?** Only the pinned SDK's exact native
+  resume under a matching signed assembly. If that proof is unavailable, Garrison
+  starts a visibly disclosed clean session; it does not replay, summarize, or
+  synthesize prior turns as invisible user prompt material.
+- **Are any browser-originated user turns hidden?** No generated Web input is
+  hidden. Discuss kickoff text is a real visible turn, and the explicit operative
+  console is a separate labelled surface rather than a generated thread.
 
 ## Open questions
 
-- M7 must identify and remove every invisible dynamic user-message prefix while
-  preserving explicit cold-start history recovery and freezing system prompt,
-  tool, and MCP assembly at the documented spawn boundary.
+- M8 must validate the offline contract with the bounded live-session budget and
+  report any provider behavior that differs from the pinned SDK fixtures. No live
+  validation or deployment has been authorized yet.

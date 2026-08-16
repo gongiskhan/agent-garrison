@@ -64,6 +64,18 @@ const GATEWAY_ROUTE_OPTIONS = {
   activeProfile: "balanced",
 };
 
+const SIGNED_SONNET_ASSEMBLY = {
+  version: 2,
+  target: "sonnet-plan",
+  runtime: "agent-sdk",
+  provider: "anthropic",
+  model: "claude-sonnet-4-5",
+  account: null,
+  accountSource: null,
+  projectPath: null,
+  assembly: `a1:${"a".repeat(64)}`,
+};
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     let raw = "";
@@ -173,6 +185,10 @@ async function runTurn(body: Record<string, unknown>) {
     body: JSON.stringify(body),
   });
   const text = await res.text();
+  // Every admitted durable Web path owns the same M7 boundary: the gateway sees
+  // the exact admitted message and no context.
+  expect(lastChatBody?.message).toBe(body.message);
+  expect(Object.hasOwn(lastChatBody ?? {}, "context")).toBe(false);
   return { status: res.status, text };
 }
 
@@ -196,6 +212,14 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
     expect(buildGatewayChatBody({ message: "hi", routing: null, turnSeq: null })).toEqual({ message: "hi", channel: "web" });
     expect(buildGatewayChatBody({ message: "hi", routing: [], turnSeq: 1.5 })).toEqual({ message: "hi", channel: "web" });
     expect(buildGatewayChatBody({ message: "hi", turnSeq: -1 })).toEqual({ message: "hi", channel: "web" });
+  });
+
+  it("ignores context without normalizing the admitted message", () => {
+    const message = "  exact admitted message\nwith a second line  ";
+    expect(buildGatewayChatBody({
+      message,
+      context: "assistant: stale history\nfetch_evidence(card_id, ref)",
+    })).toEqual({ message, channel: "web" });
   });
 
   it("emits routing + turnSeq when present (turnSeq 0 is a real value, not absent)", () => {
@@ -234,6 +258,17 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
   });
 
   it("derives SDK resume only from the latest session's complete persisted attribution", () => {
+    const spawnSignature = {
+      version: 2,
+      target: "sonnet-plan",
+      runtime: "agent-sdk",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      account: "work",
+      accountSource: "override",
+      projectPath: "/home/u/dev/project",
+      assembly: `a1:${"b".repeat(64)}`,
+    };
     const route = {
       route: "sonnet-plan",
       runtime: "agent-sdk",
@@ -244,6 +279,7 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
       accountSource: "override",
       projectPath: "/home/u/dev/project",
       sessionId: "sdk-session-latest",
+      spawnSignature,
     };
     const thread = {
       claudeSessionId: "sdk-session-latest",
@@ -265,6 +301,7 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
       account: "work",
       accountSource: "override",
       projectPath: "/home/u/dev/project",
+      spawnSignature,
     });
     expect(buildGatewayChatBody({ message: "continue", agentSdkResume: candidate })).toEqual({
       message: "continue",
@@ -276,6 +313,18 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
       claudeSessionId: "sdk-session-latest",
       messages: [{ role: "assistant", route: { runtime: "agent-sdk", sessionId: "sdk-session-latest" } }],
     })).toBeNull();
+    expect(agentSdkResumeFromThread({
+      claudeSessionId: "sdk-session-latest",
+      messages: [{
+        role: "assistant",
+        route: {
+          ...route,
+          spawnSignature: Object.fromEntries(
+            Object.entries(spawnSignature).filter(([key]) => !["version", "assembly"].includes(key)),
+          ),
+        },
+      }],
+    })).toBeNull();
 
     const longProjectPath = `/${"project".repeat(350)}`;
     const fallbackRoute = {
@@ -283,6 +332,7 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
       model: "claude-fallback-actual",
       projectPath: longProjectPath,
       spawnSignature: {
+        version: 2,
         target: "sonnet-plan",
         runtime: "agent-sdk",
         provider: "anthropic",
@@ -290,6 +340,7 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
         account: "work",
         accountSource: "override",
         projectPath: longProjectPath,
+        assembly: `a1:${"c".repeat(64)}`,
       },
     };
     expect(agentSdkResumeFromThread({
@@ -307,6 +358,22 @@ describe("buildGatewayChatBody - routing + turnSeq are additive", () => {
       account: "work",
       accountSource: "override",
       projectPath: longProjectPath,
+      spawnSignature: fallbackRoute.spawnSignature,
+    });
+
+    // The thread's newest boundary can advance after this completed session was
+    // persisted (for example, a B-assembly turn failed before completion). The
+    // resume nomination remains bound to the completed assistant's A signature;
+    // the gateway compares it to B rather than silently borrowing thread state.
+    expect(agentSdkResumeFromThread({
+      ...thread,
+      routeSession: {
+        epoch: 2,
+        signature: { ...spawnSignature, assembly: `a1:${"d".repeat(64)}` },
+      },
+    })).toMatchObject({
+      sessionId: "sdk-session-latest",
+      spawnSignature,
     });
   });
 });
@@ -394,19 +461,38 @@ describe("attributionFromFrame - wire spellings to RouteAttribution", () => {
 describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
   it("merges the thread pin under the per-turn routing, forwards it, and persists both sides", async () => {
     const id = "chat-forward";
-    await threads.ensureThread({ id });
+    const uiContext = { briefPath: "/visible/brief.md", seed: "must stay out of chat" };
+    await threads.ensureThread({ id, context: uiContext });
     await store.setThreadRouting(id, { target: "sonnet-plan", effort: "high", account: "work" });
     turnScript = {
       frames: [
         // Pre-turn frame (pending) then the done frame: the merge means a field known
         // only pre-turn survives onto the persisted message.
-        sse("route", { route: "sonnet-plan", runtime: "agent-sdk", provider: "anthropic", duty: "build", level: 2, pending: true, turnSeq: 3 }),
+        sse("route", {
+          route: "sonnet-plan",
+          runtime: "agent-sdk",
+          provider: "anthropic",
+          duty: "build",
+          level: 2,
+          pending: true,
+          turnSeq: 3,
+          sessionDisposition: "new",
+          sessionBoundaryReason: "initial",
+          sessionEpoch: 1,
+          spawnSignature: SIGNED_SONNET_ASSEMBLY,
+        }),
         sse("chunk", { text: "working" }),
         sse("done", { reply: "shipped it", model: "claude-sonnet-4-5", effort: "low", effortApplied: true, session_id: "sess-abc", overridesApplied: ["effort"] }),
       ],
     };
 
-    const { status, text } = await runTurn({ message: "ship it", thread: id, routing: { effort: "low", account: null }, turnSeq: 3 });
+    const { status, text } = await runTurn({
+      message: "ship it",
+      thread: id,
+      context: { attemptedPrefix: "must also stay out of chat" },
+      routing: { effort: "low", account: null },
+      turnSeq: 3,
+    });
     expect(status).toBe(200);
     expect(text).toContain("event: done");
 
@@ -418,6 +504,7 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
     expect(lastChatBody.sessionId).toBe(id);
 
     const t = await waitForMessages(id, 2);
+    expect(t.context).toEqual(uiContext);
     // The ask carries the INTENT that was in force...
     expect(t.messages[0]).toMatchObject({ role: "user", text: "ship it", overrides: { target: "sonnet-plan", effort: "low" } });
     expect(t.messages[0].turnId).toEqual(expect.any(String));
@@ -462,6 +549,7 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
       account: null,
       accountSource: null,
       projectPath: null,
+      spawnSignature: SIGNED_SONNET_ASSEMBLY,
     });
   });
 
@@ -543,6 +631,29 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
     const t = await waitForMessages(id, 2);
     expect(t.messages[0].overrides).toBeUndefined();
     expect(t.messages[1].route).toBeUndefined(); // nothing to attribute, so no fake badge
+  });
+
+  it("rejects threadless generated Web execution before the gateway", async () => {
+    const before = lastChatBody;
+    const response = await fetch(api("/api/chat"), {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        message: "legacy request",
+        context: { recent: ["user: old", "assistant: old"], card: "hidden" },
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      failure: {
+        source: "web",
+        kind: "invalid_request",
+        code: "web_thread_required",
+        retryable: false,
+        httpStatus: 400,
+      },
+    });
+    expect(lastChatBody).toBe(before);
   });
 });
 

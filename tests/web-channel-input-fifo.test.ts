@@ -157,13 +157,23 @@ describe("durable Web input FIFO", () => {
     await fetch(api("/api/threads"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: threadId }),
+      body: JSON.stringify({
+        id: threadId,
+        context: { briefPath: "/visible/thread/metadata.md", hiddenPrefix: "must not cross" },
+      }),
+    });
+    expect((await threads.getThread(threadId) as any)?.context).toEqual({
+      briefPath: "/visible/thread/metadata.md",
+      hiddenPrefix: "must not cross",
     });
     (threads as any).markInputActive(threadId, "ghost-input");
     const before = turns.length;
-    const admitted = await admit(threadId, "client-after-ghost", "run the durable input");
+    const exactMessage = "  run the durable input\nwithout normalization  ";
+    const admitted = await admit(threadId, "client-after-ghost", exactMessage);
     await waitFor(() => turns.length, (count) => count === before + 1, "turn after stale owner cleanup");
     expect((threads as any).activeInputId(threadId)).toBe(admitted.body.input.inputId);
+    expect(turns[before].body.message).toBe(exactMessage);
+    expect(Object.hasOwn(turns[before].body, "context")).toBe(false);
     turns[before].response.write(sse("done", { reply: "ran after stale owner" }));
     turns[before].response.end();
     const settled: any = await waitFor(
@@ -217,6 +227,8 @@ describe("durable Web input FIFO", () => {
       { role: "user", text: "first question", turnId: first.body.input.inputId },
     ]);
     expect(turns).toHaveLength(1);
+    expect(turns[0].body.message).toBe("first question");
+    expect(Object.hasOwn(turns[0].body, "context")).toBe(false);
 
     const firstLive = await fetch(api(`/api/threads/${threadId}/inputs/${first.body.input.inputId}/live`));
     const firstLiveBody = firstLive.text();
@@ -238,9 +250,7 @@ describe("durable Web input FIFO", () => {
     turns[0].response.end();
     await waitFor(() => turns.length, (count) => count === 2, "second gateway turn");
     expect(turns[1].body.message).toBe("second question");
-    expect(turns[1].body.context).toContain("user: first question");
-    expect(turns[1].body.context).toContain("assistant: first answer");
-    expect(turns[1].body.context).not.toContain("user: second question");
+    expect(Object.hasOwn(turns[1].body, "context")).toBe(false);
     expect(turns[1].body.routeSession).toEqual({
       epoch: 1,
       signature: {

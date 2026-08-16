@@ -40259,8 +40259,11 @@ function createHttpTransport(base = "/api", opts) {
         onEvent({ type: "connection", state: "closed" });
       };
     },
-    async sendMessage(text) {
-      await post("message", { text });
+    async sendMessage(text, meta) {
+      await post("message", {
+        text,
+        ...meta?.effort ? { effort: meta.effort } : {}
+      });
     },
     async sendCommand(text) {
       await post("message", { text });
@@ -42982,10 +42985,10 @@ var MODELS = [
   { id: "claude-haiku-4-5", label: "Haiku" }
 ];
 var EFFORTS = [
-  { id: "normal", label: "Normal", directive: "" },
-  { id: "think", label: "Think", directive: "think" },
-  { id: "think-hard", label: "Think hard", directive: "think hard" },
-  { id: "ultrathink", label: "Ultrathink", directive: "ultrathink" }
+  { id: "normal", label: "Normal", effort: "auto" },
+  { id: "think", label: "Think", effort: "low" },
+  { id: "think-hard", label: "Think hard", effort: "high" },
+  { id: "ultrathink", label: "Ultrathink", effort: "max" }
 ];
 var LS_EFFORT = "garrison.chat.effort";
 function readEffort() {
@@ -43604,30 +43607,39 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   contextRef.current = context;
   const modeRef = (0, import_react4.useRef)(mode3);
   modeRef.current = mode3;
-  const pendingSendRef = (0, import_react4.useRef)(null);
+  const pendingSendRef = (0, import_react4.useRef)([]);
+  const generatedAdmissionTailRef = (0, import_react4.useRef)(Promise.resolve());
+  const generatedAdmissionTransportRef = (0, import_react4.useRef)(transport);
+  if (generatedAdmissionTransportRef.current !== transport) {
+    generatedAdmissionTransportRef.current = transport;
+    generatedAdmissionTailRef.current = Promise.resolve();
+  }
   const send = (0, import_react4.useCallback)(
-    (text, opts) => {
-      if (generatedMode && generatedWorkRef.current && attachmentsRef.current.length > 0) {
+    (text, opts, deferred) => {
+      if (!deferred && generatedMode && generatedWorkRef.current && attachmentsRef.current.length > 0) {
         setTurnAnnouncement("Attachments cannot be queued while another message is pending.");
         return null;
       }
-      if (attachmentsRef.current.some((a) => a.uploading)) {
-        pendingSendRef.current = { text, opts };
+      if (!deferred && (attachmentsRef.current.some((a) => a.uploading) || pendingSendRef.current.length > 0)) {
+        const claimedIds = new Set(pendingSendRef.current.flatMap((item) => item.attachmentIds));
+        pendingSendRef.current.push({
+          text,
+          opts,
+          attachmentIds: attachmentsRef.current.filter((attachment) => !claimedIds.has(attachment.id)).map((attachment) => attachment.id)
+        });
         setInput("");
         return null;
       }
       const t = text.trim();
-      const ready = attachmentsRef.current.filter((a) => a.path && !a.uploading);
+      const deferredAttachmentIds = deferred ? new Set(deferred.attachmentIds) : null;
+      const ready = attachmentsRef.current.filter((attachment) => attachment.path && !attachment.uploading && (!deferredAttachmentIds || deferredAttachmentIds.has(attachment.id)));
       const attachmentSuffix = ready.length ? `
 
 ${ready.length === 1 ? "Attached file" : "Attached files"}:
 ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
       const full = `${t}${attachmentSuffix}`.trim();
       if (!full) return null;
-      const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
-      const wire = dir ? `${dir}
-
-${full}` : full;
+      const nativeEffort = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.effort : void 0;
       const sentPins = railOn ? compactRouting(pinsRef.current) : void 0;
       const clientRequestId = generatedMode ? nextClientRequestId() : void 0;
       const optimisticState = generatedMode ? generatedWorkRef.current ? "queued" : "starting" : void 0;
@@ -43660,11 +43672,13 @@ ${full}` : full;
       setResendArmed(false);
       pinnedRef.current = true;
       const baseMeta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : void 0, sentPins);
-      const meta = generatedMode ? { ...baseMeta ?? {}, clientRequestId } : baseMeta;
+      const effortMeta = nativeEffort ? { ...baseMeta ?? {}, effort: nativeEffort } : baseMeta;
+      const meta = generatedMode ? { ...effortMeta ?? {}, clientRequestId } : effortMeta;
       const sendFn = transport.sendMessage;
-      const p = meta ? sendFn(wire, meta) : sendFn(wire);
+      const invokeAdmission = () => meta ? sendFn(full, meta) : sendFn(full);
+      const p = generatedMode ? generatedAdmissionTailRef.current.then(invokeAdmission, invokeAdmission) : invokeAdmission();
       if (generatedMode && clientRequestId) {
-        p.then((receipt) => {
+        const admission = p.then((receipt) => {
           if (!isChatInputReceipt(receipt)) return;
           if (INPUT_STATE_ORDER[receipt.state] === 4) rememberTerminalCoordinate(receipt);
           setTurns((prev) => applyInputLifecycle(prev, receipt));
@@ -43683,11 +43697,14 @@ ${full}` : full;
           })));
           setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason, failure }));
         });
+        generatedAdmissionTailRef.current = admission.then(() => {
+        }, () => {
+        });
       } else {
         p.catch(() => {
         });
       }
-      setInput("");
+      if (!deferred) setInput("");
       if (generatedMode) taRef.current?.focus();
       if (ready.length) {
         const sentIds = new Set(ready.map((a) => a.id));
@@ -43701,11 +43718,12 @@ ${full}` : full;
     [transport, effortOn, railOn, feat.autonomous, generatedMode, rememberTerminalCoordinate]
   );
   (0, import_react4.useEffect)(() => {
-    if (!pendingSendRef.current) return;
+    if (pendingSendRef.current.length === 0) return;
     if (attachments.some((a) => a.uploading)) return;
-    const queued = pendingSendRef.current;
-    pendingSendRef.current = null;
-    send(queued.text, queued.opts);
+    const queued = pendingSendRef.current.splice(0);
+    for (const item of queued) {
+      send(item.text, item.opts, { attachmentIds: item.attachmentIds });
+    }
   }, [attachments, send]);
   const kickedRef = (0, import_react4.useRef)(false);
   (0, import_react4.useEffect)(() => {
@@ -44483,7 +44501,8 @@ ${full}` : full;
           {
             type: "button",
             className: `cc-chip ${effort === e.id ? "cc-chip-active" : ""}`,
-            title: e.directive ? `Prepend "${e.directive}" to your next message` : "No extra thinking directive",
+            "aria-pressed": effort === e.id,
+            title: e.effort === "auto" ? "Use Claude's default effort" : `Set native effort to ${e.effort}`,
             onClick: () => pickEffort(e.id),
             children: e.label
           },
@@ -44513,7 +44532,7 @@ ${full}` : full;
           children: "Autonomous"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
         "button",
         {
           type: "button",

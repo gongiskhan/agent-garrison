@@ -48,9 +48,13 @@ export function buildHarness(promptMode = "full", opts = {}) {
   const mode = promptMode === "lean" ? "lean" : promptMode === "coding" ? "coding" : "full";
 
   if (mode === "lean") {
+    const basePrompt = opts.leanPrompt ?? LEAN_SYSTEM_PROMPT;
     return {
       promptMode: "lean",
-      systemPrompt: opts.leanPrompt ?? LEAN_SYSTEM_PROMPT,
+      // Lean uses a custom prompt rather than the Claude Code preset, so include
+      // the composition's assembled append explicitly at this same spawn seam.
+      // The adapter snapshots the resulting string before a Query is opened.
+      systemPrompt: opts.append ? `${basePrompt}\n\n${opts.append}` : basePrompt,
       settingSources: [], // no CLAUDE.md, no user settings, no skills
       preset: null,
       claudeMdLoaded: false,

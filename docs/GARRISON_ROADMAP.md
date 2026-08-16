@@ -140,9 +140,11 @@ work.
   frame. Stop, live replay, tool questions, permission decisions, persistence,
   and UI lifecycle updates all require those exact coordinates. One input runs
   per thread while different threads remain concurrent. Warm Agent SDK Queries
-  are reused per compatible conversation, with active-lane-safe LRU eviction;
-  a cold replacement receives the bounded durable thread context once, while a
-  warm turn does not receive duplicate history.
+  are reused per compatible conversation, with active-lane-safe LRU eviction.
+  Every turn sends exactly its admitted visible text. A cold gateway uses native
+  SDK resume only with exact signed assembly identity; otherwise it starts a
+  visibly disclosed clean session and never reconstructs history as hidden user
+  prompt material.
 - **Process-restart reconciliation for active Web inputs is explicit and never
   replays uncertain work (implemented in the 2026-08-16 Web-parity
   continuation; not deployed yet).** On startup, persisted
@@ -154,9 +156,9 @@ work.
   ownership retries for the server lifetime with bounded backoff. A durable
   restart barrier forces the next SDK turn into a clean journal generation.
   An ordinary cold gateway resumes the latest exactly compatible SDK session
-  id; incompatible or malformed attribution starts cold with bounded
-  materialized context, while a provider failure after resume begins is surfaced
-  rather than silently duplicating the turn.
+  id; incompatible, unsigned, or malformed attribution starts a disclosed clean
+  session, while a provider failure after resume begins is surfaced rather than
+  silently duplicating the turn.
 - **Web transcript recovery joins the full append-only SDK session chain.** The
   durable canonical event store remains authoritative for typed terminal and
   control state; every unambiguous local JSONL named by `sessionIds` may fill a
@@ -175,6 +177,25 @@ work.
   Provider model fallback may refine the observed model for one request without
   rewriting the spawn signature. Shared route controls report save failures and
   distinguish new-session choices from next-request effort.
+- **Web user text is an exact authority boundary (implemented in the 2026-08-16
+  Web-parity continuation; not deployed yet).** The browser-visible text, durable
+  input, gateway ingress, and runtime user envelope are byte-identical; routing,
+  effort, history, board state, and workflow instructions are never prepended.
+  Effort is typed metadata applied through the runtime's native control. Generated
+  Web execution requires a durable thread, while the explicit `/api/claude`
+  console remains a separately labelled view onto the shared operative. Web
+  workflows or skills without a native control seam fail visibly instead of
+  mutating the prompt. Stateless non-Agent Web lanes disclose a new boundary on
+  every request. The direct gateway native-vision lane is also stateless; durable
+  Web attachments remain visible path text rather than an implicit image-coordinate
+  transport.
+- **Agent SDK assembly is signed and frozen per logical route epoch.** The capsule
+  covers the exact effective system prompt, explicit allow/deny tool policy, MCP
+  servers, strict mode, cwd, permission mode, and empty setting sources; its
+  nonsecret digest is part of the v2 spawn signature, while request effort is not.
+  The adapter deep-clones/freezes that capsule and a standing Web turn submits one
+  ordinary exact user envelope. Context seeds, streaming compaction, synthetic
+  recovery messages, and unsigned native resume are rejected.
 - **No multi-host compositions in v1.** One composition per host.
 - **Workbench-as-shell-area is gone.** The 2026-05-17 dissolution
   decision made `terminal`, `worktrees`, `session-view`,

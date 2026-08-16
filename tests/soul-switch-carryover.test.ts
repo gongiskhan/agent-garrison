@@ -94,6 +94,110 @@ describe("U4 — buildContextCarryover (the fallback summary)", () => {
 });
 
 describe("U4 — RoutedGateway re-injects carryover on a respawn (soul-switch-ok)", () => {
+  it("keeps carryover owned by a blocked standing turn while Web stateless lanes pre-route concurrently", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gar-carryover-owner-"));
+    const config = JSON.parse(JSON.stringify(SEED));
+    const standingTarget = config.targets.find((target: any) => target.id === "cc-sonnet-med");
+    const gw: any = await createRoutedGateway({
+      compositionDir: tmp,
+      config,
+      decisionsFile: join(tmp, "decisions.jsonl"),
+      spawnFn: (cfg: any) => Promise.resolve(new FakeSession(cfg)),
+      initialTarget: standingTarget,
+      logFn: () => {},
+    });
+    await gw.start();
+
+    const classification = { taskType: "code", tier: "T1-standard" };
+    const standingMessage = "standing internal message: preserve only this user text";
+    const standing = await gw.preRoute(standingMessage, {
+      channel: "kanban",
+      classification,
+      routing: { target: "cc-sonnet-med" },
+    });
+    expect(standing.plan.path).not.toBe("agent-sdk");
+    expect(standing.plan.path).not.toBe("secondary");
+    expect(standing.plan.path).not.toBe("claude-one-shot");
+
+    let releaseStanding!: () => void;
+    const blocked = new Promise<void>((resolve) => { releaseStanding = resolve; });
+    const standingReply = "standing assistant reply";
+    const pendingStanding = blocked.then(() => gw.postTurn(
+      standing.route,
+      standing.decision,
+      standingReply,
+      standingMessage,
+    ));
+
+    const webMessages = {
+      agent: "web Agent message must remain isolated",
+      secondary: "web secondary message must remain isolated",
+      oneShot: "web Claude one-shot message must remain isolated",
+    };
+    const preRouteWebLanes = () => Promise.all([
+      gw.preRoute(webMessages.agent, {
+        channel: "web",
+        classification,
+        routing: { target: "agent-sdk-haiku-fast" },
+      }),
+      gw.preRoute(webMessages.secondary, {
+        channel: "web",
+        classification,
+        routing: { target: "sec-gemini" },
+      }),
+      gw.preRoute(webMessages.oneShot, {
+        channel: "web",
+        classification,
+        routing: { target: "cc-sonnet-med" },
+      }),
+    ]);
+
+    try {
+      const overlapping = await preRouteWebLanes();
+      expect(overlapping.map((pre: any) => pre.plan.path)).toEqual([
+        "agent-sdk",
+        "secondary",
+        "claude-one-shot",
+      ]);
+      expect(gw._lastTurns).toEqual([]);
+
+      releaseStanding();
+      await pendingStanding;
+      expect(gw._lastTurns).toEqual([
+        { role: "user", text: standingMessage },
+        { role: "assistant", text: standingReply },
+      ]);
+
+      // A completed standing turn is eligible for the next respawn carryover,
+      // but generated Web lanes neither consume it nor receive its prompt text.
+      gw._respawned = true;
+      const statelessAfterRespawn = await preRouteWebLanes();
+      expect(statelessAfterRespawn.every((pre: any) => pre.carried === false)).toBe(true);
+      expect(statelessAfterRespawn.every((pre: any) => !pre.annotation.includes(standingMessage))).toBe(true);
+      expect(gw._respawned).toBe(true);
+      expect(gw._lastTurns).toEqual([
+        { role: "user", text: standingMessage },
+        { role: "assistant", text: standingReply },
+      ]);
+
+      const nextStanding = await gw.preRoute("next internal standing turn", {
+        channel: "kanban",
+        classification,
+        routing: { target: "cc-sonnet-med" },
+      });
+      expect(nextStanding.carried).toBe(true);
+      expect(nextStanding.annotation).toContain(standingMessage);
+      expect(nextStanding.annotation).toContain(standingReply);
+      for (const webMessage of Object.values(webMessages)) {
+        expect(nextStanding.annotation).not.toContain(webMessage);
+      }
+    } finally {
+      releaseStanding();
+      await pendingStanding.catch(() => {});
+      gw.shutdown();
+    }
+  });
+
   it("a provider switch respawns and the next turn's annotation carries prior context", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "gar-soul-gw-"));
     // Use an explicitly authored alternate provider: defaults remain

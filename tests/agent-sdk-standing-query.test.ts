@@ -221,6 +221,50 @@ describe("pinned Agent SDK standing streaming-input wrapper", () => {
 });
 
 describe("AgentSdkAdapter standing streaming-input turns", () => {
+  it("sends exactly one ordinary envelope with byte-exact text and rejects a context seed", async () => {
+    const { adapter, inputs, clients } = standingAdapterFixture();
+    const session = await adapter.spawn({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/tmp",
+      streamingInput: true,
+    });
+    session.contextSeed = "legacy hidden context";
+    await expect(adapter.sendTurn(session, "must not be prefixed", {
+      generationId: "generation-seed-rejected",
+    })).rejects.toThrow(/cannot consume a context seed/i);
+    expect(inputs).toEqual([]);
+    expect(clients).toEqual([]);
+
+    session.contextSeed = null;
+    const exact = "  byte-exact user text\n\n--- stays user-authored ---\n";
+    await adapter.sendTurn(session, exact, { generationId: "generation-exact" });
+    const response = adapter.awaitResponse(session);
+    await waitFor(() => inputs.length === 1 && clients.length === 1, "exact standing input");
+    expect(inputs).toEqual([user(exact)]);
+    expect(inputs[0]).not.toHaveProperty("isSynthetic");
+    expect(inputs[0]).not.toHaveProperty("shouldQuery");
+    expect(inputs[0]).not.toHaveProperty("origin");
+
+    clients[0].emit({
+      type: "result",
+      uuid: "result-exact",
+      session_id: "standing-exact",
+      subtype: "success",
+      result: "exact",
+      usage: { output_tokens: 1 },
+    });
+    clients[0].emit({
+      type: "system",
+      subtype: "session_state_changed",
+      state: "idle",
+      uuid: "idle-exact",
+      session_id: "standing-exact",
+    });
+    await expect(response).resolves.toMatchObject({ text: "exact" });
+    await adapter.teardown(session);
+  });
+
   it("opens a cold standing Query with the persisted SDK resume id and sends only the new input", async () => {
     const { adapter, inputs, clients, optionsSeen } = standingAdapterFixture();
     const session = await adapter.spawn({

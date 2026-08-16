@@ -24,7 +24,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn, claudeProjectDirForCwd } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
@@ -175,6 +175,45 @@ const SDK_PROVIDER_VAULT_KEYS = {
   minimax: "MINIMAX_API_KEY",
   "llm-proxy": "LLM_PROXY_API_KEY",
 };
+
+const AGENT_SDK_ASSEMBLY_SCHEMA = "agent-sdk-assembly-v1";
+
+function canonicalAssemblyValue(value) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (Array.isArray(value)) return value.map(canonicalAssemblyValue);
+  if (!value || typeof value !== "object") return null;
+  const out = {};
+  for (const key of Object.keys(value).sort()) {
+    const next = canonicalAssemblyValue(value[key]);
+    if (next !== undefined) out[key] = next;
+  }
+  return out;
+}
+
+function cloneAssemblyValue(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(cloneAssemblyValue);
+  const out = {};
+  for (const [key, next] of Object.entries(value)) out[key] = cloneAssemblyValue(next);
+  return out;
+}
+
+function freezeAssemblyValue(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const next of Object.values(value)) freezeAssemblyValue(next);
+  return Object.freeze(value);
+}
+
+function canonicalToolNames(value) {
+  if (!Array.isArray(value)) return null;
+  return [...new Set(value.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim()))].sort();
+}
+
+export function agentSdkAssemblyDigest(snapshot) {
+  const canonical = canonicalAssemblyValue(snapshot);
+  return `a1:${createHash("sha256").update(JSON.stringify(canonical)).digest("hex")}`;
+}
 
 export function effectiveAgentSdkCredentialVersion(target = {}, { secrets = null, env = {} } = {}) {
   const provider = String(target?.provider ?? "");
@@ -1172,6 +1211,17 @@ export class RoutedGateway {
     this.compositionDir = opts.compositionDir;
     this.compositionId = opts.compositionId ?? null;
     this.appendSystemPromptFile = opts.appendSystemPromptFile;
+    // M7 assembly is a gateway-start snapshot. A routed SDK Query must never
+    // reread prompt or MCP inputs between warm turns (including an effort-only
+    // native-resume rotation), so the first resolved capsule is retained for
+    // this process and every public route carries only its opaque digest.
+    this._agentSdkAppendSystemPrompt = typeof opts.agentSdkAppendSystemPrompt === "string"
+      ? opts.agentSdkAppendSystemPrompt
+      : undefined;
+    this._agentSdkMcpServers = freezeAssemblyValue(cloneAssemblyValue(opts.agentSdkMcpServers ?? {}));
+    this._agentSdkAssemblyResolver = typeof opts.agentSdkAssemblyResolver === "function"
+      ? opts.agentSdkAssemblyResolver
+      : null;
     this.nowFn = opts.nowFn ?? (() => new Date().toISOString());
     this.logFn = opts.logFn ?? (() => {});
     this.slashInjectWorks = opts.slashInjectWorks !== false; // MR0e verdict: works
@@ -1199,7 +1249,6 @@ export class RoutedGateway {
     this.lastClassification = null;
     this._lastTurns = []; // recent {role,text} for context carryover on respawn
     this._respawned = false; // set when the last switch respawned the operative
-    this._lastUserMessage = null;
     // agent-sdk runtime (any model via the Claude Agent SDK, incl. Anthropic).
     // Lazily constructed; one warm session per {provider,model,promptMode}.
     this._agentSdkAdapter = opts.agentSdkAdapter ?? null;
@@ -1301,6 +1350,65 @@ export class RoutedGateway {
     return route?.target?.runtime === "agent-sdk";
   }
 
+  _resolvedAgentSdkAppendSystemPrompt() {
+    if (this._agentSdkAppendSystemPrompt !== undefined) return this._agentSdkAppendSystemPrompt;
+    const promptFile = this.appendSystemPromptFile;
+    if (!promptFile) {
+      this._agentSdkAppendSystemPrompt = "";
+      return this._agentSdkAppendSystemPrompt;
+    }
+    try {
+      this._agentSdkAppendSystemPrompt = fs.readFileSync(promptFile, "utf8");
+      return this._agentSdkAppendSystemPrompt;
+    } catch (err) {
+      throw new Error(
+        `routed agent-sdk: assembled system prompt unreadable at ${promptFile}: ${String(err?.message || err)}`
+      );
+    }
+  }
+
+  /** Resolve the complete host-owned SDK Query assembly before route-session
+   * identity is computed. The raw capsule stays process-local; only `digest`
+   * crosses the gateway/Web durability boundary. Effort is deliberately absent
+   * because it rotates the Query by native resume inside the same epoch. */
+  resolveAgentSdkAssembly(route, opts = {}) {
+    const target = route?.target ?? {};
+    const resolver = this._agentSdkAssemblyResolver ?? (
+      typeof this._agentSdkAdapter?.resolveRoutedAssembly === "function"
+        ? (config) => this._agentSdkAdapter.resolveRoutedAssembly(config)
+        : null
+    );
+    if (typeof resolver !== "function") {
+      throw new Error("routed agent-sdk: fixed assembly resolver is unavailable");
+    }
+    const allowedTools = canonicalToolNames(target.allowedTools);
+    const disallowedTools = canonicalToolNames(target.disallowedTools);
+    const resolved = resolver({
+      provider: target.provider ?? null,
+      model: target.model ?? null,
+      baseUrl: target.baseUrl ?? null,
+      promptMode: target.promptMode ?? "full",
+      leanPrompt: typeof target.leanPrompt === "string" ? target.leanPrompt : undefined,
+      appendSystemPrompt: this._resolvedAgentSdkAppendSystemPrompt(),
+      compositionDir: opts.cwd ?? this.buildWorkspace ?? this.compositionDir,
+      maxTurns: target.maxTurns ?? 12,
+      budgetTokens: target.budgetTokens ?? null,
+      permissionMode: opts.permissionMode === "default" ? "default" : "bypassPermissions",
+      thinking: target.thinking?.type === "disabled" ? { type: "disabled" } : undefined,
+      ...(target.tools !== undefined ? { tools: cloneAssemblyValue(target.tools) } : {}),
+      allowedTools: allowedTools ?? [],
+      ...(target.disallowedTools !== undefined ? { disallowedTools: disallowedTools ?? [] } : {}),
+      mcpServers: cloneAssemblyValue(this._agentSdkMcpServers),
+      strictMcpConfig: true,
+      streamingInput: opts.streamingInput === true,
+    });
+    const capsule = freezeAssemblyValue({
+      schema: AGENT_SDK_ASSEMBLY_SCHEMA,
+      ...cloneAssemblyValue(resolved),
+    });
+    return Object.freeze({ digest: agentSdkAssemblyDigest(capsule), config: capsule });
+  }
+
   // Serialize `fn` on the named lane's promise chain. A lane is one execution
   // resource that cannot interleave turns (a warm SDK session, a cwd-keyed
   // delegate); turns on DIFFERENT lanes run concurrently. The chain entry is
@@ -1387,14 +1495,14 @@ export class RoutedGateway {
   //                   on the same target share ONE SDK session and one session_id,
   //                   so the per-message transcript badge would point at the wrong
   //                   conversation.
-  //   coldStartContext - caller-owned durable conversation seed. Applied only when
-  //                   this call actually spawns a new SDK session; a warm standing
-  //                   Query already owns its history and must not receive it twice.
+  //   assembly      - the immutable host-owned Query capsule resolved before the
+  //                   durable route signature. Raw prompt/MCP bytes stay local;
+  //                   only its digest is published.
   //   resumeSessionId - previously persisted SDK journal identity, already checked
   //                   against the resolved route/account/project by the HTTP edge.
   //                   Honored only for a cold standing session with no live owner.
-  //   forceNewSession - durable host-recovery boundary. Retires a same-thread warm
-  //                   Query and ignores resume so coldStartContext seeds a new one.
+  //   forceNewSession - durable host-recovery/signature boundary. Retires every
+  //                   same-thread Query and starts clean without inventing history.
   //   onEvent(event) - channel-neutral structured session event observer.
   //   turnId         - caller-owned stable turn identity attached by the adapter.
   //   generationId   - caller-owned permission-control generation identity.
@@ -1410,18 +1518,9 @@ export class RoutedGateway {
   async runAgentSdkTurn(route, message, onChunk, opts = {}) {
     const adapter = await this.getAgentSdkAdapter();
     const t = route.target;
-    // Match the runtime fitting + adapter defaults when the target editor leaves
-    // these controls at "runtime default". Falling back to lean/4 here silently
-    // stripped CLAUDE.md, skills and tools from otherwise agentic targets even
-    // though AgentSdkAdapter itself defaults to the full harness and 12 turns.
-    const promptMode = t.promptMode ?? "full";
     const requestedEffort = t.effort ?? null;
     const sessionKey = typeof opts.sessionKey === "string" && opts.sessionKey ? opts.sessionKey : null;
     const generationId = typeof opts.generationId === "string" ? opts.generationId.trim() : "";
-    const coldStartContext =
-      typeof opts.coldStartContext === "string" && opts.coldStartContext.trim()
-        ? opts.coldStartContext.trim()
-        : "";
     // A standing Query has a long-lived control callback and therefore requires
     // a stable conversation coordinate. Threadless/one-shot callers remain on the
     // historical string-prompt path even if they accidentally pass the flag.
@@ -1430,6 +1529,14 @@ export class RoutedGateway {
     }
     const streamingInput = opts.streamingInput === true && sessionKey !== null && Boolean(generationId);
     const forceNewSession = streamingInput && opts.forceNewSession === true;
+    const assembly = opts.assembly?.digest && opts.assembly?.config
+      ? opts.assembly
+      : this.resolveAgentSdkAssembly(route, {
+          cwd: opts.cwd,
+          permissionMode: opts.permissionMode,
+          streamingInput,
+        });
+    const fixed = assembly.config;
     let requestedResumeSessionId =
       streamingInput &&
       !forceNewSession &&
@@ -1438,22 +1545,26 @@ export class RoutedGateway {
         ? opts.resumeSessionId
         : "";
     const spawnArgs = {
-      provider: t.provider,
-      model: t.model,
+      provider: fixed.provider,
+      model: fixed.model,
       effort: requestedEffort,
-      promptMode,
-      leanPrompt: t.leanPrompt,
-      baseUrl: t.baseUrl,
+      baseUrl: fixed.baseUrl,
+      promptMode: fixed.promptMode,
       // cwd, most specific first: a PINNED PROJECT for this turn (§8 - the turn
       // really runs in that repo, which is what the project badge asserts), else
       // the shared build workspace when set, else the composition dir.
       // spawnArgs feeds the warm-session cache key below, so two projects
       // correctly get two sessions instead of silently sharing one cwd.
-      compositionDir: opts.cwd ?? this.buildWorkspace ?? this.compositionDir,
-      disallowedTools: t.disallowedTools,
-      allowedTools: t.allowedTools,
-      maxTurns: t.maxTurns ?? 12,
-      budgetTokens: t.budgetTokens ?? null,
+      compositionDir: fixed.compositionDir,
+      fixedAssembly: fixed,
+      tools: fixed.tools,
+      disallowedTools: fixed.disallowedTools,
+      allowedTools: fixed.allowedTools,
+      mcpServers: fixed.mcpServers,
+      strictMcpConfig: fixed.strictMcpConfig,
+      thinking: fixed.thinking,
+      maxTurns: fixed.maxTurns,
+      budgetTokens: fixed.budgetTokens,
       // The named account this target (or this turn's override) runs under.
       // buildSdkEnv already resolves it into ANTHROPIC_AUTH_TOKEN off the
       // materialized vault - until now nothing ever passed it, so a target with
@@ -1464,27 +1575,23 @@ export class RoutedGateway {
       // Paymaster account pin) — the SDK replaces the subprocess env, so an
       // empty baseEnv would strip config-dir isolation and the account token.
       env: process.env,
-      permissionMode: opts.permissionMode ?? "bypassPermissions",
+      permissionMode: fixed.permissionMode,
       ...(streamingInput ? { streamingInput: true } : {}),
     };
-    // Every target-owned execution knob participates in session identity. A live
-    // manifest edit from lean → full (or maxTurns/tool-policy changes) must spawn
-    // a session with the new harness instead of reusing an incompatible warm one.
-    // env/secrets are excluded: the whole process env would bloat the key and
-    // change on any unrelated env mutation, needlessly churning warm sessions.
-    // sessionKey adds the CONVERSATION (§12) so two threads never share one SDK
-    // session - and therefore never report each other's session_id/transcript.
+    // Cache identity contains only safe coordinates plus the opaque capsule
+    // digest. Raw system-prompt/MCP bytes and process secrets never enter a Map
+    // key, log record, route frame, or durable thread file.
     const compatibility = {
       targetId: route.targetId,
       sessionKey,
-      ...spawnArgs,
-      secrets: undefined,
-      env: undefined,
+      assemblyDigest: assembly.digest,
+      effort: requestedEffort,
+      account: spawnArgs.account,
     };
     const compatibilityKey = JSON.stringify(compatibility);
     // Effort configures the standing Query but is deliberately NOT logical
     // conversation identity. A change closes the idle Query and resumes its same
-    // journal with a fresh Query rather than cold-materializing the Web history.
+    // journal with a fresh Query rather than rewriting the admitted user text.
     const effortCompatibility = { ...compatibility, effort: undefined };
     const effortCompatibilityKey = JSON.stringify(effortCompatibility);
     const credentialVersion = effectiveAgentSdkCredentialVersion(t, {
@@ -1565,8 +1672,9 @@ export class RoutedGateway {
         : requestedResumeSessionId;
       session = await adapter.spawn(resumeSessionId ? { ...spawnArgs, sessionId: resumeSessionId } : spawnArgs);
       spawnedSession = true;
-      // An adapter that ignores the candidate did not resume. Preserve the cold
-      // materialized fallback instead of silently dropping all prior context.
+      // An adapter that ignores the candidate did not resume. M7 never repairs
+      // that uncertainty by rewriting the next user prompt; route disposition
+      // exposes the resulting clean boundary instead.
       spawnedFromResume = Boolean(resumeSessionId && session?.sessionId === resumeSessionId);
       if (effortRotated && !spawnedFromResume) {
         await adapter?.teardown?.(session);
@@ -1610,7 +1718,7 @@ export class RoutedGateway {
       // Host recovery means the durable transcript and this SDK journal diverged:
       // this turn may already have entered the journal before its SSE owner died.
       // Hold the generation claim until the Query is closed, and tombstone both
-      // the requested and provider-refined ids so the next turn cold-materializes.
+      // the requested and provider-refined ids so the next turn starts clean.
       opts.registerRecoveryReset(async () => {
         const abandoned = (this._abandonedAgentSdkSessionIds ??= new Set());
         for (const candidate of [requestedResumeSessionId, session?.sessionId]) {
@@ -1631,7 +1739,16 @@ export class RoutedGateway {
     if (typeof opts.registerStop === "function") {
       // Bind the cancel to THIS turn's session (the warm session is reused, so a
       // stop captured from an earlier turn would abort the wrong query).
-      opts.registerStop(() => adapter.cancel?.(session) ?? false);
+      try {
+        opts.registerStop(() => adapter.cancel?.(session) ?? false);
+      } catch (error) {
+        // A generation Stop may have latched while routing/spawning. The runtime
+        // has not admitted user bytes yet, so this Query must not remain cached
+        // and make the next real turn look warm. Retire it even when it resumed a
+        // prior journal; the next turn can prove and reopen that journal exactly.
+        await this._releaseAgentSdkSession(adapter, key, session, "pre-runtime-interrupted");
+        throw error;
+      }
     }
     const sessionDisposition = spawnedFromResume ? "resumed" : spawnedSession ? "new" : "warm";
     let sessionEpoch = Number.isSafeInteger(opts.routeSession?.epoch) && opts.routeSession.epoch >= 1
@@ -1679,6 +1796,7 @@ export class RoutedGateway {
       conversation: sessionDisposition,
     });
     await adapter.awaitReady(session);
+    opts.onRuntimeAdmission?.();
     // Runtime selection is known before journal reporting or input admission.
     routeObservation();
     // A resumed SDK session is known before sendTurn; a fresh session is only
@@ -1772,17 +1890,9 @@ export class RoutedGateway {
             }
           : undefined
     };
-    const coldSessionMessage = coldStartContext
-      ? `${coldStartContext}\n\n---\n\n${message}`
-      : message;
-    // Native resume loads the persisted SDK transcript, so adding the Web's
-    // materialized history would duplicate every prior turn. Cold/new sessions
-    // receive that bounded context; warm and resumed sessions receive only the
-    // newly admitted message.
-    const sessionMessage = spawnedSession && !spawnedFromResume ? coldSessionMessage : message;
     let resp;
     try {
-      await adapter.sendTurn(session, sessionMessage, streamHooks);
+      await adapter.sendTurn(session, message, streamHooks);
       resp = await adapter.awaitResponse(session);
       captureRuntimeOutcome(resp);
       reportJournalSession(resp?.sessionId);
@@ -1821,7 +1931,7 @@ export class RoutedGateway {
         routeObservation();
         reportJournalSession(session?.sessionId);
         try {
-          await adapter.sendTurn(session, coldSessionMessage, streamHooks);
+          await adapter.sendTurn(session, message, streamHooks);
           resp = await adapter.awaitResponse(session);
           captureRuntimeOutcome(resp);
           reportJournalSession(resp?.sessionId);
@@ -1998,6 +2108,17 @@ export class RoutedGateway {
     return claudeExecutable && typeof cwd === "string" && cwd.trim().length > 0;
   }
 
+  // Browser conversation state belongs to the durable Web/Agent-SDK protocol,
+  // never to the shared operative or cwd-keyed delegate pools. A Claude target
+  // selected from Web therefore runs as an isolated one-shot and must not mutate
+  // the standing operative during pre-route switching.
+  isWebClaudeOneShot(route, channel) {
+    return channel === "web" &&
+      !this.isAgentSdkTarget(route) &&
+      !this.isSecondaryTarget(route) &&
+      (route?.target?.runtime === "claude-code" || this.isWorkflowTarget(route));
+  }
+
   // The on-disk jsonl transcript a Claude CLI session at `cwd` journals to.
   // Callers (e.g. the automations vision path) use it to link a routed turn to
   // its session transcript; null when either coordinate is missing.
@@ -2061,6 +2182,20 @@ export class RoutedGateway {
       session.__garrisonEffortApplied = effortApplied;
       this._claudeDelegateSessions.set(key, session);
     }
+    this.logFn({ kind: "runtime-turn", runtime: "claude-code", provider, model, effort, target: route.targetId, delegated: true });
+    // §9: a delegate is a real Claude session, so ESC is its stop primitive (the
+    // same one /claude/interrupt uses); a non-PTY delegate falls back to the
+    // adapter's cancel when it has one.
+    if (typeof opts.registerStop === "function") {
+      opts.registerStop(() => {
+        if (typeof session.writeKeys === "function") {
+          session.writeKeys("\x1b");
+          return true;
+        }
+        return adapter.cancel?.(session) ?? false;
+      });
+    }
+    opts.onRuntimeAdmission?.();
     try {
       const sessionId = session.getClaudeSessionId?.() ?? session.sessionId ?? null;
       if (sessionId) {
@@ -2076,19 +2211,6 @@ export class RoutedGateway {
       }
     } catch {
       /* question/observability sinks must never break a turn */
-    }
-    this.logFn({ kind: "runtime-turn", runtime: "claude-code", provider, model, effort, target: route.targetId, delegated: true });
-    // §9: a delegate is a real Claude session, so ESC is its stop primitive (the
-    // same one /claude/interrupt uses); a non-PTY delegate falls back to the
-    // adapter's cancel when it has one.
-    if (typeof opts.registerStop === "function") {
-      opts.registerStop(() => {
-        if (typeof session.writeKeys === "function") {
-          session.writeKeys("\x1b");
-          return true;
-        }
-        return adapter.cancel?.(session) ?? false;
-      });
     }
     let response;
     if (typeof session.runTurn === "function") {
@@ -2210,6 +2332,7 @@ export class RoutedGateway {
       opts.registerStop(() => adapter.cancel(session));
     }
     await adapter.awaitReady(session);
+    opts.onRuntimeAdmission?.();
     await adapter.sendTurn(session, message);
     let resp;
     try {
@@ -2534,6 +2657,33 @@ export class RoutedGateway {
     return { status: 200, body: { applied: true, resolved, record } };
   }
 
+  // Resolve a disposable Web Claude spawn through the same provider-policy path
+  // as a standing/delegate Claude spawn. In particular, buildRespawnOpts owns
+  // both vault/account auth projection and the providerLaunch decision that keeps
+  // an explicitly selected non-plan ANTHROPIC_BASE_URL through claude-pty's
+  // inherited-provider scrub. Only the fresh one-shot fields are returned; Web
+  // never resumes a standing/provider-switch conversation here.
+  resolveWebOneShotLaunch(target = {}) {
+    const executableTarget = {
+      ...target,
+      runtime: "claude-code",
+      provider: target?.provider ?? "anthropic-plan",
+      model: target?.model ?? this._operativeSpawnConfig?.model ?? this.currentTarget?.model ?? "sonnet"
+    };
+    const spawnConfig = this.core.buildRespawnOpts(executableTarget, {
+      compositionDir: this.compositionDir,
+      appendSystemPromptFile: this.appendSystemPromptFile,
+      baseEnv: process.env,
+      secrets: this.resolveSecrets(),
+      providers: this.core.ensureProviders(this.config)?.providers,
+      permissionMode: this._operativeSpawnConfig?.permissionMode ?? "bypassPermissions"
+    });
+    return {
+      env: spawnConfig.env,
+      providerLaunch: spawnConfig.providerLaunch === true
+    };
+  }
+
   // S3b: run ONE web materialized turn as a one-shot (fresh disposable claude), so
   // the standing operative session holds NO web context between messages. Injectable
   // for tests via opts.oneShotFn. Returns { reply, sessionId, transcriptPath }.
@@ -2543,7 +2693,7 @@ export class RoutedGateway {
   // real auth env. Both were hardcoded here before - the composition dir and the
   // gateway's own env - which is why "project" could only ever have been a label.
   // Absent → byte-identical to the previous behaviour.
-  async runWebOneShot({ message, model, onScreen, onSession, cwd: cwdOverride, env } = {}) {
+  async runWebOneShot({ message, model, effort, providerLaunch, onScreen, onSession, cwd: cwdOverride, env } = {}) {
     const cfg = this._operativeSpawnConfig || {};
     const fn = this._oneShotFn ?? oneShotTurn;
     const cwd = cwdOverride ?? cfg.compositionDir ?? this.compositionDir;
@@ -2551,10 +2701,12 @@ export class RoutedGateway {
       cwd,
       appendSystemPromptFile: cfg.appendSystemPromptFile ?? this.appendSystemPromptFile,
       model: model ?? cfg.model,
+      ...(effort != null ? { effort } : {}),
       permissionMode: cfg.permissionMode ?? "bypassPermissions",
       claudeBinary: cfg.claudeBinary,
       extraArgs: cfg.extraArgs,
       ...(env ? { env } : {}),
+      ...(typeof providerLaunch === "boolean" ? { providerLaunch } : {}),
       message,
       onScreen,
       onSession
@@ -2563,6 +2715,7 @@ export class RoutedGateway {
     return {
       reply: outcome?.reply ?? "",
       sessionId,
+      effortApplied: effort == null ? null : outcome?.effortApplied === true,
       transcriptPath: this.claudeTranscriptPathFor(cwd, sessionId)
     };
   }
@@ -3331,6 +3484,7 @@ export class RoutedGateway {
       // conversation too, not just the classifier-path decision below.
       sessionId = null,
       sessionTitle = null,
+      channel = null,
       implicitStickyTarget = false
     } = {}
   ) {
@@ -3402,6 +3556,8 @@ export class RoutedGateway {
       plan = { path: "refused", reasons: ["managed personal workspace unavailable"] };
     } else if (this.isAgentSdkTarget(route)) {
       plan = { path: "agent-sdk", reasons: [`v4 duty cell → agent-sdk ${route.target.provider}/${route.target.model}`] };
+    } else if (this.isWebClaudeOneShot(route, channel)) {
+      plan = { path: "claude-one-shot", reasons: ["Web Claude turn → isolated one-shot"] };
     } else if (this.usesScopedClaudeSession(route, override.projectPath)) {
       plan = {
         path: "claude-delegate",
@@ -3471,7 +3627,6 @@ export class RoutedGateway {
 
   // classify → resolve role → resolve target → LOG at resolution time → switch.
   async preRoute(message, opts = {}) {
-    this._lastUserMessage = message;
     // The per-turn pin (§2), already validated at the HTTP edge (sanitizeRouting),
     // plus the rejections that validation itself produced - one list reaches the
     // badge whether a value died on the wire or died here.
@@ -3502,6 +3657,7 @@ export class RoutedGateway {
         implicitStickyTarget,
         sessionId: opts.sessionId ?? null,
         sessionTitle: opts.sessionTitle ?? null,
+        channel: opts.channel ?? null,
         rejected
       });
     }
@@ -3516,6 +3672,7 @@ export class RoutedGateway {
           level: ov.level,
           routing: ov,
           implicitStickyTarget,
+          channel: opts.channel ?? null,
           rejected,
           viaOverride: true
         });
@@ -3548,6 +3705,7 @@ export class RoutedGateway {
           implicitStickyTarget,
           sessionId: opts.sessionId ?? null,
           sessionTitle: opts.sessionTitle ?? null,
+          channel: opts.channel ?? null,
           rejected
         });
       }
@@ -3609,6 +3767,7 @@ export class RoutedGateway {
           autonomy,
           sessionId: opts.sessionId ?? null,
           sessionTitle: opts.sessionTitle ?? null,
+          channel: opts.channel ?? null,
           rejected
         });
       }
@@ -3711,6 +3870,8 @@ export class RoutedGateway {
       ? { path: "noop", reasons: ["no target"] }
       : route.target.runtime === "agent-sdk"
         ? { path: "agent-sdk", reasons: [`agent-sdk runtime ${route.target.provider}/${route.target.model}`] }
+        : this.isWebClaudeOneShot(route, opts.channel)
+          ? { path: "claude-one-shot", reasons: ["Web Claude turn → isolated one-shot"] }
         : this.usesScopedClaudeSession(route, override.projectPath)
           ? {
               path: "claude-delegate",
@@ -3724,8 +3885,16 @@ export class RoutedGateway {
     let annotation = routeAnnotation(route);
     // A respawn (soul/provider change) starts a fresh process; --continue is
     // unreliable for ephemeral sessions, so re-inject a compact context summary
-    // as the turn preamble (the soul-switch carryover fallback).
-    if (this._respawned && this.core.buildContextCarryover) {
+    // as the next STANDING operative turn's preamble (the soul-switch carryover
+    // fallback). Isolated Web/SDK/delegate/secondary turns must not consume it.
+    const consumesStandingOperative = !new Set([
+      "agent-sdk",
+      "secondary",
+      "claude-delegate",
+      "claude-one-shot",
+      "refused",
+    ]).has(plan.path);
+    if (consumesStandingOperative && this._respawned && this.core.buildContextCarryover) {
       const carry = this.core.buildContextCarryover(this._lastTurns);
       if (carry) annotation = `${carry}\n${annotation}`;
       this._respawned = false;
@@ -3897,9 +4066,14 @@ export class RoutedGateway {
   }
 
   // After gateway-pty has run the turn, diff the reply's [route:] token.
-  async postTurn(route, decision, replyText) {
-    // Record the turn for context carryover on a future respawn (capped ring).
-    if (this._lastUserMessage) this._lastTurns.push({ role: "user", text: this._lastUserMessage });
+  async postTurn(route, decision, replyText, originalMessage) {
+    // Record only the standing turn that actually completed. The original text
+    // is call-owned: preRoute lanes can overlap, so a gateway-global "last user"
+    // slot lets an Agent/secondary/one-shot turn overwrite an in-flight standing
+    // turn and leak the wrong text into a later respawn carryover.
+    if (typeof originalMessage === "string" && originalMessage.length > 0) {
+      this._lastTurns.push({ role: "user", text: originalMessage });
+    }
     this._lastTurns.push({ role: "assistant", text: replyText ?? "" });
     if (this._lastTurns.length > 12) this._lastTurns = this._lastTurns.slice(-12);
     const honored = this.core.checkHonored(route, replyText ?? "");
@@ -4313,12 +4487,30 @@ export function resolveClassifierAdapter(ctx) {
     // Lean drops the appended orchestrator prompt and disables tools, so a
     // classification turn is a pure completion on the cheap model. The primary's
     // provider/secrets carry over; the account pin inherits via the process env.
+    const {
+      appendSystemPrompt: _operativeAppend,
+      leanPrompt: _operativeLeanPrompt,
+      fixedAssembly: _operativeAssembly,
+      systemPrompt: _operativeSystemPrompt,
+      settingSources: _operativeSettingSources,
+      tools: _operativeTools,
+      allowedTools: _operativeAllowedTools,
+      disallowedTools: _operativeDisallowedTools,
+      mcpServers: _operativeMcpServers,
+      strictMcpConfig: _operativeStrictMcp,
+      budgetTokens: _operativeBudget,
+      streamingInput: _operativeStreaming,
+      compactEnabled: _operativeCompaction,
+      ...sharedLaunch
+    } = primary.spawnConfig ?? {};
     return {
       adapter: primary.adapter,
       spawnConfig: {
-        ...primary.spawnConfig,
+        ...sharedLaunch,
         model: classifierSpawnConfig?.model ?? "haiku",
         promptMode: "lean",
+        maxTurns: 1,
+        thinking: { type: "disabled" },
       },
     };
   }
@@ -4453,6 +4645,18 @@ export async function createRoutedGateway(opts = {}) {
     runtimes
   });
 
+  let agentSdkAssemblyResolver = opts.agentSdkAssemblyResolver ?? null;
+  if (!agentSdkAssemblyResolver && typeof opts.agentSdkAdapter?.resolveRoutedAssembly === "function") {
+    agentSdkAssemblyResolver = (config) => opts.agentSdkAdapter.resolveRoutedAssembly(config);
+  }
+  if (!agentSdkAssemblyResolver) {
+    const dir = resolveAgentSdkDir(compositionDir);
+    if (dir) {
+      const mod = await import(pathToFileURL(path.join(dir, "lib", "agent-sdk-adapter.mjs")).href);
+      agentSdkAssemblyResolver = mod.resolveRoutedAgentSdkAssembly;
+    }
+  }
+
   const gw = new RoutedGateway({
     core,
     config,
@@ -4460,6 +4664,9 @@ export async function createRoutedGateway(opts = {}) {
     compositionDir,
     compositionId,
     appendSystemPromptFile: opts.appendSystemPromptFile,
+    agentSdkAppendSystemPrompt: opts.agentSdkAppendSystemPrompt,
+    agentSdkMcpServers: opts.agentSdkMcpServers,
+    agentSdkAssemblyResolver,
     nowFn: opts.nowFn,
     logFn: opts.logFn,
     slashInjectWorks: opts.slashInjectWorks,

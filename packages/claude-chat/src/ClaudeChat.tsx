@@ -18,6 +18,7 @@ import diff from "highlight.js/lib/languages/diff";
 import { ChatTransportError, isChatInputReceipt } from "./transport";
 import type {
   ChatEvent,
+  ChatEffort,
   ChatFrameCoordinate,
   ChatInputReceipt,
   ChatInputState,
@@ -897,7 +898,7 @@ function InputLifecycleStatus({
 export interface ChatFeatures {
   /** Model selector (Opus/Sonnet/Haiku) - switches the live session via /model. */
   model?: boolean;
-  /** Effort/thinking-level selector - prepends a thinking directive to the next message. */
+  /** Effort/thinking-level selector - sends a native control beside the message. */
   effort?: boolean;
   /** Light/dark/system theme toggle for the chat surface. */
   theme?: boolean;
@@ -930,16 +931,15 @@ const MODELS: { id: string; label: string }[] = [
   { id: "claude-haiku-4-5", label: "Haiku" },
 ];
 
-// Effort / thinking levels. MECHANISM: Claude Code escalates its thinking budget
-// on trigger phrases in the prompt ("think" < "think hard" < "ultrathink"). We
-// prepend the chosen directive to the user's next message at send time. "Normal"
-// prepends nothing. The choice persists in localStorage and shows active; it is
-// a per-message modifier, not a session setting, so it survives reconnects.
-const EFFORTS: { id: string; label: string; directive: string }[] = [
-  { id: "normal", label: "Normal", directive: "" },
-  { id: "think", label: "Think", directive: "think" },
-  { id: "think-hard", label: "Think hard", directive: "think hard" },
-  { id: "ultrathink", label: "Ultrathink", directive: "ultrathink" },
+// Keep the existing persisted ids and labels so saved Dev Env preferences do
+// not jump after upgrade. Their mechanism is now Claude Code's native `/effort`
+// control, sent as request metadata before the byte-identical visible message.
+// `auto` is load-bearing: selecting Normal must undo a prior session-level pin.
+const EFFORTS: { id: string; label: string; effort: ChatEffort }[] = [
+  { id: "normal", label: "Normal", effort: "auto" },
+  { id: "think", label: "Think", effort: "low" },
+  { id: "think-hard", label: "Think hard", effort: "high" },
+  { id: "ultrathink", label: "Ultrathink", effort: "max" },
 ];
 const LS_EFFORT = "garrison.chat.effort";
 
@@ -1506,7 +1506,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     return () => { alive = false; };
   }, []);
 
-  // ── Effort / thinking level (opt-in). Persisted; prepended at send time. ──
+  // ── Effort / thinking level (opt-in). Persisted; sent as native metadata. ──
   const effortOn = Boolean(feat.effort);
   const [effort, setEffort] = useState<string>(() => readEffort());
   const effortRef = useRef(effort);
@@ -1900,38 +1900,70 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const modeRef = useRef<string | undefined>(mode);
   modeRef.current = mode;
 
-  // A send fired (via Enter) while an attachment is still uploading is DEFERRED,
-  // not dropped: the intended text is stashed here and re-fired by the effect
-  // below once no upload is in flight, so "type + paste + Enter fast" still
-  // carries the image instead of silently sending textless and then piggybacking
-  // the attachment onto the user's next unrelated message.
-  const pendingSendRef = useRef<{ text: string; opts?: { hideUser?: boolean } } | null>(null);
+  // Sends fired (via Enter) while an attachment is still uploading are DEFERRED,
+  // not dropped. Keep every submission in order: a later Enter must not replace
+  // an earlier submitted message. Each submission snapshots the currently
+  // unclaimed attachments, so a later upload cannot mutate an earlier message.
+  const pendingSendRef = useRef<Array<{
+    text: string;
+    opts?: { hideUser?: boolean };
+    attachmentIds: string[];
+  }>>([]);
+  // Generated admission is a durable FIFO, not merely a synchronous call FIFO:
+  // the next transport request starts only after the prior request settles. Both
+  // optimistic turns are still painted synchronously by `send`.
+  const generatedAdmissionTailRef = useRef<Promise<void>>(Promise.resolve());
+  const generatedAdmissionTransportRef = useRef(transport);
+  if (generatedAdmissionTransportRef.current !== transport) {
+    generatedAdmissionTransportRef.current = transport;
+    generatedAdmissionTailRef.current = Promise.resolve();
+  }
 
   const send = useCallback(
-    (text: string, opts?: { hideUser?: boolean }): string | null => {
-      if (generatedMode && generatedWorkRef.current && attachmentsRef.current.length > 0) {
+    (
+      text: string,
+      opts?: { hideUser?: boolean },
+      deferred?: { attachmentIds: string[] }
+    ): string | null => {
+      if (!deferred && generatedMode && generatedWorkRef.current && attachmentsRef.current.length > 0) {
         setTurnAnnouncement("Attachments cannot be queued while another message is pending.");
         return null;
       }
       // Hold the turn until every in-flight upload settles (resolved or errored),
-      // so its path is present when we build the attachment suffix.
-      if (attachmentsRef.current.some((a) => a.uploading)) {
-        pendingSendRef.current = { text, opts };
+      // so its path is present when we build the attachment suffix. A send that
+      // arrives before the settled backlog has replayed joins that backlog too.
+      if (!deferred && (
+        attachmentsRef.current.some((a) => a.uploading) ||
+        pendingSendRef.current.length > 0
+      )) {
+        const claimedIds = new Set(pendingSendRef.current.flatMap((item) => item.attachmentIds));
+        pendingSendRef.current.push({
+          text,
+          opts,
+          attachmentIds: attachmentsRef.current
+            .filter((attachment) => !claimedIds.has(attachment.id))
+            .map((attachment) => attachment.id),
+        });
         setInput("");
         return null;
       }
       const t = text.trim();
-      const ready = attachmentsRef.current.filter((a) => a.path && !a.uploading);
+      const deferredAttachmentIds = deferred ? new Set(deferred.attachmentIds) : null;
+      const ready = attachmentsRef.current.filter((attachment) => (
+        attachment.path &&
+        !attachment.uploading &&
+        (!deferredAttachmentIds || deferredAttachmentIds.has(attachment.id))
+      ));
       const attachmentSuffix = ready.length
         ? `\n\n${ready.length === 1 ? "Attached file" : "Attached files"}:\n${ready.map((a) => `- ${a.path}`).join("\n")}`
         : "";
       const full = `${t}${attachmentSuffix}`.trim();
       if (!full) return null;
-      // Effort directive (Think / Think hard / Ultrathink) is prepended to the
-      // wire text only - the transcript shows what the user actually typed
-      // (attachments included, since they're user-visible content).
-      const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
-      const wire = dir ? `${dir}\n\n${full}` : full;
+      // Effort is request metadata, never hidden prompt text. The exact same
+      // `full` value is stored in the visible transcript and sent to the host.
+      const nativeEffort = effortOn
+        ? EFFORTS.find((e) => e.id === effortRef.current)?.effort
+        : undefined;
       const sentPins = railOn ? compactRouting(pinsRef.current) : undefined;
       const clientRequestId = generatedMode ? nextClientRequestId() : undefined;
       const optimisticState: ChatInputState | undefined = generatedMode
@@ -1972,13 +2004,19 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
       // a context-unaware transport (createHttpTransport) is called exactly as
       // before. The transport decides whether to read `meta`.
       const baseMeta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : undefined, sentPins);
-      const meta: ChatSendMeta | undefined = generatedMode
-        ? { ...(baseMeta ?? {}), clientRequestId }
+      const effortMeta: ChatSendMeta | undefined = nativeEffort
+        ? { ...(baseMeta ?? {}), effort: nativeEffort }
         : baseMeta;
+      const meta: ChatSendMeta | undefined = generatedMode
+        ? { ...(effortMeta ?? {}), clientRequestId }
+        : effortMeta;
       const sendFn = transport.sendMessage as ContextAwareSend;
-      const p = meta ? sendFn(wire, meta) : sendFn(wire);
+      const invokeAdmission = () => meta ? sendFn(full, meta) : sendFn(full);
+      const p = generatedMode
+        ? generatedAdmissionTailRef.current.then(invokeAdmission, invokeAdmission)
+        : invokeAdmission();
       if (generatedMode && clientRequestId) {
-        p.then((receipt) => {
+        const admission = p.then((receipt) => {
           if (!isChatInputReceipt(receipt)) return;
           if (INPUT_STATE_ORDER[receipt.state] === 4) rememberTerminalCoordinate(receipt);
           setTurns((prev) => applyInputLifecycle(prev, receipt));
@@ -1997,10 +2035,16 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           })));
           setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason, failure }));
         });
+        // Always release the tail after a typed success or failure. The failed
+        // optimistic turn remains independently visible; later inputs are not
+        // stranded behind its rejected admission.
+        generatedAdmissionTailRef.current = admission.then(() => {}, () => {});
       } else {
         p.catch(() => {});
       }
-      setInput("");
+      // A deferred submission already cleared the composer when Enter claimed
+      // it. Replaying it after upload must not erase a newer unsent draft.
+      if (!deferred) setInput("");
       if (generatedMode) taRef.current?.focus();
       if (ready.length) {
         const sentIds = new Set(ready.map((a) => a.id));
@@ -2012,15 +2056,16 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     [transport, effortOn, railOn, feat.autonomous, generatedMode, rememberTerminalCoordinate]
   );
 
-  // Fire a deferred send once every upload has settled. Clearing the ref before
-  // the call keeps this from re-queuing (the re-entrant send sees no uploads and
-  // proceeds through the normal path).
+  // Replay the complete deferred backlog once every upload has settled. Each
+  // call paints its independent optimistic turn immediately; the generated
+  // admission tail above serializes the actual transport requests.
   useEffect(() => {
-    if (!pendingSendRef.current) return;
+    if (pendingSendRef.current.length === 0) return;
     if (attachments.some((a) => a.uploading)) return;
-    const queued = pendingSendRef.current;
-    pendingSendRef.current = null;
-    send(queued.text, queued.opts);
+    const queued = pendingSendRef.current.splice(0);
+    for (const item of queued) {
+      send(item.text, item.opts, { attachmentIds: item.attachmentIds });
+    }
   }, [attachments, send]);
 
   // Auto-send the opening message ONCE on mount, when a host provided one - so the
@@ -2998,7 +3043,8 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                   key={e.id}
                   type="button"
                   className={`cc-chip ${effort === e.id ? "cc-chip-active" : ""}`}
-                  title={e.directive ? `Prepend "${e.directive}" to your next message` : "No extra thinking directive"}
+                  aria-pressed={effort === e.id}
+                  title={e.effort === "auto" ? "Use Claude's default effort" : `Set native effort to ${e.effort}`}
                   onClick={() => pickEffort(e.id)}
                 >
                   {e.label}
@@ -3031,14 +3077,16 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               Autonomous
             </button>
           )}
-          <button
-            type="button"
-            className="cc-chip"
-            title="Compact the conversation (frees context)"
-            onClick={() => runCommand("/compact")}
-          >
-            Compact
-          </button>
+          {!generatedMode && (
+            <button
+              type="button"
+              className="cc-chip"
+              title="Compact the conversation (frees context)"
+              onClick={() => runCommand("/compact")}
+            >
+              Compact
+            </button>
+          )}
           <button
             type="button"
             className="cc-chip"

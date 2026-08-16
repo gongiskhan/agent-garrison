@@ -46,10 +46,15 @@ beforeAll(async () => {
           answers: [],
           permissionAnswers: [],
           pinChanges: [],
+          commands: [],
           rejectInterrupt: false,
           rejectAnswer: false,
           rejectPinSave: false,
           rejectNextAdmission: false,
+          holdFirstAdmission: false,
+          admissionResolvers: [],
+          deferUploads: false,
+          uploads: [],
           connect(onEvent) {
             listener = onEvent;
             onEvent({ type: "connection", state: "open" });
@@ -66,13 +71,22 @@ beforeAll(async () => {
               ...(number === 1 ? {} : { position: number - 1 }),
             };
             mock.sends.push({ message, meta: { ...meta }, receipt });
+            if (mock.holdFirstAdmission && number === 1) {
+              await new Promise((resolve) => { mock.admissionResolvers.push(resolve); });
+            }
             if (mock.rejectNextAdmission) {
               mock.rejectNextAdmission = false;
               throw new Error("admission failed");
             }
             return receipt;
           },
+          releaseFirstAdmission() {
+            const resolve = mock.admissionResolvers.shift();
+            if (!resolve) throw new Error("no held admission");
+            resolve();
+          },
           async sendKey() {},
+          async sendCommand(command) { mock.commands.push(command); },
           async setMode(mode) { return { mode, reached: true }; },
           async interrupt(request) {
             mock.interrupts.push({ ...request });
@@ -87,17 +101,27 @@ beforeAll(async () => {
             mock.permissionAnswers.push({ ...answer });
           },
           async fetchCommands() { return []; },
-          async uploadFile() { return { path: "/tmp/unused" }; },
+          async uploadFile(file) {
+            if (!mock.deferUploads) return { path: "/tmp/unused" };
+            return new Promise((resolve, reject) => {
+              mock.uploads.push({ file: { ...file }, resolve, reject });
+            });
+          },
+          resolveUpload(path = "/tmp/unused") {
+            const upload = mock.uploads.shift();
+            if (!upload) throw new Error("no deferred upload");
+            upload.resolve({ path });
+          },
         };
 
         window.__mock = mock;
-        window.__mount = (initialHistory = []) => {
+        window.__mount = (initialHistory = [], features = { routing: true }) => {
           if (!root) root = createRoot(document.getElementById("root"));
           root.render(React.createElement(ClaudeChat, {
             key: JSON.stringify(initialHistory.map((exchange) => exchange.input?.inputId || exchange.user)),
             transport: mock,
             title: "James",
-            features: { routing: true },
+            features,
             composerAdornment,
             initialHistory,
             routeOptions: {
@@ -283,6 +307,66 @@ async function emitInput(number: number, state: string, extra: Record<string, un
 }
 
 describe("ClaudeChat generated input lifecycle in real Chromium", () => {
+  it("does not expose transcript-less PTY commands on the generated transport", async () => {
+    expect(await button("Compact").count()).toBe(0);
+  });
+
+  it("retains Compact as an explicit command on legacy live-PTY transports", async () => {
+    await page.evaluate(async () => {
+      (window as any).__unmount();
+      (window as any).__mock.inputLifecycle = false;
+      await (window as any).__mount([], { routing: true });
+    });
+
+    await button("Compact").click();
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.commands)).toEqual(["/compact"]);
+    expect(await page.evaluate(() => (window as any).__mock.sends)).toEqual([]);
+  });
+
+  it("keeps a stale phrase-era effort preference out of visible and outbound text", async () => {
+    await page.evaluate(async () => {
+      (window as any).__unmount();
+      // `setContent` may have an opaque origin in Chromium. Install a minimal
+      // storage stand-in only when native localStorage is unavailable.
+      try {
+        localStorage.setItem("garrison.chat.effort", "ultrathink");
+      } catch {
+        const values = new Map([["garrison.chat.effort", "ultrathink"]]);
+        Object.defineProperty(window, "localStorage", {
+          configurable: true,
+          value: {
+            getItem: (key: string) => values.get(key) ?? null,
+            setItem: (key: string, value: string) => values.set(key, String(value)),
+          },
+        });
+      }
+      await (window as any).__mount([], { effort: true });
+    });
+
+    const selected = page.getByRole("button", { name: "Ultrathink", exact: true });
+    expect(await selected.getAttribute("aria-pressed")).toBe("true");
+    expect(await selected.getAttribute("title")).toBe("Set native effort to max");
+
+    const text = "think hard is visible user text\n\nand remains byte-identical";
+    await composer().fill(text);
+    await button("Send").click();
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.sends.length)).toBe(1);
+
+    const sent = await page.evaluate(() => (window as any).__mock.sends[0]);
+    expect(sent.message).toBe(text);
+    expect(sent.meta.effort).toBe("max");
+    expect(await page.locator(".cc-turn .cc-user").textContent()).toBe(text);
+
+    const normal = page.getByRole("button", { name: "Normal", exact: true });
+    await normal.click();
+    expect(await normal.getAttribute("aria-pressed")).toBe("true");
+    await composer().fill("normal stays exact too");
+    await button("Queue").click();
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.sends.length)).toBe(2);
+    const reset = await page.evaluate(() => (window as any).__mock.sends[1]);
+    expect(reset).toMatchObject({ message: "normal stays exact too", meta: { effort: "auto" } });
+  });
+
   it("keeps the composer usable, queues with click/Enter parity, and binds late frames to the exact turn", async () => {
     await composer().fill("first message");
     await button("Send").click();
@@ -600,6 +684,66 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
     await remove.press("Enter");
     await expect.poll(() => remove.count()).toBe(0);
     expect(await page.locator(".cc-attachment-chip").count()).toBe(0);
+  });
+
+  it("preserves every Enter submission during upload and keeps a newer draft", async () => {
+    await page.evaluate(() => {
+      (window as any).__mock.deferUploads = true;
+      (window as any).__mock.holdFirstAdmission = true;
+      (window as any).__mock.rejectNextAdmission = true;
+    });
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("notes"),
+    });
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.uploads.length)).toBe(1);
+
+    await composer().fill("first submitted text");
+    await composer().press("Enter");
+    await expect.poll(() => composer().inputValue()).toBe("");
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "later.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("later"),
+    });
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.uploads.length)).toBe(2);
+    await composer().fill("second submitted text");
+    await composer().press("Enter");
+    await expect.poll(() => composer().inputValue()).toBe("");
+    expect(await page.evaluate(() => (window as any).__mock.sends)).toEqual([]);
+
+    await composer().fill("newer unsent draft");
+    await page.evaluate(() => {
+      (window as any).__mock.resolveUpload("/tmp/deferred-notes.txt");
+      (window as any).__mock.resolveUpload("/tmp/deferred-later.txt");
+    });
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.sends.length)).toBe(1);
+    await expect.poll(() => page.locator(".cc-turn").count()).toBe(2);
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => (window as any).__mock.sends.length)).toBe(1);
+
+    // The second mock admission would resolve immediately if invoked. Release
+    // the held first admission as a rejection: only after that settlement may
+    // the deferred FIFO invoke the second transport request.
+    await page.evaluate(() => (window as any).__mock.releaseFirstAdmission());
+    await expect.poll(() => page.evaluate(() => (window as any).__mock.sends.length)).toBe(2);
+
+    expect(await page.evaluate(() => (window as any).__mock.sends.map((send: any) => send.message))).toEqual([
+      "first submitted text\n\nAttached file:\n- /tmp/deferred-notes.txt",
+      "second submitted text\n\nAttached file:\n- /tmp/deferred-later.txt",
+    ]);
+    const clientRequestIds = await page.evaluate(() => (
+      (window as any).__mock.sends.map((send: any) => send.meta.clientRequestId)
+    ));
+    expect(new Set(clientRequestIds).size).toBe(2);
+    expect(await page.locator(".cc-turn .cc-user").allTextContents()).toEqual([
+      "first submitted text\n\nAttached file:\n- /tmp/deferred-notes.txt",
+      "second submitted text\n\nAttached file:\n- /tmp/deferred-later.txt",
+    ]);
+    expect(await composer().inputValue()).toBe("newer unsent draft");
+    expect(await page.locator('[data-input-state="failed"]').count()).toBe(1);
+    expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
   });
 
   it("restores Stop & change text without auto-resending or reordering the queue", async () => {

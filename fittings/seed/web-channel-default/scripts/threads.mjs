@@ -358,8 +358,12 @@ export function sanitizeRouting(raw) {
  * starting a new logical thread session. */
 export function sanitizeSpawnSignature(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const keys = ["target", "runtime", "provider", "model", "account", "accountSource", "projectPath"];
-  if (Object.keys(raw).sort().join("\0") !== keys.slice().sort().join("\0")) return null;
+  const baseKeys = ["target", "runtime", "provider", "model", "account", "accountSource", "projectPath"];
+  const actualKeys = Object.keys(raw).sort().join("\0");
+  const v1 = actualKeys === baseKeys.slice().sort().join("\0");
+  const v2Keys = ["version", ...baseKeys, "assembly"];
+  const v2 = actualKeys === v2Keys.sort().join("\0") && raw.version === 2;
+  if (!v1 && !v2) return null;
   const required = ["target", "runtime", "provider", "model"];
   const out = {};
   for (const key of required) {
@@ -376,7 +380,9 @@ export function sanitizeSpawnSignature(raw) {
       out[key] = value;
     }
   }
-  return out;
+  if (v1) return out;
+  if (typeof raw.assembly !== "string" || !/^a1:[a-f0-9]{64}$/.test(raw.assembly)) return null;
+  return { version: 2, ...out, assembly: raw.assembly };
 }
 
 export function sanitizeRouteSession(raw) {
@@ -1767,8 +1773,8 @@ export async function reconcileInterruptedThreadInputs({ nowIso, reason } = {}) 
             // Server-owned durable boundary: the prior SDK journal may already
             // contain this user input or partial assistant output even though the
             // Web transcript could not confirm its outcome. A queued successor
-            // must cold-start from materialized durable context instead of
-            // resuming across that uncertain journal tail.
+            // must start a clean SDK generation instead of resuming across that
+            // uncertain journal tail; no hidden history is synthesized.
             agentSdkResumeBarrier: true,
             route: { stoppedReason: why },
           });

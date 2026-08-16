@@ -17,7 +17,7 @@
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { mkdir, readFile, readdir, unlink, writeFile, appendFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
@@ -748,18 +748,12 @@ async function handleBriefPut(req, res) {
   }
 }
 
-// Build the gateway /chat/stream body from a channel request. GENERIC by
-// design: a fitting hands this channel an opaque `context` blob and optional
-// explicit routing fields; the channel forwards them without interpreting the
-// card or domain payload.
-//
-// Backward-compat contract (asserted by tests/web-channel-context.test.ts):
-//   - context absent          → EXACTLY { message, channel: "web" }
-//   - context present          → adds `context` (forwarded untouched)
-// `message` is required upstream; `channel` is always pinned to "web".
+// Build the gateway /chat/stream body from a channel request. `message` is the
+// exact admitted user input and `channel` is always pinned to "web". Context
+// stored with a thread belongs to the browser/brief surface; it is deliberately
+// not a gateway field and must never become an invisible user-message prefix.
 export function buildGatewayChatBody({
   message,
-  context,
   classification,
   sessionId,
   inputId,
@@ -771,7 +765,6 @@ export function buildGatewayChatBody({
   routeSession,
 } = {}) {
   const body = { message, channel: CHANNEL_ID };
-  if (context !== undefined && context !== null) body.context = context;
   // D19: the conversation's thread id, forwarded as the gateway's session key so a
   // multi-turn thread attaches to ONE card instead of registering a duplicate per
   // turn. Absent → the gateway falls back to the channel name.
@@ -805,8 +798,8 @@ export function buildGatewayChatBody({
   }
   // Also server-derived: a durable restart barrier proves that any same-thread
   // warm SDK Query may contain an unconfirmed turn, even when its gateway claim
-  // released before our exact ownership probe. Force eviction/cold seeding until
-  // a later completed SDK attribution establishes a clean generation.
+  // released before our exact ownership probe. Force a clean generation until a
+  // later completed SDK attribution establishes a resumable journal.
   if (agentSdkNewGeneration === true) body.agentSdkNewGeneration = true;
   // Server-owned sticky spawn identity. The browser can select pins, but it can
   // neither forge the current logical-session epoch nor nominate an SDK journal.
@@ -817,9 +810,10 @@ export function buildGatewayChatBody({
 }
 
 /** Build the only SDK resume candidate the Web server may send. The latest
- * thread-level session id must be grounded in a completed assistant attribution;
- * a partial route, external assistant notice, or stale earlier journal safely
- * falls back to the bounded materialized context instead. */
+ * thread-level session id must be grounded in a completed assistant attribution
+ * carrying the exact signed v2 SDK spawn assembly. A partial/legacy route,
+ * external assistant notice, or stale earlier journal cannot nominate a resume
+ * and therefore starts at an explicit clean boundary. */
 export function agentSdkResumeFromThread(thread) {
   const sessionId = typeof thread?.claudeSessionId === "string" ? thread.claudeSessionId.trim() : "";
   if (!sessionId) return null;
@@ -842,7 +836,11 @@ export function agentSdkResumeFromThread(thread) {
     // This keeps the fallback visible without turning an intra-request retry into
     // a false cold-session boundary on the next input.
     const signature = sanitizeSpawnSignature(route.spawnSignature);
-    const resumeRoute = signature ?? route;
+    // A journal is safe to resume only under the exact system prompt, tools, MCP,
+    // permission mode, cwd and settings that spawned it. Those inputs are bound
+    // into the opaque v2 assembly digest; legacy route metadata is insufficient.
+    if (signature?.version !== 2 || signature.runtime !== "agent-sdk") return null;
+    const resumeRoute = signature;
     const resumeTarget = typeof resumeRoute.target === "string" && resumeRoute.target
       ? resumeRoute.target
       : typeof resumeRoute.route === "string" && resumeRoute.route
@@ -865,6 +863,7 @@ export function agentSdkResumeFromThread(thread) {
       account: typeof resumeRoute.account === "string" && resumeRoute.account ? resumeRoute.account : null,
       accountSource: typeof resumeRoute.accountSource === "string" && resumeRoute.accountSource ? resumeRoute.accountSource : null,
       projectPath: typeof resumeRoute.projectPath === "string" && resumeRoute.projectPath ? resumeRoute.projectPath : null,
+      spawnSignature: signature,
     };
   }
   return null;
@@ -872,9 +871,9 @@ export function agentSdkResumeFromThread(thread) {
 
 /** A released gateway claim can leave a warm same-thread SDK Query behind. When
  * the newest restart barrier is later than every completed SDK attribution, the
- * next queued input must explicitly evict that Query and cold-seed from durable
- * context. Once a new completed SDK turn is persisted after the barrier, normal
- * resume selection is safe again. */
+ * next queued input must explicitly evict that Query and start clean. Once a new
+ * completed SDK turn is persisted after the barrier, normal resume selection is
+ * safe again. */
 export function agentSdkNewGenerationFromThread(thread) {
   const messages = Array.isArray(thread?.messages) ? thread.messages : [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -896,19 +895,10 @@ export function agentSdkNewGenerationFromThread(thread) {
   return false;
 }
 
-// ─────────────────────────── S3b: materialized-turn context assembly (D8)
-//
-// A web thread is an ORIGIN, not a session: nothing runs and nothing holds context
-// between messages. Each user message MATERIALIZES a turn — the server assembles a
-// BOUNDED deterministic context block (recent thread window + this thread's board
-// cards + a fetch-on-demand trailer) and sends it as body.context, so the gateway
-// answers with assembled context instead of a standing accumulating session.
-
-const CTX_CAP = 6000; // hard cap on assembled context (chars)
-const THREAD_WINDOW = 12; // most recent thread messages
-const MSG_CLIP = 500; // per-message clip
-const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
-
+// ── Board discovery ──────────────────────────────────────────────────────────
+// Board discovery remains a UI/route-options concern. It is intentionally not
+// consulted while building a chat turn: board availability and card contents may
+// not change the user message sent to the gateway.
 function boardBaseUrl() {
   try {
     // Resolve at CALL time (not from the frozen STATUS_ROOT const): the kanban board
@@ -917,98 +907,6 @@ function boardBaseUrl() {
     return s.url || (s.port ? `http://127.0.0.1:${s.port}` : null);
   } catch {
     return null;
-  }
-}
-
-// A done card's one-liner: prefer its handoff completionSummary, else lastReply/title.
-async function doneOneLiner(base, c) {
-  try {
-    const r = await fetch(`${base}/cards/${encodeURIComponent(c.id)}/handoff`, { signal: AbortSignal.timeout(2000) });
-    if (r.ok) {
-      const { handoff } = await r.json();
-      const s = typeof handoff?.completionSummary === "string" ? handoff.completionSummary : "";
-      if (s.trim()) return `${c.id} ${c.title} — done: ${clip(s.trim(), 120)}`;
-    }
-  } catch {
-    /* fall back below */
-  }
-  const fallback = typeof c.lastReply === "string" && c.lastReply.trim() ? c.lastReply.trim() : c.title || "";
-  return `${c.id} ${c.title} — done: ${clip(String(fallback), 120)}`;
-}
-
-// Assemble the block, then truncate DETERMINISTICALLY under the cap: drop oldest
-// thread messages first, then done one-liners (active cards — the working state —
-// are never dropped).
-function buildContextBlock(threadMsgs, activeLines, doneLines, trailer, cap) {
-  const msgs = threadMsgs.slice();
-  const dones = doneLines.slice();
-  const render = () => {
-    const parts = [];
-    if (msgs.length) parts.push("## Recent conversation\n" + msgs.join("\n"));
-    if (activeLines.length) parts.push("## Active cards from this thread\n" + activeLines.join("\n"));
-    if (dones.length) parts.push("## Completed cards from this thread\n" + dones.join("\n"));
-    parts.push(trailer);
-    return parts.join("\n\n");
-  };
-  let out = render();
-  while (out.length > cap && msgs.length) {
-    msgs.shift();
-    out = render();
-  }
-  while (out.length > cap && dones.length) {
-    dones.pop();
-    out = render();
-  }
-  if (out.length > cap) out = out.slice(0, cap);
-  return out;
-}
-
-export async function assembleMaterializedContext(threadId, { excludeTurnId } = {}) {
-  const telemetry = { threadId: threadId ?? null, assembledChars: 0, messages: 0, activeCards: 0, doneCards: 0 };
-  if (!threadId) return { context: null, telemetry };
-  let threadMsgs = [];
-  try {
-    const thread = await getThread(threadId);
-    const msgs = (Array.isArray(thread?.messages) ? thread.messages : [])
-      .filter((message) => !excludeTurnId || String(message?.turnId ?? "") !== String(excludeTurnId));
-    threadMsgs = msgs.slice(-THREAD_WINDOW).map((m) => `${m.role}: ${clip(String(m.text ?? ""), MSG_CLIP)}`);
-  } catch {
-    /* no thread yet */
-  }
-  const activeLines = [];
-  const doneLines = [];
-  const base = boardBaseUrl();
-  if (base) {
-    try {
-      const r = await fetch(`${base}/cards?origin_id=${encodeURIComponent(`web:${threadId}`)}`, { signal: AbortSignal.timeout(3000) });
-      if (r.ok) {
-        const { cards } = await r.json();
-        for (const c of Array.isArray(cards) ? cards : []) {
-          if (c.list === "done") doneLines.push(await doneOneLiner(base, c));
-          else if (c.list !== "needs-attention") activeLines.push(`${c.id} ${c.title} — ${c.list} (${clip(String(c.lastReply ?? ""), 150)})`);
-        }
-      }
-    } catch {
-      /* board down — assemble from the thread window alone */
-    }
-  }
-  telemetry.messages = threadMsgs.length;
-  telemetry.activeCards = activeLines.length;
-  telemetry.doneCards = doneLines.length;
-  const trailer = "Deeper detail for any card is available on demand via fetch_evidence(card_id, ref) — pull, do not assume.";
-  const context = buildContextBlock(threadMsgs, activeLines, doneLines, trailer, CTX_CAP);
-  telemetry.assembledChars = context.length;
-  return { context, telemetry };
-}
-
-// Acceptance-7 evidence: one line per materialized turn proving bounded context.
-async function appendMaterializedTurn(telemetry) {
-  try {
-    const dir = path.join(garrisonDir(), "web-channel");
-    await mkdir(dir, { recursive: true });
-    await appendFile(path.join(dir, "materialized-turns.jsonl"), JSON.stringify({ at: new Date().toISOString(), ...telemetry }) + "\n");
-  } catch {
-    /* telemetry is best-effort */
   }
 }
 
@@ -1358,15 +1256,9 @@ async function readBoundedResponseBody(response, cap = 64 * 1024) {
 
 async function runQueuedInput(threadId, input, opts) {
   const target = new URL("/chat/stream", opts.gatewayUrl);
-  const [durableThread, materialized] = await Promise.all([
-    getThread(threadId),
-    assembleMaterializedContext(threadId, { excludeTurnId: input.inputId }),
-  ]);
-  const { context: assembledContext, telemetry } = materialized;
-  void appendMaterializedTurn(telemetry);
+  const durableThread = await getThread(threadId);
   const payload = JSON.stringify(buildGatewayChatBody({
     message: input.message,
-    context: assembledContext,
     classification: input.classification,
     sessionId: threadId,
     inputId: input.inputId,
@@ -2069,30 +1961,20 @@ async function handleChat(req, res, opts) {
     return handleInputLive(req, res, admitted.input.inputId);
   }
 
-  // A threadless legacy request has no durable FIFO owner. Preserve that narrow
-  // compatibility path; the primary Web UI always has a thread and uses inputs.
-  const payload = JSON.stringify(
-    buildGatewayChatBody({
-      message,
-      context: body?.context,
-      classification: body?.classification,
-      routing: sanitizeRouting(body?.routing),
-      turnSeq: body?.turnSeq,
-      autonomous: body?.autonomous,
-    })
-  );
-  const target = new URL("/chat/stream", opts.gatewayUrl);
-  pipeChatSse(req, res, {
-    method: "POST",
-    hostname: target.hostname,
-    port: target.port,
-    path: target.pathname,
-    headers: {
-      "Content-Type": "application/json",
-      "Content-Length": Buffer.byteLength(payload),
-      Accept: "text/event-stream"
-    }
-  }, payload);
+  // Generated Web execution needs the durable input/thread/generation identity
+  // used by the standing SDK lane. A threadless compatibility request would
+  // otherwise share a target-keyed SDK Query across unrelated browser callers.
+  // Fail before touching the gateway; the explicit /api/claude console remains
+  // the separate, intentionally shared standing-operative surface.
+  const failure = {
+    source: "web",
+    kind: "invalid_request",
+    code: "web_thread_required",
+    text: "Generated Web turns require a durable thread identity.",
+    retryable: false,
+    httpStatus: 400,
+  };
+  return jsonRes(res, 400, { error: failure.text, failure });
 }
 
 // POST a JSON object to a gateway path and stream the reply straight back. The

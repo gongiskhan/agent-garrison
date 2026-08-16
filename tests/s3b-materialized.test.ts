@@ -1,6 +1,6 @@
-// S3b — materialized turns + post-done continuation (D8).
+// S3b/M7 — exact Web turns + post-done continuation.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import http from "node:http";
@@ -30,13 +30,11 @@ import { RoutedGateway, shouldUseEphemeralSession } from "../fittings/seed/http-
 // @ts-ignore — pure .mjs
 import { cardsByOrigin, createAutonomousCard } from "../fittings/seed/http-gateway/scripts/lib/autonomous-cards.mjs";
 
-// web-channel server + threads compute their dirs at MODULE LOAD from GARRISON_HOME,
-// and static imports hoist above the env assignment — so load them dynamically AFTER
-// the sandbox env is set (top-level await), so the thread store + telemetry stay hermetic.
+// web-channel server computes its dirs at MODULE LOAD from GARRISON_HOME, and static
+// imports hoist above the env assignment — load it dynamically after the sandbox is set.
 // @ts-ignore
-const { assembleMaterializedContext } = await import("../fittings/seed/web-channel-default/scripts/server.mjs");
-// @ts-ignore
-const { ensureThread, appendMessages } = await import("../fittings/seed/web-channel-default/scripts/threads.mjs");
+const webServerModule = await import("../fittings/seed/web-channel-default/scripts/server.mjs");
+const { buildGatewayChatBody } = webServerModule;
 
 let server: http.Server;
 let base = "";
@@ -47,7 +45,7 @@ beforeAll(async () => {
   server = http.createServer(makeRequestHandler({ root: KANBAN_DIR, cwd: KANBAN_DIR, gatewayUrl: "", cap: 10 }, join(FITTING, "dist")));
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${(server.address() as any).port}`;
-  // The board discovery status file (cardsByOrigin / assembleMaterializedContext read it).
+  // The board discovery status file used by cardsByOrigin and route options.
   mkdirSync(join(GARRISON_HOME, "ui-fittings"), { recursive: true });
   writeFileSync(join(GARRISON_HOME, "ui-fittings", "kanban-loop.json"), JSON.stringify({ url: base }));
 });
@@ -83,44 +81,35 @@ describe("board GET /cards?origin_id filter + GET /cards/:id/handoff", () => {
   });
 });
 
-describe("web-channel assembleMaterializedContext (bounded, deterministic, telemetry)", () => {
-  it("returns null context + zero telemetry when there is no thread id", async () => {
-    const { context, telemetry } = await assembleMaterializedContext(null);
-    expect(context).toBeNull();
-    expect(telemetry).toMatchObject({ threadId: null, assembledChars: 0, messages: 0 });
-  });
+describe("web-channel exact-message gateway body", () => {
+  it("has no materialized-context API and ignores thread/card/trailer-shaped context", async () => {
+    const threadId = "T-no-materialization";
+    const active = await createCard(KANBAN_DIR, {
+      list: "implement",
+      title: "active work must stay on the board",
+      project: "p",
+      originChannel: { channel: "web", threadId },
+    });
+    const done = await createCard(KANBAN_DIR, {
+      list: "done",
+      title: "completed work must stay on the board",
+      project: "p",
+      originChannel: { channel: "web", threadId },
+    });
+    const exactMessage = "  preserve admitted bytes?\nsecond line  ";
+    const rejectedContext = [
+      "## Recent conversation",
+      "assistant: stale answer",
+      `active card: ${active.id}`,
+      `done card: ${done.id}`,
+      "fetch_evidence(card_id, ref)",
+    ].join("\n");
 
-  it("assembles the recent window + this thread's board cards, capped and truncated", async () => {
-    const threadId = "T-assembly";
-    await ensureThread({ id: threadId, title: "t" });
-    // 20 messages of ~500 chars — the window is the last 12, and the cap forces truncation.
-    const msgs: { role: "user" | "assistant"; text: string }[] = [];
-    for (let i = 0; i < 20; i++) msgs.push({ role: i % 2 ? "assistant" : "user", text: `msg${i} ` + "x".repeat(500) });
-    await appendMessages(threadId, msgs);
-    // an ACTIVE card and a DONE card for this thread
-    await createCard(KANBAN_DIR, { list: "implement", title: "active work", project: "p", originChannel: { channel: "web", threadId }, });
-    const done = await createCard(KANBAN_DIR, { list: "done", title: "old work", project: "p", originChannel: { channel: "web", threadId } });
-    mkdirSync(join(KANBAN_DIR, "cards", done.id), { recursive: true });
-    writeFileSync(join(KANBAN_DIR, "cards", done.id, "handoff.json"), JSON.stringify({ cardId: done.id, completionSummary: "finished the old work cleanly" }));
-
-    const { context, telemetry } = await assembleMaterializedContext(threadId);
-    expect(context).toContain("## Recent conversation");
-    expect(context).toContain("## Active cards from this thread");
-    expect(context).toContain("active work");
-    expect(context).toContain("## Completed cards from this thread");
-    expect(context).toContain("finished the old work cleanly"); // done one-liner via handoff
-    expect(context).toContain("fetch_evidence"); // pull-on-demand trailer
-    // HARD CAP + deterministic truncation (oldest thread messages dropped first).
-    expect(context.length).toBeLessThanOrEqual(6000);
-    expect(context).not.toContain("msg0 "); // oldest window message dropped under the cap
-    expect(telemetry.activeCards).toBe(1);
-    expect(telemetry.doneCards).toBe(1);
-    expect(telemetry.assembledChars).toBe(context.length);
-    // telemetry line written to the evidence file
-    const line = join(GARRISON_HOME, "web-channel", "materialized-turns.jsonl");
-    // assembleMaterializedContext does not itself log; handleChat does — but assert the
-    // shape is loggable (the fields the acceptance evidence needs).
-    expect(telemetry).toHaveProperty("threadId", threadId);
+    expect(webServerModule).not.toHaveProperty("assembleMaterializedContext");
+    expect(buildGatewayChatBody({ message: exactMessage, context: rejectedContext })).toEqual({
+      message: exactMessage,
+      channel: "web",
+    });
   });
 });
 
@@ -132,7 +121,7 @@ describe("RoutedGateway.runWebOneShot (injectable one-shot; nothing held)", () =
     expect(shouldUseEphemeralSession(undefined)).toBe(false);
   });
 
-  it("uses the injected oneShotFn with the operative spawn config + prefixed message", async () => {
+  it("uses the injected oneShotFn with the operative spawn config + exact message", async () => {
     let captured: any = null;
     const gw = new RoutedGateway({
       config: { taskTypes: [], tiers: [] },
@@ -142,15 +131,19 @@ describe("RoutedGateway.runWebOneShot (injectable one-shot; nothing held)", () =
         return { reply: "one-shot answer", sessionId: null };
       },
     });
-    const out = await gw.runWebOneShot({ message: "CONTEXT\n\n---\n\nhello there", model: "opus" });
+    const out = await gw.runWebOneShot({ message: "hello there", model: "opus" });
     // transcriptPath is null here because the injected one-shot returned no
     // session id (S31 links transcripts only when a real session ran).
-    expect(out).toEqual({ reply: "one-shot answer", sessionId: null, transcriptPath: null });
+    expect(out).toEqual({
+      reply: "one-shot answer",
+      sessionId: null,
+      effortApplied: null,
+      transcriptPath: null,
+    });
     expect(captured.cwd).toBe("/tmp/comp");
     expect(captured.model).toBe("opus");
     expect(captured.permissionMode).toBe("bypassPermissions");
-    expect(captured.message).toContain("hello there");
-    expect(captured.message).toContain("CONTEXT");
+    expect(captured.message).toBe("hello there");
   });
 
   it("materializedStatus reports no standing conversation session", () => {
