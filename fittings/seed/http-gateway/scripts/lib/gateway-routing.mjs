@@ -1228,6 +1228,8 @@ export class RoutedGateway {
   //                   on the same target share ONE SDK session and one session_id,
   //                   so the per-message transcript badge would point at the wrong
   //                   conversation.
+  //   onEvent(event) - channel-neutral structured session event observer.
+  //   turnId         - caller-owned stable turn identity attached by the adapter.
   //   onActivity({kind,name,id}) - tool_use liveness (the `activity` SSE frame).
   //   registerStop(stop)         - hands the caller a real cancel primitive for
   //                   THIS turn's session (adapter.cancel aborts the stashed query).
@@ -1332,6 +1334,11 @@ export class RoutedGateway {
     // minutes later. onText hands the ACCUMULATED text, which is exactly the
     // onChunk(text, replace=true) contract. tool_use becomes an `activity` frame.
     const streamHooks = {
+      // Keep the callback and turn identity byte-for-byte as supplied. The runtime
+      // adapter owns the canonical event vocabulary; the gateway is only a
+      // transport boundary and must not reshape channel-neutral events.
+      onEvent: opts.onEvent,
+      turnId: opts.turnId,
       onSession: reportJournalSession,
       onText: onChunk ? (text) => onChunk(text, true) : undefined,
       onTool: typeof opts.onActivity === "function" ? (tool) => opts.onActivity({ kind: "tool", ...tool }) : undefined,

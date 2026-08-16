@@ -22,6 +22,12 @@
 // /api/threads/:id/messages` and the pin endpoint are CLIENT-reachable writes:
 // without a whitelist a caller could grow a transcript file without bound or park
 // prototype-shaped keys in it.
+//
+// The routed runtime also publishes canonical `session_event` envelopes. Unlike the
+// flat messages above, these retain thinking, tool calls/results, inline result
+// images, typed failures/rate limits/turn boundaries, and future permission prompts.
+// They are durable thread state: updates reuse a stable event id with a higher
+// revision and replace that event IN PLACE, preserving the original timeline.
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -158,6 +164,29 @@ const ROUTING_FIELDS = {
   phasesOff: "id",
 };
 
+// Canonical session-event limits. Text uses the same explicit truncation marker as
+// lib/session-transcript.mjs: silently slicing tool input/result text would make the
+// durable transcript look complete when it is not. Images are intentionally not
+// byte-capped here; a base64 result image is one atomic artifact and must remain
+// decodable after reload.
+const SESSION_TEXT_CAP = 20_000;
+const SESSION_ID_CAP = 512;
+const SESSION_LABEL_CAP = 1_000;
+const SESSION_BLOCK_TYPES = new Set([
+  "text",
+  "thinking",
+  "tool_use",
+  "tool_result",
+  "tool_progress",
+  "related_task",
+  "status",
+  "error",
+  "rate_limit",
+  "turn_end",
+  "permission_request",
+]);
+const INVALID_SESSION_VALUE = Symbol("invalid-session-value");
+
 function cleanString(raw, max) {
   if (typeof raw !== "string") return null;
   const s = raw.trim();
@@ -256,6 +285,342 @@ export function sanitizeRouting(raw) {
   return sanitizeAgainst(ROUTING_FIELDS, raw);
 }
 
+function cleanSessionId(raw) {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  // Reject rather than truncate identity: two distinct overlong ids must never
+  // collapse into the same durable event/session coordinate.
+  return value && value.length <= SESSION_ID_CAP ? value : null;
+}
+
+function cleanSessionLabel(raw, max = SESSION_LABEL_CAP) {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  return value && value.length <= max ? value : null;
+}
+
+function capSessionText(raw) {
+  if (typeof raw !== "string") return null;
+  if (raw.length <= SESSION_TEXT_CAP) return raw;
+  // Persisted events are sanitized again on every GET. Recognize our own marker so
+  // the cap is idempotent instead of repeatedly truncating the marker and inflating
+  // the reported omitted count on each reload.
+  if (/^\n… \[truncated \d+ chars\]$/.test(raw.slice(SESSION_TEXT_CAP))) return raw;
+  return `${raw.slice(0, SESSION_TEXT_CAP)}\n… [truncated ${raw.length - SESSION_TEXT_CAP} chars]`;
+}
+
+function cleanFiniteNumber(raw, { integer = false, min = -Infinity } = {}) {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < min) return null;
+  if (integer && !Number.isInteger(raw)) return null;
+  return raw;
+}
+
+function cleanOptionalId(raw, present) {
+  if (!present) return undefined;
+  if (raw === null) return null;
+  return cleanSessionId(raw) ?? INVALID_SESSION_VALUE;
+}
+
+// Permission suggestions are SDK-owned JSON objects. Preserve their JSON value
+// shape without retaining prototypes/non-finite numbers; long strings get the same
+// honest cap as other durable human-readable payloads.
+function sanitizeSessionJson(raw, depth = 0) {
+  if (depth > 8) return INVALID_SESSION_VALUE;
+  if (raw === null || typeof raw === "boolean") return raw;
+  if (typeof raw === "string") return capSessionText(raw);
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : INVALID_SESSION_VALUE;
+  if (Array.isArray(raw)) {
+    const out = [];
+    for (const value of raw) {
+      const clean = sanitizeSessionJson(value, depth + 1);
+      if (clean === INVALID_SESSION_VALUE) return INVALID_SESSION_VALUE;
+      out.push(clean);
+    }
+    return out;
+  }
+  if (!raw || typeof raw !== "object") return INVALID_SESSION_VALUE;
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (DANGEROUS_KEYS.has(key) || key.length > 200) continue;
+    const clean = sanitizeSessionJson(value, depth + 1);
+    if (clean === INVALID_SESSION_VALUE) return INVALID_SESSION_VALUE;
+    out[key] = clean;
+  }
+  return out;
+}
+
+function sanitizeResultImages(raw) {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return null;
+  const images = [];
+  for (const image of raw) {
+    if (!image || typeof image !== "object" || Array.isArray(image)) return null;
+    const mediaType = cleanSessionLabel(image.mediaType, 200);
+    // Do not trim, decode, or re-encode data. Even a single-character mutation can
+    // make an otherwise valid screenshot undecodable.
+    if (!mediaType || typeof image.data !== "string") return null;
+    images.push({ mediaType, data: image.data });
+  }
+  return images;
+}
+
+function copyOptionalText(out, raw, key) {
+  if (!Object.hasOwn(raw, key)) return true;
+  const value = capSessionText(raw[key]);
+  if (value === null) return false;
+  out[key] = value;
+  return true;
+}
+
+function copyOptionalLabel(out, raw, key, max = SESSION_LABEL_CAP) {
+  if (!Object.hasOwn(raw, key)) return true;
+  const value = cleanSessionLabel(raw[key], max);
+  if (!value) return false;
+  out[key] = value;
+  return true;
+}
+
+function copyOptionalNumber(out, raw, key, opts) {
+  if (!Object.hasOwn(raw, key)) return true;
+  const value = cleanFiniteNumber(raw[key], opts);
+  if (value === null) return false;
+  out[key] = value;
+  return true;
+}
+
+/** Whitelist one canonical transcript/extension block for durable storage. */
+export function sanitizeSessionBlock(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const type = cleanSessionLabel(raw.type, 80);
+  if (!type || !SESSION_BLOCK_TYPES.has(type)) return null;
+
+  if (type === "text" || type === "thinking") {
+    const text = capSessionText(raw.text);
+    return text === null ? null : { type, text };
+  }
+
+  if (type === "tool_use") {
+    const toolUseId = cleanOptionalId(raw.toolUseId, Object.hasOwn(raw, "toolUseId"));
+    const name = cleanSessionLabel(raw.name, 200);
+    const input = capSessionText(raw.input);
+    if (toolUseId === INVALID_SESSION_VALUE || !name || input === null) return null;
+    return {
+      type,
+      ...(toolUseId !== undefined ? { toolUseId } : {}),
+      name,
+      input,
+    };
+  }
+
+  if (type === "tool_result") {
+    const toolUseId = cleanOptionalId(raw.toolUseId, Object.hasOwn(raw, "toolUseId"));
+    const text = capSessionText(raw.text);
+    const images = sanitizeResultImages(raw.images);
+    if (toolUseId === INVALID_SESSION_VALUE || text === null || images === null) return null;
+    if (Object.hasOwn(raw, "isError") && typeof raw.isError !== "boolean") return null;
+    return {
+      type,
+      ...(toolUseId !== undefined ? { toolUseId } : {}),
+      ...(Object.hasOwn(raw, "isError") ? { isError: raw.isError } : {}),
+      text,
+      images,
+    };
+  }
+
+  if (type === "tool_progress") {
+    const toolUseId = cleanOptionalId(raw.toolUseId, Object.hasOwn(raw, "toolUseId"));
+    const text = capSessionText(raw.text);
+    if (toolUseId === INVALID_SESSION_VALUE || text === null) return null;
+    const out = { type, ...(toolUseId !== undefined ? { toolUseId } : {}), text };
+    if (!copyOptionalLabel(out, raw, "name", 200)) return null;
+    if (!copyOptionalNumber(out, raw, "elapsedMs", { min: 0 })) return null;
+    if (!copyOptionalNumber(out, raw, "timeoutMs", { min: 0 })) return null;
+    if (!copyOptionalNumber(out, raw, "totalBytes", { integer: true, min: 0 })) return null;
+    if (!copyOptionalNumber(out, raw, "totalLines", { integer: true, min: 0 })) return null;
+    if (!copyOptionalLabel(out, raw, "status", 200)) return null;
+    if (!copyOptionalLabel(out, raw, "taskId")) return null;
+    return out;
+  }
+
+  if (type === "related_task") {
+    const toolUseId = cleanOptionalId(raw.toolUseId, Object.hasOwn(raw, "toolUseId"));
+    if (toolUseId === INVALID_SESSION_VALUE) return null;
+    const out = { type, ...(toolUseId !== undefined ? { toolUseId } : {}) };
+    if (!copyOptionalLabel(out, raw, "taskId")) return null;
+    if (!copyOptionalLabel(out, raw, "name", 200)) return null;
+    if (!copyOptionalText(out, raw, "detail")) return null;
+    if (!copyOptionalLabel(out, raw, "status", 200)) return null;
+    if (!copyOptionalText(out, raw, "text")) return null;
+    if (!copyOptionalLabel(out, raw, "streamUrl", 2_000)) return null;
+    return out;
+  }
+
+  if (type === "status") {
+    const status = cleanSessionLabel(raw.status, 200);
+    const text = capSessionText(raw.text);
+    if (!status || text === null) return null;
+    const out = { type, status, text };
+    if (!copyOptionalLabel(out, raw, "subtype", 200)) return null;
+    return out;
+  }
+
+  if (type === "error") {
+    const kind = cleanSessionLabel(raw.kind, 200);
+    const text = capSessionText(raw.text);
+    return !kind || text === null ? null : { type, kind, text };
+  }
+
+  if (type === "rate_limit") {
+    const status = cleanSessionLabel(raw.status, 200);
+    if (!status) return null;
+    const out = { type, status };
+    if (!copyOptionalLabel(out, raw, "rateLimitType", 200)) return null;
+    if (!copyOptionalNumber(out, raw, "resetsAt")) return null;
+    if (!copyOptionalNumber(out, raw, "utilization")) return null;
+    if (!copyOptionalLabel(out, raw, "overageStatus", 200)) return null;
+    if (!copyOptionalNumber(out, raw, "overageResetsAt")) return null;
+    if (Object.hasOwn(raw, "isUsingOverage")) {
+      if (typeof raw.isUsingOverage !== "boolean") return null;
+      out.isUsingOverage = raw.isUsingOverage;
+    }
+    return out;
+  }
+
+  if (type === "turn_end") {
+    if (!new Set(["completed", "error", "cancelled"]).has(raw.status)) return null;
+    const out = { type, status: raw.status };
+    if (!copyOptionalLabel(out, raw, "subtype", 200)) return null;
+    if (Object.hasOwn(raw, "stopReason")) {
+      if (raw.stopReason === null) out.stopReason = null;
+      else if (!copyOptionalText(out, raw, "stopReason")) return null;
+    }
+    if (!copyOptionalText(out, raw, "result")) return null;
+    if (Object.hasOwn(raw, "errors")) {
+      if (!Array.isArray(raw.errors)) return null;
+      const errors = [];
+      for (const error of raw.errors) {
+        const text = capSessionText(error);
+        if (text === null) return null;
+        errors.push(text);
+      }
+      out.errors = errors;
+    }
+    return out;
+  }
+
+  // Permission prompts are an extension seam rather than an SDK object dump. Keep
+  // the stable coordinates and presentation fields explicit; suggestions may be a
+  // nested PermissionUpdate list, sanitized recursively without changing its JSON
+  // shape. Revisions can update status/decision fields without moving the event.
+  const requestId = cleanSessionId(raw.requestId);
+  const name = cleanSessionLabel(raw.name, 200);
+  if (!requestId || !name || !Object.hasOwn(raw, "input")) return null;
+  const input = typeof raw.input === "string" ? capSessionText(raw.input) : sanitizeSessionJson(raw.input);
+  if (input === null || input === INVALID_SESSION_VALUE) return null;
+  const toolUseId = cleanOptionalId(raw.toolUseId, Object.hasOwn(raw, "toolUseId"));
+  if (toolUseId === INVALID_SESSION_VALUE) return null;
+  const out = {
+    type,
+    requestId,
+    ...(toolUseId !== undefined ? { toolUseId } : {}),
+    name,
+    input,
+  };
+  if (!copyOptionalText(out, raw, "title")) return null;
+  if (!copyOptionalText(out, raw, "description")) return null;
+  if (!copyOptionalLabel(out, raw, "status", 200)) return null;
+  if (!copyOptionalLabel(out, raw, "decision", 200)) return null;
+  if (!copyOptionalText(out, raw, "reason")) return null;
+  if (Object.hasOwn(raw, "suggestions")) {
+    const suggestions = sanitizeSessionJson(raw.suggestions);
+    if (suggestions === INVALID_SESSION_VALUE || !Array.isArray(suggestions)) return null;
+    out.suggestions = suggestions;
+  }
+  return out;
+}
+
+/** Sanitize one gateway `session_event` envelope. Malformed input is refused as a
+ * whole: dropping a bad block would create a deceptively complete transcript. */
+export function sanitizeSessionEvent(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const id = cleanSessionId(raw.id);
+  const role = raw.role === "user" || raw.role === "assistant" ? raw.role : null;
+  const ts = cleanFiniteNumber(raw.ts);
+  const order = cleanFiniteNumber(raw.order, { integer: true, min: 0 });
+  const revision = cleanFiniteNumber(raw.revision, { integer: true, min: 0 });
+  if (!id || !role || ts === null || order === null || revision === null || !Array.isArray(raw.blocks) || raw.blocks.length === 0) {
+    return null;
+  }
+  const turnId = cleanOptionalId(raw.turnId, Object.hasOwn(raw, "turnId"));
+  const sessionId = cleanOptionalId(raw.sessionId, Object.hasOwn(raw, "sessionId"));
+  if (turnId === INVALID_SESSION_VALUE || turnId === null || sessionId === INVALID_SESSION_VALUE || sessionId === null) return null;
+  if (Object.hasOwn(raw, "toolResultsOnly") && typeof raw.toolResultsOnly !== "boolean") return null;
+  const blocks = [];
+  for (const block of raw.blocks) {
+    const clean = sanitizeSessionBlock(block);
+    if (!clean) return null;
+    blocks.push(clean);
+  }
+  return {
+    id,
+    role,
+    ts,
+    ...(turnId !== undefined ? { turnId } : {}),
+    ...(sessionId !== undefined ? { sessionId } : {}),
+    order,
+    revision,
+    ...(Object.hasOwn(raw, "toolResultsOnly") ? { toolResultsOnly: raw.toolResultsOnly } : {}),
+    blocks,
+  };
+}
+
+/** Stable-id, latest-revision merge. A revision replaces the original array slot;
+ * arrival order of unrelated events is never changed. Invalid events are ignored. */
+export function mergeSessionEvents(existing, incoming) {
+  const out = [];
+  const indexById = new Map();
+  const upsert = (raw) => {
+    const event = sanitizeSessionEvent(raw);
+    if (!event) return;
+    const index = indexById.get(event.id);
+    if (index === undefined) {
+      indexById.set(event.id, out.length);
+      out.push(event);
+    } else if (event.revision > out[index].revision) {
+      out[index] = event;
+    }
+  };
+  for (const event of Array.isArray(existing) ? existing : []) upsert(event);
+  for (const event of Array.isArray(incoming) ? incoming : incoming ? [incoming] : []) upsert(event);
+  return out;
+}
+
+function normalizedSessionIds(raw, events, latest) {
+  const out = [];
+  const seen = new Set();
+  const add = (value) => {
+    const id = cleanSessionId(value);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+  for (const id of Array.isArray(raw) ? raw : []) add(id);
+  for (const event of Array.isArray(events) ? events : []) add(event?.sessionId);
+  add(latest);
+  return out;
+}
+
+function recordThreadSession(thread, rawSessionId) {
+  const sessionId = cleanSessionId(rawSessionId);
+  if (!sessionId) return false;
+  const beforeIds = normalizedSessionIds(thread.sessionIds, thread.sessionEvents, thread.claudeSessionId);
+  const nextIds = beforeIds.includes(sessionId) ? beforeIds : [...beforeIds, sessionId];
+  const changed = JSON.stringify(thread.sessionIds ?? []) !== JSON.stringify(nextIds) || thread.claudeSessionId !== sessionId;
+  thread.sessionIds = nextIds;
+  thread.claudeSessionId = sessionId;
+  return changed;
+}
+
 function deriveTitle(thread) {
   if (thread.title && String(thread.title).trim()) return String(thread.title).trim();
   const firstUser = (thread.messages ?? []).find((m) => m.role === "user" && m.text?.trim());
@@ -287,6 +652,14 @@ async function readThreadFile(id) {
     if (!obj || typeof obj !== "object") return null;
     obj.id = id; // pin to the on-disk filename, never a tampered inner id
     if (!Array.isArray(obj.messages)) obj.messages = [];
+    // Canonical events are always rebuilt through the sanitizer on read. This also
+    // heals duplicate ids in a hand-edited/legacy file with the same latest-revision,
+    // original-position rule used by live appends.
+    obj.sessionEvents = mergeSessionEvents(obj.sessionEvents, []);
+    const latestSessionId = cleanSessionId(obj.claudeSessionId);
+    if (latestSessionId) obj.claudeSessionId = latestSessionId;
+    else delete obj.claudeSessionId;
+    obj.sessionIds = normalizedSessionIds(obj.sessionIds, obj.sessionEvents, latestSessionId);
     // Legacy files (every thread written before the run-context contract) have no
     // `routing` key at all; normalise to an explicit null so every reader can treat
     // "no pin" uniformly. Re-sanitising also means a hand-edited file cannot inject
@@ -364,6 +737,8 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
     createdAt: now,
     updatedAt: now,
     messages: [],
+    sessionEvents: [],
+    sessionIds: [],
   };
   await atomicWriteJson(threadPath(safe), thread);
   return thread;
@@ -376,11 +751,42 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
  */
 export async function setThreadSession(id, sessionId) {
   const safe = safeThreadId(id);
-  if (!safe || !sessionId) return;
+  if (!safe || !cleanSessionId(sessionId)) return null;
   const thread = await readThreadFile(safe);
-  if (!thread || thread.claudeSessionId === sessionId) return;
-  thread.claudeSessionId = sessionId;
+  if (!thread) return null;
+  if (!recordThreadSession(thread, sessionId)) return toMeta(thread);
   await atomicWriteJson(threadPath(safe), thread);
+  return toMeta(thread);
+}
+
+/** Persist one canonical session event. A higher revision replaces the stable id's
+ * original slot; stale/equal revisions are no-ops. The event's session coordinate
+ * joins the same atomic write, so GET never exposes an event without its session
+ * appearing in the append-only chain. Returns the stored event, or null on refusal. */
+export async function appendSessionEvent(id, event, { nowIso } = {}) {
+  const safe = safeThreadId(id);
+  const clean = sanitizeSessionEvent(event);
+  if (!safe || !clean) return null;
+  const thread = await readThreadFile(safe);
+  if (!thread) return null;
+  const current = Array.isArray(thread.sessionEvents) ? thread.sessionEvents : [];
+  const index = current.findIndex((candidate) => candidate.id === clean.id);
+  let changed = false;
+  let storedEvent = index === -1 ? clean : current[index];
+  if (index === -1) {
+    thread.sessionEvents = [...current, clean];
+    changed = true;
+  } else if (clean.revision > current[index].revision) {
+    thread.sessionEvents = current.slice();
+    thread.sessionEvents[index] = clean;
+    storedEvent = clean;
+    changed = true;
+  }
+  if (clean.sessionId) changed = recordThreadSession(thread, clean.sessionId) || changed;
+  if (!changed) return storedEvent;
+  thread.updatedAt = nowIso ?? new Date().toISOString();
+  await atomicWriteJson(threadPath(safe), thread);
+  return storedEvent;
 }
 
 /**
@@ -423,7 +829,18 @@ export async function appendMessages(id, messages, { nowIso, idempotencyKey = nu
   const now = nowIso ?? new Date().toISOString();
   let thread = await readThreadFile(safe);
   if (!thread) {
-    thread = { id: safe, title: "", source: "chat", mode: null, routing: null, createdAt: now, updatedAt: now, messages: [] };
+    thread = {
+      id: safe,
+      title: "",
+      source: "chat",
+      mode: null,
+      routing: null,
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+      sessionEvents: [],
+      sessionIds: [],
+    };
   }
   const deliveryKey = cleanString(idempotencyKey, 200);
   if (deliveryKey && Array.isArray(thread.messageKeys) && thread.messageKeys.includes(deliveryKey)) {

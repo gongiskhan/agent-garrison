@@ -723,7 +723,7 @@
     "discuss": {
       "T0-trivial": {
         "effort": "low",
-        "model": "claude-fable-5",
+        "model": "claude-opus-5",
         "provider": "anthropic",
         "rule": "duty:discuss/L1",
         "runtime": "agent-sdk",
@@ -732,7 +732,7 @@
       },
       "T1-standard": {
         "effort": "medium",
-        "model": "claude-fable-5",
+        "model": "claude-opus-5",
         "provider": "anthropic",
         "rule": "duty:discuss/L2",
         "runtime": "agent-sdk",
@@ -741,7 +741,7 @@
       },
       "T2-deep": {
         "effort": "high",
-        "model": "claude-fable-5",
+        "model": "claude-opus-5",
         "provider": "anthropic",
         "rule": "duty:discuss/L3",
         "runtime": "agent-sdk",
@@ -1465,7 +1465,7 @@
       "effort": "high",
       "id": "fable",
       "maxTurns": 100,
-      "model": "claude-fable-5",
+      "model": "claude-opus-5",
       "promptMode": "coding",
       "provider": "anthropic",
       "runtime": "agent-sdk",
@@ -1474,14 +1474,14 @@
     "fable-low": {
       "effort": "low",
       "id": "fable-low",
-      "model": "claude-fable-5",
+      "model": "claude-opus-5",
       "provider": "anthropic",
       "runtime": "agent-sdk"
     },
     "fable-med": {
       "effort": "medium",
       "id": "fable-med",
-      "model": "claude-fable-5",
+      "model": "claude-opus-5",
       "provider": "anthropic",
       "runtime": "agent-sdk"
     },

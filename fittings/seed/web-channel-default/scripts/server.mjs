@@ -28,6 +28,7 @@ import {
   getThread,
   ensureThread,
   appendMessages,
+  appendSessionEvent,
   deleteThread,
   setThreadSession,
   setThreadRouting,
@@ -468,6 +469,15 @@ function pipeChatSse(req, res, upstreamOpts, upstreamBody, { threadId } = {}) {
     if (threadId) appendLiveFrame(threadId, { event: name, data });
     let payload = {};
     try { payload = data ? JSON.parse(data) : {}; } catch { /* leave it observable, but do not interpret it */ }
+    if (name === "session_event") {
+      // Canonical activity is durable independently of the lossy assistant-text
+      // projection. Keep this in the SAME serialized chain as route/session/reply
+      // writes so a later done cannot overwrite an event written from an earlier
+      // frame. Malformed payloads are refused by the store without affecting the
+      // verbatim SSE tee above.
+      if (threadId) queueThreadWrite(() => appendSessionEvent(threadId, payload));
+      return;
+    }
     if (name === "route") {
       preRoute = { ...(preRoute ?? {}), ...payload };
       // Agent SDK and any future runtime can publish its session coordinate on a

@@ -312,6 +312,67 @@ describe("POST /api/chat - pins forwarded, whole turn persisted", () => {
     expect(t.claudeSessionId).toBe("sess-abc");
   });
 
+  it("tees canonical session_event frames unchanged and persists revisions for thread GET reload", async () => {
+    const id = "chat-session-events";
+    const imageData = Buffer.from("server-persisted-image").toString("base64");
+    const draft = {
+      id: "assistant-1",
+      role: "assistant",
+      ts: 1_786_880_000_000,
+      turnId: "turn-events",
+      sessionId: "sess-events",
+      order: 0,
+      revision: 0,
+      blocks: [{ type: "text", text: "draft" }],
+    };
+    const result = {
+      id: "result-1",
+      role: "user",
+      ts: 1_786_880_000_001,
+      turnId: "turn-events",
+      sessionId: "sess-events",
+      order: 1,
+      revision: 0,
+      toolResultsOnly: true,
+      blocks: [{
+        type: "tool_result",
+        toolUseId: "tool-1",
+        isError: false,
+        text: "read complete",
+        images: [{ mediaType: "image/png", data: imageData }],
+      }],
+    };
+    const settled = {
+      ...draft,
+      revision: 1,
+      blocks: [{ type: "text", text: "canonical answer" }],
+    };
+    turnScript = {
+      frames: [
+        sse("session_event", draft),
+        sse("session_event", result),
+        sse("session_event", settled),
+        sse("done", { reply: "canonical answer", runtime: "agent-sdk", session_id: "sess-events" }),
+      ],
+    };
+
+    const turn = await runTurn({ message: "show the durable journal", thread: id });
+    expect(turn.status).toBe(200);
+    // The persistence seam must not rewrite or consume the low-latency SSE frame.
+    expect(turn.text).toContain(`event: session_event\ndata: ${JSON.stringify(draft)}`);
+    const stored = await waitForMessages(id, 2);
+    expect(stored.sessionEvents.map((entry: any) => entry.id)).toEqual(["assistant-1", "result-1"]);
+    expect(stored.sessionEvents[0]).toMatchObject({ revision: 1, blocks: [{ type: "text", text: "canonical answer" }] });
+    expect(stored.sessionEvents[1]).toMatchObject({ role: "user", toolResultsOnly: true });
+    expect(stored.sessionEvents[1].blocks[0].images).toEqual([{ mediaType: "image/png", data: imageData }]);
+    expect(stored.sessionIds).toEqual(["sess-events"]);
+    expect(stored.claudeSessionId).toBe("sess-events");
+
+    const reload: any = await (await fetch(api(`/api/threads/${id}`))).json();
+    expect(reload.thread.sessionEvents).toEqual(stored.sessionEvents);
+    expect(reload.thread.sessionIds).toEqual(["sess-events"]);
+  });
+
   it("an unpinned turn forwards NO routing/turnSeq keys at all", async () => {
     const id = "chat-unpinned";
     turnScript = { frames: [sse("done", { reply: "plain" })] };

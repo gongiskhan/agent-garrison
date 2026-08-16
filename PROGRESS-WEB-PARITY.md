@@ -6,7 +6,7 @@ Started: 2026-08-16
 
 ## Operating state
 
-- Live sessions spawned by this run: **0 / 5 maximum**.
+- Live sessions spawned by this run: **1 / 5 maximum**.
 - `PRD.md`, `PLANING.md`, and `TASKS.md`: absent at startup.
 - CodeGraph: unavailable in this checkout/tool session; repository search is the fallback.
 - Pre-existing user change preserved: `compositions/default/apm.yml` changes Agent SDK account from empty to `auto`. It is not part of a milestone unless later evidence makes it part of the required model-swap config.
@@ -15,14 +15,25 @@ Started: 2026-08-16
 
 ## Config edits pending manual revert
 
-None yet. The Opus 5 live-spawn precondition has not been applied.
+The live-spawn precondition was applied before M1's first session. Revert these by hand after the run if Fable should become primary again:
+
+```text
+compositions/default/apm.yml
+  target id fable: model claude-fable-5 -> claude-opus-5
+compositions/default/.garrison/routing.json
+  target ids fable, fable-low, fable-med: model claude-fable-5 -> claude-opus-5
+compositions/default/.garrison/policy.json
+  discuss T0/T1/T2 cells and targets fable/fable-low/fable-med: model claude-fable-5 -> claude-opus-5
+```
+
+The legacy target ids remain unchanged so authored matrix references and sticky Web routing continue to resolve, but every active occurrence now launches Opus 5. Historical decisions and backup files were intentionally not rewritten.
 
 ## Milestone status
 
 | Milestone | Status | Files touched | Verification | Next step |
 |---|---|---|---|---|
 | M0 — Gap map | done | `PROGRESS-WEB-PARITY.md` | 8 focused files / 216 tests green; `git diff --check` green | Apply the Opus 5 precondition, capture one SDK fixture, and build the channel-neutral event layer. |
-| M1 — Event layer | pending | — | — | Await M0. |
+| M1 — Event layer | done | Opus config; Agent SDK normalizer/adapter; gateway event forwarding; Web thread event store; capture script/fixture; focused tests | 10 files / 216 tests green; full typecheck + diff check green; live count 1 | Render the canonical stream in the main thread from fixtures. |
 | M2 — Rendering | pending | — | — | Await M1. |
 | M3 — Permissions | pending | — | — | Await M2 and design gate. |
 | M4 — Interrupt/input | pending | — | — | Await M3. |
@@ -113,6 +124,39 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
 ### M0 verification
 
 `npm test -- tests/agent-sdk-runtime.test.ts tests/gateway-run-context.test.ts tests/web-channel-orchestrator-transport.test.ts tests/web-channel-run-context.test.ts tests/web-channel-threads.test.ts tests/web-channel-live-resume.test.ts tests/web-channel-ui-run-context.test.ts tests/claude-chat-run-context.test.ts` — **8 files, 216 tests passed**. `git diff --check` also passed before the milestone commit.
+
+## M1 — Channel-neutral session event layer
+
+### Authentic fixture capture
+
+- Model precondition: all active `fable`/`fable-low`/`fable-med` model values were changed to `claude-opus-5` before the process was launched; target ids stayed stable.
+- Live spend: exactly one low-effort Opus 5 Agent SDK session in a disposable `mkdtemp` directory, with one prompt constrained to `Write` then `Read`; the scratch directory was removed after capture.
+- Result: 45 SDK messages — 26 `stream_event`, 12 `system`, 3 `assistant`, 2 `user` tool-result messages, 1 `rate_limit_event`, and 1 successful `result`. Tool calls/results were exactly Write + Read.
+- Fixture: `tests/fixtures/agent-sdk-web-parity-events.json`; opaque ids and scratch paths are stable aliases, and init account/config/credential fields are never serialized.
+- Observed ordering: each raw `message_start` and final `assistant` share `message.id`, while wrapper UUIDs differ. Canonical live updates therefore key assistant events by `message.id`; final envelopes replace the partial snapshot instead of adding a duplicate.
+- The string-prompt capture did not emit `session_state_changed`; the pinned SDK type explicitly documents `idle` as authoritative for a standing streaming-input query, which M4 will exercise offline with a fake query.
+
+### M1 failure diagnosis — SDK import isolation
+
+- Expected: the existing adapter suite accepts the capture script after it was routed through `lib/sdk-client.mjs`, the sole package-import seam.
+- Actual, twice: the same source guard still reported `scripts/capture-web-parity-fixture.mjs` as a direct SDK import.
+- Ranked causes: (1) the fixture metadata literal contains the scoped package name and the guard scans text, not syntax; (2) the import edit was stale; (3) another generated copy was scanned.
+- Cheapest discriminator: `rg -n '@anthropic-ai' fittings/seed/agent-sdk-runtime/scripts/capture-web-parity-fixture.mjs`.
+- Result: only the metadata `source` literal remained, confirming cause 1. Rephrase that nonfunctional label, then perform one final focused retry instead of patch/retry looping.
+
+### M1 implementation result
+
+- `agent-sdk-runtime/lib/session-events.mjs` now owns the provider-neutral normalizer. Raw text/thinking/input deltas revise one stable assistant event; settled envelopes reuse `message.id`; tool results/images/progress, status, runtime errors, rate limits, and turn boundaries use the transcript block vocabulary plus typed extensions.
+- The normalizer uses the parser's exact 20,000-character honest truncation marker. Base64 result images stay whole. Unknown top-level SDK messages become `status` blocks rather than disappearing; protocol-only stop/signature boundaries create no empty visual event.
+- `AgentSdkAdapter.buildQueryOptions` requests partial messages. `sendTurn` accepts safe optional `onEvent` and `turnId` hooks while preserving legacy text/tool/thinking/session callbacks and its settled response contract.
+- `RoutedGateway.runAgentSdkTurn` passes the canonical callback through unchanged. Gateway `/chat/stream` publishes immediate `session_event` frames beside the legacy stream, so other channels can consume the same payload without importing Web rendering code.
+- `threads.mjs` sanitizes and atomically merges durable `sessionEvents` by stable id/higher revision at the original timeline position. It also records unique append-only `sessionIds` while keeping `claudeSessionId` as the latest compatibility field.
+- `server.mjs:pipeChatSse` queues each canonical event into the same serialized write chain as route/session/final-message writes; its in-process SSE tee still forwards the payload verbatim first. Malformed canonical payloads remain observable live but are refused for durable storage.
+- On-disk JSONL remains the recovery source with the same core block shapes. M5 will join every file in `sessionIds` and reconcile transcript events with this durable live journal; M1 deliberately does not pretend the bounded SSE tail is history.
+
+### M1 verification
+
+`npm test -- tests/agent-sdk-session-events.test.ts tests/agent-sdk-runtime.test.ts tests/runtime-cancel.test.ts tests/api-runtime-compaction.test.ts tests/gateway-agent-sdk-route.test.ts tests/gateway-run-context.test.ts tests/web-channel-threads.test.ts tests/web-channel-run-context.test.ts tests/web-channel-live-resume.test.ts tests/web-channel-orchestrator-transport.test.ts` — **10 files, 216 tests passed**. `npm run typecheck -- --pretty false` and `git diff --check` passed. No live process was launched after the one fixture capture.
 
 ## Resolved questions
 

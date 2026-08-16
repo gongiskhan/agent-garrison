@@ -683,7 +683,7 @@ x-garrison:
           authMode: api-key
       - id: fable
         runtime: agent-sdk
-        model: claude-fable-5
+        model: claude-opus-5
         provider: anthropic
         params:
           type: runtime-target

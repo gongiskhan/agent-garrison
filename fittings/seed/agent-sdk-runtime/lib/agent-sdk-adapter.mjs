@@ -18,6 +18,7 @@
 // so the unit-test path never loads the SDK.
 import { buildHarness } from "./harness.mjs";
 import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, isAnthropicProvider } from "./providers.mjs";
+import { createAgentSdkSessionEventNormalizer } from "./session-events.mjs";
 
 async function defaultCreateClient(args) {
   const mod = await import("./sdk-client.mjs");
@@ -171,7 +172,11 @@ export class AgentSdkAdapter {
       cwd: session.config.compositionDir,
       maxTurns: session.maxTurns,
       env: session.env,
-      permissionMode: session.config.permissionMode ?? "bypassPermissions"
+      permissionMode: session.config.permissionMode ?? "bypassPermissions",
+      // Channels need the same live text/thinking/tool input that Claude's TUI
+      // paints while a message is being generated. Settled assistant envelopes
+      // alone arrive too late and omit the incremental input JSON.
+      includePartialMessages: true
     };
     if (session.model) opts.model = session.model;
     // Dispatch inference is deliberately a fast, non-reasoning classification
@@ -202,6 +207,9 @@ export class AgentSdkAdapter {
   //                              shows only the latest line as a liveness hint)
   //   onSession(sessionId)     - when the SDK's system frame first announces a
   //                              validated session id, before the turn completes
+  //   onEvent(sessionEvent)    - provider-neutral, revisioned text/thinking/tool/
+  //                              result/status/limit/terminal snapshot
+  //   turnId                   - optional caller identity copied onto onEvent
   // Callers that pass nothing get byte-identical behaviour: the reply is still
   // accumulated and returned whole by awaitResponse. Without these the routed
   // lanes are silent for minutes and then dump a blob.
@@ -244,6 +252,31 @@ export class AgentSdkAdapter {
     const onTool = typeof hooks.onTool === "function" ? hooks.onTool : null;
     const onThinking = typeof hooks.onThinking === "function" ? hooks.onThinking : null;
     const onSession = typeof hooks.onSession === "function" ? hooks.onSession : null;
+    const onEvent = typeof hooks.onEvent === "function" ? hooks.onEvent : null;
+    const eventNormalizer = createAgentSdkSessionEventNormalizer({
+      turnId: hooks.turnId ?? null,
+      sessionId: session.sessionId
+    });
+    const emitEvents = async (events) => {
+      if (!onEvent) return;
+      for (const event of events) {
+        try {
+          // Await promise-returning sinks so a durable channel can preserve
+          // event order. A broken observability sink must never kill the turn.
+          await onEvent(event);
+        } catch {
+          /* streaming consumer error must not kill the turn */
+        }
+      }
+    };
+    const normalizeAndEmit = async (message) => {
+      if (!onEvent) return;
+      try {
+        await emitEvents(eventNormalizer.push(message));
+      } catch {
+        /* event normalization is observability and must not kill the turn */
+      }
+    };
     // S1b: a rebuilt session seeds the next turn with the focus summary (the SDK
     // session/resume was cleared, so this restores the working context).
     const seeded = session.contextSeed ? `${session.contextSeed}\n\n---\n\n${text}` : text;
@@ -269,6 +302,7 @@ export class AgentSdkAdapter {
           stoppedReason = stoppedReason ?? "cancelled";
           break;
         }
+        await normalizeAndEmit(msg);
         const type = msg?.type;
         if (type === "system" && msg.session_id) {
           const announced = validatedSessionId(msg.session_id);
@@ -376,6 +410,7 @@ export class AgentSdkAdapter {
         // iterator rejection. Normalize only that exact pair into the adapter's
         // documented stoppedReason response. A matching-looking throw without the
         // envelope, or any unrelated post-result error, still rejects.
+        await emitEvents(eventNormalizer.runtimeError(err));
         throw err;
       }
     } finally {
@@ -386,6 +421,7 @@ export class AgentSdkAdapter {
     // A query the user cancelled can also end by simply running out (the aborted
     // generator completes without throwing), so the reason is asserted here too.
     if (session.cancelRequested) stoppedReason = stoppedReason ?? "cancelled";
+    await emitEvents(eventNormalizer.finish(stoppedReason));
     session.turns += 1;
     session.sessionId = sessionId;
     // S1b: at the loop boundary, summarize-and-rebuild if usage crossed the

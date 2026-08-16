@@ -10,7 +10,7 @@
  * Endpoint surface is byte-compatible with gateway-legacy.mjs so the
  * web-channel and slack-channel relays work unchanged:
  *   POST /chat          { message }            → { reply, session_id, cost_usd }
- *   POST /chat/stream    { message }           → SSE open/chunk/tool/done/error
+ *   POST /chat/stream    { message }           → SSE open/session_event/chunk/tool/done/error
  *   POST /jobs           { kind, ... }         → { ack, deduped } or retryable 503
  *   POST /attachments    { filename, content_base64 } → { path, bytes }
  *   GET  /health                               → { ok, session_id, uptime_ms, engine, pty_status }
@@ -1272,6 +1272,7 @@ export function buildRouteOptions() {
  *  turn → honored check. The operative session is served by the routing pool.
  *  `opts.onPreRoute(pre)` fires the moment the route is known (the pre-turn
  *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity;
+ *  `opts.onSessionEvent(payload)` carries the channel-neutral Agent SDK event;
  *  `opts.onJournal({session_id,transcript_path})` fires as soon as a runtime's
  *  structured journal can be tailed, before the turn settles. */
 // Liveness for the INTERACTIVE lane, which has no structured event stream: the
@@ -1811,6 +1812,10 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // it reported /home/ggomes/dev/<repo> while the turn actually ran in the
       // composition dir (caught by asking a live turn to print its own pwd).
       cwd: pre.projectPath ?? workspaceCwdFallback(),
+      // A web request already owns a monotonic turnSeq. Reuse its stable string
+      // form for event grouping; canonical block ids still come from the SDK.
+      onEvent: opts.onSessionEvent,
+      turnId: hints?.turnSeq == null ? null : String(hints.turnSeq),
       onActivity: opts.onActivity,
       onJournal: opts.onJournal,
       registerStop: (stop) => registerTurnStop("agent-sdk", stop)
@@ -2802,6 +2807,16 @@ const server = http.createServer(async (request, response) => {
           /* client gone */
         }
       };
+      // Structured session events are already in the runtime-neutral vocabulary.
+      // Forward each payload immediately and unchanged; legacy activity/chunk/done
+      // frames remain alongside it while existing consumers migrate.
+      const onSessionEvent = (payload) => {
+        try {
+          sseWrite(response, "session_event", payload);
+        } catch {
+          /* client gone */
+        }
+      };
 
       try {
         await readyPromise;
@@ -2816,7 +2831,7 @@ const server = http.createServer(async (request, response) => {
           } catch {
             /* client gone */
           }
-        }, hints, { onPreRoute, onActivity, onJournal });
+        }, hints, { onPreRoute, onActivity, onJournal, onSessionEvent });
         // Additive context telemetry (D5b): the turn's live/peak context % + any
         // compactions, read off the operative session that just ran. A nested
         // `context` object so consumers (the kanban engine) opt in without any

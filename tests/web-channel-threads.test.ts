@@ -22,6 +22,10 @@ interface ThreadsRunContext {
   sanitizeRouteMeta(raw: unknown): Loose | null;
   sanitizeRouting(raw: unknown): Loose | null;
   setThreadRouting(id: string, routing: unknown, opts?: { nowIso?: string }): Promise<Loose | null>;
+  setThreadSession(id: string, sessionId: string): Promise<Loose | null>;
+  sanitizeSessionEvent(raw: unknown): Loose | null;
+  appendSessionEvent(id: string, event: Loose, opts?: { nowIso?: string }): Promise<Loose | null>;
+  mergeSessionEvents(existing: unknown, incoming: unknown): Loose[];
   appendMessages(id: string, messages: Loose[], opts?: { nowIso?: string; idempotencyKey?: string }): Promise<Loose>;
   ensureThread(opts: Loose): Promise<Loose>;
   getThread(id: string): Promise<Loose | null>;
@@ -58,6 +62,8 @@ describe("web-channel threads store", () => {
     expect(t2.title).toBe("Tagline change");
     expect(t2.source).toBe("kanban");
     expect(t2.messages).toEqual([]);
+    expect((t2 as Loose).sessionEvents).toEqual([]);
+    expect((t2 as Loose).sessionIds).toEqual([]);
   });
 
   it("ensureThread lets a Discuss open upgrade a thread stamped with the default chat source", async () => {
@@ -140,6 +146,138 @@ describe("web-channel threads store", () => {
       { role: "assistant", text: 42 } as any,
     ]);
     expect(meta.messageCount).toBe(1);
+  });
+});
+
+describe("web-channel canonical session-event durability", () => {
+  const event = (id: string, order: number, revision: number, text: string, sessionId = "session-a") => ({
+    id,
+    role: "assistant",
+    ts: 1_786_880_000_000 + order,
+    turnId: "turn-1",
+    sessionId,
+    order,
+    revision,
+    blocks: [{ type: "text", text }],
+  });
+
+  it("merges a stable id's latest revision at its original timeline position", async () => {
+    const id = "chat-session-revision";
+    await rc.ensureThread({ id });
+    await rc.appendSessionEvent(id, event("event-a", 0, 0, "draft"));
+    await rc.appendSessionEvent(id, event("event-b", 1, 0, "after"));
+    await rc.appendSessionEvent(id, event("event-a", 0, 2, "settled"));
+    // A late stale frame must neither move nor roll back the event.
+    await rc.appendSessionEvent(id, event("event-a", 0, 1, "stale"));
+
+    const stored = await rc.getThread(id);
+    expect(stored?.sessionEvents.map((entry: Loose) => entry.id)).toEqual(["event-a", "event-b"]);
+    expect(stored?.sessionEvents[0]).toMatchObject({ order: 0, revision: 2, blocks: [{ type: "text", text: "settled" }] });
+    expect(stored?.sessionEvents[1].blocks[0].text).toBe("after");
+
+    // The pure reload merge follows the same rule for duplicate ids already on disk.
+    expect(rc.mergeSessionEvents([event("x", 0, 0, "first"), event("y", 1, 0, "second")], event("x", 0, 1, "new")))
+      .toMatchObject([
+        { id: "x", revision: 1, blocks: [{ text: "new" }] },
+        { id: "y", revision: 0, blocks: [{ text: "second" }] },
+      ]);
+  });
+
+  it("durably keeps text, tool results and whole base64 images with honest 20k caps", async () => {
+    const id = "chat-session-blocks";
+    const long = "x".repeat(20_007);
+    const capped = `${"x".repeat(20_000)}\n… [truncated 7 chars]`;
+    const imageData = Buffer.from("whole image bytes must round-trip").toString("base64");
+    await rc.ensureThread({ id });
+    await rc.appendSessionEvent(id, {
+      id: "assistant-envelope",
+      role: "assistant",
+      ts: 100,
+      order: 0,
+      revision: 0,
+      blocks: [
+        { type: "text", text: long },
+        { type: "thinking", text: long },
+        { type: "tool_use", toolUseId: "tool-1", name: "Read", input: long },
+      ],
+    });
+    await rc.appendSessionEvent(id, {
+      id: "tool-result",
+      role: "user",
+      ts: 101,
+      order: 1,
+      revision: 0,
+      toolResultsOnly: true,
+      blocks: [{
+        type: "tool_result",
+        toolUseId: "tool-1",
+        isError: false,
+        text: long,
+        images: [{ mediaType: "image/png", data: imageData }],
+      }],
+    });
+
+    const stored = await rc.getThread(id);
+    expect(stored?.sessionEvents[0].blocks.map((block: Loose) => block.type)).toEqual(["text", "thinking", "tool_use"]);
+    expect(stored?.sessionEvents[0].blocks[0].text).toBe(capped);
+    expect(stored?.sessionEvents[0].blocks[1].text).toBe(capped);
+    expect(stored?.sessionEvents[0].blocks[2].input).toBe(capped);
+    expect(stored?.sessionEvents[1]).toMatchObject({ role: "user", toolResultsOnly: true });
+    expect(stored?.sessionEvents[1].blocks[0].text).toBe(capped);
+    expect(stored?.sessionEvents[1].blocks[0].images).toEqual([{ mediaType: "image/png", data: imageData }]);
+  });
+
+  it("preserves the typed status/error/rate-limit/turn-end/permission extensions", () => {
+    const clean = rc.sanitizeSessionEvent({
+      id: "typed-events",
+      role: "assistant",
+      ts: 200,
+      turnId: "turn-typed",
+      sessionId: "session-typed",
+      order: 2,
+      revision: 0,
+      blocks: [
+        { type: "status", status: "running", text: "working", subtype: "init" },
+        { type: "error", kind: "runtime", text: "failed" },
+        { type: "rate_limit", status: "allowed", rateLimitType: "five_hour", resetsAt: 1_786_881_000, utilization: 0.5, overageStatus: "allowed", overageResetsAt: 1_788_220_800, isUsingOverage: false },
+        { type: "turn_end", status: "cancelled", subtype: "interrupted", stopReason: "user", result: "partial", errors: ["cancelled"] },
+        { type: "permission_request", requestId: "permission-1", toolUseId: "tool-2", name: "Bash", input: "{\"command\":\"pwd\"}", title: "Run command?", description: "Needs shell access", suggestions: [{ type: "addRules", rules: ["Bash(pwd)"] }] },
+      ],
+    });
+    expect(clean?.blocks).toEqual([
+      { type: "status", status: "running", text: "working", subtype: "init" },
+      { type: "error", kind: "runtime", text: "failed" },
+      { type: "rate_limit", status: "allowed", rateLimitType: "five_hour", resetsAt: 1_786_881_000, utilization: 0.5, overageStatus: "allowed", overageResetsAt: 1_788_220_800, isUsingOverage: false },
+      { type: "turn_end", status: "cancelled", subtype: "interrupted", stopReason: "user", result: "partial", errors: ["cancelled"] },
+      { type: "permission_request", requestId: "permission-1", toolUseId: "tool-2", name: "Bash", input: "{\"command\":\"pwd\"}", title: "Run command?", description: "Needs shell access", suggestions: [{ type: "addRules", rules: ["Bash(pwd)"] }] },
+    ]);
+  });
+
+  it("keeps an append-only unique session chain while claudeSessionId remains latest", async () => {
+    const id = "chat-session-chain";
+    await rc.ensureThread({ id });
+    await rc.setThreadSession(id, "session-a");
+    await rc.appendSessionEvent(id, event("from-b", 0, 0, "continued", "session-b"));
+    await rc.setThreadSession(id, "session-a");
+
+    const stored = await rc.getThread(id);
+    expect(stored?.sessionIds).toEqual(["session-a", "session-b"]);
+    expect(stored?.claudeSessionId).toBe("session-a");
+  });
+
+  it("refuses malformed envelopes and blocks without partially storing them", async () => {
+    const id = "chat-session-malformed";
+    await rc.ensureThread({ id });
+    const valid = event("valid", 0, 0, "ok");
+    const malformed = [
+      { ...valid, id: "" },
+      { ...valid, role: "system" },
+      { ...valid, revision: -1 },
+      { ...valid, blocks: [{ type: "not_canonical", text: "x" }] },
+      { ...valid, blocks: [{ type: "tool_result", text: "x", images: [{ mediaType: "image/png", data: 42 }] }] },
+    ];
+    for (const candidate of malformed) expect(await rc.appendSessionEvent(id, candidate)).toBeNull();
+    expect((await rc.getThread(id))?.sessionEvents).toEqual([]);
   });
 });
 
@@ -364,6 +502,8 @@ describe("web-channel threads run context", () => {
     const t = await rc.getThread("chat-legacy");
     expect(t?.title).toBe("Old conversation");
     expect(t?.claudeSessionId).toBe("legacy-session");
+    expect(t?.sessionIds).toEqual(["legacy-session"]);
+    expect(t?.sessionEvents).toEqual([]);
     expect(t?.messages).toHaveLength(2);
     expect(t?.messages[1].route).toBeUndefined();
     expect(t?.routing).toBeNull(); // normalised, never undefined
