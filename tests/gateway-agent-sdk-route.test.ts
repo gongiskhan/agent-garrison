@@ -389,6 +389,29 @@ export async function spawnFn(config) { return new StubSession(config); }
   async sendTurn(session, message, hooks = {}) {
     session.message = String(message ?? "");
     if (session.config.model === "claude-haiku-4-5") return;
+    if (/permission flow/i.test(session.message)) {
+      if (session.config.permissionMode !== "default") throw new Error("permission mode was not interactive");
+      const request = {
+        type: "permission_request",
+        requestId: "request-live",
+        generationId: hooks.generationId,
+        toolUseId: "tool-live",
+        name: "Bash",
+        input: "{\\"command\\":\\"pwd\\"}",
+        inputComplete: true,
+        suggestionsComplete: true,
+        suggestions: [{ type: "addRules", destination: "session", rules: ["Bash(pwd)"] }],
+        status: "pending"
+      };
+      const eventId = "permission:" + JSON.stringify([hooks.generationId, request.requestId]);
+      const decisionPromise = Promise.resolve(hooks.onPermissionRequest(request, { signal: new AbortController().signal }));
+      hooks.onEvent?.({ id: eventId, role: "assistant", ts: 1000, turnId: hooks.turnId, order: 1, revision: 1, blocks: [request] });
+      const decision = await decisionPromise;
+      hooks.onEvent?.({ id: eventId, role: "assistant", ts: 1000, turnId: hooks.turnId, order: 1, revision: 2, blocks: [{ ...request, status: "resolved", decision }] });
+      session.permissionReply = "permission " + decision;
+      hooks.onText?.(session.permissionReply);
+      return;
+    }
     hooks.onEvent?.({ id: "evt-1", type: "block_delta", turnId: hooks.turnId, block: { type: "text", text: "alpha" }, nested: { keep: [1, "two", false] } });
     hooks.onText?.("legacy reply");
     hooks.onTool?.({ name: "Read", id: "tool-1" });
@@ -398,6 +421,7 @@ export async function spawnFn(config) { return new StubSession(config); }
     if (session.config.model === "claude-haiku-4-5") {
       return { text: JSON.stringify({ duty: "other", level: 1, confidence: "high", clarity: "clear", reason: "fixture" }), toolUses: [], stoppedReason: null };
     }
+    if (session.permissionReply) return { text: session.permissionReply, toolUses: [{ name: "Bash", id: "tool-live" }], stoppedReason: null };
     return { text: "legacy reply", toolUses: [{ name: "Read", id: "tool-1" }], stoppedReason: null };
   }
   async teardown(session) { session.alive = false; }
@@ -458,6 +482,89 @@ export async function spawnFn(config) { return new StubSession(config); }
       expect(frames[chunk].data).toMatchObject({ text: "legacy reply", replace: true });
       expect(frames[activity].data).toMatchObject({ kind: "tool", name: "Read", id: "tool-1" });
       expect(frames[done].data).toMatchObject({ reply: "legacy reply", runtime: "agent-sdk" });
+
+      // Full control-plane proof over the real child gateway: callback
+      // registration publishes pending, the exact HTTP tuple releases it, then
+      // the same durable event id revises before the terminal frame.
+      const permissionResponse = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "quick: permission flow",
+          channel: "web",
+          thread: "thread-permission",
+          turnSeq: 18,
+          routing: { target: "sdk-ollama-chat" }
+        })
+      });
+      expect(permissionResponse.status).toBe(200);
+      const reader = permissionResponse.body!.getReader();
+      const decoder = new TextDecoder();
+      let permissionRaw = "";
+      while (!/"status":"pending"[^\n]*\n\n/.test(permissionRaw)) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        permissionRaw += decoder.decode(chunk.value, { stream: true });
+      }
+      const pendingFrames = parseSse(permissionRaw);
+      const opened = pendingFrames.find((frame) => frame.event === "open")!;
+      const pending = pendingFrames.find((frame) =>
+        frame.event === "session_event" && frame.data.blocks?.[0]?.status === "pending"
+      )!;
+      expect(opened.data.generationId).toBeTruthy();
+      expect(pending.data.blocks[0]).toMatchObject({
+        requestId: "request-live",
+        generationId: opened.data.generationId,
+        inputComplete: true,
+        suggestionsComplete: true,
+      });
+
+      const wrong = await fetch(`http://127.0.0.1:${port}/chat/permission`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadId: "thread-permission",
+          generationId: "generation-wrong",
+          requestId: "request-live",
+          decision: "allow_once",
+        }),
+      });
+      expect(wrong.status).toBe(409);
+      const allowed = await fetch(`http://127.0.0.1:${port}/chat/permission`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadId: "thread-permission",
+          generationId: opened.data.generationId,
+          requestId: "request-live",
+          decision: "allow_always",
+        }),
+      });
+      expect(allowed.status).toBe(200);
+
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        permissionRaw += decoder.decode(chunk.value, { stream: true });
+      }
+      permissionRaw += decoder.decode();
+      const permissionFrames = parseSse(permissionRaw);
+      const permissionEvents = permissionFrames.filter((frame) =>
+        frame.event === "session_event" && frame.data.blocks?.[0]?.type === "permission_request"
+      );
+      expect(permissionEvents.map((frame) => [
+        frame.data.id,
+        frame.data.revision,
+        frame.data.blocks[0].status,
+        frame.data.blocks[0].decision ?? null,
+      ])).toEqual([
+        [pending.data.id, 1, "pending", null],
+        [pending.data.id, 2, "resolved", "allow_always"],
+      ]);
+      expect(permissionFrames.findIndex((frame) => frame.event === "session_event" && frame.data.revision === 2))
+        .toBeLessThan(permissionFrames.findIndex((frame) => frame.event === "done"));
+      expect(permissionFrames.find((frame) => frame.event === "done")?.data)
+        .toMatchObject({ reply: "permission allow_always", runtime: "agent-sdk" });
     } finally {
       try {
         child?.kill("SIGKILL");

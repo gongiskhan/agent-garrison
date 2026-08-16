@@ -2,7 +2,7 @@
 // and dev-env both expose the same /claude/* shape, so a single HTTP transport
 // serves both — only the base path differs.
 
-import { isSessionEvent, type SessionEvent } from "./journal";
+import { isSessionEvent, type PermissionAnswer, type SessionEvent } from "./journal";
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "unknown";
 
@@ -239,6 +239,9 @@ export interface ChatTransport {
    * keystrokes. Optional so transports that never surface `tool` events stay valid.
    */
   answerQuestion?(answer: QuestionAnswer): Promise<void>;
+  /** Resolve one durable, generation-bound tool permission request. Hosts that
+   * do not own a Web thread omit this capability and render prompts read-only. */
+  answerPermission?(answer: PermissionAnswer): Promise<void>;
   /**
    * Upload a pasted/dropped/picked file so its path can be referenced in the
    * next message. Optional — a transport that omits this hides the

@@ -127,9 +127,12 @@ work.
   editable Identity section owns Zeca; routing doctrine plus generated duties,
   capabilities, and readiness are assembled into
   `assembled-system-prompt.md`. Legacy `soul.md` is not injected.
-- **Permission mode is `bypassPermissions` for now.** Anything
-  stricter hangs because the UI has no permission-prompt surface
-  yet.
+- **Permission mode is interactive only for streamed Web Agent SDK turns with
+  a durable thread.** Those turns use `default` and surface blocking,
+  generation-bound tool requests in the Web thread; Deny and Allow once are
+  explicit, while Always allow is offered only for complete SDK suggestions.
+  JSON/headless, Kanban, scheduler, Slack, dispatch, and PTY lanes remain
+  `bypassPermissions` so they never wait on a browser-only control surface.
 - **No multi-host compositions in v1.** One composition per host.
 - **Workbench-as-shell-area is gone.** The 2026-05-17 dissolution
   decision made `terminal`, `worktrees`, `session-view`,

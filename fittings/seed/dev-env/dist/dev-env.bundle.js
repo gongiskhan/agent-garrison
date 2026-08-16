@@ -1137,7 +1137,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useDeferredValue(value);
         }
-        function useId() {
+        function useId2() {
           var dispatcher = resolveDispatcher();
           return dispatcher.useId();
         }
@@ -1883,7 +1883,7 @@ var require_react_development = __commonJS({
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
         exports.useEffect = useEffect9;
-        exports.useId = useId;
+        exports.useId = useId2;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect;
@@ -41008,7 +41008,7 @@ function sessionActivityBeats(events) {
         }
       } else if (block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "") {
         beats.push({ type: "error", eventIndex, blockIndex, text: block2.text });
-      } else if (block2.type === "thinking" || block2.type === "tool_use") {
+      } else if (block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request") {
         beats.push({ type: block2.type, eventIndex, blockIndex, block: block2 });
       }
     }
@@ -41060,6 +41060,8 @@ function presentSessionTurn(turn, live) {
 }
 function parseToolInput(input) {
   if (!input) return null;
+  if (typeof input === "object" && !Array.isArray(input)) return input;
+  if (typeof input !== "string") return null;
   try {
     const parsed = JSON.parse(input);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
@@ -41097,7 +41099,7 @@ function sessionToolSummary(block2) {
     return compact(stringField(input, "description", "task", "name", "prompt"));
   }
   return compact(
-    stringField(input, "description", "query", "url", "path", "file_path", "command", "cmd", "pattern", "prompt") || block2.input
+    stringField(input, "description", "query", "url", "path", "file_path", "command", "cmd", "pattern", "prompt") || (typeof block2.input === "string" ? block2.input : JSON.stringify(block2.input))
   );
 }
 function sessionThinkingSummary(text) {
@@ -41122,7 +41124,7 @@ function latestBlocksByToolUse(events, type) {
 function hasVisibleSessionActivity(events) {
   return events.some(
     (event) => event.role === "assistant" && !event.toolResultsOnly && event.blocks.some(
-      (block2) => block2.type === "text" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== "" || block2.type === "thinking" || block2.type === "tool_use"
+      (block2) => block2.type === "text" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== "" || block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request"
     )
   );
 }
@@ -41227,6 +41229,28 @@ var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 var md = new Marked({ breaks: true, gfm: true });
 installSafeMarkdownRenderer(md);
 md.use({ extensions: [filePathMarkedExtension()] });
+function displayJsonValue(value) {
+  if (typeof value === "string") return value;
+  if (value === void 0) return "Not provided";
+  try {
+    const encoded = JSON.stringify(value, null, 2);
+    return encoded === void 0 ? String(value) : encoded;
+  } catch {
+    return String(value);
+  }
+}
+function permissionText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function permissionSuggestionDestinations(suggestions) {
+  const destinations = /* @__PURE__ */ new Set();
+  for (const suggestion of suggestions) {
+    if (!suggestion || typeof suggestion !== "object" || Array.isArray(suggestion)) continue;
+    const destination = permissionText(suggestion.destination);
+    if (destination) destinations.add(destination);
+  }
+  return [...destinations];
+}
 function TextBlock({
   text,
   role,
@@ -41314,9 +41338,9 @@ function ToolBlock({
         ] })
       ] }),
       children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-toolbody", children: [
-        block2.input && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        Boolean(block2.input) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: "Input" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre", children: block2.input })
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre", children: displayJsonValue(block2.input) })
         ] }),
         output && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: active ? "Live output" : "Result" }),
@@ -41376,6 +41400,170 @@ function ThinkingBlock({ block: block2, active }) {
     }
   );
 }
+function permissionDecisionLabel(decision) {
+  if (decision === "allow_once") return "Allowed once";
+  if (decision === "allow_always") return "Always allowed";
+  if (decision === "deny") return "Denied";
+  return "Resolved";
+}
+function PermissionBlock({
+  block: block2,
+  onPermissionDecision
+}) {
+  const headingId = React2.useId();
+  const feedbackId = React2.useId();
+  const completenessId = React2.useId();
+  const requestId = permissionText(block2.requestId);
+  const generationId = permissionText(block2.generationId);
+  const status = block2.status === "pending" || block2.status === "resolved" || block2.status === "cancelled" ? block2.status : null;
+  const displayName = permissionText(block2.displayName) || permissionText(block2.name) || "tool";
+  const title2 = permissionText(block2.title) || `Allow ${displayName}?`;
+  const description = permissionText(block2.description);
+  const blockedPath = permissionText(block2.blockedPath);
+  const reason = permissionText(block2.reason);
+  const suggestions = Array.isArray(block2.suggestions) ? block2.suggestions : [];
+  const suggestionDestinations = permissionSuggestionDestinations(suggestions);
+  const hasSuggestions = suggestions.length > 0;
+  const inputComplete = block2.inputComplete === true;
+  const suggestionsComplete = block2.suggestionsComplete === true;
+  const canAlwaysAllow = inputComplete && suggestionsComplete && hasSuggestions;
+  const canSubmit = status === "pending" && Boolean(requestId && generationId && onPermissionDecision);
+  const [submitting, setSubmitting] = (0, import_react3.useState)(null);
+  const [submitted, setSubmitted] = (0, import_react3.useState)(null);
+  const [failed, setFailed] = (0, import_react3.useState)(null);
+  const attemptRef = (0, import_react3.useRef)(0);
+  const decisionLockedRef = (0, import_react3.useRef)(false);
+  (0, import_react3.useEffect)(() => {
+    attemptRef.current += 1;
+    setSubmitting(null);
+    setSubmitted(null);
+    setFailed(null);
+    decisionLockedRef.current = false;
+  }, [requestId, generationId, status, block2.decision]);
+  const decide = async (decision) => {
+    if (!canSubmit || decisionLockedRef.current || submitting || submitted || !onPermissionDecision) return;
+    if (decision === "allow_once" && !inputComplete) return;
+    if (decision === "allow_always" && !canAlwaysAllow) return;
+    const attempt = ++attemptRef.current;
+    decisionLockedRef.current = true;
+    setSubmitting(decision);
+    setFailed(null);
+    try {
+      await onPermissionDecision({ requestId, generationId, decision });
+      if (attempt !== attemptRef.current) return;
+      setSubmitted(decision);
+    } catch (error) {
+      if (attempt !== attemptRef.current) return;
+      decisionLockedRef.current = false;
+      const detail = error instanceof Error && error.message.trim() ? error.message.replace(/\s+/g, " ").trim().slice(0, 180) : "Unknown error";
+      setFailed({ decision, message: `Could not send the decision: ${detail}` });
+    } finally {
+      if (attempt === attemptRef.current) setSubmitting(null);
+    }
+  };
+  const scope = block2.decision === "allow_always" ? "Future matching requests, using the saved changes below" : status === "pending" && hasSuggestions && suggestionsComplete ? "Allow once: this request \xB7 Always allow: future matching requests" : status === "pending" && !suggestionsComplete ? "Allow once: this request \xB7 Persistent scope unavailable" : "This request only";
+  const completenessMessage = !inputComplete ? status === "pending" ? "Approval unavailable because the full request details cannot be shown. You can still deny this request." : "Full request details were not retained, so this historical decision cannot be independently reviewed." : !suggestionsComplete ? status === "pending" ? "Always allow is unavailable because the full persistent permission changes cannot be shown. You can allow once or deny." : "Full persistent permission changes were not retained for this historical request." : "";
+  const statusLabel = status === "pending" ? !inputComplete ? "Approval unavailable" : submitted ? "Awaiting confirmation" : "Awaiting your decision" : status === "cancelled" ? "Cancelled" : status === "resolved" ? permissionDecisionLabel(block2.decision) : "Unavailable";
+  const buttonLabel = (decision, label) => failed?.decision === decision ? `Retry ${label}` : label;
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+    "section",
+    {
+      className: `cc-session-permission is-${status ?? "invalid"}`,
+      "data-permission-request-id": requestId || void 0,
+      "data-permission-generation-id": generationId || void 0,
+      "aria-labelledby": headingId,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-permission-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-permission-kicker", children: "Permission request" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `cc-session-permission-status is-${status ?? "invalid"}`, children: statusLabel })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { id: headingId, children: title2 }),
+        description && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-session-permission-description", children: description }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("dl", { className: "cc-session-permission-facts", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Tool" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: displayName })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Scope" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: scope })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Blocked path" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: blockedPath || "Not reported by the runtime" })
+          ] }),
+          reason && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Reason" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: reason })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-permission-input", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: inputComplete ? "Exact proposed tool input" : "Available partial tool input" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre", children: displayJsonValue(block2.input) })
+        ] }),
+        hasSuggestions && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-permission-suggestions", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-section-label", children: suggestionsComplete ? "Exact changes saved by Always allow" : "Available partial persistent changes" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: "These permission changes would apply to future matching requests." }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dl", { className: "cc-session-permission-save-facts", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Permission destination" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: suggestionDestinations.length ? suggestionDestinations.join(", ") : "Not reported by the runtime" })
+          ] }) }),
+          suggestions.map((suggestion, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre", children: displayJsonValue(suggestion) }, index))
+        ] }),
+        completenessMessage && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { id: completenessId, className: "cc-session-permission-warning", children: completenessMessage }),
+        status === "pending" && !onPermissionDecision && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-session-permission-readonly", children: "Return to chat to answer this permission request." }),
+        status === "pending" && onPermissionDecision && (!requestId || !generationId) && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-session-permission-readonly", children: "This request is missing its secure answer coordinates and cannot be answered here." }),
+        !status && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-session-permission-readonly", children: "This request has an invalid status and cannot be answered here." }),
+        status === "pending" && canSubmit && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+          "div",
+          {
+            className: "cc-session-permission-actions",
+            role: "group",
+            "aria-label": `Answer permission request for ${displayName}`,
+            "aria-describedby": [
+              completenessMessage ? completenessId : "",
+              failed || submitted ? feedbackId : ""
+            ].filter(Boolean).join(" ") || void 0,
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-session-permission-deny",
+                  disabled: Boolean(submitting || submitted),
+                  onClick: () => void decide("deny"),
+                  children: submitting === "deny" ? "Denying\u2026" : buttonLabel("deny", "Deny")
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  disabled: Boolean(submitting || submitted || !inputComplete),
+                  title: !inputComplete ? "Unavailable because the full request details cannot be shown" : void 0,
+                  onClick: () => void decide("allow_once"),
+                  children: submitting === "allow_once" ? "Allowing\u2026" : buttonLabel("allow_once", "Allow once")
+                }
+              ),
+              canAlwaysAllow && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-session-permission-always",
+                  disabled: Boolean(submitting || submitted),
+                  onClick: () => void decide("allow_always"),
+                  children: submitting === "allow_always" ? "Allowing\u2026" : buttonLabel("allow_always", "Always allow")
+                }
+              )
+            ]
+          }
+        ),
+        failed && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { id: feedbackId, className: "cc-session-permission-error", children: failed.message }),
+        submitted && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { id: feedbackId, className: "cc-session-permission-submitted", children: "Answer sent. Waiting for durable confirmation\u2026" })
+      ]
+    }
+  );
+}
 function ActivityTimeline({
   events,
   includeText,
@@ -41385,7 +41573,8 @@ function ActivityTimeline({
   resultsByToolUse,
   progressByToolUse,
   onImage,
-  renderMarkdown
+  renderMarkdown,
+  onPermissionDecision
 }) {
   const beats = sessionActivityBeats(events);
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: `cc-session-activity${live ? " is-live" : ""}`, children: beats.map((beat) => {
@@ -41424,6 +41613,9 @@ function ActivityTimeline({
     if (beat.type === "thinking") {
       return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ThinkingBlock, { block: block2, active: live && activeThinkingBlock === block2 }, key);
     }
+    if (beat.type === "permission_request") {
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PermissionBlock, { block: block2, onPermissionDecision }, key);
+    }
     return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       ToolBlock,
       {
@@ -41437,7 +41629,13 @@ function ActivityTimeline({
     );
   }) });
 }
-function SessionEventTimeline({ events, live = false, className = "", renderMarkdown }) {
+function SessionEventTimeline({
+  events,
+  live = false,
+  className = "",
+  renderMarkdown,
+  onPermissionDecision
+}) {
   const [modalImage, setModalImage] = (0, import_react3.useState)(null);
   const [, setHostMapReady] = (0, import_react3.useState)(false);
   (0, import_react3.useEffect)(() => {
@@ -41498,7 +41696,8 @@ function SessionEventTimeline({ events, live = false, className = "", renderMark
             resultsByToolUse,
             progressByToolUse,
             onImage: (image, label) => setModalImage({ image, label }),
-            renderMarkdown
+            renderMarkdown,
+            onPermissionDecision
           }
         ),
         terminalText && !terminalDuplicatesText && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-terminal-text cc-session-markdown", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: terminalText, role: "assistant", renderMarkdown }) }),
@@ -41744,7 +41943,7 @@ function SessionStream({
   }, [relatedTasks]);
   const visibleEvents = (0, import_react3.useMemo)(
     () => events.filter((event) => !event.toolResultsOnly && event.blocks.some(
-      (block2) => ["text", "thinking", "tool_use", "error"].includes(block2.type) || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== ""
+      (block2) => ["text", "thinking", "tool_use", "error", "permission_request"].includes(block2.type) || block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim() !== ""
     )),
     [events]
   );
@@ -41785,7 +41984,7 @@ function SessionStream({
         const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
           const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
           const activityCount = event.blocks.filter(
-            (block2) => block2.type === "thinking" || block2.type === "tool_use" || block2.type === "error"
+            (block2) => block2.type === "thinking" || block2.type === "tool_use" || block2.type === "error" || block2.type === "permission_request"
           ).length;
           return count + textCount + activityCount;
         }, 0);
@@ -42057,7 +42256,19 @@ function liveSessionAnnouncement(events, fallback) {
     const blocks = events[eventIndex].blocks;
     for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
       const block2 = blocks[blockIndex];
-      const tool = block2.toolUseId ? toolNames.get(block2.toolUseId) ?? block2.name?.trim() ?? "Tool" : block2.name?.trim() || "Tool";
+      const blockName = typeof block2.name === "string" ? block2.name.trim() : "";
+      const tool = block2.toolUseId ? (toolNames.get(block2.toolUseId) ?? blockName) || "Tool" : blockName || "Tool";
+      if (block2.type === "permission_request") {
+        const permissionName = (typeof block2.displayName === "string" ? block2.displayName.trim() : "") || blockName || "tool";
+        if (block2.status === "cancelled") return `Permission request for ${permissionName} cancelled.`;
+        if (block2.status === "resolved") {
+          if (block2.decision === "deny") return `Permission denied for ${permissionName}.`;
+          if (block2.decision === "allow_always") return `Permission always allowed for ${permissionName}.`;
+          if (block2.decision === "allow_once") return `Permission allowed once for ${permissionName}.`;
+          return `Permission request for ${permissionName} resolved.`;
+        }
+        return `Permission requested for ${permissionName}.`;
+      }
       if (block2.type === "error") return "Turn failed.";
       if (block2.type === "turn_end") {
         if (block2.status === "cancelled") return "Turn cancelled.";
@@ -43149,7 +43360,8 @@ ${full}` : full;
                 {
                   events: t.sessionEvents,
                   live: t.streaming,
-                  renderMarkdown: renderAssistantMarkdown
+                  renderMarkdown: renderAssistantMarkdown,
+                  onPermissionDecision: transport.answerPermission ? (answer) => transport.answerPermission(answer) : void 0
                 }
               ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: renderChatMarkdown(clean.text || "") } }),
               legacyFallback && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(

@@ -10,6 +10,7 @@ import {
   applySessionEvent,
   applyTurnActive,
   legacyAssistantFallback,
+  liveSessionAnnouncement,
   mergeSessionEvents,
   resolvedAssistantText,
   type ChatTransport,
@@ -310,6 +311,213 @@ describe("claude-chat canonical session events", () => {
     expect(html).toContain("authoritative final");
     expect(html).toContain("Read result image 1");
     expect(html).not.toContain("Read is running.");
+  });
+
+  it("renders durable permission requests in order with exact, text-only scope and changes", () => {
+    const events: SessionEvent[] = [{
+      id: "permission-sequence",
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [
+        { type: "text", text: "Before permission." },
+        {
+          type: "permission_request",
+          requestId: "permission-1",
+          generationId: "generation-7",
+          toolUseId: "tool-1",
+          name: "Bash",
+          displayName: "Shell command",
+          title: "Run the release check?",
+          description: "The check reads the selected workspace.",
+          blockedPath: "/srv/workspace/<release>",
+          reason: "Execution needs approval.",
+          input: { command: "printf '<script>not markup</script>'" },
+          inputComplete: true,
+          status: "pending",
+          suggestions: [{ type: "addRules", destination: "userSettings", rules: ["Bash(printf:*)"], note: "<b>literal</b>" }],
+          suggestionsComplete: true,
+        },
+        { type: "text", text: "After permission." },
+      ],
+    }];
+    const html = renderToStaticMarkup(h(SessionEventTimeline, {
+      events,
+      live: true,
+      onPermissionDecision: async () => {},
+    }));
+
+    expect(html.indexOf("Before permission.")).toBeLessThan(html.indexOf("Run the release check?"));
+    expect(html.indexOf("Run the release check?")).toBeLessThan(html.indexOf("After permission."));
+    expect(html).toContain("Shell command");
+    expect(html).toContain("Allow once: this request · Always allow: future matching requests");
+    expect(html).toContain("/srv/workspace/&lt;release&gt;");
+    expect(html).toContain("<dt>Blocked path</dt><dd>/srv/workspace/&lt;release&gt;</dd>");
+    expect(html).toContain("<dt>Permission destination</dt><dd>userSettings</dd>");
+    expect(html).toContain("Exact proposed tool input");
+    expect(html).toContain("Exact changes saved by Always allow");
+    expect(html).toContain("&lt;script&gt;not markup&lt;/script&gt;");
+    expect(html).toContain("&lt;b&gt;literal&lt;/b&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<b>literal</b>");
+    expect(html.indexOf(">Deny<")).toBeLessThan(html.indexOf(">Allow once<"));
+    expect(html.indexOf(">Allow once<")).toBeLessThan(html.indexOf(">Always allow<"));
+  });
+
+  it("keeps restored permissions readable and makes resolved or cancelled revisions non-actionable", () => {
+    const pending: SessionEvent = {
+      id: "durable-permission",
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [{
+        type: "permission_request",
+        requestId: "permission-restored",
+        generationId: "generation-restored",
+        name: "Write",
+        input: "{\"path\":\"/tmp/result.txt\"}",
+        inputComplete: true,
+        blockedPath: "/tmp/result.txt",
+        status: "pending",
+        suggestionsComplete: true,
+      }],
+    };
+    const readOnly = renderToStaticMarkup(h(SessionEventTimeline, { events: [pending] }));
+    expect(readOnly).toContain("Awaiting your decision");
+    expect(readOnly).toContain("Return to chat to answer this permission request.");
+    expect(readOnly).not.toContain(">Deny<");
+    expect(readOnly).not.toContain(">Allow once<");
+    expect(readOnly).not.toContain(">Always allow<");
+
+    const resolved = mergeSessionEvents([pending], [{
+      ...pending,
+      revision: 2,
+      blocks: [{ ...pending.blocks[0], status: "resolved", decision: "allow_once" }],
+    }]);
+    const resolvedHtml = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: resolved,
+      onPermissionDecision: async () => {},
+    }));
+    expect(resolvedHtml).toContain("Allowed once");
+    expect(resolvedHtml).not.toContain('class="cc-session-permission-actions"');
+
+    const cancelledHtml = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: [{
+        ...pending,
+        id: "cancelled-permission",
+        revision: 1,
+        blocks: [{ ...pending.blocks[0], status: "cancelled" }],
+      }],
+      onPermissionDecision: async () => {},
+    }));
+    expect(cancelledHtml).toContain("Cancelled");
+    expect(cancelledHtml).not.toContain('class="cc-session-permission-actions"');
+  });
+
+  it("never offers Always allow when a permission has no exact suggestions", () => {
+    const html = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: [{
+        id: "permission-once-only",
+        role: "assistant",
+        ts: 1,
+        revision: 1,
+        blocks: [{
+          type: "permission_request",
+          requestId: "permission-once-only",
+          generationId: "generation-once-only",
+          name: "Read",
+          input: "{\"path\":\"notes.txt\"}",
+          inputComplete: true,
+          status: "pending",
+          suggestions: [],
+          suggestionsComplete: true,
+        }],
+      }],
+      onPermissionDecision: async () => {},
+    }));
+    expect(html).toContain(">Deny<");
+    expect(html).toContain(">Allow once<");
+    expect(html).not.toContain(">Always allow<");
+  });
+
+  it("keeps incomplete permission details non-approvable while preserving Deny", () => {
+    const html = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: [{
+        id: "permission-incomplete",
+        role: "assistant",
+        ts: 1,
+        revision: 1,
+        blocks: [{
+          type: "permission_request",
+          requestId: "permission-incomplete",
+          generationId: "generation-incomplete",
+          name: "Bash",
+          input: "{\"command\":\"partial",
+          inputComplete: false,
+          status: "pending",
+          suggestions: [{ type: "addRules", destination: "session", rules: ["partial"] }],
+          suggestionsComplete: false,
+        }],
+      }],
+      onPermissionDecision: async () => {},
+    }));
+
+    expect(html).toContain("Approval unavailable because the full request details cannot be shown.");
+    expect(html).toContain("Available partial tool input");
+    expect(html).toContain("Available partial persistent changes");
+    expect(html).not.toContain("Exact proposed tool input");
+    expect(html).not.toContain("Exact changes saved by Always allow");
+    expect(html).toContain(">Deny<");
+    expect(html).toMatch(/<button type="button" disabled="" title="Unavailable because the full request details cannot be shown">Allow once<\/button>/);
+    expect(html).not.toContain(">Always allow<");
+  });
+
+  it("warns when incomplete persistent changes were omitted entirely", () => {
+    const html = renderToStaticMarkup(h(SessionEventTimeline, {
+      events: [{
+        id: "permission-omitted-suggestions",
+        role: "assistant",
+        ts: 1,
+        revision: 1,
+        blocks: [{
+          type: "permission_request",
+          requestId: "permission-omitted-suggestions",
+          generationId: "generation-omitted-suggestions",
+          name: "Bash",
+          input: '{"command":"pwd"}',
+          inputComplete: true,
+          status: "pending",
+          suggestionsComplete: false,
+        }],
+      }],
+      onPermissionDecision: async () => {},
+    }));
+
+    expect(html).toContain("Persistent scope unavailable");
+    expect(html).toContain("Always allow is unavailable because the full persistent permission changes cannot be shown.");
+    expect(html).toContain(">Allow once<");
+    expect(html).toContain(">Deny<");
+    expect(html).not.toContain(">Always allow<");
+  });
+
+  it("announces a pending permission through the chat's single live message", () => {
+    expect(liveSessionAnnouncement([{
+      id: "permission-announcement",
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [{
+        type: "permission_request",
+        requestId: "permission-announcement",
+        generationId: "generation-announcement",
+        name: "Bash",
+        displayName: "Shell command",
+        input: "{\"command\":\"pwd\"}",
+        inputComplete: true,
+        status: "pending",
+        suggestionsComplete: true,
+      }],
+    }], "")).toBe("Permission requested for Shell command.");
   });
 
   it("marks a restored trailing turn live and settled without rewriting earlier turns", () => {

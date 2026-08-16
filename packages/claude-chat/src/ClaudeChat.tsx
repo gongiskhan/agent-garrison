@@ -404,7 +404,7 @@ export function legacyAssistantFallback(assistant: string, events: SessionEvent[
   return duplicated ? "" : legacy;
 }
 
-function liveSessionAnnouncement(events: SessionEvent[], fallback: string): string {
+export function liveSessionAnnouncement(events: SessionEvent[], fallback: string): string {
   const toolNames = new Map<string, string>();
   for (const event of events) {
     for (const block of event.blocks) {
@@ -415,7 +415,22 @@ function liveSessionAnnouncement(events: SessionEvent[], fallback: string): stri
     const blocks = events[eventIndex].blocks;
     for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
       const block = blocks[blockIndex];
-      const tool = block.toolUseId ? toolNames.get(block.toolUseId) ?? block.name?.trim() ?? "Tool" : block.name?.trim() || "Tool";
+      const blockName = typeof block.name === "string" ? block.name.trim() : "";
+      const tool = block.toolUseId ? (toolNames.get(block.toolUseId) ?? blockName) || "Tool" : blockName || "Tool";
+      if (block.type === "permission_request") {
+        const permissionName =
+          (typeof block.displayName === "string" ? block.displayName.trim() : "") ||
+          blockName ||
+          "tool";
+        if (block.status === "cancelled") return `Permission request for ${permissionName} cancelled.`;
+        if (block.status === "resolved") {
+          if (block.decision === "deny") return `Permission denied for ${permissionName}.`;
+          if (block.decision === "allow_always") return `Permission always allowed for ${permissionName}.`;
+          if (block.decision === "allow_once") return `Permission allowed once for ${permissionName}.`;
+          return `Permission request for ${permissionName} resolved.`;
+        }
+        return `Permission requested for ${permissionName}.`;
+      }
       if (block.type === "error") return "Turn failed.";
       if (block.type === "turn_end") {
         if (block.status === "cancelled") return "Turn cancelled.";
@@ -2018,6 +2033,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     events={t.sessionEvents}
                     live={t.streaming}
                     renderMarkdown={renderAssistantMarkdown}
+                    onPermissionDecision={transport.answerPermission
+                      ? (answer) => transport.answerPermission!(answer)
+                      : undefined}
                   />
                 ) : (
                   <div className="cc-md" dangerouslySetInnerHTML={{ __html: renderChatMarkdown(clean.text || "") }} />

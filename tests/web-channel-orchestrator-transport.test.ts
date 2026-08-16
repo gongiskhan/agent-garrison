@@ -139,6 +139,39 @@ describe("orchestrator transport: AskUserQuestion", () => {
   });
 });
 
+describe("orchestrator transport: durable permissions", () => {
+  it("posts the encoded thread/request path with only generationId and decision", async () => {
+    const calls: { url: string; body: any }[] = [];
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), body: JSON.parse(init.body) });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const transport = createOrchestratorTransport("/api", "thread / one");
+    await transport.answerPermission!({
+      requestId: "request / one",
+      generationId: "generation-1",
+      decision: "allow_always",
+    });
+
+    expect(calls).toEqual([{
+      url: "/api/threads/thread%20%2F%20one/permissions/request%20%2F%20one",
+      body: { generationId: "generation-1", decision: "allow_always" },
+    }]);
+  });
+
+  it("throws on an unavailable resolver and when no thread is bound", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 409 })) as unknown as typeof fetch;
+    const transport = createOrchestratorTransport("/api", "thread-1");
+    await expect(transport.answerPermission!({ requestId: "request-1", generationId: "generation-old", decision: "deny" }))
+      .rejects.toThrow("permission 409");
+
+    const threadless = createOrchestratorTransport("/api");
+    await expect(threadless.answerPermission!({ requestId: "request-1", generationId: "generation-1", decision: "deny" }))
+      .rejects.toThrow("thread is required");
+  });
+});
+
 describe("orchestrator transport: canonical session events", () => {
   it("forwards the authentic two-tool fixture without selecting or reshaping payload fields", async () => {
     const canonical = canonicalFixtureEvents("fixture-turn");

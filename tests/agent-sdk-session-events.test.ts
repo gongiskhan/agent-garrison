@@ -230,6 +230,373 @@ describe("Agent SDK channel-neutral session events", () => {
     expect(firstIds.filter((id: string) => secondIds.includes(id))).toEqual([]);
   });
 
+  it("revises one stable permission event from pending to resolved", () => {
+    const normalizer = new AgentSdkSessionEventNormalizer({
+      turnId: "turn-permission",
+      sessionId: "session-permission",
+      eventScope: "scope-permission",
+      now: () => 4321,
+    });
+    const [pending] = normalizer.permissionRequest({
+      requestId: "request-1",
+      generationId: "generation-1",
+      toolUseId: "tool-1",
+      name: "Bash",
+      input: '{"command":"pwd"}',
+      suggestions: [{ type: "addRules", destination: "session" }],
+    });
+    const [resolved] = normalizer.resolvePermissionRequest("request-1", "allow_always");
+
+    expect(pending).toMatchObject({
+      id: 'permission:["generation-1","request-1"]',
+      role: "assistant",
+      ts: 4321,
+      turnId: "turn-permission",
+      sessionId: "session-permission",
+      order: 1,
+      revision: 1,
+      blocks: [expect.objectContaining({ type: "permission_request", status: "pending" })],
+    });
+    expect(resolved).toMatchObject({
+      id: pending.id,
+      ts: pending.ts,
+      order: pending.order,
+      revision: 2,
+      blocks: [expect.objectContaining({ status: "resolved", decision: "allow_always" })],
+    });
+    expect(normalizer.cancelPermissionRequest("request-1")).toEqual([]);
+  });
+
+  it("namespaces reused permission request ids by the gateway generation", () => {
+    const make = (generationId: string) => new AgentSdkSessionEventNormalizer({
+      turnId: "1",
+      sessionId: "session-reused",
+      eventScope: "scope-reused",
+      now: () => 4321,
+    }).permissionRequest({
+      requestId: "request-reused",
+      generationId,
+      name: "Read",
+      input: '{"file_path":"notes.txt"}',
+      inputComplete: true,
+      suggestionsComplete: true,
+    })[0];
+
+    const first = make("generation-first");
+    const second = make("generation-second");
+    expect(first.id).toBe('permission:["generation-first","request-reused"]');
+    expect(second.id).toBe('permission:["generation-second","request-reused"]');
+    expect(second.id).not.toBe(first.id);
+  });
+
+  it("refuses a permission resolver before opening an SDK query when its generation is missing", async () => {
+    let clientOpened = false;
+    const adapter = new AgentSdkAdapter({
+      createClient: async () => {
+        clientOpened = true;
+        return generator([]);
+      },
+    });
+    const session = await adapter.spawn({ provider: "anthropic", model: "sonnet", compositionDir: "/tmp", permissionMode: "default" });
+    await adapter.sendTurn(session, "go", { onPermissionRequest: () => "deny" });
+    await expect(adapter.awaitResponse(session)).rejects.toThrow("requires a generation id");
+    expect(clientOpened).toBe(false);
+  });
+
+  it.each([
+    ["allow_once", { behavior: "allow", updatedInput: { command: "pwd" }, decisionClassification: "user_temporary" }],
+    ["deny", { behavior: "deny", message: "User denied this tool request.", decisionClassification: "user_reject" }],
+  ])("maps %s to the exact SDK permission result", async (decision, expectedResult) => {
+    const controller = new AbortController();
+    const order: string[] = [];
+    const events: any[] = [];
+    let sdkResult: any;
+    const adapter = new AgentSdkAdapter({
+      permissionRequestId: () => `request-${decision}`,
+      createClient: async ({ options }: any) =>
+        (async function* () {
+          sdkResult = await options.canUseTool("Bash", { command: "pwd" }, {
+            signal: controller.signal,
+            toolUseID: "tool-permission",
+            title: "Run pwd?",
+          });
+          yield { type: "result", uuid: `result-${decision}`, subtype: "success", result: "done" };
+        })(),
+    });
+    const session = await adapter.spawn({ provider: "anthropic", model: "sonnet", compositionDir: "/tmp", permissionMode: "default" });
+    await adapter.sendTurn(session, "go", {
+      turnId: "turn-permission",
+      generationId: "generation-1",
+      onPermissionRequest: (request: any, context: any) => {
+        order.push("registered");
+        expect(context.signal).toBe(controller.signal);
+        expect(request).toMatchObject({
+          requestId: `request-${decision}`,
+          generationId: "generation-1",
+          toolUseId: "tool-permission",
+          name: "Bash",
+          input: expect.stringContaining('"command": "pwd"'),
+          inputComplete: true,
+          suggestionsComplete: true,
+          status: "pending",
+        });
+        return decision;
+      },
+      onEvent: (event: any) => {
+        events.push(event);
+        const permission = event.blocks.find((block: any) => block.type === "permission_request");
+        if (permission) order.push(`event:${permission.status}`);
+      },
+    });
+    await expect(adapter.awaitResponse(session)).resolves.toMatchObject({ text: "done" });
+
+    expect(sdkResult).toEqual(expectedResult);
+    expect(order).toEqual(["registered", "event:pending", "event:resolved"]);
+    const permissionEvents = blocks(events, "permission_request").map(({ event, block }) => ({ event, block }));
+    expect(permissionEvents.map(({ event }) => [event.id, event.order, event.revision])).toEqual([
+      [`permission:["generation-1","request-${decision}"]`, 1, 1],
+      [`permission:["generation-1","request-${decision}"]`, 1, 2],
+    ]);
+    expect(permissionEvents.map(({ block }) => block.status)).toEqual(["pending", "resolved"]);
+    expect(permissionEvents.at(-1)?.block.decision).toBe(decision);
+  });
+
+  it("applies private exact input and suggestion snapshots while caller-owned values mutate", async () => {
+    const toolInput = { command: "pwd", options: { cwd: "/tmp" } };
+    const initiallyDisclosedInput = structuredClone(toolInput);
+    const suggestions = [{
+      type: "addRules",
+      rules: [{ toolName: "Bash", ruleContent: "pwd" }],
+      behavior: "allow",
+      destination: "session",
+    }];
+    const initiallyDisclosed = structuredClone(suggestions);
+    let sdkResult: any;
+    let disclosedInput: any;
+    let publicSuggestions: any;
+    let releaseDecision!: (decision: string) => void;
+    const decision = new Promise<string>((resolve) => (releaseDecision = resolve));
+    let requestSeen!: () => void;
+    const sawRequest = new Promise<void>((resolve) => (requestSeen = resolve));
+    const adapter = new AgentSdkAdapter({
+      permissionRequestId: () => "request-always",
+      createClient: async ({ options }: any) =>
+        (async function* () {
+          sdkResult = await options.canUseTool("Bash", toolInput, {
+            signal: new AbortController().signal,
+            toolUseID: "tool-always",
+            suggestions,
+          });
+          yield { type: "result", uuid: "result-always", subtype: "success", result: "done" };
+        })(),
+    });
+    const session = await adapter.spawn({ provider: "anthropic", model: "sonnet", compositionDir: "/tmp", permissionMode: "default" });
+    await adapter.sendTurn(session, "go", {
+      generationId: "generation-always",
+      onPermissionRequest: (request: any) => {
+        disclosedInput = JSON.parse(request.input);
+        publicSuggestions = request.suggestions;
+        request.input = '{"command":"browser-forged"}';
+        request.suggestions[0].destination = "browser-forged";
+        requestSeen();
+        return decision;
+      },
+    });
+    const response = adapter.awaitResponse(session);
+    await sawRequest;
+    toolInput.command = "sdk-mutated";
+    toolInput.options.cwd = "/different";
+    suggestions[0].destination = "sdk-mutated";
+    suggestions[0].rules[0].ruleContent = "different";
+    releaseDecision("allow_always");
+    await response;
+
+    expect(publicSuggestions).not.toBe(suggestions);
+    expect(disclosedInput).toEqual(initiallyDisclosedInput);
+    expect(publicSuggestions[0].destination).toBe("browser-forged");
+    expect(suggestions[0].destination).toBe("sdk-mutated");
+    expect(sdkResult).toEqual({
+      behavior: "allow",
+      updatedInput: disclosedInput,
+      updatedPermissions: initiallyDisclosed,
+      decisionClassification: "user_permanent",
+    });
+    expect(sdkResult.updatedPermissions).not.toBe(suggestions);
+    expect(sdkResult.updatedPermissions).not.toBe(publicSuggestions);
+    expect(sdkResult.updatedPermissions[0]).not.toBe(suggestions[0]);
+    expect(sdkResult.updatedPermissions[0]).not.toBe(publicSuggestions[0]);
+    expect(sdkResult.updatedPermissions[0].rules).not.toBe(suggestions[0].rules);
+    expect(sdkResult.updatedInput).not.toBe(toolInput);
+    expect(sdkResult.updatedInput.options).not.toBe(toolInput.options);
+  });
+
+  it("refuses approval when exact input or persistent permission changes cannot be disclosed", async () => {
+    let deepSuggestion: any = { rule: "Bash(pwd)" };
+    for (let depth = 0; depth < 9; depth += 1) deepSuggestion = { nested: deepSuggestion };
+    const accessorSuggestions: any[] = [];
+    Object.defineProperty(accessorSuggestions, "0", {
+      enumerable: true,
+      configurable: true,
+      get: () => ({ type: "addRules", destination: "session", rules: ["Bash(pwd)"] }),
+    });
+    accessorSuggestions.length = 1;
+    const cases = [
+      {
+        label: "oversized input",
+        input: { content: "x".repeat(20_001) },
+        suggestions: undefined,
+        decision: "allow_once",
+        incomplete: "input",
+      },
+      {
+        label: "more than 64 permission changes",
+        input: { command: "pwd" },
+        suggestions: Array.from({ length: 65 }, (_, index) => ({ type: "addRules", rules: [`Bash(command-${index})`] })),
+        decision: "allow_always",
+        incomplete: "suggestions",
+      },
+      {
+        label: "oversized permission changes",
+        input: { command: "pwd" },
+        suggestions: [{ type: "addRules", note: "x".repeat(20_001) }],
+        decision: "allow_always",
+        incomplete: "suggestions",
+      },
+      {
+        label: "over-deep permission changes",
+        input: { command: "pwd" },
+        suggestions: [deepSuggestion],
+        decision: "allow_always",
+        incomplete: "suggestions",
+      },
+      {
+        label: "dangerous permission keys",
+        input: { command: "pwd" },
+        suggestions: [JSON.parse('{"constructor":{"destination":"session"}}')],
+        decision: "allow_always",
+        incomplete: "suggestions",
+      },
+      {
+        label: "overlong permission keys",
+        input: { command: "pwd" },
+        suggestions: [{ ["k".repeat(201)]: "hidden" }],
+        decision: "allow_always",
+        incomplete: "suggestions",
+      },
+      {
+        label: "permission array accessors",
+        input: { command: "pwd" },
+        suggestions: accessorSuggestions,
+        decision: "allow_always",
+        incomplete: "suggestions",
+      },
+    ];
+
+    for (const fixture of cases) {
+      let publicRequest: any;
+      const adapter = new AgentSdkAdapter({
+        permissionRequestId: () => `request-${fixture.label.replaceAll(" ", "-")}`,
+        createClient: async ({ options }: any) =>
+          (async function* () {
+            await options.canUseTool("Write", fixture.input, {
+              signal: new AbortController().signal,
+              toolUseID: "tool-incomplete",
+              suggestions: fixture.suggestions,
+            });
+          })(),
+      });
+      const session = await adapter.spawn({ provider: "anthropic", model: "sonnet", compositionDir: "/tmp", permissionMode: "default" });
+      await adapter.sendTurn(session, "go", {
+        generationId: "generation-incomplete",
+        onPermissionRequest: (request: any) => {
+          publicRequest = request;
+          return fixture.decision;
+        },
+      });
+
+      await expect(adapter.awaitResponse(session), fixture.label).rejects.toThrow(/requires the complete|requires complete/i);
+      if (fixture.incomplete === "input") {
+        expect(publicRequest.inputComplete, fixture.label).toBe(false);
+      } else {
+        expect(publicRequest.inputComplete, fixture.label).toBe(true);
+        expect(publicRequest.suggestionsComplete, fixture.label).toBe(false);
+        expect(publicRequest.suggestions, fixture.label).toBeUndefined();
+      }
+    }
+  });
+
+  it("keeps Deny available when a permission disclosure is incomplete", async () => {
+    let sdkResult: any;
+    let publicRequest: any;
+    const adapter = new AgentSdkAdapter({
+      permissionRequestId: () => "request-incomplete-deny",
+      createClient: async ({ options }: any) =>
+        (async function* () {
+          sdkResult = await options.canUseTool("Write", { content: "x".repeat(20_001) }, {
+            signal: new AbortController().signal,
+            toolUseID: "tool-incomplete-deny",
+            suggestions: Array.from({ length: 65 }, (_, index) => ({ type: "addRules", rules: [`Write(${index})`] })),
+          });
+          yield { type: "result", uuid: "result-incomplete-deny", subtype: "success", result: "denied safely" };
+        })(),
+    });
+    const session = await adapter.spawn({ provider: "anthropic", model: "sonnet", compositionDir: "/tmp", permissionMode: "default" });
+    await adapter.sendTurn(session, "go", {
+      generationId: "generation-incomplete-deny",
+      onPermissionRequest: (request: any) => {
+        publicRequest = request;
+        return "deny";
+      },
+    });
+    await expect(adapter.awaitResponse(session)).resolves.toMatchObject({ text: "denied safely" });
+
+    expect(publicRequest).toMatchObject({ inputComplete: false, suggestionsComplete: false });
+    expect(publicRequest.suggestions).toBeUndefined();
+    expect(sdkResult).toEqual({
+      behavior: "deny",
+      message: "User denied this tool request.",
+      decisionClassification: "user_reject",
+    });
+  });
+
+  it("emits a cancelled revision and rejects when the SDK aborts a pending request", async () => {
+    const controller = new AbortController();
+    const events: any[] = [];
+    let pendingSeen!: () => void;
+    const sawPending = new Promise<void>((resolve) => (pendingSeen = resolve));
+    const adapter = new AgentSdkAdapter({
+      permissionRequestId: () => "request-aborted",
+      createClient: async ({ options }: any) =>
+        (async function* () {
+          await options.canUseTool("Write", { file_path: "/tmp/x" }, {
+            signal: controller.signal,
+            toolUseID: "tool-aborted",
+          });
+        })(),
+    });
+    const session = await adapter.spawn({ provider: "anthropic", model: "sonnet", compositionDir: "/tmp", permissionMode: "default" });
+    await adapter.sendTurn(session, "go", {
+      generationId: "generation-aborted",
+      onPermissionRequest: () => new Promise(() => {}),
+      onEvent: (event: any) => {
+        events.push(event);
+        if (event.blocks.some((block: any) => block.type === "permission_request" && block.status === "pending")) pendingSeen();
+      },
+    });
+    const response = adapter.awaitResponse(session);
+    await sawPending;
+    controller.abort();
+    await expect(response).rejects.toMatchObject({ name: "AbortError" });
+
+    const permissionEvents = blocks(events, "permission_request");
+    expect(permissionEvents.map(({ event }) => [event.id, event.revision])).toEqual([
+      ['permission:["generation-aborted","request-aborted"]', 1],
+      ['permission:["generation-aborted","request-aborted"]', 2],
+    ]);
+    expect(permissionEvents.map(({ block }) => block.status)).toEqual(["pending", "cancelled"]);
+    expect(permissionEvents.at(-1)?.block.decision).toBeUndefined();
+  });
+
   it("isolates throwing and rejecting onEvent consumers", async () => {
     let calls = 0;
     const adapter = new AgentSdkAdapter({

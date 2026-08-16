@@ -370,6 +370,19 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(s.capabilities.provider).toBe("ollama-local");
   });
 
+  it("defaults permissions to bypass and honors an explicit trusted SDK mode", async () => {
+    const adapter = adapterYielding([]);
+    const bypass = await adapter.spawn({ provider: "anthropic", model: "sonnet", compositionDir: "/work" });
+    const interactive = await adapter.spawn({
+      provider: "anthropic",
+      model: "sonnet",
+      compositionDir: "/work",
+      permissionMode: "default",
+    });
+    expect(adapter.buildQueryOptions(bypass).permissionMode).toBe("bypassPermissions");
+    expect(adapter.buildQueryOptions(interactive).permissionMode).toBe("default");
+  });
+
   it("spawns an Anthropic-endpoint agent-sdk session (first-class, D29) with no base URL", async () => {
     const adapter = adapterYielding([]);
     const s = await adapter.spawn({ provider: "anthropic", model: "claude-haiku-4-5", compositionDir: "/work" });

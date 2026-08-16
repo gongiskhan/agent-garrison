@@ -30,10 +30,19 @@ beforeAll(async () => {
           close() {}
         }
         window.EventSource = FixtureEventSource;
+        window.__permissionAnswers = [];
+        window.__permissionBehavior = "resolve";
         let root;
-        window.__mountTimeline = (events, live = false) => {
+        window.__mountTimeline = (events, live = false, permissionControls = false) => {
           if (!root) root = createRoot(document.getElementById("root"));
-          root.render(React.createElement(SessionEventTimeline, { events, live }));
+          const onPermissionDecision = permissionControls ? (answer) => {
+            window.__permissionAnswers.push(answer);
+            if (window.__permissionBehavior === "reject") {
+              return Promise.reject(new Error("<b>permission endpoint unavailable</b>"));
+            }
+            return Promise.resolve();
+          } : undefined;
+          root.render(React.createElement(SessionEventTimeline, { events, live, onPermissionDecision }));
           return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         };
         window.__mountStream = (events, announceLiveUpdates) => {
@@ -75,6 +84,11 @@ beforeEach(async () => {
     `<div class="wc-xscript-body"><div id="root"></div></div></div>`
   );
   await page.addScriptTag({ content: bundle });
+  // Reset Chromium's focus-visible input modality between cases. Pointer clicks
+  // in an earlier test otherwise suppress a later programmatic focus ring even
+  // though the control remains keyboard focusable.
+  await page.keyboard.press("Tab");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 });
 
 afterAll(async () => {
@@ -83,10 +97,10 @@ afterAll(async () => {
   await browser?.close();
 });
 
-const mount = async (events: unknown[], live = false) => {
+const mount = async (events: unknown[], live = false, permissionControls = false) => {
   await page.evaluate(
-    ({ events, live }) => (window as any).__mountTimeline(events, live),
-    { events, live }
+    ({ events, live, permissionControls }) => (window as any).__mountTimeline(events, live, permissionControls),
+    { events, live, permissionControls }
   );
 };
 
@@ -201,6 +215,104 @@ describe("claude-chat canonical timeline in a real browser", () => {
       { events }
     );
     expect(await page.locator('.cc-session [role="status"]').count()).toBe(1);
+  });
+
+  it("keeps a restored standalone permission visible without inert answer buttons", async () => {
+    const events = [{
+      id: "standalone-permission",
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [{
+        type: "permission_request",
+        requestId: "standalone-permission",
+        generationId: "standalone-generation",
+        name: "Write",
+        input: { path: "/srv/output.txt" },
+        inputComplete: true,
+        blockedPath: "/srv/output.txt",
+        status: "pending",
+        suggestionsComplete: true,
+      }],
+    }];
+    await page.evaluate(
+      ({ events }) => (window as any).__mountStream(events, false),
+      { events }
+    );
+
+    expect(await page.locator(".cc-session-permission").count()).toBe(1);
+    expect(await page.locator(".cc-session-permission-readonly").textContent()).toContain("Return to chat");
+    expect(await page.locator(".cc-session-permission-actions").count()).toBe(0);
+  });
+
+  it("answers permission prompts independently with 44px controls, safe errors, and retry", async () => {
+    const permission = (id: string, suggestions?: unknown[]) => ({
+      id: `event-${id}`,
+      role: "assistant",
+      ts: 1,
+      revision: 1,
+      blocks: [{
+        type: "permission_request",
+        requestId: id,
+        generationId: `generation-${id}`,
+        name: "Bash",
+        displayName: id === "one" ? "Release command" : "Audit command",
+        input: { command: "printf '<script>literal</script>'" },
+        inputComplete: true,
+        blockedPath: `/srv/${id}/artifact-with-a-very-long-unbroken-destination-name.txt`,
+        status: "pending",
+        suggestionsComplete: true,
+        ...(suggestions ? { suggestions } : {}),
+      }],
+    });
+    await mount([
+      permission("one", [{ type: "addRules", rules: ["Bash(printf:*)"] }]),
+      permission("two"),
+    ], true, true);
+
+    const prompts = page.locator(".cc-session-permission");
+    expect(await prompts.count()).toBe(2);
+    expect(await prompts.nth(0).getByRole("button", { name: "Always allow" }).count()).toBe(1);
+    expect(await prompts.nth(1).getByRole("button", { name: "Always allow" }).count()).toBe(0);
+    expect(await page.locator("script").filter({ hasText: "literal" }).count()).toBe(0);
+
+    const measurements = await prompts.nth(0).evaluate((prompt) => ({
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+      promptWidth: prompt.getBoundingClientRect().width,
+      promptScrollWidth: prompt.scrollWidth,
+    }));
+    expect(measurements.viewportWidth).toBe(320);
+    expect(measurements.documentWidth).toBeLessThanOrEqual(measurements.viewportWidth);
+    expect(measurements.promptScrollWidth).toBeLessThanOrEqual(Math.ceil(measurements.promptWidth));
+
+    for (const button of await prompts.nth(0).getByRole("button").all()) {
+      const box = await button.boundingBox();
+      expect(box?.width).toBeGreaterThanOrEqual(44);
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+      await button.focus();
+      const focus = await button.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { style: style.outlineStyle, width: Number.parseFloat(style.outlineWidth) };
+      });
+      expect(focus.style).not.toBe("none");
+      expect(focus.width).toBeGreaterThanOrEqual(2);
+    }
+
+    await page.evaluate(() => { (window as any).__permissionBehavior = "reject"; });
+    await prompts.nth(0).getByRole("button", { name: "Deny" }).click();
+    await expect.poll(() => prompts.nth(0).locator(".cc-session-permission-error").textContent()).toContain("permission endpoint unavailable");
+    expect(await prompts.nth(0).locator(".cc-session-permission-error b").count()).toBe(0);
+    expect(await prompts.nth(0).getByRole("button", { name: "Retry Deny" }).count()).toBe(1);
+    expect(await prompts.nth(1).getByRole("button", { name: "Allow once" }).isEnabled()).toBe(true);
+
+    await page.evaluate(() => { (window as any).__permissionBehavior = "resolve"; });
+    await prompts.nth(0).getByRole("button", { name: "Retry Deny" }).click();
+    await expect.poll(() => prompts.nth(0).locator(".cc-session-permission-submitted").textContent()).toContain("Answer sent");
+    expect(await page.evaluate(() => (window as any).__permissionAnswers)).toEqual([
+      { requestId: "one", generationId: "generation-one", decision: "deny" },
+      { requestId: "one", generationId: "generation-one", decision: "deny" },
+    ]);
   });
 
   it("gives standalone transcript actions 44px targets and a visible focus ring", async () => {

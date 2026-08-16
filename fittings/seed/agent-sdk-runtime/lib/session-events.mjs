@@ -147,6 +147,7 @@ export class AgentSdkSessionEventNormalizer {
     this.fallbackId = 1;
     this.meta = new Map();
     this.assistant = new Map();
+    this.permissions = new Map();
     this.currentAssistantId = null;
     this.terminalEmitted = false;
   }
@@ -391,6 +392,57 @@ export class AgentSdkSessionEventNormalizer {
         sessionId: sessionIdFor(message, this.sessionId)
       })
     ];
+  }
+
+  // Tool permission prompts are control-plane events rather than SDK stream
+  // messages, but they share the same durable event vocabulary. Keep the first
+  // timestamp/order and revise one stable event as the prompt settles so a
+  // channel can latest-wins merge live, persisted, and replayed snapshots.
+  permissionRequest(request) {
+    const requestId = typeof request?.requestId === "string" ? request.requestId.trim() : "";
+    const generationId = typeof request?.generationId === "string" ? request.generationId.trim() : "";
+    if (!requestId) throw new Error("permission request id is required");
+    if (!generationId) throw new Error("permission generation id is required");
+    if (this.permissions.has(requestId)) throw new Error(`duplicate permission request id: ${requestId}`);
+    const ts = this.now();
+    const block = {
+      ...request,
+      type: "permission_request",
+      requestId,
+      generationId,
+      status: "pending"
+    };
+    delete block.decision;
+    const state = {
+      // The SDK request id is not process-global. Include the gateway-owned
+      // generation so a later process/turn that reuses an id cannot revise an
+      // older durable prompt. JSON tuple encoding is unambiguous even if a
+      // provider-supplied id itself contains punctuation.
+      id: `permission:${JSON.stringify([generationId, requestId])}`,
+      ts,
+      sessionId: this.sessionId,
+      block
+    };
+    this.permissions.set(requestId, state);
+    return [this._event(state.id, "assistant", state.ts, [{ ...state.block }], { sessionId: state.sessionId })];
+  }
+
+  resolvePermissionRequest(requestId, decision) {
+    const state = this.permissions.get(String(requestId ?? ""));
+    if (!state || state.block.status !== "pending") return [];
+    if (decision !== "allow_once" && decision !== "allow_always" && decision !== "deny") {
+      throw new Error(`invalid permission decision: ${String(decision)}`);
+    }
+    state.block = { ...state.block, status: "resolved", decision };
+    return [this._event(state.id, "assistant", state.ts, [{ ...state.block }], { sessionId: state.sessionId })];
+  }
+
+  cancelPermissionRequest(requestId) {
+    const state = this.permissions.get(String(requestId ?? ""));
+    if (!state || state.block.status !== "pending") return [];
+    state.block = { ...state.block, status: "cancelled" };
+    delete state.block.decision;
+    return [this._event(state.id, "assistant", state.ts, [{ ...state.block }], { sessionId: state.sessionId })];
   }
 
   _result(message) {

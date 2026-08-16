@@ -23,6 +23,7 @@ interface ThreadsRunContext {
   sanitizeRouting(raw: unknown): Loose | null;
   setThreadRouting(id: string, routing: unknown, opts?: { nowIso?: string }): Promise<Loose | null>;
   setThreadSession(id: string, sessionId: string): Promise<Loose | null>;
+  sanitizeSessionBlock(raw: unknown): Loose | null;
   sanitizeSessionEvent(raw: unknown): Loose | null;
   appendSessionEvent(id: string, event: Loose, opts?: { nowIso?: string }): Promise<Loose | null>;
   mergeSessionEvents(existing: unknown, incoming: unknown): Loose[];
@@ -305,7 +306,7 @@ describe("web-channel canonical session-event durability", () => {
         { type: "error", kind: "runtime", text: "failed" },
         { type: "rate_limit", status: "allowed", rateLimitType: "five_hour", resetsAt: 1_786_881_000, utilization: 0.5, overageStatus: "allowed", overageResetsAt: 1_788_220_800, isUsingOverage: false },
         { type: "turn_end", status: "cancelled", subtype: "interrupted", stopReason: "user", result: "partial", errors: ["cancelled"] },
-        { type: "permission_request", requestId: "permission-1", toolUseId: "tool-2", name: "Bash", input: "{\"command\":\"pwd\"}", title: "Run command?", description: "Needs shell access", suggestions: [{ type: "addRules", rules: ["Bash(pwd)"] }] },
+        { type: "permission_request", requestId: "permission-1", generationId: "generation-1", toolUseId: "tool-2", name: "Bash", displayName: "Shell command", input: "{\"command\":\"pwd\"}", inputComplete: true, suggestionsComplete: true, title: "Run command?", description: "Needs shell access", blockedPath: "/private/file", status: "pending", suggestions: [{ type: "addRules", rules: ["Bash(pwd)"] }] },
       ],
     });
     expect(clean?.blocks).toEqual([
@@ -313,7 +314,118 @@ describe("web-channel canonical session-event durability", () => {
       { type: "error", kind: "runtime", text: "failed" },
       { type: "rate_limit", status: "allowed", rateLimitType: "five_hour", resetsAt: 1_786_881_000, utilization: 0.5, overageStatus: "allowed", overageResetsAt: 1_788_220_800, isUsingOverage: false },
       { type: "turn_end", status: "cancelled", subtype: "interrupted", stopReason: "user", result: "partial", errors: ["cancelled"] },
-      { type: "permission_request", requestId: "permission-1", toolUseId: "tool-2", name: "Bash", input: "{\"command\":\"pwd\"}", title: "Run command?", description: "Needs shell access", suggestions: [{ type: "addRules", rules: ["Bash(pwd)"] }] },
+      { type: "permission_request", requestId: "permission-1", generationId: "generation-1", toolUseId: "tool-2", name: "Bash", displayName: "Shell command", input: "{\"command\":\"pwd\"}", inputComplete: true, suggestionsComplete: true, title: "Run command?", description: "Needs shell access", blockedPath: "/private/file", status: "pending", suggestions: [{ type: "addRules", rules: ["Bash(pwd)"] }] },
+    ]);
+  });
+
+  it("closed-validates permission status and decisions", () => {
+    const permission = (status: string, decision?: string) => rc.sanitizeSessionBlock({
+      type: "permission_request",
+      requestId: "permission-1",
+      generationId: "generation-1",
+      name: "Write",
+      input: "{\"file_path\":\"/tmp/x\"}",
+      inputComplete: true,
+      suggestionsComplete: true,
+      status,
+      ...(decision === undefined ? {} : { decision }),
+    });
+    expect(permission("pending")).toMatchObject({ status: "pending" });
+    expect(permission("cancelled")).toMatchObject({ status: "cancelled" });
+    expect(permission("resolved", "deny")).toMatchObject({ status: "resolved", decision: "deny" });
+    expect(permission("waiting")).toBeNull();
+    expect(permission("resolved")).toBeNull();
+    expect(permission("pending", "allow_once")).toBeNull();
+    expect(permission("resolved", "yes")).toBeNull();
+    expect(rc.sanitizeSessionBlock({ type: "permission_request", requestId: "permission-1", name: "Write", input: "{}", inputComplete: true, suggestionsComplete: true, status: "pending" })).toBeNull();
+    expect(rc.sanitizeSessionBlock({ type: "permission_request", requestId: "permission-1", generationId: "generation-1", name: "Write", input: "{}", status: "pending" })).toBeNull();
+  });
+
+  it("preserves complete disclosure exactly and marks truncated disclosure non-actionable", () => {
+    const suggestions = Array.from({ length: 70 }, (_, index) => ({ type: "addRules", rules: [`Bash(command-${index})`] }));
+    const complete = rc.sanitizeSessionBlock({
+      type: "permission_request",
+      requestId: "permission-many",
+      generationId: "generation-many",
+      name: "Bash",
+      input: "{\"command\":\"pwd\"}",
+      inputComplete: true,
+      suggestionsComplete: true,
+      status: "pending",
+      suggestions,
+    });
+    expect(complete).toBeNull();
+    const incomplete = rc.sanitizeSessionBlock({
+      type: "permission_request",
+      requestId: "permission-many-partial",
+      generationId: "generation-many",
+      name: "Bash",
+      input: "{\"command\":\"pwd\"}",
+      inputComplete: true,
+      suggestionsComplete: false,
+      status: "pending",
+      suggestions,
+    });
+    expect(incomplete?.suggestions).toEqual(suggestions.slice(0, 64));
+    expect(incomplete).toMatchObject({ suggestionsComplete: false });
+
+    const overlong = "x".repeat(20_001);
+    expect(rc.sanitizeSessionBlock({
+      type: "permission_request", requestId: "permission-long", generationId: "generation-long", name: "Bash",
+      input: overlong, inputComplete: true, suggestionsComplete: true, status: "pending", suggestions: [{ rule: overlong }],
+    })).toBeNull();
+    expect(rc.sanitizeSessionBlock({
+      type: "permission_request", requestId: "permission-clipped", generationId: "generation-clipped", name: "Bash",
+      input: overlong, inputComplete: false, suggestionsComplete: false, status: "pending", suggestions: [{ rule: overlong }],
+    })).toMatchObject({ inputComplete: false, suggestionsComplete: false });
+
+    for (const unsafe of [
+      [JSON.parse('{"constructor":{"destination":"session"}}')],
+      [{ ["k".repeat(201)]: "hidden" }],
+    ]) {
+      expect(rc.sanitizeSessionBlock({
+        type: "permission_request", requestId: "permission-unsafe", generationId: "generation-unsafe", name: "Bash",
+        input: "{}", inputComplete: true, suggestionsComplete: true, status: "pending", suggestions: unsafe,
+      })).toBeNull();
+    }
+  });
+
+  it("keeps the latest permission revision as the durable source of truth", async () => {
+    const id = "chat-permission-revision";
+    await rc.ensureThread({ id });
+    const pending = {
+      id: "permission:request-1",
+      role: "assistant",
+      ts: 500,
+      turnId: "turn-1",
+      sessionId: "session-1",
+      order: 1,
+      revision: 1,
+      blocks: [{
+        type: "permission_request",
+        requestId: "request-1",
+        generationId: "generation-1",
+        name: "Bash",
+        input: "{\"command\":\"pwd\"}",
+        inputComplete: true,
+        suggestionsComplete: true,
+        status: "pending",
+      }],
+    };
+    await rc.appendSessionEvent(id, pending);
+    await rc.appendSessionEvent(id, {
+      ...pending,
+      revision: 2,
+      blocks: [{ ...pending.blocks[0], status: "resolved", decision: "deny" }],
+    });
+    await rc.appendSessionEvent(id, pending);
+
+    expect((await rc.getThread(id))?.sessionEvents).toEqual([
+      expect.objectContaining({
+        id: "permission:request-1",
+        revision: 2,
+        blocks: [expect.objectContaining({ status: "resolved", decision: "deny" })],
+      }),
     ]);
   });
 

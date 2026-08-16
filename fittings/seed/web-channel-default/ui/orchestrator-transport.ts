@@ -13,7 +13,7 @@
 //     POST /api/chat/interrupt instead of the no-op that made Stop a lie.
 
 import { isSessionEvent } from "@garrison/claude-chat/journal";
-import type { ChatEvent, ChatTransport, ChatSendMeta, QuestionAnswer, RouteAttribution } from "@garrison/claude-chat";
+import type { ChatEvent, ChatTransport, ChatSendMeta, PermissionAnswer, QuestionAnswer, RouteAttribution } from "@garrison/claude-chat";
 
 // ── Run-context frame normalisation (contract §1) ──────────────────────────
 // The NEW attribution fields. Copied by PRESENCE, never with `?? null`: the badge
@@ -422,6 +422,18 @@ export function createOrchestratorTransport(
           ...(answer.dismiss ? { dismiss: true } : {}),
         }),
       }).catch(() => {});
+    },
+    async answerPermission(answer: PermissionAnswer) {
+      if (!threadId) throw new Error("a thread is required to answer a permission request");
+      const res = await fetch(
+        `${b}/threads/${encodeURIComponent(threadId)}/permissions/${encodeURIComponent(answer.requestId)}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ generationId: answer.generationId, decision: answer.decision }),
+        }
+      );
+      if (!res.ok) throw new Error(`permission ${res.status}`);
     },
     async fetchCommands() { return []; },
     async uploadFile(file) {

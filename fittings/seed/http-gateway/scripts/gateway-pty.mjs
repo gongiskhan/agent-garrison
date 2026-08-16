@@ -11,6 +11,7 @@
  * web-channel and slack-channel relays work unchanged:
  *   POST /chat          { message }            → { reply, session_id, cost_usd }
  *   POST /chat/stream    { message }           → SSE open/session_event/chunk/tool/done/error
+ *   POST /chat/permission { threadId, generationId, requestId, decision } → one live SDK resolver
  *   POST /jobs           { kind, ... }         → { ack, deduped } or retryable 503
  *   POST /attachments    { filename, content_base64 } → { path, bytes }
  *   GET  /health                               → { ok, session_id, uptime_ms, engine, pty_status }
@@ -25,6 +26,7 @@
 
 import http from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
@@ -121,6 +123,159 @@ function enqueueOperative(fn) {
 }
 let router = null; // pre-session routing layer, null = legacy single-session
 const jobIngress = createJobIngressGuard();
+
+// Web Agent SDK permission control is deliberately process-local. Durable
+// permission_request events survive a restart in the thread journal, but their
+// resolver closures cannot; answering one of those restored prompts must return
+// 409 instead of pretending a decision reached a dead query.
+const PERMISSION_DECISIONS = new Set(["allow_once", "allow_always", "deny"]);
+
+function permissionControlError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function abortedPermissionError(reason = "permission request is no longer active") {
+  const error = permissionControlError(reason, "permission_request_aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function exactPermissionId(raw, max = 512) {
+  if (typeof raw !== "string" || !raw || raw !== raw.trim() || raw.length > max) return null;
+  return raw;
+}
+
+/**
+ * In-memory, generation-safe bridge from an HTTP decision to the exact SDK
+ * canUseTool callback waiting for it. The factory is exported for focused tests;
+ * production uses the singleton below.
+ */
+export function createPermissionControlPlane({ generateId = randomUUID } = {}) {
+  const generations = new Map();
+
+  const openGeneration = (threadId) => {
+    const thread = exactPermissionId(threadId);
+    if (!thread) throw permissionControlError("threadId is required", "invalid_permission_thread");
+    const generationId = exactPermissionId(generateId());
+    if (!generationId || generations.has(generationId)) {
+      throw permissionControlError("could not create a unique permission generation", "invalid_permission_generation");
+    }
+    generations.set(generationId, { threadId: thread, pending: new Map() });
+    return generationId;
+  };
+
+  const awaitDecision = (threadId, generationId, publicRequest, { signal } = {}) => {
+    const thread = exactPermissionId(threadId);
+    const generation = exactPermissionId(generationId);
+    const requestId = exactPermissionId(publicRequest?.requestId);
+    const requestGeneration = exactPermissionId(publicRequest?.generationId);
+    const scope = generation ? generations.get(generation) : null;
+    if (
+      !thread ||
+      !generation ||
+      !requestId ||
+      requestGeneration !== generation ||
+      !scope ||
+      scope.threadId !== thread
+    ) {
+      return Promise.reject(permissionControlError("permission generation is unavailable", "permission_generation_unavailable"));
+    }
+    if (scope.pending.has(requestId)) {
+      return Promise.reject(permissionControlError("permission request is already pending", "permission_request_conflict"));
+    }
+
+    return new Promise((resolve, reject) => {
+      const entry = {
+        resolve,
+        reject,
+        inputComplete: publicRequest?.inputComplete === true,
+        allowAlways:
+          publicRequest?.inputComplete === true &&
+          publicRequest?.suggestionsComplete === true &&
+          Array.isArray(publicRequest?.suggestions) &&
+          publicRequest.suggestions.length > 0,
+        detachAbort: null,
+      };
+      const removeExact = () => {
+        if (scope.pending.get(requestId) !== entry) return false;
+        scope.pending.delete(requestId);
+        entry.detachAbort?.();
+        return true;
+      };
+      const abort = () => {
+        if (removeExact()) reject(abortedPermissionError());
+      };
+      if (signal?.aborted) {
+        reject(abortedPermissionError());
+        return;
+      }
+      if (signal && typeof signal.addEventListener === "function") {
+        signal.addEventListener("abort", abort, { once: true });
+        entry.detachAbort = () => signal.removeEventListener?.("abort", abort);
+      }
+      scope.pending.set(requestId, entry);
+    });
+  };
+
+  const decide = (raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { status: 400, body: { error: "permission decision body must be an object" } };
+    }
+    const keys = Object.keys(raw).sort();
+    if (
+      keys.length !== 4 ||
+      keys[0] !== "decision" ||
+      keys[1] !== "generationId" ||
+      keys[2] !== "requestId" ||
+      keys[3] !== "threadId"
+    ) {
+      return { status: 400, body: { error: "only threadId, generationId, requestId, and decision are accepted" } };
+    }
+    const threadId = exactPermissionId(raw.threadId);
+    const generationId = exactPermissionId(raw.generationId);
+    const requestId = exactPermissionId(raw.requestId);
+    const decision = typeof raw.decision === "string" && PERMISSION_DECISIONS.has(raw.decision) ? raw.decision : null;
+    if (!threadId || !generationId || !requestId || !decision) {
+      return { status: 400, body: { error: "threadId, generationId, requestId, and a valid decision are required" } };
+    }
+    const scope = generations.get(generationId);
+    const entry = scope?.threadId === threadId ? scope.pending.get(requestId) : null;
+    if (!entry) {
+      return { status: 409, body: { error: "permission request is unavailable", code: "permission_request_unavailable" } };
+    }
+    if (decision === "allow_once" && !entry.inputComplete) {
+      return { status: 422, body: { error: "allow once requires complete tool input", code: "permission_input_incomplete" } };
+    }
+    if (decision === "allow_always" && !entry.allowAlways) {
+      return { status: 422, body: { error: "always allow is not available for this request", code: "allow_always_unavailable" } };
+    }
+
+    // Consume before resolving: two concurrent HTTP answers can never both win.
+    scope.pending.delete(requestId);
+    entry.detachAbort?.();
+    entry.resolve(decision);
+    return { status: 200, body: { ok: true, decision } };
+  };
+
+  const closeGeneration = (generationId, reason = "permission generation closed") => {
+    const generation = exactPermissionId(generationId);
+    const scope = generation ? generations.get(generation) : null;
+    if (!scope) return false;
+    generations.delete(generation);
+    for (const entry of scope.pending.values()) {
+      entry.detachAbort?.();
+      entry.reject(abortedPermissionError(reason));
+    }
+    scope.pending.clear();
+    return true;
+  };
+
+  return { openGeneration, awaitDecision, decide, closeGeneration };
+}
+
+const permissionControl = createPermissionControlPlane();
 let readyResolve;
 const readyPromise = new Promise((resolve) => {
   readyResolve = resolve;
@@ -1806,6 +1961,12 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // §12: the warm SDK session is keyed by CONVERSATION as well as target, so
       // two web threads never share one session_id (and one transcript badge).
       sessionKey: hints?.sessionId ?? null,
+      // Interactive permissions are confined to a real Web thread. Every other
+      // caller retains the historical bypass mode, including threadless Web
+      // probes: without a stable thread coordinate there is no safe answer path.
+      permissionMode: opts.permissionMode === "default" ? "default" : "bypassPermissions",
+      generationId: opts.generationId,
+      onPermissionRequest: opts.onPermissionRequest,
       // §8: a pinned project is a REAL execution scope on every lane, not just the
       // web one-shot. The default composition routes web turns to agent-sdk
       // targets, so wiring cwd only into runWebOneShot made the project badge lie:
@@ -2407,6 +2568,13 @@ export function routeHintsFromBody(body) {
   };
 }
 
+/** Agent SDK permission callbacks are reachable only for a stable Web thread. */
+export function permissionModeForHints(hints) {
+  return hints?.channel === "web" && exactPermissionId(hints?.sessionId)
+    ? "default"
+    : "bypassPermissions";
+}
+
 function enqueueTurn(message, onChunk, hints, opts = {}) {
   // No global chain (2026-08-07): the turn starts NOW and serializes only where
   // its resolved lane demands it (see the per-lane queues in gateway-routing and
@@ -2676,6 +2844,21 @@ const server = http.createServer(async (request, response) => {
       return sendJson(response, r.status, r.body);
     }
 
+    // Resolve one exact Agent SDK permission request. Resolver handles are
+    // intentionally not reconstructable: after a restart the durable prompt is
+    // still visible, but this endpoint returns 409 because no live SDK callback
+    // exists to receive the decision.
+    if (request.method === "POST" && url.pathname === "/chat/permission") {
+      let body;
+      try {
+        body = await readJsonBody(request);
+      } catch (err) {
+        return sendJson(response, 400, { error: `invalid json: ${err.message}` });
+      }
+      const result = permissionControl.decide(body);
+      return sendJson(response, result.status, result.body);
+    }
+
     // Read-only rendered-screen surface: the operative session's live terminal
     // screen (the xterm-headless render claude-pty already maintains), for
     // watch surfaces like the Kanban board. GET /screen is one snapshot;
@@ -2732,6 +2915,13 @@ const server = http.createServer(async (request, response) => {
       const body = await readJsonBody(request);
       const message = String(body.message ?? "").trim();
       if (!message) return sendJson(response, 400, { error: "message is required" });
+      // Only the streamed endpoint owns generations. A generation is opaque and
+      // new per request; it is exposed on `open` and stamped onto canonical
+      // permission events by the Agent SDK path.
+      const hints = routeHintsFromBody(body);
+      const permissionMode = permissionModeForHints(hints);
+      const permissionEnabled = permissionMode === "default";
+      const interceptedGenerationId = randomUUID();
 
       // S3d review R1: intercept a Discuss answer / explicit-go BEFORE opening the stream
       // and BEFORE enqueueTurn - out-of-band, so it drives the live picker held by the
@@ -2745,12 +2935,17 @@ const server = http.createServer(async (request, response) => {
         response.setHeader("connection", "keep-alive");
         response.setHeader("x-accel-buffering", "no");
         response.flushHeaders?.();
-        sseWrite(response, "open", { ts: Date.now() });
+        sseWrite(response, "open", { ts: Date.now(), generationId: interceptedGenerationId });
         sseWrite(response, "done", { reply: intercepted.reply, session_id: null, cost_usd: null, card: intercepted.card, [intercepted.action]: true });
         logEvent("stdout", { kind: "chat-stream-intercept", action: intercepted.action, card: intercepted.card });
         response.end();
         return;
       }
+
+      // Open the live resolver scope only after readiness/interception. Anything
+      // that fails before here has no handle to leak.
+      const permissionGenerationId = permissionEnabled ? permissionControl.openGeneration(hints.sessionId) : null;
+      const generationId = permissionGenerationId ?? interceptedGenerationId;
 
       response.statusCode = 200;
       response.setHeader("content-type", "text/event-stream");
@@ -2758,7 +2953,7 @@ const server = http.createServer(async (request, response) => {
       response.setHeader("connection", "keep-alive");
       response.setHeader("x-accel-buffering", "no");
       response.flushHeaders?.();
-      sseWrite(response, "open", { ts: Date.now() });
+      sseWrite(response, "open", { ts: Date.now(), generationId });
       const heartbeat = setInterval(() => {
         try {
           response.write(": keepalive\n\n");
@@ -2778,7 +2973,6 @@ const server = http.createServer(async (request, response) => {
       };
       toolListeners.add(onTool);
 
-      const hints = routeHintsFromBody(body);
       // §4: the FIRST `route` frame, emitted the moment preRoute resolves, so the
       // badge row appears ~1s into the turn instead of after the reply. `pending`
       // marks it as refinable; the client merges the done frame over it and drops
@@ -2831,7 +3025,25 @@ const server = http.createServer(async (request, response) => {
           } catch {
             /* client gone */
           }
-        }, hints, { onPreRoute, onActivity, onJournal, onSessionEvent });
+        }, hints, {
+          onPreRoute,
+          onActivity,
+          onJournal,
+          onSessionEvent,
+          generationId,
+          permissionMode,
+          ...(permissionGenerationId
+            ? {
+                onPermissionRequest: (publicRequest, context = {}) =>
+                  permissionControl.awaitDecision(
+                    hints.sessionId,
+                    permissionGenerationId,
+                    publicRequest,
+                    { signal: context?.signal }
+                  )
+              }
+            : {})
+        });
         // Additive context telemetry (D5b): the turn's live/peak context % + any
         // compactions, read off the operative session that just ran. A nested
         // `context` object so consumers (the kanban engine) opt in without any
@@ -2842,6 +3054,7 @@ const server = http.createServer(async (request, response) => {
         sseWrite(response, "error", { error: err.message });
         logEvent("stderr", { kind: "chat-stream-failed", error: err.message });
       } finally {
+        if (permissionGenerationId) permissionControl.closeGeneration(permissionGenerationId);
         toolListeners.delete(onTool);
         clearInterval(heartbeat);
         response.end();

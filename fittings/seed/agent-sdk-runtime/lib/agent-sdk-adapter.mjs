@@ -16,9 +16,14 @@
 // The real SDK is reached ONLY via the default client factory, which lazy-imports
 // the sole SDK-importing module (lib/sdk-client.mjs). Tests inject `createClient`,
 // so the unit-test path never loads the SDK.
+import { randomUUID } from "node:crypto";
 import { buildHarness } from "./harness.mjs";
 import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, isAnthropicProvider } from "./providers.mjs";
-import { createAgentSdkSessionEventNormalizer } from "./session-events.mjs";
+import {
+  SESSION_TEXT_BLOCK_CAP,
+  clampSessionText,
+  createAgentSdkSessionEventNormalizer
+} from "./session-events.mjs";
 
 async function defaultCreateClient(args) {
   const mod = await import("./sdk-client.mjs");
@@ -92,6 +97,191 @@ function validatedSessionId(value) {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id) ? id : null;
 }
 
+function jsonClone(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return null;
+  }
+}
+
+const PUBLIC_PERMISSION_SUGGESTION_CAP = 64;
+const PUBLIC_PERMISSION_DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+// Permission approval is a security boundary: the browser may approve only
+// values whose complete JSON representation can be shown and durably restored.
+// This is intentionally stricter than ordinary tool-event normalization, which
+// may use an honest truncation marker for observational output.
+function isPlainJsonValue(value, depth = 0, maxDepth = 64, seen = new Set()) {
+  if (depth > maxDepth) return false;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (!value || typeof value !== "object" || seen.has(value)) return false;
+  if (Object.getOwnPropertySymbols(value).length > 0) return false;
+  const proto = Object.getPrototypeOf(value);
+  if (Array.isArray(value)) {
+    if (proto !== Array.prototype) return false;
+  } else if (proto !== Object.prototype && proto !== null) {
+    return false;
+  }
+  seen.add(value);
+  const entries = Object.entries(value);
+  const enumerableKeys = entries.map(([key]) => key);
+  const ownNames = Object.getOwnPropertyNames(value);
+  const keysSafe = Array.isArray(value)
+    ? enumerableKeys.length === value.length &&
+      enumerableKeys.every((key, index) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return key === String(index) &&
+          descriptor?.enumerable === true &&
+          Object.hasOwn(descriptor, "value");
+      }) &&
+      ownNames.length === value.length + 1 && ownNames.includes("length")
+    : ownNames.length === enumerableKeys.length && enumerableKeys.every((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return key.length <= 200 &&
+          !PUBLIC_PERMISSION_DANGEROUS_KEYS.has(key) &&
+          descriptor?.enumerable === true &&
+          Object.hasOwn(descriptor, "value");
+      });
+  const complete = keysSafe && entries.every(([, entry]) =>
+    isPlainJsonValue(entry, depth + 1, maxDepth, seen)
+  );
+  seen.delete(value);
+  return complete;
+}
+
+function publicPermissionInput(value) {
+  const source = value ?? {};
+  let encoded = "";
+  try {
+    encoded = JSON.stringify(source, null, 2);
+  } catch {
+    return { input: clampSessionText(source), inputComplete: false };
+  }
+  if (typeof encoded !== "string") {
+    return { input: clampSessionText(source), inputComplete: false };
+  }
+  return {
+    input: clampSessionText(encoded),
+    inputComplete: encoded.length <= SESSION_TEXT_BLOCK_CAP && (() => {
+      try {
+        return isPlainJsonValue(source);
+      } catch {
+        return false;
+      }
+    })()
+  };
+}
+
+function publicPermissionSuggestions(value) {
+  if (value == null) return { suggestionsComplete: true };
+  if (!Array.isArray(value)) return { suggestionsComplete: false };
+  if (value.length === 0) return { suggestionsComplete: true };
+  if (value.length > PUBLIC_PERMISSION_SUGGESTION_CAP) return { suggestionsComplete: false };
+  let jsonSafe = false;
+  try {
+    jsonSafe = isPlainJsonValue(value, 0, 8);
+  } catch {
+    jsonSafe = false;
+  }
+  if (!jsonSafe) {
+    return { suggestionsComplete: false };
+  }
+  let encoded = "";
+  try {
+    encoded = JSON.stringify(value);
+  } catch {
+    return { suggestionsComplete: false };
+  }
+  if (encoded.length > SESSION_TEXT_BLOCK_CAP) return { suggestionsComplete: false };
+  const suggestions = jsonClone(value);
+  return Array.isArray(suggestions)
+    ? { suggestions, suggestionsComplete: true }
+    : { suggestionsComplete: false };
+}
+
+function privatePermissionInputSnapshot(disclosure) {
+  if (disclosure?.inputComplete !== true || typeof disclosure.input !== "string") return undefined;
+  try {
+    // Parse the exact string shown to the user instead of reading the SDK-owned
+    // input again after validation. This makes the executable snapshot identical
+    // to the disclosure even if the caller mutates its object while awaiting a
+    // decision.
+    return JSON.parse(disclosure.input);
+  } catch {
+    return undefined;
+  }
+}
+
+function permissionAbortError(signal) {
+  if (signal?.reason instanceof Error) return signal.reason;
+  const error = new Error(
+    typeof signal?.reason === "string" && signal.reason.trim()
+      ? signal.reason
+      : "Permission request was cancelled."
+  );
+  error.name = "AbortError";
+  return error;
+}
+
+function awaitPermissionDecision(promise, signal) {
+  if (!signal || typeof signal.addEventListener !== "function") return promise;
+  if (signal.aborted) return Promise.reject(permissionAbortError(signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(permissionAbortError(signal));
+    };
+    const cleanup = () => signal.removeEventListener?.("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (decision) => {
+        cleanup();
+        resolve(decision);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+}
+
+function sdkPermissionResult(decision, inputSnapshot, suggestions, disclosure) {
+  if (decision === "allow_once") {
+    if (disclosure?.inputComplete !== true || inputSnapshot === undefined) {
+      throw new Error("Allow once requires the complete proposed tool input.");
+    }
+    return { behavior: "allow", updatedInput: inputSnapshot, decisionClassification: "user_temporary" };
+  }
+  if (decision === "allow_always") {
+    if (
+      disclosure?.inputComplete !== true ||
+      inputSnapshot === undefined ||
+      disclosure?.suggestionsComplete !== true ||
+      !Array.isArray(suggestions) ||
+      suggestions.length === 0
+    ) {
+      throw new Error("Always allow requires complete SDK permission suggestions and tool input.");
+    }
+    return {
+      behavior: "allow",
+      updatedInput: inputSnapshot,
+      updatedPermissions: suggestions,
+      decisionClassification: "user_permanent"
+    };
+  }
+  if (decision === "deny") {
+    return {
+      behavior: "deny",
+      message: "User denied this tool request.",
+      decisionClassification: "user_reject"
+    };
+  }
+  throw new Error(`Invalid permission decision: ${String(decision)}`);
+}
+
 export class AgentSdkAdapter {
   constructor(opts = {}) {
     this.id = "agent-sdk";
@@ -99,6 +289,7 @@ export class AgentSdkAdapter {
     // S1b: an injectable one-shot summary call (tests override it); null -> the
     // default implementation reuses _createClient.
     this._summarizeImpl = opts.summarize ?? null;
+    this._permissionRequestId = typeof opts.permissionRequestId === "function" ? opts.permissionRequestId : randomUUID;
     this._pending = new WeakMap();
   }
 
@@ -210,6 +401,10 @@ export class AgentSdkAdapter {
   //   onEvent(sessionEvent)    - provider-neutral, revisioned text/thinking/tool/
   //                              result/status/limit/terminal snapshot
   //   turnId                   - optional caller identity copied onto onEvent
+  //   generationId             - durable caller generation copied onto a
+  //                              permission request (never inferred from turnId)
+  //   onPermissionRequest(request, {signal}) - resolve an SDK tool prompt with
+  //                              allow_once, allow_always, or deny
   // Callers that pass nothing get byte-identical behaviour: the reply is still
   // accumulated and returned whole by awaitResponse. Without these the routed
   // lanes are silent for minutes and then dump a blob.
@@ -253,21 +448,30 @@ export class AgentSdkAdapter {
     const onThinking = typeof hooks.onThinking === "function" ? hooks.onThinking : null;
     const onSession = typeof hooks.onSession === "function" ? hooks.onSession : null;
     const onEvent = typeof hooks.onEvent === "function" ? hooks.onEvent : null;
+    const onPermissionRequest = typeof hooks.onPermissionRequest === "function" ? hooks.onPermissionRequest : null;
+    const permissionGenerationId = typeof hooks.generationId === "string" ? hooks.generationId.trim() : "";
+    if (onPermissionRequest && !permissionGenerationId) {
+      throw new Error("AgentSdkAdapter: a permission resolver requires a generation id");
+    }
     const eventNormalizer = createAgentSdkSessionEventNormalizer({
       turnId: hooks.turnId ?? null,
       sessionId: session.sessionId
     });
-    const emitEvents = async (events) => {
-      if (!onEvent) return;
-      for (const event of events) {
-        try {
-          // Await promise-returning sinks so a durable channel can preserve
-          // event order. A broken observability sink must never kill the turn.
-          await onEvent(event);
-        } catch {
-          /* streaming consumer error must not kill the turn */
+    let eventTail = Promise.resolve();
+    const emitEvents = (events) => {
+      if (!onEvent || !Array.isArray(events) || events.length === 0) return eventTail;
+      eventTail = eventTail.then(async () => {
+        for (const event of events) {
+          try {
+            // Await promise-returning sinks so a durable channel can preserve
+            // event order. A broken observability sink must never kill the turn.
+            await onEvent(event);
+          } catch {
+            /* streaming consumer error must not kill the turn */
+          }
         }
-      }
+      });
+      return eventTail;
     };
     const normalizeAndEmit = async (message) => {
       if (!onEvent) return;
@@ -277,6 +481,69 @@ export class AgentSdkAdapter {
         /* event normalization is observability and must not kill the turn */
       }
     };
+    if (onPermissionRequest) {
+      options.canUseTool = async (toolName, input, sdkOptions = {}) => {
+        const generated = this._permissionRequestId();
+        const requestId = typeof generated === "string" && generated.trim() ? generated.trim() : randomUUID();
+        const originalSuggestions = sdkOptions.suggestions;
+        const inputDisclosure = publicPermissionInput(input);
+        const permissionInputSnapshot = privatePermissionInputSnapshot(inputDisclosure);
+        const suggestionDisclosure = publicPermissionSuggestions(originalSuggestions);
+        // Keep the value authorized by the user isolated from both mutable sides of
+        // this boundary. The SDK retains `originalSuggestions` while the resolver
+        // receives the public disclosure below; either may be mutated during the
+        // potentially long wait for a decision. Only this private, validated JSON
+        // snapshot may become updatedPermissions.
+        const permissionSuggestionsSnapshot = Array.isArray(suggestionDisclosure.suggestions)
+          ? jsonClone(suggestionDisclosure.suggestions)
+          : null;
+        const publicRequest = {
+          type: "permission_request",
+          requestId,
+          generationId: permissionGenerationId,
+          toolUseId: sdkOptions.toolUseID ?? null,
+          name: String(toolName ?? "tool"),
+          ...inputDisclosure,
+          ...suggestionDisclosure,
+          ...(typeof sdkOptions.title === "string" && sdkOptions.title ? { title: sdkOptions.title } : {}),
+          ...(typeof sdkOptions.displayName === "string" && sdkOptions.displayName ? { displayName: sdkOptions.displayName } : {}),
+          ...(typeof sdkOptions.description === "string" && sdkOptions.description ? { description: sdkOptions.description } : {}),
+          ...(typeof sdkOptions.blockedPath === "string" && sdkOptions.blockedPath ? { blockedPath: sdkOptions.blockedPath } : {}),
+          ...(typeof sdkOptions.decisionReason === "string" && sdkOptions.decisionReason ? { reason: sdkOptions.decisionReason } : {}),
+          ...(typeof sdkOptions.agentID === "string" && sdkOptions.agentID ? { agentId: sdkOptions.agentID } : {}),
+          status: "pending"
+        };
+        const eventRequest = jsonClone(publicRequest) ?? { ...publicRequest };
+
+        // Register the resolver synchronously before publishing the pending
+        // event. A browser cannot click a prompt whose control handle is not yet
+        // live, even when the durable event sink and SSE delivery are immediate.
+        let decisionPromise;
+        try {
+          decisionPromise = Promise.resolve(onPermissionRequest(publicRequest, { signal: sdkOptions.signal }));
+        } catch (error) {
+          decisionPromise = Promise.reject(error);
+        }
+        // The pending event sink may be asynchronous. Attach a handler now so a
+        // synchronous callback rejection cannot become an unhandled promise.
+        decisionPromise.catch(() => {});
+
+        const pendingEvents = eventNormalizer.permissionRequest(eventRequest);
+        await emitEvents(pendingEvents);
+        try {
+          const decision = await awaitPermissionDecision(decisionPromise, sdkOptions.signal);
+          const result = sdkPermissionResult(decision, permissionInputSnapshot, permissionSuggestionsSnapshot, {
+            inputComplete: inputDisclosure.inputComplete,
+            suggestionsComplete: suggestionDisclosure.suggestionsComplete
+          });
+          await emitEvents(eventNormalizer.resolvePermissionRequest(requestId, decision));
+          return result;
+        } catch (error) {
+          await emitEvents(eventNormalizer.cancelPermissionRequest(requestId));
+          throw error;
+        }
+      };
+    }
     // S1b: a rebuilt session seeds the next turn with the focus summary (the SDK
     // session/resume was cleared, so this restores the working context).
     const seeded = session.contextSeed ? `${session.contextSeed}\n\n---\n\n${text}` : text;

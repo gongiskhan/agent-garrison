@@ -5,6 +5,7 @@ export {
   buildSendMeta,
   canonicalAssistantReply,
   legacyAssistantFallback,
+  liveSessionAnnouncement,
   QuestionBlock,
   resolvedAssistantText,
   rewriteRouteForHost,
@@ -25,6 +26,10 @@ export {
   sessionToolSummary,
 } from "./journal";
 export type {
+  PermissionAnswer,
+  PermissionDecision,
+  PermissionRequestBlock,
+  PermissionRequestStatus,
   RelatedTask,
   RelatedTaskStatus,
   SessionBlock,

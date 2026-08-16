@@ -15,6 +15,8 @@ import {
   sessionEventTerminalText,
   sessionThinkingSummary,
   sessionToolSummary,
+  type PermissionAnswer,
+  type PermissionDecision,
   type RelatedTask,
   type SessionBlock,
   type SessionEvent,
@@ -49,6 +51,34 @@ export interface SessionEventTimelineProps {
   /** Host chat renderer for full parity (highlighted/copyable code cards). The
    * safe standalone transcript renderer remains the default. */
   renderMarkdown?: (text: string) => string;
+  /** Chat-owned answer seam. Standalone transcript viewers omit it and retain a
+   * complete, read-only record of pending permission prompts. */
+  onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
+}
+
+function displayJsonValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "Not provided";
+  try {
+    const encoded = JSON.stringify(value, null, 2);
+    return encoded === undefined ? String(value) : encoded;
+  } catch {
+    return String(value);
+  }
+}
+
+function permissionText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function permissionSuggestionDestinations(suggestions: unknown[]): string[] {
+  const destinations = new Set<string>();
+  for (const suggestion of suggestions) {
+    if (!suggestion || typeof suggestion !== "object" || Array.isArray(suggestion)) continue;
+    const destination = permissionText((suggestion as Record<string, unknown>).destination);
+    if (destination) destinations.add(destination);
+  }
+  return [...destinations];
 }
 
 function TextBlock({
@@ -159,10 +189,10 @@ function ToolBlock({
         }
       >
         <div className="cc-session-toolbody">
-          {block.input && (
+          {Boolean(block.input) && (
             <div>
               <span className="cc-session-section-label">Input</span>
-              <pre className="cc-session-pre">{block.input}</pre>
+              <pre className="cc-session-pre">{displayJsonValue(block.input)}</pre>
             </div>
           )}
           {output && (
@@ -220,6 +250,206 @@ function ThinkingBlock({ block, active }: { block: SessionBlock; active: boolean
   );
 }
 
+function permissionDecisionLabel(decision: PermissionDecision | undefined): string {
+  if (decision === "allow_once") return "Allowed once";
+  if (decision === "allow_always") return "Always allowed";
+  if (decision === "deny") return "Denied";
+  return "Resolved";
+}
+
+function PermissionBlock({
+  block,
+  onPermissionDecision,
+}: {
+  block: SessionBlock;
+  onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
+}) {
+  const headingId = React.useId();
+  const feedbackId = React.useId();
+  const completenessId = React.useId();
+  const requestId = permissionText(block.requestId);
+  const generationId = permissionText(block.generationId);
+  const status = block.status === "pending" || block.status === "resolved" || block.status === "cancelled"
+    ? block.status
+    : null;
+  const displayName = permissionText(block.displayName) || permissionText(block.name) || "tool";
+  const title = permissionText(block.title) || `Allow ${displayName}?`;
+  const description = permissionText(block.description);
+  const blockedPath = permissionText(block.blockedPath);
+  const reason = permissionText(block.reason);
+  const suggestions = Array.isArray(block.suggestions) ? block.suggestions : [];
+  const suggestionDestinations = permissionSuggestionDestinations(suggestions);
+  const hasSuggestions = suggestions.length > 0;
+  const inputComplete = block.inputComplete === true;
+  const suggestionsComplete = block.suggestionsComplete === true;
+  const canAlwaysAllow = inputComplete && suggestionsComplete && hasSuggestions;
+  const canSubmit = status === "pending" && Boolean(requestId && generationId && onPermissionDecision);
+  const [submitting, setSubmitting] = useState<PermissionDecision | null>(null);
+  const [submitted, setSubmitted] = useState<PermissionDecision | null>(null);
+  const [failed, setFailed] = useState<{ decision: PermissionDecision; message: string } | null>(null);
+  const attemptRef = useRef(0);
+  const decisionLockedRef = useRef(false);
+
+  useEffect(() => {
+    attemptRef.current += 1;
+    setSubmitting(null);
+    setSubmitted(null);
+    setFailed(null);
+    decisionLockedRef.current = false;
+  }, [requestId, generationId, status, block.decision]);
+
+  const decide = async (decision: PermissionDecision) => {
+    if (!canSubmit || decisionLockedRef.current || submitting || submitted || !onPermissionDecision) return;
+    if (decision === "allow_once" && !inputComplete) return;
+    if (decision === "allow_always" && !canAlwaysAllow) return;
+    const attempt = ++attemptRef.current;
+    decisionLockedRef.current = true;
+    setSubmitting(decision);
+    setFailed(null);
+    try {
+      await onPermissionDecision({ requestId, generationId, decision });
+      if (attempt !== attemptRef.current) return;
+      setSubmitted(decision);
+    } catch (error) {
+      if (attempt !== attemptRef.current) return;
+      decisionLockedRef.current = false;
+      const detail = error instanceof Error && error.message.trim()
+        ? error.message.replace(/\s+/g, " ").trim().slice(0, 180)
+        : "Unknown error";
+      setFailed({ decision, message: `Could not send the decision: ${detail}` });
+    } finally {
+      if (attempt === attemptRef.current) setSubmitting(null);
+    }
+  };
+
+  const scope = block.decision === "allow_always"
+    ? "Future matching requests, using the saved changes below"
+    : status === "pending" && hasSuggestions && suggestionsComplete
+      ? "Allow once: this request · Always allow: future matching requests"
+      : status === "pending" && !suggestionsComplete
+        ? "Allow once: this request · Persistent scope unavailable"
+      : "This request only";
+  const completenessMessage = !inputComplete
+    ? status === "pending"
+      ? "Approval unavailable because the full request details cannot be shown. You can still deny this request."
+      : "Full request details were not retained, so this historical decision cannot be independently reviewed."
+    : !suggestionsComplete
+      ? status === "pending"
+        ? "Always allow is unavailable because the full persistent permission changes cannot be shown. You can allow once or deny."
+        : "Full persistent permission changes were not retained for this historical request."
+      : "";
+  const statusLabel = status === "pending"
+    ? !inputComplete
+      ? "Approval unavailable"
+      : submitted
+      ? "Awaiting confirmation"
+      : "Awaiting your decision"
+    : status === "cancelled"
+      ? "Cancelled"
+      : status === "resolved"
+        ? permissionDecisionLabel(block.decision)
+        : "Unavailable";
+  const buttonLabel = (decision: PermissionDecision, label: string) =>
+    failed?.decision === decision ? `Retry ${label}` : label;
+
+  return (
+    <section
+      className={`cc-session-permission is-${status ?? "invalid"}`}
+      data-permission-request-id={requestId || undefined}
+      data-permission-generation-id={generationId || undefined}
+      aria-labelledby={headingId}
+    >
+      <div className="cc-session-permission-head">
+        <span className="cc-session-permission-kicker">Permission request</span>
+        <span className={`cc-session-permission-status is-${status ?? "invalid"}`}>{statusLabel}</span>
+      </div>
+      <h3 id={headingId}>{title}</h3>
+      {description && <p className="cc-session-permission-description">{description}</p>}
+      <dl className="cc-session-permission-facts">
+        <div><dt>Tool</dt><dd>{displayName}</dd></div>
+        <div><dt>Scope</dt><dd>{scope}</dd></div>
+        <div><dt>Blocked path</dt><dd>{blockedPath || "Not reported by the runtime"}</dd></div>
+        {reason && <div><dt>Reason</dt><dd>{reason}</dd></div>}
+      </dl>
+      <div className="cc-session-permission-input">
+        <span className="cc-session-section-label">
+          {inputComplete ? "Exact proposed tool input" : "Available partial tool input"}
+        </span>
+        <pre className="cc-session-pre">{displayJsonValue(block.input)}</pre>
+      </div>
+      {hasSuggestions && (
+        <div className="cc-session-permission-suggestions">
+          <span className="cc-session-section-label">
+            {suggestionsComplete ? "Exact changes saved by Always allow" : "Available partial persistent changes"}
+          </span>
+          <p>These permission changes would apply to future matching requests.</p>
+          <dl className="cc-session-permission-save-facts">
+            <div>
+              <dt>Permission destination</dt>
+              <dd>{suggestionDestinations.length ? suggestionDestinations.join(", ") : "Not reported by the runtime"}</dd>
+            </div>
+          </dl>
+          {suggestions.map((suggestion, index) => (
+            <pre className="cc-session-pre" key={index}>{displayJsonValue(suggestion)}</pre>
+          ))}
+        </div>
+      )}
+      {completenessMessage && (
+        <p id={completenessId} className="cc-session-permission-warning">{completenessMessage}</p>
+      )}
+      {status === "pending" && !onPermissionDecision && (
+        <p className="cc-session-permission-readonly">Return to chat to answer this permission request.</p>
+      )}
+      {status === "pending" && onPermissionDecision && (!requestId || !generationId) && (
+        <p className="cc-session-permission-readonly">This request is missing its secure answer coordinates and cannot be answered here.</p>
+      )}
+      {!status && (
+        <p className="cc-session-permission-readonly">This request has an invalid status and cannot be answered here.</p>
+      )}
+      {status === "pending" && canSubmit && (
+        <div
+          className="cc-session-permission-actions"
+          role="group"
+          aria-label={`Answer permission request for ${displayName}`}
+          aria-describedby={[
+            completenessMessage ? completenessId : "",
+            failed || submitted ? feedbackId : "",
+          ].filter(Boolean).join(" ") || undefined}
+        >
+          <button
+            type="button"
+            className="cc-session-permission-deny"
+            disabled={Boolean(submitting || submitted)}
+            onClick={() => void decide("deny")}
+          >
+            {submitting === "deny" ? "Denying…" : buttonLabel("deny", "Deny")}
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(submitting || submitted || !inputComplete)}
+            title={!inputComplete ? "Unavailable because the full request details cannot be shown" : undefined}
+            onClick={() => void decide("allow_once")}
+          >
+            {submitting === "allow_once" ? "Allowing…" : buttonLabel("allow_once", "Allow once")}
+          </button>
+          {canAlwaysAllow && (
+            <button
+              type="button"
+              className="cc-session-permission-always"
+              disabled={Boolean(submitting || submitted)}
+              onClick={() => void decide("allow_always")}
+            >
+              {submitting === "allow_always" ? "Allowing…" : buttonLabel("allow_always", "Always allow")}
+            </button>
+          )}
+        </div>
+      )}
+      {failed && <p id={feedbackId} className="cc-session-permission-error">{failed.message}</p>}
+      {submitted && <p id={feedbackId} className="cc-session-permission-submitted">Answer sent. Waiting for durable confirmation…</p>}
+    </section>
+  );
+}
+
 function ActivityTimeline({
   events,
   includeText,
@@ -230,6 +460,7 @@ function ActivityTimeline({
   progressByToolUse,
   onImage,
   renderMarkdown,
+  onPermissionDecision,
 }: {
   events: SessionEvent[];
   includeText: boolean;
@@ -240,6 +471,7 @@ function ActivityTimeline({
   progressByToolUse: Map<string, SessionBlock>;
   onImage: (image: SessionImage, label: string) => void;
   renderMarkdown?: (text: string) => string;
+  onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
 }) {
   const beats = sessionActivityBeats(events);
   return (
@@ -281,6 +513,9 @@ function ActivityTimeline({
         if (beat.type === "thinking") {
           return <ThinkingBlock key={key} block={block} active={live && activeThinkingBlock === block} />;
         }
+        if (beat.type === "permission_request") {
+          return <PermissionBlock key={key} block={block} onPermissionDecision={onPermissionDecision} />;
+        }
         return (
           <ToolBlock
             key={key}
@@ -300,7 +535,13 @@ function ActivityTimeline({
  * transcript's Markdown/thinking/tool primitives, but deliberately renders the
  * canonical timeline directly in the assistant bubble: tool results are looked
  * up across later user-shaped events and attach to their original tool card. */
-export function SessionEventTimeline({ events, live = false, className = "", renderMarkdown }: SessionEventTimelineProps) {
+export function SessionEventTimeline({
+  events,
+  live = false,
+  className = "",
+  renderMarkdown,
+  onPermissionDecision,
+}: SessionEventTimelineProps) {
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [, setHostMapReady] = useState(false);
   useEffect(() => {
@@ -356,6 +597,7 @@ export function SessionEventTimeline({ events, live = false, className = "", ren
         progressByToolUse={progressByToolUse}
         onImage={(image, label) => setModalImage({ image, label })}
         renderMarkdown={renderMarkdown}
+        onPermissionDecision={onPermissionDecision}
       />
       {terminalText && !terminalDuplicatesText && (
         <div className="cc-session-terminal-text cc-session-markdown">
@@ -601,7 +843,7 @@ export function SessionStream({
   }, [relatedTasks]);
   const visibleEvents = useMemo(
     () => events.filter((event) => !event.toolResultsOnly && event.blocks.some((block) =>
-      ["text", "thinking", "tool_use", "error"].includes(block.type) ||
+      ["text", "thinking", "tool_use", "error", "permission_request"].includes(block.type) ||
       (block.type === "turn_end" && typeof block.result === "string" && block.result.trim() !== "")
     )),
     [events]
@@ -654,7 +896,7 @@ export function SessionStream({
           const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
             const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
             const activityCount = event.blocks.filter((block) =>
-              block.type === "thinking" || block.type === "tool_use" || block.type === "error"
+              block.type === "thinking" || block.type === "tool_use" || block.type === "error" || block.type === "permission_request"
             ).length;
             return count + textCount + activityCount;
           }, 0);

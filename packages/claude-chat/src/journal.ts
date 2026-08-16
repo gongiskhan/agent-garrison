@@ -13,6 +13,18 @@ export interface SessionImage {
 
 export type RelatedTaskStatus = "running" | "completed" | "failed" | "unknown";
 
+export type PermissionRequestStatus = "pending" | "resolved" | "cancelled";
+export type PermissionDecision = "allow_once" | "allow_always" | "deny";
+
+/** Stable coordinates sent back to the runtime when a user answers a durable
+ * permission prompt. The generation id prevents a late click from answering a
+ * newer request that happens to reuse the same request id. */
+export interface PermissionAnswer {
+  requestId: string;
+  generationId: string;
+  decision: PermissionDecision;
+}
+
 export interface SessionBlock {
   type: string;
   text?: string;
@@ -23,7 +35,9 @@ export interface SessionBlock {
   subtype?: string | null;
   stopReason?: string | null;
   name?: string;
-  input?: string;
+  /** Tool input is normally a JSON string. Permission requests may retain the
+   * SDK's JSON value directly so the approval surface can show it verbatim. */
+  input?: unknown;
   toolUseId?: string | null;
   isError?: boolean;
   images?: SessionImage[];
@@ -37,6 +51,46 @@ export interface SessionBlock {
   /** A host-generated, same-origin URL; never a transcript filesystem path. */
   streamUrl?: string | null;
   detail?: string | null;
+  /** Durable permission-request extension fields. */
+  requestId?: string;
+  generationId?: string;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  blockedPath?: string;
+  agentId?: string;
+  reason?: string;
+  decision?: PermissionDecision;
+  suggestions?: unknown[];
+  /** Explicit completeness flags for security-sensitive permission display. A
+   * missing/false flag means the corresponding value must not be approved. */
+  inputComplete?: boolean;
+  suggestionsComplete?: boolean;
+}
+
+/** Public canonical shape for a durable permission prompt. SessionBlock stays
+ * deliberately tolerant because it is also the runtime-neutral extension seam;
+ * producers and consumers that create permission blocks should use this strict
+ * contract. Suggestions are opaque SDK permission updates: the UI displays
+ * their exact JSON but never interprets or mutates them. */
+export interface PermissionRequestBlock extends SessionBlock {
+  type: "permission_request";
+  requestId: string;
+  generationId: string;
+  toolUseId: string | null;
+  name: string;
+  input: unknown;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  blockedPath?: string;
+  agentId?: string;
+  reason?: string;
+  status: PermissionRequestStatus;
+  decision?: PermissionDecision;
+  suggestions?: unknown[];
+  inputComplete: boolean;
+  suggestionsComplete: boolean;
 }
 
 export interface SessionEvent {
@@ -79,7 +133,7 @@ export interface SessionTurnPresentation {
 export type SessionActivityBeat =
   | { type: "text"; eventIndex: number; blockIndex: number; text: string }
   | { type: "error"; eventIndex: number; blockIndex: number; text: string }
-  | { type: "thinking" | "tool_use"; eventIndex: number; blockIndex: number; block: SessionBlock };
+  | { type: "thinking" | "tool_use" | "permission_request"; eventIndex: number; blockIndex: number; block: SessionBlock };
 
 export interface RelatedTask {
   key: string;
@@ -147,7 +201,7 @@ export function sessionActivityBeats(events: SessionEvent[]): SessionActivityBea
         }
       } else if (block.type === "error" && typeof block.text === "string" && block.text.trim() !== "") {
         beats.push({ type: "error", eventIndex, blockIndex, text: block.text });
-      } else if (block.type === "thinking" || block.type === "tool_use") {
+      } else if (block.type === "thinking" || block.type === "tool_use" || block.type === "permission_request") {
         beats.push({ type: block.type, eventIndex, blockIndex, block });
       }
     }
@@ -209,8 +263,10 @@ export function presentSessionTurn(turn: SessionTurn, live: boolean): SessionTur
   };
 }
 
-export function parseToolInput(input: string | undefined): JsonRecord | null {
+export function parseToolInput(input: unknown): JsonRecord | null {
   if (!input) return null;
+  if (typeof input === "object" && !Array.isArray(input)) return input as JsonRecord;
+  if (typeof input !== "string") return null;
   try {
     const parsed = JSON.parse(input);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as JsonRecord) : null;
@@ -253,7 +309,7 @@ export function sessionToolSummary(block: SessionBlock): string {
   }
   return compact(
     stringField(input, "description", "query", "url", "path", "file_path", "command", "cmd", "pattern", "prompt") ||
-      block.input
+      (typeof block.input === "string" ? block.input : JSON.stringify(block.input))
   );
 }
 
@@ -297,7 +353,8 @@ export function hasVisibleSessionActivity(events: SessionEvent[]): boolean {
           (block.type === "error" && typeof block.text === "string" && block.text.trim() !== "") ||
           (block.type === "turn_end" && typeof block.result === "string" && block.result.trim() !== "") ||
           block.type === "thinking" ||
-          block.type === "tool_use"
+          block.type === "tool_use" ||
+          block.type === "permission_request"
       )
   );
 }

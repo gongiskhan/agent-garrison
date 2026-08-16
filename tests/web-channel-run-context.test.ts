@@ -44,6 +44,8 @@ type TurnScript = { status?: number; frames?: string[] };
 let turnScript: TurnScript = {};
 let lastChatBody: any = null;
 let lastInterruptBody: any = null;
+let lastPermissionBody: any = null;
+let permissionStatus = 200;
 let routeOptionsMode: "ok" | "fail" = "ok";
 let routeOptionsHits = 0;
 
@@ -93,6 +95,12 @@ beforeAll(async () => {
       lastInterruptBody = JSON.parse((await readBody(req)) || "{}");
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, lane: "agent-sdk" }));
+      return;
+    }
+    if (url.startsWith("/chat/permission") && req.method === "POST") {
+      lastPermissionBody = JSON.parse((await readBody(req)) || "{}");
+      res.writeHead(permissionStatus, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(permissionStatus === 200 ? { ok: true, decision: lastPermissionBody.decision } : { error: "permission request unavailable" }));
       return;
     }
     if (url.startsWith("/route/options") && req.method === "GET") {
@@ -524,6 +532,69 @@ describe("POST /api/chat/interrupt - the thread id IS the gateway session key", 
     expect(lastInterruptBody).toEqual({ sessionId: "sess-explicit" });
     await fetch(api("/api/chat/interrupt"), { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(lastInterruptBody).toEqual({ sessionId: "web" });
+  });
+});
+
+describe("POST /api/threads/:id/permissions/:requestId - exact live resolver proxy", () => {
+  it("verifies the thread and forwards only the exact generation-bound tuple", async () => {
+    const id = "chat-permission-proxy";
+    const requestId = "request / one";
+    await threads.ensureThread({ id });
+    const response = await fetch(api(`/api/threads/${encodeURIComponent(id)}/permissions/${encodeURIComponent(requestId)}`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ generationId: "generation-1", decision: "allow_once" }),
+    });
+    expect(response.status).toBe(200);
+    expect(lastPermissionBody).toEqual({
+      threadId: id,
+      generationId: "generation-1",
+      requestId,
+      decision: "allow_once",
+    });
+  });
+
+  it("rejects unknown threads, extra coordinates, and open-ended decisions before proxying", async () => {
+    const before = lastPermissionBody;
+    const unknown = await fetch(api("/api/threads/missing/permissions/request-1"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ generationId: "generation-1", decision: "deny" }),
+    });
+    expect(unknown.status).toBe(404);
+
+    const id = "chat-permission-validation";
+    await threads.ensureThread({ id });
+    const extra = await fetch(api(`/api/threads/${id}/permissions/request-1`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ generationId: "generation-1", decision: "deny", threadId: id }),
+    });
+    expect(extra.status).toBe(400);
+    const invalid = await fetch(api(`/api/threads/${id}/permissions/request-1`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ generationId: "generation-1", decision: "allow" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(lastPermissionBody).toBe(before);
+  });
+
+  it("preserves a gateway 409 for a durable prompt whose live resolver is gone", async () => {
+    const id = "chat-permission-restart";
+    await threads.ensureThread({ id });
+    permissionStatus = 409;
+    try {
+      const response = await fetch(api(`/api/threads/${id}/permissions/request-stale`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ generationId: "generation-before-restart", decision: "deny" }),
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "permission request unavailable" });
+    } finally {
+      permissionStatus = 200;
+    }
   });
 });
 

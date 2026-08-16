@@ -1230,6 +1230,9 @@ export class RoutedGateway {
   //                   conversation.
   //   onEvent(event) - channel-neutral structured session event observer.
   //   turnId         - caller-owned stable turn identity attached by the adapter.
+  //   generationId   - caller-owned permission-control generation identity.
+  //   permissionMode - trusted SDK mode override; omitted remains bypass.
+  //   onPermissionRequest(request,{signal}) - resolves one SDK tool prompt.
   //   onActivity({kind,name,id}) - tool_use liveness (the `activity` SSE frame).
   //   registerStop(stop)         - hands the caller a real cancel primitive for
   //                   THIS turn's session (adapter.cancel aborts the stashed query).
@@ -1269,7 +1272,7 @@ export class RoutedGateway {
       // Paymaster account pin) — the SDK replaces the subprocess env, so an
       // empty baseEnv would strip config-dir isolation and the account token.
       env: process.env,
-      permissionMode: "bypassPermissions",
+      permissionMode: opts.permissionMode ?? "bypassPermissions",
     };
     // Every target-owned execution knob participates in session identity. A live
     // manifest edit from lean → full (or maxTurns/tool-policy changes) must spawn
@@ -1339,6 +1342,8 @@ export class RoutedGateway {
       // transport boundary and must not reshape channel-neutral events.
       onEvent: opts.onEvent,
       turnId: opts.turnId,
+      generationId: opts.generationId,
+      onPermissionRequest: opts.onPermissionRequest,
       onSession: reportJournalSession,
       onText: onChunk ? (text) => onChunk(text, true) : undefined,
       onTool: typeof opts.onActivity === "function" ? (tool) => opts.onActivity({ kind: "tool", ...tool }) : undefined,

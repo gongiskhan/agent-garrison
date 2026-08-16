@@ -5,6 +5,7 @@
 //   - POST /api/chat            → proxies gateway POST /chat/stream (SSE)
 //   - GET  /api/stream          → proxies gateway GET  /channels/web/stream (SSE)
 //   - POST /api/chat/interrupt  → proxies gateway POST /chat/interrupt (Stop)
+//   - POST /api/threads/:id/permissions/:requestId → generation-bound SDK decision
 //   - GET  /api/route-options   → gateway GET /route/options + the board's /projects
 // Also serves a static React bundle from dist/.
 //
@@ -1212,6 +1213,45 @@ async function handleThreadRoutingPut(req, res, id) {
   jsonRes(res, 200, { routing: await setThreadRouting(id, raw) });
 }
 
+const PERMISSION_DECISIONS = new Set(["allow_once", "allow_always", "deny"]);
+
+// Resolve a durable permission prompt against its live gateway callback. The URL
+// supplies the thread + request binding; accepting either coordinate in the body
+// would let a caller accidentally (or deliberately) answer a different prompt.
+async function handleThreadPermission(req, res, opts, id, requestId) {
+  const thread = await getThread(id);
+  if (!thread) return jsonRes(res, 404, { error: "thread not found" });
+  if (typeof requestId !== "string" || !requestId || requestId !== requestId.trim() || requestId.length > 512) {
+    return jsonRes(res, 400, { error: "valid request id required" });
+  }
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return jsonRes(res, 400, { error: "permission decision body must be an object" });
+  }
+  const keys = Object.keys(body).sort();
+  if (keys.length !== 2 || keys[0] !== "decision" || keys[1] !== "generationId") {
+    return jsonRes(res, 400, { error: "only generationId and decision are accepted" });
+  }
+  const generationId = typeof body.generationId === "string" ? body.generationId : "";
+  if (!generationId || generationId !== generationId.trim() || generationId.length > 512) {
+    return jsonRes(res, 400, { error: "valid generationId required" });
+  }
+  if (typeof body.decision !== "string" || !PERMISSION_DECISIONS.has(body.decision)) {
+    return jsonRes(res, 400, { error: "decision must be allow_once, allow_always, or deny" });
+  }
+  return postGatewayJson(res, opts, "/chat/permission", {
+    threadId: id,
+    generationId,
+    requestId,
+    decision: body.decision,
+  });
+}
+
 async function handleThreadDelete(res, id) {
   const ok = await deleteThread(id);
   jsonRes(res, ok ? 200 : 404, { ok });
@@ -1220,7 +1260,7 @@ async function handleThreadDelete(res, id) {
 // Route /api/threads, /api/threads/:id, /api/threads/:id/live and mutations.
 // Returns true
 // when it handled the request.
-function routeThreads(req, res, pathname, method) {
+function routeThreads(req, res, pathname, method, opts) {
   if (pathname === "/api/threads" && method === "GET") { void handleThreadsList(res); return true; }
   if (pathname === "/api/threads" && method === "POST") { void handleThreadCreate(req, res); return true; }
   if (pathname.startsWith("/api/threads/")) {
@@ -1234,6 +1274,10 @@ function routeThreads(req, res, pathname, method) {
     if (id && parts.length === 2 && parts[1] === "messages" && method === "POST") { void handleThreadAppend(req, res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "routing" && method === "GET") { void handleThreadRoutingGet(res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "routing" && method === "PUT") { void handleThreadRoutingPut(req, res, id); return true; }
+    if (id && parts.length === 3 && parts[1] === "permissions" && parts[2] && method === "POST") {
+      void handleThreadPermission(req, res, opts, id, parts[2]);
+      return true;
+    }
   }
   return false;
 }
@@ -1702,7 +1746,7 @@ async function handleNotify(req, res, opts) {
       if (pathname === "/api/route-options" && method === "GET") return handleRouteOptions(req, res, liveOpts);
       if (pathname === "/api/brief" && method === "GET") return handleBriefGet(res, parsed.query.path);
       if (pathname === "/api/brief" && method === "PUT") return handleBriefPut(req, res);
-      if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method)) return;
+      if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method, liveOpts)) return;
       if (pathname === "/api/claude/stream" && method === "GET") return handleClaudeStream(req, res, liveOpts);
       if (pathname === "/api/claude/status" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "status", "GET");
       if (pathname === "/api/claude/commands" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "commands", "GET");

@@ -507,8 +507,17 @@ standalone unit on the same jobs file double-fires every scheduled job.
 
 ## Permissions
 
-- **Permission mode is `bypassPermissions`.** Anything stricter
-  hangs because the UI has no permission-prompt surface yet.
+- **Only a streamed Web Agent SDK turn with a durable thread uses
+  `permissionMode: "default"`.** Its blocking `canUseTool` requests become
+  durable, generation-bound permission cards with explicit Deny, Allow once,
+  and SDK-suggested Always allow choices. Approval is unavailable unless the
+  complete tool input is visible; Always allow additionally requires every
+  exact SDK permission update to be visible.
+- **Every non-Web/headless lane remains `bypassPermissions`** — JSON `/chat`,
+  Kanban, scheduler, Slack, dispatch/classification, and PTY execution must not
+  wait on a browser-only control surface. Permission resolver closures are
+  process-local: after a gateway restart the durable pending card remains an
+  honest record, but answering it returns `409` until continuity work lands.
 
 ## Working conventions
 

@@ -192,6 +192,9 @@ const ROUTING_FIELDS = {
 const SESSION_TEXT_CAP = 20_000;
 const SESSION_ID_CAP = 512;
 const SESSION_LABEL_CAP = 1_000;
+const PERMISSION_SUGGESTION_CAP = 64;
+const PERMISSION_STATUSES = new Set(["pending", "resolved", "cancelled"]);
+const PERMISSION_DECISIONS = new Set(["allow_once", "allow_always", "deny"]);
 const SESSION_BLOCK_TYPES = new Set([
   "text",
   "thinking",
@@ -533,29 +536,60 @@ export function sanitizeSessionBlock(raw) {
   // nested PermissionUpdate list, sanitized recursively without changing its JSON
   // shape. Revisions can update status/decision fields without moving the event.
   const requestId = cleanSessionId(raw.requestId);
+  const generationId = cleanSessionId(raw.generationId);
   const name = cleanSessionLabel(raw.name, 200);
-  if (!requestId || !name || !Object.hasOwn(raw, "input")) return null;
+  const status = PERMISSION_STATUSES.has(raw.status) ? raw.status : null;
+  const inputComplete = typeof raw.inputComplete === "boolean" ? raw.inputComplete : null;
+  const suggestionsComplete = typeof raw.suggestionsComplete === "boolean" ? raw.suggestionsComplete : null;
+  if (!requestId || !generationId || !name || !status || inputComplete === null || suggestionsComplete === null || !Object.hasOwn(raw, "input")) return null;
   const input = typeof raw.input === "string" ? capSessionText(raw.input) : sanitizeSessionJson(raw.input);
   if (input === null || input === INVALID_SESSION_VALUE) return null;
+  if (inputComplete && JSON.stringify(input) !== JSON.stringify(raw.input)) return null;
   const toolUseId = cleanOptionalId(raw.toolUseId, Object.hasOwn(raw, "toolUseId"));
   if (toolUseId === INVALID_SESSION_VALUE) return null;
+  const hasDecision = Object.hasOwn(raw, "decision");
+  const decision = hasDecision && PERMISSION_DECISIONS.has(raw.decision) ? raw.decision : null;
+  if (hasDecision && !decision) return null;
+  // A resolved prompt is actionable history only with its exact decision. Pending
+  // and cancelled prompts must not carry a stale answer from an earlier revision.
+  if ((status === "resolved") !== Boolean(decision)) return null;
   const out = {
     type,
     requestId,
+    generationId,
     ...(toolUseId !== undefined ? { toolUseId } : {}),
     name,
     input,
+    inputComplete,
+    suggestionsComplete,
+    status,
+    ...(decision ? { decision } : {}),
   };
   if (!copyOptionalText(out, raw, "title")) return null;
+  if (!copyOptionalLabel(out, raw, "displayName", 200)) return null;
   if (!copyOptionalText(out, raw, "description")) return null;
-  if (!copyOptionalLabel(out, raw, "status", 200)) return null;
-  if (!copyOptionalLabel(out, raw, "decision", 200)) return null;
+  if (!copyOptionalLabel(out, raw, "blockedPath", 2_000)) return null;
+  if (!copyOptionalLabel(out, raw, "agentId")) return null;
   if (!copyOptionalText(out, raw, "reason")) return null;
   if (Object.hasOwn(raw, "suggestions")) {
-    const suggestions = sanitizeSessionJson(raw.suggestions);
+    if (!Array.isArray(raw.suggestions)) return null;
+    // A complete disclosure must fit the same bound enforced by the producer;
+    // otherwise reject the event instead of persisting a deceptively partial
+    // approval surface. Incomplete diagnostics may retain a bounded preview,
+    // but their false flag keeps every persistent approval path disabled.
+    if (suggestionsComplete && raw.suggestions.length > PERMISSION_SUGGESTION_CAP) return null;
+    const suggestions = sanitizeSessionJson(
+      suggestionsComplete ? raw.suggestions : raw.suggestions.slice(0, PERMISSION_SUGGESTION_CAP)
+    );
     if (suggestions === INVALID_SESSION_VALUE || !Array.isArray(suggestions)) return null;
+    if (suggestionsComplete && JSON.stringify(suggestions) !== JSON.stringify(raw.suggestions)) return null;
     out.suggestions = suggestions;
   }
+  if (decision === "allow_once" && !inputComplete) return null;
+  if (
+    decision === "allow_always" &&
+    (!inputComplete || !suggestionsComplete || !Array.isArray(out.suggestions) || out.suggestions.length === 0)
+  ) return null;
   return out;
 }
 

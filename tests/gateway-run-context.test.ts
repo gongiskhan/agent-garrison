@@ -376,6 +376,89 @@ describe("the effort vocabulary cannot drift from dutyEfforts", () => {
   });
 });
 
+describe("generation-safe Web permission control", () => {
+  it("enables default permission mode only for a named Web thread", () => {
+    expect(gw.permissionModeForHints({ channel: "web", sessionId: "thread-1" })).toBe("default");
+    for (const hints of [
+      { channel: "web", sessionId: "" },
+      { channel: "web", sessionId: "   " },
+      { channel: "web", sessionId: " thread-1 " },
+      { channel: "web" },
+      { channel: "kanban", sessionId: "thread-1" },
+      null,
+    ]) {
+      expect(gw.permissionModeForHints(hints)).toBe("bypassPermissions");
+    }
+  });
+
+  it("binds multiple one-shot resolvers to the exact thread, generation, and request", async () => {
+    let id = 0;
+    const control = gw.createPermissionControlPlane({ generateId: () => `generation-${++id}` });
+    const generationId = control.openGeneration("thread-a");
+    const first = control.awaitDecision("thread-a", generationId, {
+      requestId: "request-1", generationId, inputComplete: true, suggestionsComplete: true, suggestions: [],
+    });
+    const second = control.awaitDecision("thread-a", generationId, {
+      requestId: "request-2", generationId, inputComplete: true, suggestionsComplete: true, suggestions: [{ type: "addRules" }],
+    });
+    await expect(control.awaitDecision("thread-a", generationId, {
+      requestId: "request-1", generationId, inputComplete: true, suggestionsComplete: true, suggestions: [],
+    }))
+      .rejects.toMatchObject({ code: "permission_request_conflict" });
+    await expect(control.awaitDecision("thread-a", generationId, {
+      requestId: "request-wrong-generation", generationId: "generation-other", inputComplete: true, suggestionsComplete: true,
+    })).rejects.toMatchObject({ code: "permission_generation_unavailable" });
+
+    expect(control.decide({ threadId: "thread-b", generationId, requestId: "request-1", decision: "allow_once" }).status).toBe(409);
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-2", decision: "allow_always" }).status).toBe(200);
+    expect(await second).toBe("allow_always");
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-2", decision: "deny" }).status).toBe(409);
+
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-1", decision: "allow_always" }).status).toBe(422);
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-1", decision: "allow_once" }).status).toBe(200);
+    expect(await first).toBe("allow_once");
+
+    const incomplete = control.awaitDecision("thread-a", generationId, {
+      requestId: "request-incomplete", generationId, inputComplete: false, suggestionsComplete: false, suggestions: [{ type: "addRules" }],
+    });
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-incomplete", decision: "allow_once" }).status).toBe(422);
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-incomplete", decision: "allow_always" }).status).toBe(422);
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-incomplete", decision: "deny" }).status).toBe(200);
+    expect(await incomplete).toBe("deny");
+
+    const partialSuggestions = control.awaitDecision("thread-a", generationId, {
+      requestId: "request-partial-suggestions", generationId, inputComplete: true, suggestionsComplete: false, suggestions: [{ type: "addRules" }],
+    });
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-partial-suggestions", decision: "allow_always" }).status).toBe(422);
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-partial-suggestions", decision: "allow_once" }).status).toBe(200);
+    expect(await partialSuggestions).toBe("allow_once");
+  });
+
+  it("rejects malformed decisions and treats restart, abort, and teardown as unavailable without auto-denying", async () => {
+    const control = gw.createPermissionControlPlane({ generateId: () => "generation-live" });
+    const generationId = control.openGeneration("thread-a");
+    const abort = new AbortController();
+    const aborted = control
+      .awaitDecision("thread-a", generationId, { requestId: "request-abort", generationId, inputComplete: true, suggestionsComplete: true, suggestions: [] }, { signal: abort.signal })
+      .then(() => null, (error: any) => error);
+    abort.abort();
+    expect((await aborted)?.name).toBe("AbortError");
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-abort", decision: "deny" }).status).toBe(409);
+
+    const closed = control
+      .awaitDecision("thread-a", generationId, { requestId: "request-close", generationId, inputComplete: true, suggestionsComplete: true, suggestions: [] })
+      .then(() => null, (error: any) => error);
+    expect(control.closeGeneration(generationId)).toBe(true);
+    expect((await closed)?.name).toBe("AbortError");
+    expect(control.decide({ threadId: "thread-a", generationId, requestId: "request-close", decision: "deny" }).status).toBe(409);
+
+    const restarted = gw.createPermissionControlPlane({ generateId: () => "generation-after-restart" });
+    expect(restarted.decide({ threadId: "thread-a", generationId, requestId: "request-close", decision: "deny" }).status).toBe(409);
+    expect(restarted.decide({ threadId: "thread-a", generationId, requestId: "request-close", decision: "yes" }).status).toBe(400);
+    expect(restarted.decide({ threadId: "thread-a", generationId, requestId: "request-close", decision: "deny", extra: true }).status).toBe(400);
+  });
+});
+
 // ── §7 the pin honored on the route, with reasons for everything refused ──────
 const CONFIG = {
   version: 1,
@@ -952,6 +1035,25 @@ describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, 
     // Read from <compositionDir>/.env at call time — no vault master key here.
     expect(adapter.spawned[0].secrets?.ANTHROPIC_ACCOUNT__work).toBe("sk-ant-oat01-work-token");
   });
+
+  it("keeps bypass as the default and forwards trusted permission controls unchanged", async () => {
+    const adapter = new FakeAgentSdk();
+    const gateway = bareGateway(adapter);
+    const onPermissionRequest = () => Promise.resolve("allow_once");
+
+    await gateway.runAgentSdkTurn(sdkRoute(), "legacy", undefined, { sessionKey: "legacy-thread" });
+    await gateway.runAgentSdkTurn(sdkRoute(), "web", undefined, {
+      sessionKey: "web-thread",
+      permissionMode: "default",
+      generationId: "generation-web",
+      onPermissionRequest,
+    });
+
+    expect(adapter.spawned.map((config) => config.permissionMode)).toEqual(["bypassPermissions", "default"]);
+    expect(adapter.hooks[0]).toMatchObject({ generationId: undefined, onPermissionRequest: undefined });
+    expect(adapter.hooks[1].generationId).toBe("generation-web");
+    expect(adapter.hooks[1].onPermissionRequest).toBe(onPermissionRequest);
+  });
 });
 
 describe("secondary (codex/gemini) lane: cancel is feature-detected (§9)", () => {
@@ -1251,6 +1353,30 @@ describe("GET /route/options + POST /chat/interrupt over real HTTP, while the op
     });
     expect(r.status).toBe(404);
     await expect(r.json()).resolves.toMatchObject({ ok: false, error: "no-active-turn" });
+  });
+
+  it("validates permission decisions before readiness and reports missing live handles as 409", async () => {
+    const malformed = await fetch(`http://127.0.0.1:${port}/chat/permission`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+    expect(malformed.status).toBe(400);
+
+    const invalid = await fetch(`http://127.0.0.1:${port}/chat/permission`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ threadId: "thread-a", generationId: "generation-old", requestId: "request-1", decision: "allow" }),
+    });
+    expect(invalid.status).toBe(400);
+
+    const stale = await fetch(`http://127.0.0.1:${port}/chat/permission`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ threadId: "thread-a", generationId: "generation-before-restart", requestId: "request-1", decision: "deny" }),
+    });
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({ code: "permission_request_unavailable" });
   });
 });
 
