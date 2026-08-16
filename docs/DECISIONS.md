@@ -828,3 +828,25 @@ part of this decision.
 **Source:** `fittings/seed/kanban-loop/lib/{personal-workspace,personal-memory-outbox}.mjs`,
 `fittings/seed/basic-memory/scripts/consume-kanban-completions.mjs`, and the
 personal scope/workspace/memory test suites. **Status:** Settled.
+
+## 2026-08-16 · A rotating credential is linked into a runtime home, never copied
+
+Garrison isolates each instance's `CODEX_HOME` and seeded it by COPYING the box's
+`~/.codex/auth.json` — in the codex-runtime setup hook, in `importNativeLogin`
+("adopt this box's login as an account"), and into two throwaway harness homes.
+A ChatGPT credential rotates: refreshing mints a new refresh token and kills the
+old, and presenting a superseded one reads as replay, which revokes the entire
+family. So the copies were not two logins but a race that logged the host out of
+Codex five times between 2026-07-22 and 2026-08-16.
+
+One machine, one login, one credential file. The isolated home now SYMLINKS the
+box's `auth.json` (verified against codex-cli 0.147.0: the CLI writes through the
+link, so it survives a login and a refresh) and repairs a home already holding a
+duplicate, while never clobbering a file belonging to a different identity.
+`config.toml` is still copied — it is settings, and per-instance divergence is the
+point. `importNativeLogin` refuses a rotating credential and names the honest
+alternatives: Machine login to run as this box (the default, needing no account),
+Device login to mint a named account its own credential; a bare API key stays
+importable because copying a static credential is inert.
+
+**Source:** [`docs/decisions/2026-08-16-rotating-credentials-are-linked-never-copied.md`](./decisions/2026-08-16-rotating-credentials-are-linked-never-copied.md). **Status:** Settled.

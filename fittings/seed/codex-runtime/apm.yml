@@ -79,16 +79,13 @@ x-garrison:
       - logs
   setup:
     # Provision the isolated CODEX_HOME the launcher points `codex exec` at
-    # ($GARRISON_HOME/runtime-homes/codex). The Codex CLI errors ("Error finding
-    # codex home") when the dir is absent, which parks any adversarial-review /
-    # adversarial-test phase routed to a codex target. Idempotently create it and
-    # seed auth.json + config.toml from the user's real ~/.codex when missing, so
-    # a fresh GARRISON_HOME comes up with a working Codex runtime.
-    command: >-
-      node -e "const fs=require('fs'),os=require('os'),p=require('path');const
-      h=process.env.CODEX_HOME;if(h){fs.mkdirSync(h,{recursive:true});for(const f of
-      ['auth.json','config.toml']){const dst=p.join(h,f),src=p.join(os.homedir(),'.codex',f);if(!fs.existsSync(dst)&&fs.existsSync(src))fs.copyFileSync(src,dst);}}"
-      && echo codex-runtime-ready
+    # ($GARRISON_HOME/runtime-homes/codex): create the dir (the Codex CLI errors
+    # "Error finding codex home" without it) and SYMLINK the box's auth.json into
+    # it. The link is not a style choice - a ChatGPT credential holds a rotating
+    # refresh token, so a copy makes two homes race and OpenAI revokes both. See
+    # the script's header. Idempotent, and it repairs a home already holding a
+    # duplicate copy.
+    command: node scripts/provision-home.mjs
     idempotent: true
     timeout_ms: 10000
   verify:

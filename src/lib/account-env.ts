@@ -386,6 +386,27 @@ export function parseAuthFile(
   return { ok: true, value };
 }
 
+/**
+ * Does this credential carry a ROTATING refresh token — one the CLI trades in
+ * for a new one and thereby invalidates?
+ *
+ * This is the line between a credential that may be copied and one that may
+ * only be linked. An OAuth subscription login rotates: the moment a second
+ * holder refreshes, the first holder's token is dead, and presenting a
+ * superseded token reads as replay, which revokes the whole family. A bare API
+ * key rotates never — copying one is inert.
+ *
+ * Garrison learned this the hard way: seeding a copy of `~/.codex/auth.json`
+ * into an isolated CODEX_HOME logged the box out of Codex repeatedly between
+ * 2026-07-22 and 2026-08-16.
+ */
+export function isRotatingCredential(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.refresh_token === "string" ||
+    typeof (value.tokens as Record<string, unknown> | undefined)?.refresh_token === "string"
+  );
+}
+
 /** Normalize a possibly-absent platform to a concrete one (legacy rows = anthropic). */
 export function normalizePlatform(value: unknown): AccountPlatform {
   return isAccountPlatform(value) ? value : "anthropic";

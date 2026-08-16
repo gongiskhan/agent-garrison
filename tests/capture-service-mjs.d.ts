@@ -150,7 +150,9 @@ declare module "*/capture-service/lib/notify.mjs" {
     cfg: Record<string, unknown>;
     apns: unknown;
     cardUrl(cardId: string | null): Promise<string | null>;
-    sentToday(): number;
+    // Two budgets since the 2026-08-15 "no feedback" incident: routine ack
+    // fan-out can no longer starve the pushes that answer a spoken command.
+    sentToday(priority?: "routine" | "interactive"): number;
     alreadyDelivered(idempotencyKey: string | null): boolean;
     markDelivered(idempotencyKey: string | null): void;
     send(args: { template: string; params?: Record<string, unknown> }): Promise<Array<Record<string, unknown> & { means: string; ok: boolean }>>;
