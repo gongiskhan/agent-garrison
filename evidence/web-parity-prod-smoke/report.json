@@ -20,9 +20,9 @@
         "completed",
         "completed"
       ],
-      "reply": "`/etc/hostname` doesn't exist on this box, so `cksum` printed no number — it exited 1 with:\n\n```\ncksum: /etc/hostname: No such file or directory\n```\n\nWant me to try another source for the hostname (e."
+      "reply": "`cksum /etc/hostname` didn't print a number — the file doesn't exist on this box:\n\n```\ncksum: /etc/hostname: No such file or directory\n```\n\n(exit code 1). If you want a checksum of the hostname itself"
     }
   },
   "consoleErrors": [],
-  "threadId": "chat-mswu6qrz-d0hqpt"
+  "threadId": "chat-mswyitfu-sudl4h"
 }
