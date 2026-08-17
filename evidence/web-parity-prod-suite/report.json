@@ -2,10 +2,10 @@
   "webOrigin": "https://dev-madrid.tail31efa.ts.net:8483",
   "appOrigin": "https://dev-madrid.tail31efa.ts.net",
   "threads": [
-    "chat-mswzdhbm-h08zrp",
-    "chat-mswzdu8x-utyj72",
-    "chat-mswze2il-5ejlbb",
-    "chat-mswze53z-ihrt9z"
+    "chat-mswzvw8u-hcxfas",
+    "chat-mswzw9sq-u90n5i",
+    "chat-mswzwi33-yv2ive",
+    "chat-mswzwknt-neazq5"
   ],
   "passed": 7,
   "failed": 0,
@@ -57,7 +57,7 @@
         "eventsAfter": 21,
         "sessionsBefore": 1,
         "sessionsAfter": 1,
-        "recalled": "You asked me to reply with exactly \"desktop turn ok\".\n\n[route: cc-haiku | rule: duty:other/level:1 | profile: personal]\n",
+        "recalled": "You asked me to reply with exactly the phrase \"desktop turn ok\".\n\n[route: cc-haiku | rule: other-1 | profile: personal]\n",
         "recalledTheFirstAsk": true
       }
     },
