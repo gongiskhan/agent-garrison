@@ -42,7 +42,7 @@ The legacy target ids remain unchanged so authored matrix references and sticky 
 | M5 — Continuity | done | atomic no-replay restart reconciliation; exact SDK resume/cold-generation barrier; full-chain JSONL recovery; authoritative transcript snapshots; stale-control hardening; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 388 tests; full suite 520 files / 5,855 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Normalize typed route and failure state without weakening exact generation ownership. |
 | M6 — Routes/errors | done | effort-free spawn signature and logical session epoch; typed route/retry/rate-limit/failure/terminal events; exact Web settlement and recovery; shared notices and route-save UX; rebuilt Web/Dev Env/Kanban assets | 18 focused files / 479 tests; full suite 520 files / 5,922 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Remove hidden user-message prefixes while retaining exact signed native resume and explicit clean boundaries. |
 | M7 — Prefix guard | done | exact Web text/typed effort; no materialized context; signed frozen SDK assembly; exact resume or clean boundary; routed-ingress isolation; rebuilt Web/Dev Env/Kanban assets | 20 focused files / 439 tests; full suite 522 files / 5,960 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, diff, and final adversarial checks green | Run the bounded M8 live validation only after explicit authorization. |
-| M8 — Live validation | pending | — | — | Await offline milestones. |
+| M8 — Live validation | headless done; live pending | `tests/e2e/web-channel-session-parity.spec.ts` (new), `playwright.web-channel.config.ts`, web-channel `ui/main.tsx` + `ui/styles.css` (phone composer defect) | 33 Playwright checks green across desktop/tablet/iPhone viewports; full suite 522 files / 5,960 tests green; typecheck, 3 consumer builds, diff check green | Redeploy prod onto this branch and run the three live side-by-side scenarios. |
 | M9 — Report | pending | — | — | Await M8. |
 
 ## M0 — Gap map
@@ -397,6 +397,64 @@ The canonical transcript vocabulary is the dependency-free `SessionEvent` shape 
   adversarial review are green.
 - No process was deployed, no live thread/card was mutated, and no additional live
   model session was launched.
+
+## M8 — Live validation
+
+### Headless full-stack gate (`tests/e2e/web-channel-session-parity.spec.ts`)
+
+The component suites already drive the renderer in real Chromium; what had no
+coverage was the wiring BETWEEN the real processes. This spec boots the real
+`web-channel-default/scripts/server.mjs` against a fake gateway that speaks the
+post-M7 contract (one opaque generation per streamed turn, canonical
+`session_event` frames, exact-tuple permission answers, exact-generation
+interrupt, and the `/chat/generation` + `/chat/recover` restart-recovery pair)
+and drives the shipped browser bundle. Every check asserts BOTH ends — what the
+page renders and what the gateway actually received — so a UI that merely looks
+right cannot pass.
+
+| Check | Proves |
+|---|---|
+| streams text, thinking, and a tool call whose result attaches after later text | streamed revisions collapse into ONE paragraph, thinking renders collapsibly, a late `tool_result` attaches to its own call, input + result + inline base64 image all reachable, and every canonical event id lands in durable thread state |
+| inline permission prompt, answered, exact decision delivered | pending card with the exact disclosed input, Deny / Allow once / Always allow, and the gateway receiving `{threadId, generationId, requestId, decision}` — never browser-supplied input |
+| pending prompt survives a page reload | the prompt is durable thread state, still answerable after reload, and Always-allow stays unavailable while the persistent change set is incomplete |
+| Stop interrupts the running turn, the thread keeps working | exact-generation interrupt at the gateway, cancelled settlement, and a following message opening a new generation on the same thread |
+| mid-turn message is queued and delivered in order | Send becomes an explicit Queue, the queued turn is visibly queued, the gateway sees exactly one turn until the first settles, and both exchanges persist in FIFO order |
+| web-channel restart backfills history and resumes the chain | a real process kill/restart on the same home + port, full backfill from durable state (not the dead SSE tail), and the next turn carrying `agentSdkResume` for the stored session id |
+| the composer stays hittable at every viewport | regression guard for the phone defect below: `elementFromPoint` at the centre of the textarea and Send must hit those controls, then a real send round-trips |
+| rate limit and runtime failure are distinct, actionable events | separately labelled "Rate limit warning" (with usage window + reset time) and "Runtime error" (with its code), and a composer that returns to Send rather than a hanging spinner |
+
+`playwright.web-channel.config.ts` now matches this spec too, so it runs under
+all three projects of the base config — including the 390x844 iPhone-UA project,
+which is the PWA requirement.
+
+### Defect found by the iPhone-viewport run: the push notice covered the composer
+
+The first full-viewport run failed **every** mobile check, including the two
+pre-existing `web-channel-chat.spec.ts` ones. Cause: the push-notification pills
+(`.wc-push-notice`, `.wc-push-toast`, and the inline-styled "Enable
+notifications" pill) were `position: fixed; bottom: 12px` — the viewport bottom
+is exactly where the composer lives. At 390px the composer is full width, so
+"Notifications blocked — enable them in browser settings" sat ON the message box
+and its Send button: on a phone the app's primary control was unusable until the
+notice was dismissed. This is user-visible in the shipped build, not a test
+artifact.
+
+Fix: the pills now ride above the composer via a measured
+`--wc-composer-inset`, and the enrol pill moved from inline styles to the same
+class. The first attempt measured 0px, because a `ResizeObserver` bound to the
+first `.cc-composer` keeps reporting a detached node after the chat remounts
+(hydration / thread switch / settle) — so the published inset re-resolves the
+element on DOM changes, coalesced to one measure per frame.
+
+### M8 headless verification
+
+- `npx playwright test --config playwright.web-channel.config.ts` — **33 passed**
+  (11 checks × desktop-chromium / tablet / mobile), 0 failed.
+- Repository-wide `npm test` — **522 files, 5,960 tests passed; 6 files / 21
+  opt-in tests skipped**. `npm run typecheck`, the three consumer UI builds, and
+  `git diff --check` are green.
+- No live model session was launched for this half; the fake gateway replays the
+  M1 fixture vocabulary.
 
 ## Resolved questions
 

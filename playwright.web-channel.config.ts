@@ -11,5 +11,5 @@ export default {
   ...base,
   globalSetup: undefined,
   webServer: undefined,
-  testMatch: /web-channel-chat\.spec\.ts$/,
+  testMatch: /web-channel-(chat|session-parity)\.spec\.ts$/,
 };

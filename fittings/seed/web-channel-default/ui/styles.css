@@ -1207,16 +1207,25 @@ body {
 
 /* Push permission notices are informational once the browser has denied or
    withheld the API. Keep a separate close target so dismissal never retries or
-   mutates browser permission state. */
+   mutates browser permission state.
+
+   Every pill rides ABOVE the composer (--wc-composer-inset, measured by
+   PushEnroller). Pinned to the raw viewport bottom they sat ON the composer:
+   at phone width that hid the message box and its Send button entirely, so the
+   app could not be used until the notice was dismissed. */
 .wc-push-notice,
-.wc-push-toast {
+.wc-push-toast,
+.wc-push-pill {
   position: fixed; left: 12px; z-index: 41; display: flex; align-items: center; gap: 10px;
   padding: 8px 9px 8px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
   background: rgba(20,24,28,.94); color: #d7dde3; font: 500 12px/1.25 system-ui, sans-serif;
   box-shadow: 0 8px 26px rgba(0,0,0,.22);
+  bottom: calc(var(--wc-composer-inset, 0px) + 12px);
+  max-width: calc(100vw - 24px);
 }
-.wc-push-notice { bottom: 12px; }
-.wc-push-toast { right: 12px; bottom: 56px; border-radius: 10px; font-size: 13px; }
+.wc-push-pill { padding: 8px 12px; cursor: pointer; }
+.wc-push-pill:disabled { cursor: default; }
+.wc-push-toast { left: auto; right: 12px; border-radius: 10px; font-size: 13px; }
 .wc-push-notice > span,
 .wc-push-toast > span { min-width: 0; }
 .wc-push-notice > button,

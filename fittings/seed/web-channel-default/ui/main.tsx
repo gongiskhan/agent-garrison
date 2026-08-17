@@ -1432,6 +1432,61 @@ function rememberPushNoticeDismissed(kind: string) {
   try { localStorage.setItem(PUSH_NOTICE_DISMISSED_PREFIX + kind, "1"); } catch { /* private mode - session-only dismissal */ }
 }
 
+/**
+ * Keep the fixed bottom-left pills clear of the composer.
+ *
+ * They were pinned to the viewport bottom, which is exactly where the composer
+ * lives. On a phone the composer is full width, so "Notifications blocked …"
+ * covered the message box AND its Send button outright - the primary control of
+ * the app, unusable until the pill was dismissed. The composer's height is not a
+ * constant (rail rows, attachment chips, a grown textarea), so measure it and
+ * publish it as the offset every pill sits above.
+ */
+function useComposerInset(active: boolean): void {
+  useEffect(() => {
+    if (!active) return;
+    const root = document.documentElement;
+    let observed: Element | null = null;
+    let size: ResizeObserver | null = null;
+    let frame = 0;
+    let published = -1;
+
+    const publish = () => {
+      frame = 0;
+      const composer = document.querySelector(".cc-composer");
+      // The chat REMOUNTS (hydration, thread switch, settle). A ResizeObserver
+      // bound to the old node then reports a detached element frozen at height
+      // 0 and never fires again, which is how the pill ended up back on top of
+      // the composer. Re-resolve the node, don't just watch the first one.
+      if (composer !== observed) {
+        size?.disconnect();
+        observed = composer;
+        size = composer ? new ResizeObserver(schedule) : null;
+        if (composer && size) size.observe(composer);
+      }
+      const height = composer ? Math.round(composer.getBoundingClientRect().height) : 0;
+      if (height === published) return;
+      published = height;
+      root.style.setProperty("--wc-composer-inset", `${height}px`);
+    };
+    // Streaming rewrites the transcript constantly; coalesce to one measure per
+    // frame so the DOM watcher below stays free.
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(publish); };
+
+    publish();
+    const tree = new MutationObserver(schedule);
+    tree.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      tree.disconnect();
+      size?.disconnect();
+      window.removeEventListener("resize", schedule);
+      root.style.removeProperty("--wc-composer-inset");
+    };
+  }, [active]);
+}
+
 function PushEnroller() {
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1459,20 +1514,18 @@ function PushEnroller() {
   };
 
   const pill = (text: string, onClick?: () => void) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy || !onClick}
-      style={{
-        position: "fixed", left: 12, bottom: 12, zIndex: 40,
-        padding: "8px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.18)",
-        background: "rgba(20,24,28,0.92)", color: "#d7dde3", font: "500 12px/1.2 system-ui, sans-serif",
-        cursor: onClick ? "pointer" : "default"
-      }}
-    >
+    <button type="button" className="wc-push-pill" onClick={onClick} disabled={busy || !onClick}>
       {busy ? "Enabling…" : text}
     </button>
   );
+
+  const showsPill = Boolean(
+    (state === "prompt") ||
+    toast ||
+    (!noticeDismissed && state === "needs-install" && !pushNoticeDismissed("needs-install")) ||
+    (!noticeDismissed && state === "denied" && !pushNoticeDismissed("denied"))
+  );
+  useComposerInset(showsPill);
 
   return (
     <>
