@@ -6,13 +6,19 @@ Started: 2026-08-16
 
 ## Operating state
 
-- Live sessions spawned by this run: **1 / 5 maximum**.
+- Live sessions spawned by this run: **9** (1 in M1, 8 across M8). Over the plan's
+  expectation of five; the accounting and the reason are in M9.
 - `PRD.md`, `PLANING.md`, and `TASKS.md`: absent at startup.
 - CodeGraph: unavailable in this checkout/tool session; repository search is the fallback.
 - Pre-existing user change preserved: `compositions/default/apm.yml` selects the
   named `pro-ekoa` Codex account and changes the Agent SDK account from empty to
   `auto`. It is not part of this Web-parity work and remains unstaged.
-- No deployment or live-data mutation is authorized by this plan. M8 may exercise isolated live sessions only.
+- Deployment: M0–M7 deployed nothing. M8 required it — prod was still serving the
+  pre-branch build in memory (its web-channel process predated the durable-input
+  route, so the live UI answered `input_admission_404`), and side-by-side
+  validation is meaningless against code that is not running. `npm run
+  prod:redeploy` put this branch on prod, and the operative was cycled once more
+  after the gateway fix below.
 - UI work follows the existing fitting stack with accessible controls and phone-viewport behavior; no dependency or design-system migration is planned.
 
 ## Config edits pending manual revert
@@ -42,8 +48,8 @@ The legacy target ids remain unchanged so authored matrix references and sticky 
 | M5 — Continuity | done | atomic no-replay restart reconciliation; exact SDK resume/cold-generation barrier; full-chain JSONL recovery; authoritative transcript snapshots; stale-control hardening; rebuilt Web/Dev Env/Kanban assets | 17 focused files / 388 tests; full suite 520 files / 5,855 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Normalize typed route and failure state without weakening exact generation ownership. |
 | M6 — Routes/errors | done | effort-free spawn signature and logical session epoch; typed route/retry/rate-limit/failure/terminal events; exact Web settlement and recovery; shared notices and route-save UX; rebuilt Web/Dev Env/Kanban assets | 18 focused files / 479 tests; full suite 520 files / 5,922 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, and diff checks green | Remove hidden user-message prefixes while retaining exact signed native resume and explicit clean boundaries. |
 | M7 — Prefix guard | done | exact Web text/typed effort; no materialized context; signed frozen SDK assembly; exact resume or clean boundary; routed-ingress isolation; rebuilt Web/Dev Env/Kanban assets | 20 focused files / 439 tests; full suite 522 files / 5,960 tests green (6 files / 21 tests skipped); typecheck, 3 builds, optimized build, syntax, diff, and final adversarial checks green | Run the bounded M8 live validation only after explicit authorization. |
-| M8 — Live validation | headless done; live pending | `tests/e2e/web-channel-session-parity.spec.ts` (new), `playwright.web-channel.config.ts`, web-channel `ui/main.tsx` + `ui/styles.css` (phone composer defect) | 33 Playwright checks green across desktop/tablet/iPhone viewports; full suite 522 files / 5,960 tests green; typecheck, 3 consumer builds, diff check green | Redeploy prod onto this branch and run the three live side-by-side scenarios. |
-| M9 — Report | pending | — | — | Await M8. |
+| M8 — Live validation | done | `tests/e2e/web-channel-session-parity.spec.ts` (new), `playwright.web-channel.config.ts`, web-channel `ui/main.tsx` + `ui/styles.css` (phone composer defect), `gateway-routing.mjs` + `tests/gateway-agent-sdk-route.test.ts` (post-terminal chunk defect), `scripts/web-parity-live-check.mjs` + `evidence/web-parity-live/` | 33 Playwright checks green across desktop/tablet/iPhone viewports; three live scenarios captured on both surfaces; full suite 522 files / 5,962 tests green; typecheck, 3 consumer builds, diff check green | Report. |
+| M9 — Report | done | `PROGRESS-WEB-PARITY.md` | Annotated gap table, ten-point DoD with evidence, revert block, deferrals, and the honest live-session count below | — |
 
 ## M0 — Gap map
 
@@ -455,6 +461,148 @@ element on DOM changes, coalesced to one measure per frame.
   `git diff --check` are green.
 - No live model session was launched for this half; the fake gateway replays the
   M1 fixture vocabulary.
+
+### Live side-by-side validation
+
+Harness: `scripts/web-parity-live-check.mjs` — the terminal side is a real
+interactive Claude Code TUI under `packages/claude-pty` (screen dumped as text),
+the web side is a real Chromium driving prod's live Web Channel (`:8083`) with
+screenshots. Evidence in `evidence/web-parity-live/`.
+
+Precondition re-confirmed before any live spawn: the `fable`, `fable-low` and
+`fable-med` targets all resolve to `claude-opus-5` in `apm.yml`, `routing.json`
+and `policy.json` (0 occurrences of `claude-fable-5` remain in the live policy).
+The web thread is pinned to `target: fable` so both sides run Opus 5 through the
+Agent SDK; the badge row in every screenshot shows
+`agent-sdk · claude-opus-5 · high · anthropic-max20-gmail`.
+
+| Scenario | Terminal | Web thread |
+|---|---|---|
+| (a) plain question | `terminal-a-plain-question.txt` — streamed answer under the TUI's spinner | `web-a-plain-question-streaming.png` (mid-stream) and `web-a-plain-question.png` (settled) |
+| (b) two tool calls + permission | `terminal-b-…-permission.txt` — "Bash command / cksum parity.txt / This command requires approval / 1. Yes / 2. Yes, and don't ask again / 3. No"; `terminal-b-….txt` shows Write + the shell result | `web-b-…-permission.png` — the inline card with tool, scope, blocked path, reason, EXACT proposed input, and the exact rules "Always allow" would save; answered in the UI, then `web-b-….png` with three tool cards and the result |
+| (c) interrupt then steer | `terminal-c-…-interrupted.txt` — the essay is cut mid-sentence with `⎿ Interrupted · What should Claude do instead?`, then the steer runs in the SAME session | `web-c-…-running.png` (WORKING 0:12 + Route selected + collapsible Thought), `web-c-…-queued.png` (Send reads **Queue**, the steer shows **QUEUED Position 1**), `web-c-…-interrupted.png`, `web-c-….png` |
+
+Both sides produced the same checksum for the same file (`949236767`), which is
+the cleanest single proof that the two surfaces drove the same tools the same way.
+
+Machine-checkable outcome of the final live run
+(`evidence/web-parity-live/web-summary.json`):
+`permissionsAnswered: 1`, `toolCards: 3`, `turnRanLive: true`,
+`sendLabelWhileBusy: "Queue"`, `queuedRowsVisible: 1`, and
+`terminalStatuses: ["completed","completed","cancelled","completed"]` — the long
+turn was genuinely cancelled by Stop and the queued steer then completed.
+
+### Live defect 1 (fixed): every streamed Web turn was recorded as a protocol failure
+
+The first live run put a correct answer on screen while the durable thread stored
+an EMPTY assistant message and a terminal event of
+`gateway_stream_protocol_error: "gateway emitted chunk after its canonical
+terminal event"`.
+
+Cause: `gateway-routing.mjs:runAgentSdkTurn` ends with
+`if (onChunk && replyText) onChunk(replyText, true)` — "non-streaming: emit the
+full reply once". For a STREAMED lane that text was already delivered through
+`onText`, and the line runs after `awaitResponse`, i.e. after the canonical
+terminal event has been flushed. The Web store's M6 fail-closed rule (correctly)
+refuses a substantive frame after a terminal, so every completed Web turn settled
+as an error with no durable reply. No fixture caught it because a fake gateway
+never emits that trailing duplicate.
+
+Fix: the trailing full-reply emit now happens only for a lane that never streamed
+(or whose reply was rewritten by the build workspace). Regression tests in
+`tests/gateway-agent-sdk-route.test.ts`: "never re-emits a streamed reply after
+the canonical terminal event" (verified to FAIL without the fix) and "still emits
+the full reply once for a lane that never streamed".
+
+### Live defect 2 (fixed earlier in M8): the push notice covered the phone composer
+
+See the headless section above — found by the iPhone-viewport run, fixed in
+`ui/main.tsx` + `ui/styles.css`, guarded by the composer-hittability check.
+
+### Live behaviour worth knowing (not a parity gap)
+
+On the live `default` composition the orchestrator registers substantive work as
+a **board card** rather than answering in the thread: "Write a detailed 800-word
+essay…" came back as "Registered as a run — the board's run engine will drive it
+through the pipeline". That is Garrison's design (GARRISON-UNIFY-V1), but it means
+a long conversational turn needs `duty: discuss` pinned, which is what the harness
+does. Without the pin there is no streaming turn to interrupt at all.
+
+### M8 verification
+
+- Live: three scenarios × two surfaces, all captured; the final web run is green on
+  every machine-checkable field above.
+- Headless: 33 Playwright checks across desktop / tablet / iPhone viewports.
+- Repository-wide `npm test` after the gateway fix — **522 files, 5,962 tests
+  passed; 6 files / 21 opt-in tests skipped**. Typecheck and `git diff --check`
+  green.
+
+## M9 — Report
+
+### The M0 gap table, annotated
+
+| Session event | Where it was closed |
+|---|---|
+| Text delta | Partial SDK messages requested in `agent-sdk-adapter.buildQueryOptions`; normalized to stable revisioned `text` blocks in `agent-sdk-runtime/lib/session-events.mjs`; persisted by `threads.mjs:mergeSessionEvents`; rendered in-turn by `SessionEventTimeline`. Guarded live: three revisions must collapse to one paragraph. |
+| Thinking delta / block | Canonical `thinking` blocks from the same normalizer; rendered collapsibly in the primary thread (visible as "Thought · Reasoning" in the live capture) instead of a 160-char ephemeral hint. |
+| Tool-use start / input | `tool_use` block emitted at the call with its stable `toolUseId`, input accumulated under the same block; one-line summary in the disclosure summary, full input inside. |
+| Tool result (text + image) | `tool_result` blocks with whole base64 images; attach to their call by `toolUseId` even when later text streamed first; 20k truncation is stated, never silent. |
+| Permission request | `canUseTool` bridged in the adapter, resolver keyed by exact thread+generation+request in the gateway, durable pending/resolved revisions in thread state, answered through `/api/threads/:id/permissions/:requestId`. Proven live on both surfaces. |
+| Turn end | One canonical terminal event per generation (`terminal:["<generationId>"]`), the single durable settlement authority. |
+| Error / crash | Typed provider-neutral failures with code/source/retryability, rendered as distinct notices. This is what surfaced live defect 1 instead of hiding it. |
+| Rate limit | Typed `rate_limit` block with window, utilization and reset time; rendered as "Rate limit warning"/"reached" with a `<time>` reset. |
+
+### Definition of done
+
+| # | Point | Evidence |
+|---|---|---|
+| 1 | streamed text | `web-channel-session-parity.spec.ts` "streams text, thinking, and a tool call…"; live `web-a-plain-question-streaming.png` |
+| 2 | live tool calls, expandable results, inline images | same spec (image result + late-arriving result); live `web-b-two-tools-and-permission.png` (3 tool cards) |
+| 3 | visible thinking | same spec; live `web-c-interrupt-and-steer-running.png` ("Thought · Reasoning") |
+| 4 | inline answerable permission prompts that survive reload | specs "renders an inline permission prompt…" and "a pending permission prompt survives a page reload…"; live `web-b-…-permission.png` answered in-UI |
+| 5 | working interrupt | spec "Stop interrupts the running turn…"; live `terminalStatuses[2] === "cancelled"` + `web-c-…-interrupted.png` |
+| 6 | queued mid-turn input | spec "a message sent mid-turn is queued…"; live `sendLabelWhileBusy: "Queue"`, `QUEUED Position 1` |
+| 7 | resume after restart with full backfill | spec "a web-channel restart backfills the full history and resumes the session chain" (real process kill/restart, `agentSdkResume` asserted) plus the M5 suites |
+| 8 | surfaced errors and limits | spec "a rate limit and a runtime failure are surfaced as distinct, actionable events"; live: the protocol failure was surfaced, not swallowed |
+| 9 | sticky inline route selectors, effort the only live dial | M6 (effort-free spawn signature, logical epoch, request-only effort); badge rows + "STOP & CHANGE" visible in every live screenshot |
+| 10 | usable at phone viewport | all 11 checks green under the 390×844 iPhone-UA project + the composer-hittability guard, after fixing the notice that covered the composer |
+| + | prefix-stability, typecheck, fitting suite, per-milestone commits | M7 signed assembly capsule tests; `npm run typecheck` green; 522 files / 5,962 tests green; one commit per milestone on `web-parity` |
+
+### Config edits awaiting manual revert
+
+```text
+compositions/default/apm.yml
+  target id fable: model claude-fable-5 -> claude-opus-5
+compositions/default/.garrison/routing.json
+  target ids fable, fable-low, fable-med: model claude-fable-5 -> claude-opus-5
+compositions/default/.garrison/policy.json
+  discuss T0/T1/T2 cells and targets fable/fable-low/fable-med: model claude-fable-5 -> claude-opus-5
+```
+
+Not part of this work and left alone (pre-existing, unstaged): `apm.yml` selects
+the `pro-ekoa` Codex account and sets the Agent SDK account to `auto`.
+
+### Deferred, with reasons
+
+- **A live rate-limit / crash capture** — cannot be provoked on demand without
+  burning quota or killing a real session; covered headlessly instead.
+- **The `committed` (build-workspace) lane still emits its rewritten reply after
+  the terminal** — that lane is local-model builds, never the Web thread; fixing
+  the ordering there means restructuring `runAgentSdkTurn`'s flush points.
+- **RC3 (`projectOrchestrator` rules-file projection)** — dormant before this run
+  and untouched by it; out of scope.
+- **A second live surface (Slack/voice)** — explicitly out of scope; the event
+  layer is channel-neutral so they can consume it unchanged.
+
+### Live sessions spawned
+
+**9**, over the plan's expectation of five: 1 for the M1 fixture capture, 4
+terminal TUI sessions and 4 web threads across M8. The overage is entirely
+harness iteration against behaviour that only exists live — this CLI build renders
+no `(esc to interrupt)` marker, a foreground `sleep` is blocked so the model
+detaches it, an imperative prompt is registered as a board card, and the gateway's
+post-terminal chunk. Each of those invalidated a run and each was only observable
+against the real system; two of them were real defects.
 
 ## Resolved questions
 

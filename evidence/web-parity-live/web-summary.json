@@ -1,0 +1,79 @@
+{
+  "threadId": "chat-mswrhxhp-u9qxrp",
+  "url": "http://127.0.0.1:8083",
+  "pin": {
+    "target": "fable",
+    "duty": "discuss",
+    "level": 1
+  },
+  "scenarios": {
+    "a": {
+      "reply": "A garrison is a body of troops stationed in a town or fort to defend it — or the fortified place itself.\n\n[route: fable | rule: duty-other-l1 | profile: personal]\n[orchestrator-active]"
+    },
+    "b": {
+      "permissionSeen": true,
+      "permissionsAnswered": 1,
+      "toolCards": 3,
+      "reply": "The file already existed at `/home/ggomes/.garrison/personal/parity.txt` — I didn't create it, and its contents were already exactly `ready` (5 bytes, no trailing newline), so I left it as-is rather than overwriting.\n\n```\n949236767 5 parity.txt\n```\n\nChecksum: **949236767**, size 5 bytes.\n\n[route: cc-haiku | rule: duty-other-l1 | profile: personal]\n[orchestrator-active]"
+    },
+    "c": {
+      "turnRanLive": true,
+      "sendLabelWhileBusy": "Queue",
+      "queuedRowsVisible": 1,
+      "stopClicked": true,
+      "terminalStatuses": [
+        "completed",
+        "completed",
+        "cancelled",
+        "completed"
+      ],
+      "messages": [
+        [
+          "user",
+          "In one short sentence: what does the word 'garrison' mean?"
+        ],
+        [
+          "assistant",
+          "A garrison is a body of troops stationed in a town or fort to defend it — or the fortified place itself.\n\n[route: fable "
+        ],
+        [
+          "user",
+          "Write a file parity.txt containing exactly the word ready, then run `cksum parity.txt` in the shell and tell me the chec"
+        ],
+        [
+          "assistant",
+          "The file already existed at `/home/ggomes/.garrison/personal/parity.txt` — I didn't create it, and its contents were alr"
+        ],
+        [
+          "user",
+          "In this conversation, tell me at length and in detail how military garrisons evolved from the Roman empire to the modern"
+        ],
+        [
+          "assistant",
+          ""
+        ],
+        [
+          "user",
+          "Forget the sleep. Just reply with the single word done."
+        ],
+        [
+          "assistant",
+          "done\n\n[route: cc-haiku | rule: duty-other-l1 | profile: personal]\n[orchestrator-active]"
+        ]
+      ]
+    }
+  },
+  "sessionIds": [
+    "70db9b8b-965a-485d-883d-227415104124"
+  ],
+  "sessionEventKinds": [
+    "route",
+    "status",
+    "text",
+    "turn_end",
+    "tool_use",
+    "tool_result",
+    "permission_request",
+    "thinking"
+  ]
+}

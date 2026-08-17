@@ -75,9 +75,13 @@ class FakeAgentSdkAdapter {
     };
   }
   async awaitReady() {}
+  /** Accumulated reply text this adapter streams through onText, as the real one
+   *  does while the turn runs (before its canonical terminal event). */
+  textToStream: string | null = null;
   async sendTurn(_s: any, text: string, hooks: any = {}) {
     this.turns.push(text);
     this.turnHooks.push(hooks);
+    if (this.textToStream) hooks.onText?.(this.textToStream);
     for (const event of this.eventsToEmit) hooks.onEvent?.(event);
   }
   async awaitResponse() {
@@ -409,6 +413,99 @@ describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route
         sessionEpoch: 1,
         spawnSignature: signature,
       });
+    } finally {
+      gw.shutdown();
+    }
+  });
+
+  it("never re-emits a streamed reply after the canonical terminal event", async () => {
+    // A streamed lane already delivered its text through onText. Repeating it
+    // after `awaitResponse` puts a substantive frame AFTER the turn's terminal
+    // event, which a strict channel must reject: live, that turned every
+    // completed Web turn into `gateway_stream_protocol_error` with an empty
+    // durable reply while the answer was visibly on screen.
+    const { gw, agentSdk } = await bootGateway();
+    try {
+      agentSdk.textToStream = "streamed answer";
+      agentSdk.eventsToEmit = [{
+        id: 'terminal:["generation-no-late-chunk"]',
+        role: "assistant",
+        ts: 100,
+        order: 4,
+        revision: 1,
+        blocks: [{
+          type: "turn_end",
+          status: "completed",
+          subtype: "success",
+          reason: "completed",
+          stopReason: "end_turn",
+          terminalReason: "completed",
+        }],
+      }];
+      agentSdk.response = {
+        text: "streamed answer",
+        toolUses: [],
+        stoppedReason: null,
+        terminalStatus: "completed",
+        failure: null,
+        sessionId: "sdk-no-late-chunk",
+      };
+      const frames: string[] = [];
+      const chunks: string[] = [];
+      await gw.runAgentSdkTurn(
+        {
+          targetId: "sdk-no-late-chunk",
+          target: { id: "sdk-no-late-chunk", type: "runtime-target", runtime: "agent-sdk", provider: "anthropic", model: "claude-primary" },
+        },
+        "stream then settle",
+        (text: string) => { frames.push("chunk"); chunks.push(text); },
+        {
+          generationId: "generation-no-late-chunk",
+          routeSession: {
+            epoch: 1,
+            signature: {
+              target: "sdk-no-late-chunk",
+              runtime: "agent-sdk",
+              provider: "anthropic",
+              model: "claude-primary",
+              account: null,
+              accountSource: null,
+              projectPath: null,
+            },
+            boundaryReason: "initial",
+            disposition: "new",
+            hadPrior: false,
+          },
+          onRouteSession: () => {},
+          onEvent: (event: any) => {
+            if (event.blocks?.some((block: any) => block.type === "turn_end")) frames.push("terminal");
+          },
+        },
+      );
+      expect(chunks).toEqual(["streamed answer"]);
+      expect(frames).toEqual(["chunk", "terminal"]);
+    } finally {
+      gw.shutdown();
+    }
+  });
+
+  it("still emits the full reply once for a lane that never streamed", async () => {
+    const { gw, agentSdk } = await bootGateway();
+    try {
+      agentSdk.textToStream = null;
+      agentSdk.eventsToEmit = [];
+      agentSdk.response = { text: "unstreamed answer", toolUses: [], stoppedReason: null, sessionId: "sdk-unstreamed" };
+      const chunks: string[] = [];
+      await gw.runAgentSdkTurn(
+        {
+          targetId: "sdk-unstreamed",
+          target: { id: "sdk-unstreamed", type: "runtime-target", runtime: "agent-sdk", provider: "anthropic", model: "claude-primary" },
+        },
+        "no streaming here",
+        (text: string) => chunks.push(text),
+        { generationId: "generation-unstreamed" },
+      );
+      expect(chunks).toEqual(["unstreamed answer"]);
     } finally {
       gw.shutdown();
     }

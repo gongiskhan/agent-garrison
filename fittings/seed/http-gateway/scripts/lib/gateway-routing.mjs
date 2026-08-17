@@ -1828,6 +1828,8 @@ export class RoutedGateway {
     let terminalStatus = null;
     let failure = null;
     let fallbackModel = null;
+    // Whether this turn already delivered its text through the streaming hook.
+    let streamedText = false;
     const deferredTerminalEvents = [];
     const observeSessionEvent = (event) => {
       for (const block of Array.isArray(event?.blocks) ? event.blocks : []) {
@@ -1871,7 +1873,7 @@ export class RoutedGateway {
       generationId: opts.generationId,
       onPermissionRequest: opts.onPermissionRequest,
       onSession: reportJournalSession,
-      onText: onChunk ? (text) => onChunk(text, true) : undefined,
+      onText: onChunk ? (text) => { streamedText = true; onChunk(text, true); } : undefined,
       onTool: typeof opts.onActivity === "function" ? (tool) => opts.onActivity({ kind: "tool", ...tool }) : undefined,
       // Extended thinking is where a turn spends its silent minutes, so it is the
       // single most useful liveness signal - without it a reasoning phase is
@@ -1953,7 +1955,14 @@ export class RoutedGateway {
     const replyText = committed
       ? `\`\`\`js\n${committed.code.trim()}\n\`\`\`\n\n[local model (${t.model}) generated this → orchestrator committed it verbatim to ${committed.rel}]`
       : (resp.text ?? "");
-    if (onChunk && replyText) onChunk(replyText, true); // non-streaming: emit the full reply once
+    // Emit the full reply once for a lane that never streamed. A STREAMED lane
+    // already has this text (onText hands the accumulated value with
+    // replace=true), and this line runs after `awaitResponse`, i.e. after the
+    // canonical terminal event: a strict channel must reject a substantive frame
+    // that arrives after its terminal, which turned every completed Web turn into
+    // `gateway_stream_protocol_error` with an empty durable reply. The build
+    // workspace is the one case whose reply is genuinely NOT what was streamed.
+    if (onChunk && replyText && (!streamedText || committed)) onChunk(replyText, true);
     return {
       reply: replyText,
       session_id: resp?.sessionId ?? session.sessionId ?? null,

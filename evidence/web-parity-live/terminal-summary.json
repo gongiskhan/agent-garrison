@@ -1,0 +1,23 @@
+{
+  "scratch": "/tmp/web-parity-term-0TEzHI",
+  "model": "claude-opus-5",
+  "scenarios": {
+    "a": {
+      "reply": "A garrison is a body of troops stationed in a fortified place to defend it (or the fortified place itself), and as a verb it means to station troops there.",
+      "ok": true
+    },
+    "b": {
+      "permissionPromptSeen": true,
+      "fileWritten": true,
+      "fileBody": "ready"
+    },
+    "c": {
+      "busySeen": true,
+      "busyAtInterrupt": false,
+      "idleAfterInterrupt": true,
+      "interruptedText": true,
+      "steerAccepted": true,
+      "sessionAlive": true
+    }
+  }
+}
