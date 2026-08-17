@@ -41456,6 +41456,7 @@ function installSafeMarkdownRenderer(marked2, hostContext = hostCtx) {
       },
       link({ href, title: title2, tokens }) {
         const text = this.parser.parseInline(tokens);
+        const original = (href || "").trim();
         let url = href || "";
         const garrison = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
         if (garrison) {
@@ -41469,7 +41470,9 @@ function installSafeMarkdownRenderer(marked2, hostContext = hostCtx) {
         }
         const external = /^https?:\/\//i.test(url) || /^\/\//.test(url) ? ` target="_blank" rel="noopener noreferrer"` : "";
         const label = title2 ? ` title="${escapeMarkdownAttribute(title2)}"` : "";
-        return `<a href="${escapeMarkdownAttribute(url)}"${label}${external}>${text}</a>`;
+        const shown = text.trim();
+        const body = shown === original || shown === escapeMarkdownHtml(original) ? escapeMarkdownHtml(url) : text;
+        return `<a href="${escapeMarkdownAttribute(url)}"${label}${external}>${body}</a>`;
       }
     }
   });

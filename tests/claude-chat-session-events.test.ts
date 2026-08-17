@@ -182,6 +182,25 @@ describe("claude-chat canonical session events", () => {
     expect(html).toContain('href="https://dev-madrid.tail31efa.ts.net:8443/card/c-1"');
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).not.toContain("<script>");
+    // A human-written label is the author's words and must survive verbatim.
+    expect(html).toContain(">loopback</a>");
+  });
+
+  it("rewrites the VISIBLE url of an autolink, not just its href", () => {
+    const marked = new Marked({ gfm: true });
+    installSafeMarkdownRenderer(marked, () => ({
+      hostname: "dev-madrid.tail31efa.ts.net",
+      protocol: "https:",
+      serveMap: { "8089": "https://dev-madrid.tail31efa.ts.net:8489" },
+    }));
+    // The operative writes bare card urls: "Card: http://127.0.0.1:8089/#/cards/X".
+    // Rewriting only the href leaves a loopback address on screen - it clicks
+    // through, but it READS as dead and COPIES as dead on every device that is
+    // not this machine.
+    const html = marked.parse("Card: http://127.0.0.1:8089/#/cards/c-1") as string;
+    expect(html).toContain('href="https://dev-madrid.tail31efa.ts.net:8489/#/cards/c-1"');
+    expect(html).toContain(">https://dev-madrid.tail31efa.ts.net:8489/#/cards/c-1</a>");
+    expect(html).not.toContain("127.0.0.1");
   });
 
   it("removes only route badges from canonical prose and mounts one stable live region", () => {

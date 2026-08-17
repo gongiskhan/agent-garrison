@@ -61,6 +61,7 @@ export function installSafeMarkdownRenderer(
       },
       link(this: any, { href, title, tokens }: { href: string; title?: string | null; tokens: any[] }) {
         const text = this.parser.parseInline(tokens);
+        const original = (href || "").trim();
         let url = href || "";
         const garrison = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
         if (garrison) {
@@ -76,7 +77,16 @@ export function installSafeMarkdownRenderer(
           ? ` target="_blank" rel="noopener noreferrer"`
           : "";
         const label = title ? ` title="${escapeMarkdownAttribute(title)}"` : "";
-        return `<a href="${escapeMarkdownAttribute(url)}"${label}${external}>${text}</a>`;
+        // An AUTOLINK is its own label. Rewriting only the href left a loopback
+        // address on screen: the click worked, but the text read as dead and
+        // copied as dead - which is what a reader on any other device believes.
+        // Only a label that IS the original url is replaced; a human-written
+        // label is the author's words and stays untouched.
+        const shown = text.trim();
+        const body = shown === original || shown === escapeMarkdownHtml(original)
+          ? escapeMarkdownHtml(url)
+          : text;
+        return `<a href="${escapeMarkdownAttribute(url)}"${label}${external}>${body}</a>`;
       },
     },
   });
