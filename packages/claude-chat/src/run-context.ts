@@ -312,5 +312,12 @@ export function railBadges(route: RouteAttribution): RailBadge[] {
     });
   }
 
-  return badges;
+  // Warnings lead. The rail is a single horizontally-scrolling row, and these
+  // badges were appended last: on a 1280px viewport "override rejected:
+  // unknown-target" rendered at x≈1492, i.e. only findable by scrolling the rail
+  // sideways. A badge whose whole job is to say "what you asked for did not
+  // happen" cannot live off-screen behind a row of `auto` badges. Stable within
+  // each group, so the meaning-first order of everything else is untouched.
+  const warned = badges.filter((badge) => badge.tone === "warn");
+  return warned.length ? [...warned, ...badges.filter((badge) => badge.tone !== "warn")] : badges;
 }

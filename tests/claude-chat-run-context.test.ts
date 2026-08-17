@@ -259,14 +259,32 @@ describe("claude-chat run context: stopped and overrides", () => {
         { field: "project", reason: "project-not-a-git-repo-under-dev-root" },
       ],
     });
+    // Rejections lead: the rail is one horizontally-scrolling row, so a warning
+    // appended after the informational badges is only findable by scrolling
+    // sideways (measured at x≈1492 in a 1280px viewport before this ordering).
     expect(keys(badges)).toEqual([
-      "override",
       "override-rejected:effort",
       "override-rejected:project",
+      "override",
     ]);
-    expect(badges[1].label).toBe("override rejected: provider-has-no-effort-control");
-    expect(badges[1].tone).toBe("warn");
-    expect(badges[2].title).toContain("your pinned project was refused");
+    expect(badges[0].label).toBe("override rejected: provider-has-no-effort-control");
+    expect(badges[0].tone).toBe("warn");
+    expect(badges[1].title).toContain("your pinned project was refused");
+  });
+
+  it("puts every warning ahead of the informational badges", () => {
+    const badges = railBadges({
+      duty: "plan",
+      level: 2,
+      runtime: "agent-sdk",
+      model: "claude-opus-5",
+      stoppedByUser: true,
+      overridesRejected: [{ field: "target", reason: "unknown-target" }],
+    });
+    const firstInfo = badges.findIndex((badge) => badge.tone !== "warn");
+    const lastWarn = badges.map((badge) => badge.tone).lastIndexOf("warn");
+    expect(lastWarn).toBeLessThan(firstInfo);
+    expect(keys(badges).slice(0, 2)).toEqual(["stopped", "override-rejected:target"]);
   });
 
   it("ignores empty override arrays", () => {

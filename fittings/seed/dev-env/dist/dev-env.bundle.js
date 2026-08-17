@@ -40497,7 +40497,8 @@ function railBadges(route) {
       tone: "warn"
     });
   }
-  return badges;
+  const warned = badges.filter((badge) => badge.tone === "warn");
+  return warned.length ? [...warned, ...badges.filter((badge) => badge.tone !== "warn")] : badges;
 }
 
 // packages/claude-chat/src/AttributionRail.tsx
