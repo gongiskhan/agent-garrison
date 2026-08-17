@@ -1,0 +1,28 @@
+{
+  "origin": "https://dev-madrid.tail31efa.ts.net:8483",
+  "checks": {
+    "streamedTurn": {
+      "hittable": {
+        "send": "self",
+        "input": "self",
+        "notice": true
+      },
+      "terminals": [
+        "completed"
+      ],
+      "replyPersisted": true,
+      "reply": "parity smoke ok\n\n[route: cc-haiku | rule: other-1 | profile: personal]\n[orchestrator-active]"
+    },
+    "permissionTurn": {
+      "permissionsAnswered": 1,
+      "toolCards": 1,
+      "terminals": [
+        "completed",
+        "completed"
+      ],
+      "reply": "`/etc/hostname` doesn't exist on this box, so `cksum` printed no number — it exited 1 with:\n\n```\ncksum: /etc/hostname: No such file or directory\n```\n\nWant me to try another source for the hostname (e."
+    }
+  },
+  "consoleErrors": [],
+  "threadId": "chat-mswu6qrz-d0hqpt"
+}
