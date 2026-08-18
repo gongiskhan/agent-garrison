@@ -186,6 +186,41 @@ describe("claude-chat canonical session events", () => {
     expect(html).toContain(">loopback</a>");
   });
 
+  it("says what the turn is spending: effort, duty and account", () => {
+    // "Using fable · agent-sdk / anthropic / claude-opus-5" answers WHERE the turn
+    // ran but not what it costs. Effort in particular changes the answer and the
+    // bill, and the rail that carried it is collapsed now.
+    const line = (attribution: Record<string, unknown>) => {
+      const html = renderToStaticMarkup(h(SessionEventTimeline, {
+        events: [{ id: "r", role: "assistant", ts: 1, revision: 1, blocks: [{ type: "route", attribution }] }],
+        live: false,
+      }));
+      return html;
+    };
+
+    const full = line({
+      route: "fable", runtime: "agent-sdk", provider: "anthropic", model: "claude-opus-5",
+      effort: "high", effortApplied: true, duty: "discuss", level: 1,
+      account: "anthropic-max20-ekoa", sessionDisposition: "new",
+    });
+    expect(full).toContain("Started a new session. Using fable · agent-sdk / anthropic / claude-opus-5");
+    expect(full).toContain("at high effort, duty discuss L1, account anthropic-max20-ekoa");
+    // No nested parentheses: it is a sentence, not a badge row in disguise.
+    expect(full).not.toContain("((");
+
+    // An unconfirmed dial must not read as an applied one.
+    expect(line({ route: "t", runtime: "agent-sdk", model: "m", effort: "low" }))
+      .toContain("at low effort (unverified)");
+    expect(line({ route: "t", runtime: "agent-sdk", model: "m", effort: "low", effortApplied: false }))
+      .toContain("at low effort (refused)");
+
+    // A provider that swapped the model still reports what the turn is spending.
+    const fallback = line({
+      route: "t", runtime: "agent-sdk", model: "claude-fallback", effort: "medium", effortApplied: true,
+    });
+    expect(fallback).toContain("at medium effort");
+  });
+
   it("rewrites the VISIBLE url of an autolink, not just its href", () => {
     const marked = new Marked({ gfm: true });
     installSafeMarkdownRenderer(marked, () => ({
@@ -328,6 +363,8 @@ describe("claude-chat canonical session events", () => {
     expect(warning).toBeLessThan(error);
     expect(error).toBeLessThan(terminal);
     expect(html).toContain("Started a new session. Using claude · agent-sdk / sonnet.");
+    // Nothing to add when the attribution carries nothing to add.
+    expect(html).not.toContain("effort)");
     expect(html.match(/Rate limit/g)).toHaveLength(1);
     expect(html).toContain(`<time dateTime="${new Date(reset * 1_000).toISOString()}">`);
     expect(html).toContain("RUNTIME_CRASH_WITH_A_LONG_UNBROKEN_IDENTIFIER");

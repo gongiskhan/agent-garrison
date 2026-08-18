@@ -41866,10 +41866,18 @@ function routeSummary(block2) {
   const requested = compactNoticeText(block2.requestedModel);
   const disposition = compactNoticeText(attribution.sessionDisposition);
   const lifecycle = disposition === "new" ? "Started a new session." : disposition === "resumed" ? "Resumed the session." : disposition === "warm" ? "Continued the current session." : "";
+  const effort = field("effort");
+  const effortClause = !effort ? "" : attribution.effortApplied === false ? ` at ${effort} effort (refused)` : attribution.effortApplied === true ? ` at ${effort} effort` : ` at ${effort} effort (unverified)`;
+  const duty = field("duty");
+  const level = typeof attribution.level === "number" && Number.isFinite(attribution.level) && attribution.level > 0 ? `L${Math.trunc(attribution.level)}` : "";
+  const dutyNote = [duty, level].filter(Boolean).join(" ");
+  const account = field("account");
+  const rest = [dutyNote && `duty ${dutyNote}`, account && `account ${account}`].filter(Boolean).join(", ");
+  const tail = `${effortClause}${rest ? `, ${rest}` : ""}`;
   if (requested && model && requested !== model) {
-    return [lifecycle, `Requested ${requested}; using ${model}${target ? ` via ${target}` : ""}.`].filter(Boolean).join(" ");
+    return [lifecycle, `Requested ${requested}; using ${model}${target ? ` via ${target}` : ""}${tail}.`].filter(Boolean).join(" ");
   }
-  const route = selected ? `Using ${selected}.` : compactNoticeText(block2.text) || "Route resolved.";
+  const route = selected ? `Using ${selected}${tail}.` : compactNoticeText(block2.text) || "Route resolved.";
   return [lifecycle, route].filter(Boolean).join(" ");
 }
 function retrySummary(block2) {
