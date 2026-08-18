@@ -3807,7 +3807,19 @@ export function routeHintsFromBody(body) {
 }
 
 /** Agent SDK permission callbacks are reachable only for a stable Web thread. */
+/**
+ * Every lane runs unattended.
+ *
+ * The Web thread used to be the one surface that asked, because it is the one
+ * with somewhere to show a prompt. In practice that means work stops until
+ * someone is looking at that tab - from the board, from a schedule, from the
+ * phone - which is the opposite of what this machine is for. The durable
+ * permission-card path is still wired end to end (adapter callback, gateway
+ * resolver, durable revisions, answer endpoint, UI cards) and comes back whole
+ * with GARRISON_WEB_PERMISSION_PROMPTS=1; nothing was deleted to get here.
+ */
 export function permissionModeForHints(hints) {
+  if (process.env.GARRISON_WEB_PERMISSION_PROMPTS !== "1") return "bypassPermissions";
   return hints?.channel === "web" && exactPermissionId(hints?.sessionId)
     ? "default"
     : "bypassPermissions";

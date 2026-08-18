@@ -1469,3 +1469,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   -webkit-mask-image: none;
   mask-image: none;
 }
+
+/* The generated Stop is an icon; a word appears beside it only for the states
+   that are not simply "stop" (stopping, retry). */
+.cc-stoptext { margin-left: 6px; }

@@ -822,17 +822,38 @@ describe("the effort vocabulary cannot drift from dutyEfforts", () => {
 });
 
 describe("generation-safe Web permission control", () => {
-  it("enables default permission mode only for a named Web thread", () => {
-    expect(gw.permissionModeForHints({ channel: "web", sessionId: "thread-1" })).toBe("default");
+  it("runs every lane unattended, including a named Web thread", () => {
+    // A prompt stops the work until someone is watching that tab. Every lane -
+    // Web, board, schedule, phone - runs without asking.
+    delete process.env.GARRISON_WEB_PERMISSION_PROMPTS;
     for (const hints of [
+      { channel: "web", sessionId: "thread-1" },
       { channel: "web", sessionId: "" },
-      { channel: "web", sessionId: "   " },
-      { channel: "web", sessionId: " thread-1 " },
-      { channel: "web" },
       { channel: "kanban", sessionId: "thread-1" },
       null,
     ]) {
       expect(gw.permissionModeForHints(hints)).toBe("bypassPermissions");
+    }
+  });
+
+  it("still has the whole prompting path behind an explicit opt-in", () => {
+    // The durable permission card is a lot of machinery to lose by deletion; it
+    // stays reachable so turning prompts back on is a flag, not a rebuild.
+    process.env.GARRISON_WEB_PERMISSION_PROMPTS = "1";
+    try {
+      expect(gw.permissionModeForHints({ channel: "web", sessionId: "thread-1" })).toBe("default");
+      for (const hints of [
+        { channel: "web", sessionId: "" },
+        { channel: "web", sessionId: "   " },
+        { channel: "web", sessionId: " thread-1 " },
+        { channel: "web" },
+        { channel: "kanban", sessionId: "thread-1" },
+        null,
+      ]) {
+        expect(gw.permissionModeForHints(hints)).toBe("bypassPermissions");
+      }
+    } finally {
+      delete process.env.GARRISON_WEB_PERMISSION_PROMPTS;
     }
   });
 

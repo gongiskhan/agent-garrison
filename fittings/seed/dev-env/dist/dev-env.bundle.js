@@ -44888,11 +44888,11 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
                   onClick: generatedMode ? stopAndChange : stopTurn,
                   disabled: generatedStopDisabled,
                   "aria-busy": activeGeneratedTurn.inputState === "stopping",
+                  "aria-label": generatedStopLabel,
                   title: !activeGeneratedTurn.generationId ? "Stop is available once the response starts" : generatedMode ? "Stop this response and put your message back in the composer (Esc)" : "Stop this response (Esc)",
                   children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq" }),
-                    " ",
-                    generatedStopLabel
+                    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq", "aria-hidden": "true" }),
+                    generatedStopLabel !== "Stop" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stoptext", children: generatedStopLabel })
                   ]
                 }
               ),

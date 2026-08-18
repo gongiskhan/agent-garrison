@@ -3495,13 +3495,19 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                   onClick={generatedMode ? stopAndChange : stopTurn}
                   disabled={generatedStopDisabled}
                   aria-busy={activeGeneratedTurn.inputState === "stopping"}
+                  aria-label={generatedStopLabel}
                   title={!activeGeneratedTurn.generationId
                     ? "Stop is available once the response starts"
                     : generatedMode
                       ? "Stop this response and put your message back in the composer (Esc)"
                       : "Stop this response (Esc)"}
                 >
-                  <span className="cc-stopsq" /> {generatedStopLabel}
+                  <span className="cc-stopsq" aria-hidden="true" />
+                  {/* The square already says "stop". The word only earns its place
+                      when it stops being the word "Stop": "Stopping…" is the
+                      acknowledgement of a press, and "Retry stop" is a failure the
+                      user has to act on. */}
+                  {generatedStopLabel !== "Stop" && <span className="cc-stoptext">{generatedStopLabel}</span>}
                 </button>
               )}
               <button

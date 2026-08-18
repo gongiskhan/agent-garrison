@@ -833,6 +833,9 @@ export class AgentSdkAdapter {
           ...process.env,
           GARRISON_GATEWAY_HOST: "127.0.0.1",
           GARRISON_GATEWAY_PORT: String(port),
+          // Prompting is opt-in now (every lane runs unattended by default); this
+          // child exists to prove the permission path still works end to end.
+          GARRISON_WEB_PERMISSION_PROMPTS: "1",
           GARRISON_COMPOSITION_DIR: dir,
           GARRISON_HOME: dir,
           GARRISON_KANBAN_DIR: kanbanRoot,
