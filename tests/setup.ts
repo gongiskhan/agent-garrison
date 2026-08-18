@@ -1,3 +1,7 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 // Global test bypass for the ~/.claude install gate.
 //
 // The gate (src/lib/install-state.ts) refuses every write to the user's Claude
@@ -21,8 +25,5 @@ process.env.GARRISON_ASSUME_INSTALLED = "1";
 // pass it explicitly to loadConfig or set process.env before importing) —
 // this only replaces the dangerous DEFAULT.
 if (!process.env.GARRISON_HOME) {
-  const { mkdtempSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
   process.env.GARRISON_HOME = mkdtempSync(join(tmpdir(), "garrison-test-home-"));
 }
