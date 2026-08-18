@@ -236,7 +236,8 @@ test.describe("web-channel rich chat UI", () => {
     const msgCopy = page.locator(".cc-msgcopy").last();
     await expect(msgCopy).toBeVisible();
     await msgCopy.click();
-    await expect(msgCopy).toHaveText("Copied");
+    // The per-message copy is an icon: it confirms with a tick and its label.
+    await expect(msgCopy).toHaveAttribute("aria-label", "Copied");
     const msgClip = await page.evaluate(() => navigator.clipboard.readText());
     expect(msgClip).toContain("Drop it into the form");
   });

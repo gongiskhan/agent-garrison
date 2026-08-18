@@ -226,7 +226,9 @@ describe("claude-chat canonical session events", () => {
     expect(html).toContain('class="cc-codecopy" aria-label="Copy code"');
     expect(html.match(/aria-live=/g)).toHaveLength(1);
     expect(html).toContain('class="cc-sr-only" role="status" aria-live="polite" aria-atomic="true"');
-    expect(html).toContain('class="cc-msgcopy" title="Copy this response"');
+    // Copy is an icon now; its accessible name carries the meaning.
+    expect(html).toContain('class="cc-msgcopy"');
+    expect(html).toContain('aria-label="Copy this response"');
   });
 
   it("renders typed errors and a differing durable fallback instead of hiding failure text", () => {

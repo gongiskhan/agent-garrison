@@ -1531,6 +1531,16 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   /** The generated thread edits its run context in a sheet rather than in a
    *  standing row of badges above the composer. */
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
+  /** Which replies have their run-context rail expanded. Collapsed by default:
+   *  the rail is a record you consult, not something to read on every message. */
+  const [openRails, setOpenRails] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleRail = useCallback((id: string) => {
+    setOpenRails((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
   /** After `Stop & change` the sent text is back in the composer and Send becomes
    *  Resend. NOTHING auto-resends - the user chooses when, having changed routing. */
   const [resendArmed, setResendArmed] = useState(false);
@@ -2972,16 +2982,28 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 )}
                 {/* Per-message actions: copy (always) + read-aloud (voice) + a subtle
                     routing chip (replaces the inline "[route: …]" badge). */}
-                {actionText.trim() && !t.streaming && (
+                {(actionText.trim() || showRail) && !t.streaming && (
                   <div className="cc-msgactions">
+                    {actionText.trim() && (
                     <button
                       type="button"
                       className="cc-msgcopy"
                       title="Copy this response"
+                      aria-label={copiedId === t.id ? "Copied" : "Copy this response"}
                       onClick={() => copyMsg(t.id, actionText)}
                     >
-                      {copiedId === t.id ? "Copied" : "Copy"}
+                      {copiedId === t.id ? (
+                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                          <rect x="5.5" y="2.5" width="8" height="9" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                          <path d="M10.5 13.5h-7a1 1 0 0 1-1-1v-8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                        </svg>
+                      )}
                     </button>
+                    )}
                     {feat.voice && voiceUsable && (() => {
                       // The same button is play / pause / resume for THIS message:
                       // once it is the one being read, clicking toggles playback
@@ -3022,14 +3044,29 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                         </button>
                       );
                     })()}
-                    {!showRail && routeLabel && (
+                    {showRail ? (
+                      <button
+                        type="button"
+                        className={`cc-msgroute${openRails.has(t.id) ? " cc-msgroute-open" : ""}`}
+                        aria-expanded={openRails.has(t.id)}
+                        aria-label={openRails.has(t.id) ? "Hide run context" : `Show run context${routeLabel ? `: ${routeLabel}` : ""}`}
+                        title={routeTitle ?? "Run context for this reply"}
+                        onClick={() => toggleRail(t.id)}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M8 14V9m0 0L3.5 5.2M8 9l4.5-3.8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                          <circle cx="3" cy="4.2" r="1.6" fill="currentColor" />
+                          <circle cx="13" cy="4.2" r="1.6" fill="currentColor" />
+                        </svg>
+                      </button>
+                    ) : routeLabel ? (
                       <span
                         className={`cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`}
                         title={routeTitle}
                       >
                         {routeLabel}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 )}
                 {/* The settled rail sits OUTSIDE the `clean.text.trim() && !t.streaming`
@@ -3037,7 +3074,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     while a turn streamed and on a tool-only turn. Read-only - the
                     flight rail in the composer is the editor, so a past turn's
                     record can never be mistaken for a live control. */}
-                {showRail && (
+                {showRail && openRails.has(t.id) && (
                   <AttributionRail
                     variant="settled"
                     route={displayRoute}

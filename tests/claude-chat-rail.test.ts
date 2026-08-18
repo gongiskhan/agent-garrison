@@ -544,9 +544,11 @@ describe("ClaudeChat rail wiring", () => {
     expect(html).toContain("cc-rbadge-pinned");
   });
 
-  it("renders a settled rail for a restored turn OUTSIDE the text/streaming gate", () => {
-    // A tool-only or cancelled turn settles with NO prose. Today's double gate
-    // (`clean.text.trim() && !t.streaming`) is exactly why its routing was invisible.
+  it("keeps run context REACHABLE on a restored turn with no prose", () => {
+    // A tool-only or cancelled turn settles with NO prose, and its routing used
+    // to be invisible because the action bar was gated on the text. The rail is
+    // collapsed behind an icon now, so the icon is what must survive that gate -
+    // otherwise the same turn loses its routing again, just one level down.
     const html = render(
       h(ClaudeChat, {
         transport: stubTransport(),
@@ -561,9 +563,13 @@ describe("ClaudeChat rail wiring", () => {
         ],
       })
     );
-    expect(html).toContain("cc-rail cc-rail-settled");
-    expect(html).toContain("stopped: cancelled");
-    // The legacy chip is the FALLBACK, not a duplicate of the rail.
+    // The toggle is there, with the route named for a screen reader...
+    expect(html).toContain("cc-msgroute");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("Show run context");
+    // ...and the rail itself stays closed until it is asked for.
+    expect(html).not.toContain("cc-rail cc-rail-settled");
+    // The legacy chip is the FALLBACK, not a duplicate of the toggle.
     expect(html).not.toContain("cc-routechip");
   });
 

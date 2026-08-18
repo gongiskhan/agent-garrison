@@ -313,11 +313,21 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 /* ── Per-message actions (copy / read-aloud) ── */
 .cc-msgactions { margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; opacity: 0.55; transition: opacity 0.12s; }
 .cc-assistant:hover .cc-msgactions, .cc-msgactions:focus-within { opacity: 1; }
-.cc-msgcopy {
+/* One shape for every per-message action: copy, read aloud, run context. They
+   read as a set of affordances under the reply rather than a word next to two
+   glyphs. */
+.cc-msgcopy,
+.cc-msgroute {
+  display: inline-flex; align-items: center; justify-content: center; line-height: 0;
   font-size: 11px; background: transparent; border: 1px solid var(--cc-border-strong); color: var(--cc-fg-dim);
-  border-radius: 5px; padding: 2px 9px; cursor: pointer;
+  border-radius: 5px; padding: 3px 7px; cursor: pointer;
 }
-.cc-msgcopy:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+.cc-msgcopy:hover, .cc-msgroute:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+/* Expanded: the icon stays lit so it is obvious which reply the rail belongs to. */
+.cc-msgroute-open { color: var(--cc-accent); border-color: var(--cc-accent); }
+/* The rail an action bar expands is a record, not a control strip: give it a
+   little room so it reads as attached to the message above it. */
+.cc-msgactions + .cc-rail-settled { margin-top: 4px; }
 
 /* Per-message read-aloud button (appears under a completed assistant turn). */
 .cc-speak {
@@ -592,6 +602,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-question-othersend,
 .cc-codecopy,
 .cc-msgcopy,
+.cc-msgroute,
 .cc-speak,
 .cc-voiceerr-x,
 .cc-slashitem {
@@ -1438,6 +1449,28 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   min-width: 44px; padding-left: 10px; padding-right: 10px;
 }
 
+/* The per-message action bar is a finger target like everything else. Without
+   this the copy / read-aloud / run-context icons sit at ~29x23, which is under
+   the 44px floor the rest of this component holds itself to. */
+@media (any-pointer: coarse) {
+  .cc-root .cc-msgactions button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* An expanded run-context rail WRAPS. It is opened deliberately, one reply at a
+   time, so there is no reason to hide its tail behind a sideways scroll - which
+   is exactly how "override rejected" ended up off screen. */
+.cc-root .cc-rail-settled .cc-railscroll {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+  padding-right: 0;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 
 /* === web-channel skin (override layer) === */
 /* ============================================================================
@@ -1758,8 +1791,15 @@ html, body {
 /* per-message actions - visible but subtle (mobile has no hover) */
 .cc-msgactions { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; opacity: 0.55; transition: opacity 0.12s; }
 .cc-assistant:hover .cc-msgactions, .cc-msgactions:focus-within { opacity: 1; }
-.cc-msgcopy { font-family: var(--cc-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; background: transparent; border: 1px solid var(--cc-border); color: var(--cc-fg-dim); border-radius: 0; padding: 3px 8px; cursor: pointer; }
-.cc-msgcopy:hover { border-color: var(--cc-fg); color: var(--cc-fg); }
+/* The per-message actions are icons in this skin too - square, quiet, and the
+   same size as each other so the row under a reply reads as one set. */
+.cc-msgcopy, .cc-msgroute {
+  display: inline-flex; align-items: center; justify-content: center; line-height: 0;
+  background: transparent; border: 1px solid var(--cc-border); color: var(--cc-fg-dim);
+  border-radius: 0; padding: 4px 7px; cursor: pointer;
+}
+.cc-msgcopy:hover, .cc-msgroute:hover { border-color: var(--cc-fg); color: var(--cc-fg); }
+.cc-msgroute-open { border-color: var(--cc-fg); color: var(--cc-fg); }
 
 /* jump-to-latest */
 .cc-jumplatest {
@@ -2664,7 +2704,15 @@ body {
   box-shadow: 0 8px 26px rgba(0,0,0,.22);
   bottom: calc(var(--wc-composer-inset, 0px) + 12px);
   max-width: calc(100vw - 24px);
+  /* Informational and dismissible: it may OVERLAP the transcript, but it must
+     never intercept a click meant for what is underneath. Moving it clear of the
+     composer only relocated the problem onto the message action bar that now
+     sits there. Only its own close button takes pointer events. */
+  pointer-events: none;
 }
+.wc-push-notice > button,
+.wc-push-toast > button,
+.wc-push-pill { pointer-events: auto; }
 .wc-push-pill { padding: 8px 12px; cursor: pointer; }
 .wc-push-pill:disabled { cursor: default; }
 .wc-push-toast { left: auto; right: 12px; border-radius: 10px; font-size: 13px; }

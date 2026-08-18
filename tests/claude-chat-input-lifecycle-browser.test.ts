@@ -877,4 +877,27 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
     }));
     expect(sizes).toEqual({ viewport: 320, document: 320, root: 320 });
   });
+
+  it("keeps a reply's run context collapsed until its icon asks for it", async () => {
+    // A settled, routed reply - the shape a reopened thread hydrates into.
+    await page.evaluate(() => (window as any).__mount(
+      [{ user: "what routed this", assistant: "routed answer", route: { runtime: "agent-sdk", model: "claude-opus-5", route: "fable" } }],
+      { routing: true }
+    ));
+
+    const toggle = page.locator(".cc-msgroute").last();
+    await expect.poll(() => toggle.count()).toBe(1);
+    // Collapsed by default: the rail is a record you consult, not a header on
+    // every reply.
+    expect(await page.locator(".cc-rail-settled").count()).toBe(0);
+    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+
+    await toggle.click();
+    await expect.poll(() => page.locator(".cc-rail-settled").count()).toBe(1);
+    expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+
+    // ...and it closes again, so the transcript returns to prose.
+    await toggle.click();
+    await expect.poll(() => page.locator(".cc-rail-settled").count()).toBe(0);
+  });
 });

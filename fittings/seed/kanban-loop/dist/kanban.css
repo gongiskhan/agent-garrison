@@ -313,11 +313,21 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 /* ── Per-message actions (copy / read-aloud) ── */
 .cc-msgactions { margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; opacity: 0.55; transition: opacity 0.12s; }
 .cc-assistant:hover .cc-msgactions, .cc-msgactions:focus-within { opacity: 1; }
-.cc-msgcopy {
+/* One shape for every per-message action: copy, read aloud, run context. They
+   read as a set of affordances under the reply rather than a word next to two
+   glyphs. */
+.cc-msgcopy,
+.cc-msgroute {
+  display: inline-flex; align-items: center; justify-content: center; line-height: 0;
   font-size: 11px; background: transparent; border: 1px solid var(--cc-border-strong); color: var(--cc-fg-dim);
-  border-radius: 5px; padding: 2px 9px; cursor: pointer;
+  border-radius: 5px; padding: 3px 7px; cursor: pointer;
 }
-.cc-msgcopy:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+.cc-msgcopy:hover, .cc-msgroute:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+/* Expanded: the icon stays lit so it is obvious which reply the rail belongs to. */
+.cc-msgroute-open { color: var(--cc-accent); border-color: var(--cc-accent); }
+/* The rail an action bar expands is a record, not a control strip: give it a
+   little room so it reads as attached to the message above it. */
+.cc-msgactions + .cc-rail-settled { margin-top: 4px; }
 
 /* Per-message read-aloud button (appears under a completed assistant turn). */
 .cc-speak {
@@ -592,6 +602,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-question-othersend,
 .cc-codecopy,
 .cc-msgcopy,
+.cc-msgroute,
 .cc-speak,
 .cc-voiceerr-x,
 .cc-slashitem {
@@ -1436,6 +1447,28 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-send-icon {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 44px; padding-left: 10px; padding-right: 10px;
+}
+
+/* The per-message action bar is a finger target like everything else. Without
+   this the copy / read-aloud / run-context icons sit at ~29x23, which is under
+   the 44px floor the rest of this component holds itself to. */
+@media (any-pointer: coarse) {
+  .cc-root .cc-msgactions button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* An expanded run-context rail WRAPS. It is opened deliberately, one reply at a
+   time, so there is no reason to hide its tail behind a sideways scroll - which
+   is exactly how "override rejected" ended up off screen. */
+.cc-root .cc-rail-settled .cc-railscroll {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+  padding-right: 0;
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 /* === kanban skin (override layer) === */

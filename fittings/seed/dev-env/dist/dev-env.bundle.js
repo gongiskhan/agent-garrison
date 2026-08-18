@@ -43307,6 +43307,15 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   pendingPinsRef.current = pendingPins;
   const [railOpen, setRailOpen] = (0, import_react4.useState)(false);
   const [routeSheetOpen, setRouteSheetOpen] = (0, import_react4.useState)(false);
+  const [openRails, setOpenRails] = (0, import_react4.useState)(() => /* @__PURE__ */ new Set());
+  const toggleRail = (0, import_react4.useCallback)((id) => {
+    setOpenRails((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const [resendArmed, setResendArmed] = (0, import_react4.useState)(false);
   const [activity, setActivity] = (0, import_react4.useState)("");
   const turnSeqRef = (0, import_react4.useRef)(0);
@@ -44455,15 +44464,19 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
                   onOther: (text) => answerQuestion(t, t.question.toolUseId, { text })
                 }
               ),
-              actionText.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-msgactions", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              (actionText.trim() || showRail) && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-msgactions", children: [
+                actionText.trim() && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                   "button",
                   {
                     type: "button",
                     className: "cc-msgcopy",
                     title: "Copy this response",
+                    "aria-label": copiedId === t.id ? "Copied" : "Copy this response",
                     onClick: () => copyMsg(t.id, actionText),
-                    children: copiedId === t.id ? "Copied" : "Copy"
+                    children: copiedId === t.id ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M3 8.5 6.5 12 13 4.5", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round" }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "5.5", y: "2.5", width: "8", height: "9", rx: "1.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M10.5 13.5h-7a1 1 0 0 1-1-1v-8", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+                    ] })
                   }
                 ),
                 feat.voice && voiceUsable && (() => {
@@ -44489,16 +44502,31 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
                     }
                   );
                 })(),
-                !showRail && routeLabel && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                showRail ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: `cc-msgroute${openRails.has(t.id) ? " cc-msgroute-open" : ""}`,
+                    "aria-expanded": openRails.has(t.id),
+                    "aria-label": openRails.has(t.id) ? "Hide run context" : `Show run context${routeLabel ? `: ${routeLabel}` : ""}`,
+                    title: routeTitle ?? "Run context for this reply",
+                    onClick: () => toggleRail(t.id),
+                    children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M8 14V9m0 0L3.5 5.2M8 9l4.5-3.8", fill: "none", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("circle", { cx: "3", cy: "4.2", r: "1.6", fill: "currentColor" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("circle", { cx: "13", cy: "4.2", r: "1.6", fill: "currentColor" })
+                    ] })
+                  }
+                ) : routeLabel ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                   "span",
                   {
                     className: `cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`,
                     title: routeTitle,
                     children: routeLabel
                   }
-                )
+                ) : null
               ] }),
-              showRail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              showRail && openRails.has(t.id) && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
                 AttributionRail,
                 {
                   variant: "settled",
