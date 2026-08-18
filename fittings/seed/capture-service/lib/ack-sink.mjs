@@ -25,6 +25,16 @@ import { appendFileSync, mkdirSync } from "node:fs";
 
 const SPEAK_RECEIPT_TIMEOUT_MS = 30_000;
 
+// Burst control for error pushes (2026-08-18: ~30 failures in 60 s put ~30
+// buzzes on the phone). The rules, in order of what matters:
+//   1. the FIRST error of a kind always goes through, immediately;
+//   2. a REPEAT of the same subject inside the window never buzzes again —
+//      one flapping card cannot drown a different real failure;
+//   3. once a burst exceeds the ceiling, further distinct errors are counted
+//      and delivered as ONE summary when the window closes.
+const BURST_WINDOW_MS = 5 * 60_000;
+const BURST_CEILING = 3; // distinct error pushes per window before collapsing
+
 export class AckSink {
   constructor({ cfg, store, counters, echoGuard, ingress, notifier, log = console, now = () => Date.now() }) {
     this.cfg = cfg;
@@ -36,6 +46,64 @@ export class AckSink {
     this.log = log;
     this.now = now;
     this.pendingSpeaks = new Map(); // ack id -> {sentAt, sessionId, timer}
+    // In-memory on purpose: a restart is exactly when the operator should hear
+    // the next failure again, and the window is minutes, not days.
+    this.burst = { startedAt: 0, pushed: 0, suppressed: 0, subjects: new Map(), timer: null };
+  }
+
+  // Decide whether THIS error ack may buzz. Returns null to allow, or a
+  // reason string to suppress (already counted into the pending summary).
+  burstVerdict(ack) {
+    const now = this.now();
+    const b = this.burst;
+    if (now - b.startedAt > BURST_WINDOW_MS) {
+      b.startedAt = now;
+      b.pushed = 0;
+      b.suppressed = 0;
+      b.subjects.clear();
+    }
+    // Same subject repeating: the operator already knows.
+    const subject = String(ack.templateId ?? "") + "|" + String(ack.text ?? "").slice(0, 120);
+    if (b.subjects.has(subject)) {
+      b.suppressed += 1;
+      this.counters.bump("notify_burst_repeat_suppressed");
+      this.scheduleBurstSummary();
+      return "repeat within burst window";
+    }
+    b.subjects.set(subject, now);
+    if (b.pushed >= BURST_CEILING) {
+      b.suppressed += 1;
+      this.counters.bump("notify_burst_suppressed");
+      this.scheduleBurstSummary();
+      return `burst ceiling ${BURST_CEILING} reached`;
+    }
+    b.pushed += 1;
+    return null;
+  }
+
+  // One summary when the window closes, so a suppressed burst is never a
+  // silent one. Interactive priority: it answers real failures.
+  scheduleBurstSummary() {
+    const b = this.burst;
+    if (b.timer) return;
+    const delay = Math.max(1000, BURST_WINDOW_MS - (this.now() - b.startedAt));
+    b.timer = setTimeout(() => {
+      b.timer = null;
+      const count = b.suppressed;
+      b.suppressed = 0;
+      if (count <= 0) return;
+      this.counters.bump("notify_burst_summaries");
+      void this.notifier
+        .deliver({
+          title: "Zeca - problems",
+          body: count === 1 ? "1 more problem needs you." : `${count} more problems need you.`,
+          link: null,
+          tag: "ack",
+          priority: "interactive"
+        })
+        .catch(() => []);
+    }, delay);
+    b.timer.unref?.();
   }
 
   logAck(entry) {
@@ -98,7 +166,8 @@ export class AckSink {
     // whole daily push budget by mid-afternoon (69 pushes), which then
     // starved the pushes answering the user's own spoken commands. When a
     // session is live they are still SPOKEN (lane 2, above).
-    const wantsPush = ack.severity === "error";
+    const burstReason = ack.severity === "error" ? this.burstVerdict(ack) : null;
+    const wantsPush = ack.severity === "error" && !burstReason;
     const receipts = ack.idempotencyKey && this.notifier.alreadyDelivered(ack.idempotencyKey)
       ? [{ means: "companion-push", ok: true, deduplicated: true }]
       : wantsPush
@@ -109,7 +178,11 @@ export class AckSink {
             tag: "ack"
           })
         : [
-            { means: "companion-push", ok: false, skipped: "routine ack (web-channel only)" },
+            {
+              means: "companion-push",
+              ok: false,
+              skipped: burstReason ?? "routine ack (web-channel only)"
+            },
             await this.notifier.sendWebChannelFallback(ack.text)
           ];
     if (ack.idempotencyKey && receipts.some((r) => r.ok)) this.notifier.markDelivered(ack.idempotencyKey);

@@ -275,4 +275,37 @@ describe("capture-service ack sink", () => {
     // And no card path was ever armed: the wake gate never saw the echo.
     expect(handle.counters.read().wake_hits ?? 0).toBe(0);
   });
+
+  // 2026-08-18: ~30 error acks in one minute put ~30 buzzes on the phone. The
+  // first failure must always land; repeats and long bursts must collapse.
+  it("lets the first errors through, suppresses repeats and the tail, then summarises once", async () => {
+    const { handle, pushes, base } = await boot();
+    const err = (id: string, text: string) =>
+      postAck(base, { id, kind: "failed", severity: "error", templateId: "card.blocked", text });
+
+    // Three DISTINCT failures ride the ceiling.
+    const first = await (await err("b1", "Stopped on card one, it needs you.")).json();
+    expect(first.delivered).toBe("push");
+    await (await err("b2", "Stopped on card two, it needs you.")).json();
+    await (await err("b3", "Stopped on card three, it needs you.")).json();
+    expect(pushes.length).toBe(3);
+
+    // The SAME subject again never buzzes twice.
+    const repeat = await (await err("b1-again", "Stopped on card one, it needs you.")).json();
+    expect(repeat.delivered).toBe("web-channel");
+    expect(repeat.receipts[0]).toMatchObject({ ok: false, skipped: "repeat within burst window" });
+    expect(handle.counters.read().notify_burst_repeat_suppressed).toBe(1);
+
+    // A fourth distinct failure is past the ceiling: counted, not buzzed.
+    const past = await (await err("b4", "Stopped on card four, it needs you.")).json();
+    expect(past.delivered).toBe("web-channel");
+    expect(past.receipts[0].skipped).toContain("burst ceiling");
+    expect(pushes.length).toBe(3); // the phone saw exactly three
+    expect(handle.counters.read().notify_burst_suppressed).toBe(1);
+
+    // Nothing is lost: the web-channel carried every suppressed one, and a
+    // single summary is armed for the end of the window.
+    expect((handle as any).ackSink.burst.suppressed).toBe(2);
+    expect((handle as any).ackSink.burst.timer).toBeTruthy();
+  });
 });

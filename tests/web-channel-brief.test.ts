@@ -23,8 +23,25 @@ describe("web-channel: resolveBriefPath (brief file confinement)", () => {
   });
 
   it("accepts the CARD-OWNED kanban brief under ~/.garrison/ (not in a 'briefs' dir)", () => {
-    const abs = path.join(HOME, ".garrison", "kanban-loop", "cards", "01HZX5K3QABCDEFGHJKMNPQRS0", "brief.md");
-    expect(resolveBriefPath(abs)).toBe(abs);
+    // Confinement requires the store to live UNDER the user's home, so this
+    // case names a home-relative store explicitly rather than using the
+    // suite's temp GARRISON_HOME (pinned outside $HOME so that no test can
+    // reach the real ~/.garrison).
+    const prev = process.env.GARRISON_HOME;
+    process.env.GARRISON_HOME = path.join(HOME, ".garrison-brief-test");
+    try {
+      const abs = path.join(
+        process.env.GARRISON_HOME,
+        "kanban-loop",
+        "cards",
+        "01HZX5K3QABCDEFGHJKMNPQRS0",
+        "brief.md"
+      );
+      expect(resolveBriefPath(abs)).toBe(abs);
+    } finally {
+      if (prev === undefined) delete process.env.GARRISON_HOME;
+      else process.env.GARRISON_HOME = prev;
+    }
   });
 
   it("rejects paths OUTSIDE a briefs/ directory", () => {

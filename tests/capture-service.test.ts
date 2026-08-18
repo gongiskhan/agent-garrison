@@ -181,6 +181,8 @@ describe("capture-service server", () => {
     });
     expect(ackRes.status).toBe(200);
     const ackBody = await ackRes.json();
+    // A routine (non-error) ack never buzzes the phone - it is spoken when a
+    // session is live, else it takes the web-channel thread.
     expect(ackBody).toMatchObject({ ok: true, registered: true, delivered: "web-channel" });
     expect(ackBody.receipts[0]).toMatchObject({
       means: "companion-push",

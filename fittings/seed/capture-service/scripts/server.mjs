@@ -574,5 +574,5 @@ export async function startServer(cfg = loadConfig()) {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
-  return { server, cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier };
+  return { server, cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier, ackSink };
 }

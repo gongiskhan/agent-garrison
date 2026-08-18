@@ -93,9 +93,26 @@ const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel", slack
 //
 // Cost: a handful of 404s per reminder against non-channel fittings. That is
 // cheaper than the failure mode it replaces (a channel silently never used).
+// A test process must never reach a LIVE fitting. On 2026-08-18 a vitest run
+// on the prod host drove fixture cards ("panic BBBB", 01WEDGEFAIL…) to
+// blocked/failed; each one fanned out through this discovery, which falls
+// back to the REAL ~/.garrison when GARRISON_HOME is unset, and ~30 real push
+// notifications landed on the user's phone. Discovery is the one chokepoint
+// every outbound ack and notification passes through, so the guard lives
+// here: under a test runner there are no running fittings, full stop.
+// The guard is on the FALLBACK, not on tests as such: a test that names its
+// own GARRISON_HOME is exercising this discovery honestly and must keep
+// working. What must never happen is a test process silently inheriting the
+// real home and finding the live fittings behind it.
+function underTestRunner() {
+  return Boolean(process.env.VITEST || process.env.VITEST_WORKER_ID) || process.env.NODE_ENV === "test";
+}
+
 function runningFittingBases() {
   try {
-    const home = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
+    const explicitHome = process.env.GARRISON_HOME?.trim();
+    if (!explicitHome && underTestRunner()) return [];
+    const home = explicitHome || path.join(os.homedir(), ".garrison");
     const dir = path.join(home, "ui-fittings");
     if (!existsSync(dir)) return [];
     return readdirSync(dir)

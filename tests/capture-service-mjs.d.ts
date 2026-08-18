@@ -67,6 +67,7 @@ declare module "*/capture-service/scripts/server.mjs" {
     wakeBus: unknown;
     echoGuard: unknown;
     notifier: unknown;
+    ackSink: { burst: { suppressed: number; timer: unknown } };
   }>;
 }
 

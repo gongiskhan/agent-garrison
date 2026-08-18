@@ -69,8 +69,15 @@ export function priorityForTag(tag) {
   return INTERACTIVE_TEMPLATES.has(tag) ? "interactive" : "routine";
 }
 
+// A process that never named a GARRISON_HOME must not inherit the real one
+// (2026-08-18): this resolves the live web-channel used as the push fallback.
+function underTestRunner(env) {
+  return Boolean(env.VITEST || env.VITEST_WORKER_ID) || env.NODE_ENV === "test";
+}
+
 function statusFileUrl(fittingId, env = process.env) {
   try {
+    if (!env.GARRISON_HOME?.trim() && underTestRunner(env)) return null;
     const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
     const doc = JSON.parse(readFileSync(path.join(home, "ui-fittings", `${fittingId}.json`), "utf8"));
     return typeof doc.url === "string" && doc.url.length ? doc.url : null;

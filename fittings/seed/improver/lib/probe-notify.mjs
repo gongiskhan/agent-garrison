@@ -45,9 +45,19 @@ function statusFileUrl(fittingId) {
 }
 
 /** Every running own-port Fitting, by its status file. Copied from
- *  kanban-loop/lib/notify-origin.mjs `runningFittingBases`. */
+ *  kanban-loop/lib/notify-origin.mjs `runningFittingBases` — INCLUDING its
+ *  guard: a test process that never named a GARRISON_HOME must not inherit
+ *  the real one and find the live fittings behind it. On 2026-08-18 that
+ *  exact fallback, in the original, put ~30 real pushes on the user's phone;
+ *  this clone reaches the same /notify endpoints. A test that names its own
+ *  home still exercises discovery honestly. */
+function underTestRunner() {
+  return Boolean(process.env.VITEST || process.env.VITEST_WORKER_ID) || process.env.NODE_ENV === "test";
+}
+
 export function runningFittingBases() {
   try {
+    if (!process.env.GARRISON_HOME?.trim() && underTestRunner()) return [];
     const dir = path.join(garrisonHome(), "ui-fittings");
     if (!existsSync(dir)) return [];
     return readdirSync(dir)

@@ -12,7 +12,9 @@ describe("discuss-automation handoff (H1)", () => {
   it("kickoff is persona-free and points at the brief path", () => {
     const k = buildAutomationKickoff({ name: "Weekly Report" });
     expect(k).toMatch(/^Let's design an automation together/);
-    expect(k).toContain("~/.garrison/automations/briefs/weekly-report.md");
+    // The path follows GARRISON_HOME when set (the suite pins it to a temp dir
+    // so nothing resolves the real home); the literal ~ form is the fallback.
+    expect(k).toContain(`${process.env.GARRISON_HOME ?? "~/.garrison"}/automations/briefs/weekly-report.md`.replace("//", "/"));
     expect(k).toContain("What would you like to automate?");
   });
 

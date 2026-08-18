@@ -42,8 +42,19 @@ export function renderTemplate(template, params = {}) {
   }
 }
 
+// Same guard as kanban-loop's fan-out discovery (2026-08-18): a process that
+// never named a GARRISON_HOME must not inherit the real one and reach a LIVE
+// fitting through it. The relay notifiers below POST to capture-service
+// /notify (an APNs push to the phone) and omi's push endpoint, so a test that
+// forgot to isolate its home would buzz the user for real. Naming a home
+// explicitly still exercises this path honestly.
+function underTestRunner(env) {
+  return Boolean(env.VITEST || env.VITEST_WORKER_ID) || env.NODE_ENV === "test";
+}
+
 function statusFileUrl(fittingId, env = process.env) {
   try {
+    if (!env.GARRISON_HOME?.trim() && underTestRunner(env)) return null;
     const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
     const doc = JSON.parse(readFileSync(path.join(home, "ui-fittings", `${fittingId}.json`), "utf8"));
     return typeof doc.url === "string" && doc.url.length ? doc.url : null;
