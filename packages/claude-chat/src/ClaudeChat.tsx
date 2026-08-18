@@ -973,6 +973,70 @@ const nextClientRequestId = () => {
 };
 
 // m:ss elapsed for the working indicator (e.g. 7 → "0:07", 75 → "1:15").
+/**
+ * A bottom sheet for one group of controls.
+ *
+ * The composer used to stack a badge rail, a chip row and the input on top of
+ * each other, and every one of them was permanently on screen for a choice the
+ * user makes occasionally. A sheet costs one tap to open and gives the controls
+ * room to breathe; the transcript keeps saying what was actually chosen.
+ *
+ * Native <dialog> so Escape, the backdrop and focus containment are the
+ * platform's job rather than ours.
+ */
+function RouteSheet({
+  onClose,
+  busy,
+  saving,
+  error,
+  onRetry,
+  children,
+}: {
+  onClose: () => void;
+  busy: boolean;
+  saving?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement | null>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    const onCancel = (event: Event) => { event.preventDefault(); onClose(); };
+    dialog.addEventListener("cancel", onCancel);
+    return () => dialog.removeEventListener("cancel", onCancel);
+  }, [onClose]);
+  return (
+    <dialog
+      ref={ref}
+      className="cc-sheet"
+      aria-label="Run context"
+      onClick={(event) => { if (event.target === ref.current) onClose(); }}
+    >
+      <div className="cc-sheet-card">
+        <div className="cc-sheet-head">
+          <h2 className="cc-sheet-title">Route</h2>
+          <button type="button" className="cc-sheet-close" onClick={onClose} aria-label="Close route sheet">×</button>
+        </div>
+        <p className="cc-sheet-sub">
+          {busy
+            ? "A response is running - these apply to your next message."
+            : "Applies to your next message. Anything left on auto is chosen for you."}
+        </p>
+        <div className="cc-sheet-body">{children}</div>
+        {(saving || error) && (
+          <div className={`cc-pin-save${error ? " cc-pin-save-error" : ""}`}>
+            <span>{error ?? "Saving route choices…"}</span>
+            {error && onRetry && <button type="button" onClick={onRetry}>Retry save</button>}
+          </div>
+        )}
+      </div>
+    </dialog>
+  );
+}
+
 function fmtElapsed(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
@@ -1464,6 +1528,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   /** The rail is mounted while busy or while anything is pinned; this opens it on
    *  demand (the `Route` chip, and `Stop & change`). */
   const [railOpen, setRailOpen] = useState(false);
+  /** The generated thread edits its run context in a sheet rather than in a
+   *  standing row of badges above the composer. */
+  const [routeSheetOpen, setRouteSheetOpen] = useState(false);
   /** After `Stop & change` the sent text is back in the composer and Send becomes
    *  Resend. NOTHING auto-resends - the user chooses when, having changed routing. */
   const [resendArmed, setResendArmed] = useState(false);
@@ -3014,7 +3081,12 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         </div>
       )}
 
-      {(feat.model || feat.effort || feat.voice || feat.autonomous || feat.routing) && (
+      {/* The generated thread carries its run context INSIDE each reply ("Route
+          selected: ...") and its per-message copy button, so a standing row of
+          Route + Copy last was chrome restating what the transcript already said.
+          Route moved into the composer as one icon that opens a sheet. The row
+          still renders for a host that puts real controls in it. */}
+      {(feat.model || feat.effort || feat.voice || feat.autonomous || (feat.routing && !generatedMode)) && (
         <div className="cc-toolbar">
           {feat.model && (
             <div className="cc-tool-group" role="group" aria-label="Model">
@@ -3052,7 +3124,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               ))}
             </div>
           )}
-          {railOn && (
+          {railOn && !generatedMode && (
             <button
               type="button"
               className={`cc-chip ${showFlightRail ? "cc-chip-active" : ""}`}
@@ -3087,15 +3159,19 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               Compact
             </button>
           )}
-          <button
-            type="button"
-            className="cc-chip"
-            title="Copy the last response"
-            disabled={!turns.some((t) => resolvedAssistantText(t).trim())}
-            onClick={() => void copyLast()}
-          >
-            {copied ? "Copied" : "Copy last"}
-          </button>
+          {/* Every reply already carries its own copy button; a second "copy the
+              last one" control in a standing row is the same action twice. */}
+          {!generatedMode && (
+            <button
+              type="button"
+              className="cc-chip"
+              title="Copy the last response"
+              disabled={!turns.some((t) => resolvedAssistantText(t).trim())}
+              onClick={() => void copyLast()}
+            >
+              {copied ? "Copied" : "Copy last"}
+            </button>
+          )}
           {feat.voice && (
             <button
               type="button"
@@ -3171,7 +3247,28 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         {/* The flight rail: live badges for the turn in flight plus the pin
             dropdowns, mounted while busy, while anything is pinned, or on demand
             from the toolbar's Route chip. */}
-        {showFlightRail && (
+        {routeSheetOpen && generatedMode && (
+          <RouteSheet
+            onClose={() => setRouteSheetOpen(false)}
+            busy={busy}
+            saving={pinSavePending}
+            error={pinSaveError?.message ?? null}
+            onRetry={pinSaveError ? retryPinSave : undefined}
+          >
+            <AttributionRail
+              variant="flight"
+              route={rewriteRouteForHost(latestAssistant?.route, hostCtx())}
+              pins={pins}
+              pendingFields={pendingPins}
+              options={routeOptions ?? undefined}
+              onPin={applyPin}
+              onOpenTranscript={onOpenTranscript}
+              label="Run context for your next message"
+              musterUrl={musterUrl}
+            />
+          </RouteSheet>
+        )}
+        {showFlightRail && !generatedMode && (
           <>
             <AttributionRail
               variant="flight"
@@ -3256,6 +3353,24 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           onDragLeave={() => setDragOver(false)}
           onDrop={onComposerDrop}
         >
+          {railOn && generatedMode && (
+            <button
+              type="button"
+              className={`cc-mic cc-routebtn${routeSheetOpen ? " cc-routebtn-active" : ""}`}
+              aria-haspopup="dialog"
+              aria-expanded={routeSheetOpen}
+              aria-label="Run context for your next message"
+              title="Route: duty, model, effort, account or project for your next message"
+              onClick={() => setRouteSheetOpen(true)}
+            >
+              {/* A junction: one road in, three out - routing, not settings. */}
+              <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 14V9m0 0L3.5 5.2M8 9l4.5-3.8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="3" cy="4.2" r="1.6" fill="currentColor" />
+                <circle cx="13" cy="4.2" r="1.6" fill="currentColor" />
+              </svg>
+            </button>
+          )}
           {typeof composerAdornment === "function"
             ? composerAdornment({ send: (text: string) => send(text), busy, queueLocked: generatedWork, lastReply: settledReply })
             : composerAdornment}
@@ -3336,30 +3451,37 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           />
           {generatedMode ? (
             <>
-              {activeGeneratedTurn && !showFlightRail && (
+              {activeGeneratedTurn && (generatedMode || !showFlightRail) && (
                 <button
                   type="button"
                   className="cc-stop"
-                  onClick={stopTurn}
+                  onClick={generatedMode ? stopAndChange : stopTurn}
                   disabled={generatedStopDisabled}
                   aria-busy={activeGeneratedTurn.inputState === "stopping"}
-                  title={!activeGeneratedTurn.generationId ? "Stop is available once the response starts" : "Stop this response (Esc)"}
+                  title={!activeGeneratedTurn.generationId
+                    ? "Stop is available once the response starts"
+                    : generatedMode
+                      ? "Stop this response and put your message back in the composer (Esc)"
+                      : "Stop this response (Esc)"}
                 >
                   <span className="cc-stopsq" /> {generatedStopLabel}
                 </button>
               )}
               <button
                 type="button"
-                className="cc-send"
+                className="cc-send cc-send-icon"
                 onClick={() => send(input)}
                 disabled={(!input.trim() && !attachments.some((a) => a.path)) || attachments.some((a) => a.uploading) || (attachmentLocked && attachments.length > 0)}
+                aria-label={generatedWork ? "Queue" : resendArmed ? "Resend" : "Send"}
                 title={generatedWork
                   ? "Append this message after the existing queue"
                   : resendArmed
                     ? "Resend the stopped message"
                     : "Send"}
               >
-                {generatedWork ? "Queue" : resendArmed ? "Resend" : "Send"}
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 13.5V3M8 3 3.5 7.5M8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </button>
             </>
           ) : busy && !showFlightRail ? (

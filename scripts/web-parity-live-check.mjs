@@ -290,7 +290,9 @@ async function runWeb() {
 
     // Queue the steer WHILE the turn runs — the mid-turn input case.
     await page.locator(".cc-input").fill(SCENARIOS.c.steer);
-    const sendLabel = ((await page.locator(".cc-send").textContent()) ?? "").trim();
+    // The send control is an arrow icon; its accessible name is what says whether
+    // this message will start a turn or join the queue.
+    const sendLabel = ((await page.locator(".cc-send").getAttribute("aria-label")) ?? "").trim();
     await page.locator(".cc-send").click();
     await sleep(1_000);
     const queuedVisible = await page.locator(".cc-lifecycle-label").filter({ hasText: "Queued" }).count();

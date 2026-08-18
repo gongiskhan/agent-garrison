@@ -43021,6 +43021,50 @@ var nextClientRequestId = () => {
   }
   return `chat-${Date.now()}-${uid++}`;
 };
+function RouteSheet({
+  onClose,
+  busy,
+  saving,
+  error,
+  onRetry,
+  children
+}) {
+  const ref = (0, import_react4.useRef)(null);
+  (0, import_react4.useEffect)(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    const onCancel = (event) => {
+      event.preventDefault();
+      onClose();
+    };
+    dialog.addEventListener("cancel", onCancel);
+    return () => dialog.removeEventListener("cancel", onCancel);
+  }, [onClose]);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    "dialog",
+    {
+      ref,
+      className: "cc-sheet",
+      "aria-label": "Run context",
+      onClick: (event) => {
+        if (event.target === ref.current) onClose();
+      },
+      children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-sheet-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-sheet-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "cc-sheet-title", children: "Route" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "cc-sheet-close", onClick: onClose, "aria-label": "Close route sheet", children: "\xD7" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "cc-sheet-sub", children: busy ? "A response is running - these apply to your next message." : "Applies to your next message. Anything left on auto is chosen for you." }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-sheet-body", children }),
+        (saving || error) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `cc-pin-save${error ? " cc-pin-save-error" : ""}`, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: error ?? "Saving route choices\u2026" }),
+          error && onRetry && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", onClick: onRetry, children: "Retry save" })
+        ] })
+      ] })
+    }
+  );
+}
 function fmtElapsed(sec) {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
@@ -43262,6 +43306,7 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
   const pendingPinsRef = (0, import_react4.useRef)(pendingPins);
   pendingPinsRef.current = pendingPins;
   const [railOpen, setRailOpen] = (0, import_react4.useState)(false);
+  const [routeSheetOpen, setRouteSheetOpen] = (0, import_react4.useState)(false);
   const [resendArmed, setResendArmed] = (0, import_react4.useState)(false);
   const [activity, setActivity] = (0, import_react4.useState)("");
   const turnSeqRef = (0, import_react4.useRef)(0);
@@ -44480,7 +44525,7 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
       },
       m
     )) }),
-    (feat.model || feat.effort || feat.voice || feat.autonomous || feat.routing) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-toolbar", children: [
+    (feat.model || feat.effort || feat.voice || feat.autonomous || feat.routing && !generatedMode) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-toolbar", children: [
       feat.model && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Model", children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-tool-label", children: "Model" }),
         MODELS.map((m) => {
@@ -44513,7 +44558,7 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
           e.id
         ))
       ] }),
-      railOn && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      railOn && !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
         "button",
         {
           type: "button",
@@ -44546,7 +44591,7 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
           children: "Compact"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
         "button",
         {
           type: "button",
@@ -44610,7 +44655,31 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-composer", children: [
-      showFlightRail && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+      routeSheetOpen && generatedMode && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        RouteSheet,
+        {
+          onClose: () => setRouteSheetOpen(false),
+          busy,
+          saving: pinSavePending,
+          error: pinSaveError?.message ?? null,
+          onRetry: pinSaveError ? retryPinSave : void 0,
+          children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            AttributionRail,
+            {
+              variant: "flight",
+              route: rewriteRouteForHost(latestAssistant?.route, hostCtx()),
+              pins,
+              pendingFields: pendingPins,
+              options: routeOptions ?? void 0,
+              onPin: applyPin,
+              onOpenTranscript,
+              label: "Run context for your next message",
+              musterUrl
+            }
+          )
+        }
+      ),
+      showFlightRail && !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           AttributionRail,
           {
@@ -44690,6 +44759,23 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
           onDragLeave: () => setDragOver(false),
           onDrop: onComposerDrop,
           children: [
+            railOn && generatedMode && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              "button",
+              {
+                type: "button",
+                className: `cc-mic cc-routebtn${routeSheetOpen ? " cc-routebtn-active" : ""}`,
+                "aria-haspopup": "dialog",
+                "aria-expanded": routeSheetOpen,
+                "aria-label": "Run context for your next message",
+                title: "Route: duty, model, effort, account or project for your next message",
+                onClick: () => setRouteSheetOpen(true),
+                children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "15", height: "15", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M8 14V9m0 0L3.5 5.2M8 9l4.5-3.8", fill: "none", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("circle", { cx: "3", cy: "4.2", r: "1.6", fill: "currentColor" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("circle", { cx: "13", cy: "4.2", r: "1.6", fill: "currentColor" })
+                ] })
+              }
+            ),
             typeof composerAdornment === "function" ? composerAdornment({ send: (text) => send(text), busy, queueLocked: generatedWork, lastReply: settledReply }) : composerAdornment,
             hasAttachmentTransport && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
               /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
@@ -44758,15 +44844,15 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
               }
             ),
             generatedMode ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-              activeGeneratedTurn && !showFlightRail && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+              activeGeneratedTurn && (generatedMode || !showFlightRail) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
                 "button",
                 {
                   type: "button",
                   className: "cc-stop",
-                  onClick: stopTurn,
+                  onClick: generatedMode ? stopAndChange : stopTurn,
                   disabled: generatedStopDisabled,
                   "aria-busy": activeGeneratedTurn.inputState === "stopping",
-                  title: !activeGeneratedTurn.generationId ? "Stop is available once the response starts" : "Stop this response (Esc)",
+                  title: !activeGeneratedTurn.generationId ? "Stop is available once the response starts" : generatedMode ? "Stop this response and put your message back in the composer (Esc)" : "Stop this response (Esc)",
                   children: [
                     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq" }),
                     " ",
@@ -44778,11 +44864,12 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
                 "button",
                 {
                   type: "button",
-                  className: "cc-send",
+                  className: "cc-send cc-send-icon",
                   onClick: () => send(input),
                   disabled: !input.trim() && !attachments.some((a) => a.path) || attachments.some((a) => a.uploading) || attachmentLocked && attachments.length > 0,
+                  "aria-label": generatedWork ? "Queue" : resendArmed ? "Resend" : "Send",
                   title: generatedWork ? "Append this message after the existing queue" : resendArmed ? "Resend the stopped message" : "Send",
-                  children: generatedWork ? "Queue" : resendArmed ? "Resend" : "Send"
+                  children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M8 13.5V3M8 3 3.5 7.5M8 3l4.5 4.5", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round" }) })
                 }
               )
             ] }) : busy && !showFlightRail ? (

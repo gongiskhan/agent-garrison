@@ -26,6 +26,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   --cc-user-bg: #1f6feb;
   --cc-user-fg: #fff;
   --cc-code-bg: #161b22;
+  --cc-code-fg: #e6edf3;
   --cc-code-border: #21262d;
   --cc-slash-active: #1f2937;
   --cc-danger-bg: #8b2c2c;
@@ -48,6 +49,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   --cc-user-bg: #3d6249;
   --cc-user-fg: #fff;
   --cc-code-bg: #f1ead9;
+  --cc-code-fg: #1c2620;
   --cc-code-border: #d6cdba;
   --cc-slash-active: #e7decb;
   --cc-danger-bg: #9b362d;
@@ -502,6 +504,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   --cc-user-bg: #35483b;
   --cc-user-fg: #f7f1e5;
   --cc-code-bg: #0e1410;
+  --cc-code-fg: #dfe7dd;
   --cc-code-border: #334039;
   --cc-slash-active: #354138;
   --cc-danger-bg: #873b32;
@@ -528,6 +531,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   --cc-user-bg: #dce7d9;
   --cc-user-fg: #202820;
   --cc-code-bg: #172019;
+  --cc-code-fg: #dfe7dd;
   --cc-code-border: #304137;
   --cc-slash-active: #ddd2bc;
   --cc-danger-bg: #963f35;
@@ -909,10 +913,16 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-pre {
   margin: 0; padding: 8px 10px; overflow: auto; max-height: 360px;
   background: var(--cc-code-bg); border: 1px solid var(--cc-code-border);
+  /* Carries its own foreground. It took the page's ink before, which on a skin
+     whose code card is dark ink (the web channel) rendered tool input and the
+     permission JSON at 1.16:1 - present, formatted, and unreadable. */
+  color: var(--cc-code-fg, var(--cc-fg));
   border-radius: 8px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap; word-break: break-word;
 }
-.cc-session-pre.cc-session-result { background: var(--cc-bg-sunk); }
+/* The result variant sits on PAPER, not on the code card, so it takes the page
+   ink back with it. */
+.cc-session-pre.cc-session-result { background: var(--cc-bg-sunk); color: var(--cc-fg); }
 .cc-session-pre.cc-session-result.is-live { max-height: 440px; border-color: var(--cc-border-strong); }
 .cc-session-thinking {
   border-left: 2px solid var(--cc-border-strong); padding-left: 8px; color: var(--cc-fg-dim);
@@ -1378,6 +1388,54 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-root .cc-rail .cc-railstop { min-height: 44px; }
   .cc-root .cc-rail-settled .cc-rbadge { min-height: 30px; }
   .cc-root .cc-rail .cc-railclose { min-height: 36px; }
+}
+
+/* ── Sheets ──────────────────────────────────────────────────────────────────
+   One group of controls at a time, on demand, instead of three permanent rows
+   stacked above the composer. Native <dialog>: Escape, the backdrop and focus
+   containment come from the platform. */
+.cc-sheet {
+  border: 0; padding: 0; background: transparent; max-width: 100vw; max-height: 100dvh;
+  width: 100%; margin: auto auto 0; color: var(--cc-fg);
+}
+.cc-sheet::backdrop { background: rgba(8, 12, 10, .5); }
+.cc-sheet-card {
+  background: var(--cc-bg-elev); border: 1px solid var(--cc-border-strong);
+  border-radius: 14px 14px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, .28); max-height: 80dvh; overflow: auto;
+}
+.cc-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cc-sheet-title { margin: 0; font: 600 15px/1.2 var(--cc-sans, inherit); }
+.cc-sheet-close {
+  flex: 0 0 auto; width: 44px; height: 44px; margin: -10px -8px -10px 0; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--cc-fg-dim);
+  font: 22px/1 var(--cc-sans, inherit); cursor: pointer;
+}
+.cc-sheet-close:hover, .cc-sheet-close:focus-visible { background: var(--cc-bg-sunk); color: var(--cc-fg); }
+.cc-sheet-sub { margin: 2px 0 10px; color: var(--cc-fg-dim); font-size: 12px; }
+/* The rail inside a sheet has room, so its badges WRAP instead of scrolling off
+   the right-hand edge - which is how a warning ended up off screen before. The
+   track is `.cc-railscroll`, and the base rule is `.cc-root .cc-railscroll`, so
+   match that specificity or nothing changes. */
+.cc-root .cc-sheet-body .cc-rail,
+.cc-root .cc-sheet-body .cc-railscroll {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+  max-width: 100%;
+  padding-right: 0;
+  /* The fade mask exists to hint "this scrolls sideways". Wrapped, it would just
+     bleach the last badge in every row. */
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* Composer icon buttons. `Route` reuses the mic/attach shape so the row reads as
+   one set of affordances rather than a mix of words and icons. */
+.cc-routebtn-active { border-color: var(--cc-fg); color: var(--cc-fg); }
+.cc-send-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 44px; padding-left: 10px; padding-right: 10px;
 }
 
 

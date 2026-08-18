@@ -37,6 +37,73 @@ interface VoiceHealth { available: boolean; keyConfigured?: boolean }
 // state machine rather than deadlock in `sending` (codex S6b finding).
 const SENDING_TIMEOUT_MS = 30000;
 
+/** How long the mic must be held before it becomes push-to-talk. Below this a
+ *  press is a TAP and opens the voice sheet instead. Comfortably shorter than
+ *  any deliberate hold, long enough that a tap never trips the capture. */
+const HOLD_MS = 220;
+
+/** The voice modes, on demand. Mirrors the shared chat's route sheet: one group
+ *  of controls, opened by the control it belongs to, instead of a second button
+ *  parked in the composer forever. */
+function VoiceSheet({
+  conversationOn,
+  disabled,
+  reason,
+  onToggleConversation,
+  onClose,
+}: {
+  conversationOn: boolean;
+  disabled: boolean;
+  reason: string;
+  onToggleConversation: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement | null>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    const onCancel = (event: Event) => { event.preventDefault(); onClose(); };
+    dialog.addEventListener("cancel", onCancel);
+    return () => dialog.removeEventListener("cancel", onCancel);
+  }, [onClose]);
+  return (
+    <dialog
+      ref={ref}
+      className="cc-sheet"
+      aria-label="Voice"
+      data-testid="wcv-sheet"
+      onClick={(event) => { if (event.target === ref.current) onClose(); }}
+    >
+      <div className="cc-sheet-card">
+        <div className="cc-sheet-head">
+          <h2 className="cc-sheet-title">Voice</h2>
+          <button type="button" className="cc-sheet-close" onClick={onClose} aria-label="Close voice sheet">×</button>
+        </div>
+        <p className="cc-sheet-sub">Hold the mic to talk once. Or hand the conversation over:</p>
+        <div className="cc-sheet-body">
+          <button
+            type="button"
+            className={`wcv-convo${conversationOn ? " wcv-on" : ""}`}
+            data-testid="wcv-convo"
+            aria-pressed={conversationOn}
+            disabled={disabled}
+            title={reason || (conversationOn ? "Stop conversation" : "Hands-free conversation: talk, pause to send, reply is read aloud")}
+            onClick={onToggleConversation}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 3h10v7H6l-3 2.5z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path d="M6 6h4M6 8h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <span className="wcv-convo-label">{conversationOn ? "Stop hands-free conversation" : "Start hands-free conversation"}</span>
+          </button>
+          {reason && <p className="cc-sheet-sub">{reason}</p>}
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
 export function VoiceConversation(props: VoiceConversationProps) {
   const supported = useMemo(() => isCaptureSupported(), []);
   const [ctx, setCtx] = useState<VoiceCtx>(() => initialCtx());
@@ -44,6 +111,9 @@ export function VoiceConversation(props: VoiceConversationProps) {
   const [level, setLevel] = useState(0);
   const [latency, setLatency] = useState<BudgetVerdict | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Hands-free is reached by TAPPING the mic; holding it is push-to-talk. */
+  const [voiceSheetOpen, setVoiceSheetOpen] = useState(false);
+  const holdTimer = useRef<number | null>(null);
 
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
@@ -318,34 +388,28 @@ export function VoiceConversation(props: VoiceConversationProps) {
 
   return (
     <span className="wcv" data-testid="wcv">
-      <button
-        type="button"
-        className={`wcv-convo${conversationOn ? " wcv-on" : ""}`}
-        data-testid="wcv-convo"
-        aria-pressed={conversationOn}
-        disabled={!usable || (props.queueLocked && !conversationOn)}
-        title={usable
-          ? conversationOn
-            ? "Stop conversation"
-            : props.queueLocked
-              ? queueLockedReason
-              : "Hands-free conversation: talk, pause to send, reply is read aloud"
-          : disabledReason}
-        onClick={onToggleConversation}
-      >
-        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M3 3h10v7H6l-3 2.5z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-          <path d="M6 6h4M6 8h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-        </svg>
-        <span className="wcv-convo-label">Talk</span>
-      </button>
+      {/* Hands-free lives in a sheet the mic opens on a TAP; the standing Talk
+          button was a second permanent control for a mode that is entered
+          occasionally. Holding the mic is still push-to-talk. */}
+      {voiceSheetOpen && (
+        <VoiceSheet
+          conversationOn={conversationOn}
+          disabled={!usable || (props.queueLocked && !conversationOn)}
+          reason={usable ? (props.queueLocked ? queueLockedReason : "") : disabledReason}
+          onToggleConversation={() => { setVoiceSheetOpen(false); onToggleConversation(); }}
+          onClose={() => setVoiceSheetOpen(false)}
+        />
+      )}
       <button
         type="button"
         className={`wcv-mic${pttActive ? " wcv-mic-rec" : ""}`}
         data-testid="wcv-mic"
         aria-pressed={pttActive}
         aria-label={pttActive ? "Release push-to-talk" : "Hold to talk"}
-        disabled={!usable || conversationOn || (props.queueLocked && !pttActive)}
+        // Stays tappable while the queue is locked: the mic is now the ONLY way
+        // into the voice sheet, and a disabled button would strand the user with
+        // no way to read why. Push-to-talk itself still refuses (onPttDown).
+        disabled={!usable || conversationOn}
         title={usable
           ? conversationOn
             ? "Conversation active"
@@ -353,10 +417,29 @@ export function VoiceConversation(props: VoiceConversationProps) {
               ? queueLockedReason
               : "Hold to talk (push-to-talk)"
           : disabledReason}
-        onPointerDown={(e) => { e.preventDefault(); onPttDown(); }}
-        onPointerUp={(e) => { e.preventDefault(); onPttUp(); }}
-        onPointerLeave={onPttUp}
-        onPointerCancel={onPttUp}
+        // HOLD is push-to-talk, TAP opens the voice sheet. The capture only starts
+        // once the hold passes the threshold, so a tap never opens the mic for a
+        // few milliseconds and never posts an empty utterance.
+        onPointerDown={(e) => {
+          e.preventDefault();
+          if (holdTimer.current) window.clearTimeout(holdTimer.current);
+          holdTimer.current = window.setTimeout(() => { holdTimer.current = null; onPttDown(); }, HOLD_MS);
+        }}
+        onPointerUp={(e) => {
+          e.preventDefault();
+          const tapped = holdTimer.current !== null;
+          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+          if (tapped) { if (!conversationOn) setVoiceSheetOpen(true); return; }
+          onPttUp();
+        }}
+        onPointerLeave={() => {
+          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; return; }
+          onPttUp();
+        }}
+        onPointerCancel={() => {
+          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; return; }
+          onPttUp();
+        }}
         onKeyDown={(e) => {
           if ((e.key !== " " && e.key !== "Enter") || e.repeat) return;
           e.preventDefault();

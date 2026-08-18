@@ -675,4 +675,44 @@ describe("claude-chat canonical timeline in a real browser", () => {
     expect(ratios.tool).toBeGreaterThanOrEqual(4.5);
     expect(ratios.related).toBeGreaterThanOrEqual(4.5);
   });
+
+  it("keeps a code card readable against its own background, in every skin", async () => {
+    // `.cc-session-pre` painted a DARK code card and then took the page's ink for
+    // its text, so on the web channel's cream skin the tool input and the whole
+    // permission JSON rendered at 1.16:1: present, formatted, unreadable. The
+    // result variant sits on paper instead and must keep the page ink.
+    await page.locator(".wc-xscript-body").evaluate((body) => {
+      body.insertAdjacentHTML(
+        "beforeend",
+        '<div class="cc-root" data-theme="light" style="height:auto" data-pre-fixture>' +
+          '<div class="cc-session">' +
+            '<pre class="cc-session-pre">{"command":"find ."}</pre>' +
+            '<pre class="cc-session-pre cc-session-result">stdout</pre>' +
+          '</div>' +
+        '</div>'
+      );
+    });
+    const ratios = await page.locator("[data-pre-fixture]").evaluate((fixture) => {
+      const luminance = (value: string) => {
+        const channels = (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+        const linear = channels.map((channel) => {
+          const component = channel / 255;
+          return component <= 0.04045 ? component / 12.92 : ((component + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+      };
+      const ratio = (el: Element) => {
+        const style = getComputedStyle(el);
+        const a = luminance(style.color);
+        const b = luminance(style.backgroundColor);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      };
+      return {
+        input: ratio(fixture.querySelector(".cc-session-pre")!),
+        result: ratio(fixture.querySelector(".cc-session-result")!),
+      };
+    });
+    expect(ratios.input).toBeGreaterThanOrEqual(4.5);
+    expect(ratios.result).toBeGreaterThanOrEqual(4.5);
+  });
 });

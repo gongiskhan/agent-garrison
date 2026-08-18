@@ -542,9 +542,10 @@ test.describe("web channel session parity", () => {
     await sendMessage(page, "first question");
     await expect(page.locator(".cc-scroll")).toContainText("answer 1", { timeout: 20_000 });
 
-    // While the first turn is still open the Send button becomes an explicit
+    // While the first turn is still open the send control becomes an explicit
     // Queue: the input is admitted durably, never dropped, never overlapped.
-    await expect(page.locator(".cc-send")).toHaveText("Queue");
+    // The control is an arrow icon, so its accessible name carries the meaning.
+    await expect(page.locator(".cc-send")).toHaveAttribute("aria-label", "Queue");
     await sendMessage(page, "second question");
     await expect(page.locator(".cc-lifecycle-label").filter({ hasText: "Queued" }).first()).toBeVisible();
     expect(h.gateway.turns.length).toBe(1);
@@ -686,6 +687,6 @@ test.describe("web channel session parity", () => {
     await expect(page.locator(".cc-session-notice-meta").first()).toContainText("runtime_crashed");
     await expect(page.locator(".cc-scroll")).toContainText("The runtime exited before finishing the turn.");
     // Never a spinner that hangs: the composer is usable again once it settles.
-    await expect(page.locator(".cc-send")).toHaveText("Send", { timeout: 20_000 });
+    await expect(page.locator(".cc-send")).toHaveAttribute("aria-label", "Send", { timeout: 20_000 });
   });
 });

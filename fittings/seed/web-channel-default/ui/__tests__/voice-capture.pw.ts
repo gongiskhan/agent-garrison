@@ -152,12 +152,20 @@ test.afterAll(async () => {
 
 test.beforeEach(() => resetState());
 
+/** Hands-free lives in the voice sheet now: TAP the mic to open it, then start
+ *  the conversation. Holding the mic is push-to-talk and must NOT open a sheet. */
+async function startConversation(page: import("@playwright/test").Page) {
+  await page.getByTestId("wcv-mic").click();
+  const convo = page.getByTestId("wcv-convo");
+  await convo.waitFor({ state: "visible" });
+  await convo.click();
+}
+
+
 test("conversation: mic starts capture, WS opens, PCM frames flow", async ({ page }) => {
   await page.goto(`${baseUrl}/?scenario=interim-final`);
-  await expect(page.getByTestId("wcv-convo")).toBeEnabled();
-
   // Start hands-free conversation → opens the mic + STT WebSocket.
-  await page.getByTestId("wcv-convo").click();
+  await startConversation(page);
 
   // The panel appears in the listening state.
   await expect(page.getByTestId("wcv-state")).toHaveAttribute("data-state", "listening");
@@ -169,7 +177,7 @@ test("conversation: mic starts capture, WS opens, PCM frames flow", async ({ pag
 
 test("transcript: interim renders, then final replaces it", async ({ page }) => {
   await page.goto(`${baseUrl}/?scenario=interim-final`);
-  await page.getByTestId("wcv-convo").click();
+  await startConversation(page);
 
   // Interim result shows the live (not-yet-final) text.
   await expect(page.getByTestId("wcv-interim")).toHaveText("hello", { timeout: 5000 });
@@ -182,7 +190,7 @@ test("transcript: interim renders, then final replaces it", async ({ page }) => 
 
 test("conversation cycle: silence sends, reply streams TTS, latency readout renders", async ({ page }) => {
   await page.goto(`${baseUrl}/?scenario=full`);
-  await page.getByTestId("wcv-convo").click();
+  await startConversation(page);
 
   // Silence endpoint → the utterance is sent as a chat turn.
   await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 6000 })
@@ -245,9 +253,8 @@ test("push-to-talk: Space and Enter hold/release work from the keyboard without 
 
 test("queue lock blocks new voice starts and stops conversation re-arm only after its current reply", async ({ page }) => {
   await page.goto(`${baseUrl}/?scenario=full`);
-  const talk = page.getByTestId("wcv-convo");
   const mic = page.getByTestId("wcv-mic");
-  await talk.click();
+  await startConversation(page);
   await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 6000 })
     .toContain("hello world");
 
@@ -257,11 +264,16 @@ test("queue lock blocks new voice starts and stops conversation re-arm only afte
   await page.evaluate(() => (window as any).__setQueueLocked(true));
   await expect.poll(() => state.ttsConnections, { timeout: 6000 }).toBeGreaterThan(0);
   await expect(page.getByTestId("wcv-panel")).toHaveCount(0, { timeout: 6000 });
+  // The mic stays reachable so the reason is readable: it is the only door to
+  // the voice sheet, and a dead button would just be a mystery.
+  await expect(mic).toBeEnabled();
+  await mic.click();
+  const talk = page.getByTestId("wcv-convo");
   await expect(talk).toBeDisabled();
-  await expect(mic).toBeDisabled();
   await expect(talk).toHaveAttribute("title", /pending messages/i);
+  await page.keyboard.press("Escape");
 
   await page.evaluate(() => (window as any).__setQueueLocked(false));
-  await expect(talk).toBeEnabled();
-  await expect(mic).toBeEnabled();
+  await mic.click();
+  await expect(page.getByTestId("wcv-convo")).toBeEnabled();
 });

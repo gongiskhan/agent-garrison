@@ -297,7 +297,10 @@ afterAll(async () => {
 
 const composer = () => page.getByRole("textbox", { name: "Message James" });
 const button = (name: string) => page.getByRole("button", { name, exact: true });
-const stopButton = () => page.locator("button.cc-railstop:not(.cc-railstop-change)");
+// The generated composer owns ONE Stop now (the rail and its Stop pair are gone
+// from that mode), so match the stop wherever it lives - but never the legacy
+// "Stop & change", which only a non-generated host still renders.
+const stopButton = () => page.locator("button.cc-stop:not(.cc-railstop-change)");
 
 async function emitInput(number: number, state: string, extra: Record<string, unknown> = {}) {
   await page.evaluate(
@@ -746,14 +749,17 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
     expect(await page.locator('[data-input-state="queued"]').count()).toBe(1);
   });
 
-  it("restores Stop & change text without auto-resending or reordering the queue", async () => {
+  it("Stop restores the sent text without auto-resending or reordering the queue", async () => {
+    // One Stop now. It has to put the message back: a stop that silently ate
+    // what you had just sent would make "stop and change my mind" cost you the
+    // words, which is why there used to be a second button for it.
     await composer().fill("change this message");
     await button("Send").click();
     await emitInput(1, "running", { generationId: "generation-1" });
     await composer().fill("already queued");
     await button("Queue").click();
 
-    await button("Stop & change").click();
+    await stopButton().click();
     await expect.poll(() => composer().inputValue()).toBe("change this message");
     expect(await page.evaluate(() => (window as any).__mock.sends.map((send: any) => send.message))).toEqual([
       "change this message",
@@ -826,7 +832,10 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
   });
 
   it("rolls back a rejected async pin save and exposes a keyboard-retryable nonblocking error", async () => {
-    await button("Route").click();
+    // Route is an icon in the composer that opens a sheet; the rail (and its pin
+    // menus) live inside it rather than in a standing row above the input.
+    await page.locator(".cc-routebtn").click();
+    await page.locator("dialog.cc-sheet").waitFor({ state: "visible" });
     const target = page.locator("button.cc-rbadge").filter({ hasText: "target" }).first();
     await target.focus();
     expect(await target.evaluate((node) => node === document.activeElement)).toBe(true);
