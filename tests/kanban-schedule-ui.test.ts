@@ -46,7 +46,10 @@ describe("Kanban Scheduled UI", () => {
 
   it("makes template and occurrence provenance navigable card links", () => {
     const source = readFileSync(new URL("../fittings/seed/kanban-loop/ui/main.tsx", import.meta.url), "utf8");
-    expect(source).toContain('const cardId = (query.get("card") || "").trim();');
+    // The `?card=` reader moved into the pure ui/card-location module (which also
+    // learned the `#/cards/<id>` shape every OTHER producer emits); the board's
+    // own provenance links still resolve through it.
+    expect(source).toContain("const cardId = cardIdFromLocation(window.location);");
     expect(source).toContain('href={scheduleCardHref(card.scheduleTemplateId)}');
     expect(source).toContain('candidate.scheduleTemplateId === detail.card.id');
     expect(source).toContain('href={scheduleCardHref(occurrence.id)}');

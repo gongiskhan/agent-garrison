@@ -85,6 +85,7 @@ import {
   shouldCommitCardTitleOnBlur,
   shouldOpenCard
 } from "./card-click";
+import { cardIdFromLocation } from "./card-location";
 import {
   DRAG_HOLD_MS,
   DRAG_HOLD_TOLERANCE_MOUSE,
@@ -4191,9 +4192,9 @@ type Overlay =
 
 function initialOverlayFromLocation(): Overlay {
   if (typeof window === "undefined") return null;
-  const query = new URLSearchParams(window.location.search);
-  const cardId = (query.get("card") || "").trim();
+  const cardId = cardIdFromLocation(window.location);
   if (cardId) return { kind: "detail", cardId };
+  const query = new URLSearchParams(window.location.search);
   if (query.get("new") !== "1") return null;
   const placement = (query.get("placement") || "").trim();
   return { kind: "new", ...(placement ? { placement } : {}) };
@@ -4483,6 +4484,29 @@ function App() {
   const [cardOrderOverride, setCardOrderOverride] = useState<Record<string, string[]> | null>(null);
   const [colOrderOverride, setColOrderOverride] = useState<string[] | null>(null);
   const [activeDrag, setActiveDrag] = useState<{ type: "card"; card: CardSummary } | { type: "column"; listId: string } | null>(null);
+  // A hash-only navigation does NOT reload the document, so a card link opened
+  // while the board is already up (the common case - the board is a standing
+  // tab) reaches us only through hashchange. Without this, the first card link
+  // works and every later one silently does nothing.
+  useEffect(() => {
+    const onHashCard = () => {
+      const cardId = cardIdFromLocation(window.location);
+      if (cardId) setOverlay({ kind: "detail", cardId });
+    };
+    window.addEventListener("hashchange", onHashCard);
+    return () => window.removeEventListener("hashchange", onHashCard);
+  }, []);
+  // Closing the sheet must also drop the card out of the URL, or re-clicking the
+  // SAME link fires no hashchange (the hash never changed) and nothing opens.
+  const closeCardOverlay = useCallback(() => {
+    setOverlay(null);
+    if (typeof window === "undefined") return;
+    if (!cardIdFromLocation(window.location)) return;
+    const url = new URL(window.location.href);
+    url.hash = "";
+    url.searchParams.delete("card");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }, []);
   const dragActiveRef = useRef(false);
   // Item 5: a completed pointer-drag synthesises a trailing click on mouse-up, which
   // would otherwise open the card's detail sheet after every reorder. Raised on
@@ -5102,7 +5126,7 @@ function App() {
           key={overlay.cardId}
           cardId={overlay.cardId}
           board={board}
-          onClose={() => setOverlay(null)}
+          onClose={closeCardOverlay}
           onChanged={() => void load()}
           onWatch={(c) => setOverlay({ kind: "watch", card: c })}
           onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
