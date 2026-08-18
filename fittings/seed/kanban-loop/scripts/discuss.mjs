@@ -93,12 +93,42 @@ function encodeContext(obj) {
 // source for that doctrine whenever the duty-discuss fitting is not equipped. `level`
 // (or the card's own) sets the depth: 1 is the conversation itself, 2+ makes research
 // expected and the written brief the exit criterion.
+/** The card's checklist rendered for the kickoff, or "" when it has none.
+ *
+ *  A card's substance often lives in its ITEMS rather than its description -
+ *  this one had an empty description and six checklist items, and the Discuss
+ *  session opened saying "the card is just a title, with nothing to read".
+ *  Done state travels too: a half-finished list is a different conversation
+ *  from an untouched one. */
+export function checklistBlock(card) {
+  const items = Array.isArray(card?.checklist) ? card.checklist : [];
+  const lines = items
+    .map((item) => (typeof item?.text === "string" ? item.text.trim() : ""))
+    .map((text, index) => ({ text, done: items[index]?.done === true }))
+    .filter((item) => item.text);
+  if (!lines.length) return "";
+  const done = lines.filter((item) => item.done).length;
+  const header = done
+    ? `## Checklist (${lines.length} items, ${done} done)`
+    : `## Checklist (${lines.length} items)`;
+  return [header, ...lines.map((item) => `- [${item.done ? "x" : " "}] ${item.text}`)].join("\n");
+}
+
 export function buildDiscussKickoff(card, { briefAbsPath, level } = {}) {
   const title = (typeof card?.title === "string" && card.title.trim()) ? card.title.trim() : "(untitled)";
   const project = card?.project ? String(card.project) : "(none assigned yet)";
-  const desc = (typeof card?.description === "string" && card.description.trim())
+  const checklist = checklistBlock(card);
+  const written = (typeof card?.description === "string" && card.description.trim())
     ? card.description.trim()
-    : "(no description was provided — ask Goncalo what this card is about before going further)";
+    : "";
+  // Only claim nothing was provided when nothing WAS: a card whose content is a
+  // checklist has plenty to read, and telling the Operative otherwise sent it
+  // back to ask a question the board had already answered.
+  const desc = written
+    ? written
+    : checklist
+      ? "(no prose description — the checklist below is what this card says)"
+      : "(no description was provided — ask Goncalo what this card is about before going further)";
   // The exact card-owned brief path the Operative must write to — absolute when the board
   // supplies it (so his working dir is irrelevant), else a card-relative fallback.
   const briefPath = briefAbsPath || (card?.id ? `cards/${card.id}/brief.md` : "brief.md");
@@ -118,6 +148,7 @@ export function buildDiscussKickoff(card, { briefAbsPath, level } = {}) {
     ``,
     desc,
     ``,
+    ...(checklist ? [checklist, ``] : []),
     // How to TALK. This is a conversation, not a report, and it is frequently read
     // aloud on a phone or through the voice channel, so the shape of the prose
     // matters as much as its content.
@@ -189,6 +220,9 @@ export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-def
     // The description so a context-honoring channel/operative has it too (the kickoff
     // message carries it as well, for the gateway path that ignores body.context).
     description: card?.description ?? null,
+    // The checklist items are frequently the REAL content of a card; a channel
+    // that reads context must see them for the same reason the kickoff prints them.
+    ...(Array.isArray(card?.checklist) && card.checklist.length ? { checklist: card.checklist } : {}),
     // Kept for backward-compat with any consumer reading a suggested stem.
     suggestedSlug: stem,
     // ABSOLUTE brief path for the web channel's Brief editor. Absent → no Brief editor.

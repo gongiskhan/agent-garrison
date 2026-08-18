@@ -4689,13 +4689,25 @@ function App() {
   // so when embedded we ask the Garrison shell to swap the embedded view (its
   // postMessage listener); standalone we navigate directly. The channel id is
   // discovered at runtime (not hardcoded) so a non-default web channel works too.
-  function onDiscuss(card: CardSummary) {
+  async function onDiscuss(card: CardSummary) {
     const channelId = runtime?.webChannelEmbedId ?? null;
     if (!channelId) {
       setNotice("No web channel is installed/running — install/start a web channel fitting to use Discuss.");
       return;
     }
-    const chatHref = buildDiscussUrl(card, { webChannelBase: `/embed/${channelId}`, cardsAbsDir: runtime?.cardsAbsDir ?? null });
+    // The board summary carries checklist COUNTS, not the items - and a card's
+    // real content is often the checklist (an empty description with six items
+    // opened a Discuss that said "the card is just a title"). Pull the detail so
+    // the kickoff can carry what the card actually says; a failed fetch still
+    // opens the conversation with what the board already has.
+    let seed: CardSummary & { checklist?: ChecklistItem[] } = card;
+    try {
+      const detail = await api.card(card.id);
+      seed = { ...card, ...detail.card, checklist: detail.checklist ?? [] };
+    } catch {
+      /* offline/board hiccup - discuss with the summary rather than not at all */
+    }
+    const chatHref = buildDiscussUrl(seed, { webChannelBase: `/embed/${channelId}`, cardsAbsDir: runtime?.cardsAbsDir ?? null });
     const u = new URL(chatHref, window.location.origin);
     const fittingId = u.pathname.split("/").filter(Boolean).pop() || channelId;
     const params: Record<string, string> = {};

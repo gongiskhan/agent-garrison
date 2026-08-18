@@ -8,7 +8,7 @@
 // never auto-advances. Hermetic: a per-test tmpdir, no live socket.
 
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
@@ -449,5 +449,67 @@ describe("kanban discuss — briefRelPath (the CARD-UNIQUE auto-link convention)
     const rel = briefRelPath(card);
     expect(rel.includes("..")).toBe(false);
     expect(rel.startsWith("briefs/")).toBe(true);
+  });
+});
+
+describe("kanban discuss — the card's checklist is part of what it says", () => {
+  // A card with an empty description and six checklist items opened a Discuss
+  // that answered "the card is just a title, with no description, so I have
+  // nothing to read from it". The items WERE the card; the kickoff never looked
+  // at them.
+  const CARD = {
+    id: "01KZBWCJY5V57M4M3TJQN8315P",
+    title: "Garrison: bits",
+    description: "",
+    checklist: [
+      { id: "a", text: "Accounts should be named after the provider and username", done: false },
+      { id: "b", text: "Second thing", done: true },
+      { id: "c", text: "   ", done: false },
+    ],
+  };
+
+  it("prints the items, with their done state, under the description", () => {
+    const k = buildDiscussKickoff(CARD);
+    expect(k).toContain("## Checklist (2 items, 1 done)");
+    expect(k).toContain("- [ ] Accounts should be named after the provider and username");
+    expect(k).toContain("- [x] Second thing");
+    // A blank item is not an item.
+    expect(k).not.toMatch(/- \[[ x]\]\s*$/m);
+  });
+
+  it("stops claiming nothing was provided when the checklist is the content", () => {
+    const k = buildDiscussKickoff(CARD);
+    expect(k).toContain("the checklist below is what this card says");
+    expect(k).not.toContain("no description was provided");
+  });
+
+  it("still asks about a card that genuinely says nothing", () => {
+    const k = buildDiscussKickoff({ id: "x", title: "bits", description: "" });
+    expect(k).toContain("no description was provided");
+    expect(k).not.toContain("## Checklist");
+  });
+
+  it("keeps a written description AND the items when the card has both", () => {
+    const k = buildDiscussKickoff({ ...CARD, description: "Prose the card carries." });
+    expect(k).toContain("Prose the card carries.");
+    expect(k).toContain("## Checklist (2 items, 1 done)");
+  });
+
+  it("carries the items in the context blob a channel decodes", () => {
+    const url = buildDiscussUrl(CARD, { webChannelBase: "/embed/web-channel-default" });
+    const context = new URL(url, "http://x").searchParams.get("context")!;
+    const decoded = JSON.parse(Buffer.from(decodeURIComponent(context), "base64").toString("utf8"));
+    expect(decoded.checklist).toHaveLength(3);
+    expect(decoded.checklist[0].text).toContain("named after the provider");
+    // A card with no items must not carry an empty key.
+    const bare = buildDiscussUrl({ id: "x", title: "t" }, { webChannelBase: "/embed/web-channel-default" });
+    const bareCtx = new URL(bare, "http://x").searchParams.get("context")!;
+    expect(JSON.parse(Buffer.from(decodeURIComponent(bareCtx), "base64").toString("utf8"))).not.toHaveProperty("checklist");
+  });
+
+  it("is wired to the board: Discuss pulls the DETAIL, since the summary has only counts", () => {
+    const main = readFileSync(new URL("../fittings/seed/kanban-loop/ui/main.tsx", import.meta.url), "utf8");
+    expect(main).toContain("const detail = await api.card(card.id);");
+    expect(main).toContain("checklist: detail.checklist ?? []");
   });
 });
