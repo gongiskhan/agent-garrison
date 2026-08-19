@@ -26683,6 +26683,32 @@ function useMediaQuery(query) {
   }, [query]);
   return matches;
 }
+var MEDIA_EVENT = "garrison-drill:open-media";
+function openMedia(url, kind, alt) {
+  window.dispatchEvent(new CustomEvent(MEDIA_EVENT, { detail: { url, kind, alt } }));
+}
+function MediaLightbox() {
+  const [target, setTarget] = (0, import_react4.useState)(null);
+  (0, import_react4.useEffect)(() => {
+    const onOpen = (event) => setTarget(event.detail);
+    window.addEventListener(MEDIA_EVENT, onOpen);
+    return () => window.removeEventListener(MEDIA_EVENT, onOpen);
+  }, []);
+  (0, import_react4.useEffect)(() => {
+    if (!target) return;
+    const onKey = (event) => {
+      if (event.key === "Escape") setTarget(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [target]);
+  if (!target) return null;
+  const close = () => setTarget(null);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-media-scrim", onClick: close, role: "dialog", "aria-modal": "true", "aria-label": target.alt || target.kind, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dr-media-close", "aria-label": "Close", onClick: close, children: "\xD7" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-media-frame", onClick: (event) => event.stopPropagation(), children: target.kind === "video" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", { className: "dr-media-el", src: target.url, controls: true, autoPlay: true, playsInline: true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-media-el", src: target.url, alt: target.alt || "" }) })
+  ] });
+}
 async function ensureAppUp(onPhase) {
   let st = await apiGet("/api/app/status");
   if (st.reachable) return st;
@@ -28297,10 +28323,18 @@ function tierTone(tier) {
 function EvidenceImage({ src, alt, compact = false }) {
   const [failed, setFailed] = (0, import_react4.useState)(false);
   if (failed) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-evidence-missing", children: "Evidence image unavailable" });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "dr-evidence-link" + (compact ? " compact" : ""), href: src, target: "_blank", rel: "noreferrer", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-evidence-image", src, alt, loading: "lazy", onError: () => setFailed(true) }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Open full evidence" })
-  ] });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+    "button",
+    {
+      type: "button",
+      className: "dr-evidence-link" + (compact ? " compact" : ""),
+      onClick: () => openMedia(src, "image", alt),
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-evidence-image", src, alt, loading: "lazy", onError: () => setFailed(true) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Open full evidence" })
+      ]
+    }
+  );
 }
 function evidenceFileUrl(runId, name) {
   return `/api/runs/${encodeURIComponent(runId)}/evidence-file/${encodeURIComponent(name)}`;
@@ -29613,10 +29647,19 @@ function RunResultsPanel({
             if (!row || !row.screenshot && !row.trace && !row.failureScreenshot) return null;
             const videoName = run.evidence?.video;
             return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 5, gap: 6 }, children: [
-              row.screenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, row.screenshot), target: "_blank", rel: "noreferrer", children: "full-page shot" }),
-              row.failureScreenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip alarm", href: evidenceFileUrl(run.id, row.failureScreenshot), target: "_blank", rel: "noreferrer", children: "failure shot" }),
+              row.screenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, row.screenshot), onClick: (e) => {
+                e.preventDefault();
+                openMedia(evidenceFileUrl(run.id, row.screenshot), "image", "full-page shot");
+              }, children: "full-page shot" }),
+              row.failureScreenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip alarm", href: evidenceFileUrl(run.id, row.failureScreenshot), onClick: (e) => {
+                e.preventDefault();
+                openMedia(evidenceFileUrl(run.id, row.failureScreenshot), "image", "failure shot");
+              }, children: "failure shot" }),
               row.trace && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, row.trace), title: "Playwright trace chunk - open with npx playwright show-trace", children: "trace" }),
-              videoName && Number.isFinite(row.startMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, target: "_blank", rel: "noreferrer", children: [
+              videoName && Number.isFinite(row.startMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, onClick: (e) => {
+                e.preventDefault();
+                openMedia(`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, "video", "run video");
+              }, children: [
                 "video @",
                 fmtOffset(row.startMs ?? 0)
               ] }),
@@ -29801,7 +29844,10 @@ function RunResultsPanel({
               ),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 4, gap: 6 }, children: [
                 f.evidence.trace && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, f.evidence.trace), title: "Playwright trace chunk - open with npx playwright show-trace", children: "trace" }),
-                run.evidence?.video && Number.isFinite(f.evidence.videoMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1e3)}`, target: "_blank", rel: "noreferrer", children: [
+                run.evidence?.video && Number.isFinite(f.evidence.videoMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1e3)}`, onClick: (e) => {
+                  e.preventDefault();
+                  openMedia(`${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1e3)}`, "video", "run video");
+                }, children: [
                   "video @",
                   fmtOffset(f.evidence.videoMs ?? 0)
                 ] })
@@ -30067,7 +30113,7 @@ function LiveCheckThumb({ src, alt }) {
     };
   }, [src]);
   if (!imageUrl) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "dr-live-check-shot", href: src, target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: imageUrl, alt }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dr-live-check-shot", onClick: () => openMedia(imageUrl, "image", alt), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: imageUrl, alt }) });
 }
 function LiveRunPanel({ runId, startedAt, onFinished }) {
   const [planned, setPlanned] = (0, import_react4.useState)(null);
@@ -31167,7 +31213,8 @@ function App() {
         }
       )
     ] }, view) }),
-    pickerOpen && projInfo && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectPickerDialog, { info: projInfo, onClose: () => setPickerOpen(false) })
+    pickerOpen && projInfo && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectPickerDialog, { info: projInfo, onClose: () => setPickerOpen(false) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MediaLightbox, {})
   ] });
 }
 var root = document.getElementById("root");

@@ -1391,7 +1391,11 @@ export class RoutedGateway {
       leanPrompt: typeof target.leanPrompt === "string" ? target.leanPrompt : undefined,
       appendSystemPrompt: this._resolvedAgentSdkAppendSystemPrompt(),
       compositionDir: opts.cwd ?? this.buildWorkspace ?? this.compositionDir,
-      maxTurns: target.maxTurns ?? 12,
+      // A target that names no cap gets a WORKING one, not a demo one. At 12 an
+      // implement phase parks itself mid-task ("no valid next step chosen") and
+      // the card lands in needs-attention having done half the job - the failure
+      // reads like a bug in the work rather than a budget the caller never set.
+      maxTurns: target.maxTurns ?? 200,
       budgetTokens: target.budgetTokens ?? null,
       permissionMode: opts.permissionMode === "default" ? "default" : "bypassPermissions",
       thinking: target.thinking?.type === "disabled" ? { type: "disabled" } : undefined,

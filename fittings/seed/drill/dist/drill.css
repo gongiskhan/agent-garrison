@@ -102,6 +102,27 @@ body {
 }
 .dr-modal .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 
+/* ── media lightbox ── evidence images/videos open here, full-screen and
+   closeable (backdrop tap, the × button, or Escape), never in a new tab. */
+.dr-media-scrim {
+  position: fixed; inset: 0; z-index: 200; background: rgba(12, 16, 14, 0.86);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.dr-media-frame {
+  max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center;
+}
+.dr-media-el {
+  max-width: 100%; max-height: calc(100vh - 48px); object-fit: contain; display: block;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); background: var(--ink);
+}
+.dr-media-close {
+  position: fixed; top: 14px; right: 16px; z-index: 201;
+  width: 40px; height: 40px; border-radius: 999px; border: 0; cursor: pointer;
+  background: rgba(255, 255, 255, 0.14); color: #fff; font-size: 24px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.dr-media-close:hover { background: rgba(255, 255, 255, 0.26); }
+
 /* ── tabs ── */
 .dr-tabs {
   display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--rule);
@@ -488,6 +509,8 @@ body {
 .dr-evidence-link {
   display: block; width: min(100%, 520px); margin-top: 9px; color: var(--sage);
   font-size: 10px; text-decoration: none;
+  /* rendered as a <button> now (opens the lightbox, not a new tab) */
+  background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font-family: inherit;
 }
 .dr-evidence-link.compact { width: min(100%, 240px); }
 .dr-evidence-image {
@@ -1080,7 +1103,7 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 .dr-live-check-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-live-check-name .mono { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
 .dr-live-check-ms { flex: none; font-family: var(--mono); font-size: 10px; color: var(--mute); }
-.dr-live-check-shot { flex: none; display: block; line-height: 0; }
+.dr-live-check-shot { flex: none; display: block; line-height: 0; background: none; border: 0; padding: 0; cursor: pointer; }
 .dr-live-check-shot img {
   height: 34px; width: 56px; object-fit: cover; object-position: top;
   border: 1px solid var(--rule-2); display: block; background: var(--paper-2);

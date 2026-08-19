@@ -90,6 +90,8 @@ export function credentialLabel(account: AccountInfo): string {
 export interface AccountInfo {
   name: string;
   label?: string;
+  /** Provider-reported identity (email/username), captured at login where free. */
+  identity?: string;
   created_at: string;
   needs_relogin?: boolean;
   status: "ready" | "missing-token" | "vault-locked";
@@ -413,9 +415,19 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/**
+ * The account's human handle: the provider-reported identity (email/username)
+ * when we captured one, otherwise the name the user gave it. This is what makes
+ * two accounts on the same provider tell each other apart at a glance.
+ */
+export function accountIdentityLabel(account: AccountInfo): string {
+  return account.identity?.trim() || account.name;
+}
+
 export function accountOptionLabel(account: AccountInfo): string {
-  const bits = [account.name];
-  if (account.label) bits.push(account.label);
+  // Lead with the provider so a picker mixing platforms is unambiguous, then the
+  // account's own identity (email/username, or its name).
+  const bits = [PLATFORM_SPECS[account.platform].label, accountIdentityLabel(account)];
   // Which plan an engine runs on is the first thing you want to see in a picker.
   if (account.platform !== "anthropic") bits.push(credentialLabel(account));
   else if (account.ageDays !== null) bits.push(`${account.ageDays}d old`);

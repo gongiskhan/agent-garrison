@@ -2236,6 +2236,11 @@ function LinkRow({ label, refs, onOpen }: { label: string; refs: ArtifactRef | A
 // read-only text / an editable .md·.txt), and saves edits back via PUT for the editable
 // refs (brief · plan · logs). Machine-generated JSON + transcripts + evidence are view-only.
 const ART_IMG_EXT = ["png", "jpg", "jpeg", "webp", "gif", "svg"];
+const ART_VID_EXT = ["mp4", "webm", "mov", "m4v", "ogv"];
+function isVideoName(name?: string): boolean {
+  const ext = (name ?? "").toLowerCase().split(".").pop() ?? "";
+  return ART_VID_EXT.includes(ext);
+}
 function artRefToken(ref: ArtifactRef): string | null {
   if (ref.ref) return ref.ref;
   try { return new URL(ref.url ?? "", "http://x").searchParams.get("ref"); } catch { return null; }
@@ -2246,15 +2251,16 @@ function ArtifactModal({ cardId, art, onClose }: { cardId: string; art: Artifact
   const base = (art.path ? art.path.split("/").pop() : "") || art.name || token || "artifact";
   const ext = base.toLowerCase().split(".").pop() ?? "";
   const isImage = ART_IMG_EXT.includes(ext) || Boolean(art.image);
+  const isVideo = ART_VID_EXT.includes(ext) || Boolean(art.video);
   const editable = Boolean(token && (token === "brief" || token === "plan" || /^log:\d+$/.test(token)) && (ext === "md" || ext === "txt"));
   const [content, setContent] = useState("");
-  const [loaded, setLoaded] = useState(isImage);
+  const [loaded, setLoaded] = useState(isImage || isVideo);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    if (isImage || !url) { setLoaded(true); return; }
+    if (isImage || isVideo || !url) { setLoaded(true); return; }
     let alive = true;
     fetch(url, { cache: "no-store" }).then((r) => r.text()).then((t) => { if (alive) { setContent(t); setLoaded(true); } })
       .catch((e) => { if (alive) { setErr(String(e)); setLoaded(true); } });
@@ -2273,6 +2279,12 @@ function ArtifactModal({ cardId, art, onClose }: { cardId: string; art: Artifact
     } catch (e) { setErr(String(e)); }
     setSaving(false);
   }, [cardId, token, content]);
+  // Escape closes the modal, matching the backdrop tap and the × button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div className="art-scrim" onClick={onClose}>
       <div className="art-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={base}>
@@ -2286,6 +2298,7 @@ function ArtifactModal({ cardId, art, onClose }: { cardId: string; art: Artifact
         <div className="art-body">
           {!loaded ? <div className="art-loading">Loading…</div>
             : isImage ? <img className="art-img" src={url ?? ""} alt={base} />
+            : isVideo ? <video className="art-video" src={url ?? ""} controls autoPlay playsInline />
             : editable ? <textarea className="art-editor" value={content} spellCheck={false} onChange={(e) => { setContent(e.target.value); setDirty(true); }} />
             : <pre className="art-view">{content || "(empty)"}</pre>}
         </div>
@@ -3385,7 +3398,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             ref={fileInputRef}
             type="file"
             multiple
-            style={{ display: "none" }}
+            // Visually hidden but STILL RENDERED: iOS/WebKit silently ignores a
+            // programmatic `.click()` on a `display:none` (or `visibility:hidden`)
+            // file input, which is what "attach does nothing" looked like on the
+            // phone. An off-screen, zero-size, rendered input takes the click.
+            style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden", pointerEvents: "none" }}
+            tabIndex={-1}
+            aria-hidden
             disabled={uploading}
             onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void uploadFiles(files); }}
           />
@@ -3398,6 +3417,10 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
                   <button type="button" className="ev-shot" onClick={() => setOpenArt({ kind: "serve", url: a.url, name: a.name, image: true })} title={a.name}>
                     <img src={a.url} alt={a.name} loading="lazy" />
                     <span className="ev-name">{a.name}</span>
+                  </button>
+                ) : isVideoName(a.name) ? (
+                  <button type="button" className="ev-file" onClick={() => setOpenArt({ kind: "serve", url: a.url, name: a.name, video: true })} title={a.name}>
+                    <LinkIcon /> {a.name}
                   </button>
                 ) : (
                   <a className="ev-file" href={a.url} target="_blank" rel="noreferrer" title={a.name}>

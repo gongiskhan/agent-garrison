@@ -33,6 +33,7 @@ import { drillHomeDir, getDrillRun } from "./runs-store.mjs";
 import { getDrillBook, listPages } from "./store.mjs";
 import { startPlan, getPlanJob } from "./planner.mjs";
 import { broadcastOutcome, summarizeReceipts } from "./broadcast.mjs";
+import { toTailnetUrl } from "./tailnet-serve.mjs";
 
 const jobs = new Map(); // jobId -> job (in-memory mirror of the durable record)
 
@@ -273,9 +274,20 @@ async function setState(job, patch) {
 // broadcast is AWAITED (unlike the usual fire-and-forget) so the job record's
 // `notified` receipts are truthful when the job reads terminal.
 async function finish(job, { state, error = null, outcome = null }, { fetchImpl = fetch } = {}) {
+  // The card link is opened from a phone on the tailnet, so it must carry the
+  // tailnet host, not the loopback address `kanbanBaseUrl()` reads out of the
+  // status file (127.0.0.1 resolves to the phone itself). Rehost the board URL
+  // through `tailscale serve` when it is mapped; fall back to loopback when
+  // there is no tailnet. new URL().toString() appends a trailing slash, so trim
+  // it before joining the hash route or the link doubles the slash.
+  let cardLink = null;
+  if (job.boardUrl && job.card?.id) {
+    const board = ((await toTailnetUrl(job.boardUrl).catch(() => null)) || job.boardUrl).replace(/\/+$/, "");
+    cardLink = `${board}/#/cards/${job.card.id}`;
+  }
   const links = {
     ...(job.runUrl ? { run: job.runUrl } : {}),
-    ...(job.boardUrl && job.card?.id ? { card: `${job.boardUrl}/#/cards/${job.card.id}` } : {})
+    ...(cardLink ? { card: cardLink } : {})
   };
   const finalOutcome = outcome ?? { state, headline: error ?? null, runId: job.runId ?? null, findings: 0 };
   finalOutcome.state = state;

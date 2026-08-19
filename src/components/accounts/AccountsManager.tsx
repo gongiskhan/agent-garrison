@@ -17,6 +17,7 @@ import {
   CHIP_COLOR,
   PLATFORM_SECTIONS,
   PLATFORM_SPECS,
+  accountIdentityLabel,
   accountStatusChip,
   compatibleRuntimeAccounts,
   credentialLabel,
@@ -389,7 +390,19 @@ function AccountRow({
       }}
     >
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <span className="font-mono" style={{ fontSize: 13, fontWeight: 600 }}>{account.name}</span>
+        {/* Provider + identity, so two accounts on the same provider are told
+            apart at a glance. `identity` is the provider-reported email/username
+            when we captured one; otherwise it falls back to the account name. */}
+        <span
+          className="hint"
+          style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}
+        >
+          {PLATFORM_SPECS[account.platform].label}
+        </span>
+        <span className="font-mono" style={{ fontSize: 13, fontWeight: 600 }}>{accountIdentityLabel(account)}</span>
+        {account.identity && account.identity.trim() && account.identity.trim() !== account.name ? (
+          <span className="hint" style={{ fontSize: 11 }}>({account.name})</span>
+        ) : null}
         {account.label ? <span className="hint" style={{ fontSize: 11.5 }}>{account.label}</span> : null}
         <Chip chip={chip} testId={`account-chip-${account.name}`} />
         <span style={{ flex: 1 }} />

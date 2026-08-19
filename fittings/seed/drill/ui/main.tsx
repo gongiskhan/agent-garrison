@@ -260,6 +260,47 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
+// ─── media lightbox ────────────────────────────────────────────────────────
+// Evidence images and videos open in a full-screen, closeable modal — never a
+// new browser tab (a tab drops you out of the app, and on a phone there is no
+// obvious way back). One MediaLightbox is mounted at the app root and listens
+// on a window event so any of the many evidence components can open it without
+// threading a handler through the whole tree.
+
+type MediaTarget = { url: string; kind: "image" | "video"; alt?: string };
+const MEDIA_EVENT = "garrison-drill:open-media";
+
+function openMedia(url: string, kind: "image" | "video", alt?: string): void {
+  window.dispatchEvent(new CustomEvent<MediaTarget>(MEDIA_EVENT, { detail: { url, kind, alt } }));
+}
+
+function MediaLightbox() {
+  const [target, setTarget] = useState<MediaTarget | null>(null);
+  useEffect(() => {
+    const onOpen = (event: Event) => setTarget((event as CustomEvent<MediaTarget>).detail);
+    window.addEventListener(MEDIA_EVENT, onOpen);
+    return () => window.removeEventListener(MEDIA_EVENT, onOpen);
+  }, []);
+  useEffect(() => {
+    if (!target) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setTarget(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [target]);
+  if (!target) return null;
+  const close = () => setTarget(null);
+  return (
+    <div className="dr-media-scrim" onClick={close} role="dialog" aria-modal="true" aria-label={target.alt || target.kind}>
+      <button type="button" className="dr-media-close" aria-label="Close" onClick={close}>×</button>
+      <div className="dr-media-frame" onClick={(event) => event.stopPropagation()}>
+        {target.kind === "video"
+          ? <video className="dr-media-el" src={target.url} controls autoPlay playsInline />
+          : <img className="dr-media-el" src={target.url} alt={target.alt || ""} />}
+      </div>
+    </div>
+  );
+}
+
 // ─── project selection + app-under-test lifecycle ────────────────────────
 
 interface Project { name: string; path: string; runSkill: string | null; hasDrillBook: boolean; active: boolean }
@@ -2396,10 +2437,14 @@ function EvidenceImage({ src, alt, compact = false }: { src: string; alt: string
   const [failed, setFailed] = useState(false);
   if (failed) return <div className="dr-evidence-missing">Evidence image unavailable</div>;
   return (
-    <a className={"dr-evidence-link" + (compact ? " compact" : "")} href={src} target="_blank" rel="noreferrer">
+    <button
+      type="button"
+      className={"dr-evidence-link" + (compact ? " compact" : "")}
+      onClick={() => openMedia(src, "image", alt)}
+    >
       <img className="dr-evidence-image" src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />
       <span>Open full evidence</span>
-    </a>
+    </button>
   );
 }
 
@@ -3995,17 +4040,19 @@ function RunResultsPanel({
                     const videoName = run.evidence?.video;
                     return (
                       <div className="dr-rowwrap" style={{ marginTop: 5, gap: 6 }}>
-                        {row.screenshot && (
-                          <a className="chip" href={evidenceFileUrl(run.id, row.screenshot)} target="_blank" rel="noreferrer">full-page shot</a>
-                        )}
-                        {row.failureScreenshot && (
-                          <a className="chip alarm" href={evidenceFileUrl(run.id, row.failureScreenshot)} target="_blank" rel="noreferrer">failure shot</a>
-                        )}
+                        {row.screenshot && (() => {
+                          const shot = evidenceFileUrl(run.id, row.screenshot);
+                          return <a className="chip" href={shot} onClick={(e) => { e.preventDefault(); openMedia(shot, "image", "full-page shot"); }}>full-page shot</a>;
+                        })()}
+                        {row.failureScreenshot && (() => {
+                          const shot = evidenceFileUrl(run.id, row.failureScreenshot);
+                          return <a className="chip alarm" href={shot} onClick={(e) => { e.preventDefault(); openMedia(shot, "image", "failure shot"); }}>failure shot</a>;
+                        })()}
                         {row.trace && (
                           <a className="chip" href={evidenceFileUrl(run.id, row.trace)} title="Playwright trace chunk - open with npx playwright show-trace">trace</a>
                         )}
                         {videoName && Number.isFinite(row.startMs) && (
-                          <a className="chip" href={`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1000)}`} target="_blank" rel="noreferrer">
+                          <a className="chip" href={`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1000)}`} onClick={(e) => { e.preventDefault(); openMedia(`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1000)}`, "video", "run video"); }}>
                             video @{fmtOffset(row.startMs ?? 0)}
                           </a>
                         )}
@@ -4168,11 +4215,17 @@ function RunResultsPanel({
                         {f.evidence.trace && (
                           <a className="chip" href={evidenceFileUrl(run.id, f.evidence.trace)} title="Playwright trace chunk - open with npx playwright show-trace">trace</a>
                         )}
-                        {run.evidence?.video && Number.isFinite(f.evidence.videoMs) && (
-                          <a className="chip" href={`${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1000)}`} target="_blank" rel="noreferrer">
-                            video @{fmtOffset(f.evidence.videoMs ?? 0)}
-                          </a>
-                        )}
+                        {run.evidence?.video && Number.isFinite(f.evidence.videoMs) && (() => {
+                          // Resolve the url ONCE, outside the click closure: a
+                          // handler re-reading `run.evidence.video` loses the
+                          // narrowing the JSX guard just did.
+                          const at = `${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1000)}`;
+                          return (
+                            <a className="chip" href={at} onClick={(e) => { e.preventDefault(); openMedia(at, "video", "run video"); }}>
+                              video @{fmtOffset(f.evidence.videoMs ?? 0)}
+                            </a>
+                          );
+                        })()}
                       </div>
                     </>
                   ) : f.stepId && run.pages.filter((entry) =>
@@ -4538,9 +4591,9 @@ function LiveCheckThumb({ src, alt }: { src: string; alt: string }) {
   }, [src]);
   if (!imageUrl) return null;
   return (
-    <a className="dr-live-check-shot" href={src} target="_blank" rel="noreferrer">
+    <button type="button" className="dr-live-check-shot" onClick={() => openMedia(imageUrl, "image", alt)}>
       <img src={imageUrl} alt={alt} />
-    </a>
+    </button>
   );
 }
 
@@ -5847,6 +5900,7 @@ function App() {
         </ViewErrorBoundary>
       </div>
       {pickerOpen && projInfo && <ProjectPickerDialog info={projInfo} onClose={() => setPickerOpen(false)} />}
+      <MediaLightbox />
     </>
   );
 }

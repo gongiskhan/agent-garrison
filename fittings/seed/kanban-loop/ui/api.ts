@@ -353,9 +353,10 @@ export interface ArtifactRef {
   exists?: boolean;
   sessionId?: string;
   n?: number;
-  // Evidence entries carry the file name + whether it's an image (rendered inline).
+  // Evidence entries carry the file name + whether it's an image/video (rendered inline).
   name?: string;
   image?: boolean;
+  video?: boolean;
 }
 
 export interface CardLinks {

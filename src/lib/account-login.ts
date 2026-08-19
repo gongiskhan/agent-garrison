@@ -17,7 +17,9 @@ import { garrisonDir } from "./claude-home";
 import { ROOT_DIR } from "./paths";
 import {
   addAccount,
+  identityFromCredential,
   materializeAccountHome,
+  setAccountIdentity,
   setAccountNeedsRelogin,
   setAccountVerdict
 } from "./accounts";
@@ -549,6 +551,13 @@ export async function importNativeLogin(options: {
   });
   const verify = await verifyAccountToken(meta.name, content, options.platform, fetch, "auth-file");
   await applyVerifyToRegistry(meta.name, verify);
+  // Name it after whoever it turns out to be. The credential we just stored may
+  // already say (Codex's auth.json carries an id_token with an email claim), and
+  // learning it here means the roster is right on the FIRST render rather than
+  // after a backfill pass. Best-effort: an account with no free identity keeps
+  // the name the user gave it.
+  const identity = await identityFromCredential(meta.name, options.platform).catch(() => null);
+  if (identity) await setAccountIdentity(meta.name, identity);
   return { name: meta.name, verify };
 }
 

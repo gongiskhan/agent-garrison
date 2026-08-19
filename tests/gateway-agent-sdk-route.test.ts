@@ -205,7 +205,7 @@ describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route
     }
   });
 
-  it("an Agent SDK target left at runtime defaults gets the full harness and 12 turns", async () => {
+  it("an Agent SDK target left at runtime defaults gets the full harness and a working turn budget", async () => {
     const { gw, agentSdk } = await bootGateway();
     try {
       await gw.runAgentSdkTurn(
@@ -226,7 +226,11 @@ describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route
         provider: "anthropic",
         model: "claude-haiku-4-5",
         promptMode: "full",
-        maxTurns: 12,
+        // A capless target used to get 12 turns, which is a demo budget: an
+        // implement phase spent it mid-task and parked itself with "no valid
+        // next step chosen", so the card read as broken work rather than an
+        // unset budget.
+        maxTurns: 200,
       });
     } finally {
       gw.shutdown();

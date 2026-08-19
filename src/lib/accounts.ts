@@ -59,6 +59,14 @@ export interface AccountMeta {
    * say why without re-probing.
    */
   last_verify?: { outcome: string; detail: string; at: string };
+  /**
+   * The account's own identity as the PROVIDER reports it (an email or a
+   * username), captured best-effort at login for the providers that expose it
+   * cheaply (Hugging Face, OpenRouter). Absent for providers with no free
+   * identity endpoint - the roster falls back to the account name there. Never
+   * a secret: this is the public handle, not the token.
+   */
+  identity?: string;
   /** PAYMASTER D7: absent = true. Disabled accounts are never picked by auto. */
   enabled?: boolean;
   /**
@@ -211,6 +219,11 @@ function ageDaysOf(createdAt: string): number | null {
  * missing. Never returns token values.
  */
 export async function listAccounts(): Promise<AccountInfo[]> {
+  // Learn any identity the stored credentials already reveal, so an account
+  // captured before this existed shows its email without a re-login. Costs a
+  // file read per identity-less account and writes only when it learns
+  // something, so the steady state is free.
+  await backfillAccountIdentities().catch(() => { /* labels are never load-bearing */ });
   const registry = await readRegistry();
   const vaultKeys = await vaultAccountKeys();
   const out: AccountInfo[] = registry.accounts.map((meta) => {
@@ -506,6 +519,83 @@ export function setAccountVerdict(
     registry.accounts = [
       ...registry.accounts.filter((a) => a.name !== name),
       { ...base, last_verify: verdict }
+    ];
+    await writeRegistry(registry);
+  });
+}
+
+/**
+ * The identity a stored credential already reveals, or null.
+ *
+ * No network and no provider API: the credential file an account is built from
+ * often already names its owner, and reading it costs nothing. Today that is the
+ * OpenAI/Codex `auth.json`, whose OIDC `id_token` carries an `email` claim.
+ *
+ * Anthropic subscription accounts are deliberately absent: they are an opaque
+ * setup token with no per-account home and no free identity endpoint, so their
+ * roster label stays the name the user gave them. Better an honest name than a
+ * guessed identity.
+ *
+ * The JWT is READ, never verified - this is a display label lifted from a
+ * credential we already trust enough to run with, not an authorization decision.
+ */
+export async function identityFromCredential(name: string, platform: AccountPlatform): Promise<string | null> {
+  const spec = PLATFORM_SPECS[platform].authFile;
+  if (!spec || platform !== "openai") return null;
+  try {
+    const file = path.join(accountHomeDir(name, platform), spec.relPath);
+    const raw = await fs.readFile(file, "utf8");
+    const token = (JSON.parse(raw) as { tokens?: { id_token?: unknown } })?.tokens?.id_token;
+    if (typeof token !== "string") return null;
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const claims = JSON.parse(json) as Record<string, unknown>;
+    for (const key of ["email", "preferred_username", "name"]) {
+      const value = claims[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return null;
+  } catch {
+    // A missing, unreadable or reshaped credential simply has no identity to
+    // show. It must never break the roster.
+    return null;
+  }
+}
+
+/**
+ * Fill in any identity we can read for free, for accounts that have none.
+ *
+ * Called when the roster is built so an account captured before this existed
+ * gets its label without the user re-logging in. Writes only when it learns
+ * something new, so a roster read stays a no-op in the normal case.
+ */
+export async function backfillAccountIdentities(): Promise<void> {
+  const registry = await readRegistry();
+  const missing = registry.accounts.filter((account) => !account.identity?.trim());
+  if (!missing.length) return;
+  for (const account of missing) {
+    const identity = await identityFromCredential(account.name, normalizePlatform(account.platform));
+    if (identity) await setAccountIdentity(account.name, identity);
+  }
+}
+
+/**
+ * Record the provider-reported identity (email/username) for an account. Called
+ * best-effort after a login captures a token; a blank value is ignored so a
+ * failed identity fetch never clears an identity we already had.
+ */
+export function setAccountIdentity(name: string, identity: string): Promise<void> {
+  return withRegistryLock(async () => {
+    if (!isValidAccountName(name)) return;
+    const trimmed = identity.trim();
+    if (!trimmed) return;
+    const registry = await readRegistry();
+    const existing = registry.accounts.find((a) => a.name === name);
+    const base: AccountMeta = existing ?? { name, created_at: "" };
+    registry.accounts = [
+      ...registry.accounts.filter((a) => a.name !== name),
+      { ...base, identity: trimmed }
     ];
     await writeRegistry(registry);
   });
