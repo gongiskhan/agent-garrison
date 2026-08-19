@@ -2365,7 +2365,7 @@ export function unparkRecoveryFields(card) {
 // and Delete remove the owner-scoped records instead. This is a forward recovery
 // seam, not a background repair sweep: historical parked cards keep their internal
 // board holds, and their outward intent is refreshed only when a human resumes them.
-export function prepareRecoveredCoordinationHold(board, card, now = () => new Date().toISOString()) {
+export function prepareRecoveredCoordinationHold(board, card, now = () => new Date().toISOString(), targetPhase = null) {
   if (card?.abandoned) {
     return {
       ok: false,
@@ -2383,10 +2383,22 @@ export function prepareRecoveredCoordinationHold(board, card, now = () => new Da
   const inspected = inspectTouchSet(card.runDir);
   const touchSet = inspected.touchSet;
   if (!touchSet) {
+    // "Re-run Plan" is the remedy this message names, and Plan is a MOVE - so
+    // refusing every move made it advice the user could not take. A card that
+    // reached Implement without a Plan (a straight Discuss -> Implement move
+    // mints a runDir but no touch-set) had exactly one exit: Abandon.
+    //
+    // Planning is also the safe direction: it re-derives the overlap this hold
+    // is missing, where any other target would re-enter the shared checkout on
+    // unknown overlap. So the plan phase is allowed through, and only the plan
+    // phase; a card WITH a touch-set still goes through lease reacquisition below.
+    if (targetPhase === "plan") {
+      return { ok: true, skipped: "replanning", acquired: [], intent: null };
+    }
     return {
       ok: false,
       code: "touch-set-unavailable",
-      message: `Recovery remains parked because its prior coordination touch-set is unavailable (${inspected.issue}). Restore a valid schema-v1 touch-set.json, re-run Plan, or explicitly Abandon/Delete the card.`
+      message: `Recovery remains parked because its prior coordination touch-set is unavailable (${inspected.issue}). Move it to Plan to re-derive one, or explicitly Abandon/Delete the card.`
     };
   }
   const repoPath = repoPathForProject(card?.project, board);
@@ -2939,7 +2951,12 @@ async function handlePatchCard(req, res, opts, id) {
       // lock is held, so a losing PATCH cannot mint leases/intent for a transition
       // that never commits.
       beforeWrite: movedLists && shouldRecoverCoordinationHold(board, card, next)
-        ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(board, lockedNext)
+        ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(
+            board,
+            lockedNext,
+            undefined,
+            getList(board, lockedNext.list)?.phase ?? lockedNext.list ?? null
+          )
         : undefined,
       // Closure cleanup runs after the card write but before releasing that same
       // lifecycle lock; a concurrent reopen cannot slip between the two.
@@ -3703,7 +3720,12 @@ async function handleStartCard(req, res, opts, id) {
     const next = { ...overridden, list: target, status: "ok", events, ...recover };
     const result = await saveCardCASWithHooks(root, next, card.rev ?? 0, at, {
       beforeWrite: isHumanHeld(card, board) && !landedTerminal
-        ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(board, lockedNext)
+        ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(
+            board,
+            lockedNext,
+            undefined,
+            getList(board, lockedNext.list)?.phase ?? lockedNext.list ?? null
+          )
         : undefined,
       afterWrite: landedTerminal
         ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)

@@ -374,6 +374,41 @@ describe("plan-completion coordination — the later run waits on the earlier", 
     });
   });
 
+  it("lets a card with no touch-set move to PLAN, which is where one comes from", async () => {
+    // The refusal names "re-run Plan" as the remedy, and Plan is a move - so
+    // refusing every move left Abandon as the only real exit. It is reachable on
+    // this board: a straight Discuss -> Implement move mints a runDir and skips
+    // the only phase that writes a touch-set.
+    const root = tmp();
+    const repoDir = mkdtempSync(join(tmpdir(), "coord-replan-"));
+    const boardWithRepo = { ...board, projects: { proj: { path: repoDir } } };
+    const base = await createCard(root, { title: "skipped plan", project: "proj", list: "needs-attention" });
+    const runDir = join(root, "runs", "replan-no-touchset");
+    mkdirSync(runDir, { recursive: true });
+    const card = await saveCard(root, {
+      ...base,
+      runId: "01BBBBBBBBBBBBBBBBBBBBBBBB",
+      runDir,
+      status: "needs-attention",
+      parkedFrom: "implement"
+    });
+    // @ts-ignore — pure .mjs
+    const { prepareRecoveredCoordinationHold } = await import("../fittings/seed/kanban-loop/scripts/server.mjs");
+
+    expect(prepareRecoveredCoordinationHold(boardWithRepo, card, undefined, "plan")).toMatchObject({
+      ok: true,
+      skipped: "replanning"
+    });
+    // Every OTHER direction still fails closed: only planning re-derives the
+    // overlap, so only planning may proceed without it.
+    for (const phase of ["implement", "review", "test", null]) {
+      expect(prepareRecoveredCoordinationHold(boardWithRepo, card, undefined, phase)).toMatchObject({
+        ok: false,
+        code: "touch-set-unavailable"
+      });
+    }
+  });
+
   it("fails recovery closed when another card now owns an exclusive path", async () => {
     const root = tmp();
     const repoDir = mkdtempSync(join(tmpdir(), "coord-resume-conflict-"));
