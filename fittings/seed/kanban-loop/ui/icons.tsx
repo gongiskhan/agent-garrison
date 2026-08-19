@@ -93,6 +93,11 @@ export function ArchiveIcon(): JSX.Element {
 export function UnarchiveIcon(): JSX.Element {
   return <svg {...base}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><polyline points="9 14 12 11 15 14" /><line x1="12" y1="11" x2="12" y2="17" /></svg>;
 }
+// A right-pointing chevron for collapsible section headers; the CSS rotates it
+// 90deg when its section is open.
+export function ChevronIcon(): JSX.Element {
+  return <svg {...base}><polyline points="9 6 15 12 9 18" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>

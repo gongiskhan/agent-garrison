@@ -73,6 +73,7 @@ import {
   CheckIcon,
   ArchiveIcon,
   UnarchiveIcon,
+  ChevronIcon,
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
@@ -2343,6 +2344,32 @@ function TimelineEvent({ ev }: { ev: CardEvent }): React.ReactElement {
   );
 }
 
+// A collapsible detail-sheet section. Secondary groups (run configuration,
+// history) fold behind one keyboard-focusable header so the primary content —
+// status, description, checklist, evidence — reads first. `defaultOpen` seeds
+// the state (e.g. a parked card opens its Run configuration so retry controls
+// are reachable); the user can still toggle it. `tone`/`badge` express status
+// with the existing colour language, never a new one.
+function Section({ title, defaultOpen = false, tone, badge, children }: {
+  title: string;
+  defaultOpen?: boolean;
+  tone?: "attn" | "ok" | "waiting";
+  badge?: ReactNode;
+  children: ReactNode;
+}): React.ReactElement {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={`card-section${open ? " open" : ""}${tone ? " tone-" + tone : ""}`}>
+      <button type="button" className="cs-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="cs-chev" aria-hidden><ChevronIcon /></span>
+        <span className="cs-title">{title}</span>
+        {badge}
+      </button>
+      {open && <div className="cs-body">{children}</div>}
+    </section>
+  );
+}
+
 function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -2917,6 +2944,20 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       {parked && card.attentionReason && (
         <div className="state-callout parked">{card.attentionReason}</div>
       )}
+      {card.waitingOn && (
+        <div className="state-callout waiting">
+          Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {waitingClause(card.waitingOn)}
+        </div>
+      )}
+
+      {/* RUN CONFIGURATION — secondary, collapsed by default. A parked card opens
+          it so its routing/placement retry controls are reachable at a glance. */}
+      <Section
+        title="Run configuration"
+        defaultOpen={parked}
+        tone={parked ? "attn" : undefined}
+        badge={parked ? <span className="chip attn">needs attention</span> : undefined}
+      >
       {!lockedCard && (
         <div className="detail-desc">
           <div className="dd-title">Task scope</div>
@@ -3046,50 +3087,6 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           </div>
         </div>
       )}
-      {card.waitingOn && (
-        <div className="state-callout waiting">
-          Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {waitingClause(card.waitingOn)}
-        </div>
-      )}
-
-      {/* ABANDONED (S2, Q7): the prepared revert — the exact commits to be reverted
-          (short shas), the conflict-risk count, the state tag, and the guarded
-          Confirm-revert button (disabled once applied / conflicted). */}
-      {card.preparedRevert && (
-        <div className="prepared-revert">
-          <div className="dd-title">Prepared revert</div>
-          <div className="pr-head">
-            <span className="pr-count">
-              {card.preparedRevert.commits} commit{card.preparedRevert.commits === 1 ? "" : "s"} to revert
-            </span>
-            {card.preparedRevert.conflictRisk > 0 && (
-              <span className="chip attn" title="these commits were later touched by another card — the revert may conflict">
-                {card.preparedRevert.conflictRisk} at conflict risk
-              </span>
-            )}
-            <span className={`chip ${card.preparedRevert.state === "applied" ? "ok" : card.preparedRevert.state === "conflict" ? "attn" : "muted"}`}>
-              {card.preparedRevert.state}
-            </span>
-          </div>
-          {card.preparedRevert.commitShas.length > 0 && (
-            <ul className="pr-commits">
-              {card.preparedRevert.commitShas.map((s) => <li key={s}><code>{s}</code></li>)}
-              {card.preparedRevert.commits > card.preparedRevert.commitShas.length && (
-                <li className="muted">…and {card.preparedRevert.commits - card.preparedRevert.commitShas.length} more</li>
-              )}
-            </ul>
-          )}
-          <button
-            className="btn danger small"
-            disabled={reverting || card.preparedRevert.state !== "prepared"}
-            onClick={() => void doRevert()}
-          >
-            {reverting ? "Reverting…" : "Confirm revert"}
-          </button>
-          {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
-        </div>
-      )}
-
       {/* SCHEDULE — one-time hold or recurring template. The fixed Scheduled
           column owns placement; targetList is where an occurrence/release goes. */}
       <div className="detail-desc sched-block">
@@ -3233,7 +3230,10 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           </div>
         )}
       </div>
+      </Section>
 
+      {/* CONTENT — description, checklist, attachments: the primary "what this
+          card is" tier, always expanded. */}
       {(descBody.trim() || descDraft !== null || !lockedCard) && (
         <div className="detail-desc">
           <div className="dd-title">
@@ -3479,6 +3479,9 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         </div>
       )}
 
+      {/* HISTORY & ARTIFACTS — secondary, collapsed by default: the full record
+          of what happened to this card and the pointers to its artifacts. */}
+      <Section title="History & artifacts">
       {/* The Activity timeline — the full "what happened to this card" history. */}
       <div className="timeline">
         <div className="tl-title"><ActivityIcon /> activity</div>
@@ -3501,7 +3504,6 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         <LinkRow label="video" refs={links.video} onOpen={setOpenArt} />
         <LinkRow label="logs" refs={links.logs} onOpen={setOpenArt} />
       </div>
-      {openArt && <ArtifactModal cardId={card.id} art={openArt} onClose={() => setOpenArt(null)} />}
 
       <div className="declog">
         <div className="dl-title"><LinkIcon /> decision log</div>
@@ -3520,6 +3522,12 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           ))
         )}
       </div>
+      </Section>
+
+      {/* The artifact viewer is hoisted out of the collapsibles above: evidence and
+          attachments (outside History) also open it, so a collapsed History section
+          must never unmount the overlay. */}
+      {openArt && <ArtifactModal cardId={card.id} art={openArt} onClose={() => setOpenArt(null)} />}
 
       {/* The same action row the card front carries, at the bottom of the opened
           card - so everything you can do to a card is reachable from wherever you
@@ -3534,6 +3542,44 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       )}
 
       <div className="danger-zone">
+        {/* Prepared revert (S2, Q7): the exact commits to be reverted (short shas),
+            the conflict-risk count, the state tag, and the guarded Confirm-revert
+            button. Clustered here with Abandon/Delete so every recovery/destructive
+            action lives in one place. */}
+        {card.preparedRevert && (
+          <div className="prepared-revert">
+            <div className="dd-title">Prepared revert</div>
+            <div className="pr-head">
+              <span className="pr-count">
+                {card.preparedRevert.commits} commit{card.preparedRevert.commits === 1 ? "" : "s"} to revert
+              </span>
+              {card.preparedRevert.conflictRisk > 0 && (
+                <span className="chip attn" title="these commits were later touched by another card — the revert may conflict">
+                  {card.preparedRevert.conflictRisk} at conflict risk
+                </span>
+              )}
+              <span className={`chip ${card.preparedRevert.state === "applied" ? "ok" : card.preparedRevert.state === "conflict" ? "attn" : "muted"}`}>
+                {card.preparedRevert.state}
+              </span>
+            </div>
+            {card.preparedRevert.commitShas.length > 0 && (
+              <ul className="pr-commits">
+                {card.preparedRevert.commitShas.map((s) => <li key={s}><code>{s}</code></li>)}
+                {card.preparedRevert.commits > card.preparedRevert.commitShas.length && (
+                  <li className="muted">…and {card.preparedRevert.commits - card.preparedRevert.commitShas.length} more</li>
+                )}
+              </ul>
+            )}
+            <button
+              className="btn danger small"
+              disabled={reverting || card.preparedRevert.state !== "prepared"}
+              onClick={() => void doRevert()}
+            >
+              {reverting ? "Reverting…" : "Confirm revert"}
+            </button>
+            {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
+          </div>
+        )}
         {/* Abandon (S2, Q7): prepare a revert of the card's committed work + park it.
             Offered on a non-running card that hasn't already been abandoned; the
             confirm() guard and the separate revert step keep it deliberate. */}

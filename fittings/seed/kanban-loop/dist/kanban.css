@@ -2124,6 +2124,55 @@ body {
 }
 .sheet .sh-body { padding: 16px 18px 20px; }
 
+/* ---- Opened-card section hierarchy (information-hierarchy pass) ----
+   The primary tiers — status callouts, description, checklist, attachments,
+   evidence — stay full-strength. The secondary tiers (Run configuration,
+   History & artifacts) fold behind a collapsible header so they recede until
+   wanted. Colour stays within the existing status language: neutral sections
+   read brass/ink; a parked card's config carries the alarm tone, nothing new. */
+.card-section {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  margin-bottom: 16px;
+}
+.card-section .cs-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  text-align: left;
+}
+.card-section .cs-head:hover { background: var(--paper-2); }
+.card-section .cs-head:focus-visible { outline: 2px solid var(--sage); outline-offset: -2px; }
+.card-section .cs-chev {
+  display: inline-flex;
+  color: var(--mute);
+  transition: transform 0.15s ease;
+}
+.card-section.open .cs-head .cs-chev { transform: rotate(90deg); }
+.card-section .cs-title { flex: 1 1 auto; }
+.card-section .cs-body {
+  padding: 12px 12px 4px;
+  border-top: 1px solid var(--rule);
+}
+/* The inner blocks own their own bottom margin; drop it on the last one so the
+   section body doesn't carry a double gap. */
+.card-section .cs-body > *:last-child { margin-bottom: 0; }
+/* Attention tone: a parked card opens its Run configuration and flags it. */
+.card-section.tone-attn { border-color: rgba(155, 54, 45, 0.4); }
+.card-section.tone-attn .cs-head,
+.card-section.tone-attn .cs-chev { color: var(--alarm); }
+
 .detail-meta {
   display: flex;
   flex-wrap: wrap;
