@@ -210,6 +210,44 @@ describe("gatewayRunFn — client-side turn deadlines", () => {
     }
   }, 20000);
 
+  it("counts tool work as output: activity + session_event keep a silent turn alive", async () => {
+    // A phase that reads twenty files before it says anything emits no prose for
+    // minutes. Its progress arrives as `activity` (tool/thinking) and
+    // `session_event` (canonical events) - and while those did not re-arm the
+    // deadline, a WORKING turn was abandoned as "no output" and its card bounced
+    // back to Implement, repeatedly. Raising the per-target turn budget made the
+    // silent stretches long enough to hit it every time.
+    process.env.KANBAN_TURN_IDLE_MS = "300";
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write("event: open\ndata: {}\n\n");
+      let n = 0;
+      const t = setInterval(() => {
+        n += 1;
+        // Alternate the two frames a tool-only stretch actually produces. No
+        // `chunk`, no `route`, no prose - just work.
+        res.write(n % 2
+          ? `event: activity\ndata: ${JSON.stringify({ kind: "tool", name: "Read" })}\n\n`
+          : `event: session_event\ndata: ${JSON.stringify({ id: `e${n}`, role: "assistant", ts: n, order: n, revision: 1, blocks: [{ type: "tool_use", name: "Read", toolUseId: `t${n}`, input: "{}" }] })}\n\n`);
+        if (n >= 6) { // twice the idle window with never a word of prose
+          clearInterval(t);
+          res.write(`event: done\ndata: ${JSON.stringify({ reply: "read them all\nreview" })}\n\n`);
+          res.end();
+        }
+      }, 100);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const out: any = await gatewayRunFn(`http://127.0.0.1:${port}`)({ prompt: "x", list: {} });
+      expect(out.reply).toMatch(/review/);
+    } finally {
+      server.close();
+      delete process.env.KANBAN_TURN_IDLE_MS;
+    }
+  }, 20000);
+
   it("a stream that keeps sending CONTENT is not aborted by the idle deadline", async () => {
     process.env.KANBAN_TURN_IDLE_MS = "300";
     const server = createServer((_req, res) => {

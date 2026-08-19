@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import {
   DRAG_EXEMPT_ANCESTORS,
   DRAG_HOLD_MS,
-  DRAG_HOLD_TOLERANCE_MOUSE,
+  DRAG_MOUSE_DISTANCE,
   DRAG_HOLD_TOLERANCE_TOUCH,
   shouldActivateDrag
 } from "../fittings/seed/kanban-loop/ui/drag-activation";
@@ -69,20 +69,29 @@ describe("shouldActivateDrag - hold anywhere, except text entry", () => {
 });
 
 describe("hold timing", () => {
-  it("is a one-second hold", () => {
-    expect(DRAG_HOLD_MS).toBe(1000);
+  // The drag model is split by input: a finger long-presses, a mouse moves. A
+  // one-second hold on both was the version that made the board feel broken -
+  // scrolling picked cards up, and a deliberate drag felt like a stall.
+  it("is a long-press a thumb would actually wait out", () => {
+    // Trello-range. Below ~150ms a scroll flick starts arming drags again;
+    // beyond ~400ms the gesture reads as an unresponsive board.
+    expect(DRAG_HOLD_MS).toBeGreaterThanOrEqual(150);
+    expect(DRAG_HOLD_MS).toBeLessThanOrEqual(400);
   });
 
-  it("stays well clear of an ordinary click", () => {
-    // A click is a couple of hundred milliseconds; the hold must not be
-    // reachable by accident.
-    expect(DRAG_HOLD_MS).toBeGreaterThanOrEqual(750);
+  it("lets a scroll flick escape before the hold arms", () => {
+    // The finger only has to cross the tolerance to cancel: a flick moves many
+    // times this within the hold window, so scrolling can never pick a card up.
+    expect(DRAG_HOLD_TOLERANCE_TOUCH).toBeGreaterThan(0);
+    expect(DRAG_HOLD_TOLERANCE_TOUCH).toBeLessThanOrEqual(24);
   });
 
-  it("gives a finger more drift than a mouse", () => {
-    // A finger resting on glass wanders; too tight a touch tolerance cancels
-    // holds the user meant to make.
-    expect(DRAG_HOLD_TOLERANCE_TOUCH).toBeGreaterThan(DRAG_HOLD_TOLERANCE_MOUSE);
+  it("never turns a slow mouse click into a drag", () => {
+    // A desktop press has no competing scroll gesture, so the mouse is gated on
+    // DISTANCE, not time. That is what keeps click-to-open robust: a stationary
+    // press of any duration stays a click.
+    expect(DRAG_MOUSE_DISTANCE).toBeGreaterThan(0);
+    expect(DRAG_MOUSE_DISTANCE).toBeLessThanOrEqual(12);
   });
 });
 
@@ -96,18 +105,25 @@ describe("the board's sensor wiring", () => {
     expect(imports).not.toContain("PointerSensor");
   });
 
-  it("applies the shared hold constants to both sensors", () => {
-    for (const sensor of ["MouseSensor", "TouchSensor"]) {
-      const at = source.indexOf(`useSensor(${sensor}`);
-      expect(at, `${sensor} is registered`).toBeGreaterThan(-1);
-      expect(source.slice(at, at + 200)).toContain("delay: DRAG_HOLD_MS");
-    }
+  it("gates each sensor the way that input actually behaves", () => {
+    const mouse = source.indexOf("useSensor(MouseSensor");
+    const touch = source.indexOf("useSensor(TouchSensor");
+    expect(mouse, "MouseSensor is registered").toBeGreaterThan(-1);
+    expect(touch, "TouchSensor is registered").toBeGreaterThan(-1);
+    // Bound the mouse window at the touch sensor: a fixed slice runs straight
+    // into the next block and reads ITS delay as the mouse's.
+    const mouseBlock = source.slice(mouse, touch);
+    expect(mouseBlock).toContain("distance: DRAG_MOUSE_DISTANCE");
+    expect(mouseBlock).not.toContain("delay:");
+    expect(source.slice(touch, touch + 200)).toContain("delay: DRAG_HOLD_MS");
+    expect(source.slice(touch, touch + 200)).toContain("tolerance: DRAG_HOLD_TOLERANCE_TOUCH");
   });
 });
 
 describe("nothing swallows the press", () => {
   it("the card title button does not stopPropagation on the press", () => {
-    const at = source.indexOf('className="title card-title-edit"');
+    // The title OPENS the card now; rename moved to an explicit pencil.
+    const at = source.indexOf('className="title card-title-open"');
     expect(at).toBeGreaterThan(-1);
     const opening = source.slice(at, at + 1_400);
     expect(opening).not.toContain("onPointerDown={(e) => e.stopPropagation()}");

@@ -468,7 +468,15 @@ export function gatewayRunFn(gatewayUrl) {
           // comment carries no `event:` line, so it lands here as "message" and
           // deliberately does NOT count as progress — otherwise a wedged turn on a
           // healthy socket would be kept alive forever by its own heartbeat.
-          if (event === "route" || event === "chunk" || event === "tool" || event === "done" || event === "error") armIdle();
+          //
+          // EVERY OTHER named frame does count, not just the ones carrying prose.
+          // A phase that reads twenty files before it says anything emits only
+          // `activity` (tool/thinking) and `session_event` (canonical events) for
+          // minutes at a time; while those were left off this list a WORKING turn
+          // was abandoned as "no output" and its card bounced back to Implement,
+          // repeatedly. Naming the two frames that don't count is also the version
+          // that keeps working when the gateway grows a new one.
+          if (event !== "message" && event !== "open") armIdle();
           if (event === "chunk") {
             try {
               const c = JSON.parse(data);

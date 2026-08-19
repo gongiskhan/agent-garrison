@@ -87,7 +87,8 @@ describe("direct card interactions", () => {
     expect(editorOpening).toContain("onKeyDown={(e) => e.stopPropagation()}");
     expect(editorOpening).not.toContain("onKeyDown={(e) => { e.preventDefault()");
 
-    const titleButtonStart = source.indexOf('className="title card-title-edit"');
+    // The title OPENS the card now; rename moved to an explicit pencil.
+    const titleButtonStart = source.indexOf('className="title card-title-open"');
     expect(titleButtonStart).toBeGreaterThan(-1);
     // Wide enough to survive the comment explaining why the PRESS is deliberately
     // NOT stopped here (press-and-hold drag) - see kanban-drag-activation.test.ts.
