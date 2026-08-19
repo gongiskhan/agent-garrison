@@ -74,6 +74,7 @@ import {
   ArchiveIcon,
   UnarchiveIcon,
   ChevronIcon,
+  PencilIcon,
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
@@ -89,7 +90,7 @@ import {
 import { cardIdFromLocation } from "./card-location";
 import {
   DRAG_HOLD_MS,
-  DRAG_HOLD_TOLERANCE_MOUSE,
+  DRAG_MOUSE_DISTANCE,
   DRAG_HOLD_TOLERANCE_TOUCH,
   shouldActivateDrag
 } from "./drag-activation";
@@ -653,12 +654,17 @@ function CardActions({
   list,
   busy,
   withId = false,
+  iconOnly = false,
   handlers
 }: {
   card: CardSummary;
   list: ListView;
   busy: boolean;
   withId?: boolean;
+  // Card FRONT passes iconOnly: the labels collapse to visually-hidden text (kept
+  // for the accessibility tree) so the row reads as compact icon buttons and stops
+  // hogging the card surface. The DetailSheet footer leaves it off and keeps labels.
+  iconOnly?: boolean;
   handlers: CardActionHandlers;
 }) {
   const {
@@ -667,22 +673,22 @@ function CardActions({
   } = cardActionFlags(card, list);
   const h = handlers;
   return (
-    <div className="btns">
+    <div className={`btns${iconOnly ? " icon-only" : ""}`}>
       {scheduled && card.schedule && (
         <button className="btn primary small" disabled={busy} title={card.schedule.kind === "cron" ? "create an extra occurrence without changing the next regular run" : "release this card to run now"} onClick={() => h.onRunSchedule(card)}>
-          <PlayIcon /> Run now
+          <PlayIcon /> <span className="btn-label">Run now</span>
         </button>
       )}
       {/* Mark done: skip the pipeline and call a human-held card finished in one
           click — the "just a button on the card" path. */}
       {canMarkDone && (
         <button className="btn small ok" disabled={busy} title="mark this card done" onClick={() => h.onQuickMove(card, "done")}>
-          <CheckIcon /> Done
+          <CheckIcon /> <span className="btn-label">Done</span>
         </button>
       )}
       {canAdvance && (
-        <button className="btn primary small" disabled={busy} onClick={() => h.onStart(card)}>
-          <PlayIcon /> {startLabel}
+        <button className="btn primary small" disabled={busy} title={startLabel} onClick={() => h.onStart(card)}>
+          <PlayIcon /> <span className="btn-label">{startLabel}</span>
         </button>
       )}
       {canRun && (
@@ -692,34 +698,34 @@ function CardActions({
           title={dispatchErr ? "re-run this card on this list" : `run ${list.title} on this card now`}
           onClick={() => h.onStart(card)}
         >
-          <PlayIcon /> {dispatchErr ? "Retry" : "Run"}
+          <PlayIcon /> <span className="btn-label">{dispatchErr ? "Retry" : "Run"}</span>
         </button>
       )}
       {canInfer && !engineOwned && (
         <button className="btn small" disabled={busy} title="infer the project from the description" onClick={() => h.onInfer(card)}>
-          <SparkIcon /> Infer
+          <SparkIcon /> <span className="btn-label">Infer</span>
         </button>
       )}
       {!engineOwned && !scheduled && (
-        <button className="btn small" disabled={busy} onClick={() => h.onMove(card)}>
-          <MoveIcon /> Move
+        <button className="btn small" disabled={busy} title="move this card to another list" onClick={() => h.onMove(card)}>
+          <MoveIcon /> <span className="btn-label">Move</span>
         </button>
       )}
       {/* Discuss opens a thread pinned to the Discuss duty; other lists expose Watch. */}
       {list.interactive ? (
         <button className="btn small primary" title="open a Discuss-duty conversation seeded with this card" onClick={() => h.onDiscuss(card)}>
-          <ChatIcon /> Discuss
+          <ChatIcon /> <span className="btn-label">Discuss</span>
         </button>
       ) : (
         <>
-          <button className="btn small" onClick={() => h.onWatch(card)}>
-            <WatchIcon /> Watch
+          <button className="btn small" title="watch this card's live log" onClick={() => h.onWatch(card)}>
+            <WatchIcon /> <span className="btn-label">Watch</span>
           </button>
           {/* Terminal opens in the card's real project, or in the dedicated
               personal workspace when a personal card has no project. */}
           {(card.project || card.scope === "personal") && (
             <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => h.onTerminal(card)}>
-              <TerminalIcon /> Terminal
+              <TerminalIcon /> <span className="btn-label">Terminal</span>
             </button>
           )}
         </>
@@ -730,25 +736,25 @@ function CardActions({
           has stopped: on Done (terminal) or parked in needs-attention. */}
       {((list.terminal && !archived) || card.status === "needs-attention") && (
         <button className="btn small" disabled={busy} title="write feedback and send this card back through the pipeline with the same context" onClick={() => h.onFeedback(card)}>
-          <MailIcon /> Feedback
+          <MailIcon /> <span className="btn-label">Feedback</span>
         </button>
       )}
       {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
           seeded from this card's handoff packet. */}
       {list.terminal && !archived && (
         <button className="btn small primary" disabled={busy} title="create a new card that continues this one's work" onClick={() => h.onContinue(card)}>
-          <PlayIcon /> Continue
+          <PlayIcon /> <span className="btn-label">Continue</span>
         </button>
       )}
       {canArchive && (
         <button className="btn small" disabled={busy} title="move this card to the Archived column" onClick={() => h.onQuickMove(card, "archived")}>
-          <ArchiveIcon /> Archive
+          <ArchiveIcon /> <span className="btn-label">Archive</span>
         </button>
       )}
       {/* Unarchive: bring an archived card back onto the board (To Do). */}
       {archived && (
         <button className="btn small" disabled={busy} title="move this card back to To Do" onClick={() => h.onQuickMove(card, "todo")}>
-          <UnarchiveIcon /> Unarchive
+          <UnarchiveIcon /> <span className="btn-label">Unarchive</span>
         </button>
       )}
       {/* Send to Drill: plan the checks for THIS card's change, run them, and
@@ -765,7 +771,7 @@ function CardActions({
           }
           onClick={() => h.onDrill(card)}
         >
-          <DrillIcon /> {card.drill ? "Re-drill" : "Send to Drill"}
+          <DrillIcon /> <span className="btn-label">{card.drill ? "Re-drill" : "Send to Drill"}</span>
         </button>
       )}
       <ShareCardButton card={card} withId={withId} />
@@ -777,7 +783,7 @@ function CardActions({
         title="delete this card and its run history"
         onClick={() => h.onDelete(card)}
       >
-        <CloseIcon /> Delete
+        <CloseIcon /> <span className="btn-label">Delete</span>
       </button>
       {/* Item 5: the Open button is gone — clicking the card body opens it (see the
           card root's onClick above). */}
@@ -905,34 +911,49 @@ function Card({
       <div className="ct">
         <span className={dotClass(card)} aria-hidden />
         {titleDraft === null ? (
-          <button
-            className="title card-title-edit"
-            data-title-locked={engineOwned || busy ? "true" : undefined}
-            title={engineOwned ? "Open card details (the title is locked while this autonomous phase runs)" : busy ? "Open card details" : "Edit card title"}
-            aria-label={engineOwned || busy ? `Open card details: ${card.title}` : `Edit card title: ${card.title}`}
-            // No stopPropagation on the press: the title is the widest, most
-            // natural place to grab a card, and swallowing the press here made
-            // press-and-hold do nothing across the top of every card. A click
-            // still opens the editor - the hold only wins once it has actually
-            // activated a drag, and dnd-kit swallows that gesture's trailing click.
-            //
-            // The button's native Enter/Space activation should open the
-            // editor/details, not also reach the sortable wrapper's keyboard
-            // sensor and initiate a drag.
-            onKeyDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (engineOwned || busy) {
+          <>
+            <button
+              className="title card-title-open"
+              title="Open card details"
+              aria-label={`Open card details: ${card.title}`}
+              // No stopPropagation on the PRESS: the title is the widest, most
+              // natural place to grab a card, and swallowing the press here made
+              // press-and-hold do nothing across the top of every card. The hold
+              // only wins once it has actually activated a drag, and dnd-kit
+              // swallows that gesture's trailing click.
+              //
+              // The title no longer doubles as the rename affordance — tapping it
+              // opens the card (rename now lives behind the explicit pencil). Keep
+              // the button's Enter/Space activation from also reaching the sortable
+              // wrapper's keyboard sensor and starting a drag.
+              onKeyDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
                 onOpen(card);
-                return;
-              }
-              setTitleError(null);
-              titleEditRevision.current = card.rev;
-              setTitleDraft(card.title);
-            }}
-          >
-            {card.title}
-          </button>
+              }}
+            >
+              {card.title}
+            </button>
+            {/* Explicit rename affordance. Hidden on an engine-owned or busy card,
+                whose title is locked (the API rejects a rename there too). */}
+            {!engineOwned && !busy && (
+              <button
+                type="button"
+                className="card-rename"
+                title="Rename card"
+                aria-label={`Rename card: ${card.title}`}
+                onKeyDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTitleError(null);
+                  titleEditRevision.current = card.rev;
+                  setTitleDraft(card.title);
+                }}
+              >
+                <PencilIcon />
+              </button>
+            )}
+          </>
         ) : (
           <div
             // The press is kept off the drag sensor by DRAG_EXEMPT_ANCESTORS
@@ -1143,6 +1164,7 @@ function Card({
         card={card}
         list={list}
         busy={busy}
+        iconOnly
         handlers={{
           onStart, onMove, onQuickMove, onDelete, onWatch, onTerminal,
           onInfer, onDiscuss, onContinue, onDrill, onFeedback, onRunSchedule
@@ -1182,7 +1204,7 @@ function ShareCardButton({ card, withId = false }: { card: CardSummary; withId?:
     <>
       {withId && <code className="card-uid" title="this card's id — quote it to an agent">{card.id}</code>}
       <button className="btn small" title="copy a link that opens this card" onClick={share}>
-        <LinkIcon /> {copied ?? "Share"}
+        <LinkIcon /> <span className="btn-label">{copied ?? "Share"}</span>
       </button>
     </>
   );
@@ -4587,12 +4609,15 @@ function App() {
     dragJustEndedRef.current = true;
     setTimeout(() => { dragJustEndedRef.current = false; }, 0);
   }, []);
-  // Drag activation is a deliberate press-and-hold: the pointer must stay down
-  // (moving no more than `tolerance` px) for DRAG_HOLD_MS before a card or column
-  // enters drag mode. This stops accidental reorders from an ordinary click or a
-  // click that drifts a few pixels - you have to mean it. A move beyond
-  // `tolerance` before the hold elapses cancels the pending drag and is treated
-  // as a click or a scroll.
+  // Drag activation is INPUT-SPECIFIC (see drag-activation.ts for the full why):
+  //
+  //  - Touch is a deliberate long-press: the finger must stay down (within
+  //    DRAG_HOLD_TOLERANCE_TOUCH px) for DRAG_HOLD_MS before a card or column
+  //    lifts. Move past the tolerance first and the gesture is a scroll — that is
+  //    what stops the board picking cards up when you meant to scroll the phone.
+  //  - Mouse is distance-based: press and travel DRAG_MOUSE_DISTANCE px and the
+  //    drag starts immediately (the desktop norm); a stationary press stays a
+  //    click and opens the card.
   //
   // MouseSensor + TouchSensor, deliberately NOT PointerSensor. On a touch device
   // `pointerdown` beats `touchstart`, so a PointerSensor captures the gesture and
@@ -4603,7 +4628,7 @@ function App() {
   // `touchmove` once activated, which holds the scroll off for the drag's duration.
   const dndSensors = useSensors(
     useSensor(MouseSensor, {
-      activationConstraint: { delay: DRAG_HOLD_MS, tolerance: DRAG_HOLD_TOLERANCE_MOUSE }
+      activationConstraint: { distance: DRAG_MOUSE_DISTANCE }
     }),
     useSensor(TouchSensor, {
       activationConstraint: { delay: DRAG_HOLD_MS, tolerance: DRAG_HOLD_TOLERANCE_TOUCH }
@@ -4894,6 +4919,12 @@ function App() {
   function onDragStart(ev: DragStartEvent) {
     const data = ev.active.data.current as { type?: string; card?: CardSummary; listId?: string } | undefined;
     dragActiveRef.current = true;
+    // A short haptic tick the instant a card/column lifts, so a long-press on a
+    // phone confirms itself in the hand as well as on screen. Feature-detected —
+    // a no-op on desktop and anywhere the Vibration API is absent or denied.
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      try { navigator.vibrate(10); } catch { /* some engines throw if denied */ }
+    }
     if (data?.type === "card" && data.card) {
       setActiveDrag({ type: "card", card: data.card });
       // Snapshot the current per-list order as the working membership.

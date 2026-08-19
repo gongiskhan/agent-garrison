@@ -19,22 +19,45 @@
 //     does not depend on which DOM event the active sensor happens to listen to.
 
 /**
- * How long the pointer must stay down before a card or column starts dragging.
+ * TWO activation models, one per input, because a finger and a mouse conflict
+ * with the board differently:
  *
- * One second, not two. The timer does start at the press - measured, the card
- * enters drag mode ~90ms after the delay elapses - but a dwell with no feedback
- * reads as far longer than it is, and two seconds felt like three. A second is
- * still five times an ordinary click, so it keeps the gesture deliberate.
+ *  - TOUCH is a long-press (DRAG_HOLD_MS + DRAG_HOLD_TOLERANCE_TOUCH). The board
+ *    and its lists scroll under a finger, so a touch can only mean "drag" once it
+ *    has stayed still past the hold; move past the tolerance first and the gesture
+ *    belongs to the scroller. This is the Trello model.
+ *  - MOUSE is distance-based (DRAG_MOUSE_DISTANCE). A desktop has no scroll/drag
+ *    ambiguity — the wheel scrolls, a press-and-move drags — so the drag should
+ *    start the instant the pointer travels far enough, with no artificial dwell.
+ *    Distance (not a short delay) is also what keeps click-to-open robust: a
+ *    stationary press of ANY duration stays a click, where a shortened mouse delay
+ *    would turn a slow click into a zero-distance drag that swallows the open.
  */
-export const DRAG_HOLD_MS = 1000;
 
 /**
- * How far the pointer may drift during the hold before the drag is abandoned.
- * A mouse rests still, so it can be tight; a finger resting on glass wanders,
- * and a too-tight touch tolerance cancels holds the user meant.
+ * How long a finger must stay down (within DRAG_HOLD_TOLERANCE_TOUCH) before a
+ * card or column lifts into a drag.
+ *
+ * ~250ms — the usual long-press number, several times a tap yet short enough to
+ * read as deliberate rather than broken. The 1s and 2s it replaced dwelt so long
+ * the hold felt stuck; the visible lift (shadow + scale) now confirms it the
+ * moment it fires, so a longer dwell buys nothing.
  */
-export const DRAG_HOLD_TOLERANCE_MOUSE = 8;
+export const DRAG_HOLD_MS = 250;
+
+/**
+ * How far a finger may drift during the hold before the drag is abandoned to the
+ * scroller. A finger resting on glass wanders, so this is generous; a scroll
+ * flick crosses it well inside the hold and escapes as a scroll.
+ */
 export const DRAG_HOLD_TOLERANCE_TOUCH = 16;
+
+/**
+ * How far the mouse must travel (while pressed) before a card or column starts
+ * dragging on desktop. Below this it is a click (which opens the card); at or
+ * beyond it, an immediate drag.
+ */
+export const DRAG_MOUSE_DISTANCE = 8;
 
 /** Controls where a long press already means something else, so it must not drag. */
 export const DRAG_EXEMPT_ANCESTORS = "input, textarea, select, .card-title-editor";

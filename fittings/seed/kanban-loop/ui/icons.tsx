@@ -98,6 +98,11 @@ export function UnarchiveIcon(): JSX.Element {
 export function ChevronIcon(): JSX.Element {
   return <svg {...base}><polyline points="9 6 15 12 9 18" /></svg>;
 }
+// A pencil — the explicit rename affordance on a card front, so the title itself
+// is free to open the card rather than doubling as the edit trigger.
+export function PencilIcon(): JSX.Element {
+  return <svg {...base}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>
