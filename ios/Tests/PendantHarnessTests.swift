@@ -96,6 +96,29 @@ final class PendantFixtureTests: XCTestCase {
 }
 
 final class MockPendantTransportTests: XCTestCase {
+    /// Every transport a test starts, stopped here. MockPendantTransport keeps
+    /// streaming on its own timer after a test's wait returns, so a leaked one
+    /// goes on firing callbacks into whatever test runs NEXT. That surfaces as
+    /// an over-fulfilled expectation crashing an unrelated case - the failure
+    /// is reported against the innocent test, and it only appears when timing
+    /// shifts, which is what makes it look like flakiness.
+    private var startedTransports: [MockPendantTransport] = []
+
+    override func tearDown() {
+        for transport in startedTransports { transport.disconnect() }
+        startedTransports.removeAll()
+        super.tearDown()
+    }
+
+    private func makeTransport(
+        packets: [PendantFixturePacket],
+        script: MockPendantTransport.Script
+    ) -> MockPendantTransport {
+        let transport = MockPendantTransport(packets: packets, script: script)
+        startedTransports.append(transport)
+        return transport
+    }
+
     private func packets(_ count: Int, stepMs: Double = 20) -> [PendantFixturePacket] {
         (0 ..< count).map { i in
             PendantFixturePacket(seq: i + 1, ts: Double(i) * stepMs, bytes: Data([UInt8(i % 256), 0xEE]))
@@ -110,7 +133,7 @@ final class MockPendantTransportTests: XCTestCase {
     }
 
     func testStreamsFixtureFramesInOrder() {
-        let transport = MockPendantTransport(packets: packets(20), script: fastScript())
+        let transport = makeTransport(packets: packets(20), script: fastScript())
         let done = expectation(description: "frames")
         var frames: [Data] = []
         transport.onAudioFrame = { frame in
@@ -125,7 +148,7 @@ final class MockPendantTransportTests: XCTestCase {
     }
 
     func testRecordsHapticWritesWithTimestamps() {
-        let transport = MockPendantTransport(packets: [], script: fastScript())
+        let transport = makeTransport(packets: [], script: fastScript())
         let connected = expectation(description: "connected")
         transport.onConnectionState = { if $0 == .connected { connected.fulfill() } }
         transport.connect()
@@ -143,7 +166,7 @@ final class MockPendantTransportTests: XCTestCase {
     func testHapticUnsupportedFailsWrite() {
         var script = fastScript()
         script.hapticSupported = false
-        let transport = MockPendantTransport(packets: [], script: script)
+        let transport = makeTransport(packets: [], script: script)
         let connected = expectation(description: "connected")
         transport.onConnectionState = { if $0 == .connected { connected.fulfill() } }
         transport.connect()
@@ -160,7 +183,7 @@ final class MockPendantTransportTests: XCTestCase {
     func testMalformedInjectionCountsWithoutBreakingStream() {
         var script = fastScript()
         script.malformedPacketAtIndex = 3
-        let transport = MockPendantTransport(packets: packets(10), script: script)
+        let transport = makeTransport(packets: packets(10), script: script)
         let done = expectation(description: "frames")
         var frameCount = 0
         transport.onAudioFrame = { _ in
@@ -174,8 +197,9 @@ final class MockPendantTransportTests: XCTestCase {
     func testDroppedPacketCountsOneLoss() {
         var script = fastScript()
         script.dropPacketAtIndex = 4
-        let transport = MockPendantTransport(packets: packets(10), script: script)
+        let transport = makeTransport(packets: packets(10), script: script)
         let loss = expectation(description: "loss")
+        loss.assertForOverFulfill = false
         transport.onAudioLoss = { lost in
             if lost == 1 { loss.fulfill() }
         }
@@ -186,8 +210,11 @@ final class MockPendantTransportTests: XCTestCase {
     func testOutOfOrderDeliveryCountsLoss() {
         var script = fastScript()
         script.swapPacketsAtIndex = 4
-        let transport = MockPendantTransport(packets: packets(10), script: script)
+        let transport = makeTransport(packets: packets(10), script: script)
         let loss = expectation(description: "loss")
+        // Cumulative loss keeps climbing, so this predicate matches again on
+        // every later report.
+        loss.assertForOverFulfill = false
         transport.onAudioLoss = { lost in
             if lost >= 1 { loss.fulfill() }
         }
@@ -199,7 +226,7 @@ final class MockPendantTransportTests: XCTestCase {
         var script = fastScript()
         script.disconnectAtMs = 60
         script.reconnectAfterMs = 40
-        let transport = MockPendantTransport(packets: packets(20), script: script)
+        let transport = makeTransport(packets: packets(20), script: script)
         var states: [PendantConnectionState] = []
         let reconnected = expectation(description: "reconnected")
         transport.onConnectionState = { state in
@@ -219,7 +246,7 @@ final class MockPendantTransportTests: XCTestCase {
     func testLowBatteryEventFires() {
         var script = fastScript()
         script.lowBatteryAtMs = 30
-        let transport = MockPendantTransport(packets: packets(5), script: script)
+        let transport = makeTransport(packets: packets(5), script: script)
         let low = expectation(description: "battery")
         transport.onBattery = { level in
             if level == 8 { low.fulfill() }
@@ -229,7 +256,7 @@ final class MockPendantTransportTests: XCTestCase {
     }
 
     func testReadsCodecFeaturesBattery() {
-        let transport = MockPendantTransport(packets: [], script: fastScript())
+        let transport = makeTransport(packets: [], script: fastScript())
         let connected = expectation(description: "connected")
         transport.onConnectionState = { if $0 == .connected { connected.fulfill() } }
         transport.connect()

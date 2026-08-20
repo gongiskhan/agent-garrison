@@ -330,3 +330,17 @@ discovered in time. The failure is therefore not a mock artifact, and it does
 not need a reconnect to bite: out-of-order discovery callbacks produce it on
 a first connection too. It is also invisible from the phone alone, which is
 why the emulator now logs reads and per-characteristic subscribes.
+
+**Failed discovery must not wedge the connection.** Retiring a service only
+on the success path introduced a worse failure than the one being fixed: no
+further callback arrives for a service whose characteristic discovery
+errored, and the transport has no discovery timeout, so the pending set never
+drained and the transport sat in `.connecting` forever. (The previous rule
+hung on a first connection too, but on a reconnect the stale retained
+characteristics let it proceed - wrongly, but it moved.) A failed discovery
+now retires the service like any other and the transport continues with a
+partial profile: absent characteristics make their reads return nil and skip
+their subscriptions, which every caller already handles. Covered by
+`testFailedServiceDiscoveryStillReachesConnected`, which fails with a
+`.connecting` timeout when the retirement is moved back onto the success
+path.

@@ -120,6 +120,19 @@ final class PendantSpec {
         /// simulateValueUpdate until this point, so streaming tests wait on
         /// it instead of assuming .connected already means subscribed.
         var onNotificationStateChange: ((CBMCharacteristicMock, Bool) -> Void)?
+        /// Services whose characteristic discovery should fail, exercising
+        /// the partial-profile path.
+        var failCharacteristicDiscoveryFor: Set<CBMUUID> = []
+
+        func peripheral(
+            _ peripheral: CBMPeripheralSpec,
+            didReceiveCharacteristicsDiscoveryRequest characteristicUUIDs: [CBMUUID]?,
+            for service: CBMServiceMock
+        ) -> Result<Void, Error> {
+            failCharacteristicDiscoveryFor.contains(service.uuid)
+                ? .failure(CBMATTError(.attributeNotFound))
+                : .success(())
+        }
 
         func peripheral(_ peripheral: CBMPeripheralSpec, didReceiveReadRequestFor characteristic: CBMCharacteristicMock)
             -> Result<Data, Error> {
@@ -249,6 +262,37 @@ final class PendantBLETransportMockTests: XCTestCase {
         }
         wait(for: [wrote], timeout: 10)
         XCTAssertEqual(pendant.delegate.hapticWrites.map(\.value), [3])
+        transport.disconnect()
+    }
+
+    /// A service whose characteristic discovery FAILS must not wedge the
+    /// connection. No further callback arrives for it and the transport has
+    /// no discovery timeout, so a readiness rule that waits for every service
+    /// unconditionally would sit in .connecting forever. The transport
+    /// retires the failed service and continues with a partial profile: the
+    /// battery read returns nil rather than hanging, and audio still works.
+    func testFailedServiceDiscoveryStillReachesConnected() {
+        pendant.delegate.failCharacteristicDiscoveryFor = [CBMUUID(string: PendantUUID.batteryService)]
+        let transport = PendantBLETransport()
+        let connected = expectation(description: "connected despite failed service")
+        transport.onConnectionState = { if $0 == .connected { connected.fulfill() } }
+        transport.connect()
+        wait(for: [connected], timeout: 10)
+
+        let read = expectation(description: "battery read completes")
+        transport.readBattery { level in
+            XCTAssertNil(level, "the undiscovered battery characteristic cannot answer")
+            read.fulfill()
+        }
+        wait(for: [read], timeout: 10)
+
+        // The rest of the profile still works.
+        let codec = expectation(description: "codec")
+        transport.readCodec { value in
+            XCTAssertEqual(value, .opusFS320)
+            codec.fulfill()
+        }
+        wait(for: [codec], timeout: 10)
         transport.disconnect()
     }
 

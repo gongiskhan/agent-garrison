@@ -408,9 +408,17 @@ extension PendantBLETransport: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard error == nil else { return }
-        for characteristic in service.characteristics ?? [] {
-            characteristics[fullUuid(characteristic.uuid)] = characteristic
+        // A FAILED discovery still retires the service. No further callback is
+        // coming for it and there is no discovery timeout, so leaving it
+        // pending would wedge the transport in .connecting forever. Continue
+        // with a partial profile instead: absent characteristics make their
+        // reads return nil and their subscriptions get skipped, which the
+        // callers already handle.
+        let wasPending = pendingCharacteristicDiscovery.remove(ObjectIdentifier(service)) != nil
+        if error == nil {
+            for characteristic in service.characteristics ?? [] {
+                characteristics[fullUuid(characteristic.uuid)] = characteristic
+            }
         }
         // Ready only when EVERY service has reported its characteristics -
         // counted from the callbacks WE received. Inspecting
@@ -422,8 +430,7 @@ extension PendantBLETransport: CBPeripheralDelegate {
         // class exists to defend against. Requiring the service to have been
         // pending also stops a late callback arriving after teardown from
         // finding the set empty and reporting ready again.
-        guard pendingCharacteristicDiscovery.remove(ObjectIdentifier(service)) != nil,
-              pendingCharacteristicDiscovery.isEmpty else { return }
+        guard wasPending, pendingCharacteristicDiscovery.isEmpty else { return }
         setState(.connected)
         armSubscriptions()
     }
