@@ -147,8 +147,9 @@ task_created, with segment_captured covered in tests/pendant-capture.test.ts.
   uploaded the build to TestFlight - real compile verification of every
   shipping Swift source. The one remaining gated item is xcodebuild test
   on a local simulator (the harness self-tests and the
-  CoreBluetoothMock-scripted transport suite): it needs Xcode on the Mac,
-  and HUMAN_SETUP section 9a has the one-line install step.
+  CoreBluetoothMock-scripted transport suite): it runs on the Mac mini,
+  per the continuation brief in
+  [`pendant-direct-handoff.md`](./pendant-direct-handoff.md).
 - Emulator: builds and runs on the current Mac (verified).
 
 ## Known gaps

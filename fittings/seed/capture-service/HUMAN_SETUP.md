@@ -140,13 +140,13 @@ Bluetooth reconnect, nothing on our side.
 
 ### 9a. One-time machine prerequisites
 
-- Xcode on the build Mac. The build Mac currently has only the Command Line
-  Tools; the App Store install needs sudo once:
-  `sudo mas install 497799835` (or install Xcode from the App Store app),
-  then `sudo xcode-select -s /Applications/Xcode.app`,
-  `xcodebuild -runFirstLaunch`, and add the iOS platform in
-  Xcode > Settings > Platforms. Everything else in this section is staged
-  and waiting on that.
+- Xcode builds and simulator tests run on the MAC MINI (decision
+  2026-08-20: the MacBook stays Xcode-free). The continuation brief for
+  that session - exact commands, expected fixes, definition of done - is
+  [`docs/pendant-direct-handoff.md`](../../../docs/pendant-direct-handoff.md).
+  The TestFlight CI lane already compiles and ships the app from GitHub
+  runners regardless (`gh workflow run garrison-ios.yml -R
+  gongiskhan/ios-thing -f lane=beta`).
 - No new vault keys. The pendant path reuses DEEPGRAM_API_KEY and
   CAPTURE_TOKEN, both already sealed in section 1.
 
