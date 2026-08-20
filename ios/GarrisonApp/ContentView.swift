@@ -53,12 +53,13 @@ struct ContentView: View {
                 Spacer()
 
                 List {
+                    NavigationLink("Pendant") { PendantView() }
                     NavigationLink("Sessions") { SessionsView() }
                     NavigationLink("Messages") { AckLogView() }
                     NavigationLink("Settings") { SettingsView() }
                 }
                 .listStyle(.inset)
-                .frame(maxHeight: 180)
+                .frame(maxHeight: 220)
             }
             .padding()
             .navigationTitle("Garrison")

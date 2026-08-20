@@ -24,6 +24,22 @@ enum AppGroup {
         static let quietHoursStart = "speak.quietStart" // hour 0-23, -1 = off
         static let quietHoursEnd = "speak.quietEnd"
         static let muteUntil = "speak.muteUntil" // epoch seconds
+        // Pendant Direct.
+        static let pendantIdentifier = "pendant.identifier" // CBPeripheral UUID string
+        static let pendantAmbientConsent = "pendant.ambientConsent" // stronger one-time notice acknowledged
+    }
+
+    static var pendantIdentifier: UUID? {
+        get {
+            guard let raw = defaults?.string(forKey: Key.pendantIdentifier) else { return nil }
+            return UUID(uuidString: raw)
+        }
+        set { defaults?.set(newValue?.uuidString, forKey: Key.pendantIdentifier) }
+    }
+
+    static var pendantAmbientConsent: Bool {
+        get { defaults?.bool(forKey: Key.pendantAmbientConsent) ?? false }
+        set { defaults?.set(newValue, forKey: Key.pendantAmbientConsent) }
     }
 
     static var baseURL: URL? {

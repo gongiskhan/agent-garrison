@@ -58,6 +58,9 @@ enum CaptureFraming {
 enum SessionMode: String, Codable {
     case audio
     case screenAudio = "screen_audio"
+    /// Pendant Direct: the app relaying the BLE pendant's Opus stream. The
+    /// server applies its capture_policy to this mode only.
+    case pendant
 }
 
 enum ConsentState: String, Codable {
@@ -72,6 +75,9 @@ struct SessionStartMessage: Codable {
     let deviceName: String
     let consent: String
     let startedAt: String
+    /// Pendant sessions only: which Opus framing the device ships
+    /// ("opus" 10 ms / "opus_fs320" 20 ms). Omitted for mic modes.
+    var codec: String?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -80,6 +86,7 @@ struct SessionStartMessage: Codable {
         case deviceName = "device_name"
         case consent
         case startedAt = "started_at"
+        case codec
     }
 }
 
@@ -93,6 +100,18 @@ struct SpokenReceiptMessage: Codable {
     let spoken: String
     let ok: Bool
     let reason: String?
+}
+
+/// Receipt for a {type:"feedback"} event: the sink acted (or declined); the
+/// server closes its latency measurement on arrival.
+struct FeedbackAckMessage: Codable {
+    var type = "feedback_ack"
+    let eventId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case eventId = "event_id"
+    }
 }
 
 // MARK: - Server messages
@@ -111,12 +130,38 @@ struct AckPayload: Codable {
     let emittedAt: String?
 }
 
+/// One pendant feedback lifecycle event (wake_detected, segment_captured,
+/// window_closed, task_created, task_failed) as delivered over the session
+/// socket. snake_case keys as the server sends them.
+struct FeedbackEvent: Codable, Equatable {
+    let eventId: String
+    let name: String
+    let sessionId: String
+    let at: String
+    let reason: String?
+    let cardId: String?
+    let title: String?
+    let interim: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case eventId = "event_id"
+        case name
+        case sessionId = "session_id"
+        case at
+        case reason
+        case cardId = "card_id"
+        case title
+        case interim
+    }
+}
+
 enum ServerMessage {
     case sessionStarted(sessionId: String)
     case sessionResumed(sessionId: String, audioSeq: UInt32, videoSeq: UInt32)
     case ack(stream: String, seq: UInt32)
     case sessionEnded(reason: String)
     case speak(AckPayload)
+    case feedback(FeedbackEvent)
     case serverError(String)
 
     static func parse(_ text: String) -> ServerMessage? {
@@ -144,6 +189,12 @@ enum ServerMessage {
                   let ack = try? JSONDecoder().decode(AckPayload.self, from: ackData)
             else { return nil }
             return .speak(ack)
+        case "feedback":
+            guard let eventObject = object["event"],
+                  let eventData = try? JSONSerialization.data(withJSONObject: eventObject),
+                  let event = try? JSONDecoder().decode(FeedbackEvent.self, from: eventData)
+            else { return nil }
+            return .feedback(event)
         case "error":
             return .serverError(object["error"] as? String ?? "unknown error")
         default:

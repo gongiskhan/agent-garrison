@@ -53,6 +53,12 @@ final class CaptureUploader: NSObject {
     var onSpeak: ((AckPayload) -> Void)?
     var onAck: ((String, UInt32) -> Void)?
     var onSessionEnded: ((String) -> Void)?
+    /// Pendant sessions: server-pushed feedback lifecycle events. The sink
+    /// acts (device haptic, phone sounds, UI strip) and MUST call
+    /// sendFeedbackAck so the server's latency metrics mean something.
+    var onFeedback: ((FeedbackEvent) -> Void)?
+    /// Pendant sessions only: the device codec announced in session_start.
+    var codec: String?
 
     init(baseURL: URL, token: String, sessionId: String, mode: SessionMode, deviceName: String, consent: ConsentState, spoolDirectory: URL) {
         self.baseURL = baseURL
@@ -144,6 +150,12 @@ final class CaptureUploader: NSObject {
         }
     }
 
+    func sendFeedbackAck(eventId: String) {
+        queue.async { [weak self] in
+            self?.sendControl(FeedbackAckMessage(eventId: eventId))
+        }
+    }
+
     func end(reason: String = "user") {
         queue.async { [weak self] in
             guard let self else { return }
@@ -196,6 +208,8 @@ final class CaptureUploader: NSObject {
             onAck?(stream, seq)
         case .speak(let ack):
             onSpeak?(ack)
+        case .feedback(let event):
+            onFeedback?(event)
         case .sessionEnded(let reason):
             state = .ended
             spool.removeAll()
@@ -244,7 +258,8 @@ extension CaptureUploader: URLSessionWebSocketDelegate {
                 mode: self.mode.rawValue,
                 deviceName: self.deviceName,
                 consent: self.consent.rawValue,
-                startedAt: ISO8601DateFormatter().string(from: Date())
+                startedAt: ISO8601DateFormatter().string(from: Date()),
+                codec: self.codec
             ))
         }
     }
