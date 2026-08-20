@@ -141,13 +141,14 @@ task_created, with segment_captured covered in tests/pendant-capture.test.ts.
   channel suites (untouched), the companion suites (one additive /health
   flags assertion extended), the new pendant-capture, pendant-e2e, and
   lockstep suites.
-- iOS side: all Foundation/CoreBluetooth sources typecheck under the CLT;
-  the app cannot compile locally until Xcode is installed (HUMAN_SETUP
-  section 9a has the one-line step). The TestFlight CI lane in the private
-  ios-thing repo (which holds the signing secrets) builds agent-garrison
-  main on a hosted macOS runner and is the compile-verification and ship
-  vehicle until then; xcodebuild test (harness self-tests, transport
-  against the scripted peripheral) runs the moment Xcode lands.
+- iOS side: COMPILED AND SHIPPED. The ios-thing TestFlight CI lane (run
+  32377268024, 2026-08-20) built the app and broadcast extension with the
+  complete pendant layer on a hosted Xcode runner, signed them, and
+  uploaded the build to TestFlight - real compile verification of every
+  shipping Swift source. The one remaining gated item is xcodebuild test
+  on a local simulator (the harness self-tests and the
+  CoreBluetoothMock-scripted transport suite): it needs Xcode on the Mac,
+  and HUMAN_SETUP section 9a has the one-line install step.
 - Emulator: builds and runs on the current Mac (verified).
 
 ## Known gaps
