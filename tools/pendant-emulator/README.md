@@ -36,6 +36,17 @@ Profile, framing, and codec: `docs/pendant-protocol.md`.
    `low` = battery 8 percent notify, `again` = restream the fixture,
    `q` = quit.
 
+## What the emulator CANNOT do
+
+Core Bluetooth reserves the adopted Battery Service (`0x180F`) for the
+system, so `CBPeripheralManager.add()` rejects it and no Mac can publish it.
+The emulator therefore serves four of the profile's five services and the
+Companion's **Battery row stays empty** in every rehearsal - expected, not an
+app bug. The startup output says so explicitly. Battery read and notify are
+covered by the simulator suite (CoreBluetoothMock has no such restriction)
+and by the real pendant in HUMAN_SETUP 9d. There is no workaround on a custom
+UUID: the central looks for the adopted 180F/2A19 pair the real firmware uses.
+
 The emulator streams whenever a central subscribes to the audio
 characteristic; the capture service must be running with
 `pendant_enabled: true` (and its `enabled` master flag on) for the phone to

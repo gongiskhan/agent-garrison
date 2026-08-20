@@ -170,7 +170,33 @@ final class Emulator: NSObject, CBPeripheralManagerDelegate {
         case hapticUUID: return "haptic"
         case batteryLevelUUID: return "battery"
         case buttonTriggerUUID: return "button"
+        case audioServiceUUID: return "audio service"
+        case featuresServiceUUID: return "features service"
+        case hapticServiceUUID: return "haptic service"
+        case batteryServiceUUID: return "battery service"
+        case buttonServiceUUID: return "button service"
         default: return uuid.uuidString
+        }
+    }
+
+    /// add() is fire-and-forget: a REJECTED service fails only here. Without
+    /// this the emulator would advertise while silently missing a service, and
+    /// the absent characteristic would look like a bug in the central.
+    func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
+        if let error {
+            print("SERVICE ADD REJECTED: \(label(service.uuid)) \(service.uuid) - \(error.localizedDescription)")
+            if service.uuid == batteryServiceUUID {
+                // Core Bluetooth reserves the adopted Battery Service for the
+                // system, so no Mac can publish it. Expected, and load-bearing
+                // for anyone reading a rehearsal: the Companion's Battery row
+                // stays empty against the emulator and that is NOT an app bug.
+                // Battery is only exercisable against the real pendant (9d).
+                print("  ^ expected: a Mac cannot publish 180F. The Companion's Battery row will")
+                print("    stay empty in this rehearsal - battery needs the real pendant (9d).")
+                print("    Everything else in the profile is unaffected.")
+            }
+        } else {
+            print("service registered: \(label(service.uuid)) \(service.uuid)")
         }
     }
 
@@ -263,6 +289,11 @@ final class Emulator: NSObject, CBPeripheralManagerDelegate {
         print("+\(elapsedMs())ms battery 8 percent notified")
     }
 }
+
+// Line-buffer stdout. This tool's output IS the rehearsal evidence and is
+// almost always redirected to a log file, where the default block buffering
+// loses everything not yet flushed when the process is interrupted.
+setvbuf(stdout, nil, _IOLBF, 0)
 
 let options = Options.parse()
 let emulator = Emulator(options: options)

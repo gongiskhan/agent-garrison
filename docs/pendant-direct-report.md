@@ -155,25 +155,26 @@ task_created, with segment_captured covered in tests/pendant-capture.test.ts.
   test target only - both shipping targets still declare zero package
   dependencies.
 - The suite earned its keep on first run: it found a real readiness bug in
-  PendantBLETransport, and the 9c rehearsal then reproduced that same bug on
-  a real iPhone against the emulator - the pre-fix TestFlight build
-  subscribed to audio and button, never to battery, and never put a single
-  profile read on the air. See D17 in
-  [`adr-pendant-direct.md`](./adr-pendant-direct.md).
+  PendantBLETransport (D17). That bug's evidence is the simulator suite, which
+  fails before the fix and passes after; it has NOT been observed on hardware.
+  An earlier claim here that the 9c rehearsal reproduced it on a real iPhone
+  was wrong and is retracted - the missing battery had a simpler cause (D18).
 - 9c emulator rehearsal: RUN, on real radio (2026-08-20). A real iPhone
   running the Companion connected to the emulator on a second Mac and
   streamed the full fixture: `central subscribed to audio (mtu 512)`,
   `fixture complete (197 packets)` in 3.9 s of wall time against a 3.9 s
   fixture, so the emulator paces at device cadence and the subscription held
   for the whole stream. Button notify delivered. The features read decoded
-  0x1EC correctly (Pendant screen: "Device haptic: available"). Battery is
-  the one gap, and it is the D17 bug above, not a rehearsal failure - it
-  needs a TestFlight build carrying bd016fdb to clear.
-- Still outstanding: re-run 9c against a post-fix TestFlight build to confirm
-  the Battery row appears and the emulator logs `READ battery -> 87%`, then
-  9d with the physical pendant (which additionally needs prod redeployed with
-  pendant_enabled: true - as of this writing prod /health reports no pendant
-  flag and zero pendant counters).
+  0x1EC correctly (Pendant screen: "Device haptic: available"). The Battery
+  row stays empty and always will in an emulator rehearsal: Core Bluetooth
+  refuses the adopted Battery Service (180F) to a local peripheral, so a Mac
+  cannot publish it (D18). Battery is exercisable only against the real
+  pendant, or in the simulator suite where the mock has no such restriction.
+- Still outstanding: 9d with the physical pendant, which is now the only way
+  to exercise battery read/notify on real radio, and which additionally needs
+  prod redeployed with pendant_enabled: true - as of this writing prod /health
+  reports no pendant flag and zero pendant counters. TestFlight build 1.0 (13)
+  (from fc05e752) carries the D17 fix and is ready for it.
 - Emulator: builds via SPM proper (`swift build -c release`) on the Mac mini
   and runs - loads the 197-packet hello-garrison fixture and advertises the
   pendant audio service over real Bluetooth. The broken-SwiftPM caveat was

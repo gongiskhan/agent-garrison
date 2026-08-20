@@ -310,26 +310,34 @@ CBMPeripheralSpecDelegate documents that `simulateValueUpdate` is dropped
 until `didUpdateNotificationStateFor` arrives. The streaming test waits for
 that signal rather than sleeping.
 
-**Reproduced on real hardware the same day**, before the fix reached the
-device. The 9c rehearsal ran a real iPhone (TestFlight build from 3cf2b5e5,
-pre-fix) against the emulator on a second Mac, and the emulator's peripheral
-side recorded:
+**A claimed hardware reproduction here was WRONG and is retracted.** The 9c
+rehearsal was first read as reproducing this bug on a real iPhone, on the
+strength of the emulator's peripheral log:
 
     +6390ms  central subscribed to audio (mtu 512) - streaming
     +6541ms  central subscribed to button
     +10313ms fixture complete (197 packets)
 
-with zero battery subscribes and zero reads of any kind. The phone had
-discovered the audio, features, haptic and button services but not the
-battery service (180F) when readiness fired, so `characteristics[batteryLevel]`
-was nil: no subscribe, and `readBattery` returned `completion(nil)` from its
-guard without ever putting a read on the air. On the Pendant screen that
-appeared as a missing Battery row while "Device haptic: available" showed
-correctly - the features read had landed because that service happened to be
-discovered in time. The failure is therefore not a mock artifact, and it does
-not need a reconnect to bite: out-of-order discovery callbacks produce it on
-a first connection too. It is also invisible from the phone alone, which is
-why the emulator now logs reads and per-characteristic subscribes.
+with zero battery subscribes and zero reads. The real cause was D18: the
+emulator never published the battery service at all, because Core Bluetooth
+refuses `180F` to a local peripheral. The phone therefore could not discover,
+subscribe to, or read battery on ANY build, and the log is equally consistent
+with a fixed and an unfixed central. Zero reads is likewise explained without
+this bug: codec and features are served from static characteristic values,
+which Core Bluetooth answers internally, so they never reach the peripheral
+callback.
+
+What that rehearsal does prove is the transport half - discovery, connection,
+audio and button subscription, 197 of 197 framed packets at device cadence,
+and a correctly decoded features bitmask ("Device haptic: available").
+
+So this bug's evidence is the simulator suite, where the harness genuinely
+fails before the fix and passes after, plus the documented Core Bluetooth
+behaviour of retaining service objects across a reconnect. It has NOT been
+observed on hardware, and the emulator cannot exercise the path that would
+show it, because the missing-battery symptom has a simpler explanation. The
+lesson worth keeping: an absence in a log is only evidence when the
+instrument is known to be capable of showing the presence.
 
 **Failed discovery must not wedge the connection.** Retiring a service only
 on the success path introduced a worse failure than the one being fixed: no
@@ -344,3 +352,30 @@ their subscriptions, which every caller already handles. Covered by
 `testFailedServiceDiscoveryStillReachesConnected`, which fails with a
 `.connecting` timeout when the retirement is moved back onto the success
 path.
+
+## D18 - A Mac cannot emulate the Battery Service
+
+2026-08-20. `CBPeripheralManager.add()` rejects the adopted Battery Service
+(`0x180F`) with "The specified UUID is not allowed for this operation" -
+Core Bluetooth reserves it for the system. The pendant emulator therefore
+publishes four of the profile's five services, and the Companion's Battery
+row stays empty in every emulator rehearsal. That is a property of the
+instrument, not a defect in the app.
+
+The failure was silent for a day because `add()` is fire-and-forget and the
+emulator implemented no `peripheralManager(_:didAdd:error:)`. It advertised
+happily while missing a service, and the absent characteristic read as a bug
+in the central - which is exactly how it was misdiagnosed once (see D17).
+The emulator now implements the callback, prints every service registration,
+and explains the battery rejection inline where an operator will see it.
+
+Consequences: battery read and battery notify are exercisable only against
+the real pendant (HUMAN_SETUP 9d) or in the simulator suite, where
+CoreBluetoothMock has no such restriction and covers both. No workaround is
+possible on a custom UUID, since the central looks for the adopted
+180F/2A19 pair the real firmware uses.
+
+Also fixed alongside: the emulator now line-buffers stdout. Its output is
+the rehearsal evidence and is nearly always redirected to a log, where block
+buffering silently discarded whatever had not flushed when the process was
+interrupted.

@@ -174,6 +174,12 @@ connect from the Companion's new Pendant screen. You should feel/see the
 full loop against synthetic audio before touching the real device. The
 emulator prints every haptic write it receives with timestamps.
 
+Expect the Pendant screen's **Battery row to stay empty** here. A Mac cannot
+publish the adopted Battery Service (Core Bluetooth reserves 180F), so the
+emulator serves the rest of the profile without it and says so at startup.
+Battery is exercised in 9d with the real pendant. Everything else - connect,
+subscribe, streaming, haptic writes, button - works against the emulator.
+
 ### 9d. The real-device script
 
 1. In the OMI APP: disconnect the pendant (Settings > device > disconnect,
