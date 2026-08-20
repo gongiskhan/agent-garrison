@@ -1,4 +1,43 @@
+// Layer 2 of the mock harness (ADR D11): the TEST target recompiles this
+// exact file with PENDANT_MOCK_BLE defined, mapping the CoreBluetooth
+// surface onto Nordic's CoreBluetoothMock so the real central-manager logic
+// (discovery, connection, subscription, writes, reconnection) runs against a
+// scripted peripheral without radio. The app target compiles the plain
+// CoreBluetooth branch and stays zero-dependency.
+#if PENDANT_MOCK_BLE
+import CoreBluetoothMock
+
+typealias CBCentralManager = CBMCentralManager
+typealias CBCentralManagerDelegate = CBMCentralManagerDelegate
+typealias CBPeripheral = CBMPeripheral
+typealias CBPeripheralDelegate = CBMPeripheralDelegate
+typealias CBService = CBMService
+typealias CBCharacteristic = CBMCharacteristic
+typealias CBUUID = CBMUUID
+typealias CBError = CBMError
+
+let CBCentralManagerScanOptionAllowDuplicatesKey = CBMCentralManagerScanOptionAllowDuplicatesKey
+let CBCentralManagerRestoredStatePeripheralsKey = CBMCentralManagerRestoredStatePeripheralsKey
+
+private func makeCentralManager(
+    delegate: CBMCentralManagerDelegate,
+    queue: DispatchQueue,
+    options: [String: Any]
+) -> CBMCentralManager {
+    CBMCentralManagerFactory.instance(delegate: delegate, queue: queue, options: options, forceMock: true)
+}
+#else
 import CoreBluetooth
+
+private func makeCentralManager(
+    delegate: CBCentralManagerDelegate,
+    queue: DispatchQueue,
+    options: [String: Any]
+) -> CBCentralManager {
+    CBCentralManager(delegate: delegate, queue: queue, options: options)
+}
+#endif
+
 import Foundation
 
 /// The real pendant transport: a CoreBluetooth central implementing the
@@ -67,7 +106,7 @@ final class PendantBLETransport: NSObject, DeviceTransport {
     init(identifier: UUID? = nil) {
         storedIdentifier = identifier
         super.init()
-        #if os(iOS)
+        #if os(iOS) && !PENDANT_MOCK_BLE
         let options: [String: Any] = [
             CBCentralManagerOptionRestoreIdentifierKey: Self.restoreIdentifier,
             CBCentralManagerOptionShowPowerAlertKey: true
@@ -75,7 +114,7 @@ final class PendantBLETransport: NSObject, DeviceTransport {
         #else
         let options: [String: Any] = [:]
         #endif
-        central = CBCentralManager(delegate: self, queue: queue, options: options)
+        central = makeCentralManager(delegate: self, queue: queue, options: options)
     }
 
     // MARK: - DeviceTransport
@@ -327,7 +366,7 @@ extension PendantBLETransport: CBCentralManagerDelegate {
         scheduleReconnect()
     }
 
-    #if os(iOS)
+    #if os(iOS) && !PENDANT_MOCK_BLE
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
         // Re-adopt restored peripherals and mark them ever-connected, or the
         // reconnect pass will ignore them.

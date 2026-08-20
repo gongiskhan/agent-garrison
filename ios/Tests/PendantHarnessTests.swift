@@ -1,4 +1,5 @@
 import XCTest
+@testable import GarrisonApp
 
 /// Self-tests for the pendant mock harness layer 1: the BLE framing, the
 /// drop-on-gap reassembler, the fixture loader, and MockPendantTransport's

@@ -153,3 +153,33 @@ header comment.
 
 A live pid holds the status file (stop it first) or the canonical port is
 taken — it never falls back to a shifted port.
+
+## Pendant Direct operations
+
+- Flags: `pendant_enabled` (default off) gates mode "pendant" sessions on
+  the same websocket ingress; `capture_policy` (`wake_only` default |
+  `ambient`) applies ONLY to pendant sessions. Mic sessions never read it.
+- wake_only storage contract (asserted in tests/pendant-capture.test.ts):
+  no media log, no transcript, no session record, no session capture_event.
+  The wake path persists exactly what omi's does: a wake_command event,
+  wake-results, the card. Counters carry everything else
+  (`pendant_sessions_unpersisted`, `transcripts_dropped_policy`).
+- Feedback loop: server pushes {type:"feedback"} events (wake_detected,
+  segment_captured, window_closed, task_created, task_failed) on the pendant
+  session socket; the app acks with {type:"feedback_ack"}. Latency on
+  /health: `wake_to_device_ack_ms*` (target < 1500) and
+  `card_commit_to_created_ack_ms*` (target < 2000). `feedback_wake_deduped`
+  moving means the interim watcher is beating the final to the wake pulse -
+  that is the design, not a bug.
+- The pendant e2e (sandboxed, external-free, scenario matrix incl. both
+  policies, mid-window disconnect, duplicates, near-misses, unacked
+  feedback): `npm run e2e:pendant`. The replay client speaks the pendant
+  wire dialect: `node scripts/replay-client.mjs run --mode pendant
+  --fixture pt-hellogarrison --cadence real`.
+- Pendant wake identity: source "pendant", origin pendant:wake:<event>,
+  thread pendant-reports; triage identity added additively in omi-channel's
+  TRIAGE_SOURCES (ambient sessions only - wake commands never batch-triage).
+- BLE layer: docs/pendant-protocol.md is the wire truth; the Companion's
+  transport does connect-by-retrieval, 200 ms chipset-level reconnect, and a
+  4 s audio liveness watchdog (one forced CCCD re-arm) after every
+  reconnect. Pairing-lost stops auto-reconnect and needs the user.

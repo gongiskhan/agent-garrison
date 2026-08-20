@@ -129,3 +129,73 @@ An `ask` arrives as a push (full question in the notification body; also in
 the app's Messages log). Answer by voice in any live session — "Zeca, ..."
 — or via Omi; the orchestrator receives recent-ask context so the answer
 lands connected. There is no reply protocol in v1, by design.
+
+## 9. Pendant Direct (Companion owns the pendant over BLE)
+
+The pendant path (docs/adr-pendant-direct.md, docs/pendant-protocol.md) lets
+the Companion hold the Omi pendant's BLE connection and stream its audio to
+this service - your own Deepgram pipeline, your own storage, tiered haptic
+feedback on the device. The Omi cloud path is untouched; switching back is a
+Bluetooth reconnect, nothing on our side.
+
+### 9a. One-time machine prerequisites
+
+- Xcode on the build Mac. The build Mac currently has only the Command Line
+  Tools; the App Store install needs sudo once:
+  `sudo mas install 497799835` (or install Xcode from the App Store app),
+  then `sudo xcode-select -s /Applications/Xcode.app`,
+  `xcodebuild -runFirstLaunch`, and add the iOS platform in
+  Xcode > Settings > Platforms. Everything else in this section is staged
+  and waiting on that.
+- No new vault keys. The pendant path reuses DEEPGRAM_API_KEY and
+  CAPTURE_TOKEN, both already sealed in section 1.
+
+### 9b. Turn the path on
+
+Two composition config keys on capture-service (Compose > capture-service),
+both off/default by design:
+
+- `pendant_enabled: true` - accepts mode "pendant" sessions. Independent of
+  every other flag (and of the omi channel entirely).
+- `capture_policy` - `wake_only` (default: nothing is stored except wake
+  commands and their cards; counters only for everything else) or `ambient`
+  (pendant session transcripts are stored and feed the shared triage tick).
+  The toggle lives here, in the composition config, and is read per session
+  start after a fitting restart.
+
+`enabled`, `transcribe_enabled`, and `wake_enabled` must be on as before.
+
+### 9c. Rehearse against the emulator (no pendant needed)
+
+Follow tools/pendant-emulator/README.md: build it, run it on a Mac, and
+connect from the Companion's new Pendant screen. You should feel/see the
+full loop against synthetic audio before touching the real device. The
+emulator prints every haptic write it receives with timestamps.
+
+### 9d. The real-device script
+
+1. In the OMI APP: disconnect the pendant (Settings > device > disconnect,
+   or just force-quit the Omi app). The pendant is single-central: whoever
+   holds the connection gets the audio.
+2. In the COMPANION: open Pendant, tap "Connect pendant". Status goes
+   scanning > connecting > connected; battery appears; the policy row shows
+   "wake only (nothing stored)" under the default policy.
+3. Speak the smoke phrase: "Zeca, cria uma tarefa de teste chamada olá
+   garrison."
+4. Expected feedback, in order: one short pulse on the pendant (wake
+   detected, typically within a second); a double medium pulse (window
+   closed, a few seconds later); one long pulse (card created). The phone
+   plays its local success feedback and, if backgrounded, posts a local
+   notification; the Companion's feedback strip lists every event with its
+   time.
+5. Verify: the card "olá garrison" is on the Kanban board with origin
+   pendant; under wake_only there is NO session row on the capture page
+   (that is the policy working); under ambient the session and its
+   transcript appear at the capture service page.
+6. Hand the device back to the Omi app: tap "Disconnect pendant" in the
+   Companion, then open the Omi app - it reconnects on its own (its
+   auto-reconnect is chipset-level). Nothing to undo on the Garrison side.
+
+If step 4 produces no device pulses but the strip shows the events, the
+haptic write is failing (devkit1 has no motor; check "Device haptic" on the
+Pendant screen) - the phone still carries all tiers.

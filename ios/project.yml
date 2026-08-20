@@ -80,18 +80,32 @@ targets:
     platform: iOS
     sources:
       - path: Tests
+      # The REAL BLE transport source, recompiled into the test target with
+      # PENDANT_MOCK_BLE so its CoreBluetooth surface maps onto the mock -
+      # the local copy shadows the @testable one (mock harness layer 2).
+      - path: GarrisonApp/Pendant/PendantBLETransport.swift
     dependencies:
       - target: GarrisonApp
+      # TEST-ONLY third-party dependency (ADR D11): Nordic's CoreBluetoothMock
+      # exercises the real PendantBLETransport against a scripted peripheral
+      # without radio. The shipping app targets stay zero-dependency.
+      - package: CoreBluetoothMock
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gomes.garrison.tests
         GENERATE_INFOPLIST_FILE: YES
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PENDANT_MOCK_BLE"
         # Tests run on the simulator only (CODE_SIGNING_ALLOWED=NO at
         # invocation); the manual-signing project defaults must not apply.
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: ""
         "CODE_SIGN_IDENTITY[sdk=iphoneos*]": ""
         PROVISIONING_PROFILE_SPECIFIER: ""
+
+packages:
+  CoreBluetoothMock:
+    url: https://github.com/NordicSemiconductor/IOS-CoreBluetooth-Mock.git
+    from: "0.18.0"
 
 # Explicit shared scheme so fastlane gym (build_app) can find "GarrisonApp".
 # Without this, xcodegen emits no shared scheme and only plain `xcodebuild`

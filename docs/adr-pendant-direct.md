@@ -220,3 +220,47 @@ with origin pendant, all five feedback events, tier sequence and
 latency assertions from the recorded haptic log - runs from a clean
 sandbox with zero real externals, as npm run e2e:pendant. The iOS-side
 equivalents run under xcodebuild test with MockPendantTransport.
+
+## D13 - Layer 2 exercises the real transport by recompilation
+
+2026-08-20. CoreBluetoothMock cannot intercept an app-target class that
+imports CoreBluetooth directly, and D11 keeps the shipping targets
+zero-dependency. Resolution: the test target recompiles
+PendantBLETransport.swift itself with the PENDANT_MOCK_BLE compilation
+condition, under which the file's CoreBluetooth surface is typealiased
+onto CoreBluetoothMock and the central manager comes from the mock
+factory. The local copy shadows the @testable one inside the test
+module, so the scripted-peripheral tests drive the exact production
+logic. The plain branch is typechecked locally with the CLT; the mock
+branch compiles only under Xcode and may need one round of API touch-up
+against the installed CoreBluetoothMock version.
+
+## D14 - Phone feedback: foreground generators, background local notifications
+
+2026-08-20. The audit found APNs fully built but the brief forbids
+building more push, and the Companion IS the BLE host - so phone-side
+tiers need no server round trip at all. Foreground events use UIKit
+feedback generators plus short system sounds (which respect the ringer);
+backgrounded terminal events (task_created, task_failed) post local
+notifications with distinct sounds; interim tiers stay device-only in
+the background. The APNs path remains what it was: the notifier's own
+card/wake confirmations, untouched.
+
+## D15 - The feedback ack rides the first physical device write
+
+2026-08-20. wake_to_device_ack_ms claims to measure "the wearer felt
+it". The Companion therefore sends feedback_ack from the completion of
+the FIRST haptic write of the tier pattern (or immediately, when the
+device sink is unavailable and the phone carries the tier); later pulses
+of a pattern follow behind the ack. The e2e's replay client stands in
+for the app and acks on receipt, which is the same boundary minus the
+physical write it cannot have.
+
+## D16 - Where the deliverable documents live
+
+2026-08-20. HUMAN_SETUP and RUNBOOK content lands in the capture-service
+fitting's existing HUMAN_SETUP.md and RUNBOOK.md (the companion build's
+precedent; one place operators already look), the protocol notes in
+docs/pendant-protocol.md, this record in docs/adr-pendant-direct.md, and
+the final report in docs/pendant-direct-report.md. No new top-level
+files; the brief's REPORT.md/HUMAN_SETUP.md names map onto these paths.
