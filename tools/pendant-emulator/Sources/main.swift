@@ -160,11 +160,27 @@ final class Emulator: NSObject, CBPeripheralManagerDelegate {
         print("advertising as \"\(options.name)\" with the pendant audio service - connect from the Companion's Pendant screen")
     }
 
+    /// Human names for the profile UUIDs so the rehearsal log reads as
+    /// protocol events rather than hex.
+    func label(_ uuid: CBUUID) -> String {
+        switch uuid {
+        case audioDataUUID: return "audio"
+        case audioCodecUUID: return "codec"
+        case featuresUUID: return "features"
+        case hapticUUID: return "haptic"
+        case batteryLevelUUID: return "battery"
+        case buttonTriggerUUID: return "button"
+        default: return uuid.uuidString
+        }
+    }
+
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
         if characteristic.uuid == audioDataUUID {
             subscribers += 1
             print("+\(elapsedMs())ms central subscribed to audio (mtu \(central.maximumUpdateValueLength)) - streaming")
             if !streaming { startStream() }
+        } else {
+            print("+\(elapsedMs())ms central subscribed to \(label(characteristic.uuid))")
         }
     }
 
@@ -175,12 +191,19 @@ final class Emulator: NSObject, CBPeripheralManagerDelegate {
         }
     }
 
+    /// Only characteristics declared with a nil value reach this callback.
+    /// Codec and features are served from static values, so CoreBluetooth
+    /// answers those reads itself and they never show up here - their
+    /// absence from the log is not evidence that the central skipped them.
+    /// Battery is the one profile read that is observable from this side.
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) {
         if request.characteristic.uuid == batteryLevelUUID {
+            print("+\(elapsedMs())ms READ battery -> \(options.battery)%")
             request.value = Data([options.battery])
             peripheral.respond(to: request, withResult: .success)
             return
         }
+        print("+\(elapsedMs())ms READ \(label(request.characteristic.uuid)) -> attributeNotFound")
         peripheral.respond(to: request, withResult: .attributeNotFound)
     }
 

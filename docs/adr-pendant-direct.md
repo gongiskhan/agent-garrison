@@ -309,3 +309,24 @@ discovery finished, not that the subscription is live, because
 CBMPeripheralSpecDelegate documents that `simulateValueUpdate` is dropped
 until `didUpdateNotificationStateFor` arrives. The streaming test waits for
 that signal rather than sleeping.
+
+**Reproduced on real hardware the same day**, before the fix reached the
+device. The 9c rehearsal ran a real iPhone (TestFlight build from 3cf2b5e5,
+pre-fix) against the emulator on a second Mac, and the emulator's peripheral
+side recorded:
+
+    +6390ms  central subscribed to audio (mtu 512) - streaming
+    +6541ms  central subscribed to button
+    +10313ms fixture complete (197 packets)
+
+with zero battery subscribes and zero reads of any kind. The phone had
+discovered the audio, features, haptic and button services but not the
+battery service (180F) when readiness fired, so `characteristics[batteryLevel]`
+was nil: no subscribe, and `readBattery` returned `completion(nil)` from its
+guard without ever putting a read on the air. On the Pendant screen that
+appeared as a missing Battery row while "Device haptic: available" showed
+correctly - the features read had landed because that service happened to be
+discovered in time. The failure is therefore not a mock artifact, and it does
+not need a reconnect to bite: out-of-order discovery callbacks produce it on
+a first connection too. It is also invisible from the phone alone, which is
+why the emulator now logs reads and per-characteristic subscribes.
