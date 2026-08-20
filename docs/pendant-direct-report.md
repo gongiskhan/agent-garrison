@@ -141,24 +141,33 @@ task_created, with segment_captured covered in tests/pendant-capture.test.ts.
   channel suites (untouched), the companion suites (one additive /health
   flags assertion extended), the new pendant-capture, pendant-e2e, and
   lockstep suites.
-- iOS side: COMPILED AND SHIPPED. The ios-thing TestFlight CI lane (run
-  32377268024, 2026-08-20) built the app and broadcast extension with the
-  complete pendant layer on a hosted Xcode runner, signed them, and
+- iOS side: COMPILED, SHIPPED, AND TESTED. The ios-thing TestFlight CI lane
+  (run 32377268024, 2026-08-20) built the app and broadcast extension with
+  the complete pendant layer on a hosted Xcode runner, signed them, and
   uploaded the build to TestFlight - real compile verification of every
-  shipping Swift source. The one remaining gated item is xcodebuild test
-  on a local simulator (the harness self-tests and the
-  CoreBluetoothMock-scripted transport suite): it runs on the Mac mini,
-  per the continuation brief in
-  [`pendant-direct-handoff.md`](./pendant-direct-handoff.md).
-- Emulator: builds and runs on the current Mac (verified).
+  shipping Swift source.
+- iOS simulator suite: GREEN. Run on the Mac mini (Xcode 26.2, iPhone 17 /
+  iOS 26.2 simulator) on 2026-08-20: `Executed 52 tests, with 0 failures`,
+  `** TEST SUCCEEDED **`. That is the six pre-existing suites plus
+  PendantFramingTests, PendantFixtureTests, MockPendantTransportTests,
+  PendantFeedbackMappingTests, and the CoreBluetoothMock-scripted
+  PendantBLETransportMockTests. xcodegen resolves CoreBluetoothMock onto the
+  test target only - both shipping targets still declare zero package
+  dependencies.
+- The suite earned its keep on first run: it found a real readiness bug in
+  PendantBLETransport that would have shown up on real hardware as dead
+  notifications after a reconnect. See D17 in
+  [`adr-pendant-direct.md`](./adr-pendant-direct.md).
+- Emulator: builds via SPM proper (`swift build -c release`) on the Mac mini
+  and runs - loads the 197-packet hello-garrison fixture and advertises the
+  pendant audio service over real Bluetooth. The broken-SwiftPM caveat was
+  specific to the MacBook's Command Line Tools.
 
 ## Known gaps
 
 - The speaker surface: the consumer pendant has no speaker at all; DevKit2's
   is a 312 ms one-shot demo path. Feedback is haptic-only on the device by
   design (D4) - the brief's beep semantics map to pulse patterns.
-- The CoreBluetoothMock layer compiles only under Xcode; its API surface was
-  written against 0.18+ and may need one touch-up round on first build.
 - Under wake_only, a server restart forgets the in-memory high water; a
   resuming client re-sends spooled frames, which re-transcribe transiently
   (D6 trade-off; card dedupe holds).

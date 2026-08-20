@@ -5,6 +5,11 @@ import XCTest
 /// a pattern composed from the three fixed firmware levels, and the two
 /// tiers the brief requires to stay distinguishable - window_closed and
 /// task_created - genuinely are.
+///
+/// PendantController is @MainActor, so its static pattern table inherits
+/// that isolation; the test case adopts it rather than the shipping type
+/// weakening to nonisolated.
+@MainActor
 final class PendantFeedbackMappingTests: XCTestCase {
     func testEveryTierHasAPattern() {
         for name in ["wake_detected", "segment_captured", "window_closed", "task_created", "task_failed"] {

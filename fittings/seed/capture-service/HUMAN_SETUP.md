@@ -141,12 +141,14 @@ Bluetooth reconnect, nothing on our side.
 ### 9a. One-time machine prerequisites
 
 - Xcode builds and simulator tests run on the MAC MINI (decision
-  2026-08-20: the MacBook stays Xcode-free). The continuation brief for
-  that session - exact commands, expected fixes, definition of done - is
+  2026-08-20: the MacBook stays Xcode-free). That session is DONE - the
+  simulator suite is green there (52 tests, 0 failures) and the emulator
+  builds and advertises; see
   [`docs/pendant-direct-handoff.md`](../../../docs/pendant-direct-handoff.md).
-  The TestFlight CI lane already compiles and ships the app from GitHub
-  runners regardless (`gh workflow run garrison-ios.yml -R
-  gongiskhan/ios-thing -f lane=beta`).
+  Nothing below needs a Mac with Xcode except re-running that suite. The
+  TestFlight CI lane compiles and ships the app from GitHub runners
+  regardless (`gh workflow run garrison-ios.yml -R gongiskhan/ios-thing -f
+  lane=beta`).
 - No new vault keys. The pendant path reuses DEEPGRAM_API_KEY and
   CAPTURE_TOKEN, both already sealed in section 1.
 

@@ -235,6 +235,16 @@ logic. The plain branch is typechecked locally with the CLT; the mock
 branch compiles only under Xcode and may need one round of API touch-up
 against the installed CoreBluetoothMock version.
 
+Resolved 2026-08-20 on the Mac mini, first compile of the test target.
+Recompiling the file into the test module moves it out of the module that
+owns the Shared/ pendant types, so the PENDANT_MOCK_BLE branch also carries
+`@testable import GarrisonApp`; the app-target branch needs no import
+because there the file and those types are one module. The predicted
+CoreBluetoothMock touch-up round did not materialise - the typealias shim,
+the scripted peripheral, and the delegate signatures were all correct as
+written against the documentation. What the layer did find was a real
+transport bug (D17).
+
 ## D14 - Phone feedback: foreground generators, background local notifications
 
 2026-08-20. The audit found APNs fully built but the brief forbids
@@ -264,3 +274,38 @@ precedent; one place operators already look), the protocol notes in
 docs/pendant-protocol.md, this record in docs/adr-pendant-direct.md, and
 the final report in docs/pendant-direct-report.md. No new top-level
 files; the brief's REPORT.md/HUMAN_SETUP.md names map onto these paths.
+
+## D17 - Discovery readiness counts our own callbacks
+
+2026-08-20. The first run of the layer-2 suite found PendantBLETransport
+reporting `.connected` before it had discovered every characteristic: the
+codec read returned nil and the audio subscription was armed too late to
+receive anything.
+
+The readiness test was `peripheral.services.allSatisfy { $0.characteristics
+!= nil }`, i.e. it asked the peripheral object whether discovery had
+happened. That is not a reliable question. CoreBluetoothMock populates a
+service's characteristics synchronously when `discoverCharacteristics` is
+called, so by the first callback every service already looked discovered -
+and CoreBluetooth itself keeps the service and characteristic objects from
+the previous connection, so after a RECONNECT on real hardware every
+service reads as already-discovered too. In both cases readiness fires on
+the first callback and `armSubscriptions()` runs against a still-empty
+map - the silently-dead post-reconnect notifications the class explicitly
+exists to defend against. The mock exposed on the first connection what the
+device would only do intermittently on the second.
+
+Resolution: the transport tracks the services that still owe a
+`didDiscoverCharacteristicsFor` callback (by object identity - duplicate
+service UUIDs are legal) and reports ready only when that set drains.
+Requiring the completing service to have been pending also keeps a late
+callback arriving after teardown from reporting ready against an empty set.
+`armSubscriptions()` consequently runs once per discovery cycle instead of
+once per service callback past the threshold.
+
+The test-side counterpart is not a timing fix: `.connected` means
+discovery finished, not that the subscription is live, because
+`setNotifyValue` completes one connection interval later and
+CBMPeripheralSpecDelegate documents that `simulateValueUpdate` is dropped
+until `didUpdateNotificationStateFor` arrives. The streaming test waits for
+that signal rather than sleeping.

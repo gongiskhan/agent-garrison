@@ -45,12 +45,12 @@ final class PendantSpec {
 
     /// Consumer-pendant shape: codec opusFS320 (21), features 0x1EC
     /// (haptic yes, speaker no), battery 87.
-    init(codec: UInt8 = 21, featuresValue: UInt32 = 0x1EC, battery: UInt8 = 87) {
+    init(codec: UInt8 = 21, featuresValue: UInt32 = 0x1EC, batteryValue: UInt8 = 87) {
         let delegate = SpecDelegate()
         delegate.codecValue = Data([codec])
         var raw = featuresValue.littleEndian
         delegate.featuresValue = withUnsafeBytes(of: &raw) { Data($0) }
-        delegate.batteryValue = Data([battery])
+        delegate.batteryValue = Data([batteryValue])
         self.delegate = delegate
         spec = CBMPeripheralSpec
             .simulatePeripheral(proximity: .near)
@@ -116,6 +116,10 @@ final class PendantSpec {
         /// Every haptic byte written, with its arrival time - the write log
         /// the feedback tests assert against.
         private(set) var hapticWrites: [(value: UInt8, at: Date)] = []
+        /// Fires when a subscription actually goes live. The library drops
+        /// simulateValueUpdate until this point, so streaming tests wait on
+        /// it instead of assuming .connected already means subscribed.
+        var onNotificationStateChange: ((CBMCharacteristicMock, Bool) -> Void)?
 
         func peripheral(_ peripheral: CBMPeripheralSpec, didReceiveReadRequestFor characteristic: CBMCharacteristicMock)
             -> Result<Data, Error> {
@@ -145,6 +149,14 @@ final class PendantSpec {
             for characteristic: CBMCharacteristicMock
         ) -> Result<Void, Error> {
             .success(())
+        }
+
+        func peripheral(
+            _ peripheral: CBMPeripheralSpec,
+            didUpdateNotificationStateFor characteristic: CBMCharacteristicMock,
+            error: Error?
+        ) {
+            onNotificationStateChange?(characteristic, characteristic.isNotifying)
         }
     }
 }
@@ -177,6 +189,21 @@ final class PendantBLETransportMockTests: XCTestCase {
         return transport
     }
 
+    /// .connected means every characteristic was discovered, not that the
+    /// audio subscription is live - setNotifyValue completes one connection
+    /// interval later, and CBMPeripheralSpecDelegate documents that
+    /// simulateValueUpdate is dropped until then. Streaming tests wait here
+    /// so they exercise reassembly rather than a lost-notification race.
+    private func waitForAudioSubscription() {
+        let live = expectation(description: "audio subscription live")
+        live.assertForOverFulfill = false
+        pendant.delegate.onNotificationStateChange = { [weak self] characteristic, enabled in
+            if enabled, characteristic.uuid == self?.pendant.audioData.uuid { live.fulfill() }
+        }
+        if pendant.audioData.isNotifying { live.fulfill() }
+        wait(for: [live], timeout: 10)
+    }
+
     func testDiscoversConnectsAndReadsTheProfile() {
         let transport = connectTransport()
         let reads = expectation(description: "reads")
@@ -200,6 +227,7 @@ final class PendantBLETransportMockTests: XCTestCase {
 
     func testStreamsFramedAudioThroughTheRealReassembler() {
         let transport = connectTransport()
+        waitForAudioSubscription()
         var frames: [Data] = []
         let got = expectation(description: "frames")
         transport.onAudioFrame = { frame in

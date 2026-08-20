@@ -11,13 +11,17 @@ Profile, framing, and codec: `docs/pendant-protocol.md`.
 
 ## Build
 
-- With Xcode installed: `swift build -c release` in this directory.
-- Command Line Tools only: `bash build.sh` (the CLT SwiftPM on the current
-  Mac is broken; the script compiles with swiftc directly).
+- With Xcode installed: `swift build -c release` in this directory, which
+  produces `.build/release/pendant-emulator` (verified on the Mac mini,
+  2026-08-20).
+- Command Line Tools only: `bash build.sh`, which produces
+  `.build/pendant-emulator` (the CLT SwiftPM on the MacBook is broken; the
+  script compiles with swiftc directly).
 
 ## The two-minute rehearsal procedure
 
-1. On the Mac: `./.build/pendant-emulator` (add `--fixture <path>` for a
+1. On the Mac: `./.build/release/pendant-emulator` (or `./.build/pendant-emulator`
+   after the `build.sh` fallback; add `--fixture <path>` for a
    different fixture; default is the pt hello-garrison wake phrase). macOS
    will ask for Bluetooth permission on first run. The tool prints
    "advertising as Omi" when ready.

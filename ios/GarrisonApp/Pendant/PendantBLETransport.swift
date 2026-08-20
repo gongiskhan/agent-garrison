@@ -6,6 +6,11 @@
 // CoreBluetooth branch and stays zero-dependency.
 #if PENDANT_MOCK_BLE
 import CoreBluetoothMock
+// Recompiled into the TEST module, this copy is no longer in the same
+// module as the Shared/ pendant types it is written against, so they must
+// be imported explicitly. The app-target branch below needs no import:
+// there the file and those types are one module.
+@testable import GarrisonApp
 
 typealias CBCentralManager = CBMCentralManager
 typealias CBCentralManagerDelegate = CBMCentralManagerDelegate
@@ -80,6 +85,10 @@ final class PendantBLETransport: NSObject, DeviceTransport {
     private var connectedAt: Date?
 
     private var characteristics: [String: CBCharacteristic] = [:]
+    /// Services that still owe a didDiscoverCharacteristicsFor callback in
+    /// the current discovery cycle. Keyed by object identity, not UUID:
+    /// duplicate service UUIDs are legal on a peripheral and would collapse.
+    private var pendingCharacteristicDiscovery: Set<ObjectIdentifier> = []
     private var subscribed: Set<String> = []
     private let reassembler = PendantFrameReassembler()
     private var reportedLoss = 0
@@ -212,6 +221,7 @@ final class PendantBLETransport: NSObject, DeviceTransport {
 
     private func teardownSession() {
         characteristics.removeAll()
+        pendingCharacteristicDiscovery.removeAll()
         subscribed.removeAll()
         reassembler.reset()
         connectedAt = nil
@@ -391,6 +401,7 @@ extension PendantBLETransport: CBCentralManagerDelegate {
 extension PendantBLETransport: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard error == nil, let services = peripheral.services else { return }
+        pendingCharacteristicDiscovery = Set(services.map(ObjectIdentifier.init))
         for service in services {
             peripheral.discoverCharacteristics(nil, for: service)
         }
@@ -401,9 +412,18 @@ extension PendantBLETransport: CBPeripheralDelegate {
         for characteristic in service.characteristics ?? [] {
             characteristics[fullUuid(characteristic.uuid)] = characteristic
         }
-        // Ready only when EVERY service has characteristics.
-        let allDiscovered = (peripheral.services ?? []).allSatisfy { $0.characteristics != nil }
-        guard allDiscovered else { return }
+        // Ready only when EVERY service has reported its characteristics -
+        // counted from the callbacks WE received. Inspecting
+        // service.characteristics instead is wrong on a reconnect:
+        // CoreBluetooth keeps the objects discovered by the previous
+        // connection, so every service reads as already-discovered, ready
+        // fires on the first callback, and the subscriptions are armed
+        // against a still-empty map - the silently-dead notifications this
+        // class exists to defend against. Requiring the service to have been
+        // pending also stops a late callback arriving after teardown from
+        // finding the set empty and reporting ready again.
+        guard pendingCharacteristicDiscovery.remove(ObjectIdentifier(service)) != nil,
+              pendingCharacteristicDiscovery.isEmpty else { return }
         setState(.connected)
         armSubscriptions()
     }

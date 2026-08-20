@@ -1,5 +1,17 @@
 # Pendant Direct - Mac mini handoff
 
+> **DONE 2026-08-20, except the two human steps.** The Mac mini session ran
+> and everything Xcode-gated below is now green: `xcodegen generate` clean,
+> `xcodebuild test` **52 tests / 0 failures / TEST SUCCEEDED** (Xcode 26.2,
+> iPhone 17 on iOS 26.2 - there is no iPhone 16 runtime on this box), and
+> `swift build -c release` for the emulator, which then advertised over real
+> Bluetooth. Three fixes were needed; none was the predicted
+> CoreBluetoothMock API drift, and one was a REAL transport bug the harness
+> caught (ADR D17). What remains is only what a human with a phone can do:
+> HUMAN_SETUP sections 9c and 9d. Details in
+> [`pendant-direct-report.md`](./pendant-direct-report.md); the rest of this
+> document is kept as the record of what the session was asked to do.
+
 The continuation brief for finishing Pendant Direct on the Mac mini (the
 machine with Xcode). The MacBook stays Xcode-free by decision; everything
 that does not need Xcode is already done, verified, and pushed. This
@@ -30,7 +42,8 @@ Verified and done:
 - The OTA emulator builds and runs (verified on the MacBook via the
   build.sh swiftc fallback).
 
-NOT yet done - this is the Mac mini's job:
+NOT yet done at the time this brief was written - all three are now
+resolved except the human steps in item 3:
 
 1. The iOS simulator TEST suite has never run: the test target (and only
    the test target) has never been compiled. That includes the new
