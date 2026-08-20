@@ -23,7 +23,8 @@ import { FITTING_ID, loadConfig } from "../lib/config.mjs";
 import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON } from "../lib/store.mjs";
 import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
 import { TranscriptionLane } from "../lib/deepgram-live.mjs";
-import { WakeBus } from "../lib/wake.mjs";
+import { WakeBus, wakeRegex } from "../lib/wake.mjs";
+import { FeedbackBus } from "../lib/feedback.mjs";
 import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
@@ -40,6 +41,18 @@ export const COMPANION_WAKE_SOURCE = {
   originPrefix: "companion",
   originChannel: { channel: "companion", threadId: "companion-reports" },
   sessionProvenanceKey: "companion_session_id",
+  logPrefix: "capture-service"
+};
+
+// Pendant Direct (ADR D7): the BLE pendant relayed through the Companion is
+// its own capture origin end to end - source "pendant" on wake events, origin
+// "pendant" on cards, pendant_session_id in provenance.
+export const PENDANT_WAKE_SOURCE = {
+  id: "pendant",
+  label: "Pendant",
+  originPrefix: "pendant",
+  originChannel: { channel: "pendant", threadId: "pendant-reports" },
+  sessionProvenanceKey: "pendant_session_id",
   logPrefix: "capture-service"
 };
 
@@ -93,7 +106,9 @@ function flagSummary(cfg) {
     transcribe: cfg.transcribeEnabled,
     wake: cfg.wakeEnabled,
     notify: cfg.notifyEnabled,
-    speak: cfg.speakEnabled
+    speak: cfg.speakEnabled,
+    pendant: cfg.pendantEnabled,
+    capturePolicy: cfg.capturePolicy
   };
 }
 
@@ -149,7 +164,10 @@ function listSessions(store) {
 function statusPage(cfg, counters, store) {
   const flags = flagSummary(cfg);
   const flagRows = Object.entries(flags)
-    .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${v ? "on" : "off"}</td></tr>`)
+    .map(
+      ([k, v]) =>
+        `<tr><td>${escapeHtml(k)}</td><td>${typeof v === "boolean" ? (v ? "on" : "off") : escapeHtml(String(v))}</td></tr>`
+    )
     .join("");
   const counterRows = Object.entries(counters)
     .filter(([, v]) => typeof v === "number")
@@ -183,8 +201,11 @@ ${sessionRows || "<tr><td colspan=5>none yet</td></tr>"}</table>
 // the operator's own-port view surface — reachable only on loopback/tailnet,
 // unauthenticated like every other own-port fitting UI; the programmatic
 // /capture/* API keeps its Bearer token.
-function sessionPage(store, id) {
-  const record = readJSON(path.join(store.dirs.sessions, `${id}.json`));
+// `liveRecord` covers the wake_only pendant session (ADR D6): live in memory,
+// deliberately never on disk - the view works while it runs and vanishes with
+// it.
+function sessionPage(store, id, liveRecord = null) {
+  const record = readJSON(path.join(store.dirs.sessions, `${id}.json`)) ?? liveRecord;
   if (!record) return null;
   const transcript = record.transcript_ref
     ? readJSON(path.join(store.root, record.transcript_ref))
@@ -291,8 +312,9 @@ export function makeRequestHandler(ctx) {
       const viewMatch = req.method === "GET" ? /^\/sessions\/([A-Za-z0-9_-]{10,40})(\/events)?$/.exec(p) : null;
       if (viewMatch) {
         const [, id, wantsEvents] = viewMatch;
+        const liveRecord = ctx.ingress?.sessions.get(id)?.record ?? null;
         if (!wantsEvents) {
-          const html = sessionPage(store, id);
+          const html = sessionPage(store, id, liveRecord);
           if (!html) return json(res, 404, { error: "no such session" });
           res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
           res.end(html);
@@ -300,7 +322,7 @@ export function makeRequestHandler(ctx) {
         }
         // SSE: replay the finals accumulated so far, then stream live
         // interim + final segments until the session ends.
-        const record = readJSON(path.join(store.dirs.sessions, `${id}.json`));
+        const record = readJSON(path.join(store.dirs.sessions, `${id}.json`)) ?? liveRecord;
         if (!record) return json(res, 404, { error: "no such session" });
         res.writeHead(200, {
           "content-type": "text/event-stream",
@@ -496,20 +518,49 @@ export async function startServer(cfg = loadConfig()) {
 
   // The two model lanes (never collapse them): a pinned cheap classifier the
   // speaker waits on, and the full operative turn nobody waits on.
+  const runFn = live.gatewayUrl ? inferenceRunFn(live.gatewayUrl, { target: live.classifyTarget || null }) : null;
+  const operativeFn =
+    live.gatewayUrl && live.delegateEnabled
+      ? operativeRunFn(live.gatewayUrl, { timeoutMs: live.delegateTimeoutMs })
+      : null;
+  const board = new BoardClient({ env: cfg.env ?? process.env });
   const wakeBus = new WakeBus({
     cfg: live,
     store,
     counters,
-    runFn: live.gatewayUrl ? inferenceRunFn(live.gatewayUrl, { target: live.classifyTarget || null }) : null,
-    operativeFn:
-      live.gatewayUrl && live.delegateEnabled
-        ? operativeRunFn(live.gatewayUrl, { timeoutMs: live.delegateTimeoutMs })
-        : null,
-    board: new BoardClient({ env: cfg.env ?? process.env }),
+    runFn,
+    operativeFn,
+    board,
     memoryWriter: new MemoryWriter({ prefix: "companion", label: "Companion", env: cfg.env ?? process.env }),
     notifier,
     source: COMPANION_WAKE_SOURCE
   });
+
+  // Pendant Direct: the feedback bus (ADR D7) plus a second WakeBus instance
+  // carrying the pendant identity. Same deps, same store, same notifier (the
+  // pendant's phone IS the companion phone); the lifecycle hook is inert on
+  // the companion bus and live here.
+  const feedbackBus = new FeedbackBus({
+    counters,
+    wakeWindowTtlMs: live.wakeMaxCaptureMs + live.wakeSilenceCloseMs
+  });
+  const pendantWakeBus = new WakeBus({
+    cfg: live,
+    store,
+    counters,
+    runFn,
+    operativeFn,
+    board,
+    memoryWriter: new MemoryWriter({ prefix: "pendant", label: "Pendant", env: cfg.env ?? process.env }),
+    notifier,
+    source: PENDANT_WAKE_SOURCE,
+    onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
+  });
+  // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
+  // Deepgram interims so the pendant buzzes fast; the authoritative window
+  // still runs on finals through the untouched WakeBus. The FeedbackBus
+  // swallows the duplicate when the final lands.
+  const pendantInterimRegex = wakeRegex(live.wakeVariants);
 
   const transcriber = new TranscriptionLane({
     cfg: live,
@@ -518,9 +569,23 @@ export async function startServer(cfg = loadConfig()) {
     // (the app's own spoken ack returning through the mic) never reaches the
     // stored transcript, the live view, or the wake gate (§2.5 defence 3).
     suppressFilter: (sessionId, segment) => echoGuard.shouldSuppress(segment.text),
-    // Final segments only: interims are unstable text, and the settled-close
-    // logic keys on the punctuation smart_format puts on finals.
+    // Final segments only reach the wake buses: interims are unstable text,
+    // and the settled-close logic keys on smart_format punctuation. The one
+    // interim consumer is the pendant's feedback-only wake watcher above.
     onSegment: (sessionId, segment) => {
+      const mode = ingress?.sessions.get(sessionId)?.record.mode ?? null;
+      if (mode === "pendant") {
+        if (!live.wakeEnabled) return;
+        if (!segment.final) {
+          if (pendantInterimRegex?.test(segment.text)) {
+            counters.bump("pendant_interim_wake_hits");
+            feedbackBus.emit("wake_detected", { sessionId, at: Date.now(), interim: true });
+          }
+          return;
+        }
+        pendantWakeBus.handleSegments({ sessionId, segments: [segment] });
+        return;
+      }
       if (!segment.final) return;
       if (live.wakeEnabled) wakeBus.handleSegments({ sessionId, segments: [segment] });
     }
@@ -536,8 +601,47 @@ export async function startServer(cfg = loadConfig()) {
   });
   const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier });
   ingress.onSpokenReceipt = (msg) => ackSink.handleSpokenReceipt(msg);
+
+  // Feedback delivery: every event goes to the live pendant session's socket
+  // as {type:"feedback", event}; the Companion drives the device haptic and
+  // the phone sinks and answers {type:"feedback_ack", event_id}, which closes
+  // the latency measurement (wake_to_device_ack_ms /
+  // card_commit_to_created_ack_ms on /health).
+  feedbackBus.subscribeAll((event) => {
+    const session = ingress.sessions.get(event.session_id);
+    if (!session || session.record.mode !== "pendant") return;
+    const ws = session.socket;
+    if (ws && ws.readyState === ws.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "feedback", event }));
+        counters.bump("feedback_pushed");
+      } catch {
+        counters.bump("feedback_push_failed");
+      }
+    } else {
+      counters.bump("feedback_unpushed_no_socket");
+    }
+  });
+  ingress.onFeedbackAck = (sessionId, msg) => {
+    feedbackBus.recordDeviceAck(String(msg?.event_id ?? ""), {
+      atMs: typeof msg?.at_ms === "number" ? msg.at_ms : null
+    });
+  };
+
   const server = createServer(
-    makeRequestHandler({ cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier, ackSink })
+    makeRequestHandler({
+      cfg: live,
+      store,
+      counters,
+      ingress,
+      transcriber,
+      wakeBus,
+      pendantWakeBus,
+      feedbackBus,
+      echoGuard,
+      notifier,
+      ackSink
+    })
   );
   server.on("upgrade", (req, socket, head) => ingress.handleUpgrade(req, socket, head));
 
@@ -574,5 +678,18 @@ export async function startServer(cfg = loadConfig()) {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
-  return { server, cfg: live, store, counters, ingress, transcriber, wakeBus, echoGuard, notifier, ackSink };
+  return {
+    server,
+    cfg: live,
+    store,
+    counters,
+    ingress,
+    transcriber,
+    wakeBus,
+    pendantWakeBus,
+    feedbackBus,
+    echoGuard,
+    notifier,
+    ackSink
+  };
 }

@@ -367,11 +367,17 @@ export const OMI_WAKE_SOURCE = {
 };
 
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
     this.source = { ...OMI_WAKE_SOURCE, ...source };
+    // Optional lifecycle reporter for feedback sinks (additive, inert when
+    // absent - omi passes nothing and behaves exactly as before). Receives
+    // (name, payload): wake_detected, segment_captured, window_closed,
+    // task_created; task_failed is reported from dispatch on a fallback
+    // outcome. Never allowed to throw into the pipeline.
+    this.onLifecycle = onLifecycle;
     // Two lanes, deliberately distinct: `runFn` is the small pinned classifier
     // the wearer waits on; `operativeFn` is the full-toolset turn nobody waits
     // on. Collapsing them is what made every spoken command cost a Sonnet turn.
@@ -387,6 +393,15 @@ export class WakeBus {
     this.dispatchChain = Promise.resolve();
     this.recentCards = new Map(); // dedupeKey -> created-at ms (in memory)
     this.revisions = new Map(); // sessionId -> pending revision watch (in memory)
+  }
+
+  emitLifecycle(name, payload) {
+    if (!this.onLifecycle) return;
+    try {
+      this.onLifecycle(name, payload);
+    } catch (err) {
+      this.log.error(`[${this.source.logPrefix}] lifecycle hook error: ${err?.message ?? err}`);
+    }
   }
 
   // Remember a just-created card and evict anything past the dedupe window, so
@@ -525,6 +540,7 @@ export class WakeBus {
 
         if (s.state === "capturing") {
           s.parts.push({ text: text.trim(), at: this.now() });
+          this.emitLifecycle("segment_captured", { sessionId, at: this.now() });
           this.armSilenceTimer(s, endsSentence(text));
           continue;
         }
@@ -548,6 +564,7 @@ export class WakeBus {
         s.contextUsed = this.contextWindow(s);
         if (s.contextUsed.length > 0) this.counters.bump("wake_context_used");
         s.wakeHitAt = this.now();
+        this.emitLifecycle("wake_detected", { sessionId, at: s.wakeHitAt });
         const after = text.slice(m.index + m[0].length).replace(/^[\s,.:;!?-]+/u, "").trim();
         if (after) s.parts.push({ text: after, at: s.wakeHitAt });
         // Only a wake segment that itself carries a complete command settles
@@ -644,6 +661,7 @@ export class WakeBus {
     const context = s.contextUsed;
     s.parts = [];
     s.contextUsed = [];
+    this.emitLifecycle("window_closed", { sessionId, reason, at: this.now() });
     // Kill switch honored mid-session (I9): flag off between hit and close
     // means nothing dispatches and nothing persists.
     if (!this.cfg.wakeEnabled) {
@@ -700,6 +718,14 @@ export class WakeBus {
 
     const commandDoneAt = this.now();
     this.counters.observe("wake_command_ms", commandDoneAt - commandStartedAt);
+    if (outcome?.result?.intent === "note_fallback") {
+      this.emitLifecycle("task_failed", {
+        sessionId,
+        eventId,
+        reason: outcome.result.reason ?? null,
+        at: this.now()
+      });
+    }
 
     const resultRef = path.join("wake-results", `${eventId}.json`);
     atomicWriteJSON(path.join(this.store.root, resultRef), {
@@ -812,6 +838,13 @@ export class WakeBus {
             originChannel: this.source.originChannel
           });
           this.counters.bump("wake_cards_created");
+          this.emitLifecycle("task_created", {
+            sessionId,
+            eventId,
+            cardId: card?.id ?? null,
+            title,
+            at: this.now()
+          });
           this.rememberCard(dedupeKey);
           // Keep listening: the user sees the card within ~45s and often
           // corrects it out loud right afterwards.

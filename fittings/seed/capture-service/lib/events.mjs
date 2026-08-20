@@ -35,15 +35,21 @@ export function emitSessionEvent({ record, store, counters, cfg, log = console, 
     return null;
   }
 
+  // A pendant session (mode "pendant", only reachable here under the ambient
+  // capture policy - wake_only sessions never persist a transcript, so they
+  // skip out above) carries its own source identity end to end (ADR D7).
+  const isPendant = record.mode === "pendant";
   const event = {
     id: ulid(),
-    source: "companion-ios",
+    source: isPendant ? "pendant" : "companion-ios",
     uid: null,
     received_at: now().toISOString(),
     occurred_at: record.started_at ?? now().toISOString(),
     kind: "session",
     normalized: {
-      title: `Companion ${record.mode === "screen_audio" ? "screen" : "audio"} session`,
+      title: isPendant
+        ? "Pendant audio session"
+        : `Companion ${record.mode === "screen_audio" ? "screen" : "audio"} session`,
       transcript_text: transcriptProse(segments),
       stats: {
         words: transcript.words ?? 0,
@@ -59,7 +65,7 @@ export function emitSessionEvent({ record, store, counters, cfg, log = console, 
       insights: []
     },
     provenance: {
-      companion_session_id: record.id,
+      [isPendant ? "pendant_session_id" : "companion_session_id"]: record.id,
       mode: record.mode,
       consent: record.consent,
       device_name: record.device_name,

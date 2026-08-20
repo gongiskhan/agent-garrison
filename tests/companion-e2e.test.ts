@@ -221,7 +221,17 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
     base = `http://127.0.0.1:${handle.cfg.port}`;
 
     const health = await fetch(`${base}/health`).then((r) => r.json());
-    expect(health.flags).toEqual({ ingress: true, transcribe: true, wake: true, notify: true, speak: true });
+    expect(health.flags).toEqual({
+      ingress: true,
+      transcribe: true,
+      wake: true,
+      notify: true,
+      speak: true,
+      // Pendant Direct additions: present, off by default, policy at its
+      // wake_only default - the companion loop ignores both.
+      pendant: false,
+      capturePolicy: "wake_only"
+    });
     expect(health.secrets).toMatchObject({ captureToken: true, deepgramApiKey: true, apnsP8: true });
   });
 

@@ -99,6 +99,17 @@ export function loadConfig(env = process.env) {
     wakeEnabled: parseBool(env.GARRISON_CAPTURESERVICE_WAKE_ENABLED, false),
     notifyEnabled: parseBool(env.GARRISON_CAPTURESERVICE_NOTIFY_ENABLED, false),
     speakEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SPEAK_ENABLED, false),
+    // Pendant Direct (ADR D5/D6): the pendant path has its own kill switch,
+    // independent of the companion flags and of the omi channel entirely.
+    pendantEnabled: parseBool(env.GARRISON_CAPTURESERVICE_PENDANT_ENABLED, false),
+    // Applies ONLY to mode:"pendant" sessions. Under wake_only (the default)
+    // nothing but the wake path persists: no media log, no transcript, no
+    // session capture_event - counters only. Under ambient the session
+    // persists exactly like a companion session and feeds triage.
+    capturePolicy: (() => {
+      const v = (env.GARRISON_CAPTURESERVICE_CAPTURE_POLICY || "").trim().toLowerCase();
+      return v === "ambient" ? "ambient" : "wake_only";
+    })(),
 
     // Deepgram live transcription (M2). Model/language verified against the
     // current docs when the client is written; shapes in docs/api-notes.md.

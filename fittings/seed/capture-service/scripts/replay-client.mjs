@@ -17,9 +17,19 @@
 //    half (acks pinned at the edge, dedupe counters moving, record unchanged).
 //
 // Usage:
-//   node scripts/replay-client.mjs run [--fixture pt-command] [--mode audio|screen_audio]
+//   node scripts/replay-client.mjs run [--fixture pt-command] [--mode audio|screen_audio|pendant]
 //        [--twice] [--drop-at N] [--base URL] [--token T] [--session ID]
+//        [--cadence real|fast]
 //   node scripts/replay-client.mjs bad-token | malformed
+//
+// Pendant mode (Pendant Direct): plays the Companion-relaying-the-pendant
+// role - session_start carries mode "pendant" + codec, every
+// {type:"feedback"} event from the server is logged with a timestamp and
+// answered with {type:"feedback_ack"} exactly as the app's device/phone sinks
+// would, and the effect-following knows that under the wake_only capture
+// policy NO session record is the expected outcome. --cadence real streams
+// packets at their fixture timing (20 ms Opus cadence) so the latency
+// metrics on /health mean something.
 //
 // Base URL: --base, else $GARRISON_HOME/ui-fittings/capture-service.json,
 // else http://127.0.0.1:7097. Token: --token, else CAPTURE_TOKEN in env, else
@@ -125,9 +135,19 @@ function openSocket(base, token) {
   const ws = new WebSocket(url, token ? { headers: { authorization: `Bearer ${token}` } } : {});
   const pending = [];
   const waiters = [];
+  // Feedback events (pendant sessions): collected with arrival timestamps and
+  // auto-acked, standing in for the app's device haptic + phone sinks.
+  const feedback = [];
   ws.on("message", (data, isBinary) => {
     if (isBinary) return;
     const msg = JSON.parse(data.toString());
+    if (msg.type === "feedback" && msg.event) {
+      feedback.push({ event: msg.event, receivedAtMs: Date.now() });
+      try {
+        ws.send(JSON.stringify({ type: "feedback_ack", event_id: msg.event.event_id }));
+      } catch {}
+      return;
+    }
     const i = waiters.findIndex((w) => w.pred(msg));
     if (i >= 0) waiters.splice(i, 1)[0].resolve(msg);
     else pending.push(msg);
@@ -152,7 +172,7 @@ function openSocket(base, token) {
     ws.on("error", reject);
   });
   const closed = new Promise((resolve) => ws.on("close", (code) => resolve(code)));
-  return { ws, next, opened, closed };
+  return { ws, next, opened, closed, feedback };
 }
 
 async function fetchJson(base, token, route) {
@@ -160,10 +180,15 @@ async function fetchJson(base, token, route) {
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 
-async function streamSet(sock, frames, kind, { dropAt = null } = {}) {
+async function streamSet(sock, frames, kind, { dropAt = null, cadence = "fast" } = {}) {
   let lastAck = 0;
+  let prevTs = null;
   for (const frame of frames) {
     if (dropAt !== null && frame.seq === dropAt) return { dropped: true, lastAck };
+    if (cadence === "real" && prevTs !== null && frame.ts > prevTs) {
+      await new Promise((r) => setTimeout(r, frame.ts - prevTs));
+    }
+    prevTs = frame.ts;
     sock.ws.send(encodeFrame(kind, frame.seq, frame.ts, frame.bytes));
     const ack = await sock.next((m) => m.type === "ack");
     lastAck = ack.seq;
@@ -179,7 +204,8 @@ async function run(flags) {
     process.exit(1);
   }
   const fixture = flags.fixture ?? "pt-command";
-  const mode = flags.mode === "screen_audio" ? "screen_audio" : "audio";
+  const mode = flags.mode === "screen_audio" || flags.mode === "pendant" ? flags.mode : "audio";
+  const cadence = flags.cadence === "real" ? "real" : "fast";
   const sessionId = flags.session ?? newSessionId();
   const packets = loadAudioFixture(fixture);
   const frames = mode === "screen_audio" ? loadFrames() : [];
@@ -199,6 +225,7 @@ async function run(flags) {
       type: "session_start",
       session_id: sessionId,
       mode,
+      ...(mode === "pendant" ? { codec: "opus_fs320" } : {}),
       device_name: "replay-client",
       consent: "shown",
       started_at: new Date().toISOString()
@@ -214,7 +241,8 @@ async function run(flags) {
   // Optional mid-stream drop: terminate without a close frame, reconnect,
   // and prove resume-from-last-ack.
   const dropAt = flags["drop-at"] ? Number(flags["drop-at"]) : null;
-  let result = await streamSet(sock, packets, KIND_AUDIO, { dropAt });
+  const streamStartedAt = Date.now();
+  let result = await streamSet(sock, packets, KIND_AUDIO, { dropAt, cadence });
   let activeSock = sock;
   if (result.dropped) {
     console.log(`dropped the link before seq ${dropAt} (last ack ${result.lastAck}); reconnecting`);
@@ -253,10 +281,55 @@ async function run(flags) {
     );
   }
 
+  // Pendant sessions: give the wake window + feedback loop a beat to close
+  // before ending the session, so the feedback log below is complete.
+  if (mode === "pendant") {
+    const settleMs = Number(flags["settle-ms"] ?? 4000);
+    await new Promise((r) => setTimeout(r, settleMs));
+  }
+
   activeSock.ws.send(JSON.stringify({ type: "session_end", reason: "user" }));
   await activeSock.next((m) => m.type === "session_ended");
 
   // ---- follow the effect ----
+  if (mode === "pendant") {
+    // The feedback log IS the pendant's effect trail: every tier event with
+    // its arrival offset from stream start (the device/phone sink stand-in).
+    if (activeSock.feedback.length === 0 && sock.feedback.length === 0) {
+      console.log("feedback: none received (wake flag off, or the fixture never woke)");
+    } else {
+      for (const entry of [...sock.feedback, ...(activeSock === sock ? [] : activeSock.feedback)]) {
+        console.log(
+          `feedback +${entry.receivedAtMs - streamStartedAt}ms: ${entry.event.name}` +
+            (entry.event.reason ? ` (${entry.event.reason})` : "") +
+            (entry.event.card_id ? ` card ${entry.event.card_id}` : "") +
+            (entry.event.interim ? " [interim]" : "")
+        );
+      }
+    }
+    const health = await fetchJson(base, token, "/health");
+    const c = health.body?.counters ?? {};
+    if (c.wake_to_device_ack_ms_last !== undefined) {
+      console.log(`wake_to_device_ack_ms: ${c.wake_to_device_ack_ms_last}`);
+    }
+    if (c.card_commit_to_created_ack_ms_last !== undefined) {
+      console.log(`card_commit_to_created_ack_ms: ${c.card_commit_to_created_ack_ms_last}`);
+    }
+    const session = await fetchJson(base, token, `/capture/sessions/${sessionId}`);
+    if (session.status === 404) {
+      console.log("no session record stored - the wake_only capture policy at work (expected default)");
+    } else if (session.body?.session) {
+      const record = session.body.session;
+      console.log(
+        `stored session (ambient policy): status=${record.status} audio_seq=${record.audio_seq} ` +
+          `transcript=${record.transcript_ref ? "stored" : "none"}`
+      );
+    }
+    const okSeq = result.lastAck === packets.length;
+    console.log(okSeq ? "every packet acked" : `MISMATCH: last ack ${result.lastAck} of ${packets.length}`);
+    process.exit(okSeq ? 0 : 1);
+  }
+
   const session = await fetchJson(base, token, `/capture/sessions/${sessionId}`);
   if (!session.body?.session) {
     console.error("NOTHING ARRIVED: the service has no record of this session");
@@ -323,6 +396,8 @@ if (command === "run") await run(flags);
 else if (command === "bad-token") await badToken(flags);
 else if (command === "malformed") await malformed(flags);
 else {
-  console.error("usage: replay-client.mjs [run|bad-token|malformed] [--fixture NAME] [--mode audio|screen_audio] [--twice] [--drop-at N] [--base URL] [--token T]");
+  console.error(
+    "usage: replay-client.mjs [run|bad-token|malformed] [--fixture NAME] [--mode audio|screen_audio|pendant] [--cadence real|fast] [--twice] [--drop-at N] [--base URL] [--token T]"
+  );
   process.exit(2);
 }

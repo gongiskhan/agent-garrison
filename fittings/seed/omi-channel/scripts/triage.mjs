@@ -43,6 +43,10 @@ const captureStore = existsSync(path.join(captureDir, "events")) ? new EventsDir
 // cannot know); companion memories carry the companion prefix.
 const companionNotifier = new CompanionRelayNotifier({ counters });
 const companionMemoryWriter = new MemoryWriter({ prefix: "companion", label: "Companion" });
+// Pendant-sourced events (capture-service mode "pendant", ambient policy)
+// share the companion inbox and the capture-service /notify relay - the
+// pendant's phone IS the companion phone - but carry their own memory prefix.
+const pendantMemoryWriter = new MemoryWriter({ prefix: "pendant", label: "Pendant" });
 const omiMemoryWriter = new MemoryWriter();
 
 const summary = await runTriageTick({
@@ -56,8 +60,14 @@ const summary = await runTriageTick({
   memoryWriter: omiMemoryWriter,
   notifier,
   extraStores: captureStore ? [captureStore] : [],
-  memoryWriterFor: (event) => (event?.source === "companion-ios" ? companionMemoryWriter : omiMemoryWriter),
-  notifierFor: (event) => (event?.source === "companion-ios" ? companionNotifier : notifier)
+  memoryWriterFor: (event) =>
+    event?.source === "companion-ios"
+      ? companionMemoryWriter
+      : event?.source === "pendant"
+        ? pendantMemoryWriter
+        : omiMemoryWriter,
+  notifierFor: (event) =>
+    event?.source === "companion-ios" || event?.source === "pendant" ? companionNotifier : notifier
 });
 
 // Deliver tips queued by this (and any previous) tick - attempt-once with the

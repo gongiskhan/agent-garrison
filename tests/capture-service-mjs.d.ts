@@ -22,6 +22,8 @@ declare module "*/capture-service/lib/config.mjs" {
     wakeEnabled: boolean;
     notifyEnabled: boolean;
     speakEnabled: boolean;
+    pendantEnabled: boolean;
+    capturePolicy: "wake_only" | "ambient";
     sttModel: string;
     sttLanguage: string;
     classifyTarget: string;
@@ -57,6 +59,7 @@ declare module "*/capture-service/scripts/server.mjs" {
   import type { Server } from "node:http";
   export function makeRequestHandler(ctx: unknown): (req: unknown, res: unknown) => Promise<void>;
   export const COMPANION_WAKE_SOURCE: Record<string, unknown>;
+  export const PENDANT_WAKE_SOURCE: Record<string, unknown>;
   export function startServer(cfg?: unknown): Promise<{
     server: Server;
     cfg: { port: number; statusFile: string; stateDir: string };
@@ -65,10 +68,35 @@ declare module "*/capture-service/scripts/server.mjs" {
     ingress: { sessions: Map<string, unknown>; close(): void };
     transcriber: unknown;
     wakeBus: unknown;
+    pendantWakeBus: unknown;
+    feedbackBus: {
+      recentEvents(sessionId: string): Array<Record<string, unknown> & { event_id: string; name: string }>;
+      emit(name: string, payload?: Record<string, unknown>): Record<string, unknown> | null;
+    };
     echoGuard: unknown;
     notifier: unknown;
     ackSink: { burst: { suppressed: number; timer: unknown } };
   }>;
+}
+
+declare module "*/capture-service/lib/feedback.mjs" {
+  export const FEEDBACK_EVENT_NAMES: string[];
+  export class FeedbackBus {
+    constructor(deps: {
+      counters: unknown;
+      log?: unknown;
+      now?: () => number;
+      wakeWindowTtlMs?: number;
+    });
+    emit(
+      name: string,
+      payload?: Record<string, unknown>
+    ): (Record<string, unknown> & { event_id: string; name: string; session_id: string; at: string }) | null;
+    recordDeviceAck(eventId: string, opts?: { atMs?: number | null }): { name: string; latencyMs: number } | null;
+    subscribeAll(fn: (event: Record<string, unknown>) => void): () => void;
+    subscribe(sessionId: string, fn: (event: Record<string, unknown>) => void): () => void;
+    recentEvents(sessionId: string): Array<Record<string, unknown> & { event_id: string; name: string }>;
+  }
 }
 
 declare module "*/capture-service/lib/ingress.mjs" {

@@ -153,6 +153,14 @@ x-garrison:
       type: integer
       default: 12
       description: Triage hold floor — a session ending with fewer transcript words than this is held as a thin fragment rather than carded alone (wait-for-context).
+    - key: pendant_enabled
+      type: boolean
+      default: false
+      description: Pendant Direct path — accept mode "pendant" sessions (the Companion relaying the BLE pendant's audio). Independent kill switch; off refuses pendant session_start while every companion mode keeps working.
+    - key: capture_policy
+      type: string
+      default: wake_only
+      description: Pendant sessions only — "wake_only" (default) persists nothing but the wake path (no media log, no transcript, no capture_event; counters only), "ambient" persists pendant session transcripts and feeds them into the shared triage tick. Mic sessions are unaffected either way.
   secret_scope:
     - DEEPGRAM_API_KEY
     - CAPTURE_TOKEN

@@ -35,9 +35,14 @@ const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_FRAME_BYTES = 4 * 1024 * 1024; // one JPEG still fits comfortably
 
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
-const MODES = new Set(["audio", "screen_audio"]);
+// "pendant" (ADR D5): the Companion relaying the BLE pendant's Opus stream.
+// Additive - the malformed "always_on" refusal and both mic modes are
+// untouched. Pendant sessions are additionally gated on cfg.pendantEnabled
+// and are the ONLY sessions capture_policy applies to (ADR D6).
+const MODES = new Set(["audio", "screen_audio", "pendant"]);
 const CONSENT = new Set(["shown", "suppressed"]);
 const END_REASONS = new Set(["user", "error", "timeout"]);
+const PENDANT_CODECS = new Set(["opus", "opus_fs320"]);
 
 // Timing-safe token compare via fixed-length digests (omi ingress pattern).
 export function tokenMatches(presented, expected) {
@@ -191,6 +196,17 @@ export class CaptureIngress {
           });
           return;
         }
+        if (msg?.type === "feedback_ack") {
+          // {event_id, at?} — the Companion's receipt that a feedback event
+          // reached the device/phone sink; closes the latency measurement.
+          if (!session) {
+            ws.close(1008, "no session");
+            return;
+          }
+          if (this.onFeedbackAck) this.onFeedbackAck(session.record.id, msg);
+          else this.counters.bump("feedback_acks_ignored");
+          return;
+        }
         if (msg?.type === "spoken") {
           // {spoken: <ack id>, ok, reason?} — the app's speech receipt. A
           // sink that silently drops is indistinguishable from one that is
@@ -228,6 +244,14 @@ export class CaptureIngress {
       ws.close(1008, "malformed session_start");
       return null;
     }
+    if (msg.mode === "pendant" && !this.cfg.pendantEnabled) {
+      // The pendant path's own kill switch (I7): independent of `enabled`
+      // (which gated the upgrade) and of every omi-channel flag.
+      this.counters.bump("rejected_pendant_disabled");
+      send({ type: "error", error: "pendant capture disabled" });
+      ws.close(1008, "pendant disabled");
+      return null;
+    }
     const id = msg.session_id;
 
     const existingLive = this.sessions.get(id);
@@ -256,23 +280,31 @@ export class CaptureIngress {
 
     const record = stored ?? {
       id,
-      source: "companion-ios",
+      source: msg.mode === "pendant" ? "pendant" : "companion-ios",
       mode: msg.mode,
       device_name: String(msg.device_name ?? "iPhone").trim().slice(0, 64) || "iPhone",
       // Consent context travels in provenance (invariant I6).
       consent: msg.consent,
       started_at: msg.started_at ?? null,
+      // Informational (pendant sessions): which Opus framing the device ships.
+      ...(msg.mode === "pendant" && PENDANT_CODECS.has(msg.codec) ? { codec: msg.codec } : {}),
       status: "live",
       audio_seq: 0,
       video_seq: 0,
       audio_bytes: 0,
       ended: null
     };
-    if (!stored) this.writeSessionRecord(record);
+    // capture_policy enforcement point 1 of 2 (ADR D6): a wake_only pendant
+    // session persists no media - the ordered-stream discipline runs against
+    // an in-memory high water instead of the media log.
+    const transient = record.mode === "pendant" && this.cfg.capturePolicy !== "ambient";
+    if (!stored && !transient) this.writeSessionRecord(record);
+    if (!stored && transient) this.counters.bump("pendant_sessions_unpersisted");
 
     const transcribing = this.transcriber ? this.transcriber.openSession(id) : false;
     const media = new SessionMedia(this.store.dirs.media, id, {
       counters: this.counters,
+      transient,
       onAudioFrame: transcribing ? (seq, ts, bytes) => this.transcriber.feed(id, bytes) : null
     });
     const session = { record, media, socket: ws, idleTimer: null };
@@ -333,18 +365,27 @@ export class CaptureIngress {
     // Flush the transcription lane first so the record can reference the
     // stored transcript. A lane failure costs the transcript, never the
     // session record (counted, logged without content — I5).
+    // capture_policy enforcement point 2 of 2 (ADR D6): under wake_only a
+    // pendant session's finalized segments are dropped here, in memory -
+    // never written, never logged with content. Counters only.
+    const transient = Boolean(session.media.transient);
     let transcript = null;
     if (this.transcriber) {
       try {
         const segments = await this.transcriber.end(id);
         if (segments && segments.length > 0) {
-          transcript = {
-            session_id: id,
-            segments,
-            words: segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0)
-          };
-          atomicWriteJSON(path.join(this.store.dirs.transcripts, `${id}.json`), transcript);
-          this.counters.bump("transcripts_stored");
+          if (transient) {
+            this.counters.bump("transcripts_dropped_policy");
+            this.counters.observe("transcript_segments_dropped_policy", segments.length);
+          } else {
+            transcript = {
+              session_id: id,
+              segments,
+              words: segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0)
+            };
+            atomicWriteJSON(path.join(this.store.dirs.transcripts, `${id}.json`), transcript);
+            this.counters.bump("transcripts_stored");
+          }
         }
       } catch (err) {
         this.counters.bump("transcribe_finalize_failed");
@@ -364,7 +405,9 @@ export class CaptureIngress {
         : {}),
       ended: { reason }
     };
-    this.writeSessionRecord(record);
+    // A wake_only pendant session leaves no session record either: the only
+    // persistence from such a session is the wake path itself.
+    if (!transient) this.writeSessionRecord(record);
     this.counters.bump("sessions_ended");
     try {
       this.onSessionEnd?.(record);

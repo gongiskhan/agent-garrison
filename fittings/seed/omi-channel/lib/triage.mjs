@@ -43,6 +43,17 @@ export const TRIAGE_SOURCES = {
     refKey: "companion_session_id",
     refLabel: "companion session",
     sourceLine: "a deliberate companion-app capture session"
+  },
+  // Pendant Direct (capture-service mode "pendant", ambient policy): the BLE
+  // pendant captured by Garrison itself. Additive - unknown sources still
+  // fall back to omi exactly as before.
+  pendant: {
+    label: "Pendant",
+    originPrefix: "pendant",
+    originChannel: { channel: "pendant", threadId: "pendant-reports" },
+    refKey: "pendant_session_id",
+    refLabel: "pendant session",
+    sourceLine: "the user's always-on pendant, captured directly by Garrison"
   }
 };
 

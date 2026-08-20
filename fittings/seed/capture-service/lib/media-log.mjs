@@ -106,12 +106,21 @@ class OrderedStream {
 }
 
 export class SessionMedia {
-  constructor(root, sessionId, { counters = null, onAudioFrame = null } = {}) {
+  // `transient: true` (capture_policy wake_only on a pendant session, ADR D6)
+  // keeps the full ordered-stream discipline - seq acks, dedupe, reorder
+  // window, exactly-once in-order delivery to the transcription lane - while
+  // writing NOTHING to disk: no directory, no audio.log, no frames. The high
+  // water lives in memory only; a process restart forgets it, which is the
+  // documented trade-off (a resuming client re-sends spooled frames and they
+  // re-transcribe transiently).
+  constructor(root, sessionId, { counters = null, onAudioFrame = null, transient = false } = {}) {
+    this.transient = Boolean(transient);
+    this.transientAudioBytes = 0;
     this.dir = path.join(root, sessionId);
     this.framesDir = path.join(this.dir, "frames");
-    mkdirSync(this.framesDir, { recursive: true });
+    if (!this.transient) mkdirSync(this.framesDir, { recursive: true });
     this.audioFile = path.join(this.dir, "audio.log");
-    const { lastSeq } = scanAudioLog(this.audioFile);
+    const { lastSeq } = this.transient ? { lastSeq: 0 } : scanAudioLog(this.audioFile);
     this.audio = new OrderedStream({
       lastSeq,
       counters,
@@ -120,16 +129,19 @@ export class SessionMedia {
       // The hook fires once per persisted frame, in seq order, after the
       // append — the transcription lane sees exactly the bytes the log holds.
       persist: (seq, ts, bytes) => {
-        appendFileSync(this.audioFile, encodeRecord(seq, ts, bytes));
+        if (this.transient) this.transientAudioBytes += bytes.length;
+        else appendFileSync(this.audioFile, encodeRecord(seq, ts, bytes));
         onAudioFrame?.(seq, ts, bytes);
       }
     });
     this.video = new OrderedStream({
-      lastSeq: this.scanFrames(),
+      lastSeq: this.transient ? 0 : this.scanFrames(),
       counters,
       dedupeKey: "video_frames_deduped",
       dropKey: "video_frames_dropped_ahead",
-      persist: (seq, ts, bytes) => writeFileSync(path.join(this.framesDir, `${seq}.jpg`), bytes)
+      persist: (seq, ts, bytes) => {
+        if (!this.transient) writeFileSync(path.join(this.framesDir, `${seq}.jpg`), bytes);
+      }
     });
   }
 
@@ -161,6 +173,7 @@ export class SessionMedia {
   }
 
   audioBytes() {
+    if (this.transient) return this.transientAudioBytes;
     try {
       return statSync(this.audioFile).size;
     } catch {
