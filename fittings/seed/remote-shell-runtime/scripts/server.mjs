@@ -30,7 +30,8 @@ function parseArgs(argv) {
   const out = {
     port: Number(process.env.GARRISON_REMOTESHELLRUNTIME_PORT || DEFAULT_PORT),
     host: process.env.GARRISON_REMOTESHELLRUNTIME_BIND_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
-    notifyFittings: String(process.env.GARRISON_REMOTESHELLRUNTIME_NOTIFY_FITTINGS || "web-channel-default")
+    // Empty = every running fitting that answers /notify (404 = skip).
+    notifyFittings: String(process.env.GARRISON_REMOTESHELLRUNTIME_NOTIFY_FITTINGS || "")
       .split(",").map((s) => s.trim()).filter(Boolean)
   };
   for (let i = 0; i < argv.length; i++) {
@@ -40,20 +41,44 @@ function parseArgs(argv) {
   return out;
 }
 
-// ── Channel notify fan-out (POST /notify per channel fitting) ───────────────
+// ── Channel notify fan-out (the repo's discovery pattern) ───────────────────
+// Every running fitting's status file is a candidate; POST /notify to each and
+// treat HTTP 404 as "not a notify-capable channel" — implementing /notify IS
+// the opt-in (kanban-loop notify-origin.mjs / improver probe-notify.mjs
+// precedent). `notifyFittings` optionally restricts the set; empty = all.
+
+// Under vitest with no explicit GARRISON_HOME, discovery would read the REAL
+// ~/.garrison and put live pushes on the user's phone (this exact accident
+// shipped once, 2026-08-18, from kanban's fan-out). Fail closed.
+function underTestRunner() {
+  return Boolean(process.env.VITEST) && !process.env.GARRISON_HOME;
+}
 
 async function notifyChannels(notifyFittings, payload) {
-  for (const fittingId of notifyFittings) {
+  if (underTestRunner()) return;
+  let names = [];
+  try {
+    names = (await import("node:fs")).readdirSync(STATUS_ROOT).filter((n) => n.endsWith(".json"));
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const fittingId = name.slice(0, -".json".length);
+    if (fittingId === FITTING_ID) continue;
+    if (notifyFittings.length > 0 && !notifyFittings.includes(fittingId)) continue;
     try {
-      const status = JSON.parse(readFileSync(path.join(STATUS_ROOT, `${fittingId}.json`), "utf8"));
+      const status = JSON.parse(readFileSync(path.join(STATUS_ROOT, name), "utf8"));
       if (!status?.url) continue;
       const res = await fetch(`${status.url}/notify`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(8000)
       });
-      if (!res.ok) console.warn(`[remote-shell] ${fittingId}/notify -> ${res.status}`);
+      // 404 = not a notify-capable channel; anything else is a real outcome.
+      if (res.status !== 404 && !res.ok) {
+        console.warn(`[remote-shell] ${fittingId}/notify -> ${res.status}`);
+      }
     } catch (err) {
       console.warn(`[remote-shell] notify ${fittingId} failed: ${err.message}`);
     }

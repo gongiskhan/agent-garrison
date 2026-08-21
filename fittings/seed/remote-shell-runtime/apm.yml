@@ -48,8 +48,11 @@ x-garrison:
         Merged over $GARRISON_HOME/remote-shell/transports.json.
     - key: notify_fittings
       type: string
-      default: web-channel-default
-      description: Comma-separated channel fitting ids whose POST /notify receives agent-stop completion notifications.
+      default: ""
+      description: >-
+        Comma-separated fitting ids to restrict agent-stop completion
+        notifications to. Empty (default) = discovery fan-out: every running
+        fitting's POST /notify, with HTTP 404 meaning "not a channel".
     - key: devtunnel_bin
       type: string
       default: ""

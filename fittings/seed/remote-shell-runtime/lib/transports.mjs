@@ -88,6 +88,12 @@ async function readTransportsFile() {
   }
 }
 
+// A leading "-" in a host (or a hostile user string) turns the ssh argv into
+// option injection — `-oProxyCommand=` is local RCE. Same guards as
+// outpost-tailscale-host's config-sync.
+const SSH_USER_RE = /^[a-z_][a-z0-9_-]{0,31}$/i;
+const SSH_HOST_RE = /^(?!-)[A-Za-z0-9._-]{1,253}$|^[0-9a-fA-F:]{2,45}$/;
+
 function normalizeTransport(name, t) {
   if (!t || typeof t !== "object" || !t.ssh || typeof t.ssh !== "object") {
     console.warn(`[remote-shell] transport "${name}" has no ssh block — skipped`);
@@ -99,6 +105,10 @@ function normalizeTransport(name, t) {
     user: String(t.ssh.user || os.userInfo().username),
     identity: t.ssh.identity ? expandHome(String(t.ssh.identity)) : null
   };
+  if (!SSH_USER_RE.test(ssh.user) || !SSH_HOST_RE.test(ssh.host)) {
+    console.warn(`[remote-shell] transport "${name}" has an invalid ssh user/host — skipped`);
+    return null;
+  }
   const devtunnel = t.via?.devtunnel;
   return {
     name,

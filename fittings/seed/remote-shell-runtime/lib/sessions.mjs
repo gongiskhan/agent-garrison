@@ -421,12 +421,16 @@ export class SessionManager {
       session.activeTurn = null;
       for (const w of turn.waiters.splice(0)) w();
     }
-    // Completion notification through the channel /notify contract.
+    // Completion notification through the channel /notify contract. The
+    // idempotency key is stable per stop event so channels that dedupe before
+    // spending push budget (capture-service) never double-send on a redelivery.
     try {
       await this.notify({
         title: session.label,
         text: `${session.label}: agent finished on ${session.transport.name}.`,
+        actions: [],
         tag: `remote-shell:${session.id}`,
+        idempotencyKey: `remote-shell:${session.id}:${evt.ts ?? turn?.endedAt ?? "stop"}`,
         link: null
       });
     } catch (err) {
