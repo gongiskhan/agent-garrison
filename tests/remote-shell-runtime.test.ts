@@ -231,3 +231,52 @@ describe.skipIf(!sshSelfOk)("live local-ssh attach", () => {
     }
   }, 40_000);
 });
+
+// ── Adapter contract against a live server ──────────────────────────────────
+// Boots the real own-port server on a scratch port and drives a full delegated
+// turn through RemoteShellAdapter: spawn (model slot names the transport) →
+// sendTurn → stop-hook event → awaitResponse settles with the pane tail.
+
+describe.skipIf(!sshSelfOk)("RemoteShellAdapter against a live server", () => {
+  const tmuxName = `rshadp_${process.pid}`;
+
+  afterEach(() => {
+    spawnSync("tmux", ["kill-session", "-t", tmuxName], { timeout: 5000 });
+  });
+
+  it("delegates a turn end to end", async () => {
+    const eventsFile = path.join(tmpHome, "adapter-events.jsonl");
+    writeFileSync(eventsFile, "");
+    const port = 19000 + (process.pid % 1000);
+    process.env.GARRISON_REMOTESHELLRUNTIME_PORT = String(port);
+    process.env.GARRISON_REMOTESHELLRUNTIME_TRANSPORTS = JSON.stringify({
+      adp: {
+        ssh: { host: "127.0.0.1", port: 22, user: os.userInfo().username, identity: KEY },
+        tmuxSession: tmuxName,
+        cwd: tmpHome,
+        eventsFile,
+        label: "Adapter test"
+      }
+    });
+    // @ts-ignore — pure .mjs
+    const { startServer } = await import("../fittings/seed/remote-shell-runtime/scripts/server.mjs");
+    // @ts-ignore — pure .mjs
+    const { RemoteShellAdapter } = await import("../fittings/seed/remote-shell-runtime/lib/remote-shell-adapter.mjs");
+    const server = await startServer();
+    try {
+      const adapter = new RemoteShellAdapter({ baseUrl: `http://127.0.0.1:${port}` });
+      const session = await adapter.spawn({ model: "adp" });
+      await adapter.awaitReady(session);
+      await adapter.sendTurn(session, "echo adapter-turn-marker");
+      setTimeout(() => {
+        writeFileSync(eventsFile, JSON.stringify({ ts: new Date().toISOString(), event: "agent-stop" }) + "\n", { flag: "a" });
+      }, 1200);
+      const resp = await adapter.awaitResponse(session);
+      expect(resp.text).toContain("adapter-turn-marker");
+      expect(resp.text).toContain("finished");
+      await adapter.teardown(session);
+    } finally {
+      server.close();
+    }
+  }, 40_000);
+});

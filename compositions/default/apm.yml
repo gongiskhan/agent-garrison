@@ -30,6 +30,7 @@ dependencies:
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/opencode-runtime
+    - path: ../../fittings/seed/remote-shell-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/outpost-tailscale-host
