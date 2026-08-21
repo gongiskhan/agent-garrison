@@ -1063,9 +1063,24 @@ function deriveTitle(thread) {
   return "New conversation";
 }
 
+/** Sparse remote-shell binding carried in a thread's opaque context: which
+ *  transport this thread's terminal is attached to, and (optionally) the
+ *  routing-target id its chat turns pin. Strictly picked — the context is
+ *  client-influenced, so nothing else rides through. */
+export function remoteShellBinding(thread) {
+  const b = thread?.context?.remoteShell;
+  if (!b || typeof b !== "object" || Array.isArray(b)) return null;
+  const transport = typeof b.transport === "string" && b.transport.trim() ? b.transport.trim().slice(0, 80) : null;
+  if (!transport) return null;
+  const target = typeof b.target === "string" && b.target.trim() ? b.target.trim().slice(0, 80) : null;
+  return { transport, ...(target ? { target } : {}) };
+}
+
 function toMeta(thread) {
   const pendingInputs = normalizedPendingInputs(thread.pendingInputs);
+  const remoteShell = remoteShellBinding(thread);
   return {
+    ...(remoteShell ? { remoteShell } : {}),
     id: thread.id,
     title: deriveTitle(thread),
     source: thread.source ?? "chat",

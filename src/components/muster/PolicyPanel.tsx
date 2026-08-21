@@ -132,6 +132,8 @@ function glyphFor(t: AnyTarget | null | undefined): { mark: string; cls: string;
       return { mark: "GM", cls: "gGemini", title: "Gemini" };
     case "cursor":
       return { mark: "CR", cls: "gCursor", title: "Cursor Agent" };
+    case "remote-shell":
+      return { mark: "RSH", cls: "gOther", title: "Remote Shell" };
     default:
       return {
         mark: (t.runtime || "?").slice(0, 2).toUpperCase(),

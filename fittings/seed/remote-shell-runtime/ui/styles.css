@@ -1,0 +1,93 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0e0e0e;
+  color: #e5e5e5;
+}
+.app { display: flex; height: 100%; }
+.rail {
+  width: 240px;
+  flex: none;
+  border-right: 1px solid #262626;
+  padding: 12px;
+  overflow-y: auto;
+  background: #141414;
+}
+.rail h1 { font-size: 14px; margin: 0 0 12px; font-weight: 600; }
+.rail-section {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a8a8a;
+}
+.error {
+  background: #3a1414;
+  color: #f0b0b0;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+.empty { color: #6f6f6f; padding: 4px 2px; }
+.session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: inherit;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.session:hover { background: #1d1d1d; }
+.session.selected { background: #21261f; border-color: #3c4a38; }
+.session-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-state { font-size: 11px; color: #8a8a8a; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #5c5c5c; }
+.dot.idle { background: #5c8a5c; }
+.dot.running {
+  background: #d8b04a;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.transport {
+  border: 1px solid #262626;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+.transport-name { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.transport-via { color: #8a8a8a; font-size: 11px; }
+.start {
+  width: 100%;
+  background: #24301f;
+  color: #cfe3c4;
+  border: 1px solid #3c4a38;
+  border-radius: 5px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.start:disabled { opacity: 0.6; cursor: default; }
+.pane { flex: 1; min-width: 0; display: flex; }
+.placeholder { margin: auto; color: #6f6f6f; }
+.term-host { position: relative; flex: 1; display: flex; min-width: 0; }
+.term-host.hidden { display: none; }
+.xterm-mount { flex: 1; min-width: 0; padding: 6px; }
+.bridge-banner {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: #3a2d14;
+  color: #ecd9a8;
+  border-radius: 5px;
+  padding: 4px 8px;
+  z-index: 2;
+}

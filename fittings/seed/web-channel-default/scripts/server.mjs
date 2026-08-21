@@ -90,6 +90,7 @@ function garrisonDir() {
 const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "web-channel-default.json");
 const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
+const REMOTE_SHELL_STATUS_FILE = path.join(STATUS_ROOT, "remote-shell-runtime.json");
 
 const CHANNEL_ID = "web";
 
@@ -163,6 +164,75 @@ function readVoiceInfo() {
   } catch {
     return null;
   }
+}
+
+// ── Remote-shell relay ──────────────────────────────────────────────────────
+// The remote-shell runtime fitting owns the ssh/tmux/devtunnel state on its own
+// port; the web channel relays a narrow slice of it SAME-ORIGIN so the browser
+// never needs a cross-port URL (tailnet HARD RULE): the /io terminal WS and the
+// session/transport reads + start/input controls the terminal pane needs.
+
+function readRemoteShellInfo() {
+  if (!existsSync(REMOTE_SHELL_STATUS_FILE)) return null;
+  try {
+    const info = JSON.parse(readFileSync(REMOTE_SHELL_STATUS_FILE, "utf8"));
+    return info?.url ? info : null;
+  } catch {
+    return null;
+  }
+}
+
+// Subpaths the browser may reach through the relay. DELETE (forget session) and
+// anything unlisted stay on the fitting's own surface.
+const REMOTE_SHELL_PROXY_RE =
+  /^\/(transports|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
+
+async function handleRemoteShellProxy(req, res, subpath, query) {
+  const info = readRemoteShellInfo();
+  if (!info?.url) return jsonRes(res, 503, { error: "remote-shell fitting not available" });
+  if (!REMOTE_SHELL_PROXY_RE.test(subpath) || (req.method !== "GET" && req.method !== "POST")) {
+    return jsonRes(res, 404, { error: "not relayed" });
+  }
+  let body = null;
+  if (req.method === "POST") {
+    try { body = await readRawBody(req, 256 * 1024); } catch (err) { return jsonRes(res, 400, { error: err.message }); }
+  }
+  try {
+    const target = new URL(subpath + (query ? `?${query}` : ""), info.url);
+    const upstream = await fetch(target, {
+      method: req.method,
+      headers: body ? { "content-type": "application/json" } : {},
+      body: body ?? undefined,
+      // Long-poll turn settlement rides this relay; everything else is quick.
+      signal: AbortSignal.timeout(subpath.includes("/turns/") ? 125_000 : 20_000)
+    });
+    const text = await upstream.text();
+    res.statusCode = upstream.status;
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Cache-Control", "no-store");
+    res.end(text);
+  } catch (err) {
+    jsonRes(res, 502, { error: `remote-shell upstream: ${err.message}` });
+  }
+}
+
+// Short-TTL snapshot of the fitting's sessions so the thread list can mark a
+// remote-shell thread running from the HOOK-DRIVEN state (covers instructions
+// typed straight into the TUI, which never become web-channel inputs).
+let remoteShellSnapshot = { at: 0, byTransport: new Map() };
+async function remoteShellSessionsByTransport() {
+  if (Date.now() - remoteShellSnapshot.at < 3000) return remoteShellSnapshot.byTransport;
+  const byTransport = new Map();
+  const info = readRemoteShellInfo();
+  if (info?.url) {
+    try {
+      const res = await fetch(`${info.url}/sessions`, { signal: AbortSignal.timeout(1500) });
+      const data = await res.json();
+      for (const s of data?.sessions ?? []) byTransport.set(s.transport, s);
+    } catch { /* fitting down — threads just lose the live badge */ }
+  }
+  remoteShellSnapshot = { at: Date.now(), byTransport };
+  return byTransport;
 }
 
 // Voice availability. The web UI hides its mic / speaker
@@ -2142,11 +2212,19 @@ async function handleRouteOptions(req, res, opts) {
 // so the UI can show a session list and move between conversations.
 async function handleThreadsList(res) {
   // `runningSince` rides the list so the sidebar can mark which conversations
-  // have a turn in flight, not just the one that is open.
+  // have a turn in flight, not just the one that is open. A remote-shell thread
+  // additionally spins on the fitting's HOOK-DRIVEN session state, so work
+  // typed straight into the remote TUI still shows as live.
   const running = new Set(runningThreadIds());
-  const threads = (await listThreads()).map((t) =>
-    running.has(t.id) ? { ...t, runningSince: runningSince(t.id) } : t
-  );
+  const rsh = await remoteShellSessionsByTransport();
+  const threads = (await listThreads()).map((t) => {
+    if (running.has(t.id)) return { ...t, runningSince: runningSince(t.id) };
+    const session = t.remoteShell ? rsh.get(t.remoteShell.transport) : null;
+    if (session?.state === "running") {
+      return { ...t, runningSince: session.lastEventAt ?? session.createdAt ?? new Date().toISOString() };
+    }
+    return t;
+  });
   jsonRes(res, 200, { threads });
 }
 
@@ -3179,6 +3257,9 @@ async function handleNotify(req, res, opts) {
         res.statusCode = 204;
         return res.end();
       }
+      if (pathname.startsWith("/api/remote-shell/")) {
+        return handleRemoteShellProxy(req, res, pathname.slice("/api/remote-shell".length), parsed.search?.slice(1) ?? "");
+      }
       if (pathname === "/api/voice/health" && method === "GET") return handleVoiceHealth(res);
       if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
       if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
@@ -3229,6 +3310,18 @@ async function handleNotify(req, res, opts) {
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
     const parsed = url.parse(request.url || "/", true);
+    // Terminal stream for remote-shell threads: same passthrough relay as
+    // voice, pointed at the remote-shell fitting's /io.
+    if (parsed.pathname === "/remote-shell/io") {
+      const rsh = readRemoteShellInfo();
+      if (!rsh?.url) {
+        socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, rsh.url, parsed.search || "", "/io"));
+      return;
+    }
     const subpath = VOICE_WS_ROUTES[parsed.pathname || ""];
     if (!subpath) {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");

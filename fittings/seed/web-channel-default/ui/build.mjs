@@ -49,7 +49,19 @@ if (existsSync(chatCssPath)) {
     if (existsSync(nm)) chatCss = readFileSync(nm, "utf8");
   } catch { /* ignore */ }
 }
-writeFileSync(path.join(DIST, "web-channel.css"), `/* === @garrison/claude-chat (base) === */\n${chatCss}\n\n/* === web-channel skin (override layer) === */\n${skinCss}\n`);
+// xterm.css (remote-shell terminal pane) — resolved by walk-up like the chat
+// stylesheet; base layer, before the skin.
+let xtermCss = "";
+{
+  let dir = HERE;
+  for (let i = 0; i < 8 && dir !== path.dirname(dir); i++) {
+    const candidate = path.join(dir, "node_modules", "@xterm", "xterm", "css", "xterm.css");
+    if (existsSync(candidate)) { xtermCss = readFileSync(candidate, "utf8"); break; }
+    dir = path.dirname(dir);
+  }
+  if (!xtermCss) console.warn("[web-channel:build] xterm.css not found walking up from", HERE);
+}
+writeFileSync(path.join(DIST, "web-channel.css"), `/* === @xterm/xterm (base) === */\n${xtermCss}\n\n/* === @garrison/claude-chat (base) === */\n${chatCss}\n\n/* === web-channel skin (override layer) === */\n${skinCss}\n`);
 
 // PWA surface: manifest + service worker + generated icons (192/512/apple-touch
 // + svg) into dist/. Generated here so the icons never drift from their source

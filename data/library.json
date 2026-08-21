@@ -4,7 +4,7 @@
     "name": "Agent SDK runtime",
     "repo": "local:fittings/seed/agent-sdk-runtime",
     "localPath": "fittings/seed/agent-sdk-runtime",
-    "summary": "Runtime Faculty — implements the uniform RuntimeAdapter over the Claude Agent SDK (structured request/response, native tool-calls — no PTY, no terminal scraping). THE FENCE default-denies Anthropic billing (launches only behind a non-Anthropic base URL: Ollama / DeepSeek / Z.ai / MiniMax / LLM proxy); THE HARNESS wires the full claude_code preset for coding roles or a lean system string for chat roles. The home for everything reached by base URL.",
+    "summary": "Runtime Faculty \u2014 implements the uniform RuntimeAdapter over the Claude Agent SDK (structured request/response, native tool-calls \u2014 no PTY, no terminal scraping). THE FENCE default-denies Anthropic billing (launches only behind a non-Anthropic base URL: Ollama / DeepSeek / Z.ai / MiniMax / LLM proxy); THE HARNESS wires the full claude_code preset for coding roles or a lean system string for chat roles. The home for everything reached by base URL.",
     "platforms": [
       "claude-code"
     ],
@@ -74,7 +74,7 @@
     "name": "Claude Code runtime",
     "repo": "local:fittings/seed/claude-code-runtime",
     "localPath": "fittings/seed/claude-code-runtime",
-    "summary": "Runtime Faculty (default PRIMARY) — the node-pty engine that drives the real interactive Claude Code TUI (packages/claude-pty). Hosts the Operative's orchestrator loop via the HTTP gateway or the direct PTY operative, and registers as a model-router `runtime: claude-code` target. Provider overrides (anthropic-plan default / ollama-local / deepseek / zai-glm) swap ANTHROPIC_BASE_URL so the same Claude Code engine runs against other providers.",
+    "summary": "Runtime Faculty (default PRIMARY) \u2014 the node-pty engine that drives the real interactive Claude Code TUI (packages/claude-pty). Hosts the Operative's orchestrator loop via the HTTP gateway or the direct PTY operative, and registers as a model-router `runtime: claude-code` target. Provider overrides (anthropic-plan default / ollama-local / deepseek / zai-glm) swap ANTHROPIC_BASE_URL so the same Claude Code engine runs against other providers.",
     "platforms": [
       "claude-code"
     ],
@@ -113,7 +113,7 @@
     "name": "Codex runtime",
     "repo": "local:fittings/seed/codex-runtime",
     "localPath": "fittings/seed/codex-runtime",
-    "summary": "Runtime Faculty (secondary) — drives `codex exec` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:codex` coding tasks here; the primary calls the bridge and Codex does the work in its own loop.",
+    "summary": "Runtime Faculty (secondary) \u2014 drives `codex exec` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator routes `secondary:codex` coding tasks here; the primary calls the bridge and Codex does the work in its own loop.",
     "platforms": [
       "claude-code"
     ],
@@ -125,10 +125,10 @@
   },
   {
     "id": "coord-agentmail",
-    "name": "Coordination — Agent Mail",
+    "name": "Coordination \u2014 Agent Mail",
     "repo": "local:fittings/seed/coord-agentmail",
     "localPath": "fittings/seed/coord-agentmail",
-    "summary": "Shared local agent-coordination server (mcp_agent_mail): identities, messaging, advisory file leases. Own-port :28765, license-isolated arm’s-length process.",
+    "summary": "Shared local agent-coordination server (mcp_agent_mail): identities, messaging, advisory file leases. Own-port :28765, license-isolated arm\u2019s-length process.",
     "platforms": [
       "claude-code"
     ],
@@ -140,7 +140,7 @@
   },
   {
     "id": "coord-mcp",
-    "name": "Coordination — Planning Gate",
+    "name": "Coordination \u2014 Planning Gate",
     "repo": "local:fittings/seed/coord-mcp",
     "localPath": "fittings/seed/coord-mcp",
     "summary": "Garrison-owned MIT planning-gate MCP: begin_planning/end_planning serialize planning per repo (TTL+heartbeat mutex + read-bundle) + digest/nudge hook + the coord observability CLI.",
@@ -188,6 +188,16 @@
     }
   },
   {
+    "id": "remote-shell-runtime",
+    "name": "Remote shell runtime",
+    "repo": "local:fittings/seed/remote-shell-runtime",
+    "localPath": "fittings/seed/remote-shell-runtime",
+    "summary": "Runtimes Faculty - general attach-and-stream runtime: attaches a live tmux session on a remote machine over ssh (optionally through a Microsoft Dev Tunnel), streams the real TUI two-way into an xterm pane, and drives running/idle lifecycle from the remote agent's own start/stop hooks via an events file followed over the same ssh channel. Transports are config; the CSG VM over the existing VS Code Dev Tunnel is the first. As a delegate target, a turn types the instruction into the remote agent's TUI and completes on the stop-hook event.",
+    "platforms": [
+      "all"
+    ]
+  },
+  {
     "id": "deepgram-voice",
     "name": "Voice (Deepgram)",
     "repo": "local:fittings/seed/deepgram-voice",
@@ -207,7 +217,7 @@
     "name": "Dev Env",
     "repo": "local:fittings/seed/dev-env",
     "localPath": "fittings/seed/dev-env",
-    "summary": "Consolidated dev surface on port 27086 — every Claude Code session is a tab with a Claude PTY + shell PTY and a live browser pane; worktree lifecycle and session status built in.",
+    "summary": "Consolidated dev surface on port 27086 \u2014 every Claude Code session is a tab with a Claude PTY + shell PTY and a live browser pane; worktree lifecycle and session status built in.",
     "platforms": [
       "claude-code"
     ],
@@ -221,7 +231,7 @@
     "name": "Discuss Automation",
     "repo": "local:fittings/seed/discuss-automation",
     "localPath": "fittings/seed/discuss-automation",
-    "summary": "The \"Discuss an automation\" skill — opens a Discuss-duty conversation (\"What would you like to automate?\"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/",
+    "summary": "The \"Discuss an automation\" skill \u2014 opens a Discuss-duty conversation (\"What would you like to automate?\"), settles the design through questions, writes an automation brief to ~/.garrison/automations/briefs/",
     "platforms": [
       "claude-code"
     ],
@@ -264,7 +274,7 @@
     "name": "Develop",
     "repo": "local:fittings/seed/duty-develop",
     "localPath": "fittings/seed/duty-develop",
-    "summary": "Provides the `develop` duty and owns the duty-develop skill — the dev face. Develop a change end to end: level 1 is a quick fix (implement only), level 2 plans, implements, reviews, and tests. A compo",
+    "summary": "Provides the `develop` duty and owns the duty-develop skill \u2014 the dev face. Develop a change end to end: level 1 is a quick fix (implement only), level 2 plans, implements, reviews, and tests. A compo",
     "platforms": [
       "claude-code"
     ],
@@ -415,7 +425,7 @@
     "name": "Garrison Assistant",
     "repo": "local:fittings/seed/garrison-assistant",
     "localPath": "fittings/seed/garrison-assistant",
-    "summary": "Answer, Guide, Build — grounded Q&A over docs+Fittings, guided-tour launcher, and an interview that files review-queue proposals (provenance assistant). Never edits artifacts directly.",
+    "summary": "Answer, Guide, Build \u2014 grounded Q&A over docs+Fittings, guided-tour launcher, and an interview that files review-queue proposals (provenance assistant). Never edits artifacts directly.",
     "platforms": [
       "all"
     ],
@@ -429,7 +439,7 @@
     "name": "Garrison Call",
     "repo": "local:fittings/seed/garrison-call",
     "localPath": "fittings/seed/garrison-call",
-    "summary": "Single-shot / structured LLM calls only — no tool loop, no session, never a primary. Three wire shapes: Anthropic Messages (POST /v1/messages), OpenAI-compatible Chat (POST /v1/chat/completions), and ",
+    "summary": "Single-shot / structured LLM calls only \u2014 no tool loop, no session, never a primary. Three wire shapes: Anthropic Messages (POST /v1/messages), OpenAI-compatible Chat (POST /v1/chat/completions), and ",
     "platforms": [
       "claude-code"
     ],
@@ -443,7 +453,7 @@
     "name": "Garrison Skills",
     "repo": "local:fittings/seed/garrison-skills",
     "localPath": "fittings/seed/garrison-skills",
-    "summary": "The garrison family — the gated-build orchestrator doorway plus every phase verb skill — as a Garrison skill-shape fitting, installed into ~/.claude/skills under APM lockfile ownership.",
+    "summary": "The garrison family \u2014 the gated-build orchestrator doorway plus every phase verb skill \u2014 as a Garrison skill-shape fitting, installed into ~/.claude/skills under APM lockfile ownership.",
     "platforms": [
       "claude-code"
     ],
@@ -457,7 +467,7 @@
     "name": "Gemini runtime",
     "repo": "local:fittings/seed/gemini-runtime",
     "localPath": "fittings/seed/gemini-runtime",
-    "summary": "Runtime Faculty (secondary) — drives `gemini -p` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator's image/video roles resolve to `secondary:gemini`; the primary calls the bridge and receives the artifact path(s).",
+    "summary": "Runtime Faculty (secondary) \u2014 drives `gemini -p` behind the uniform RuntimeAdapter + runtime-bridge delegate() contract. The orchestrator's image/video roles resolve to `secondary:gemini`; the primary calls the bridge and receives the artifact path(s).",
     "platforms": [
       "claude-code"
     ],
@@ -472,7 +482,7 @@
     "name": "Google Workspace connector",
     "repo": "local:fittings/seed/google",
     "localPath": "fittings/seed/google",
-    "summary": "Google Workspace connector — Gmail/Drive/Calendar as a Vault-sealed OAuth2 action catalog.",
+    "summary": "Google Workspace connector \u2014 Gmail/Drive/Calendar as a Vault-sealed OAuth2 action catalog.",
     "platforms": [
       "all"
     ],
@@ -502,7 +512,7 @@
     "name": "Huashu design",
     "repo": "local:fittings/seed/huashu-design",
     "localPath": "fittings/seed/huashu-design",
-    "summary": "花叔Design（Huashu-Design）——用HTML做高保真原型、交互Demo、幻灯片、动画、设计变体探索+设计方向顾问+专家评审的一体化设计能力。HTML是工具不是媒介，根据任务embody不同专家（UX设计师/动画师/幻灯片设计师/原型师），避免web design tropes。触发词：做原型、设计Demo、交互原型、HTML演示、动画Demo、设计变体、hi-fi设计、UI...",
+    "summary": "\u82b1\u53d4Design\uff08Huashu-Design\uff09\u2014\u2014\u7528HTML\u505a\u9ad8\u4fdd\u771f\u539f\u578b\u3001\u4ea4\u4e92Demo\u3001\u5e7b\u706f\u7247\u3001\u52a8\u753b\u3001\u8bbe\u8ba1\u53d8\u4f53\u63a2\u7d22+\u8bbe\u8ba1\u65b9\u5411\u987e\u95ee+\u4e13\u5bb6\u8bc4\u5ba1\u7684\u4e00\u4f53\u5316\u8bbe\u8ba1\u80fd\u529b\u3002HTML\u662f\u5de5\u5177\u4e0d\u662f\u5a92\u4ecb\uff0c\u6839\u636e\u4efb\u52a1embody\u4e0d\u540c\u4e13\u5bb6\uff08UX\u8bbe\u8ba1\u5e08/\u52a8\u753b\u5e08/\u5e7b\u706f\u7247\u8bbe\u8ba1\u5e08/\u539f\u578b\u5e08\uff09\uff0c\u907f\u514dweb design tropes\u3002\u89e6\u53d1\u8bcd\uff1a\u505a\u539f\u578b\u3001\u8bbe\u8ba1Demo\u3001\u4ea4\u4e92\u539f\u578b\u3001HTML\u6f14\u793a\u3001\u52a8\u753bDemo\u3001\u8bbe\u8ba1\u53d8\u4f53\u3001hi-fi\u8bbe\u8ba1\u3001UI...",
     "platforms": [
       "claude-code"
     ]
@@ -527,7 +537,7 @@
     "name": "Improver",
     "repo": "local:fittings/seed/improver",
     "localPath": "fittings/seed/improver",
-    "summary": "Nightly self-improvement runner — reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 27093). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
+    "summary": "Nightly self-improvement runner \u2014 reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 27093). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
     "platforms": [
       "claude-code"
     ],
@@ -600,7 +610,7 @@
     "name": "Monitor (default)",
     "repo": "local:fittings/seed/monitor-default",
     "localPath": "fittings/seed/monitor-default",
-    "summary": "Read-only visibility into every entity Garrison spawns — PIDs, status, ports, logs. Serves its own React UI on its own port (default 27077).",
+    "summary": "Read-only visibility into every entity Garrison spawns \u2014 PIDs, status, ports, logs. Serves its own React UI on its own port (default 27077).",
     "platforms": [
       "claude-code"
     ],
@@ -822,7 +832,7 @@
     "name": "Screen share",
     "repo": "local:fittings/seed/screen-share-default",
     "localPath": "fittings/seed/screen-share-default",
-    "summary": "macOS screenshot capture — ~2fps JPEG polling viewer for phone/remote access.",
+    "summary": "macOS screenshot capture \u2014 ~2fps JPEG polling viewer for phone/remote access.",
     "platforms": [
       "claude-code"
     ],
@@ -860,7 +870,7 @@
     "name": "Skill improver",
     "repo": "local:fittings/seed/skill-improver",
     "localPath": "fittings/seed/skill-improver",
-    "summary": "Nightly batch reviewer that turns user feedback about Claude Code skills into improvements to those skills. EXPLICIT/SCHEDULED-INVOCATION ONLY — runs headless on a schedule (or invoked by hand), never mid-session. Scans the day's session transcripts for (A) which skills ran and (B) user messages...",
+    "summary": "Nightly batch reviewer that turns user feedback about Claude Code skills into improvements to those skills. EXPLICIT/SCHEDULED-INVOCATION ONLY \u2014 runs headless on a schedule (or invoked by hand), never mid-session. Scans the day's session transcripts for (A) which skills ran and (B) user messages...",
     "platforms": [
       "claude-code"
     ]
@@ -925,7 +935,7 @@
     "name": "Trello connector",
     "repo": "local:fittings/seed/trello",
     "localPath": "fittings/seed/trello",
-    "summary": "Trello connector — board lists and cards as a Vault-sealed callable action catalog.",
+    "summary": "Trello connector \u2014 board lists and cards as a Vault-sealed callable action catalog.",
     "platforms": [
       "all"
     ],

@@ -276,6 +276,9 @@ function accountPlatformForTarget(target) {
   // CURSOR_API_KEY. There is no Cursor AccountPlatform, so a pin here would be a
   // badge with nothing behind it — refuse it explicitly rather than by fallthrough.
   if (runtime === "cursor") return null;
+  // remote-shell authenticates with an ssh key to another MACHINE — there is no
+  // account platform to pin, and the remote agent's own login is its identity.
+  if (runtime === "remote-shell") return null;
   // openai-agents is an endpoint family, so the account vehicle is the PROVIDER,
   // not the engine: `openai`/`openai-compat` authenticate with an OpenAI key,
   // `glm` with a self-hosted GLM key, `ollama-local` with nothing at all. Naming
@@ -300,6 +303,9 @@ function accountPlatformForTarget(target) {
 export function effortControllable(target) {
   const runtime = target?.runtime ?? null;
   if (runtime === "gemini" || runtime === "cursor" || runtime === "ollama-native") return false;
+  // remote-shell drives a remote agent's TUI over tmux — whatever effort means
+  // there belongs to the remote agent's own config, not to a Garrison pin.
+  if (runtime === "remote-shell") return false;
   // openai-agents: every provider entry in its table declares `effort: false` —
   // plain chat_completions carries no reasoning-effort parameter, so the adapter
   // records the request and reports it unapplied. Never claim the control.
@@ -4173,7 +4179,12 @@ const EXEC_ADAPTER_CLASS = {
   codex: "CodexAdapter",
   gemini: "GeminiAdapter",
   opencode: "OpenCodeAdapter",
-  cursor: "CursorAdapter"
+  cursor: "CursorAdapter",
+  // Attach-and-stream: the adapter is a loopback-HTTP client of the
+  // remote-shell fitting's own-port server (which owns the ssh/tmux state); a
+  // turn = send-keys into the remote agent's TUI, settled by its stop hook.
+  // The target's `model` slot names the TRANSPORT (e.g. "csg").
+  "remote-shell": "RemoteShellAdapter"
 };
 const EXEC_RUNTIMES = new Set(Object.keys(EXEC_ADAPTER_CLASS));
 
@@ -4212,7 +4223,11 @@ const EXEC_ENGINE_DEFAULTS = {
   // openai-agents has no single natural home — it is an endpoint family, not a
   // vendor. Default to the free local one so an unconfigured target cannot
   // accidentally bill a paid endpoint; a real composition names its provider.
-  "openai-agents": { provider: "ollama-local", model: null }
+  "openai-agents": { provider: "ollama-local", model: null },
+  // remote-shell targets a MACHINE, not a model vendor: `model` carries the
+  // transport name and there is no provider identity behind it. No default
+  // transport — an unconfigured target must fail loudly, not attach somewhere.
+  "remote-shell": { provider: null, model: null }
 };
 
 // Probe an exec-engine's CLI via the fitting's own bridge (`--probe` prints

@@ -33,6 +33,7 @@ import {
 } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "./orchestrator-transport";
 import { VoiceConversation } from "./voice-conversation";
+import { RemoteShellPane } from "./remote-shell-pane";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -156,6 +157,16 @@ function readUrl(): UrlState {
 }
 
 // ── Thread types + API ──────────────────────────────────────────────────────
+/** A configured remote-shell transport, relayed from the fitting. */
+interface RemoteShellTransport {
+  name: string;
+  label: string;
+  via: string;
+  tmuxSession: string;
+  cwd: string;
+  routingTarget?: string | null;
+}
+
 interface ThreadMeta {
   id: string;
   title: string;
@@ -170,6 +181,10 @@ interface ThreadMeta {
   runningSince?: string | null;
   pendingInputCount?: number;
   inputRevision?: number;
+  /** Sparse remote-shell binding (threads whose context carries one): which
+   *  transport the thread's terminal attaches, plus the routing target its
+   *  chat turns pin. Server-derived from the thread context. */
+  remoteShell?: { transport: string; target?: string } | null;
 }
 interface ThreadInput extends ChatInputReceipt {
   message?: string;
@@ -875,6 +890,50 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const openThreadEpochRef = useRef(0);
   const openThreadAbortRef = useRef<AbortController | null>(null);
   const activityEpochRef = useRef(0);
+  // Remote-shell surface: the configured transports (empty when the fitting is
+  // absent — the section simply doesn't render), and the fitting-side session
+  // id backing the ACTIVE thread's terminal pane.
+  const [rshTransports, setRshTransports] = useState<RemoteShellTransport[]>([]);
+  const [rshSessionId, setRshSessionId] = useState<string | null>(null);
+  const [rshError, setRshError] = useState<string | null>(null);
+
+  // The active thread's remote-shell binding, read from its opaque context.
+  const activeRsh = useMemo(() => {
+    const ctx = activeThread?.context as { remoteShell?: { transport?: unknown; target?: unknown } } | undefined;
+    const transport = typeof ctx?.remoteShell?.transport === "string" ? ctx.remoteShell.transport : null;
+    return transport ? { transport } : null;
+  }, [activeThread?.context]);
+
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/remote-shell/transports")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (alive && Array.isArray(data?.transports)) setRshTransports(data.transports); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Opening a remote-shell thread (re)ensures its fitting-side session — an
+  // idempotent attach that also revives it after a Garrison restart.
+  useEffect(() => {
+    setRshSessionId(null);
+    setRshError(null);
+    if (!activeRsh) return;
+    let alive = true;
+    void fetch("/api/remote-shell/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ transport: activeRsh.transport })
+    })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!alive) return;
+        if (!r.ok) { setRshError(data?.error || `remote shell unavailable (${r.status})`); return; }
+        setRshSessionId(data?.session?.id ?? null);
+      })
+      .catch((err) => { if (alive) setRshError(err instanceof Error ? err.message : String(err)); });
+    return () => { alive = false; };
+  }, [activeRsh]);
 
   const refreshList = useCallback(async (expectedEpoch = activityEpochRef.current) => {
     const list = await apiListThreads();
@@ -996,6 +1055,24 @@ function ThreadedApp({ url }: { url: UrlState }) {
       await openThread(ensured.id);
       await refreshList();
     }
+  }, [openThread, refreshList]);
+
+  // One-step remote-shell entry ("CSG work"): a stable thread per transport,
+  // carrying the binding in its context and pinning the transport's routing
+  // target (once) so chat-lane turns delegate to the remote agent.
+  const openRemoteShell = useCallback(async (t: RemoteShellTransport) => {
+    const ensured = await apiEnsureThread({
+      id: `remote-shell-${t.name}`,
+      title: t.label || t.name,
+      source: "remote-shell",
+      context: { remoteShell: { transport: t.name, ...(t.routingTarget ? { target: t.routingTarget } : {}) } }
+    });
+    if (!ensured) return;
+    if (t.routingTarget && !ensured.routing?.target) {
+      await apiSetRouting(ensured.id, { ...(ensured.routing ?? {}), target: t.routingTarget });
+    }
+    await openThread(ensured.id);
+    await refreshList();
   }, [openThread, refreshList]);
 
   const selectThread = useCallback(async (id: string) => {
@@ -1281,6 +1358,23 @@ function ThreadedApp({ url }: { url: UrlState }) {
             );
           })}
         </div>
+        {rshTransports.length > 0 && (
+          <div className="wc-rsh-rail">
+            <div className="wc-rsh-rail-title">Remote shells</div>
+            {rshTransports.map((t) => (
+              <button
+                key={t.name}
+                type="button"
+                className="wc-rsh-entry"
+                onClick={() => { void openRemoteShell(t); }}
+                title={`Attach ${t.label || t.name} (${t.via})`}
+              >
+                <span className="wc-rsh-entry-label">{t.label || t.name}</span>
+                <span className="wc-rsh-entry-via">{t.via}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </aside>
       <div className="wc-sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
       <main className="wc-main">
@@ -1342,6 +1436,8 @@ function ThreadedApp({ url }: { url: UrlState }) {
             replays and follows every buffered live frame; this notice is context,
             no longer the only sign of activity. */}
         {activeThread?.runningSince ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
+        {activeRsh && rshError && <div className="wc-rsh-error">Remote shell: {rshError}</div>}
+        {activeRsh && rshSessionId && <RemoteShellPane sessionId={rshSessionId} />}
         {loading || !activeId ? (
           <div className="wc-loading">Loading…</div>
         ) : (
