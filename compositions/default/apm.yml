@@ -103,6 +103,8 @@ x-garrison:
             wake_enabled: true
             notify_enabled: true
             speak_enabled: true
+            pendant_enabled: true
+            capture_policy: wake_only
       gateway:
         - id: http-gateway
           config:
@@ -119,7 +121,8 @@ x-garrison:
         - id: garrison-call
           config: {}
         - id: codex-runtime
-          config: {}
+          config:
+            account: pro-ekoa
         - id: gemini-runtime
           config: {}
         - id: opencode-runtime
@@ -130,7 +133,7 @@ x-garrison:
             model: ''
             promptMode: coding
             maxTurns: 500
-            account: ''
+            account: auto
         - id: openrouter-runtime
           config:
             model: anthropic/claude-sonnet-5
@@ -658,7 +661,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 100
+          maxTurns: 500
       - id: cc-sonnet
         runtime: agent-sdk
         model: sonnet
@@ -666,7 +669,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 100
+          maxTurns: 500
       - id: sdk-haiku
         runtime: agent-sdk
         model: claude-haiku-4-5
@@ -689,7 +692,7 @@ x-garrison:
           type: runtime-target
           authMode: subscription
           promptMode: coding
-          maxTurns: 100
+          maxTurns: 500
       - id: opus
         runtime: agent-sdk
         model: claude-opus-4-8
@@ -698,4 +701,4 @@ x-garrison:
           type: runtime-target
           authMode: subscription
           promptMode: coding
-          maxTurns: 100
+          maxTurns: 500
