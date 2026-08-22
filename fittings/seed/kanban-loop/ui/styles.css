@@ -2277,3 +2277,30 @@ button:active, .btn:active { transform: translateY(1px); }
   .panic-bar .btn,
   .panic-result .btn { width: 100%; justify-content: center; }
 }
+
+/* ── Mobile sweep (2026-08-23, garrison-improvements card item 1) ──────────
+   Native checkboxes rendered browser-default and could be flex-squeezed to
+   1px inside label rows; textareas and inputs inside the sheet could exceed
+   the viewport. House-size the primitives once, everywhere. */
+input[type="checkbox"] {
+  appearance: auto;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--sage, #3d6249);
+}
+label.row { display: flex; align-items: center; gap: 8px; }
+.sheet textarea,
+.sheet input[type="text"],
+.sheet input[type="search"],
+.sheet select {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.cl-editor { flex: 1 1 auto; min-width: 0; }
+.cl-editor textarea { width: 100%; }
+@media (max-width: 480px) {
+  .sheet .sh-body { padding: 12px 12px 16px; }
+  .detail-actions .btn { flex: 1 1 auto; justify-content: center; }
+}
