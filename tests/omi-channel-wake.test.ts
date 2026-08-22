@@ -17,6 +17,7 @@ import { Ingress } from "../fittings/seed/omi-channel/lib/ingress.mjs";
 import {
   WakeBus,
   buildWakePrompt,
+  vagueTimeAnchors,
   buildDelegatePrompt,
   parseWakeReply,
   wakeRegex
@@ -455,6 +456,63 @@ describe("wake units", () => {
     const prompt = buildWakePrompt("marca a revisao do carro", ["garrison", "ekoa-code"]);
     expect(prompt).toContain('marca a revisao do carro');
     expect(prompt).toContain("[garrison, ekoa-code]");
+  });
+
+  // Regression (2026-08-22): "Zeca, vamos comer morangos com limão mais logo"
+  // came back as a card with no schedule, or as a note. Two separate gaps: the
+  // rules described create_task as an ORDER, so a plan phrased as a statement
+  // read as a fact to remember; and "mais logo" is a real time reference the
+  // prompt never named, so scheduling it was left to whatever the model felt
+  // like. The anchors below are resolved in code precisely so this is testable
+  // without a model - the classifier copies a timestamp, it does not compute one.
+  describe("vague spoken times", () => {
+    // Built from LOCAL components on purpose: every anchor is a local
+    // wall-clock rule ("9am", "past 22:00"), so a test pinned to a literal UTC
+    // offset would assert Lisbon's answer on a UTC runner and fail there.
+    const local = (h: number, m = 0) => new Date(2026, 7, 22, h, m, 0, 0);
+    const rowFor = (now: Date, phrase: string) =>
+      vagueTimeAnchors(now).find((r) => r.phrases.includes(`"${phrase}"`))!;
+
+    it("resolves 'mais logo' to two hours out and a part of day to its clock time", () => {
+      const now = local(16, 24);
+      expect(Date.parse(rowFor(now, "mais logo").iso)).toBe(local(18, 24).getTime());
+      expect(Date.parse(rowFor(now, "daqui a pouco").iso)).toBe(local(16, 54).getTime());
+      expect(Date.parse(rowFor(now, "a noite").iso)).toBe(local(21).getTime());
+      expect(Date.parse(rowFor(now, "ao jantar").iso)).toBe(local(20).getTime());
+    });
+
+    it("rolls a part of day that already passed to tomorrow", () => {
+      // 09:00 is four hours gone: "de manhã" means tomorrow, never this morning.
+      const morning = new Date(Date.parse(rowFor(local(16, 24), "de manha").iso));
+      expect(morning.getHours()).toBe(9);
+      expect(morning.getDate()).toBe(23);
+    });
+
+    it("never resolves 'later' into the small hours or into the past", () => {
+      // 21:30 + 2h would be 23:30, so it is pulled back to the 22:00 cutoff.
+      expect(Date.parse(rowFor(local(21, 30), "later").iso)).toBe(local(22).getTime());
+      // Past the cutoff there is nothing to pull back to, and clamping to 22:00
+      // would schedule the card in the PAST - so "soon" is the floor.
+      expect(Date.parse(rowFor(local(23, 10), "later").iso)).toBe(local(23, 40).getTime());
+    });
+
+    it("hands the classifier the resolved anchors and says a vague time still schedules", () => {
+      const now = local(16, 24);
+      const prompt = buildWakePrompt("vamos comer morangos com limão mais logo", ["garrison"], [], "", now);
+      expect(prompt).toContain('"mais logo"');
+      expect(prompt).toContain(rowFor(now, "mais logo").iso);
+      expect(prompt).toMatch(/VAGUE TIME IS STILL A TIME/);
+      expect(prompt).toMatch(/copy the timestamp VERBATIM/);
+    });
+
+    it("tells the classifier a spoken plan is a task, not a note", () => {
+      const prompt = buildWakePrompt("x", [], [], "", local(16, 24));
+      expect(prompt).toMatch(/PLAN or an INTENTION counts/);
+      expect(prompt).toMatch(/do NOT demote that to a note/);
+      // ...and the note rule has to agree, or the two rules fight over the same
+      // sentence and the outcome depends on which one the model read last.
+      expect(prompt).toMatch(/Anything with an action in it is a create_task/);
+    });
   });
 
   it("parseWakeReply normalizes intents and tolerates fences", () => {

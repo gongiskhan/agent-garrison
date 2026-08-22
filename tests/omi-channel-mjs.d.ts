@@ -369,7 +369,14 @@ declare module "*/omi-channel/lib/wake.mjs" {
     description: string;
     note: string;
   } | null;
-  export function buildWakePrompt(command: string, projects: string[]): string;
+  export function buildWakePrompt(
+    command: string,
+    projects: string[],
+    context?: Array<{ text: string; isUser: boolean }>,
+    trailing?: string,
+    now?: Date
+  ): string;
+  export function vagueTimeAnchors(now?: Date): Array<{ phrases: string[]; iso: string }>;
   export function buildDelegatePrompt(request: string, opts?: { boardUrl?: string | null }): string;
   export function parseWakeReply(reply: string): {
     intent: "create_task" | "create_event" | "query" | "note" | "unknown";

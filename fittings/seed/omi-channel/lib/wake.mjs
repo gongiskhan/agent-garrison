@@ -106,6 +106,71 @@ function localIsoWithOffset(d) {
 
 const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+// ---- vague times -----------------------------------------------------------
+//
+// "mais logo", "a noite", "de manha" are REAL time references - a wearer speaks
+// them far more often than a clock time - but they carry arithmetic, and the
+// one thing a spoken task has to get right is WHEN it fires. So every vague
+// anchor is resolved HERE against the real clock and handed to the classifier
+// as a literal timestamp to copy. The model's job is to recognise WHICH phrase
+// was spoken; it never computes the moment. That keeps the behaviour testable
+// without a model in the loop, and it is the same discipline the handler
+// already applies to the model's ISO output (validated, never trusted).
+//
+// A part-of-day anchor whose clock time has already passed rolls to tomorrow:
+// "de manha" said at 10:00 means tomorrow morning, not four hours ago.
+const PART_OF_DAY_ANCHORS = [
+  { hour: 9, phrases: ['"de manha"', '"pela manha"', '"in the morning"', '"this morning"'] },
+  { hour: 13, phrases: ['"ao almoco"', '"a hora de almoco"', '"at lunch"', '"lunchtime"'] },
+  { hour: 15, phrases: ['"a tarde"', '"esta tarde"', '"this afternoon"'] },
+  { hour: 18, phrases: ['"ao fim do dia"', '"end of the day"'] },
+  { hour: 20, phrases: ['"ao jantar"', '"a hora de jantar"', '"at dinner"', '"dinnertime"'] },
+  { hour: 21, phrases: ['"a noite"', '"logo a noite"', '"esta noite"', '"tonight"', '"this evening"'] }
+];
+
+const SOON_OFFSET_MS = 30 * 60 * 1000;
+const LATER_OFFSET_MS = 2 * 60 * 60 * 1000;
+// Past this hour, "later" stops meaning "in two hours" and starts meaning a
+// notification in the small hours. It is pulled back to the cutoff - but never
+// behind "soon", or a "mais logo" spoken at 23:00 would resolve into the past
+// and the card would fire the instant it was created.
+const LATER_CUTOFF_HOUR = 22;
+
+function atLocal(now, hour, dayOffset = 0) {
+  const d = new Date(now.getTime());
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(hour, 0, 0, 0);
+  return d;
+}
+
+function nextLocal(now, hour) {
+  const today = atLocal(now, hour);
+  return today.getTime() > now.getTime() ? today : atLocal(now, hour, 1);
+}
+
+export function vagueTimeAnchors(now = new Date()) {
+  const soon = new Date(now.getTime() + SOON_OFFSET_MS);
+  let later = new Date(now.getTime() + LATER_OFFSET_MS);
+  const cutoff = atLocal(now, LATER_CUTOFF_HOUR);
+  if (later.getTime() > cutoff.getTime()) {
+    later = new Date(Math.max(cutoff.getTime(), soon.getTime()));
+  }
+  return [
+    { phrases: ['"daqui a pouco"', '"ja a seguir"', '"in a bit"', '"shortly"', '"soon"'], at: soon },
+    { phrases: ['"mais logo"', '"mais tarde"', '"logo"', '"later"', '"later on"', '"depois"'], at: later },
+    ...PART_OF_DAY_ANCHORS.map((a) => ({ phrases: a.phrases, at: nextLocal(now, a.hour) }))
+  ].map((a) => ({ phrases: a.phrases, iso: localIsoWithOffset(a.at) }));
+}
+
+function vagueTimeBlock(now) {
+  const rows = vagueTimeAnchors(now)
+    .map((a) => `- ${a.phrases.join(" / ")} -> ${a.iso}`)
+    .join("\n");
+  return `A VAGUE TIME IS STILL A TIME. These are already resolved against the clock above - when the user speaks one of them, copy the timestamp VERBATIM into "scheduled_for" instead of computing your own, and never omit the field because the time was imprecise:
+${rows}
+Accented and unaccented spellings are the same phrase. A part of day named together with a DAY ("amanha a tarde", "tomorrow evening", "Monday morning") keeps the clock time from its row but takes the date the user named.`;
+}
+
 function timeContextLine(now) {
   let tz = "";
   try {
@@ -149,6 +214,8 @@ command clearly refers to, and ignore it entirely otherwise):
 }
 ${timeContextLine(now)}
 
+${vagueTimeBlock(now)}
+
 Schema:
 {
   "intent": "create_task" | "create_event" | "card_command" | "delegate" | "query" | "note" | "unknown",
@@ -168,9 +235,15 @@ Schema:
 }
 
 Rules:
-- create_task: the user wants something done later (a task for the board).
+- create_task: the user wants something done later (a task for the board). A
+  PLAN or an INTENTION counts, not just an order: "vamos comer morangos com
+  limão mais logo", "let's call the plumber tomorrow", "tenho de pagar o IMI",
+  "preciso de comprar pão", "não te esqueças de regar as plantas". Someone who
+  speaks the wake word and then describes something that is going to happen is
+  putting it on the board - do NOT demote that to a note.
   Whenever they say WHEN - a clock time ("tomorrow at 9"), a day ("amanhã", "on
-  Monday", "next week"), or a relative delay ("in two hours") - set
+  Monday", "next week"), a relative delay ("in two hours"), or one of the VAGUE
+  times resolved above ("mais logo", "à noite", "de manhã") - set
   "scheduled_for" to an absolute ISO 8601 time and "schedule_action" to "notify".
   A DAY WITHOUT A CLOCK TIME still schedules: resolve it to that day at 09:00
   local. "Remind me" is itself a request to be reminded, so it always schedules
@@ -204,7 +277,10 @@ Rules:
 - query: ONLY for something you can answer correctly from general knowledge
   alone, with no access to the user's data ("how many grams in an ounce").
   Put the full answer in "answer". If it needs anything of theirs, delegate.
-- note: the user states a fact/preference to remember.
+- note: the user states a fact or a preference to REMEMBER - something that is
+  true, not something to be done ("o Tomás é alérgico a amendoim", "prefiro voar
+  de manhã"). Anything with an action in it is a create_task even when it is
+  phrased as a plan rather than an instruction.
 - unknown: none of the above fits.
 - project: one of [${projectList}] only when clearly implied, else null.
 - Keep the user's language (PT stays PT, EN stays EN).
