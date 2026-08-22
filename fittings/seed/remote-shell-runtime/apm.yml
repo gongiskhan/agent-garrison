@@ -66,7 +66,10 @@ x-garrison:
       name: remote-shell
   consumes: []
   setup:
-    command: node ui/build.mjs
+    # link-devtunnel-home: the instance XDG redirect hides the box's devtunnel
+    # login (same trap as Cursor's auth under XDG_CONFIG_HOME) — link the real
+    # token store in before anything needs the tunnel.
+    command: node scripts/link-devtunnel-home.mjs && node ui/build.mjs
     idempotent: true
     timeout_ms: 120000
   verify:

@@ -898,10 +898,13 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const [rshError, setRshError] = useState<string | null>(null);
 
   // The active thread's remote-shell binding, read from its opaque context.
-  const activeRsh = useMemo(() => {
-    const ctx = activeThread?.context as { remoteShell?: { transport?: unknown; target?: unknown } } | undefined;
-    const transport = typeof ctx?.remoteShell?.transport === "string" ? ctx.remoteShell.transport : null;
-    return transport ? { transport } : null;
+  // A STRING, not an object: the 10s idle poll replaces activeThread (and so
+  // the context object's identity) every tick — an object here would retrigger
+  // the attach effect below each poll, tearing down and re-creating the
+  // session/WS ten times a minute with a visible pane gap during each POST.
+  const activeRshTransport = useMemo(() => {
+    const ctx = activeThread?.context as { remoteShell?: { transport?: unknown } } | undefined;
+    return typeof ctx?.remoteShell?.transport === "string" ? ctx.remoteShell.transport : null;
   }, [activeThread?.context]);
 
   useEffect(() => {
@@ -918,12 +921,12 @@ function ThreadedApp({ url }: { url: UrlState }) {
   useEffect(() => {
     setRshSessionId(null);
     setRshError(null);
-    if (!activeRsh) return;
+    if (!activeRshTransport) return;
     let alive = true;
     void fetch("/api/remote-shell/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ transport: activeRsh.transport })
+      body: JSON.stringify({ transport: activeRshTransport })
     })
       .then(async (r) => {
         const data = await r.json().catch(() => ({}));
@@ -933,7 +936,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
       })
       .catch((err) => { if (alive) setRshError(err instanceof Error ? err.message : String(err)); });
     return () => { alive = false; };
-  }, [activeRsh]);
+  }, [activeRshTransport]);
 
   const refreshList = useCallback(async (expectedEpoch = activityEpochRef.current) => {
     const list = await apiListThreads();
@@ -1436,8 +1439,8 @@ function ThreadedApp({ url }: { url: UrlState }) {
             replays and follows every buffered live frame; this notice is context,
             no longer the only sign of activity. */}
         {activeThread?.runningSince ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
-        {activeRsh && rshError && <div className="wc-rsh-error">Remote shell: {rshError}</div>}
-        {activeRsh && rshSessionId && <RemoteShellPane sessionId={rshSessionId} />}
+        {activeRshTransport && rshError && <div className="wc-rsh-error">Remote shell: {rshError}</div>}
+        {activeRshTransport && rshSessionId && <RemoteShellPane sessionId={rshSessionId} />}
         {loading || !activeId ? (
           <div className="wc-loading">Loading…</div>
         ) : (

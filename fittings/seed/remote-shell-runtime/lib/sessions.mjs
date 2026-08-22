@@ -34,6 +34,14 @@ function sessionsFile() {
 
 const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
+// Remote paths configured as ~/... must expand on the REMOTE shell — a
+// single-quoted tilde never does, so `tail -F '~/x'` follows a nonexistent
+// literal path forever, silently. Splice in an unquoted "$HOME" instead.
+const remotePath = (p) => {
+  const s = String(p);
+  return s.startsWith("~/") ? `"$HOME"${shellQuote(s.slice(1))}` : shellQuote(s);
+};
+
 export class SessionManager {
   constructor({ tunnels, transports, notify }) {
     this.tunnels = tunnels;
@@ -150,7 +158,7 @@ export class SessionManager {
     const ensure = await sshExec(
       transport,
       `tmux has-session -t ${shellQuote(transport.tmuxSession)} 2>/dev/null || ` +
-        `tmux new-session -d -s ${shellQuote(transport.tmuxSession)} -c ${shellQuote(transport.cwd)} -x 220 -y 50; ` +
+        `tmux new-session -d -s ${shellQuote(transport.tmuxSession)} -c ${remotePath(transport.cwd)} -x 220 -y 50; ` +
         // Shared-attach sizing: the most recently active client drives the
         // window size, so a second smaller viewer doesn't shrink the first.
         `tmux set-option -t ${shellQuote(transport.tmuxSession)} -g window-size latest 2>/dev/null; ` +
@@ -355,7 +363,7 @@ export class SessionManager {
     // the catch-up read below, keyed on lastEventAt.
     const child = spawn("ssh", [
       ...sshArgv(t),
-      `touch ${shellQuote(t.eventsFile)} 2>/dev/null; tail -n 0 -F ${shellQuote(t.eventsFile)} 2>/dev/null`
+      `touch ${remotePath(t.eventsFile)} 2>/dev/null; tail -n 0 -F ${remotePath(t.eventsFile)} 2>/dev/null`
     ], { stdio: ["ignore", "pipe", "pipe"] });
     session.eventsChild = child;
 
@@ -383,7 +391,7 @@ export class SessionManager {
    *  fired during the gap still settles the turn. */
   async #catchUpEvents(session) {
     const t = session.transport;
-    const r = await sshExec(t, `tail -n 25 ${shellQuote(t.eventsFile)} 2>/dev/null`);
+    const r = await sshExec(t, `tail -n 25 ${remotePath(t.eventsFile)} 2>/dev/null`);
     if (r.code !== 0) return;
     const since = session.lastEventAt ? Date.parse(session.lastEventAt) : 0;
     for (const line of r.stdout.split("\n")) {
