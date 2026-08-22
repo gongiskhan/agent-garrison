@@ -295,7 +295,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         }
         try {
           ws.send(JSON.stringify({ type: "init_ack", id: session.id, tmux: true, state: session.state }));
-          if (session.buffer.length > 0) ws.send(session.buffer);
+          const replay = manager.replayBuffer(session);
+          if (replay.length > 0) ws.send(replay);
         } catch {}
         return;
       }

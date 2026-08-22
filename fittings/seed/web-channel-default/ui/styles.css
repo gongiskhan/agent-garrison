@@ -1542,3 +1542,13 @@ body {
 }
 .wc-rsh-entry:hover { background: rgba(255, 255, 255, 0.06); }
 .wc-rsh-entry-via { font-size: 11px; color: #9fa69a; }
+
+/* ── Routing console (.cc-rm) in the Garrison skin: serif display, brass
+   accent, olive nav strip against the paper detail pane. ─────────────────── */
+.cc-rm {
+  --cc-rm-accent: var(--wc-brass-deep, #746232);
+  --cc-rm-accent-fg: #fdf8ec;
+  --cc-rm-nav: rgba(32, 41, 32, 0.05);
+  --cc-rm-display: var(--wc-serif, Georgia, serif);
+}
+.cc-rm-head h2 { font-weight: 500; font-size: 20px; }

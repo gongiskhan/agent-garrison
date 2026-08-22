@@ -251,6 +251,25 @@ export class SessionManager {
     }
   }
 
+  /**
+   * The replay buffer with terminal QUERY sequences stripped. tmux interrogates
+   * the attaching terminal on attach (DA1/DA2, CPR, color and termcap queries);
+   * those bytes end up in the raw output buffer, and REPLAYING them makes
+   * xterm.js answer a question nobody is asking anymore — tmux then treats the
+   * answer (`ESC[>0;276;0c`) as KEYSTROKES and types it into the remote TUI's
+   * input box, once per reconnect. Queries only mean anything live, so the
+   * replay drops them; the live stream is untouched.
+   */
+  replayBuffer(session) {
+    const raw = session.buffer.toString("latin1");
+    const stripped = raw.replace(
+      // DA1/DA2/version queries, CPR request, OSC 10/11 color queries, XTGETTCAP.
+      /\x1b\[>?0?c|\x1b\[6n|\x1b\[>q|\x1b\]1[01];\?(?:\x07|\x1b\\)|\x1bP\+q[^\x07\x1b]*(?:\x07|\x1b\\)/g,
+      ""
+    );
+    return Buffer.from(stripped, "latin1");
+  }
+
   subscribe(session, ws) {
     let set = this.subscribers.get(session.id);
     if (!set) {
