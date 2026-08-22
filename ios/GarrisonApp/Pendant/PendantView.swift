@@ -216,14 +216,35 @@ final class TranscriptStream: ObservableObject {
         guard let url = components.url else { return }
         task = Task { [weak self] in
             guard let self else { return }
+            // The session is created on the phone and only exists server-side
+            // once the websocket session_start lands, so the first request
+            // usually loses that race and is answered 404. bytes(from:) does
+            // NOT throw on 404 - it hands back the error body - so the status
+            // has to be checked explicitly, and the attempt retried, or the
+            // strip stays empty for the whole session.
+            while !Task.isCancelled {
+                let opened = await self.streamOnce(url: url)
+                if opened { return } // ran to done, or was cancelled mid-stream
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    /// Returns true when the stream reached its natural end and should not be
+    /// retried; false when it never opened and the caller should try again.
+    private func streamOnce(url: URL) async -> Bool {
+        do {
+            let (bytes, response) = try await URLSession.shared.bytes(from: url)
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                return false // usually the session_start race; try again shortly
+            }
             do {
-                let (bytes, _) = try await URLSession.shared.bytes(from: url)
                 for try await line in bytes.lines {
-                    if Task.isCancelled { return }
+                    if Task.isCancelled { return true }
                     guard line.hasPrefix("data: "), let data = line.dropFirst(6).data(using: .utf8),
                           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                     else { continue }
-                    if object["done"] as? Bool == true { return }
+                    if object["done"] as? Bool == true { return true }
                     guard let text = object["text"] as? String else { continue }
                     let isFinal = object["final"] as? Bool ?? false
                     await MainActor.run {
@@ -237,8 +258,13 @@ final class TranscriptStream: ObservableObject {
                     }
                 }
             } catch {
-                // Stream dropped: the strip goes quiet; a reconnect restarts it.
+                // Mid-stream drop: reconnect rather than going quiet for good.
+                return false
             }
+            // Server closed without "done" - the session may still be live.
+            return false
+        } catch {
+            return false
         }
     }
 
