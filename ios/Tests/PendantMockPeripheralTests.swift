@@ -296,6 +296,28 @@ final class PendantBLETransportMockTests: XCTestCase {
         transport.disconnect()
     }
 
+    /// A stored identifier that is no longer reachable - a pendant left at
+    /// home, or the Mac emulator used for a rehearsal, now quit - must not pin
+    /// the transport forever. CBCentralManager.connect() never times out, so
+    /// without a fallback the app retries a dead peripheral and never scans for
+    /// the real one, which is exactly what stranded a real device after an
+    /// emulator rehearsal.
+    func testUnreachableStoredIdentifierFallsBackToScanning() {
+        let stale = PendantSpec()
+        CBMCentralManagerMock.simulatePeripherals([stale.spec, pendant.spec])
+        // Known to the system (so retrieval returns it) but not actually here.
+        stale.spec.simulateCaching()
+        stale.spec.simulateProximityChange(.outOfRange)
+
+        let transport = PendantBLETransport(identifier: stale.spec.identifier)
+        let connected = expectation(description: "connected to a reachable pendant")
+        transport.onConnectionState = { if $0 == .connected { connected.fulfill() } }
+        transport.connect()
+        // Retrieval timeout is 8 s; allow it plus a scan and connect.
+        wait(for: [connected], timeout: 25)
+        transport.disconnect()
+    }
+
     func testUnexpectedDisconnectEntersReconnectingAndRecovers() {
         let transport = connectTransport()
         var sawReconnecting = false

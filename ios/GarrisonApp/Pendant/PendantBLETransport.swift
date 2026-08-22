@@ -96,12 +96,23 @@ final class PendantBLETransport: NSObject, DeviceTransport {
     private var readCompletions: [String: [(Data?) -> Void]] = [:]
     private var writeCompletions: [String: [(Bool) -> Void]] = [:]
 
+    /// Set when a retrieval-based connect timed out, so the next attempt scans
+    /// instead of retrying the same unreachable peripheral. Cleared on a
+    /// successful connection.
+    private var preferScan = false
+    private var retrievalTimer: DispatchSourceTimer?
     private var livenessTimer: DispatchSourceTimer?
     private var livenessResubscribes = 0
     private var sawAudioSinceArm = false
 
     private static let restoreIdentifier = "com.gomes.garrison.pendant.restore"
     private static let reconnectDelayMs = 200
+    /// CBCentralManager.connect() never times out by design. A stored
+    /// identifier that no longer exists nearby - a pendant left at home, or a
+    /// Mac running the emulator that has since quit - would therefore pin the
+    /// transport to a device that will never answer, and it would never look
+    /// for the real one. Give retrieval this long, then scan.
+    private static let retrievalTimeoutSeconds = 8
     private static let livenessWindowSeconds = 4
 
     /// Everything keys on full 128-bit lowercase UUID strings; 16-bit
@@ -191,9 +202,10 @@ final class PendantBLETransport: NSObject, DeviceTransport {
             if central.state == .poweredOff { setState(.bluetoothOff) }
             return // centralManagerDidUpdateState fires the pending connect
         }
-        if peripheral == nil, let storedIdentifier,
+        if peripheral == nil, !preferScan, let storedIdentifier,
            let known = central.retrievePeripherals(withIdentifiers: [storedIdentifier]).first {
             adopt(known)
+            armRetrievalTimeout()
         }
         if let peripheral {
             setState(everConnected ? .reconnecting : .connecting)
@@ -220,6 +232,7 @@ final class PendantBLETransport: NSObject, DeviceTransport {
     }
 
     private func teardownSession() {
+        cancelRetrievalTimeout()
         characteristics.removeAll()
         pendingCharacteristicDiscovery.removeAll()
         subscribed.removeAll()
@@ -276,6 +289,33 @@ final class PendantBLETransport: NSObject, DeviceTransport {
     /// The classic silent failure: GATT connected, CCCD dead. One forced
     /// re-subscribe, then give up to a logged state (the owner sees no
     /// frames and the connection state stays connected - honest).
+    /// Only armed for a RETRIEVED peripheral: a scanned one was just seen
+    /// advertising, so its connect is not a shot in the dark.
+    private func armRetrievalTimeout() {
+        cancelRetrievalTimeout()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + .seconds(Self.retrievalTimeoutSeconds))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.cancelRetrievalTimeout()
+            guard self.wantsConnection, self.connectionState != .connected else { return }
+            // Stop chasing the stored device and go find one that is actually here.
+            if let peripheral = self.peripheral {
+                self.central.cancelPeripheralConnection(peripheral)
+            }
+            self.peripheral = nil
+            self.preferScan = true
+            self.startConnecting()
+        }
+        timer.resume()
+        retrievalTimer = timer
+    }
+
+    private func cancelRetrievalTimeout() {
+        retrievalTimer?.cancel()
+        retrievalTimer = nil
+    }
+
     private func armLivenessWatchdog() {
         cancelLivenessWatchdog()
         sawAudioSinceArm = false
@@ -332,6 +372,8 @@ extension PendantBLETransport: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        cancelRetrievalTimeout()
+        preferScan = false
         everConnected = true
         connectedAt = Date()
         reassembler.reset()
