@@ -3383,12 +3383,14 @@ body {
   color: #f0b0b0;
   font-size: 12px;
 }
-.wc-rsh-rail { border-top: 1px solid var(--line, #d9d2c2); padding: 8px; }
+/* The rail lives in the DARK sidebar; inherited colors here come from the
+   page's light-skin body and read dark-on-dark, so every color is explicit. */
+.wc-rsh-rail { border-top: 1px solid #4b584d; padding: 8px; }
 .wc-rsh-rail-title {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  opacity: 0.6;
+  color: #9fa69a;
   margin: 2px 0 6px;
 }
 .wc-rsh-entry {
@@ -3399,14 +3401,14 @@ body {
   width: 100%;
   text-align: left;
   background: none;
-  border: 1px solid var(--line, #d9d2c2);
+  border: 1px solid #4b584d;
   border-radius: 7px;
   padding: 7px 9px;
   margin-bottom: 6px;
   cursor: pointer;
-  color: inherit;
+  color: #e6e9df;
   font: inherit;
 }
-.wc-rsh-entry:hover { background: rgba(0, 0, 0, 0.05); }
-.wc-rsh-entry-via { font-size: 11px; opacity: 0.55; }
+.wc-rsh-entry:hover { background: rgba(255, 255, 255, 0.06); }
+.wc-rsh-entry-via { font-size: 11px; color: #9fa69a; }
 
