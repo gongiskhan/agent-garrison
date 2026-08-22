@@ -1,4 +1,4 @@
-name: default
+name: codex
 version: 0.1.0
 target: claude
 dependencies:
@@ -49,8 +49,8 @@ dependencies:
 x-garrison:
   composition:
     schema: 4
-    id: default
-    name: default
+    id: codex
+    name: codex
     global_config:
       projects_root: ~/dev
       vault: default
