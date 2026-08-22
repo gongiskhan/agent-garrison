@@ -1,25 +1,49 @@
 // Terminal pane for remote-shell threads — an xterm.js view over the
 // same-origin /remote-shell/io relay (the web-channel server pipes it to the
 // remote-shell fitting's WS, which is an `ssh -tt … tmux attach` PTY).
-// Protocol and behaviours are the dev-env TerminalPane's, trimmed: the remote
-// pane is ALWAYS tmux-backed, so the wheel is left to tmux's own mouse mode,
-// and the terminal keeps its own dark palette regardless of the channel skin.
+//
+// Inside the workbench (`hideBar`), the pane is chrome-free: the command deck
+// above it owns state/identity/reconnect, fed through `onMetaChange`, and
+// `reconnectNonce` re-runs the attach effect. Standalone (the fitting's own
+// UI), the built-in bar remains.
 
 import React, { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 
-export function RemoteShellPane({ sessionId }: { sessionId: string }) {
+export interface RemoteShellMeta {
+  agentState: "running" | "idle" | null;
+  status: string | null;
+}
+
+export function RemoteShellPane({
+  sessionId,
+  hideBar = false,
+  reconnectNonce = 0,
+  onMetaChange,
+}: {
+  sessionId: string;
+  hideBar?: boolean;
+  reconnectNonce?: number;
+  onMetaChange?: (m: RemoteShellMeta) => void;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [agentState, setAgentState] = useState<"running" | "idle" | null>(null);
   const [generation, setGeneration] = useState(0);
+  const onMetaRef = useRef(onMetaChange);
+  onMetaRef.current = onMetaChange;
+
+  useEffect(() => {
+    onMetaRef.current?.({ agentState, status });
+  }, [agentState, status]);
 
   useEffect(() => {
     if (!containerRef.current) return;
     let cancelled = false;
+    setStatus(null);
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: "block",
@@ -28,12 +52,14 @@ export function RemoteShellPane({ sessionId }: { sessionId: string }) {
       scrollback: 10_000,
       convertEol: false,
       allowProposedApi: true,
+      // The Fortress terminal ground (same-family darkening of olive-950).
+      // No ANSI palette override — the remote TUI brings its own colors.
       theme: {
-        background: "#0e0e0e",
-        foreground: "#e5e5e5",
-        cursor: "#e5e5e5",
-        cursorAccent: "#0e0e0e",
-        selectionBackground: "#3b3b3b"
+        background: "#10140f",
+        foreground: "#e2ddd0",  /* 13.9:1 on term-bg */
+        cursor: "#c8ae66",
+        cursorAccent: "#10140f",
+        selectionBackground: "#3d4a3e"
       }
     });
     const fit = new FitAddon();
@@ -85,7 +111,7 @@ export function RemoteShellPane({ sessionId }: { sessionId: string }) {
               }
               if (msg.type === "pong") return;
               if (msg.type === "error") { setStatus(msg.message); return; }
-              if (msg.type === "detached") { setStatus("detached — reconnect to reattach"); return; }
+              if (msg.type === "detached") { setStatus("detached"); return; }
             }
           } catch {}
         }
@@ -95,23 +121,30 @@ export function RemoteShellPane({ sessionId }: { sessionId: string }) {
       const buf = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : (ev.data as Uint8Array);
       term.write(buf);
     });
-    socket.addEventListener("close", () => { if (!cancelled) setStatus("connection closed — tap Reconnect"); });
-    socket.addEventListener("error", () => { if (!cancelled) setStatus("connection error — tap Reconnect"); });
+    socket.addEventListener("close", () => { if (!cancelled) setStatus((s) => s ?? "connection closed"); });
+    socket.addEventListener("error", () => { if (!cancelled) setStatus((s) => s ?? "connection error"); });
 
     term.onData((d) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(d));
     });
 
+    // Trailing-debounced refit: a seam drag emits a handful of resize frames,
+    // not one per animation frame — every resize redraws the remote TUI over
+    // the tunnel.
+    let refitTimer: ReturnType<typeof setTimeout> | null = null;
     const refit = () => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      if (rect.width < 10 || rect.height < 10) return;
-      try {
-        fit.fit();
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-        }
-      } catch {}
+      if (refitTimer) clearTimeout(refitTimer);
+      refitTimer = setTimeout(() => {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        if (rect.width < 10 || rect.height < 10) return;
+        try {
+          fit.fit();
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+          }
+        } catch {}
+      }, 200);
     };
     const resizeObs = new ResizeObserver(refit);
     resizeObs.observe(containerRef.current);
@@ -119,28 +152,31 @@ export function RemoteShellPane({ sessionId }: { sessionId: string }) {
 
     return () => {
       cancelled = true;
+      if (refitTimer) clearTimeout(refitTimer);
       window.removeEventListener("resize", refit);
       resizeObs.disconnect();
       try { socket.close(); } catch {}
       try { term.dispose(); } catch {}
       socketRef.current = null;
     };
-  }, [sessionId, generation]);
+  }, [sessionId, generation, reconnectNonce]);
 
   return (
     <div className="wc-rsh">
-      <div className="wc-rsh-bar">
-        <span className={`wc-rsh-dot${agentState === "running" ? " wc-rsh-dot--running" : ""}`} aria-hidden />
-        <span className="wc-rsh-state">{agentState === "running" ? "Agent working" : agentState === "idle" ? "Agent idle" : "Connecting"}</span>
-        {status && (
-          <>
-            <span className="wc-rsh-status">{status}</span>
-            <button type="button" className="wc-rsh-reconnect" onClick={() => { setStatus(null); setGeneration((g) => g + 1); }}>
-              Reconnect
-            </button>
-          </>
-        )}
-      </div>
+      {!hideBar && (
+        <div className="wc-rsh-bar">
+          <span className={`wc-rsh-dot${agentState === "running" ? " wc-rsh-dot--running" : ""}`} aria-hidden />
+          <span className="wc-rsh-state">{agentState === "running" ? "Agent working" : agentState === "idle" ? "Agent idle" : "Connecting"}</span>
+          {status && (
+            <>
+              <span className="wc-rsh-status">{status}</span>
+              <button type="button" className="wc-rsh-reconnect" onClick={() => { setStatus(null); setGeneration((g) => g + 1); }}>
+                Reconnect
+              </button>
+            </>
+          )}
+        </div>
+      )}
       <div ref={containerRef} className="wc-rsh-term" data-testid="remote-shell-pane" />
     </div>
   );

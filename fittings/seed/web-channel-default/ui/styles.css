@@ -821,6 +821,11 @@ html, body {
      chrome; the #7a7568 fallback was 3.3:1 on the brief head/foot bars. */
   --wc-fg-dim: #465348;
   --wc-brass: #b1954e;
+  --wc-term-bg: #10140f;      /* same-family darkening of olive-950 */
+  --wc-term-fg: #e2ddd0;      /* 13.9:1 on term-bg */
+  --wc-brass-bright: #c8ae66; /* ~7:1 on olive-950 */
+  --wc-sage-bright: #8aa688;  /* 6.4:1 on olive-950; IDLE on dark */
+  --wc-alarm-bright: #d08a7e; /* 6.2:1 on olive-950; DETACHED/OFFLINE on dark */
   --wc-brass-deep: #746232;
   --wc-sage: #6f8e6d;
   --wc-alarm: #963f35;
@@ -1552,3 +1557,277 @@ body {
   --cc-rm-display: var(--wc-serif, Georgia, serif);
 }
 .cc-rm-head h2 { font-weight: 500; font-size: 20px; }
+
+/* ── Remote-shell COMMAND-DECK WORKBENCH ─────────────────────────────────────
+   Appended after the base .wc-rsh block: same-specificity re-declarations here
+   win (house layering rule). Desktop: deck over terminal | seam | dispatch
+   ledger. Narrow (<1024px): stacked console with a bottom dispatch dock whose
+   transcript reveals as a sheet. Motion budget: lamp pulse, lamp blink, sheet
+   slide - nothing else moves. */
+.wc-workbench {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.wc-wb-head {
+  flex: none;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 12px;
+  background: linear-gradient(180deg, rgba(177, 149, 78, 0.08), transparent), var(--wc-olive-900);
+  border-left: 3px solid var(--wc-brass);
+  border-bottom: 1px solid #4b584d;
+}
+.wc-wb-lamp {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  background: var(--wc-stone-300, #c9c2b2);
+}
+.wc-wb-lamp--running { background: var(--wc-brass); animation: wc-rsh-pulse 1.2s ease-in-out infinite; }
+.wc-wb-lamp--idle { background: var(--wc-sage-bright); }
+.wc-wb-lamp--linking { animation: wc-wb-blink 1s steps(2, end) infinite; }
+.wc-wb-lamp--detached, .wc-wb-lamp--offline { background: var(--wc-alarm-bright); }
+@keyframes wc-wb-blink { 50% { opacity: 0.25; } }
+.wc-wb-state {
+  font: 600 10px/1 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.wc-wb-state--running { color: var(--wc-brass-bright); }
+.wc-wb-state--idle { color: var(--wc-sage-bright); }
+.wc-wb-state--linking { color: #c9c2b2; }
+.wc-wb-state--detached, .wc-wb-state--offline { color: var(--wc-alarm-bright); }
+.wc-wb-elapsed { color: #9aa392; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+.wc-wb-div { width: 1px; height: 16px; background: #4b584d; flex: none; }
+.wc-wb-title {
+  font: 500 15px/1.2 var(--wc-serif);
+  color: #f0ead9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wc-wb-crumb {
+  margin-left: 12px;
+  font: 9.5px/1 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9aa392;
+  white-space: nowrap;
+}
+.wc-wb-spacer { flex: 1; }
+.wc-wb-reattach {
+  border: 1px solid #4b584d;
+  border-radius: 2px;
+  background: none;
+  color: #c8ccbf;
+  font: 9.5px/1 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 5px 12px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.wc-wb-reattach:hover { background: rgba(255, 255, 255, 0.06); }
+.wc-wb-reattach--loud {
+  background: var(--wc-brass);
+  border-color: var(--wc-brass-bright);
+  color: #171b17; /* 6.7:1 on brass */
+}
+.wc-wb-reattach--loud:hover { background: var(--wc-brass-bright); }
+.wc-wb-body { display: flex; flex: 1; min-height: 0; }
+.wc-wb-body--dragging { user-select: none; cursor: col-resize; }
+.wc-wb-terminal {
+  flex: 1 1 auto;
+  min-width: 480px;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  background: var(--wc-term-bg);
+  /* The xterm canvas keeps its last-fit size until the debounced refit lands;
+     without clipping it forces this cell wider and paints under the seam. */
+  overflow: hidden;
+}
+/* Kill the old sandwich: inside the workbench the pane fills its stage. */
+.wc-wb-terminal .wc-rsh {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border-bottom: none;
+  background: var(--wc-term-bg);
+  overflow: hidden;
+}
+.wc-wb-terminal .wc-rsh-term { padding: 10px 12px; }
+.wc-wb-veil {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 26, 21, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+}
+.wc-wb-plaque {
+  background: var(--wc-olive-900);
+  border: 1px solid #4b584d;
+  border-radius: 2px;
+  padding: 16px 20px;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wc-wb-plaque-title { font: 500 15px/1.3 var(--wc-serif); color: #f0ead9; }
+.wc-wb-plaque-sub { font-size: 12.5px; line-height: 1.5; color: #cbbda3; }
+.wc-wb-plaque .wc-wb-reattach { align-self: flex-start; margin-top: 4px; }
+.wc-wb-seam {
+  flex: 0 0 7px;
+  cursor: col-resize;
+  position: relative;
+}
+.wc-wb-seam::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: #4b584d;
+}
+.wc-wb-seam:hover::before,
+.wc-wb-body--dragging .wc-wb-seam::before { left: 2px; width: 3px; background: var(--wc-brass); }
+.wc-wb-seam:focus-visible { outline: none; }
+.wc-wb-seam:focus-visible::before { left: 2px; width: 3px; background: var(--wc-brass-bright); }
+.wc-wb-delegate {
+  flex: 0 0 clamp(300px, 32%, 440px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background:
+    linear-gradient(var(--wc-grid-line, rgba(61, 74, 62, 0.055)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--wc-grid-line, rgba(61, 74, 62, 0.055)) 1px, transparent 1px),
+    var(--wc-stone-50, #f7f3e8);
+  background-size: 30px 30px, 30px 30px, auto;
+}
+.wc-wb-paneh {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font: 600 9.5px/1 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--wc-fg-dim, #465348);
+  border-bottom: 1px solid var(--wc-stone-200, #e7e0cf);
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  width: 100%;
+  text-align: left;
+}
+.wc-wb-paneh-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--wc-muted, #6f7a6c);
+  font-variant-numeric: tabular-nums;
+}
+.wc-wb-chevron { transition: transform 140ms ease; }
+.wc-wb-chevron--open { transform: rotate(180deg); }
+.wc-wb-empty { padding: 22px 16px 8px; }
+.wc-wb-empty-lead { margin: 0 0 6px; font: 400 15px/1.4 var(--wc-serif); color: var(--wc-ink, #22271f); }
+.wc-wb-empty-sub { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--wc-fg-dim, #465348); }
+/* ClaudeChat reframed inside the ledger: the paneh replaces its header; the
+   stock empty line would double our prose. */
+.wc-workbench .cc-header { display: none; }
+.wc-workbench .cc-empty { display: none; }
+.wc-workbench .cc-root { flex: 1 1 auto; min-height: 0; height: auto; }
+.wc-wb-delegate .cc-scroll { padding: 12px; }
+.wc-wb-delegate .cc-turn { margin-bottom: 12px; }
+.wc-wb-delegate .cc-user {
+  background: rgba(177, 149, 78, 0.10);
+  border: 1px solid rgba(177, 149, 78, 0.28);
+  border-left: 2px solid var(--wc-brass-deep);
+  border-radius: 2px;
+  font-size: 13px;
+  max-width: 100%;
+}
+.wc-wb-delegate .cc-assistant { font-size: 13px; max-width: 100%; }
+.wc-wb-delegate .cc-md { line-height: 1.5; overflow-wrap: anywhere; }
+.wc-wb-delegate .cc-user, .wc-wb-delegate .cc-assistant { overflow-wrap: anywhere; min-width: 0; }
+.wc-wb-delegate { overflow: hidden; }
+.wc-wb-delegate .cc-working-label {
+  font-family: var(--wc-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--wc-brass-deep);
+}
+.wc-wb-delegate .cc-composer { padding: 8px 10px 10px; }
+/* Error strip, instrument voice. */
+.wc-rsh-error {
+  background: #2a1512;
+  color: var(--wc-alarm-bright);
+  border-left: 3px solid var(--wc-alarm, #b0604f);
+  font-family: var(--wc-mono);
+  font-size: 11px;
+  padding: 8px 12px;
+}
+/* ── Narrow (<1024px): stacked console with the dispatch sheet ── */
+@media (max-width: 1023px) {
+  .wc-wb-head { height: 40px; }
+  .wc-wb-body { flex-direction: column; }
+  .wc-wb-terminal { min-width: 0; min-height: 160px; }
+  .wc-wb-seam { display: none; }
+  .wc-wb-delegate { flex: 0 0 auto; }
+  .wc-wb-paneh--btn { height: 36px; cursor: pointer; }
+  .wc-workbench .cc-root { flex: 0 0 auto; position: relative; overflow: visible; }
+  .wc-wb-delegate .cc-scroll { display: none; }
+  .wc-wb-delegate--open .cc-scroll {
+    display: block;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    height: min(46dvh, 420px);
+    background: var(--wc-stone-50, #f7f3e8);
+    border-top: 1px solid var(--wc-stone-300, #d9d2c2);
+    box-shadow: 0 -18px 40px rgba(20, 26, 21, 0.28);
+    z-index: 5;
+    overflow-y: auto;
+    padding: 12px;
+    animation: wc-wb-sheet 160ms ease-out;
+  }
+  .wc-wb-delegate--open .cc-empty {
+    display: block;
+    font: 400 14px/1.5 var(--wc-serif);
+    color: var(--wc-muted, #6f7a6c);
+  }
+  @keyframes wc-wb-sheet {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+@media (max-width: 720px) {
+  .wc-wb-crumb { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wc-wb-lamp--running, .wc-wb-lamp--linking { animation: none; }
+  .wc-wb-delegate--open .cc-scroll { animation: none; }
+  .wc-wb-chevron { transition: none; }
+}
+
+/* The fixed sidebar toggle sits over the deck's left edge on narrow screens -
+   the same clearance the skin gives .cc-header. */
+@media (max-width: 899px) {
+  .wc-wb-head { padding-left: 52px; }
+}

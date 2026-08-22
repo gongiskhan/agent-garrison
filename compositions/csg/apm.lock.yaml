@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-05T21:01:54.192594+00:00'
+generated_at: '2026-08-22T17:09:25.729111+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/automations
@@ -72,13 +72,18 @@ dependencies:
   deployed_files:
   - .claude/commands/orchestrator.md
   deployed_file_hashes:
-    .claude/commands/orchestrator.md: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
+    .claude/commands/orchestrator.md: sha256:89c156c3c5902d384f5c81f6ce9846a11e909007a82ed27a6ffb076a660d8e1c
   source: local
   local_path: ../../fittings/seed/orchestrator
 - repo_url: _local/scheduler
   name: scheduler
   version: 0.1.0
   package_type: apm_package
+  deployed_files:
+  - .claude/skills/scheduler
+  - .claude/skills/scheduler/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/scheduler/SKILL.md: sha256:64e38be28851d8f659554b170ca117dd7d4be238480802f87f6f5ea197ec7423
   source: local
   local_path: ../../fittings/seed/scheduler
 - repo_url: _local/web-channel-default

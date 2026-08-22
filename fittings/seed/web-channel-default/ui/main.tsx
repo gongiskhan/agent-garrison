@@ -33,7 +33,7 @@ import {
 } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "./orchestrator-transport";
 import { VoiceConversation } from "./voice-conversation";
-import { RemoteShellPane } from "./remote-shell-pane";
+import { RemoteShellWorkbench } from "./remote-shell-workbench";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -158,7 +158,7 @@ function readUrl(): UrlState {
 
 // ── Thread types + API ──────────────────────────────────────────────────────
 /** A configured remote-shell transport, relayed from the fitting. */
-interface RemoteShellTransport {
+export interface RemoteShellTransport {
   name: string;
   label: string;
   via: string;
@@ -1482,8 +1482,11 @@ function ThreadedApp({ url }: { url: UrlState }) {
             no longer the only sign of activity. */}
         {activeThread?.runningSince ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
         {activeRshTransport && rshError && <div className="wc-rsh-error">Remote shell: {rshError}</div>}
-        {activeRshTransport && rshSessionId && <RemoteShellPane sessionId={rshSessionId} />}
-        {loading || !activeId ? (
+        {(() => {
+          const rshTransport = activeRshTransport
+            ? rshTransports.find((t) => t.name === activeRshTransport) ?? null
+            : null;
+          const chat = loading || !activeId ? (
           <div className="wc-loading">Loading…</div>
         ) : (
           <ClaudeChat
@@ -1493,7 +1496,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             title="Operative"
             /* The phone composer row also carries voice, mic and attach, leaving
                the field ~180px - the full hint truncates mid-word there. */
-            placeholder={narrowComposer ? "Message…" : undefined}
+            placeholder={activeRshTransport ? "Send to the remote agent — it lands in the console" : narrowComposer ? "Message…" : undefined}
             composerAdornment={voiceAdornment}
             context={ctx}
             initialMessage={kickoff}
@@ -1512,7 +1515,22 @@ function ThreadedApp({ url }: { url: UrlState }) {
             onPinChange={savePins}
             onOpenTranscript={openTranscript}
           />
-        )}
+        );
+          if (activeRshTransport && rshSessionId) {
+            return (
+              <RemoteShellWorkbench
+                sessionId={rshSessionId}
+                transport={rshTransport}
+                title={activeThread?.title || rshTransport?.label || "Remote shell"}
+                messageCount={activeThread?.messages?.length ?? 0}
+                hasActivity={Boolean(activeThread?.runningSince) || (activeThread?.pendingInputs?.length ?? 0) > 0}
+              >
+                {chat}
+              </RemoteShellWorkbench>
+            );
+          }
+          return chat;
+        })()}
       </main>
     </div>
   );
