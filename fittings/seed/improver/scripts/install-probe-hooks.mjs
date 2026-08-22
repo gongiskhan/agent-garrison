@@ -48,7 +48,16 @@ function stripOwnGroups(settings) {
   for (const [event, list] of Object.entries(settings.hooks)) {
     if (!Array.isArray(list)) continue;
     const before = list.length;
-    settings.hooks[event] = list.filter((g) => !(g && g._garrison === OWNER));
+    settings.hooks[event] = list.filter((g) => {
+      if (!g) return true;
+      if (g._garrison === OWNER) return false;
+      // Pre-tag residue: untagged copies of our own probe hooks from installs
+      // before the owner tag existed — match by command signature so a
+      // reinstall reaps them instead of stacking a sixth copy.
+      const cmds = Array.isArray(g.hooks) ? g.hooks.map((h) => String(h?.command ?? "")) : [];
+      if (g._garrison === undefined && cmds.some((c) => c.includes("probe-stop-hook") || c.includes("probe-capture"))) return false;
+      return true;
+    });
     if (settings.hooks[event].length !== before) removed = true;
   }
   return removed;

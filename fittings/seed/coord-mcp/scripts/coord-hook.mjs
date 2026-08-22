@@ -45,6 +45,31 @@ async function main() {
   const cwd = payload.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const session = payload.session_id || process.env.CLAUDE_SESSION_ID || "hook";
 
+  // Repo gate (2026-08-22): the hook is installed globally but the nudge only
+  // belongs in repos that opted into coordination — a `.coord` marker at the
+  // repo root, or a path listed in ~/.garrison/coord/enabled-repos.json. Every
+  // other session gets NOTHING injected (fail-open, zero bytes). The garrison
+  // checkout ships a `.coord` marker, so it is enabled out of the box.
+  try {
+    const { repoRoot } = await import(path.join(__dirname, "lib", "repo.mjs"));
+    const root = repoRoot(cwd);
+    let enabled = fs.existsSync(path.join(root, ".coord"));
+    if (!enabled) {
+      try {
+        const listPath = path.join(garrisonHome(), "coord", "enabled-repos.json");
+        const list = JSON.parse(fs.readFileSync(listPath, "utf8"));
+        enabled = Array.isArray(list) && list.some((p) => path.resolve(String(p)) === path.resolve(root));
+      } catch { /* no list file = marker-only */ }
+    }
+    if (!enabled) {
+      emit(event, "");
+      return;
+    }
+  } catch {
+    emit(event, "");
+    return;
+  }
+
   // Import the coordination libs from the fitting (sibling ./lib). On any import
   // failure (fitting half-removed) we still emit empty context + exit 0.
   let repo,
