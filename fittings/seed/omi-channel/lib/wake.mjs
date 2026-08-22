@@ -794,7 +794,10 @@ export class WakeBus {
 
     const commandDoneAt = this.now();
     this.counters.observe("wake_command_ms", commandDoneAt - commandStartedAt);
-    if (outcome?.result?.intent === "note_fallback") {
+    // A discarded capture is a failed wake as far as the wearer is concerned:
+    // they said the name and nothing usable followed, and the buzz is the only
+    // signal they get now that the confirmation push is suppressed.
+    if (outcome?.result?.intent === "note_fallback" || outcome?.result?.intent === "discarded") {
       this.emitLifecycle("task_failed", {
         sessionId,
         eventId,
@@ -812,11 +815,16 @@ export class WakeBus {
     event.triage_result_ref = resultRef;
     this.store.writeEvent(event);
 
-    const receipts = await this.notifier.send({
-      template: "wake_confirmation",
-      params: { text: outcome.confirmation, cardUrl: outcome.cardUrl ?? null }
-    });
-    this.counters.observe("wake_notify_ms", this.now() - commandDoneAt);
+    // Silent outcomes still leave the full forensic trail above - the
+    // capture_event and the wake-results record - they just do not interrupt the
+    // user to report that nothing happened.
+    const receipts = outcome.silent
+      ? []
+      : await this.notifier.send({
+          template: "wake_confirmation",
+          params: { text: outcome.confirmation, cardUrl: outcome.cardUrl ?? null }
+        });
+    if (!outcome.silent) this.counters.observe("wake_notify_ms", this.now() - commandDoneAt);
     const latencyMs = this.now() - wakeHitAt;
     this.counters.observe("wake_hit_to_notification_ms", latencyMs);
     this.log.log(`[${this.source.logPrefix}] wake command dispatched (${outcome.result.intent}) in ${latencyMs}ms`);
@@ -1198,6 +1206,31 @@ export class WakeBus {
   }
 
   fallbackNote({ command, eventId, confirmation, reason }) {
+    // An empty capture that nothing could be made of is not a note - it is
+    // nothing. The note here IS the command ("content: command"), so an empty
+    // command wrote a zero-content file into the user's durable memory vault,
+    // reported `saved: true`, and pushed "I saved it as a note" to their phone -
+    // a statement that was not true. Two of those landed in 20 seconds on
+    // 2026-08-22.
+    //
+    // This does NOT close the door close() deliberately left open: a bare "Zeca"
+    // whose intent the pre-wake context DOES recover comes back as create_task /
+    // note / delegate and never reaches a fallback at all. What reaches here with
+    // no command is a capture that recovered nothing. A non-empty command still
+    // becomes a note - there the words are worth keeping even when the intent is
+    // not - which is the case the suite pins.
+    //
+    // Guarded here rather than in the unknown-intent branch so it also covers the
+    // gateway-offline, unparseable-reply, board-unreachable and delegation-off
+    // callers: every one of them writes the command as the whole note.
+    if (!String(command ?? "").trim()) {
+      this.counters.bump("wake_unrecoverable_captures");
+      return {
+        confirmation: null,
+        silent: true,
+        result: { intent: "discarded", reason: `empty command (${reason})` }
+      };
+    }
     const written = this.memoryWriter.write({
       title: `Omi note: ${command.slice(0, 48)}`,
       content: command,

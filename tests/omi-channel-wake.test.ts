@@ -363,6 +363,45 @@ describe("wake bus sessions", () => {
     }
   });
 
+  // Regression (2026-08-22, live pendant session 01M0N103ZZZHA6K6C1YCZC): two
+  // wake hits 20 seconds apart assembled an EMPTY command, dispatched anyway
+  // because pre-wake context existed, came back "unknown", and were each written
+  // into the user's Obsidian vault as a zero-content note and announced to their
+  // phone as "I saved it as a note" - which was false, since the note held
+  // nothing. close() deliberately dispatches a context-only capture (the intent
+  // is often recoverable from what surrounded a bare "Zeca"), and that stays: a
+  // recovered capture returns a real intent and never reaches a fallback. What is
+  // gone is turning "recovered nothing" into a note.
+  it("discards an empty capture the classifier could not recover, instead of saving an empty note", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-empty-"));
+    try {
+      const { bus, sent, store, counters } = makeDeps(home, () => JSON.stringify({ intent: "unknown" }));
+      // Ambient talk first, so the pre-wake context ring is NOT empty - that is
+      // what lets close() dispatch at all.
+      bus.handleSegments({ sessionId: "e1", segments: [seg("estava a falar do jantar de ontem", 0, 2)] });
+      // ...then the name on its own, with nothing after it.
+      bus.handleSegments({ sessionId: "e1", segments: [seg("zeca", 3, 4)] });
+
+      await waitFor(() => store.listEvents().length === 1);
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(sent).toHaveLength(0);
+      expect(counters.read().wake_unrecoverable_captures).toBe(1);
+      expect(counters.read().wake_notes_saved ?? 0).toBe(0);
+      expect(existsSync(path.join(home, "vault"))).toBe(false);
+
+      // The forensic trail survives: under capture_policy wake_only this record
+      // is the ONLY trace a wake hit leaves, and it is what made this diagnosable.
+      const results = readdirSync(path.join(store.root, "wake-results"));
+      expect(results).toHaveLength(1);
+      const record = JSON.parse(readFileSync(path.join(store.root, "wake-results", results[0]), "utf8"));
+      expect(record.intent).toBe("discarded");
+      expect(record.command).toBe("");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("degrades to a saved note with an honest confirmation when the gateway call fails", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-degrade-"));
     try {

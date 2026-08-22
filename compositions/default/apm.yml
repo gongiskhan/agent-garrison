@@ -106,6 +106,24 @@ x-garrison:
             speak_enabled: true
             pendant_enabled: true
             capture_policy: wake_only
+            # The same wake windows omi-channel above already runs. The shipped
+            # DEFAULTS (silence 4000 / max 20000) are what the pendant path was
+            # started on, and they are the reason a spoken command lost its last
+            # word: speech reaches the wake bus in bursts - across 22 pendant wake
+            # hits only 2 follow-on segments ever landed inside the window - so a
+            # 4s close means the command is whatever the wake-word segment itself
+            # carried, and "Zeca, vamos comer morangos e chocolate mais logo" was
+            # assembled without the "logo" that was the entire time reference.
+            # 15000 is not a guess: it is the value the omi path was raised to
+            # after the same truncation, and it also brings wake_settled_close_ms
+            # (5000) back into play, so a sentence that ends in punctuation still
+            # closes fast.
+            wake_silence_close_ms: 15000
+            wake_min_capture_ms: 0
+            wake_max_capture_ms: 45000
+            wake_command_window_ms: 45000
+            wake_context_segments: 6
+            wake_context_max_age_ms: 120000
       gateway:
         - id: http-gateway
           config:
