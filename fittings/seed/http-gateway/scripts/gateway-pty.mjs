@@ -1396,6 +1396,10 @@ const ROUTE_SIGNATURE_RUNTIME_DEFAULTS = {
   cursor: { provider: "cursor", model: "auto" },
   "openai-agents": { provider: "ollama-local", model: null },
   "ollama-native": { provider: "ollama-local", model: null },
+  // The "provider" of a remote-shell turn is the remote machine's own agent —
+  // there is no vendor identity behind it, but the signature needs a resolved
+  // name (the target's `model` slot carries the TRANSPORT, so it is always set).
+  "remote-shell": { provider: "remote-shell", model: null },
 };
 
 function exactRouteSessionString(raw, max = 200) {

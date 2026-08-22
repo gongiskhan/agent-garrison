@@ -231,7 +231,7 @@ export class TunnelManager {
       ok: false,
       via: "devtunnel",
       error: this.lastError.get(dt.tunnel) ||
-        `devtunnel forward for ${dt.tunnel}:${dt.port} did not come up (is \`devtunnel user login\` done on this box?)`
+        `devtunnel forward for ${dt.tunnel}:${dt.port} did not come up - the remote host for this tunnel is not running (or \`devtunnel user login\` is missing on this box)`
     };
   }
 
