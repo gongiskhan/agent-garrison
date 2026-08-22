@@ -22,6 +22,7 @@ import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
 import { deriveViewProvisions } from "./view-instances";
 import { materializeEnv, wipeMaterializedEnv } from "./vault";
+import { compositionFingerprint, readLastUp, writeLastUp } from "./up-fingerprint";
 import {
   DEFAULT_PRIMARY_RUNTIME,
   resolvePrimaryRuntime,
@@ -401,14 +402,14 @@ export function subscribeLogs(
 
 export async function up(
   compositionId: string,
-  options: { devMode?: boolean } = {}
+  options: { devMode?: boolean; full?: boolean } = {}
 ): Promise<RunnerState> {
   return withRunnerOperation(compositionId, () => upUnlocked(compositionId, options));
 }
 
 async function upUnlocked(
   compositionId: string,
-  options: { devMode?: boolean } = {}
+  options: { devMode?: boolean; full?: boolean } = {}
 ): Promise<RunnerState> {
   // Block on any pending reconciliation. If the user hits Run before the
   // fire-and-forget sweep from getRunnerState has finished, awaiting here
@@ -479,7 +480,23 @@ async function upUnlocked(
     // surfaces on transitive deps the user can't realistically audit line-by-
     // line. apm continues to PRINT the warnings, which the user can see in
     // the runner log.
-    await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
+    // Fast path (Garrison-improvements card, item 3): when the composition is
+    // byte-identical to the last successfully VERIFIED up, the expensive steps
+    // (apm install, setup hooks, verify hooks) are provably redundant and are
+    // skipped. Any change — manifest, overlay, lockfile, any fitting source
+    // file — takes the full path. `Run with full verify` forces it.
+    const upFingerprint = await compositionFingerprint(composition.directory);
+    const lastUp = options.full || options.devMode ? null : await readLastUp(composition.directory);
+    const fastPath = Boolean(lastUp?.ok && lastUp.fingerprint === upFingerprint);
+    if (fastPath) {
+      appendLog(
+        compositionId,
+        "runner",
+        `fast path: composition unchanged since last verified up (${upFingerprint.slice(0, 12)}) — install/setup/verify skipped`
+      );
+    } else {
+      await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
+    }
     const envPath = await materializeEnv(composition.directory);
     launchClaim.envMaterialized = true;
     appendLog(compositionId, "runner", `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)}`);
@@ -536,11 +553,17 @@ async function upUnlocked(
     } catch (e) {
       appendLog(compositionId, "runner", `coord teardown reconcile skipped: ${e instanceof Error ? e.message : String(e)}`);
     }
-    await runSetupHooks(compositionId);
-    const verifyResults = await verify(compositionId);
-    const failed = verifyResults.find((result) => !result.ok);
-    if (failed) {
-      throw new Error(`Verify failed for ${failed.fittingId}`);
+    let verifyResults: VerifyResult[];
+    if (fastPath) {
+      verifyResults = (lastUp?.verifyResults as VerifyResult[] | undefined) ?? [];
+      updateState(compositionId, { verifyResults });
+    } else {
+      await runSetupHooks(compositionId);
+      verifyResults = await verify(compositionId);
+      const failed = verifyResults.find((result) => !result.ok);
+      if (failed) {
+        throw new Error(`Verify failed for ${failed.fittingId}`);
+      }
     }
     const promptPath = await assembleSystemPrompt(compositionId);
 
@@ -887,6 +910,15 @@ async function upUnlocked(
     appendLog(compositionId, "runner", `Operative process started${child.pid ? ` with pid ${child.pid}` : ""}`);
     await startOperativeBoundFittings(compositionId);
     assertOwnedLiveProcess(record, child, "operative-bound fitting startup", true);
+    // Record the verified state for the next up's fast-path decision. On the
+    // fast path the fingerprint is unchanged by definition, but the timestamp
+    // refresh is still useful evidence of the last successful launch.
+    await writeLastUp(composition.directory, {
+      fingerprint: upFingerprint,
+      at: new Date().toISOString(),
+      ok: true,
+      verifyResults
+    });
     return getRunnerState(compositionId);
   } catch (error) {
     // A failure after a child became ready (for example the dev watcher or an

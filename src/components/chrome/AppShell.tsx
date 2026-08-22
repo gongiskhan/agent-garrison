@@ -54,7 +54,7 @@ export interface AppShellState {
     selections: FittingSelectionMap;
     globalConfig: GlobalConfig;
   }>) => Promise<void>;
-  runAction: (action: "up" | "down" | "verify" | "dev") => Promise<void>;
+  runAction: (action: "up" | "up-full" | "down" | "verify" | "dev") => Promise<void>;
   unlockVault: (passphrase?: string) => Promise<void>;
   setSecrets: (secrets: VaultSecretRow[]) => void;
   revealSecret: (key: string) => Promise<void>;
@@ -336,8 +336,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       setBusy(action);
       setError(null);
       try {
-        const res = await fetch(`/api/runner/${composition.id}/${action}`, {
-          method: "POST"
+        const endpoint = action === "up-full" ? "up" : action;
+        const res = await fetch(`/api/runner/${composition.id}/${endpoint}`, {
+          method: "POST",
+          ...(action === "up-full"
+            ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ full: true }) }
+            : {})
         });
         const data = await res.json();
         if (data.state) setRunnerState(data.state);

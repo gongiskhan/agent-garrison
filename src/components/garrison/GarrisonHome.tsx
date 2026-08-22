@@ -106,6 +106,14 @@ export function GarrisonHome() {
                   <span className="ic"><Square size={13} aria-hidden /></span>Stop
                 </button>
               ) : null}
+              <button
+                className="btn"
+                title="Force apm install + setup hooks + verify even when the composition is unchanged"
+                onClick={() => void runAction("up-full")}
+                disabled={Boolean(busy)}
+              >
+                Full verify run
+              </button>
             </div>
           </div>
         </section>
