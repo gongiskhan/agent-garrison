@@ -32,6 +32,7 @@ import type {
   TurnRouting,
 } from "./transport";
 import { AttributionRail, type PinField, type PinPatch, type RailOptions } from "./AttributionRail";
+import { RoutingModal } from "./RoutingModal";
 import {
   getChatMode,
   resolvedChatScheme,
@@ -1531,6 +1532,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   /** The generated thread edits its run context in a sheet rather than in a
    *  standing row of badges above the composer. */
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
+  const [routeModal, setRouteModal] = useState<{ open: boolean; focus?: PinField }>({ open: false });
   /** Which replies have their run-context rail expanded. Collapsed by default:
    *  the rail is a record you consult, not something to read on every message. */
   const [openRails, setOpenRails] = useState<ReadonlySet<string>>(() => new Set());
@@ -3302,6 +3304,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               onOpenTranscript={onOpenTranscript}
               label="Run context for your next message"
               musterUrl={musterUrl}
+              onOpenModal={(field) => { setRouteSheetOpen(false); setRouteModal({ open: true, focus: field }); }}
             />
           </RouteSheet>
         )}
@@ -3317,6 +3320,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               onOpenTranscript={onOpenTranscript}
               label="Run context for your next message"
               musterUrl={musterUrl}
+              onOpenModal={(field) => setRouteModal({ open: true, focus: field })}
             >
               {flightRailEnd}
             </AttributionRail>
@@ -3329,6 +3333,16 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               </div>
             )}
           </>
+        )}
+        {routeModal.open && (
+          <RoutingModal
+            pins={pins}
+            options={routeOptions ?? undefined}
+            onPin={applyPin}
+            onClose={() => setRouteModal({ open: false })}
+            focusField={routeModal.focus ?? null}
+            musterUrl={musterUrl}
+          />
         )}
         {slashQuery !== null && filtered.length > 0 && (
           <div className="cc-slashmenu">
@@ -3397,8 +3411,8 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               aria-haspopup="dialog"
               aria-expanded={routeSheetOpen}
               aria-label="Run context for your next message"
-              title="Route: duty, model, effort, account or project for your next message"
-              onClick={() => setRouteSheetOpen(true)}
+              title="Route: duty, level, tier, runtime, model, effort, account, project, flow or phases for your next message"
+              onClick={() => setRouteModal({ open: true })}
             >
               {/* A junction: one road in, three out - routing, not settings. */}
               <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">

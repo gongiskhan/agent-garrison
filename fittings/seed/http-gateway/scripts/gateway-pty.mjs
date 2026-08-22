@@ -1255,19 +1255,25 @@ export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
     const kind = pinned !== null && !vocabulary.flows.includes(pinned) ? aliases[pinned] ?? pinned : pinned;
     if (kind !== null && inVocab(vocabulary.flows, kind, "flow")) out.flow = kind;
   }
-  if (raw.phasesOff !== undefined && raw.phasesOff !== null) {
-    const csv = pinnedString(raw.phasesOff, "phasesOff", rejected);
+  // The two phase-override pins share one validation shape: a CSV of ids from
+  // the policy's GLOBAL phase catalog. `phasesOff` skips plan phases;
+  // `phasesOn` (2026-08-22, the routing modal) ADDS phases the resolved flow's
+  // plan does not carry — which is exactly why both validate against the full
+  // catalog, not the plan.
+  for (const field of ["phasesOff", "phasesOn"]) {
+    if (raw[field] === undefined || raw[field] === null) continue;
+    const csv = pinnedString(raw[field], field, rejected);
     if (csv !== null) {
       const ids = csv.split(",").map((s) => s.trim()).filter(Boolean);
       if (!vocabulary.phases.length) {
-        rejected.push({ field: "phasesOff", reason: "policy-unavailable" });
+        rejected.push({ field, reason: "policy-unavailable" });
       } else {
         const unknown = ids.filter((id) => !vocabulary.phases.includes(id));
         // ALL-or-nothing. Silently keeping the recognised half would turn "skip
         // these three gates" into "skip two of them" with nothing on the badge to
         // say so - and a phase the user believes is off would run.
-        if (unknown.length) rejected.push({ field: "phasesOff", reason: `unknown-phase:${unknown[0]}` });
-        else if (ids.length) out.phasesOff = ids.join(",");
+        if (unknown.length) rejected.push({ field, reason: `unknown-phase:${unknown[0]}` });
+        else if (ids.length) out[field] = ids.join(",");
       }
     }
   }
@@ -1319,6 +1325,7 @@ export function turnAttribution(pre, hints, extra = {}) {
     // when nobody pinned one, which is the flow the turn is actually running.
     flow: hints?.flow ?? pre?.flow ?? null,
     phasesOff: phaseTogglesToCsv(hints?.phases),
+    phasesOn: phaseTogglesOnToCsv(hints?.phases),
     // Undefined (not false) when the router did not say: an older lane that never
     // reports it must not be badged "a classifier ran" on no evidence.
     classifierSkipped: typeof pre?.classifierSkipped === "boolean" ? pre.classifierSkipped : null,
@@ -2221,7 +2228,15 @@ export function buildRouteOptions() {
     account: { name: processAccount, source: processAccount ? "process" : null },
     projects,
     tiers: vocab.tiers,
+    // The tier prose from the policy (tierDefinitions), so a menu can say what
+    // T1-standard MEANS instead of offering three bare ids.
+    tierDefinitions:
+      config?.tierDefinitions && typeof config.tierDefinitions === "object" ? { ...config.tierDefinitions } : {},
     flows,
+    // The policy's GLOBAL ordered phase catalog — the same list pins validate
+    // against, so the phases menu can offer out-of-plan phases (phasesOn)
+    // without a client-side copy of the vocabulary.
+    phaseCatalog: [...vocab.phases],
     defaultFlow: typeof config?.defaultFlow === "string" ? config.defaultFlow : null,
     primaryRuntime: primaryRuntime(),
     activeProfile: config?.activeProfile ?? null,
@@ -3559,6 +3574,18 @@ export function phaseTogglesFromCsv(csv) {
   return Object.fromEntries(ids.map((id) => [id, false]));
 }
 
+/** Both phase-override pins folded into ONE toggle map: `{id: false}` skips a
+ *  plan phase, `{id: true}` adds an out-of-plan phase (railForCard unions true
+ *  entries into the plan). OFF wins a conflict — the map is keyed, so a phase
+ *  in both CSVs resolves to the safer "does not run". Null when neither pin
+ *  carries anything, keeping unpinned turns byte-identical to before. */
+export function phaseTogglesFromRouting(routing) {
+  const off = phaseTogglesFromCsv(routing?.phasesOff);
+  const onIds = String(routing?.phasesOn ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!off && !onIds.length) return null;
+  return { ...Object.fromEntries(onIds.map((id) => [id, true])), ...(off ?? {}) };
+}
+
 /** The inverse, for reporting a resolved plan back on the badge row. Only `false`
  *  entries count: `railForCard` reads nothing else, so a stray `true` in a toggle
  *  map means "on", not "off", and must not appear in the OFF list. */
@@ -3566,6 +3593,13 @@ export function phaseTogglesToCsv(toggles) {
   if (!toggles || typeof toggles !== "object" || Array.isArray(toggles)) return null;
   const off = Object.entries(toggles).filter(([, on]) => on === false).map(([id]) => id);
   return off.length ? off.join(",") : null;
+}
+
+/** The ON half of the same report: phases explicitly ADDED beyond the plan. */
+export function phaseTogglesOnToCsv(toggles) {
+  if (!toggles || typeof toggles !== "object" || Array.isArray(toggles)) return null;
+  const on = Object.entries(toggles).filter(([, v]) => v === true).map(([id]) => id);
+  return on.length ? on.join(",") : null;
 }
 
 // Durable Web → gateway resume identity. The session id alone is not enough:
@@ -3778,7 +3812,7 @@ export function routeHintsFromBody(body) {
     phases:
       body?.phases && typeof body.phases === "object"
         ? body.phases
-        : phaseTogglesFromCsv(routing?.phasesOff),
+        : phaseTogglesFromRouting(routing),
     // NOT the same thing as `routing.project`, and deliberately not folded into it:
     // this is the card's project LABEL, `routing.project` is the turn's cwd pin.
     // Collapsing them would silently change the cwd of every existing board caller.

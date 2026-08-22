@@ -100,6 +100,8 @@ export interface RouteAttribution {
   flow?: string | null;
   /** Phases turned OFF for the run, comma-separated - see TurnRouting.phasesOff. */
   phasesOff?: string | null;
+  /** Phases ADDED beyond the plan, comma-separated - see TurnRouting.phasesOn. */
+  phasesOn?: string | null;
   /** True when the router reached a route WITHOUT an LLM classification, because
    *  the pin already carried it. The honest counterpart to `via` - it is what makes
    *  "explicit, so no classifier ran" a reported fact rather than an assumption. */
@@ -191,11 +193,17 @@ export interface TurnRouting {
    * A CSV of the OFF set rather than an on/off map for two reasons: every pin
    * crosses four separate scalar whitelists (this type, the channel's thread
    * persistence, the gateway's edge validator, and the client compactor), and the
-   * toggles are one-directional anyway - `railForCard` only ever tests
-   * `toggles[id] === false`, so a phase can be turned off below its plan but never
-   * on above it. An OFF phase stays IN the rail rendered off; it is never hidden.
+   * OFF set and ON set stay separate scalars so each crosses the whitelists on
+   * its own. An OFF phase stays IN the rail rendered off; it is never hidden.
    */
   phasesOff?: string | null;
+  /**
+   * Phases ADDED for this run beyond the resolved flow's plan, comma-separated
+   * ("security-review,walkthrough"). Validated against the policy's GLOBAL
+   * phase catalog (that is the point - the plan does not carry them);
+   * `railForCard` unions a `true` toggle into the plan, OFF wins a conflict.
+   */
+  phasesOn?: string | null;
 }
 
 /** Client-generated correlation only. The host assigns the durable input id and

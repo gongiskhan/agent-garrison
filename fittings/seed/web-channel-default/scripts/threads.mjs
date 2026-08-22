@@ -142,6 +142,7 @@ const ROUTE_META_FIELDS = {
   phase: "id",
   flow: "id",
   phasesOff: "text",
+  phasesOn: "text",
   classifierSkipped: "bool",
   skill: "id",
   via: "id",
@@ -188,6 +189,7 @@ const ROUTING_FIELDS = {
   tier: "id",
   flow: "id",
   phasesOff: "id",
+  phasesOn: "id",
 };
 
 // Canonical session-event limits. Text uses the same explicit truncation marker as

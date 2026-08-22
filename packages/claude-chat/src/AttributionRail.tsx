@@ -33,7 +33,8 @@ export type PinField =
   | "account"
   | "tier"
   | "flow"
-  | "phasesOff";
+  | "phasesOff"
+  | "phasesOn";
 
 /** A sparse change to the pins. A `null` value CLEARS that pin (back to the
  *  composition's routing) - it never means "pin the value null". */
@@ -50,7 +51,7 @@ const BADGE_FIELDS: Record<string, PinField[]> = {
   project: ["project"],
   target: ["target"],
   tier: ["tier"],
-  flow: ["flow", "phasesOff"],
+  flow: ["flow", "phasesOff", "phasesOn"],
 };
 
 /** The dimension order used for pins that have no resolved badge yet, and for the
@@ -80,6 +81,7 @@ const FIELD_LABEL: Record<PinField, string> = {
   tier: "tier",
   flow: "flow",
   phasesOff: "phases",
+  phasesOn: "phases+",
 };
 
 /** The "stop pinning this" row per dimension. Says what happens INSTEAD, because
@@ -98,6 +100,7 @@ const AUTO_LABEL: Record<PinField, string> = {
   // the tier" was the pre-coherence world and read as if nothing had shipped.
   flow: "Automatic - the router picks the flow, its level picks the plan",
   phasesOff: "Automatic - every phase in the plan runs",
+  phasesOn: "Automatic - only the plan's phases run",
 };
 
 function str(v: unknown): string {
@@ -126,8 +129,8 @@ export function joinPhasesOff(off: string[], planOrder: string[]): string | null
 }
 
 /** A pin is "in force" when it holds a real value. `null`/`undefined`/blank all
- *  mean "not pinned" - see PinPatch. */
-function pinnedValue(pins: TurnRouting | null | undefined, field: PinField): string | number | null {
+ *  mean "not pinned" - see PinPatch. Exported for the RoutingModal. */
+export function pinnedValue(pins: TurnRouting | null | undefined, field: PinField): string | number | null {
   if (!pins) return null;
   const raw = (pins as Record<string, unknown>)[field];
   if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : null;
@@ -160,6 +163,8 @@ function ranValue(route: RouteAttribution | null | undefined, field: PinField): 
       return str(route.flow) || null;
     case "phasesOff":
       return str(route.phasesOff) || null;
+    case "phasesOn":
+      return str(route.phasesOn) || null;
   }
 }
 
@@ -300,6 +305,10 @@ export interface RailFlowOption {
   id: string;
   description?: string | null;
   phases?: string[] | null;
+  /** Level keys the flow defines ("1","2","3"), and the one an unpinned run
+   *  resolves to. Empty/null for the pre-levels shape. */
+  levels?: string[] | null;
+  defaultLevel?: number | null;
 }
 export interface RailOptions {
   targets?: RailTargetOption[] | null;
@@ -308,7 +317,11 @@ export interface RailOptions {
   accounts?: RailAccountOption[] | null;
   projects?: string[] | null;
   tiers?: string[] | null;
+  /** Tier prose from the policy's tierDefinitions, keyed by tier id. */
+  tierDefinitions?: Record<string, string> | null;
   flows?: RailFlowOption[] | null;
+  /** The policy's GLOBAL ordered phase catalog - what phasesOn may add. */
+  phaseCatalog?: string[] | null;
   /** The flow used when none is pinned - labelled "(default)" in the menu so
    *  "Automatic" is not mistaken for "no plan". */
   defaultFlow?: string | null;
@@ -606,6 +619,10 @@ export interface AttributionRailProps {
   musterUrl?: string | null;
   /** Right-hand slot (the flight rail's elapsed time + Stop pair). */
   children?: React.ReactNode;
+  /** When set, an interactive badge OPENS THE ROUTING MODAL on its dimension
+   *  instead of the inline popover — the modal supersedes the popovers, which
+   *  broke the composer layout and could not express the levelled system. */
+  onOpenModal?: (field?: PinField) => void;
 }
 
 export function AttributionRail({
@@ -619,6 +636,7 @@ export function AttributionRail({
   label,
   musterUrl,
   children,
+  onOpenModal,
 }: AttributionRailProps) {
   const interactive = typeof onPin === "function" && Boolean(options);
   const badges = useMemo(
@@ -668,12 +686,17 @@ export function AttributionRail({
   const toggleMenu = useCallback(
     (badge: RailDisplayBadge, idx: number) => {
       if (!badge.field || !interactive) return;
+      if (onOpenModal) {
+        setFocusIdx(idx);
+        onOpenModal(badge.field);
+        return;
+      }
       setFocusIdx(idx);
       setOpenKey((prev) => (prev === badge.key ? null : badge.key));
       setMenuIdx(0);
       setFreeText("");
     },
-    [interactive]
+    [interactive, onOpenModal]
   );
 
   const applyRow = useCallback(

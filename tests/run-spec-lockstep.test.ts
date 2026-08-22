@@ -54,6 +54,8 @@ const RUN_SPEC_FIELDS = [
   "tier",
   "flow",
   "phasesOff",
+  // 2026-08-22 (routing modal): phases ADDED beyond the resolved flow's plan.
+  "phasesOn",
 ] as const;
 
 describe("RUN-SPEC-V1: every whitelist knows every dimension", () => {

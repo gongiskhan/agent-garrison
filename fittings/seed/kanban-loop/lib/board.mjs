@@ -371,7 +371,7 @@ export function cardPosition(card) {
  * rather than an empty object — the two read identically, and null is what every
  * pre-existing card already has.
  */
-export const CARD_ROUTING_FIELDS = ["target", "model", "effort", "duty", "level", "project", "account", "tier", "flow", "phasesOff"];
+export const CARD_ROUTING_FIELDS = ["target", "model", "effort", "duty", "level", "project", "account", "tier", "flow", "phasesOff", "phasesOn"];
 export function sanitiseCardRouting(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const out = {};

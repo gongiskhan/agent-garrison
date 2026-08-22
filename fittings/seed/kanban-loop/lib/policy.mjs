@@ -280,10 +280,14 @@ export function railForCard(policy, card) {
   const overrides = ((policy.phaseSkills || {}).overrides || {})[kindName] || {};
   const entry = (id, planOn, offReason) => {
     const toggledOff = toggles[id] === false;
+    // A `true` toggle ADDS a phase the plan does not carry (`phasesOn`, the
+    // routing modal's out-of-plan override). OFF still wins a conflict.
+    const toggledOn = toggles[id] === true;
+    const on = (planOn || toggledOn) && !toggledOff;
     return {
       id,
-      on: planOn && !toggledOff,
-      ...(toggledOff ? { off_reason: "card-toggle" } : planOn ? {} : { off_reason: offReason }),
+      on,
+      ...(toggledOff ? { off_reason: "card-toggle" } : on || planOn ? {} : { off_reason: offReason }),
       skill: overrides[id] || bindings[id] || null
     };
   };

@@ -504,7 +504,12 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
       accounts: asArray<NonNullable<RouteOptions["accounts"]>[number]>(d.accounts),
       projects: asArray<string>(d.projects),
       tiers: asArray<string>(d.tiers),
+      tierDefinitions:
+        d.tierDefinitions && typeof d.tierDefinitions === "object" && !Array.isArray(d.tierDefinitions)
+          ? (d.tierDefinitions as Record<string, string>)
+          : null,
       flows: asArray<NonNullable<RouteOptions["flows"]>[number]>(d.flows),
+      phaseCatalog: asArray<string>(d.phaseCatalog),
       defaultFlow: typeof d.defaultFlow === "string" ? d.defaultFlow : null,
       ...(Object.keys(unavailable).length > 0 ? { unavailable } : {}),
     };
@@ -862,6 +867,41 @@ function ResumedWorkingNotice({ since }: { since: string }) {
   );
 }
 
+
+// ── Sticky project ──────────────────────────────────────────────────────────
+// The LAST explicitly pinned project follows the user onto NEW conversations
+// (personal included) until they clear the pin. Deliberately client-side and
+// per-device: a sticky default is a convenience, not routing truth — the pin it
+// applies is a normal thread pin the rail shows and can clear.
+const STICKY_PROJECT_KEY = "garrison.web.stickyProject";
+
+function rememberStickyProject(prev: TurnRouting | null, next: TurnRouting): void {
+  try {
+    const before = typeof prev?.project === "string" ? prev.project : null;
+    const after = typeof next?.project === "string" ? next.project : null;
+    if (after) window.localStorage.setItem(STICKY_PROJECT_KEY, after);
+    else if (before && !after) window.localStorage.removeItem(STICKY_PROJECT_KEY);
+  } catch { /* storage unavailable - stickiness is best-effort */ }
+}
+
+/** Apply the remembered project to a PRISTINE thread (no history, no explicit
+ *  routing). Remote-shell threads are exempt: their work runs on another
+ *  machine, where a local project cwd would be a lie. */
+async function applyStickyProject(thread: Thread | null): Promise<TurnRouting | null> {
+  if (!thread) return null;
+  try {
+    const sticky = window.localStorage.getItem(STICKY_PROJECT_KEY);
+    if (!sticky) return null;
+    if ((thread.messages?.length ?? 0) > 0) return null;
+    if (thread.routing && typeof thread.routing.project === "string") return null;
+    const ctx = thread.context as { remoteShell?: unknown } | undefined;
+    if (ctx?.remoteShell) return null;
+    return await apiSetRouting(thread.id, { ...(thread.routing ?? {}), project: sticky });
+  } catch {
+    return null;
+  }
+}
+
 function ThreadedApp({ url }: { url: UrlState }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -985,13 +1025,14 @@ function ThreadedApp({ url }: { url: UrlState }) {
   }, []);
 
   const savePins = useCallback(async (next: TurnRouting) => {
+    rememberStickyProject(pins, next);
     if (!activeId) {
       setPins(next);
       return;
     }
     const confirmed = await apiSetRouting(activeId, next);
     setPins(confirmed);
-  }, [activeId]);
+  }, [activeId, pins]);
 
   // One slide-over at a time: the brief editor and the session transcript occupy the
   // same panel slot, and stacking them just hides one behind the other.
@@ -1055,6 +1096,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const newChat = useCallback(async () => {
     const ensured = await apiEnsureThread({ source: "chat" });
     if (ensured) {
+      await applyStickyProject(ensured);
       await openThread(ensured.id);
       await refreshList();
     }

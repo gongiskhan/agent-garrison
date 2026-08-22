@@ -66,6 +66,7 @@ export type { RailBadge, RailBadgeTone, EffortState } from "./run-context";
 // host that cannot import RailOptions ends up hand-declaring a structurally
 // identical interface that then drifts from this one.
 export { AttributionRail, railDisplayBadges, menuForField } from "./AttributionRail";
+export { RoutingModal, resolvedPlanForPins, runtimeGroups, joinPhasesOn } from "./RoutingModal";
 export type {
   AttributionRailProps,
   RailOptions,
