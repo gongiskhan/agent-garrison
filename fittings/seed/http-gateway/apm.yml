@@ -33,6 +33,14 @@ x-garrison:
     # gateway. The default focus template lives in the fitting
     # (scripts/lib/compact-focus-template.mjs); leave compact_focus_template empty
     # to use it.
+    - key: session_log_proxy
+      type: boolean
+      default: false
+      description: >-
+        Route Anthropic-bound runtime traffic through a loopback logging proxy
+        that records the literal API request/response into the session log
+        (api-domain events, credentials redacted). Audit-grade "what the model
+        saw"; off by default.
     - key: compact_enabled
       type: boolean
       default: true

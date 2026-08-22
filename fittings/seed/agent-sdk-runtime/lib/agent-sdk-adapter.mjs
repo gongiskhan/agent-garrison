@@ -17,6 +17,7 @@
 // the sole SDK-importing module (lib/sdk-client.mjs). Tests inject `createClient`,
 // so the unit-test path never loads the SDK.
 import { randomUUID } from "node:crypto";
+import { runLog } from "@garrison/claude-pty";
 import { buildHarness } from "./harness.mjs";
 import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, isAnthropicProvider } from "./providers.mjs";
 import {
@@ -513,6 +514,30 @@ function deferred() {
   return state;
 }
 
+
+// ── Session log choke point (Harness brief §1) ──────────────────────────────
+// Every COMPLETE message from the SDK stream is appended to the run's
+// append-only log before the adapter processes it. `stream_event` deltas are
+// skipped by design — the assembled assistant/user/result messages carry the
+// full content; logging per-token deltas would triple the file for no reader.
+// Domain mapping: assistant/user messages are `session` (they feed prompt
+// derivation); result/system frames are `agent` bookkeeping; a compaction
+// boundary is `session` (it changes what future prompts derive from).
+function logSdkMessage(session, msg, turnId) {
+  if (!msg || msg.type === "stream_event") return;
+  const log = runLog();
+  if (!log) return;
+  const compaction = msg.type === "system" && /compact/i.test(String(msg.subtype ?? ""));
+  const domain = msg.type === "assistant" || msg.type === "user" || compaction ? "session" : "agent";
+  log.append({
+    domain,
+    kind: compaction ? "compaction" : "sdk-message",
+    turn: turnId ?? null,
+    runtimeSessionId: msg.session_id ?? session?.sessionId ?? null,
+    payload: msg,
+  });
+}
+
 export class AgentSdkAdapter {
   constructor(opts = {}) {
     this.id = "agent-sdk";
@@ -707,6 +732,17 @@ export class AgentSdkAdapter {
   // lanes are silent for minutes and then dump a blob.
   async sendTurn(session, text, hooks = {}) {
     if (!session || !session.alive) throw new Error("AgentSdkAdapter: sendTurn on a dead session");
+    // Session log (Harness brief §1): the injection is an event before it is a
+    // prompt — nothing reaches the runtime except by being read out of the log.
+    // A caller-owned turn id wins; a hookless lane still gets a fresh
+    // per-exchange id so an exchange's events group together.
+    session._logTurnId = hooks?.turnId ?? randomUUID();
+    runLog()?.append({
+      domain: "session", kind: "injection",
+      turn: session._logTurnId,
+      runtimeSessionId: session.sessionId ?? null,
+      payload: { text: typeof text === "string" ? text.slice(0, 8000) : null },
+    });
     if (session.streamingInput === true) {
       return this._sendStandingTurn(session, text, hooks);
     }
@@ -981,6 +1017,7 @@ export class AgentSdkAdapter {
     let pumpError = null;
     try {
       for await (const message of client) {
+        logSdkMessage(session, message, session.activeTurn?.turnId ?? session._logTurnId ?? null);
         await this._processStandingMessage(session, message);
       }
     } catch (error) {
@@ -1367,6 +1404,7 @@ export class AgentSdkAdapter {
 
     try {
       for await (const msg of client) {
+        logSdkMessage(session, msg, session._logTurnId ?? null);
         // A cancel that landed mid-stream stops here rather than folding another
         // message in. cancel() also return()s the iterator, so this is the belt to
         // that braces: it covers a cancel observed before the abort propagates.

@@ -29,7 +29,8 @@ import http from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import { realpathSync, statSync } from "node:fs";
+import { realpathSync, statSync, readFileSync as readFileSyncFs, writeFileSync as writeFileSyncFs, mkdirSync as mkdirSyncFs } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -58,6 +59,7 @@ import {
   normalizeFailureInfo
 } from "./lib/gateway-routing.mjs";
 import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
+import { SessionLog, runLog } from "@garrison/claude-pty";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
 import {
   isCardOriginatedChannel,
@@ -81,6 +83,34 @@ const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
 const SYSTEM_PROMPT_PATH = process.env.GARRISON_SYSTEM_PROMPT_PATH ?? "";
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 const COMPOSITION_ID = process.env.AGENT_GARRISON_COMPOSITION ?? path.basename(COMPOSITION_DIR);
+
+// ── Session log run identity (Harness brief §1) ─────────────────────────────
+// One append-only JSONL per Operative run; this process (and the in-process
+// runtime adapters, via the shared @garrison/claude-pty module instance) is the
+// single writer. The env var is how the adapters find the run.
+const SESSION_LOG_RUN = `${COMPOSITION_ID}@${new Date().toISOString().replace(/:/g, "-")}`;
+process.env.GARRISON_SESSION_LOG_RUN = SESSION_LOG_RUN;
+
+// ── Local-API token (Harness brief §7) ──────────────────────────────────────
+// Minted once per Garrison home, 0600. Server-to-server loopback callers may
+// send it as x-garrison-token; its real job is that BROWSER pages cannot read
+// it, so a browser-origin request without it is refused below.
+const GATEWAY_TOKEN = (() => {
+  try {
+    const home = process.env.GARRISON_HOME?.trim() || path.join(homedir(), ".garrison");
+    const file = path.join(home, "gateway-token");
+    try {
+      const existing = String(readFileSyncFs(file, "utf8")).trim();
+      if (existing) return existing;
+    } catch { /* mint below */ }
+    const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+    mkdirSyncFs(home, { recursive: true });
+    writeFileSyncFs(file, token + "\n", { mode: 0o600 });
+    return token;
+  } catch {
+    return randomUUID();
+  }
+})();
 const PERMISSION_MODE = process.env.GARRISON_PERMISSION_MODE ?? "bypassPermissions";
 const MODEL = process.env.GARRISON_MODEL ?? "opus";
 const CLAUDE_BINARY = process.env.GARRISON_CLAUDE_BINARY ?? "claude";
@@ -2293,6 +2323,45 @@ export function screenActivityEmitter(handle, onActivity, nowFn = Date.now) {
 }
 
 async function runRoutedTurn(message, onChunk, hints, opts = {}) {
+  // Session log (Harness brief §1): the injection is written BEFORE the runtime
+  // sees it, and the settled outcome after — every lane, one seam.
+  const slog = runLog();
+  const turnLogId = hints?.threadId && Number.isInteger(hints?.turnSeq)
+    ? `${hints.threadId}#${hints.turnSeq}`
+    : randomUUID();
+  slog?.append({
+    domain: "channel", kind: "inbound", turn: turnLogId,
+    payload: {
+      channel: hints?.channel ?? null,
+      message: typeof message === "string" ? message.slice(0, 4000) : null,
+      routing: hints?.routing ?? null,
+      cardIds: hints?.cardIds ?? null,
+      flow: hints?.flow ?? null,
+    },
+  });
+  try {
+    // Thread the turn identity into the runtime lane: the adapters stamp it on
+    // their session-log events (and the web lane's own id wins when present).
+    const out = await runRoutedTurnInner(message, onChunk, hints, { ...opts, turnId: opts.turnId ?? turnLogId });
+    slog?.append({
+      domain: "channel", kind: "outbound", turn: turnLogId,
+      runtimeSessionId: out?.session_id ?? null,
+      payload: {
+        route: out?.route ?? null,
+        runtime: out?.runtime ?? null,
+        model: out?.model ?? null,
+        replyChars: typeof out?.reply === "string" ? out.reply.length : 0,
+        stoppedReason: out?.stoppedReason ?? null,
+      },
+    });
+    return out;
+  } catch (err) {
+    slog?.append({ domain: "channel", kind: "turn-error", turn: turnLogId, payload: { error: String(err?.message ?? err).slice(0, 500) } });
+    throw err;
+  }
+}
+
+async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
   await router.ensureOperative();
   // NOTE (S3d review R1): the Discuss reply-as-answer / explicit-go interception is NOT
   // here - it runs at the HTTP entry points BEFORE enqueueTurn (dispatchDiscussIntercept),
@@ -4139,6 +4208,27 @@ async function saveAttachment(filename, contentBase64) {
 
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
+  // Local-API hardening (Harness brief §7): localhost binding does not stop a
+  // malicious webpage in the user's browser from reaching this RPC surface —
+  // browsers attach an Origin header to cross-origin fetches, while loopback
+  // server-to-server Node clients send none. A browser-origin request is
+  // accepted only from this gateway's own origin, or with the minted token
+  // (which a foreign page cannot read).
+  {
+    const origin = request.headers.origin;
+    if (origin) {
+      let sameOrigin = false;
+      try {
+        const o = new URL(origin);
+        sameOrigin = (o.hostname === HOST || o.hostname === "localhost" || o.hostname === "127.0.0.1") &&
+          String(o.port || (o.protocol === "https:" ? "443" : "80")) === String(PORT);
+      } catch { /* malformed origin = not same-origin */ }
+      if (!sameOrigin && request.headers["x-garrison-token"] !== GATEWAY_TOKEN) {
+        sendJson(response, 403, { error: "browser cross-origin requests are not accepted by the local API" });
+        return;
+      }
+    }
+  }
   try {
     if (request.method === "GET" && url.pathname === "/health") {
       const operativeExited = ptyStatus === "ready" && !runtimeSessionAlive();
@@ -4875,6 +4965,19 @@ const server = http.createServer(async (request, response) => {
 });
 
 async function main() {
+  // Session-log proxy (Harness brief §2), opt-in via the fitting's
+  // `session_log_proxy` config. Started before the operative spawns so the
+  // spawn env can carry the proxy URL.
+  if (/^(1|true|yes)$/i.test(String(process.env.GARRISON_HTTPGATEWAY_SESSION_LOG_PROXY ?? ""))) {
+    try {
+      const { startAnthropicLogProxy } = await import("./lib/anthropic-log-proxy.mjs");
+      const proxy = await startAnthropicLogProxy();
+      process.env.GARRISON_ANTHROPIC_PROXY_URL = proxy.url;
+      logEvent("stdout", { kind: "session-log-proxy", url: proxy.url });
+    } catch (err) {
+      logEvent("stderr", { kind: "session-log-proxy-failed", error: String(err?.message ?? err) });
+    }
+  }
   // Node's http.Server defaults requestTimeout to 5 min — that would abort a long
   // /chat turn (a real Kanban garrison-* turn runs longer) at the socket layer,
   // regardless of the per-turn timeout, surfacing to the caller as a dropped
@@ -4887,6 +4990,10 @@ async function main() {
   // Listen FIRST so /health answers while the PTY spins up (the runner's
   // health-poll deadline is short; PTY readiness can take several seconds).
   server.listen(PORT, HOST, () => {
+    runLog()?.append({
+      domain: "lifecycle", kind: "run-start",
+      payload: { composition: COMPOSITION_ID, port: PORT, model: MODEL, engine: "pty" },
+    });
     logEvent("stdout", {
       kind: "listening",
       host: HOST,

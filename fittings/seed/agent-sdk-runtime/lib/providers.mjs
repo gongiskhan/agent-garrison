@@ -173,6 +173,12 @@ export function buildSdkEnv(target = {}, opts = {}) {
   // delegate turn runs under the same account as the session that asked.
   if (spec.anthropic) {
     env.ANTHROPIC_API_KEY = "";
+    // Session-log proxy (Harness brief §2): when the gateway runs the logging
+    // proxy, Anthropic-bound runtimes dial it instead of the API directly. The
+    // proxy forwards verbatim (auth headers included, so plan billing is
+    // untouched) and records the literal request/response in the session log.
+    const logProxy = String(baseEnv.GARRISON_ANTHROPIC_PROXY_URL ?? process.env.GARRISON_ANTHROPIC_PROXY_URL ?? "").trim();
+    if (logProxy) env.ANTHROPIC_BASE_URL = logProxy;
     const account = String(target.account ?? "").trim();
     if (account) {
       const accountKey = `ANTHROPIC_ACCOUNT__${account}`;

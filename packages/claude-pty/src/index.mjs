@@ -8,6 +8,7 @@
 // (GARRISON_CLAUDE_PROJECTS_DIR / GARRISON_CLAUDE_CONFIG_PATH).
 
 export { spawnClaudePty, getCursorPosition, getLastRows, getScreenRows } from "./pty.mjs";
+export { SessionLog, runLog, resetRunLog, listRuns, readEvents, capPayload, sessionLogPath, sessionLogDir, LOG_DOMAINS } from "./session-log.mjs";
 export {
   jsonlFileSize,
   readJsonlFrom,

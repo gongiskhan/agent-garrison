@@ -7,6 +7,7 @@ import { Play, Square } from "lucide-react";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { PageSkeleton } from "@/components/chrome/PageSkeleton";
 import { RunConsole } from "@/components/run/RunPanel";
+import { SessionLogPanel } from "@/components/garrison/SessionLogPanel";
 import { faculties } from "@/lib/faculties";
 import type { BoardSummary } from "@/lib/board-summary";
 import type { RunnerState } from "@/lib/types";
@@ -226,6 +227,7 @@ export function GarrisonHome() {
             <small>runner · local ring buffer</small>
           </div>
           <RunConsole />
+          <SessionLogPanel />
         </section>
       </div>
     </main>
