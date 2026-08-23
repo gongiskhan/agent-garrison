@@ -30,6 +30,7 @@
     "prod:build": "bash scripts/garrison-instance.sh prod build",
     "prod:start": "bash scripts/garrison-instance.sh prod start",
     "prod:redeploy": "bash scripts/garrison-redeploy.sh",
+    "prod:reload": "bash scripts/garrison-reload.sh",
     "codex:start": "bash scripts/garrison-instance.sh codex start"
   },
   "dependencies": {

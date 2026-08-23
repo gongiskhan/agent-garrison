@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import {
@@ -366,5 +367,18 @@ describe("importComposition", () => {
     expect(
       await fs.readFile(path.join(TARGET_DIR, ".garrison", "prompts", "orchestrator.md"), "utf8")
     ).toContain("Agent Garrison Orchestrator");
+  });
+});
+
+describe("reading a composition never creates one", () => {
+  // The ghost this kills: readComposition used to ensureComposition(id), so any
+  // stale reference to a deleted composition - a fitting still holding
+  // GARRISON_COMPOSITION_ID, a scheduler job, an open tab - silently re-created it
+  // as an empty "Dogfood Operative" skeleton, and deleting one could never stick.
+  it("throws for an unknown id instead of materialising it", async () => {
+    const { readComposition } = await import("@/lib/compositions");
+    const ghost = `ghost-${process.pid}`;
+    await expect(readComposition(ghost)).rejects.toThrow(/no composition/);
+    expect(existsSync(path.join(process.cwd(), "compositions", ghost))).toBe(false);
   });
 });

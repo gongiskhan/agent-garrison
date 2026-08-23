@@ -34,6 +34,7 @@ import {
 import {
   createChatGptFetch,
   normalizeResponsesBody,
+  repairCompletedOutput,
   ChatGptUsageLimitError,
   CHATGPT_ORIGINATOR
   // @ts-ignore
@@ -450,5 +451,91 @@ describe("two accounts on one platform rail are caught before launch", () => {
     expect(
       runtimeAccountRailConflicts([row("openai-agents-runtime", "codex-gmail"), row("codex-runtime", "auto")]).size
     ).toBe(0);
+  });
+});
+
+describe("the Codex backend's streamed response is repaired, not reinterpreted", () => {
+  // Observed live 2026-08-23: the stream is a correct Responses SSE except that
+  // `response.completed` carries output: [] even after streaming the assembled
+  // item. The SDK builds its result from that array, so a perfectly good answer
+  // produced an empty turn and the loop ran to max_turns.
+  const sse = (events: unknown[]) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        const enc = new TextEncoder();
+        for (const e of events) {
+          controller.enqueue(enc.encode(`event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`));
+        }
+        controller.close();
+      }
+    });
+
+  const drain = async (stream: ReadableStream<Uint8Array>) => {
+    const reader = stream.getReader();
+    const dec = new TextDecoder();
+    let out = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      out += dec.decode(value, { stream: true });
+    }
+    return out;
+  };
+
+  const item = { id: "msg_1", type: "message", role: "assistant", content: [{ type: "output_text", text: "hi" }] };
+
+  it("fills an empty terminal output with the items the stream already carried", async () => {
+    const text = await drain(
+      repairCompletedOutput(
+        sse([
+          { type: "response.output_item.done", item },
+          { type: "response.completed", response: { id: "r1", output: [] } }
+        ])
+      )
+    );
+    const completed = JSON.parse(text.split("event: response.completed\ndata: ")[1].split("\n")[0]);
+    expect(completed.response.output).toEqual([item]);
+  });
+
+  it("leaves a terminal event that already carries output alone", async () => {
+    const other = { id: "msg_other", type: "message" };
+    const text = await drain(
+      repairCompletedOutput(
+        sse([
+          { type: "response.output_item.done", item },
+          { type: "response.completed", response: { id: "r1", output: [other] } }
+        ])
+      )
+    );
+    const completed = JSON.parse(text.split("event: response.completed\ndata: ")[1].split("\n")[0]);
+    expect(completed.response.output).toEqual([other]);
+  });
+
+  it("reassembles events that straddle chunk boundaries", async () => {
+    // The transform buffers on the blank-line separator; a naive per-chunk parse
+    // silently drops the completed event when it lands across two reads.
+    const enc = new TextEncoder();
+    const whole = `event: response.output_item.done\ndata: ${JSON.stringify({ type: "response.output_item.done", item })}\n\nevent: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "r1", output: [] } })}\n\n`;
+    const cut = Math.floor(whole.length / 2);
+    const split = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(enc.encode(whole.slice(0, cut)));
+        controller.enqueue(enc.encode(whole.slice(cut)));
+        controller.close();
+      }
+    });
+    const text = await drain(repairCompletedOutput(split));
+    const completed = JSON.parse(text.split("event: response.completed\ndata: ")[1].split("\n")[0]);
+    expect(completed.response.output).toEqual([item]);
+  });
+
+  it("passes an unparseable event through untouched", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("event: junk\ndata: not-json\n\n"));
+        controller.close();
+      }
+    });
+    expect(await drain(repairCompletedOutput(stream))).toBe("event: junk\ndata: not-json\n\n");
   });
 });

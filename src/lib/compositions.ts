@@ -396,12 +396,34 @@ export async function listCompositions(): Promise<Composition[]> {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+/**
+ * Bootstrap-on-read, confined to the DEFAULT composition.
+ *
+ * `readComposition` used to call `ensureComposition(id)` for whatever id it was
+ * handed, which made every read path a WRITE path: any stale reference to a
+ * deleted composition - a fitting still holding GARRISON_COMPOSITION_ID, a
+ * scheduler job, a kanban card, an open browser tab - silently re-created it as an
+ * empty "Dogfood Operative" skeleton. Deleting a composition could therefore never
+ * stick, and the ghost reappeared in the switcher with no way to tell what had
+ * resurrected it.
+ *
+ * A fresh install still needs SOMETHING to exist, so the default id keeps its
+ * bootstrap. Every other id must already be on disk; a read of a composition that
+ * is not there is an error, not an invitation to invent one.
+ */
+async function ensureReadableComposition(id: string): Promise<void> {
+  if (id === DEFAULT_COMPOSITION_ID) await ensureComposition(id);
+}
+
 export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {
-  await ensureComposition(id);
+  await ensureReadableComposition(id);
   const manifestPath = getCompositionManifestPath(id);
   const manifest = await readYamlFile<CompositionManifest>(manifestPath);
   if (!manifest) {
-    throw new Error(`Missing manifest for composition ${id}`);
+    throw new Error(
+      `no composition "${id}" - it has no manifest at ${manifestPath}. ` +
+        `If something still points at a deleted composition, repoint it; reads never create one.`
+    );
   }
   const policyPrimary = hasLegacyRoutingOnPrimary(manifest)
     ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
@@ -679,10 +701,13 @@ export function manifestToComposition(id: string, manifest: CompositionManifest)
 }
 
 export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {
-  await ensureComposition(id);
+  await ensureReadableComposition(id);
   const manifest = await readYamlFile<CompositionManifest>(getCompositionManifestPath(id));
   if (!manifest) {
-    throw new Error(`Missing manifest for composition ${id}`);
+    throw new Error(
+      `no composition "${id}" - it has no manifest. ` +
+        `If something still points at a deleted composition, repoint it; reads never create one.`
+    );
   }
   const policyPrimary = hasLegacyRoutingOnPrimary(manifest)
     ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))

@@ -73,11 +73,82 @@ function isResponsesCall(url) {
  * @param opts.fetchImpl   injection seam for tests
  * @param opts.resolve     injection seam for the credential resolver
  */
+
+/**
+ * Re-attach the output items the Codex backend leaves out of `response.completed`.
+ *
+ * Its stream is a correct Responses SSE in every respect but one: the terminal
+ * `response.completed` event carries `output: []` even after it has streamed the
+ * assembled item in `response.output_item.done`. The SDK builds its final result
+ * from that array, so the run yields NO output, the agent loop sees an empty turn
+ * and keeps going until it hits max_turns - while the model in fact answered on
+ * the first pass. (The Codex CLI does not notice because it renders the deltas.)
+ *
+ * So: remember every completed item, and if the terminal event's output is empty,
+ * fill it with them. Nothing is invented - these are the backend's own assembled
+ * items, moved to where the contract says they belong. An event that does not
+ * parse, or a completed event that DOES carry output, passes through untouched.
+ */
+export function repairCompletedOutput(body) {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const items = [];
+  let buffered = "";
+
+  const patch = (raw) => {
+    const line = raw.split("\n").find((l) => l.startsWith("data: "));
+    if (!line) return raw;
+    let payload;
+    try {
+      payload = JSON.parse(line.slice(6));
+    } catch {
+      return raw;
+    }
+    if (payload?.type === "response.output_item.done" && payload.item) {
+      items.push(payload.item);
+      return raw;
+    }
+    if (
+      payload?.type === "response.completed" &&
+      Array.isArray(payload.response?.output) &&
+      payload.response.output.length === 0 &&
+      items.length
+    ) {
+      payload.response.output = items;
+      return raw.replace(line, `data: ${JSON.stringify(payload)}`);
+    }
+    return raw;
+  };
+
+  return body.pipeThrough(
+    new TransformStream({
+      transform(chunk, controller) {
+        buffered += decoder.decode(chunk, { stream: true });
+        // SSE events are separated by a blank line; an event can straddle chunks,
+        // so only complete ones are emitted and the remainder is carried forward.
+        let split;
+        while ((split = buffered.indexOf("\n\n")) !== -1) {
+          const raw = buffered.slice(0, split + 2);
+          buffered = buffered.slice(split + 2);
+          controller.enqueue(encoder.encode(patch(raw)));
+        }
+      },
+      flush(controller) {
+        if (buffered) controller.enqueue(encoder.encode(patch(buffered)));
+      }
+    })
+  );
+}
+
 export function createChatGptFetch(opts = {}) {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   const resolve = opts.resolve ?? resolveChatGptCredential;
   const sessionId = opts.sessionId ?? randomUUID();
   const env = opts.env ?? process.env;
+
+  // Was THIS request a streamed /responses call? Needed to repair the response
+  // (see the content-type note below), and knowable only from the outbound body.
+  let lastWasStream = false;
 
   const send = async (url, init, forceRefresh) => {
     const cred = await resolve({ env, forceRefresh });
@@ -91,7 +162,9 @@ export function createChatGptFetch(opts = {}) {
     let body = init?.body;
     if (isResponsesCall(url) && typeof body === "string") {
       try {
-        body = JSON.stringify(normalizeResponsesBody(JSON.parse(body)));
+        const parsed = normalizeResponsesBody(JSON.parse(body));
+        lastWasStream = parsed.stream === true;
+        body = JSON.stringify(parsed);
       } catch {
         // A body we cannot parse is passed through untouched rather than dropped -
         // the backend's own error is more useful than one invented here.
@@ -107,6 +180,27 @@ export function createChatGptFetch(opts = {}) {
     // One forced refresh recovers it; a second 401 is a real auth failure.
     if (res.status === 401) {
       res = await send(url, init, true);
+    }
+    // The backend answers a streamed /responses call with a correct SSE body and NO
+    // content-type header at all. The OpenAI client decides whether to PARSE a
+    // response as a stream from that header, so without it the events are never
+    // read: the agent loop sees no output, produces nothing, and runs to max_turns
+    // while the model answered perfectly. Label the response for what it demonstrably
+    // is. Only when we asked for a stream, only when the header is genuinely absent -
+    // never overriding one the server sent.
+    // Two repairs to a streamed response, both for things the backend omits:
+    //  1. no content-type header at all - the OpenAI client decides whether to PARSE
+    //     a response as a stream from it, so without one the events are never read.
+    //  2. an empty `output` on the terminal event (see repairCompletedOutput).
+    // Neither overrides anything the server actually sent.
+    if (res.ok && lastWasStream && res.body) {
+      const headers = new Headers(res.headers);
+      if (!headers.get("content-type")) headers.set("content-type", "text/event-stream");
+      return new Response(repairCompletedOutput(res.body), {
+        status: res.status,
+        statusText: res.statusText,
+        headers
+      });
     }
     if (res.status === 429) {
       // Read the body to classify: a plan limit is a routing fact the operator can

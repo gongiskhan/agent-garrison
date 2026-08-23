@@ -482,6 +482,24 @@ offset, defined once in `src/lib/instance-profile.ts` and mirrored in
   `.next`. Keep them apart — a shared dist dir breaks the dev server's dynamic
   routes.
 
+### Deploying — reload for app changes, redeploy when a long-lived process holds the code
+
+**Reach for `npm run prod:reload` first.** It builds and restarts the Next app
+server and leaves the operative and the own-port fittings running. That is enough
+for anything confined to the app: `src/app/**`, `src/components/**`, and the
+`src/lib/**` modules the app imports. A full redeploy for those costs minutes,
+drops the running session, and re-runs 44 verify hooks to prove nothing that
+changed.
+
+**Use `npm run prod:redeploy` when the change is in code a LONG-LIVED process is
+holding in memory**: `fittings/seed/**` (fitting servers, runtime adapters, the
+gateway), `packages/**`, `compositions/*/apm.yml` (stationing, accounts, targets -
+read at `up()`), or any change whose effect needs a fresh spawn to appear.
+
+When in doubt, reload; if the behaviour you changed lives in the operative,
+redeploy after. A wrong reload costs one more command; a reflexive redeploy costs
+minutes every single time.
+
 ### Deploying — HARD RULE: commit is not landed until prod is redeployed
 
 Committed code changes nothing a user can see: prod serves a build, and the
