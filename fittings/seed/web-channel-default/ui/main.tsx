@@ -841,6 +841,9 @@ function BriefPanel({ path: briefPath, onClose }: { path: string; onClose: () =>
   );
 }
 
+/** Where the wide-layout session list remembers whether it was open. */
+const SESSIONS_OPEN_KEY = "wc.sessions.open";
+
 // ── Threaded app (sidebar + chat) ───────────────────────────────────────────
 // "Still working" banner for a turn that was already running when this view
 // mounted (reopened tab / navigated back). Counts up from the server-reported
@@ -908,6 +911,24 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // The WIDE-layout session list, independent of the narrow drawer above.
+  // Collapsed by default (the list is navigation, not the work) and sticky: a
+  // preference you set once should survive the next visit, so it is read from
+  // localStorage at init rather than reset to the default on every mount.
+  const [listOpen, setListOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(SESSIONS_OPEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SESSIONS_OPEN_KEY, listOpen ? "1" : "0");
+    } catch {
+      /* private mode / storage disabled - the toggle still works for this visit */
+    }
+  }, [listOpen]);
   const [briefOpen, setBriefOpen] = useState(false);
   // Bumped to re-mount BriefPanel (re-fetch fresh content) when the brief changes on disk.
   const [briefReloadKey, setBriefReloadKey] = useState(0);
@@ -1348,7 +1369,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
   }, [activeId, activeThread?.runningSince, activeThread?.inputRevision, refreshAfterResume]);
 
   return (
-    <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}`}>
+    <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}${listOpen ? "" : " wc-shell--rail"}`}>
       <button
         className="wc-sidebar-toggle"
         aria-label={sidebarOpen ? "Hide sessions" : "Show sessions"}
@@ -1361,6 +1382,17 @@ function ThreadedApp({ url }: { url: UrlState }) {
       </button>
       <aside className="wc-sidebar" aria-label="Sessions">
         <div className="wc-sidebar-head">
+          <button
+            className="wc-sidebar-collapse"
+            aria-expanded={listOpen}
+            aria-label={listOpen ? "Collapse sessions" : "Expand sessions"}
+            title={listOpen ? "Collapse sessions" : "Expand sessions"}
+            onClick={() => setListOpen((v) => !v)}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          </button>
           <span className="wc-sidebar-title">Sessions</span>
           <button className="wc-new" onClick={newChat} title="Start a new conversation">+ New</button>
         </div>

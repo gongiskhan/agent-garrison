@@ -892,6 +892,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
+  .cc-session-notice,
   .cc-related
 ) > summary::-webkit-details-marker { display: none; }
 :is(
@@ -899,6 +900,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
+  .cc-session-notice,
   .cc-related
 ) > summary::before {
   content: "›";
@@ -918,6 +920,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
+  .cc-session-notice,
   .cc-related
 )[open] > summary::before { transform: rotate(90deg); }
 .cc-session-pre {
@@ -981,11 +984,31 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-state.error { color: var(--cc-danger-border); }
 .cc-session-toolbody { display: flex; flex-direction: column; gap: 8px; padding: 0 9px 9px; }
 .cc-session-section-label { display: block; margin: 0 0 4px 2px; color: var(--cc-fg-dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+/* Notices are one-line rows that open, not standing cards. Three stacked blocks
+   of route/error/status used to shout louder than the answer they annotate; the
+   weight now matches the tool rows they sit beside. */
 .cc-session-notice {
-  min-width: 0; padding: 8px 10px; border-left: 2px solid var(--cc-border-strong);
-  border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--cc-border-strong) 8%, transparent);
-  color: var(--cc-fg); font-size: 13px; line-height: 1.45;
+  min-width: 0; padding: 5px 9px; border-left: 2px solid var(--cc-border-strong);
+  border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--cc-border-strong) 7%, transparent);
+  color: var(--cc-fg); font-size: 12.5px; line-height: 1.4;
 }
+.cc-session-notice > summary {
+  display: flex; align-items: baseline; gap: 4px 8px; min-width: 0;
+  list-style: none; cursor: pointer;
+}
+/* A row with nothing to reveal carries no chevron, so pad it to the same optical
+   start as the ones that do. */
+.cc-session-notice.is-flat .cc-session-notice-head { padding-left: 14px; }
+.cc-session-notice-lede {
+  min-width: 0; flex: 1 1 auto; color: var(--cc-fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The lede is clipped only while it is genuinely collapsed - i.e. there is more
+   to reveal by opening. On an OPEN row, or a flat one with no chevron at all,
+   clipping would hide text the reader has no way to get to. */
+.cc-session-notice[open] .cc-session-notice-lede,
+.cc-session-notice.is-flat .cc-session-notice-lede { white-space: normal; overflow: visible; }
+.cc-session-notice-body { display: flex; flex-direction: column; gap: 3px; padding: 6px 0 2px 10px; }
 .cc-session-notice-warning {
   border-left-color: var(--cc-rail-warn, #e8a598);
   background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 10%, transparent);

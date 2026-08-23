@@ -143,6 +143,9 @@ function ActivityDetails({
   );
 }
 
+/** A detail this short reads as the row's own subtitle; longer needs its own line. */
+const NOTICE_INLINE_CHARS = 90;
+
 function elapsedLabel(elapsedMs: number | null | undefined): string | null {
   if (typeof elapsedMs !== "number" || !Number.isFinite(elapsedMs) || elapsedMs < 0) return null;
   if (elapsedMs < 1000) return `${Math.round(elapsedMs)}ms`;
@@ -626,31 +629,65 @@ function SessionNotice({
     detail = terminalSummary(block);
   }
 
-  return (
-    <div className={`cc-session-notice cc-session-notice-${tone}${block.type === "error" ? " cc-session-error" : ""}`}>
-      <div className="cc-session-notice-head">
-        <span className="cc-session-notice-label">{label}</span>
-        {block.type === "error" && (block.code || block.requestId) && (
-          <span className="cc-session-notice-meta">
-            {[compactNoticeText(block.code), block.requestId ? `request ${compactNoticeText(block.requestId)}` : ""].filter(Boolean).join(" · ")}
-          </span>
-        )}
-        {block.type === "retry" && typeof block.httpStatus === "number" && (
-          <span className="cc-session-notice-meta">HTTP {block.httpStatus}</span>
-        )}
-      </div>
-      {detail && <div className="cc-session-notice-detail">{detail}</div>}
+  const meta =
+    block.type === "error" && (block.code || block.requestId)
+      ? [compactNoticeText(block.code), block.requestId ? `request ${compactNoticeText(block.requestId)}` : ""]
+          .filter(Boolean)
+          .join(" · ")
+      : block.type === "retry" && typeof block.httpStatus === "number"
+        ? `HTTP ${block.httpStatus}`
+        : null;
+  const terminalText =
+    block.type === "turn_end" &&
+    renderTerminalResult &&
+    !terminalResultDuplicated &&
+    typeof block.result === "string" &&
+    block.result.trim()
+      ? block.result
+      : null;
+  // Nothing to reveal means nothing to collapse: a bare label would open onto an
+  // empty panel, which is worse than a plain row.
+  const hasBody = Boolean(reset || terminalText || (detail && detail.length > NOTICE_INLINE_CHARS));
+
+  const head = (
+    <>
+      <span className="cc-session-notice-label">{label}</span>
+      {detail && <span className="cc-session-notice-lede">{detail}</span>}
+      {meta && <span className="cc-session-notice-meta">{meta}</span>}
+    </>
+  );
+
+  const body = (
+    <div className="cc-session-notice-body">
+      {detail && detail.length > NOTICE_INLINE_CHARS && <div className="cc-session-notice-detail">{detail}</div>}
       {reset && (
         <div className="cc-session-notice-reset">
           {timePrefix} <time dateTime={reset.dateTime}>{reset.label}</time>
         </div>
       )}
-      {block.type === "turn_end" && renderTerminalResult && !terminalResultDuplicated && typeof block.result === "string" && block.result.trim() && (
+      {terminalText && (
         <div className="cc-session-terminal-text cc-session-markdown">
-          <TextBlock text={block.result} role="assistant" renderMarkdown={renderMarkdown} />
+          <TextBlock text={terminalText} role="assistant" renderMarkdown={renderMarkdown} />
         </div>
       )}
     </div>
+  );
+
+  const className = `cc-session-notice cc-session-notice-${tone}${block.type === "error" ? " cc-session-error" : ""}`;
+  if (!hasBody) {
+    return (
+      <div className={`${className} is-flat`}>
+        <div className="cc-session-notice-head">{head}</div>
+      </div>
+    );
+  }
+  // Errors open on arrival - a failure the reader has to click to see is a failure
+  // they will miss. Everything else is a one-line trace they can drill into.
+  return (
+    <details className={className} open={tone === "danger"}>
+      <summary className="cc-session-notice-head">{head}</summary>
+      {body}
+    </details>
   );
 }
 

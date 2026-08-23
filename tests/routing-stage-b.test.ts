@@ -124,7 +124,10 @@ describe("providers as policy data (P2)", () => {
     // entries make the openai-agents fitting's documented providers valid;
     // a local provider is still supported when explicitly authored above.
     expect(PROVIDERS_LIST.map((p: any) => p.id)).toEqual([
-      "anthropic-plan", "anthropic", "deepseek", "zai-glm", "openai", "openai-compat"
+      "anthropic-plan", "anthropic", "deepseek", "zai-glm", "openai", "openai-compat",
+      // Runtime-managed: the ChatGPT plan behind the Codex backend. No vault key
+      // and no base-URL override - the runtime resolves both.
+      "chatgpt-subscription"
     ]);
     const zai = buildLaunchEnv({ provider: "zai-glm" } as any, { baseEnv: {}, secrets: { ZAI_API_KEY: "zk" }, providers: PROVIDERS_LIST });
     expect(zai.ANTHROPIC_BASE_URL).toBe("https://api.z.ai/api/anthropic");

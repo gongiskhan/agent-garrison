@@ -1497,3 +1497,18 @@ nav.tabs .item .pin-toggle {
 }
 nav.tabs .item .pin-toggle svg { width: 12px; height: 12px; stroke-width: 2; }
 nav.tabs .item .pin-toggle:active { transform: translateY(1px); }
+
+/* ── Native form primitives ──────────────────────────────────────────────────
+   A browser-default checkbox has no intrinsic flex basis, so inside a flex label
+   row it can be squeezed to a sliver - measured at 13x13 on the Accounts page at
+   390px, and at 1px on the Kanban board before the same fix landed there. Size it
+   once, here, rather than per surface. Also below the 44px touch floor on its own,
+   which is why the LABEL is the tap target: the gap keeps the hit area contiguous. */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--accent, #746232);
+}

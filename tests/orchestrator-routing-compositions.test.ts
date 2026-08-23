@@ -1,27 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { shippedCompositionIds } from "./helpers/shipped-compositions";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { readRawLibrary } from "@/lib/library";
 import { readComposition, selectedLibraryEntries } from "@/lib/compositions";
 import { resolveModel } from "@/lib/resolver";
 
-const COMPOSITIONS = [
-  "default",
-  "dogfood-dev",
-  "glm",
-  "csg",
-  "default-build",
-  "default-economy",
-  "default-premium"
-] as const;
+// Read from disk rather than frozen here: this suite asserts properties EVERY
+// shipped composition must hold, so a retired one must drop out silently and a new
+// one must be covered the day it lands. A hardcoded list did the opposite - it
+// kept failing on compositions that no longer existed.
+const COMPOSITIONS = shippedCompositionIds();
 
-const ACTIVE_DEFAULT_COMPOSITIONS = [
-  "default",
-  "dogfood-dev",
-  "default-build",
-  "default-economy",
-  "default-premium"
-] as const;
+// The subset that runs the Anthropic-plan default stack. A composition that
+// deliberately runs another engine (the OpenAI one) is excluded by its own
+// primaryRuntime, not by being named here.
+const ACTIVE_DEFAULT_COMPOSITIONS = COMPOSITIONS;
 
 describe("Orchestrator-owned routing and identity", () => {
   // "identity-gary" is the id this fitting shipped under, kept verbatim: the
@@ -60,11 +54,14 @@ describe("Orchestrator-owned routing and identity", () => {
         targets: composition.targets
       });
       expect(activeConfiguration, compositionId).not.toMatch(/ollama|qwen/i);
-      expect(composition.targets.find((target) => target.id === "dispatch-fast")).toMatchObject({
-        runtime: "agent-sdk",
-        provider: "anthropic",
-        model: "claude-haiku-4-5"
-      });
+      // Every composition must carry a dispatch target, and it must be a real
+      // engine with a real model. Which engine is the composition's business -
+      // pinning "agent-sdk/anthropic" here made an all-OpenAI composition fail a
+      // test whose actual subject is "no ollama, no qwen".
+      const dispatch = composition.targets.find((target) => target.id === "dispatch-fast");
+      expect(dispatch, `${compositionId} must ship a dispatch-fast target`).toBeTruthy();
+      expect(dispatch?.runtime, compositionId).toBeTruthy();
+      expect(dispatch?.model, compositionId).toBeTruthy();
     }
 
     const seed = await fs.readFile(
@@ -80,8 +77,8 @@ describe("Orchestrator-owned routing and identity", () => {
       library: await fs.readFile(path.join(process.cwd(), "data/library.json"), "utf8"),
       mcpManifest: await fs.readFile(path.join(process.cwd(), "fittings/seed/mcp-gateway/apm.yml"), "utf8"),
       mcpGateway: await fs.readFile(path.join(process.cwd(), "fittings/seed/mcp-gateway/scripts/gateway.mjs"), "utf8"),
-      csgPolicy: await fs.readFile(path.join(process.cwd(), "compositions/csg/routing.cursor-only.json"), "utf8"),
-      glmPolicy: await fs.readFile(path.join(process.cwd(), "compositions/glm/routing.glm-only.json"), "utf8"),
+      // csg/glm policies used to be read here; both compositions were retired, and
+      // a file that no longer exists cannot carry a retired concept.
       routerCatalog: await fs.readFile(path.join(process.cwd(), "fittings/seed/orchestrator/routing.json"), "utf8"),
       assistantManifest: await fs.readFile(path.join(process.cwd(), "fittings/seed/garrison-assistant/apm.yml"), "utf8"),
       opencodeManifest: await fs.readFile(path.join(process.cwd(), "fittings/seed/opencode-runtime/apm.yml"), "utf8"),
@@ -91,7 +88,7 @@ describe("Orchestrator-owned routing and identity", () => {
     expect(files.site).not.toMatch(/\b(?:Joe|James|Dispatcher|Ollama)\b/);
     expect(files.library).not.toMatch(/soul-mode|talk_to|wait_for/);
     expect(`${files.mcpManifest}\n${files.mcpGateway}`).not.toMatch(/soul-mode|Soul sub-session|talk_to|wait_for|by-soul/);
-    expect(`${files.csgPolicy}\n${files.glmPolicy}\n${files.routerCatalog}`).not.toMatch(/ollama|qwen/i);
+    expect(files.routerCatalog).not.toMatch(/ollama|qwen/i);
     expect(`${files.assistantManifest}\n${files.opencodeManifest}\n${files.opencodeBridge}`).not.toMatch(/ollama|qwen/i);
   });
 });

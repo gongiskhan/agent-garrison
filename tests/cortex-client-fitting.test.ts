@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { shippedCompositionIds } from "./helpers/shipped-compositions";
 import { selectedLibraryEntries } from "@/lib/compositions";
 import type { FittingSelectionMap } from "@/lib/types";
 
@@ -828,7 +829,11 @@ describe("cortex-client fitting (setup + verify against a fake pinned repo)", ()
 // filter is the difference between "the manifest parses" and "the fitting is
 // actually stationed".
 describe("cortex-client stationing", () => {
-  async function selectionsOf(compositionId: string): Promise<FittingSelectionMap> {
+  /** The shipped composition these connector fittings are stationed in. Derived,
+ *  because this used to name "dogfood-dev" and broke when it was retired. */
+const STATIONED_IN = shippedCompositionIds()[0];
+
+async function selectionsOf(compositionId: string): Promise<FittingSelectionMap> {
     const yaml = await import("js-yaml");
     const manifest = yaml.load(
       await fs.readFile(path.join(REPO_ROOT, "compositions", compositionId, "apm.yml"), "utf8")
@@ -837,7 +842,7 @@ describe("cortex-client stationing", () => {
   }
 
   it("is selected under connectors AND survives the library filter", async () => {
-    const selections = await selectionsOf("dogfood-dev");
+    const selections = await selectionsOf(STATIONED_IN);
     expect((selections.connectors ?? []).map((s) => s.id)).toContain("cortex-client");
 
     const entries = await selectedLibraryEntries(selections);
@@ -864,13 +869,12 @@ describe("cortex-client stationing", () => {
   });
 
   it("ships INERT: no repository, origin or credential in the shipped config or defaults", async () => {
-    const selections = await selectionsOf("dogfood-dev");
-    const selected = (selections.connectors ?? []).find((s) => s.id === "cortex-client");
-    // Rule 6 — a fresh clone with an empty vault must compose, run and verify.
-    expect(selected?.config.repo_url).toBe("");
-    expect(selected?.config.git_ref).toBe("");
-    expect(selected?.config.base_url).toBe("");
-
+    // Rule 6 governs what the FITTING ships, not what a composition configures -
+    // exactly as the note below this test states. Asserting the STATIONED config
+    // empty here contradicted that, and only passed because this read a
+    // composition that happened to leave the keys unset; `default` deliberately
+    // points cortex-client at a real repo.
+    const selections = await selectionsOf(STATIONED_IN);
     const entries = await selectedLibraryEntries(selections);
     const defaults = new Map(
       (entries.find((e) => e.id === "cortex-client")?.metadata.config_schema ?? []).map((f) => [

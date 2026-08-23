@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { shippedCompositionIds } from "./helpers/shipped-compositions";
 
 const ROOT = process.cwd();
 // The profile-driven launcher. start-codex-instance.sh is now a thin shim onto
@@ -624,7 +625,9 @@ describe("Codex secondary-instance isolation", () => {
   });
 
   it("keeps every shipped default profile on the primary state roots", () => {
-    for (const profile of ["default", "default-build", "default-economy", "default-premium"]) {
+    // Derived, not hardcoded: a retired composition must not fail this on ENOENT,
+    // and a new one must be covered the day it lands.
+    for (const profile of shippedCompositionIds()) {
       const composition = readYaml(path.join(ROOT, "compositions", profile, "apm.yml"));
       const selections = composition["x-garrison"].composition.selections as Record<
         string,

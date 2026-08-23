@@ -3324,15 +3324,19 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             >
               {flightRailEnd}
             </AttributionRail>
-            {(pinSavePending || pinSaveError) && (
-              <div className={`cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`}>
-                <span>{pinSaveError?.message ?? "Saving route choices…"}</span>
-                {pinSaveError && (
-                  <button type="button" onClick={retryPinSave}>Retry save</button>
-                )}
-              </div>
-            )}
           </>
+        )}
+        {/* Rendered once, outside every rail variant. A pin can now be applied from
+            the sheet, the flight rail, or the routing modal, and choosing one from
+            the modal CLOSES the sheet - so a banner living inside a rail meant a
+            rejected save had nowhere to appear and failed silently. */}
+        {(pinSavePending || pinSaveError) && (
+          <div className={`cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`}>
+            <span>{pinSaveError?.message ?? "Saving route choices…"}</span>
+            {pinSaveError && (
+              <button type="button" onClick={retryPinSave}>Retry save</button>
+            )}
+          </div>
         )}
         {routeModal.open && (
           <RoutingModal

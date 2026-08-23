@@ -743,3 +743,20 @@
   letter-spacing: 0.04em;
   color: var(--mute);
 }
+
+/* ── Phone touch targets ─────────────────────────────────────────────────────
+   MUST come after the base .railLevel rule, not in the earlier max-width:640px
+   block: that block sits ABOVE the base definitions, so at equal specificity the
+   later base rule wins and the override silently does nothing (measured: still
+   28x24 at 390px). The dense chips are a deliberate desktop density; this only
+   raises them where a thumb has to hit them. */
+@media (max-width: 640px) {
+  .railLevel {
+    min-height: 2.25rem;
+    min-width: 2.25rem;
+    font-size: 0.68rem;
+  }
+  .railLevels {
+    gap: 5px;
+  }
+}

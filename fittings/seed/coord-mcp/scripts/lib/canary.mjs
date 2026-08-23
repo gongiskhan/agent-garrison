@@ -86,6 +86,12 @@ export async function runCanary() {
     } catch {
       /* git optional; repo path still works as an identity */
     }
+    // The hook only injects in repos that opted into coordination (a committed
+    // `.coord` marker). The canary drives the REAL hook, so its throwaway repo
+    // has to opt in too - without this it exercises the gate rather than the
+    // write -> detect -> inject chain it exists to prove, and reports a
+    // conflict that was never surfaced.
+    fs.writeFileSync(path.join(tmpRepo, ".coord"), "");
     // Canonical repo identity — the SAME value the hook computes via repoRoot()
     // (git realpath), so the declared intents and the hook's lookup hash to the
     // same slug (macOS /tmp -> /private/tmp symlink would otherwise mismatch).

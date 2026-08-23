@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { shippedCompositionIds } from "./helpers/shipped-compositions";
 import { selectedLibraryEntries } from "@/lib/compositions";
 import { parseGarrisonMetadata } from "@/lib/metadata";
 import { readYamlFile } from "@/lib/yaml";
@@ -97,6 +98,10 @@ const BROKEN_CLI = [
   ""
 ].join("\n");
 
+/** The shipped composition these connector fittings are stationed in. Derived,
+ *  because this used to name "dogfood-dev" and broke when it was retired. */
+const STATIONED_IN = shippedCompositionIds()[0];
+
 async function selectionsOf(compositionId: string): Promise<FittingSelectionMap> {
   const yaml = await import("js-yaml");
   const manifest = yaml.load(
@@ -113,9 +118,9 @@ async function loadSeedMetadata(id: string): Promise<GarrisonMetadata> {
   return parseGarrisonMetadata(manifest!["x-garrison"]);
 }
 
-describe("cortex-automations is stationed in dogfood-dev and survives the registry filter", () => {
+describe("cortex-automations is stationed and survives the registry filter", () => {
   it("is selected under connectors AND survives selectedLibraryEntries", async () => {
-    const selections = await selectionsOf("dogfood-dev");
+    const selections = await selectionsOf(STATIONED_IN);
     expect((selections.connectors ?? []).map((s) => s.id)).toContain("cortex-automations");
 
     const entries = await selectedLibraryEntries(selections);
@@ -155,10 +160,20 @@ describe("cortex-automations is stationed in dogfood-dev and survives the regist
     // (capability contract rule 6).
     expect(metadata.config_schema.map((f) => f.key)).toEqual(["base_url"]);
     expect(metadata.config_schema[0]?.default).toBe("");
-    const selected = ((await selectionsOf("dogfood-dev")).connectors ?? []).find(
+    // The FITTING's default must be empty (asserted above); a composition may
+    // additionally carry a LOOPBACK origin. That is the same rule the
+    // remote-origin test below states in full - a localhost _url is a portable
+    // default that can only ever reach the machine it is read on. Demanding ""
+    // here contradicted it, and only passed because the composition this used to
+    // read happened to leave the key unset.
+    const selected = ((await selectionsOf(STATIONED_IN)).connectors ?? []).find(
       (s) => s.id === "cortex-automations"
     );
-    expect(selected?.config?.base_url ?? "").toBe("");
+    const stationedBaseUrl = String(selected?.config?.base_url ?? "");
+    expect(
+      stationedBaseUrl === "" || /^\w+:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)([:/]|$)/.test(stationedBaseUrl),
+      `stationed base_url="${stationedBaseUrl}" must be empty or loopback`
+    ).toBe(true);
   });
 
   it("declares the connector/skill shared views plus the bespoke session rig", async () => {
@@ -397,13 +412,13 @@ describe("the local automations engine is untouched, and nothing binds to the wr
   // rules that a localhost `_url` is a portable default which legitimately stays in apm.yml, since
   // it can only ever reach the machine it is read on. A remote host is the thing that must never
   // ship, and this uses that module's own predicate rather than inventing a second rule.
-  it("no compositions/default* composition ships a REMOTE Cortex origin", async () => {
+  it("no shipped composition carries a REMOTE Cortex origin", async () => {
     const isLoopback = (v: string) => /^\w+:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)([:/]|$)/.test(v);
     // Non-tautology: the predicate distinguishes the two cases it is relied on to distinguish.
     expect(isLoopback("http://127.0.0.1:4111")).toBe(true);
     expect(isLoopback("https://cortex.example.com")).toBe(false);
 
-    for (const id of ["default", "default-build", "default-economy", "default-premium"]) {
+    for (const id of shippedCompositionIds()) {
       const selections = await selectionsOf(id);
       const stationed = Object.values(selections)
         .flatMap((items) => items ?? [])

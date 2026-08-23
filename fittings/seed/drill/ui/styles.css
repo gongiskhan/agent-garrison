@@ -1180,6 +1180,15 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 @media (max-width: 760px) {
   .dr-session-scroll { max-height: 55vh; }
   .dr-live-check-name { white-space: normal; }
+  /* Measured at 390px: chips 106x25 and page links 245x19 - readable, but not
+     reliably tappable. Raised on phones only; the desktop density is deliberate. */
+  .chip.click,
+  .dr-page-link {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .dr-page-link { padding-block: 6px; }
 }
 
 /* Re-run affordances on the results page (S7). Looking at a result and wanting

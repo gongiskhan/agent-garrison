@@ -397,6 +397,24 @@ html, body {
 }
 .wc-new:hover { background: #e0ebdb; }
 
+.wc-sidebar-collapse {
+  display: none;                 /* wide layouts only - see the rail block below */
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: #66695f;                /* mute */
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.wc-sidebar-collapse:hover { color: #2f3128; border-color: #d6cdba; }
+.wc-sidebar-collapse svg { transform: rotate(90deg); transition: transform .14s ease; }
+.wc-shell--rail .wc-sidebar-collapse svg { transform: rotate(0deg); }
+
 .wc-thread-list {
   flex: 1;
   min-height: 0;
@@ -599,6 +617,30 @@ html, body {
   height: 100%;
   color: #7d8077;
   font-size: 14px;
+}
+
+
+/* ── Collapsed rail (wide layouts only) ──────────────────────────────────────
+   The session list is navigation, not the work, so it starts collapsed and the
+   chat gets the width. Below 900px the sidebar is already a slide-over drawer,
+   so the rail is deliberately scoped out of that range - two collapse
+   mechanisms on one element would contradict each other. */
+@media (min-width: 901px) {
+  .wc-sidebar-collapse { display: inline-flex; }
+  .wc-sidebar-head { justify-content: flex-start; }
+  .wc-sidebar-title { flex: 1 1 auto; }
+  .wc-sidebar { transition: width .16s ease; }
+  .wc-shell--rail .wc-sidebar { width: 42px; }
+  /* Hidden, not merely narrow: leaving them in a 42px column produces clipped
+     text rather than a clean rail. */
+  .wc-shell--rail .wc-sidebar-title,
+  .wc-shell--rail .wc-new,
+  .wc-shell--rail .wc-thread-list { display: none; }
+  .wc-shell--rail .wc-sidebar-head {
+    justify-content: center;
+    padding: 14px 0 10px;
+    border-bottom-color: transparent;
+  }
 }
 
 /* ── Mobile / tablet toggle + scrim (wide: sidebar inline, these hidden) ──

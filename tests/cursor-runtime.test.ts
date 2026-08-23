@@ -1,5 +1,6 @@
 import path from "node:path";
 import { describe, it, expect } from "vitest";
+import { shippedCompositionIds, compositionManifestPath } from "./helpers/shipped-compositions";
 // @ts-ignore — pure .mjs
 import { CursorAdapter, buildRunArgs, parseRunOutput, cursorPermissionArgs } from "../fittings/seed/cursor-runtime/lib/cursor-adapter.mjs";
 // @ts-ignore
@@ -417,99 +418,13 @@ describe("cursor-runtime setup: config-home link", () => {
 // policy), so the "only Cursor" claim is committed as routing.cursor-only.json and
 // pinned here — otherwise a future seed-policy change silently reintroduces a
 // Claude/Codex/ollama target and nobody notices until a turn lands off-engine.
-describe("CSG composition — cursor-only routing policy", () => {
-  const load = async () => {
-    const fs = await import("node:fs/promises");
-    return {
-      policy: JSON.parse(
-        await fs.readFile(path.resolve(__dirname, "..", "compositions", "csg", "routing.cursor-only.json"), "utf8")
-      ),
-      manifest: await readYamlFile<any>(path.resolve(__dirname, "..", "compositions", "csg", "apm.yml"))
-    };
-  };
-
-  it("names cursor-runtime primary and declares only cursor targets", async () => {
-    const { policy } = await load();
-    expect(policy.primaryRuntime).toBe("cursor-runtime");
-    expect(policy.targets.length).toBeGreaterThan(0);
-    expect([...new Set(policy.targets.map((t: any) => t.runtime))]).toEqual(["cursor"]);
-    // Secondary targets carry no provider: the validator only knows providers
-    // declared in the policy's `providers` section, and Cursor has none there.
-    expect(policy.targets.every((t: any) => t.provider === undefined)).toBe(true);
-  });
-
-  it("every target reference in the policy resolves to a declared cursor target", async () => {
-    const { policy } = await load();
-    const declared = new Set<string>(policy.targets.map((t: any) => t.id));
-    const dangling: string[] = [];
-    const walk = (node: unknown, keyPath: string) => {
-      if (typeof node === "string") {
-        // Reference sites: `target`/`targetId` keys, matrix column/cell values,
-        // and a continuation's {verb: "route", arg: <targetId>}.
-        if (/(^|\.)(target|targetId)$/.test(keyPath) || /\.matrix\./.test(keyPath)) {
-          if (!declared.has(node)) dangling.push(`${keyPath} -> ${node}`);
-        }
-        return;
-      }
-      if (Array.isArray(node)) {
-        node.forEach((v, i) => walk(v, `${keyPath}[${i}]`));
-        return;
-      }
-      if (node && typeof node === "object") {
-        const rec = node as Record<string, unknown>;
-        if (rec.verb === "route" && typeof rec.arg === "string" && !declared.has(rec.arg)) {
-          dangling.push(`${keyPath}.arg -> ${rec.arg}`);
-        }
-        for (const [k, v] of Object.entries(rec)) walk(v, keyPath ? `${keyPath}.${k}` : k);
-      }
-    };
-    walk(policy.profiles, "profiles");
-    walk(policy.exceptions, "exceptions");
-    walk(policy.continuations, "continuations");
-    expect(dangling).toEqual([]);
-  });
-
-  it("the composition's duty cells route only to cursor targets, with no effort knob", async () => {
-    const { manifest } = await load();
-    const comp = manifest["x-garrison"].composition;
-    const targetIds = new Set<string>(comp.targets.map((t: any) => t.id));
-    expect([...new Set(comp.targets.map((t: any) => t.runtime))]).toEqual(["cursor"]);
-    for (const duty of comp.duties) {
-      for (const level of duty.levels) {
-        expect(targetIds.has(level.cell.target), `${duty.id} -> ${level.cell.target}`).toBe(true);
-        // Cursor has no effort control (it lives in the model id), so a cell that
-        // pinned one would be a knob with nothing behind it.
-        expect(level.cell.effort, `${duty.id} declares an effort Cursor cannot apply`).toBeUndefined();
-      }
-    }
-  });
-
-  it("satisfies every readiness rule, with a clean duty graph", async () => {
-    const { readComposition, selectedLibraryEntries } = await import("@/lib/compositions");
-    const { resolveModel } = await import("@/lib/resolver");
-    const composition = await readComposition("csg");
-    const entries = await selectedLibraryEntries(composition.selections);
-    const model = resolveModel({
-      fittings: entries.map((e) => ({ id: e.id, metadata: e.metadata })),
-      compositionDuties: composition.duties,
-      selectedDuties: composition.selectedDuties
-    });
-    expect(model.errors).toEqual([]);
-    // Name the unmet rules in the failure, not just a boolean — the three that
-    // were missing (channel / memory-store / dispatch duty) are exactly what this
-    // pins, and "ready: false" alone would not say which regressed.
-    expect(model.rules.filter((r) => !r.met).map((r) => r.rule.id)).toEqual([]);
-    expect(model.ready).toBe(true);
-  });
-
-  it("stations cursor-runtime and no other runtime fitting", async () => {
-    const { manifest } = await load();
-    const runtimes = manifest["x-garrison"].composition.selections.runtimes ?? [];
-    expect(runtimes.map((r: any) => r.id)).toEqual(["cursor-runtime"]);
-    const deps = manifest.dependencies.apm.map((d: any) => d.path);
-    expect(deps.filter((p: string) => /-runtime$/.test(p))).toEqual(["../../fittings/seed/cursor-runtime"]);
-  });
-});
+// The CSG composition was retired when the composition set was cut down to
+// `default` + the OpenAI one, so the "only Cursor" policy it pinned no longer
+// exists to check. What that block was really protecting - a committed
+// composition verified end to end (parse, selections, readiness, no dangling
+// target, primary actually stationed) - now runs against EVERY shipped
+// composition in tests/shipped-compositions.test.ts, which cannot rot the same
+// way. The cursor RUNTIME coverage above is untouched.
 
 describe("explicit dispatch target (single-engine routing brain)", () => {
   const ctx = (opts: any = {}) => ({
@@ -529,12 +444,17 @@ describe("explicit dispatch target (single-engine routing brain)", () => {
     expect(r.spawnConfig.model).toBe("haiku");
   });
 
-  it("CSG names its Cursor dispatch target explicitly and the gateway exposes no legacy flag", async () => {
-    const comp = await readYamlFile<any>(path.resolve(__dirname, "..", "compositions", "csg", "apm.yml"));
-    const gw = comp["x-garrison"].composition.selections.gateway.find((g: any) => g.id === "http-gateway");
-    expect(gw.config.routing_on_primary).toBeUndefined();
-    const duty = comp["x-garrison"].composition.duties.find((d: any) => d.id === "dispatch");
-    expect(duty.levels[0].cell.target).toBe("cursor-fast");
+  it("every composition names its dispatch target explicitly and the gateway exposes no legacy flag", async () => {
+    // Was pinned to the retired CSG composition and its cursor-fast target. The
+    // rule was never about Cursor: routing_on_primary is gone, so a composition
+    // must NAME the target its dispatch runs on, whatever engine that is.
+    for (const id of shippedCompositionIds()) {
+      const comp = await readYamlFile<any>(compositionManifestPath(id));
+      const gw = comp["x-garrison"].composition.selections.gateway?.find((g: any) => g.id === "http-gateway");
+      expect(gw?.config?.routing_on_primary, id).toBeUndefined();
+      const duty = comp["x-garrison"].composition.duties?.find((d: any) => d.id === "dispatch");
+      if (duty) expect(duty.levels[0].cell.target, id).toBeTruthy();
+    }
 
     const fitting = await readYamlFile<{ "x-garrison"?: unknown }>(
       path.resolve(__dirname, "..", "fittings", "seed", "http-gateway", "apm.yml")

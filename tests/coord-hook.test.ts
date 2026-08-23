@@ -14,6 +14,8 @@ const OWNER = "fitting:coord-mcp";
 
 let sb: string;
 let settingsPath: string;
+/** A cwd that has opted into coordination (the gate below requires a marker). */
+let optedInRepo: string;
 
 function runHook(payload: object, env: Record<string, string> = {}): string {
   return execFileSync(process.execPath, [HOOK], {
@@ -31,12 +33,19 @@ function declareIntentVia(session: string, repo: string, area: string, reason: s
 beforeEach(() => {
   sb = mkdtempSync(path.join(tmpdir(), "coord-hook-"));
   settingsPath = path.join(sb, "settings.json");
+  // The hook only injects in repos that opted in via a committed `.coord` marker,
+  // so a fixture repo has to carry one - a bare temp dir is correctly silent.
+  optedInRepo = mkdtempSync(path.join(tmpdir(), "coord-repo-"));
+  writeFileSync(path.join(optedInRepo, ".coord"), "");
 });
-afterEach(() => rmSync(sb, { recursive: true, force: true }));
+afterEach(() => {
+  rmSync(sb, { recursive: true, force: true });
+  rmSync(optedInRepo, { recursive: true, force: true });
+});
 
 describe("coord-hook (digest/nudge command hook)", () => {
   it("emits the begin_planning nudge as SessionStart additionalContext + writes a heartbeat line", () => {
-    const out = runHook({ hook_event_name: "SessionStart", session_id: "S1", cwd: "/tmp/some-repo" });
+    const out = runHook({ hook_event_name: "SessionStart", session_id: "S1", cwd: optedInRepo });
     const parsed = JSON.parse(out);
     expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
     expect(parsed.hookSpecificOutput.additionalContext).toContain("begin_planning");
@@ -49,12 +58,25 @@ describe("coord-hook (digest/nudge command hook)", () => {
   });
 
   it("surfaces a conflicting intent from another session on UserPromptSubmit (write->detect->inject)", () => {
-    const repo = "/tmp/conflict-repo";
+    // Same repo for the intent and the cwd, and it must be an opted-in one.
+    const repo = optedInRepo;
     declareIntentVia("OTHER", repo, "src/lib/runner.ts", "rewiring up()");
     const out = runHook({ hook_event_name: "UserPromptSubmit", session_id: "ME", cwd: repo, prompt: "let me change src/lib/runner.ts" });
     const ctx = JSON.parse(out).hookSpecificOutput.additionalContext;
     expect(ctx).toContain("OTHER");
     expect(ctx).toContain("rewiring up()");
+  });
+
+  it("stays silent in a repo that did not opt into coordination", () => {
+    // The gate is the whole reason this hook stopped leaking into every session on
+    // the box. Without a test, restoring the unconditional inject looks harmless.
+    const outsider = mkdtempSync(path.join(tmpdir(), "coord-outsider-"));
+    try {
+      const out = runHook({ hook_event_name: "SessionStart", session_id: "S1", cwd: outsider });
+      expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("");
+    } finally {
+      rmSync(outsider, { recursive: true, force: true });
+    }
   });
 
   it("fails open (empty context, exit 0) on a malformed payload", () => {

@@ -43,7 +43,18 @@ vi.mock("react-dom/client", () => ({
   setInterval: () => 0,
   clearInterval: () => {},
   setTimeout: () => 0,
+  // The session list remembers whether it was expanded; without a store the
+  // component's initializer throws before any of this file's subjects can run.
+  localStorage: {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  },
 };
+// main.tsx pulls in the remote-shell pane, and through it @xterm/addon-fit, whose
+// UMD wrapper dereferences `self` at import time. It is a browser global with no
+// Node equivalent, so the module fails to load before a single test runs.
+(globalThis as any).self = (globalThis as any).window;
 (globalThis as any).document = {
   getElementById: () => ({}),
   visibilityState: "visible",

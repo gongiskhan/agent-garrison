@@ -1858,6 +1858,11 @@
 }
 
 .rtSecondaryCard {
+  /* A grid ITEM defaults to min-width:auto, so its intrinsic content width becomes
+     the track's floor and a 1fr column refuses to shrink below it - at 390px the
+     card measured 334px inside a 290px grid and pushed the whole page into a
+     horizontal scroll. This is what lets the track actually be 1fr. */
+  min-width: 0;
   border-top: 2px solid var(--ink);
   background: var(--surface);
   box-shadow: 0 6px 16px rgba(31, 42, 34, 0.04);
@@ -1881,6 +1886,13 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+}
+/* Long unbroken values (model ids, account names, base URLs) are the content that
+   sets the intrinsic floor above; let them wrap rather than widen the card. */
+.rtCard :is(.rtCardSummary, .rtSpecs, .rtCardHead) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .rtCardHead {

@@ -1114,6 +1114,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
+  .cc-session-notice,
   .cc-related
 ) > summary::-webkit-details-marker { display: none; }
 :is(
@@ -1121,6 +1122,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
+  .cc-session-notice,
   .cc-related
 ) > summary::before {
   content: "›";
@@ -1140,6 +1142,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
+  .cc-session-notice,
   .cc-related
 )[open] > summary::before { transform: rotate(90deg); }
 .cc-session-pre {
@@ -1203,11 +1206,27 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-state.error { color: var(--cc-danger-border); }
 .cc-session-toolbody { display: flex; flex-direction: column; gap: 8px; padding: 0 9px 9px; }
 .cc-session-section-label { display: block; margin: 0 0 4px 2px; color: var(--cc-fg-dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+/* Notices are one-line rows that open, not standing cards. Three stacked blocks
+   of route/error/status used to shout louder than the answer they annotate; the
+   weight now matches the tool rows they sit beside. */
 .cc-session-notice {
-  min-width: 0; padding: 8px 10px; border-left: 2px solid var(--cc-border-strong);
-  border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--cc-border-strong) 8%, transparent);
-  color: var(--cc-fg); font-size: 13px; line-height: 1.45;
+  min-width: 0; padding: 5px 9px; border-left: 2px solid var(--cc-border-strong);
+  border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--cc-border-strong) 7%, transparent);
+  color: var(--cc-fg); font-size: 12.5px; line-height: 1.4;
 }
+.cc-session-notice > summary {
+  display: flex; align-items: baseline; gap: 4px 8px; min-width: 0;
+  list-style: none; cursor: pointer;
+}
+/* A row with nothing to reveal carries no chevron, so pad it to the same optical
+   start as the ones that do. */
+.cc-session-notice.is-flat .cc-session-notice-head { padding-left: 14px; }
+.cc-session-notice-lede {
+  min-width: 0; flex: 1 1 auto; color: var(--cc-fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cc-session-notice[open] .cc-session-notice-lede { white-space: normal; overflow: visible; }
+.cc-session-notice-body { display: flex; flex-direction: column; gap: 3px; padding: 6px 0 2px 10px; }
 .cc-session-notice-warning {
   border-left-color: var(--cc-rail-warn, #e8a598);
   background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 10%, transparent);
@@ -2453,6 +2472,24 @@ html, body {
 }
 .wc-new:hover { background: #e0ebdb; }
 
+.wc-sidebar-collapse {
+  display: none;                 /* wide layouts only - see the rail block below */
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: #66695f;                /* mute */
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.wc-sidebar-collapse:hover { color: #2f3128; border-color: #d6cdba; }
+.wc-sidebar-collapse svg { transform: rotate(90deg); transition: transform .14s ease; }
+.wc-shell--rail .wc-sidebar-collapse svg { transform: rotate(0deg); }
+
 .wc-thread-list {
   flex: 1;
   min-height: 0;
@@ -2655,6 +2692,30 @@ html, body {
   height: 100%;
   color: #7d8077;
   font-size: 14px;
+}
+
+
+/* ── Collapsed rail (wide layouts only) ──────────────────────────────────────
+   The session list is navigation, not the work, so it starts collapsed and the
+   chat gets the width. Below 900px the sidebar is already a slide-over drawer,
+   so the rail is deliberately scoped out of that range - two collapse
+   mechanisms on one element would contradict each other. */
+@media (min-width: 901px) {
+  .wc-sidebar-collapse { display: inline-flex; }
+  .wc-sidebar-head { justify-content: flex-start; }
+  .wc-sidebar-title { flex: 1 1 auto; }
+  .wc-sidebar { transition: width .16s ease; }
+  .wc-shell--rail .wc-sidebar { width: 42px; }
+  /* Hidden, not merely narrow: leaving them in a 42px column produces clipped
+     text rather than a clean rail. */
+  .wc-shell--rail .wc-sidebar-title,
+  .wc-shell--rail .wc-new,
+  .wc-shell--rail .wc-thread-list { display: none; }
+  .wc-shell--rail .wc-sidebar-head {
+    justify-content: center;
+    padding: 14px 0 10px;
+    border-bottom-color: transparent;
+  }
 }
 
 /* ── Mobile / tablet toggle + scrim (wide: sidebar inline, these hidden) ──

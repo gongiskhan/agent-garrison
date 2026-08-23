@@ -311,17 +311,31 @@ describe("claude-chat canonical timeline in a real browser", () => {
     const resetTime = page.locator(".cc-session-notice-reset time");
     expect(await resetTime.getAttribute("datetime")).toBe(new Date(reset * 1_000).toISOString());
     const danger = page.locator(".cc-session-notice-danger").first();
-    const measurements = await danger.evaluate((node) => ({
-      viewport: window.innerWidth,
-      document: document.documentElement.scrollWidth,
-      client: node.clientWidth,
-      scroll: node.scrollWidth,
-      metaWhiteSpace: getComputedStyle(node.querySelector(".cc-session-notice-meta")!).whiteSpace,
-      detailWhiteSpace: getComputedStyle(node.querySelector(".cc-session-notice-detail")!).whiteSpace,
-    }));
+    // Notices collapse now, so a SHORT detail renders inline in the summary row
+    // (.cc-session-notice-lede) and only a long one gets its own line
+    // (.cc-session-notice-detail). Measure whichever is present: the invariant is
+    // that the text wraps rather than hiding behind a tooltip, not which element
+    // carries it. An error notice is open on arrival, which is why this can be
+    // measured at all.
+    const measurements = await danger.evaluate((node) => {
+      const body = node.querySelector(".cc-session-notice-detail") ?? node.querySelector(".cc-session-notice-lede");
+      return {
+        viewport: window.innerWidth,
+        document: document.documentElement.scrollWidth,
+        client: node.clientWidth,
+        scroll: node.scrollWidth,
+        // A notice with nothing extra to reveal renders flat (no chevron); one
+        // with a body renders as <details>. Either is fine for an error - what is
+        // NOT fine is a collapsed details, which hides the failure behind a click.
+        collapsed: node.tagName === "DETAILS" && !(node as HTMLDetailsElement).open,
+        metaWhiteSpace: getComputedStyle(node.querySelector(".cc-session-notice-meta")!).whiteSpace,
+        detailWhiteSpace: body ? getComputedStyle(body).whiteSpace : null,
+      };
+    });
     expect(measurements.viewport).toBe(320);
     expect(measurements.document).toBeLessThanOrEqual(320);
     expect(measurements.scroll).toBeLessThanOrEqual(measurements.client);
+    expect(measurements.collapsed, "an error must not be hidden behind a chevron").toBe(false);
     expect(measurements.metaWhiteSpace).toBe("normal");
     expect(measurements.detailWhiteSpace).toBe("normal");
     expect(await danger.getAttribute("title")).toBeNull();
