@@ -35,6 +35,7 @@ import {
 } from "@/lib/compositions";
 import { resolveActiveComposition } from "@/lib/active-composition";
 import { readLibrary } from "@/lib/library";
+import { getRunnerState } from "@/lib/runner";
 import { authorApmDependencies } from "@/lib/apm-manifest";
 import { ROOT_DIR } from "@/lib/paths";
 import { cloneFitting } from "@/lib/clone";
@@ -977,6 +978,13 @@ export interface StandingModel {
   slots: StandingSlot[];
   runtimeTemplates: RuntimeTemplate[];
   primaryRuntime: string;
+  /**
+   * RUNTIME STATE, not composition data: the account each runtime is actually
+   * running under right now, keyed by fitting id. Absent when the operative is
+   * down. Surfaces compare it against the configured account so a pin that has
+   * not taken effect yet reads as pending rather than as done.
+   */
+  launchedAccounts?: Record<string, string>;
 }
 
 function providesKind(entry: LibraryEntry, kind: string): boolean {
@@ -989,6 +997,7 @@ export function buildStandingPayload(args: {
   composition: { id: string; name: string; selections: FittingSelectionMap; primaryRuntime: string };
   entries: LibraryEntry[];
   library: LibraryEntry[];
+  launchedAccounts?: Record<string, string>;
 }): StandingModel {
   const byId = new Map(args.entries.map((entry) => [entry.id, entry]));
   const slots: StandingSlot[] = STANDING_FACULTIES.map((facultyId) => {
@@ -1038,7 +1047,8 @@ export function buildStandingPayload(args: {
     compositionName: args.composition.name,
     slots,
     runtimeTemplates,
-    primaryRuntime: args.composition.primaryRuntime
+    primaryRuntime: args.composition.primaryRuntime,
+    ...(args.launchedAccounts ? { launchedAccounts: args.launchedAccounts } : {})
   };
 }
 
@@ -1051,6 +1061,11 @@ export async function assembleStandingModel(compositionId?: string): Promise<Sta
   const composition = await readComposition(id);
   const entries = await selectedLibraryEntries(composition.selections);
   const library = await readLibrary();
+  // Attached by the fs wrapper rather than threaded through the pure builder:
+  // it is live process state, and buildStandingPayload must stay fs-free.
+  const runner = getRunnerState(id);
+  const launchedAccounts =
+    runner.status === "running" || runner.status === "verifying" ? runner.launchedAccounts : undefined;
   return buildStandingPayload({
     composition: {
       id: composition.id,
@@ -1062,7 +1077,8 @@ export async function assembleStandingModel(compositionId?: string): Promise<Sta
         DEFAULT_PRIMARY_RUNTIME
     },
     entries,
-    library
+    library,
+    launchedAccounts
   });
 }
 

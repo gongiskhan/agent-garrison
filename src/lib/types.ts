@@ -682,4 +682,14 @@ export interface RunnerState {
   startedAt?: string;
   lastError?: string;
   verifyResults: VerifyResult[];
+  /**
+   * The account each runtime fitting was LAUNCHED under, keyed by fitting id.
+   *
+   * An account pin is a spawn-time env projection (CODEX_HOME / GEMINI_CLI_HOME /
+   * the token rail), so editing it while the operative runs changes the manifest
+   * and nothing else. Without this, every surface can only show the CONFIGURED
+   * account, and a switch that has not taken effect is indistinguishable from one
+   * that has - which reads as "switching accounts does nothing".
+   */
+  launchedAccounts?: Record<string, string>;
 }

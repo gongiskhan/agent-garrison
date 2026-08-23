@@ -909,7 +909,17 @@ async function upUnlocked(
       status: "running",
       devMode: Boolean(options.devMode),
       pid: child.pid,
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      // Record what this launch actually ran under, so a later config edit can be
+      // shown as PENDING rather than silently having no effect.
+      launchedAccounts: {
+        ...(activeAccount ? { [primaryRuntime.runtimeId]: activeAccount } : {}),
+        ...Object.fromEntries(
+          secondaryAccountRequests
+            .filter((request) => request.account)
+            .map((request) => [request.id, String(request.account)])
+        )
+      }
     });
     if (options.devMode) {
       await startDevWatcher(compositionId);

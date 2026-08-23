@@ -49,6 +49,14 @@ export interface RuntimeBinding {
   contract: RuntimeAccountContract | null;
   /** "" = unpinned machine login/default key · "auto" = Paymaster · else pinned. */
   account: string;
+  /**
+   * The account this runtime is ACTUALLY running under, when the operative is up.
+   * An account pin is projected into the spawn env (CODEX_HOME / the token rail),
+   * so editing it mid-run changes the manifest and nothing else - undefined here
+   * means nothing is running, and a value that differs from `account` means the
+   * edit is pending a restart.
+   */
+  launchedAccount?: string;
 }
 
 function Chip({ chip, testId }: { chip: StatusChip; testId?: string }) {
@@ -223,6 +231,12 @@ function RuntimeBindings({
         if (!contract) return null;
         const compatibleAccounts = compatibleRuntimeAccounts(accounts, contract);
         const issue = runtimeAccountSelectionIssue(runtime.account, contract, accounts);
+        // The pin only reaches an engine at spawn. While the operative is up on a
+        // DIFFERENT account, the select is a statement of intent, not of fact, and
+        // saying so is the difference between "switching accounts does nothing"
+        // and "this takes effect on the next start".
+        const pending =
+          runtime.launchedAccount !== undefined && runtime.launchedAccount !== runtime.account;
         return (
           <div key={runtime.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span className="font-mono" style={{ fontSize: 12.5, fontWeight: 600 }}>
@@ -254,6 +268,17 @@ function RuntimeBindings({
                     deliberately clears or replaces it. */}
                 {issue ? <option value={runtime.account}>{issue.optionLabel}</option> : null}
               </select>
+              {pending ? (
+                <span
+                  className="hint"
+                  data-testid={`runtime-account-pending-${runtime.id}`}
+                  style={{ maxWidth: 520, color: "var(--accent)", fontSize: 10.5, textAlign: "right" }}
+                >
+                  Pending: running as{" "}
+                  <strong>{runtime.launchedAccount || "the machine login"}</strong> — restart the
+                  operative to apply.
+                </span>
+              ) : null}
               {issue ? (
                 <span
                   className="hint"
@@ -469,7 +494,9 @@ function AccountRow({
 export function runtimeBindings(standing: unknown): RuntimeBinding[] {
   const model = standing as {
     slots?: { faculty: string; fittings?: unknown[] }[];
+    launchedAccounts?: Record<string, string>;
   };
+  const launched = model.launchedAccounts;
   const slot = model.slots?.find((entry) => entry.faculty === "runtimes");
   const fittings = (slot?.fittings ?? []) as {
     id: string;
@@ -496,7 +523,8 @@ export function runtimeBindings(standing: unknown): RuntimeBinding[] {
         name: f.name,
         primary: Boolean(f.isPrimaryRuntime),
         contract,
-        account
+        account,
+        ...(launched ? { launchedAccount: launched[f.id] ?? "" } : {})
       }];
     });
 }

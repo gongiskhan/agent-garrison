@@ -41,6 +41,7 @@ import {
 import { primaryAccountRoute } from "@/lib/runner";
 import { readYamlFile } from "@/lib/yaml";
 import { runtimeAccountContract } from "@/components/accounts/shared";
+import { runtimeBindings } from "@/components/accounts/AccountsManager";
 
 /** Build a JWT whose payload carries exp (seconds) and optional auth claims. */
 function jwt(payload: Record<string, unknown>): string {
@@ -374,5 +375,47 @@ describe("the openai composition is actually OpenAI", () => {
     walk(Object.fromEntries(Object.entries(composition).filter(([k]) => k !== "targets")));
     expect(refs.length).toBeGreaterThan(0);
     expect(refs.filter((r) => !ids.has(r))).toEqual([]);
+  });
+});
+
+describe("an account pin that has not taken effect reads as pending", () => {
+  // The bug this encodes: the picker showed the CONFIGURED account and nothing
+  // else, so switching accounts while the operative ran looked like a no-op -
+  // the manifest changed, the running engine kept its spawn-time CODEX_HOME.
+  const standing = (account: string, launched?: Record<string, string>) => ({
+    slots: [
+      {
+        faculty: "runtimes",
+        fittings: [
+          {
+            id: "openai-agents-runtime",
+            name: "openai-agents",
+            providesRuntime: true,
+            isPrimaryRuntime: true,
+            configSchema: [{ key: "account" }, { key: "provider" }],
+            config: { account, provider: "chatgpt-subscription" }
+          }
+        ]
+      }
+    ],
+    ...(launched ? { launchedAccounts: launched } : {})
+  });
+
+  it("reports the running account when it differs from the configured one", () => {
+    const [binding] = runtimeBindings(standing("pro-ekoa", { "openai-agents-runtime": "codex-gmail" }));
+    expect(binding.account).toBe("pro-ekoa");
+    expect(binding.launchedAccount).toBe("codex-gmail");
+  });
+
+  it("agrees when the running account matches", () => {
+    const [binding] = runtimeBindings(standing("pro-ekoa", { "openai-agents-runtime": "pro-ekoa" }));
+    expect(binding.launchedAccount).toBe(binding.account);
+  });
+
+  it("leaves the running account undefined when nothing is up", () => {
+    // Undefined must NOT read as "running as the machine login" - with the
+    // operative down there is nothing to be pending against.
+    const [binding] = runtimeBindings(standing("pro-ekoa"));
+    expect(binding.launchedAccount).toBeUndefined();
   });
 });
