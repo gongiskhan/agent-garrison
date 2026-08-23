@@ -417,6 +417,24 @@ function viewIcon(entry: LibraryEntry, ownPort: boolean): LucideIcon {
 }
 
 // The Fittings menu: every equipped fitting, grouped by category with the
+/**
+ * Should navigating to a fitting auto-expand its category group?
+ *
+ * Yes by default: navigation context should never be hidden. NOT when the fitting
+ * is PINNED - it is already on screen in the Pinned group, so expanding its
+ * category group reveals nothing and just reorganises the menu under a user who
+ * only wanted to open a page. And never before the pin list has loaded, because
+ * an empty list means "not known yet", and firing on it would expand the very
+ * group a pin was meant to skip.
+ */
+export function shouldAutoExpandGroup(args: {
+  activeGroupId: string | null;
+  pinsLoaded: boolean;
+  activeIsPinned: boolean;
+}): boolean {
+  return !!args.activeGroupId && args.pinsLoaded && !args.activeIsPinned;
+}
+
 // groups collapsed by default (expansion is per-device UI state), plus an
 // always-visible Pinned group on top. Pins are dragged in (drop on the group
 // to append, on a pinned row to insert before it) and dragged out anywhere to
@@ -442,6 +460,10 @@ function FittingViewsLinks({
 }) {
   const isMobile = useIsMobileViewport();
   const [pinned, setPinned] = useState<string[]>([]);
+  // Pins arrive from the server, so an empty list means "not known yet", not
+  // "nothing pinned". The auto-expand below has to tell those apart or it fires
+  // once on the pre-load state and expands a group it should have skipped.
+  const [pinsLoaded, setPinsLoaded] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragging, setDragging] = useState<{ id: string; origin: "pinned" | "group" } | null>(
     null
@@ -491,6 +513,7 @@ function FittingViewsLinks({
           if (Array.isArray(list)) {
             setPinned(list.filter((x): x is string => typeof x === "string"));
           }
+          setPinsLoaded(true);
         })
         .catch(() => {
           // pins render as-is until the next successful load
@@ -522,15 +545,16 @@ function FittingViewsLinks({
   // Must resolve on the SAME axis the groups are keyed by, or navigating to a
   // fitting expands a group id that no longer exists and the row stays hidden.
   const activeGroupId = activeEntry ? (categoryOf(activeEntry) ?? "other") : null;
+  const activeIsPinned = !!activeFittingId && pinned.includes(activeFittingId);
   useEffect(() => {
-    if (!activeGroupId) return;
+    if (!shouldAutoExpandGroup({ activeGroupId, pinsLoaded, activeIsPinned })) return;
     setExpanded((prev) => {
-      if (prev.has(activeGroupId)) return prev;
+      if (prev.has(activeGroupId!)) return prev;
       const next = new Set(prev);
-      next.add(activeGroupId);
+      next.add(activeGroupId!);
       return next;
     });
-  }, [activeGroupId]);
+  }, [activeGroupId, activeIsPinned, pinsLoaded]);
 
   if (!composition) return null;
 

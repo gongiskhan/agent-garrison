@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readSidebarPins, sidebarPinsPath, writeSidebarPins } from "@/lib/sidebar-pins";
+import { shouldAutoExpandGroup } from "@/components/chrome/Sidebar";
 
 // The sidebar Pinned group's server-side store (~/.garrison/sidebar-pins.json).
 // Sandbox GARRISON_HOME so the user's real pins are never touched.
@@ -74,5 +75,34 @@ describe("sidebar pins store", () => {
     expect((await readSidebarPins()).pinned).toEqual(["good"]);
     // The store file itself is untouched by reads.
     expect(readFileSync(sidebarPinsPath(), "utf8")).toContain("42");
+  });
+});
+
+describe("clicking a pinned fitting does not reorganise the menu", () => {
+  // The report: clicking a row in the Pinned group opened the page AND expanded
+  // that fitting's category group. The pin is there so the row is reachable
+  // without expanding anything, so the expansion was pure noise.
+  it("skips the auto-expand for a pinned fitting", () => {
+    expect(
+      shouldAutoExpandGroup({ activeGroupId: "interfaces", pinsLoaded: true, activeIsPinned: true })
+    ).toBe(false);
+  });
+
+  it("still expands for an unpinned fitting, so navigation context is never hidden", () => {
+    expect(
+      shouldAutoExpandGroup({ activeGroupId: "interfaces", pinsLoaded: true, activeIsPinned: false })
+    ).toBe(true);
+  });
+
+  it("waits for the pin list before deciding", () => {
+    // Pins load from the server; an empty list before that means "unknown", and
+    // acting on it would expand the very group a pin was meant to skip.
+    expect(
+      shouldAutoExpandGroup({ activeGroupId: "interfaces", pinsLoaded: false, activeIsPinned: false })
+    ).toBe(false);
+  });
+
+  it("does nothing when the route is not a fitting", () => {
+    expect(shouldAutoExpandGroup({ activeGroupId: null, pinsLoaded: true, activeIsPinned: false })).toBe(false);
   });
 });
