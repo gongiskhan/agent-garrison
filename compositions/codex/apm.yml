@@ -650,22 +650,36 @@ x-garrison:
       - probe-question
       - dispatch
     targets:
+      # ALL-CODEX composition. Every cell that the default composition points at an
+      # Anthropic model points here at the ChatGPT-subscription Codex engine instead.
+      #
+      # ONE model id, three reasoning efforts — deliberately. `gpt-5.6-sol` is the only
+      # id proven to exist on this box (it is what ~/.codex/config.toml runs and what the
+      # default composition's `sol` target already uses); Codex's capability dial is
+      # `model_reasoning_effort`, which the codex adapter forwards via `-c`. Inventing
+      # sibling model slugs would fail at the first turn with no way to tell a wrong id
+      # from a wrong route.
+      #
+      # `type: secondary` on every codex target is load-bearing: codex is an exec engine
+      # and is NOT in the gateway's PRIMARY_ADJUST_RUNTIMES, so a `runtime-target` here
+      # would arrive at applySwitch as a mis-wired target. No `provider:` either — the
+      # policy's providers section knows no `openai`, and Codex resolves its identity
+      # from CODEX_HOME/the pinned account, not from a base-URL/key pair.
       - id: dispatch-fast
-        runtime: agent-sdk
-        model: claude-haiku-4-5
-        provider: anthropic
+        runtime: codex
+        model: gpt-5.6-sol
         params:
-          type: runtime-target
-          authMode: subscription
+          type: secondary
+          effort: low
           promptMode: lean
           maxTurns: 1
           timeoutMs: 8000
       - id: cc-haiku
-        runtime: agent-sdk
-        model: haiku
-        provider: anthropic
+        runtime: codex
+        model: gpt-5.6-sol
         params:
-          type: runtime-target
+          type: secondary
+          effort: low
           promptMode: coding
       - id: sec-gemini
         runtime: gemini
@@ -683,50 +697,46 @@ x-garrison:
         params:
           type: secondary
       - id: cc-opus
-        runtime: agent-sdk
-        model: opus
-        provider: anthropic
+        runtime: codex
+        model: gpt-5.6-sol
         params:
-          type: runtime-target
+          type: secondary
+          effort: high
           promptMode: coding
           maxTurns: 500
       - id: cc-sonnet
-        runtime: agent-sdk
-        model: sonnet
-        provider: anthropic
+        runtime: codex
+        model: gpt-5.6-sol
         params:
-          type: runtime-target
+          type: secondary
+          effort: medium
           promptMode: coding
           maxTurns: 500
       - id: sdk-haiku
-        runtime: agent-sdk
-        model: claude-haiku-4-5
-        provider: anthropic
+        runtime: codex
+        model: gpt-5.6-sol
         params:
-          type: runtime-target
-          authMode: api-key
+          type: secondary
+          effort: low
       - id: sol
         runtime: codex
         model: gpt-5.6-sol
-        provider: anthropic
         params:
           type: secondary
-          authMode: api-key
+          effort: medium
       - id: fable
-        runtime: agent-sdk
-        model: claude-opus-5
-        provider: anthropic
+        runtime: codex
+        model: gpt-5.6-sol
         params:
-          type: runtime-target
-          authMode: subscription
+          type: secondary
+          effort: high
           promptMode: coding
           maxTurns: 500
       - id: opus
-        runtime: agent-sdk
-        model: claude-opus-4-8
-        provider: anthropic
+        runtime: codex
+        model: gpt-5.6-sol
         params:
-          type: runtime-target
-          authMode: subscription
+          type: secondary
+          effort: high
           promptMode: coding
           maxTurns: 500
