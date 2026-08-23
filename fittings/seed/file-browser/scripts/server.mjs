@@ -19,6 +19,8 @@ const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
+import { listSources, parseSourceId, remoteList, remoteRead } from "./sources.mjs";
+
 function expandHome(p) {
   return p && p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
 }
@@ -200,8 +202,63 @@ async function handle(req, res) {
 
   try {
     if (pathname === "/health" || pathname === "/api/health") return send(res, 200, { ok: true, root: ROOT });
-    if (pathname === "/api/tree" && req.method === "GET") return await handleTree(res, url.searchParams.get("path") || "");
-    if (pathname === "/api/file" && req.method === "GET") return await handleReadFile(res, url.searchParams.get("path") || "");
+    if (pathname === "/api/sources" && req.method === "GET") {
+      return send(res, 200, { sources: await listSources(process.env, ROOT) });
+    }
+    // One tree/file contract for every source: the UI must not know which side of
+    // an ssh channel a path lives on, or every view grows two code paths.
+    if (pathname === "/api/tree" && req.method === "GET") {
+      const source = parseSourceId(url.searchParams.get("source"));
+      const rel = url.searchParams.get("path") || "";
+      if (source.kind === "remote") {
+        try {
+          const listing = await remoteList(source.transport, rel);
+          return send(res, 200, {
+            root: listing.root,
+            path: listing.path,
+            truncated: Boolean(listing.truncated),
+            items: (listing.entries ?? []).map((e) => ({
+              name: e.name,
+              path: e.path,
+              type: e.type === "dir" ? "dir" : "file",
+              size: e.size ?? 0,
+              modified: e.modified ?? null
+            }))
+          });
+        } catch (err) {
+          return send(res, 502, { error: String(err?.message || err) });
+        }
+      }
+      if (source.kind === "unknown") return send(res, 400, { error: `unknown source "${source.raw}"` });
+      return await handleTree(res, rel);
+    }
+    if (pathname === "/api/file" && req.method === "GET") {
+      const source = parseSourceId(url.searchParams.get("source"));
+      const rel = url.searchParams.get("path") || "";
+      if (source.kind === "remote") {
+        try {
+          const file = await remoteRead(source.transport, rel);
+          const buf = Buffer.from(file.base64 || "", "base64");
+          const kind = kindFor(rel);
+          if (kind === "image") {
+            return send(res, 200, { path: rel, kind, encoding: "base64", content: buf.toString("base64"), ext: path.extname(rel).slice(1) });
+          }
+          return send(res, 200, {
+            path: rel,
+            kind,
+            encoding: "utf8",
+            content: buf.toString("utf8"),
+            truncated: Boolean(file.truncated),
+            size: file.size ?? buf.length,
+            readOnly: true
+          });
+        } catch (err) {
+          return send(res, 502, { error: String(err?.message || err) });
+        }
+      }
+      if (source.kind === "unknown") return send(res, 400, { error: `unknown source "${source.raw}"` });
+      return await handleReadFile(res, rel);
+    }
     if (pathname === "/api/file" && req.method === "PUT") {
       const body = await readJsonBody(req);
       return await handleWriteFile(res, body.path, body.content, body.encoding);

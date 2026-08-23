@@ -20,6 +20,7 @@ import { WebSocketServer } from "ws";
 import { HttpError, SessionManager } from "../lib/sessions.mjs";
 import { TunnelManager, garrisonHome, loadTransports } from "../lib/transports.mjs";
 import { ForwardManager } from "../lib/forwards.mjs";
+import { listRemoteDir, readRemoteFile } from "../lib/remote-files.mjs";
 
 const FITTING_ID = "remote-shell-runtime";
 const DEFAULT_PORT = 7098;
@@ -193,6 +194,34 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         const tunnel = await tunnels.ensure(transport);
         if (!tunnel.ok) return jsonRes(res, 502, { error: tunnel.error, forwards: [] });
         return jsonRes(res, 200, { forwards: await forwards.ensureAll(transport) });
+      }
+      // Read-only browse of the remote's project tree. The file browser consumes
+      // these; nothing else needs to learn how to reach the machine.
+      if (req.method === "GET" && /^\/transports\/[^/]+\/files$/.test(pathname)) {
+        const name = decodeURIComponent(pathname.split("/")[2]);
+        const transport = transports.get(name);
+        if (!transport) return jsonRes(res, 404, { error: `unknown transport "${name}"` });
+        const tunnel = await tunnels.ensure(transport);
+        if (!tunnel.ok) return jsonRes(res, 502, { error: tunnel.error });
+        try {
+          const listing = await listRemoteDir(transport, query.path || "");
+          return jsonRes(res, 200, { ...listing, root: transport.cwd, transport: name });
+        } catch (err) {
+          return jsonRes(res, 400, { error: String(err?.message || err) });
+        }
+      }
+      if (req.method === "GET" && /^\/transports\/[^/]+\/file$/.test(pathname)) {
+        const name = decodeURIComponent(pathname.split("/")[2]);
+        const transport = transports.get(name);
+        if (!transport) return jsonRes(res, 404, { error: `unknown transport "${name}"` });
+        const tunnel = await tunnels.ensure(transport);
+        if (!tunnel.ok) return jsonRes(res, 502, { error: tunnel.error });
+        try {
+          const file = await readRemoteFile(transport, query.path || "");
+          return jsonRes(res, 200, { ...file, transport: name });
+        } catch (err) {
+          return jsonRes(res, 400, { error: String(err?.message || err) });
+        }
       }
       if (req.method === "GET" && pathname === "/sessions") {
         return jsonRes(res, 200, { sessions: manager.list() });

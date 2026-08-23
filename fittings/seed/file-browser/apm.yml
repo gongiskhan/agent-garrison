@@ -1,6 +1,6 @@
 name: file-browser
 version: 0.1.0
-description: Mobile-first File Browser — browse, view, and edit files in a scoped workspace.
+description: File Browser — browse and read files in the scoped local workspace AND in the projects remote agents are working in.
 target: claude
 type: hybrid
 includes: auto
@@ -13,7 +13,18 @@ x-garrison:
   default_port: 7091
   platforms:
     - claude-code
-  summary: A mobile-first File Browser that browses, views, and edits files under a SCOPED workspace root (default ~/.garrison/files). Syntax-highlit code via Monaco, rendered Markdown via marked, inline images — the artifact surface that replaces the artifact-store. Path-traversal-confined to its root; refuses to serve credential files.
+  summary: >-
+    Browse and read files from two kinds of SOURCE, with one contract for both.
+    `local` is the scoped workspace root (default ~/.garrison/files),
+    read/write, path-traversal-confined, and refuses credential files - the
+    artifact surface that replaced the artifact-store. Each `remote:<transport>`
+    is a project an agent is working in on another machine, read over the ssh
+    transport the remote-shell runtime already holds and confined on the REMOTE
+    by a realpath check, so a symlink out of the project is caught where the
+    truth lives. Remote sources are READ-ONLY on purpose: an agent is running in
+    that tree and editing under it would race with work you cannot see. The
+    remote-shell fitting's address is discovered through the shell, never guessed
+    from a port literal.
   config_schema:
     - key: root
       type: string
