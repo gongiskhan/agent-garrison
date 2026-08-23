@@ -39,6 +39,7 @@ import {
   // @ts-ignore
 } from "../fittings/seed/openai-agents-runtime/lib/chatgpt-transport.mjs";
 import { primaryAccountRoute } from "@/lib/runner";
+import { readYamlFile } from "@/lib/yaml";
 import { runtimeAccountContract } from "@/components/accounts/shared";
 
 /** Build a JWT whose payload carries exp (seconds) and optional auth claims. */
@@ -320,5 +321,58 @@ describe("reasoning effort is actually forwarded", () => {
     const adapter = new OpenAiAgentsAdapter({ runAgent: async () => ({}) });
     const session = await adapter.spawn({ provider: "ollama-local", model: "qwen2.5:3b", effort: "high" });
     expect(session.effortApplied).toBe(false);
+  });
+});
+
+describe("the openai composition is actually OpenAI", () => {
+  // The failure this guards against is not hypothetical: the codex composition
+  // shipped with every duty still pointing at Claude because only the legacy
+  // policy file had been remapped and the v4 duty lane reads the MANIFEST.
+  type Manifest = {
+    "x-garrison": { composition: { targets: { id: string; runtime: string; model?: string }[] } };
+  };
+  const MANIFEST_PATH = path.join(__dirname, "..", "compositions/openai/apm.yml");
+  let manifest: Manifest;
+  let targets: Manifest["x-garrison"]["composition"]["targets"];
+
+  beforeEach(async () => {
+    manifest = (await readYamlFile<Manifest>(MANIFEST_PATH))!;
+    targets = manifest["x-garrison"].composition.targets;
+  });
+
+  it("routes no target at an Anthropic runtime or model", () => {
+    for (const t of targets) {
+      expect(t.runtime).not.toBe("agent-sdk");
+      expect(t.runtime).not.toBe("claude-code");
+      expect(String(t.model ?? "")).not.toMatch(/claude|opus|sonnet|haiku/i);
+    }
+  });
+
+  it("names only models the live Codex catalog serves", () => {
+    // Read from the backend on 2026-08-23. gpt-5.3-codex-spark is deliberately
+    // absent: the catalog reports supported_in_api false for it.
+    const CATALOG = new Set(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]);
+    for (const t of targets) {
+      if (t.runtime !== "openai-agents") continue;
+      expect(CATALOG.has(String(t.model))).toBe(true);
+    }
+  });
+
+  it("leaves no duty cell pointing at a target that does not exist", () => {
+    const ids = new Set(targets.map((t) => t.id));
+    const refs: string[] = [];
+    const walk = (o: unknown) => {
+      if (Array.isArray(o)) return o.forEach(walk);
+      if (o && typeof o === "object") {
+        for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+          if (k === "target" && typeof v === "string") refs.push(v);
+          else walk(v);
+        }
+      }
+    };
+    const composition = manifest["x-garrison"].composition as Record<string, unknown>;
+    walk(Object.fromEntries(Object.entries(composition).filter(([k]) => k !== "targets")));
+    expect(refs.length).toBeGreaterThan(0);
+    expect(refs.filter((r) => !ids.has(r))).toEqual([]);
   });
 });

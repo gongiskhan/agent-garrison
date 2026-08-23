@@ -1,6 +1,6 @@
 {
-  "fingerprint": "7233b0f3d56bf7c0545affadcbda1897ea7fb17761ca3f400aca81762144b8d6",
-  "at": "2026-08-23T06:35:17.302Z",
+  "fingerprint": "928f86581ad117fbf5d17c5f25343d28c79eee792f7880c71166aeea12cc7f8a",
+  "at": "2026-08-23T07:57:19.441Z",
   "ok": true,
   "verifyResults": [
     {
@@ -12,7 +12,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 112
+      "durationMs": 124
     },
     {
       "fittingId": "automations",
@@ -23,7 +23,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 65
+      "durationMs": 60
     },
     {
       "fittingId": "basic-memory",
@@ -34,7 +34,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 11235
+      "durationMs": 13465
     },
     {
       "fittingId": "browser-default",
@@ -45,7 +45,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 566
+      "durationMs": 509
     },
     {
       "fittingId": "capture-service",
@@ -56,7 +56,7 @@
       "stdout": "CAPTURE-OK port=7097 flags=ingress:false,transcribe:false,wake:false,notify:false,speak:false\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 54
+      "durationMs": 36
     },
     {
       "fittingId": "claude-code-runtime",
@@ -67,7 +67,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 45
+      "durationMs": 35
     },
     {
       "fittingId": "codex-runtime",
@@ -78,7 +78,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 129
+      "durationMs": 115
     },
     {
       "fittingId": "cortex-automations",
@@ -89,7 +89,7 @@
       "stdout": "[cortex-automations] remote automations reachable through /home/ggomes/.garrison/bin/cortex (resolved from the install receipt)\n[cortex-automations] CORTEX_API_KEY: provisioned\nok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 186
+      "durationMs": 178
     },
     {
       "fittingId": "cortex-client",
@@ -100,7 +100,7 @@
       "stdout": "[cortex-client] cortex 1.0.0 at /home/ggomes/.garrison/bin/cortex (pin 8b7d5812f581b06930ec8ce3023e7a21c2d00467)\n[cortex-client] CORTEX_API_KEY: provisioned\nok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 269
+      "durationMs": 249
     },
     {
       "fittingId": "deepgram-voice",
@@ -111,7 +111,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 86
+      "durationMs": 85
     },
     {
       "fittingId": "dev-env",
@@ -122,7 +122,7 @@
       "stdout": "ok\n",
       "stderr": "[probe] tmux 3.4 available — sessions will survive a dev-env restart\n",
       "exitCode": 0,
-      "durationMs": 110
+      "durationMs": 107
     },
     {
       "fittingId": "drill",
@@ -133,7 +133,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 38
+      "durationMs": 36
     },
     {
       "fittingId": "file-browser",
@@ -144,7 +144,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 41
+      "durationMs": 42
     },
     {
       "fittingId": "garrison-assistant",
@@ -155,7 +155,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 198
+      "durationMs": 189
     },
     {
       "fittingId": "garrison-call",
@@ -166,7 +166,7 @@
       "stdout": "ok",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 42
+      "durationMs": 47
     },
     {
       "fittingId": "gemini-runtime",
@@ -177,7 +177,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 1862
+      "durationMs": 1877
     },
     {
       "fittingId": "google",
@@ -188,7 +188,7 @@
       "stdout": "connectorOk\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 40
+      "durationMs": 38
     },
     {
       "fittingId": "http-gateway",
@@ -199,7 +199,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 112
+      "durationMs": 99
     },
     {
       "fittingId": "huggingface-runtime",
@@ -210,7 +210,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 390
+      "durationMs": 388
     },
     {
       "fittingId": "improver",
@@ -221,7 +221,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 65
+      "durationMs": 67
     },
     {
       "fittingId": "improver-nightly",
@@ -243,7 +243,7 @@
       "stdout": "KANBAN-OK\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 121
+      "durationMs": 125
     },
     {
       "fittingId": "loop-heartbeat",
@@ -254,7 +254,7 @@
       "stdout": "probe: cadence=40m target=http://127.0.0.1:5777\nok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 39
+      "durationMs": 37
     },
     {
       "fittingId": "mcp-gateway",
@@ -265,7 +265,7 @@
       "stdout": "ok (classify_tier=absent, run_tests=absent)\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 239
+      "durationMs": 216
     },
     {
       "fittingId": "monitor-default",
@@ -276,7 +276,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 79
+      "durationMs": 74
     },
     {
       "fittingId": "omi-channel",
@@ -287,7 +287,18 @@
       "stdout": "OMI-OK\n",
       "stderr": "[omi-channel] probe: port=7094 state=/home/ggomes/.garrison/omi flags=all-off gateway=http://127.0.0.1:5777\n",
       "exitCode": 0,
-      "durationMs": 43
+      "durationMs": 39
+    },
+    {
+      "fittingId": "openai-agents-runtime",
+      "faculty": "runtimes",
+      "command": "node apm_modules/_local/openai-agents-runtime/scripts/bridge.mjs --probe",
+      "expect": "ok",
+      "ok": true,
+      "stdout": "ok\n",
+      "stderr": "",
+      "exitCode": 0,
+      "durationMs": 105
     },
     {
       "fittingId": "opencode-runtime",
@@ -298,7 +309,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 751
+      "durationMs": 757
     },
     {
       "fittingId": "openrouter-runtime",
@@ -309,7 +320,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 264
+      "durationMs": 267
     },
     {
       "fittingId": "orchestrator",
@@ -320,7 +331,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 49
+      "durationMs": 46
     },
     {
       "fittingId": "outpost-tailscale-host",
@@ -331,7 +342,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 37
+      "durationMs": 36
     },
     {
       "fittingId": "ports-default",
@@ -342,7 +353,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 49
+      "durationMs": 51
     },
     {
       "fittingId": "power-default",
@@ -353,7 +364,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 46
+      "durationMs": 47
     },
     {
       "fittingId": "remote-shell-runtime",
@@ -364,7 +375,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 66
+      "durationMs": 63
     },
     {
       "fittingId": "roadmaps",
@@ -375,7 +386,7 @@
       "stdout": "ROADMAPS-OK\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 45
+      "durationMs": 41
     },
     {
       "fittingId": "scheduler",
@@ -386,7 +397,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 44
+      "durationMs": 40
     },
     {
       "fittingId": "screen-share-default",
@@ -397,7 +408,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 41
+      "durationMs": 40
     },
     {
       "fittingId": "scroll-world",
@@ -408,7 +419,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 8
+      "durationMs": 6
     },
     {
       "fittingId": "slack-channel",
@@ -419,7 +430,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 8
+      "durationMs": 6
     },
     {
       "fittingId": "snapshots-default",
@@ -430,7 +441,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 12
+      "durationMs": 8
     },
     {
       "fittingId": "taste",
@@ -452,7 +463,7 @@
       "stdout": "connectorOk\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 38
+      "durationMs": 40
     },
     {
       "fittingId": "vault-git-sync",
@@ -460,10 +471,10 @@
       "command": "bash apm_modules/_local/vault-git-sync/scripts/verify.sh",
       "expect": "ok",
       "ok": true,
-      "stdout": "vault-git-sync: last run 'ok' at 2026-08-23T06:35:12Z\nvault-git-sync: /home/ggomes/ObsidianVault is a git repo with an origin remote; job registered\nok\n",
+      "stdout": "vault-git-sync: last run 'ok' at 2026-08-23T07:56:18Z\nvault-git-sync: /home/ggomes/ObsidianVault is a git repo with an origin remote; job registered\nok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 59
+      "durationMs": 56
     },
     {
       "fittingId": "web-channel-default",
@@ -474,7 +485,7 @@
       "stdout": "ok\n",
       "stderr": "",
       "exitCode": 0,
-      "durationMs": 94
+      "durationMs": 88
     }
   ]
 }

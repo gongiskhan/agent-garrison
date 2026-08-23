@@ -96,6 +96,17 @@ export function buildFileTools(cwd) {
 // The reasoning efforts @openai/agents ModelSettings accepts. The Codex catalog
 // also advertises `ultra`, which the SDK's type does not carry - it is dropped
 // here rather than passed through as an unchecked string.
+// Provider-level diagnoses raised inside the transport that must survive the
+// OpenAI client's blanket error wrapping (see the unwrap in the catch below).
+const TRANSPORT_ERROR_CODES = new Set([
+  "usage-limit-reached",
+  "credential-absent",
+  "credential-expired",
+  "credential-corrupt",
+  "credential-not-subscription",
+  "refresh-failed"
+]);
+
 const SUPPORTED_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 function sumUsage(res) {
@@ -167,7 +178,25 @@ export async function runOpenAiAgent({
     // `signal` is the Stop primitive for this runtime: there is no child process to
     // SIGTERM, so aborting the in-flight run IS the cancel (agents-core run.d.ts
     // accepts it). Without it a routed turn on this engine would be un-stoppable.
-    const res = await runner.run(agent, runInput, { maxTurns: maxTurns ?? 12, ...(signal ? { signal } : {}) });
+    //
+    // The Codex backend REFUSES a non-streamed request outright ({"detail":"Stream
+    // must be set to true"}), so the responses lane runs the streamed loop and
+    // waits for it to complete. Everything else keeps the non-streamed call it has
+    // always made - the same result object either way, so the envelope below is
+    // shared rather than duplicated per lane.
+    const streamed = wireApi === "responses";
+    const res = await runner.run(agent, runInput, {
+      maxTurns: maxTurns ?? 12,
+      ...(streamed ? { stream: true } : {}),
+      ...(signal ? { signal } : {})
+    });
+    if (streamed) {
+      await res.completed;
+      // A streamed run reports a mid-run failure on the result rather than by
+      // rejecting, so an unchecked `completed` would return an empty turn as if it
+      // had succeeded.
+      if (res.error) throw res.error;
+    }
     return {
       finalOutput: res.finalOutput ?? "",
       newItems: res.newItems ?? [],
@@ -184,6 +213,13 @@ export async function runOpenAiAgent({
     if (err?.name === "AbortError" || signal?.aborted) {
       return { finalOutput: "", newItems: [], history: Array.isArray(thread) ? thread : null, stoppedReason: "cancelled", usedTokens: 0 };
     }
+    // The OpenAI client wraps ANYTHING thrown out of its fetch as a bare
+    // "APIConnectionError: Connection error." A provider-level diagnosis raised in
+    // the transport (a plan usage limit, an unusable credential) is exactly the
+    // message the operator needs, and reporting it as a connection failure sends
+    // them to look at the network instead. The client preserves `cause`, so
+    // surface ours when it is there.
+    if (err?.cause?.code && TRANSPORT_ERROR_CODES.has(err.cause.code)) throw err.cause;
     throw err;
   }
 }
