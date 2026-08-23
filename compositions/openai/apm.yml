@@ -145,9 +145,7 @@ x-garrison:
         - id: remote-shell-runtime
           config:
             port: 7098
-            transports: >-
-              {"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","label":"CSG
-              work","routingTarget":"csg-work"}}
+            transports: '{"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","label":"CSG work","routingTarget":"csg-work","forwards":[{"name":"web","remotePort":3006,"label":"HRG shell (3006)"},{"name":"pcrf-mfe","remotePort":3008,"label":"PCRF remote (3008)"},{"name":"web-3009","remotePort":3009,"label":"webpack 3009"},{"name":"web-3010","remotePort":3010,"label":"webpack 3010"},{"name":"api","remotePort":8080,"label":"API / properties (8080)"},{"name":"ims","remotePort":8225,"label":"IMS (8225)"},{"name":"hrg","remotePort":8286,"label":"HRG service (8286)"},{"name":"pmcs","remotePort":8295,"label":"PMCS + remote (8295)"},{"name":"sms","remotePort":8298,"label":"SMS + remote (8298)"}]}}'
         - id: agent-sdk-runtime
           config:
             provider: anthropic

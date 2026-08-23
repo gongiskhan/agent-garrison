@@ -19,6 +19,7 @@ import url from "node:url";
 import { WebSocketServer } from "ws";
 import { HttpError, SessionManager } from "../lib/sessions.mjs";
 import { TunnelManager, garrisonHome, loadTransports } from "../lib/transports.mjs";
+import { ForwardManager } from "../lib/forwards.mjs";
 
 const FITTING_ID = "remote-shell-runtime";
 const DEFAULT_PORT = 7098;
@@ -143,6 +144,7 @@ async function assertPortFree(port, host) {
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const transports = await loadTransports();
   const tunnels = new TunnelManager({});
+  const forwards = new ForwardManager({});
   const manager = new SessionManager({
     tunnels,
     transports,
@@ -175,9 +177,22 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
             tmuxSession: t.tmuxSession,
             cwd: t.cwd,
             agentCommand: t.agentCommand,
-            routingTarget: t.routingTarget
+            routingTarget: t.routingTarget,
+            // Cheap read: reports what is already up, never dials.
+            forwards: forwards.snapshot(t)
           }))
         });
+      }
+      // Bring a transport's forwards up (idempotent) and report where they landed.
+      // POST because it opens ssh channels - a GET that dials would make a status
+      // poll hold connections into someone else's machine open.
+      if (req.method === "POST" && /^\/transports\/[^/]+\/forwards$/.test(pathname)) {
+        const name = decodeURIComponent(pathname.split("/")[2]);
+        const transport = transports.get(name);
+        if (!transport) return jsonRes(res, 404, { error: `unknown transport "${name}"` });
+        const tunnel = await tunnels.ensure(transport);
+        if (!tunnel.ok) return jsonRes(res, 502, { error: tunnel.error, forwards: [] });
+        return jsonRes(res, 200, { forwards: await forwards.ensureAll(transport) });
       }
       if (req.method === "GET" && pathname === "/sessions") {
         return jsonRes(res, 200, { sessions: manager.list() });

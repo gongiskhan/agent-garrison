@@ -16,6 +16,7 @@
 // to dial us back.
 
 import { spawn } from "node:child_process";
+import { normalizeForwards } from "./forwards.mjs";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import net from "node:net";
@@ -52,7 +53,8 @@ export function garrisonHome() {
 //     "cwd": "~/dev/pnmui-monorepo",
 //     "eventsFile": "~/.garrison/events.jsonl",
 //     "agentCommand": "cursor-agent",
-//     "label": "CSG work"
+//     "label": "CSG work",
+//     "forwards": [{ "name": "web", "remotePort": 3006, "label": "PNMUI web" }]
 //   }
 
 export async function loadTransports(env = process.env) {
@@ -124,7 +126,11 @@ function normalizeTransport(name, t) {
     // Optional routing-target id (composition policy) that chat-lane turns on a
     // thread bound to this transport should pin, e.g. "csg-work". Consumed by
     // the web channel; the server itself never routes.
-    routingTarget: typeof t.routingTarget === "string" && t.routingTarget.trim() ? t.routingTarget.trim() : null
+    routingTarget: typeof t.routingTarget === "string" && t.routingTarget.trim() ? t.routingTarget.trim() : null,
+    // Services on the remote worth reaching from here (a dev server, an API).
+    // Each becomes an `ssh -L` channel on the SAME connection - see forwards.mjs
+    // for why that keeps the inbound-only invariant.
+    forwards: normalizeForwards(t.forwards)
   };
 }
 
