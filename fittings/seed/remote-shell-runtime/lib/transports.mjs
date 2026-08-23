@@ -205,6 +205,90 @@ function tcpProbe(host, port, timeoutMs = 3000) {
   });
 }
 
+/** Run a short-lived CLI and collect its output. */
+function runTool(spawnFn, bin, argv, timeoutMs) {
+  return new Promise((resolve) => {
+    const child = spawnFn(bin, argv, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    };
+    const timer = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch {}
+      finish(null);
+    }, timeoutMs);
+    child.stdout?.on("data", (d) => { stdout += d; });
+    child.stderr?.on("data", (d) => { stderr += d; });
+    child.on("close", finish);
+    child.on("error", (err) => { stderr += String(err); finish(null); });
+  });
+}
+
+/**
+ * Ask the tunnel SERVICE what it knows about a tunnel.
+ *
+ * WHY THIS EXISTS. `devtunnel connect` against a tunnel nobody is hosting does
+ * not fail - it waits, silently, forever. So a timeout on the local forward
+ * cannot tell "the remote stopped hosting" from "this box is not logged in",
+ * and a message that hedged between the two sent a real debugging session to
+ * re-login on BOTH machines when the answer was neither. One cheap query
+ * against the service settles it.
+ */
+export async function describeTunnel(tunnelId, { bin = "devtunnel", timeoutMs = 15_000, spawnFn = spawn } = {}) {
+  const result = await runTool(spawnFn, bin, ["show", tunnelId, "--json"], timeoutMs);
+  const text = `${result.stdout}\n${result.stderr}`;
+  // The CLI prints a first-run banner ahead of the JSON, so parse from the brace
+  // rather than from byte zero.
+  const start = result.stdout.indexOf("{");
+  if (start >= 0) {
+    try {
+      const tunnel = JSON.parse(result.stdout.slice(start))?.tunnel;
+      if (tunnel) {
+        return {
+          ok: true,
+          hostConnections: Number(tunnel.hostConnections) || 0,
+          ports: (tunnel.ports ?? []).map((p) => Number(p.portNumber)).filter(Number.isFinite)
+        };
+      }
+    } catch {
+      /* not JSON after all - fall through to the text-shaped answers */
+    }
+  }
+  if (/login required/i.test(text)) return { ok: false, reason: "login" };
+  if (/not found|does not exist|404/i.test(text)) return { ok: false, reason: "missing" };
+  return { ok: false, reason: "unknown", detail: text.trim().slice(-300) };
+}
+
+/**
+ * Turn a tunnel description into the one sentence that says what to DO about
+ * it, or null when the description gives no reason not to try connecting.
+ * Pure, so the wording is pinned by a test rather than by whoever last read a
+ * log - this string is the whole user-facing diagnosis.
+ */
+export function explainTunnel(info, dt) {
+  if (info.ok) {
+    if (info.hostConnections === 0) {
+      return `nothing is hosting devtunnel ${dt.tunnel}: the tunnel exists and this box is logged in, but no machine is running \`devtunnel host\` for it. Start it ON THE REMOTE - \`devtunnel host ${dt.tunnel}\` - then retry. Logging in again here changes nothing.`;
+    }
+    if (info.ports.length && !info.ports.includes(dt.port)) {
+      return `devtunnel ${dt.tunnel} is hosted but forwards no port ${dt.port} (it carries ${info.ports.join(", ")}). Add it on the remote: \`devtunnel port create ${dt.tunnel} -p ${dt.port}\`.`;
+    }
+    return null;
+  }
+  if (info.reason === "login") {
+    return `this box is not logged in to dev tunnels, so ${dt.tunnel} cannot be reached - run \`devtunnel user login\` as this user and restart the fitting. (Each Garrison instance redirects XDG_DATA_HOME, so the login must be visible at $XDG_DATA_HOME/DevTunnels; the setup hook links the real store in.)`;
+  }
+  if (info.reason === "missing") {
+    return `devtunnel ${dt.tunnel} does not exist - deleted, or owned by a different account than the one logged in here. Recreate it and repoint the transport.`;
+  }
+  return null;
+}
+
 /**
  * Keeps `devtunnel connect <tunnel>` children alive for every transport that
  * rides a devtunnel. Health = the forwarded loopback port accepts TCP. The
@@ -213,8 +297,9 @@ function tcpProbe(host, port, timeoutMs = 3000) {
  * left alone — the port working is the contract, not our owning the process.
  */
 export class TunnelManager {
-  constructor({ env = process.env } = {}) {
+  constructor({ env = process.env, spawnFn = spawn } = {}) {
     this.env = env;
+    this.spawnFn = spawnFn;
     this.bin = resolveDevtunnelBin(env);
     this.children = new Map(); // tunnelId -> {child, startedAt, restarts}
     this.lastError = new Map(); // tunnelId -> string
@@ -225,6 +310,11 @@ export class TunnelManager {
     if (!dt) return { ok: true, via: "direct" };
     const portUp = await tcpProbe(transport.ssh.host, transport.ssh.port);
     if (portUp) return { ok: true, via: "devtunnel", running: this.children.has(dt.tunnel) };
+    // Ask the service BEFORE spawning a client that would wait silently forever
+    // on a tunnel nobody hosts. This makes the failure fast as well as honest.
+    const info = await describeTunnel(dt.tunnel, { bin: this.bin, spawnFn: this.spawnFn });
+    const explained = explainTunnel(info, dt);
+    if (explained) return { ok: false, via: "devtunnel", error: explained, tunnel: info };
     this.#startClient(dt.tunnel);
     // Give a fresh client a moment to bring the forward up.
     for (let i = 0; i < 20; i++) {
@@ -233,11 +323,13 @@ export class TunnelManager {
         return { ok: true, via: "devtunnel", running: true };
       }
     }
+    const hosted = info.ok ? `${info.hostConnections} host connection(s)` : "unknown host state";
     return {
       ok: false,
       via: "devtunnel",
+      tunnel: info,
       error: this.lastError.get(dt.tunnel) ||
-        `devtunnel forward for ${dt.tunnel}:${dt.port} did not come up - the remote host for this tunnel is not running (or \`devtunnel user login\` is missing on this box)`
+        `devtunnel ${dt.tunnel} reports ${hosted}, but the local forward for port ${dt.port} never came up on 127.0.0.1:${transport.ssh.port}. The client is running; check \`devtunnel connect ${dt.tunnel}\` by hand for what it is waiting on.`
     };
   }
 
