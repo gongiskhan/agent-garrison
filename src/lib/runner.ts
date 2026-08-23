@@ -210,6 +210,14 @@ export function primaryAccountRoute(
     if (providerId === "openai" || providerId === "openai-compat") {
       return { kind: "strict", platform: "openai", allowAuthFile: false };
     }
+    // The ChatGPT subscription is authenticated by the SAME auth-file credential
+    // the codex engine uses (the runtime resolves and refreshes it out of the
+    // account home this pin materializes), so it is the one openai-agents provider
+    // that must accept an auth-file account. Mirrors runtimeAccountContract's
+    // client-side entry - the two are asserted against each other in tests.
+    if (providerId === "chatgpt-subscription") {
+      return { kind: "strict", platform: "openai", allowAuthFile: true };
+    }
     if (providerId === "ollama-local") {
       return {
         kind: "unsupported",

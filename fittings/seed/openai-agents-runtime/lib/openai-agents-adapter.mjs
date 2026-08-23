@@ -11,7 +11,7 @@
 // the sole SDK-importing module (lib/openai-client.mjs). Tests inject `runAgent`,
 // so the unit path never loads `@openai/agents` / `openai` / `zod`.
 import { buildHarness } from "./harness.mjs";
-import { resolveEndpoint, capabilityRecord } from "./providers.mjs";
+import { resolveEndpoint, capabilityRecord, wireApiFor } from "./providers.mjs";
 
 async function defaultRunAgent(params) {
   const mod = await import("./openai-client.mjs");
@@ -86,10 +86,22 @@ export class OpenAiAgentsAdapter {
       env: config.env ?? {}
     });
     const capabilities = capabilityRecord(config);
+    const wireApi = wireApiFor(config);
+    // A subscription target authenticates per REQUEST from an auth file rather
+    // than with a static key, so it needs its own fetch. Built once per session
+    // (not per turn) so the backend sees one stable session id for the run, and
+    // lazily imported so the unit path never touches the credential layer.
+    let fetchImpl = null;
+    if (wireApi === "responses" && config.provider === "chatgpt-subscription") {
+      const { createChatGptFetch } = await import("./chatgpt-transport.mjs");
+      fetchImpl = createChatGptFetch({ env: config.env ?? process.env });
+    }
 
     return {
       config,
       alive: true,
+      wireApi,
+      fetchImpl,
       // The gateway pool re-checks a warm session before reusing it, and its
       // #alive helper reads `isAlive()` and defaults to TRUE when absent — so a
       // session without this method is never recognised as dead and a torn-down
@@ -107,7 +119,10 @@ export class OpenAiAgentsAdapter {
       capabilities,
       model: config.model ?? null,
       effort: config.effort ?? null,
-      effortApplied: false,
+      // An effort that arrives on the SPAWN config is applied exactly like one set
+      // by setEffort later; reporting false here would under-report every routed
+      // turn, since the gateway pins the tier at spawn.
+      effortApplied: Boolean(config.effort) && capabilities.effort === "supported",
       // The agentic loop has no natural bound: cap turns + an optional token budget
       // so a runaway loop stops and reports instead of burning paid credits.
       maxTurns: config.maxTurns ?? 12,
@@ -147,6 +162,9 @@ export class OpenAiAgentsAdapter {
       input,
       thread: session.thread,
       maxTurns: session.maxTurns,
+      ...(session.effort ? { effort: session.effort } : {}),
+      ...(session.wireApi ? { wireApi: session.wireApi } : {}),
+      ...(session.fetchImpl ? { fetchImpl: session.fetchImpl } : {}),
       ...(session.abort?.signal ? { signal: session.abort.signal } : {})
     };
   }

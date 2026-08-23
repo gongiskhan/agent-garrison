@@ -504,6 +504,15 @@ export function runtimeAccountContract(
     if (p === "openai" || p === "openai-compat") {
       return { platform: "openai", allowAuthFile: false, emptyMode: "default-key" };
     }
+    // The ChatGPT subscription is the one openai-agents provider authenticated by
+    // a credential FILE rather than a key, so it is the only one that accepts an
+    // auth-file account - the same subscription credential the Codex runtime uses,
+    // which is why both offer the identical contract. Blank means the box's own
+    // ~/.codex login (the resolver's fallback), hence machine-login, not
+    // default-key: there is no key to fall back to.
+    if (p === "chatgpt-subscription") {
+      return { platform: "openai", allowAuthFile: true, emptyMode: "machine-login" };
+    }
     // ollama-local (including the fitting's blank/default value) is keyless;
     // an unknown provider has no declared account contract. Never guess OpenAI.
     return null;

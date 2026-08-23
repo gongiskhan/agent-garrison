@@ -112,10 +112,31 @@ export const SEED_PROVIDERS = [
   { id: "deepseek", kind: "cloud-oss", baseUrl: "https://api.deepseek.com/anthropic", vaultKey: "DEEPSEEK_API_KEY" },
   { id: "zai-glm", kind: "cloud-oss", baseUrl: "https://api.z.ai/api/anthropic", vaultKey: "ZAI_API_KEY" },
   { id: "openai", kind: "openai-compatible", baseUrl: "https://api.openai.com/v1", vaultKey: "OPENAI_API_KEY", notes: "OpenAI cloud endpoint for OpenAI-shaped runtimes" },
-  { id: "openai-compat", kind: "openai-compatible", baseUrl: null, vaultKey: "OPENAI_API_KEY", notes: "configurable OpenAI-compatible endpoint; the runtime fitting must supply baseUrl" }
+  { id: "openai-compat", kind: "openai-compatible", baseUrl: null, vaultKey: "OPENAI_API_KEY", notes: "configurable OpenAI-compatible endpoint; the runtime fitting must supply baseUrl" },
+  // The first RUNTIME-MANAGED provider: the ChatGPT subscription behind the Codex
+  // Responses backend. Its credential is an OAuth auth-file the runtime reads (and
+  // re-persists on rotation) out of the pinned account's config home, so unlike
+  // every entry above there is no vault key to project and no base URL to override
+  // - the runtime owns both. The entry still exists as policy data because a target
+  // naming a provider that is not in this list is a routing error, and it is the
+  // one place an operator can see which endpoint the plan actually talks to.
+  {
+    id: "chatgpt-subscription",
+    kind: "runtime-managed",
+    baseUrl: "https://chatgpt.com/backend-api/codex",
+    notes: "ChatGPT plan via the Codex backend; credential is the account's auth.json, not a vault key"
+  }
 ];
 
-export const PROVIDER_KINDS = ["anthropic-plan", "local", "cloud-oss", "openai-compatible"];
+export const PROVIDER_KINDS = [
+  "anthropic-plan",
+  "local",
+  "cloud-oss",
+  "openai-compatible",
+  // The runtime resolves its own credential (an OAuth auth-file in the pinned
+  // account's home); the launcher projects neither a base URL nor a token.
+  "runtime-managed"
+];
 
 // ── Primary runtime selection (GARRISON-RUNTIMES-V1 P3/D4) ──────────────────
 // The policy file names WHICH composed runtime fitting hosts the orchestrator

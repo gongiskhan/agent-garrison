@@ -26,6 +26,9 @@ const VISION_TOOLS = { text: true, toolUse: true, image: true, document: false, 
 // manifest's secret_scope; the runner materializes it into the server-side env.
 export const DEFAULT_API_KEY_ENV = "OPENAI_API_KEY";
 
+/** The ChatGPT subscription endpoint: the Codex backend, Responses API only. */
+export const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
+
 // The canonical env var naming the TRUSTED base URL of a configurable provider.
 // A provider entry may override it with `baseUrlEnv` so a second self-hosted
 // endpoint gets its own key/URL pair instead of contending for this one: two
@@ -80,6 +83,36 @@ export const OPENAI_PROVIDERS = {
     authMode: "api-key",
     effort: false,
     capabilities: TEXT_TOOLS
+  },
+  // The ChatGPT SUBSCRIPTION, via the Codex backend. This is the one provider
+  // here that is not an OpenAI-compatible /v1 endpoint and not key-authenticated:
+  // it is the Responses API at chatgpt.com/backend-api/codex, carrying the OAuth
+  // credential `codex login` mints. It exists so an operative can run on the plan
+  // the user already pays for instead of metered platform tokens.
+  //
+  // `needsKey: false` is not "unauthenticated" - the bearer is injected per request
+  // by chatgpt-transport's fetch from the account's auth.json, which is also what
+  // refreshes and re-persists the rotating token. resolveEndpoint therefore hands
+  // the client a dummy string (the OpenAI constructor demands a non-empty apiKey)
+  // that never reaches the wire.
+  //
+  // `wireApi: "responses"` selects OpenAIResponsesModel over the chat-completions
+  // model every other provider here uses: this backend serves ONLY /responses.
+  //
+  // Honest scope: this is not a documented OpenAI integration. The credential is
+  // sanctioned for Codex clients, and the backend routes the gpt-5.6 family only
+  // for a recognised `originator`, so this rides the same plan limits as the Codex
+  // CLI and can break when that private contract moves. Vision is real (the
+  // catalog reports text+image on the gpt-5.6 family); hosted web-search and MCP
+  // are not wired by this runtime, so they stay false as everywhere else here.
+  "chatgpt-subscription": {
+    baseUrl: CHATGPT_BASE_URL,
+    needsKey: false,
+    dummyToken: "chatgpt-subscription",
+    authMode: "subscription",
+    wireApi: "responses",
+    effort: true,
+    capabilities: VISION_TOOLS
   },
   // A self-hosted GLM deployment behind an OpenAI-compatible server (vLLM /
   // SGLang / a uvicorn wrapper). Mechanically identical to `openai-compat` - the
@@ -286,6 +319,15 @@ export function assertSupportsBlocks(target, requiredBlocks = []) {
 export function assertRouteCapability(target, requiredBlocks = []) {
   if (!target || target.runtime !== "openai-agents") return null;
   return assertSupportsBlocks(target, requiredBlocks);
+}
+
+// Which HTTP contract a target's provider speaks. Providers default to
+// chat-completions (every OpenAI-compatible endpoint); only the ChatGPT
+// subscription declares `responses`, because the Codex backend serves nothing
+// else. Read by the client builder to pick the SDK model class.
+export function wireApiFor(target = {}) {
+  if (target.wireApi) return target.wireApi;
+  return OPENAI_PROVIDERS[target.provider]?.wireApi || "chat";
 }
 
 // The authMode a target resolves to (api-key / local) - the label the composer +

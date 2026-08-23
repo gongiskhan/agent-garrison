@@ -39,7 +39,13 @@ function adapterReturning(envelope: any) {
 // ── Providers + endpoint resolution (openai-providers-ok) ────────────────────
 describe("Providers - OpenAI-compatible endpoints + by-name Vault key (openai-providers-ok)", () => {
   it("the OpenAI-compatible provider slots are present", () => {
-    expect(Object.keys(OPENAI_PROVIDERS).sort()).toEqual(["glm", "ollama-local", "openai", "openai-compat"]);
+    expect(Object.keys(OPENAI_PROVIDERS).sort()).toEqual([
+      "chatgpt-subscription",
+      "glm",
+      "ollama-local",
+      "openai",
+      "openai-compat"
+    ]);
   });
 
   it("glm is a SEPARATE env pair from openai-compat, so the two keys never contend", () => {

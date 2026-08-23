@@ -13,7 +13,15 @@
 // new OpenAI({ baseURL }), model)` reaches OpenAI cloud, local Ollama, and any
 // OpenAI-compatible endpoint without touching the setDefaultOpenAIClient global.
 import OpenAI from "openai";
-import { Agent, Runner, OpenAIChatCompletionsModel, MaxTurnsExceededError, tool, setTracingDisabled } from "@openai/agents";
+import {
+  Agent,
+  Runner,
+  OpenAIChatCompletionsModel,
+  OpenAIResponsesModel,
+  MaxTurnsExceededError,
+  tool,
+  setTracingDisabled
+} from "@openai/agents";
 import { z } from "zod";
 import path from "node:path";
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
@@ -85,6 +93,11 @@ export function buildFileTools(cwd) {
   ];
 }
 
+// The reasoning efforts @openai/agents ModelSettings accepts. The Codex catalog
+// also advertises `ultra`, which the SDK's type does not carry - it is dropped
+// here rather than passed through as an unchecked string.
+const SUPPORTED_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
 function sumUsage(res) {
   let total = 0;
   for (const r of res?.rawResponses ?? []) {
@@ -97,12 +110,53 @@ function sumUsage(res) {
 // Run ONE turn through the OpenAI agentic loop and normalize the result. Returns
 // { finalOutput, newItems, history, stoppedReason, usedTokens }. A maxTurns
 // overrun is caught and reported as stoppedReason:"max_turns" (never thrown out).
-export async function runOpenAiAgent({ baseUrl, apiKey, model, instructions, toolsEnabled, cwd, input, thread, maxTurns, signal }) {
+export async function runOpenAiAgent({
+  baseUrl,
+  apiKey,
+  model,
+  instructions,
+  toolsEnabled,
+  cwd,
+  input,
+  thread,
+  maxTurns,
+  signal,
+  wireApi,
+  fetchImpl,
+  effort
+}) {
   if (!model) throw new Error("openai-agents: no model specified for the turn");
-  const client = new OpenAI({ baseURL: baseUrl || undefined, apiKey: apiKey || "unused" });
-  const modelInstance = new OpenAIChatCompletionsModel(client, model);
+  // `fetchImpl` is how a provider that is not a plain keyed endpoint injects its
+  // own auth and body rules (the ChatGPT subscription resolves + refreshes an
+  // OAuth token per request). Passed to the client rather than wrapped around it
+  // so retries and streaming inside the SDK go through it too.
+  const client = new OpenAI({
+    baseURL: baseUrl || undefined,
+    apiKey: apiKey || "unused",
+    ...(fetchImpl ? { fetch: fetchImpl } : {})
+  });
+  // Wire API is a PROVIDER property, not a preference: the Codex backend serves
+  // only /responses, while every OpenAI-compatible endpoint this fitting targets
+  // (Ollama, vLLM, LiteLLM, OpenAI cloud) serves /chat/completions. Picking the
+  // wrong class is a 404, so the provider table decides and this just obeys.
+  const modelInstance =
+    wireApi === "responses"
+      ? new OpenAIResponsesModel(client, model)
+      : new OpenAIChatCompletionsModel(client, model);
   const tools = toolsEnabled ? buildFileTools(cwd) : [];
-  const agent = new Agent({ name: "garrison-operative", instructions, model: modelInstance, tools });
+  // Reasoning effort is the tier dial on this engine: one model family answers at
+  // several depths, so a routing tier that cannot move it is not a tier at all.
+  // Only values the SDK's ModelSettings actually accepts are forwarded - an
+  // unrecognised string would be sent verbatim and rejected by the endpoint, which
+  // reads as a broken route rather than an unsupported knob.
+  const modelSettings = SUPPORTED_EFFORTS.has(effort) ? { reasoning: { effort } } : undefined;
+  const agent = new Agent({
+    name: "garrison-operative",
+    instructions,
+    model: modelInstance,
+    tools,
+    ...(modelSettings ? { modelSettings } : {})
+  });
   const runner = new Runner({ tracingDisabled: true });
 
   // Continue a prior conversation by concatenating the new user turn onto the

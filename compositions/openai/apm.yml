@@ -1,4 +1,4 @@
-name: codex
+name: openai
 version: 0.1.0
 target: claude
 dependencies:
@@ -29,6 +29,7 @@ dependencies:
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/omi-channel
+    - path: ../../fittings/seed/openai-agents-runtime
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/remote-shell-runtime
     - path: ../../fittings/seed/openrouter-runtime
@@ -49,8 +50,8 @@ dependencies:
 x-garrison:
   composition:
     schema: 4
-    id: codex
-    name: codex
+    id: openai
+    name: openai
     global_config:
       projects_root: ~/dev
       vault: default
@@ -134,6 +135,13 @@ x-garrison:
         - id: mcp-gateway
           config: {}
       runtimes:
+        - id: openai-agents-runtime
+          config:
+            provider: chatgpt-subscription
+            model: gpt-5.6-terra
+            promptMode: coding
+            maxTurns: 500
+            account: codex-gmail
         - id: claude-code-runtime
           config:
             account: auto
@@ -141,7 +149,7 @@ x-garrison:
           config: {}
         - id: codex-runtime
           config:
-            account: pro-ekoa
+            account: ''
         - id: gemini-runtime
           config: {}
         - id: opencode-runtime
@@ -315,17 +323,17 @@ x-garrison:
         levels:
           - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
             cell:
-              target: opus
+              target: sol
               effort: medium
           - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
             cell:
-              target: opus
+              target: sol
               effort: high
           - description: >-
               deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
               security-sensitive or multi-subsystem work
             cell:
-              target: opus
+              target: sol
               effort: xhigh
         context_hold: true
       - id: test
@@ -334,15 +342,15 @@ x-garrison:
         levels:
           - description: 'trivial: assert one obvious thing'
             cell:
-              target: cc-sonnet
+              target: terra
               effort: low
           - description: 'standard: cover the change and its edges'
             cell:
-              target: opus
+              target: sol
               effort: medium
           - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
             cell:
-              target: cc-opus
+              target: sol
               effort: high
       - id: review
         title: Review
@@ -350,11 +358,11 @@ x-garrison:
         levels:
           - description: 'trivial: a skim for obvious mistakes'
             cell:
-              target: cc-opus
+              target: sol
               effort: low
           - description: 'standard: read the diff against its acceptance'
             cell:
-              target: cc-opus
+              target: sol
               effort: medium
           - description: 'deep: argue with it - assume it is wrong and try to show how'
             cell:
@@ -366,15 +374,15 @@ x-garrison:
         levels:
           - description: 'lookup: a fact check or a single-source answer'
             cell:
-              target: cc-opus
+              target: sol
               effort: low
           - description: 'focused: survey a topic or compare a few options, with sources'
             cell:
-              target: cc-opus
+              target: sol
               effort: medium
           - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
             cell:
-              target: cc-opus
+              target: sol
               effort: high
       - id: discuss
         title: Discuss
@@ -382,15 +390,15 @@ x-garrison:
         levels:
           - description: 'level 1: talk a focused question or tradeoff through in prose'
             cell:
-              target: fable
+              target: sol
               effort: low
           - description: 'level 2: research it mid-conversation and write the brief when it settles'
             cell:
-              target: fable
+              target: sol
               effort: medium
           - description: 'level 3: argue both sides properly before converging, then write it up'
             cell:
-              target: fable
+              target: sol
               effort: high
       - id: plan
         title: Plan
@@ -398,15 +406,15 @@ x-garrison:
         levels:
           - description: 'sketch: the shape of the change in a few lines'
             cell:
-              target: opus
+              target: sol
               effort: high
           - description: 'standard: a slice plan with acceptance per slice'
             cell:
-              target: opus
+              target: sol
               effort: xhigh
           - description: 'deep: design alternatives weighed, risks named, sequencing argued'
             cell:
-              target: cc-opus
+              target: sol
               effort: max
       - id: image
         title: Image
@@ -414,15 +422,15 @@ x-garrison:
         levels:
           - description: 'quick: one image to a clear description'
             cell:
-              target: opus
+              target: sol
               effort: medium
           - description: 'standard: iterate on composition and detail'
             cell:
-              target: opus
+              target: sol
               effort: high
           - description: 'deep: art-direct it against where it will actually appear'
             cell:
-              target: opus
+              target: sol
               effort: xhigh
       - id: video
         title: Video
@@ -430,15 +438,15 @@ x-garrison:
         levels:
           - description: 'quick: assemble what is already shot'
             cell:
-              target: opus
+              target: sol
               effort: medium
           - description: 'standard: script, assemble and check it plays'
             cell:
-              target: opus
+              target: sol
               effort: high
           - description: 'deep: direct it for the audience it is for'
             cell:
-              target: opus
+              target: sol
               effort: xhigh
       - id: ux-qa
         title: UX QA
@@ -446,15 +454,15 @@ x-garrison:
         levels:
           - description: 'quick: the obvious breakages on one surface'
             cell:
-              target: opus
+              target: sol
               effort: medium
           - description: 'standard: the six-section checklist on desktop and mobile'
             cell:
-              target: opus
+              target: sol
               effort: high
           - description: 'deep: contrast, tap targets and states measured, not eyeballed'
             cell:
-              target: opus
+              target: sol
               effort: xhigh
       - id: writing
         title: Writing
@@ -462,15 +470,15 @@ x-garrison:
         levels:
           - description: 'quick: a short passage or a correction'
             cell:
-              target: opus
+              target: sol
               effort: medium
           - description: 'standard: a full piece with structure'
             cell:
-              target: opus
+              target: sol
               effort: high
           - description: 'deep: researched, sourced and argued'
             cell:
-              target: opus
+              target: sol
               effort: xhigh
       - id: ops
         title: Ops
@@ -478,15 +486,15 @@ x-garrison:
         levels:
           - description: 'routine: a known operation with a known outcome'
             cell:
-              target: cc-opus
+              target: sol
               effort: low
           - description: 'standard: plan it, run it, verify it'
             cell:
-              target: cc-opus
+              target: sol
               effort: medium
           - description: 'deep: blast radius established first, rollback rehearsed'
             cell:
-              target: cc-opus
+              target: sol
               effort: high
       - id: drill
         title: Drill
@@ -494,15 +502,15 @@ x-garrison:
         levels:
           - description: 'targeted: one area or one reported finding'
             cell:
-              target: cc-opus
+              target: sol
               effort: xhigh
           - description: 'standard: a full sweep of the app'
             cell:
-              target: cc-opus
+              target: sol
               effort: max
           - description: 'deep: a sweep plus the judgement of what the findings mean'
             cell:
-              target: opus
+              target: sol
               effort: max
       - id: adversarial-review
         title: Adversarial Review
@@ -560,11 +568,11 @@ x-garrison:
         levels:
           - description: 'quick: capture the flow end to end'
             cell:
-              target: cc-opus
+              target: sol
               effort: low
           - description: 'standard: a narrated walkthrough of the acceptance path'
             cell:
-              target: cc-opus
+              target: sol
               effort: high
       - id: validate
         title: Validate
@@ -572,11 +580,11 @@ x-garrison:
         levels:
           - description: 'standard: read the gate records and decide done or not'
             cell:
-              target: cc-sonnet
+              target: terra
               effort: low
           - description: 'strict: re-run what the markers claim rather than trusting them'
             cell:
-              target: cc-opus
+              target: sol
               effort: low
       - id: codex-checkpoint
         title: Codex Checkpoint
@@ -592,11 +600,11 @@ x-garrison:
         levels:
           - description: 'quick: a one-line outcome'
             cell:
-              target: cc-sonnet
+              target: terra
               effort: low
           - description: 'standard: what changed, what was proven, what is still open'
             cell:
-              target: cc-opus
+              target: sol
               effort: low
       - id: other
         title: Other
@@ -604,11 +612,11 @@ x-garrison:
         levels:
           - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
             cell:
-              target: cc-haiku
+              target: luna
               effort: low
           - description: 'involved: unclassified work that still needs real thought or multiple steps'
             cell:
-              target: cc-opus
+              target: sol
               effort: low
       - id: probe-question
         title: Probe Question
@@ -616,7 +624,7 @@ x-garrison:
         levels:
           - description: 'standard: one short, high-information question'
             cell:
-              target: cc-sonnet
+              target: terra
               effort: low
       - id: dispatch
         title: Dispatch
@@ -650,37 +658,62 @@ x-garrison:
       - probe-question
       - dispatch
     targets:
-      # ALL-CODEX composition. Every cell that the default composition points at an
-      # Anthropic model points here at the ChatGPT-subscription Codex engine instead.
+      # ALL-OPENAI composition, on the ChatGPT plan rather than metered API tokens.
       #
-      # ONE model id, three reasoning efforts — deliberately. `gpt-5.6-sol` is the only
-      # id proven to exist on this box (it is what ~/.codex/config.toml runs and what the
-      # default composition's `sol` target already uses); Codex's capability dial is
-      # `model_reasoning_effort`, which the codex adapter forwards via `-c`. Inventing
-      # sibling model slugs would fail at the first turn with no way to tell a wrong id
-      # from a wrong route.
+      # THREE models, because the Codex catalog (read live 2026-08-23) has exactly
+      # three agentic coding tiers and they map cleanly onto what the Anthropic
+      # composition expressed with Opus / Sonnet / Haiku:
+      #   gpt-5.6-sol   "Latest frontier agentic coding model"      <- opus, cc-opus, fable
+      #   gpt-5.6-terra "Balanced agentic coding model for everyday" <- cc-sonnet
+      #   gpt-5.6-luna  "Fast and affordable agentic coding model"   <- cc-haiku, dispatch
+      # The four frontier aliases collapsed into one target on purpose: they were
+      # four names for "the best model available", and here there is one.
       #
-      # `type: secondary` on every codex target is load-bearing: codex is an exec engine
-      # and is NOT in the gateway's PRIMARY_ADJUST_RUNTIMES, so a `runtime-target` here
-      # would arrive at applySwitch as a mis-wired target. No `provider:` either — the
-      # policy's providers section knows no `openai`, and Codex resolves its identity
-      # from CODEX_HOME/the pinned account, not from a base-URL/key pair.
+      # DEPTH IS THE CELL'S JOB, not the target's. Every duty cell already carries
+      # its own `effort`, and all three models take low|medium|high|xhigh|max, so a
+      # tier does not need its own target id - one per model keeps the routing table
+      # honest about what actually differs.
+      #
+      # `provider: chatgpt-subscription` is what makes these run on the plan: no API
+      # key, the OAuth credential from the pinned account's home, Responses API at
+      # the Codex backend. See the runtime fitting for the caveats that carries.
       - id: dispatch-fast
-        runtime: codex
-        model: gpt-5.6-sol
+        runtime: openai-agents
+        model: gpt-5.6-luna
+        provider: chatgpt-subscription
         params:
-          type: secondary
+          type: runtime-target
           effort: low
           promptMode: lean
           maxTurns: 1
           timeoutMs: 8000
-      - id: cc-haiku
-        runtime: codex
-        model: gpt-5.6-sol
+      - id: luna
+        runtime: openai-agents
+        model: gpt-5.6-luna
+        provider: chatgpt-subscription
         params:
-          type: secondary
-          effort: low
+          type: runtime-target
           promptMode: coding
+          maxTurns: 500
+      - id: terra
+        runtime: openai-agents
+        model: gpt-5.6-terra
+        provider: chatgpt-subscription
+        params:
+          type: runtime-target
+          promptMode: coding
+          maxTurns: 500
+      - id: sol
+        runtime: openai-agents
+        model: gpt-5.6-sol
+        provider: chatgpt-subscription
+        params:
+          type: runtime-target
+          promptMode: coding
+          maxTurns: 500
+      # Delegates that are deliberately NOT the primary engine: gemini serves the
+      # vision duties, `codex exec` stays available as a CLI-shaped delegate on the
+      # same subscription, and csg-work attaches to the remote machine.
       - id: sec-gemini
         runtime: gemini
         model: gemini-2.5-flash
@@ -688,7 +721,7 @@ x-garrison:
           type: secondary
       - id: sec-codex
         runtime: codex
-        model: gpt-5-codex
+        model: gpt-5.6-sol
         params:
           type: secondary
       - id: csg-work
@@ -696,47 +729,3 @@ x-garrison:
         model: csg
         params:
           type: secondary
-      - id: cc-opus
-        runtime: codex
-        model: gpt-5.6-sol
-        params:
-          type: secondary
-          effort: high
-          promptMode: coding
-          maxTurns: 500
-      - id: cc-sonnet
-        runtime: codex
-        model: gpt-5.6-sol
-        params:
-          type: secondary
-          effort: medium
-          promptMode: coding
-          maxTurns: 500
-      - id: sdk-haiku
-        runtime: codex
-        model: gpt-5.6-sol
-        params:
-          type: secondary
-          effort: low
-      - id: sol
-        runtime: codex
-        model: gpt-5.6-sol
-        params:
-          type: secondary
-          effort: medium
-      - id: fable
-        runtime: codex
-        model: gpt-5.6-sol
-        params:
-          type: secondary
-          effort: high
-          promptMode: coding
-          maxTurns: 500
-      - id: opus
-        runtime: codex
-        model: gpt-5.6-sol
-        params:
-          type: secondary
-          effort: high
-          promptMode: coding
-          maxTurns: 500

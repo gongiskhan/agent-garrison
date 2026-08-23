@@ -179,7 +179,7 @@ export const PLATFORM_SPECS: Record<AccountPlatform, PlatformSpec> = {
   openai: {
     id: "openai",
     label: "Codex / OpenAI",
-    runtimes: "the Codex runtime (codex exec)",
+    runtimes: "the Codex runtime (codex exec) and the OpenAI Agents runtime",
     envKeys: ["OPENAI_API_KEY"],
     clearKeys: [],
     nativeLoginPath: "~/.codex/auth.json",
@@ -201,6 +201,9 @@ export const PLATFORM_SPECS: Record<AccountPlatform, PlatformSpec> = {
       nativeRelPath: ".codex/auth.json",
       label: "ChatGPT subscription",
       loginHint: "codex login"
+      // One credential, two consumers: `codex exec` reads this home directly, and
+      // the OpenAI Agents runtime's `chatgpt-subscription` provider reads the same
+      // auth.json out of it to authenticate the Codex Responses backend.
     },
     // Verified live against codex-cli 0.144.5: prints
     // https://auth.openai.com/codex/device + a one-time code, then polls.

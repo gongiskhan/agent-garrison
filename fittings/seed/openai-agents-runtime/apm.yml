@@ -33,11 +33,36 @@ x-garrison:
     - key: provider
       type: string
       default: ollama-local
-      description: One of openai | ollama-local | openai-compat | glm. `openai` is OpenAI cloud (needs OPENAI_API_KEY); `ollama-local` is a free local Ollama endpoint; `openai-compat` is any OpenAI-compatible base URL (set baseUrl, key OPENAI_API_KEY); `glm` is a self-hosted GLM deployment behind an OpenAI-compatible server (set baseUrl, key GLM_API_KEY) - a separate slot so a real OpenAI key and a self-hosted endpoint can coexist in one composition.
+      description: >-
+        One of openai | chatgpt-subscription | ollama-local | openai-compat | glm.
+        `openai` is OpenAI cloud, metered per token (needs OPENAI_API_KEY).
+        `chatgpt-subscription` runs on the ChatGPT plan you already pay for: it
+        carries the OAuth credential `codex login` mints, speaks the Responses API
+        at the Codex backend, and needs NO api key - pick a ChatGPT account on the
+        Accounts page (blank uses this box's own ~/.codex login). It shares that
+        plan's usage limits, and it is not a documented OpenAI integration, so
+        treat it as best-effort rather than a supported contract.
+        `ollama-local` is a free local Ollama endpoint; `openai-compat` is any
+        OpenAI-compatible base URL (set baseUrl, key OPENAI_API_KEY); `glm` is a
+        self-hosted GLM deployment behind an OpenAI-compatible server (set baseUrl,
+        key GLM_API_KEY) - a separate slot so a real OpenAI key and a self-hosted
+        endpoint can coexist in one composition.
+      options:
+        - ollama-local
+        - chatgpt-subscription
+        - openai
+        - openai-compat
+        - glm
     - key: model
       type: string
       default: ""
-      description: Model string for delegated tasks (free-text; e.g. an Ollama tag like qwen2.5:3b, a gpt-* / o-* slot, or any model an OpenAI-compatible endpoint fronts).
+      description: >-
+        Model string for delegated tasks (free-text; e.g. an Ollama tag like
+        qwen2.5:3b, a gpt-* / o-* slot, or any model an OpenAI-compatible endpoint
+        fronts). With `chatgpt-subscription` the catalog is the Codex one, verified
+        live 2026-08-23: gpt-5.6-sol (frontier), gpt-5.6-terra (balanced everyday),
+        gpt-5.6-luna (fast/affordable), plus gpt-5.5, gpt-5.4 and gpt-5.4-mini. All
+        take a reasoning effort of low | medium | high | xhigh | max.
     - key: baseUrl
       type: string
       default: ""
@@ -53,7 +78,14 @@ x-garrison:
     - key: account
       type: string
       default: ""
-      description: Which keyed provider account this runtime uses. With provider `glm`, choose a GLM account; with `openai` or `openai-compat`, choose an OpenAI account. Leave empty to use the provider's plain vault key/runtime default. Manage accounts on the Accounts page.
+      description: >-
+        Which provider account this runtime uses. With provider `glm`, choose a GLM
+        account; with `openai` or `openai-compat`, choose a keyed OpenAI account;
+        with `chatgpt-subscription`, choose a ChatGPT (subscription) OpenAI account -
+        the pin points this runtime at that account's config home, which is where its
+        credential is read and its rotating token re-persisted. Leave empty to use the
+        provider's plain vault key, or for `chatgpt-subscription` this box's own
+        ~/.codex login. Manage accounts on the Accounts page.
   provides:
     - kind: runtime
       name: openai-agents

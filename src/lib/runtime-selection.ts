@@ -263,6 +263,14 @@ export function buildPrimaryRuntimeEnv(
   if (entry.kind === "anthropic-plan") {
     return applyAccountPin();
   }
+  // A RUNTIME-MANAGED provider authenticates itself: its credential is an
+  // OAuth auth-file that the runtime reads from the pinned account's config home
+  // (already projected by the account layer, e.g. CODEX_HOME), and its endpoint is
+  // fixed by the fitting. Projecting a base URL or a token here would be inventing
+  // both. The marker is still set so a log line can say which provider ran.
+  if (entry.kind === "runtime-managed") {
+    return { env: { ...env, GARRISON_PROVIDER: provider }, providerLaunch: false };
+  }
   const spec = {
     baseUrl: entry.baseUrl ?? null,
     vaultKey: entry.vaultKey ?? null,
