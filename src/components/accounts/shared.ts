@@ -542,6 +542,46 @@ export function runtimeAccountContract(
   return null;
 }
 
+/**
+ * Runtimes whose account pins cannot coexist, keyed by fitting id.
+ *
+ * An account is delivered as PROCESS-WIDE env (CODEX_HOME / GEMINI_CLI_HOME / the
+ * token rail), so two runtimes on one platform can only run under one identity.
+ * The runner enforces this and aborts the launch; without a matching check here
+ * the picker cheerfully accepts a combination that makes the composition
+ * unlaunchable, and the only evidence is a line in the runner log.
+ *
+ * Only DISTINCT named pins collide. Empty (machine login / default key) and
+ * "auto" follow whatever the primary resolves, so they never conflict.
+ */
+export function runtimeAccountRailConflicts(
+  bindings: { id: string; contract: { platform: AccountPlatform } | null; account: string }[]
+): Map<string, string> {
+  const byPlatform = new Map<AccountPlatform, { id: string; account: string }[]>();
+  for (const binding of bindings) {
+    const account = binding.account.trim();
+    if (!binding.contract || !account || account === "auto") continue;
+    const list = byPlatform.get(binding.contract.platform) ?? [];
+    list.push({ id: binding.id, account });
+    byPlatform.set(binding.contract.platform, list);
+  }
+  const conflicts = new Map<string, string>();
+  for (const [platform, list] of byPlatform) {
+    const names = [...new Set(list.map((entry) => entry.account))];
+    if (names.length < 2) continue;
+    for (const entry of list) {
+      const others = list.filter((other) => other.account !== entry.account);
+      conflicts.set(
+        entry.id,
+        `${PLATFORM_SPECS[platform].label} accounts are delivered process-wide, so these cannot run together: ` +
+          `${others.map((other) => `${other.id} is on "${other.account}"`).join(", ")}. ` +
+          `Use one account for all ${PLATFORM_SPECS[platform].label} runtimes, or leave the others un-pinned to follow the primary.`
+      );
+    }
+  }
+  return conflicts;
+}
+
 /** Named accounts that this runtime can actually consume. */
 export function compatibleRuntimeAccounts(
   accounts: AccountInfo[],

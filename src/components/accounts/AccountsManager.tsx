@@ -26,6 +26,7 @@ import {
   formatCountdown,
   machineStatusChip,
   runtimeAccountContract,
+  runtimeAccountRailConflicts,
   runtimeAccountSelectionIssue,
   type AccountInfo,
   type AccountBalance,
@@ -215,6 +216,10 @@ function RuntimeBindings({
   onSet: (fittingId: string, account: string) => void;
 }) {
   if (runtimes.length === 0) return null;
+  // Computed across the whole platform group, not per row: the conflict is a
+  // property of the COMBINATION, and each row has to name the others it clashes
+  // with or the user cannot tell which pin to change.
+  const railConflicts = runtimeAccountRailConflicts(runtimes);
   return (
     <div
       data-testid={`runtime-bindings-${platform}`}
@@ -229,6 +234,7 @@ function RuntimeBindings({
       {runtimes.map((runtime) => {
         const contract = runtime.contract;
         if (!contract) return null;
+        const railConflict = railConflicts.get(runtime.id);
         const compatibleAccounts = compatibleRuntimeAccounts(accounts, contract);
         const issue = runtimeAccountSelectionIssue(runtime.account, contract, accounts);
         // The pin only reaches an engine at spawn. While the operative is up on a
@@ -268,6 +274,15 @@ function RuntimeBindings({
                     deliberately clears or replaces it. */}
                 {issue ? <option value={runtime.account}>{issue.optionLabel}</option> : null}
               </select>
+              {railConflict ? (
+                <span
+                  className="hint"
+                  data-testid={`runtime-account-rail-conflict-${runtime.id}`}
+                  style={{ maxWidth: 520, color: "var(--alarm)", fontSize: 10.5, textAlign: "right" }}
+                >
+                  {railConflict}
+                </span>
+              ) : null}
               {pending ? (
                 <span
                   className="hint"

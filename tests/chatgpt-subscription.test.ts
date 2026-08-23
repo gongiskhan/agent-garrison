@@ -40,7 +40,7 @@ import {
 } from "../fittings/seed/openai-agents-runtime/lib/chatgpt-transport.mjs";
 import { primaryAccountRoute } from "@/lib/runner";
 import { readYamlFile } from "@/lib/yaml";
-import { runtimeAccountContract } from "@/components/accounts/shared";
+import { runtimeAccountContract, runtimeAccountRailConflicts } from "@/components/accounts/shared";
 import { runtimeBindings } from "@/components/accounts/AccountsManager";
 
 /** Build a JWT whose payload carries exp (seconds) and optional auth claims. */
@@ -417,5 +417,38 @@ describe("an account pin that has not taken effect reads as pending", () => {
     // operative down there is nothing to be pending against.
     const [binding] = runtimeBindings(standing("pro-ekoa"));
     expect(binding.launchedAccount).toBeUndefined();
+  });
+});
+
+describe("two accounts on one platform rail are caught before launch", () => {
+  // The runner aborts the launch ("primary runtime X already owns that
+  // process-wide credential rail") but the picker happily accepted the
+  // combination, so the only evidence was a line in the runner log.
+  const openai = { platform: "openai" as const, allowAuthFile: true, emptyMode: "machine-login" as const };
+  const row = (id: string, account: string) => ({ id, contract: openai, account });
+
+  it("flags every runtime involved and names the others", () => {
+    const conflicts = runtimeAccountRailConflicts([
+      row("openai-agents-runtime", "codex-gmail"),
+      row("codex-runtime", "pro-ekoa")
+    ]);
+    expect(conflicts.size).toBe(2);
+    expect(conflicts.get("openai-agents-runtime")).toContain("pro-ekoa");
+    expect(conflicts.get("codex-runtime")).toContain("codex-gmail");
+  });
+
+  it("allows the same account on several runtimes", () => {
+    expect(
+      runtimeAccountRailConflicts([row("openai-agents-runtime", "pro-ekoa"), row("codex-runtime", "pro-ekoa")]).size
+    ).toBe(0);
+  });
+
+  it("treats un-pinned and auto as following the primary, never as a clash", () => {
+    expect(
+      runtimeAccountRailConflicts([row("openai-agents-runtime", "codex-gmail"), row("codex-runtime", "")]).size
+    ).toBe(0);
+    expect(
+      runtimeAccountRailConflicts([row("openai-agents-runtime", "codex-gmail"), row("codex-runtime", "auto")]).size
+    ).toBe(0);
   });
 });

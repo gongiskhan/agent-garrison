@@ -31,12 +31,12 @@ dependencies:
     - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/openai-agents-runtime
     - path: ../../fittings/seed/opencode-runtime
-    - path: ../../fittings/seed/remote-shell-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
+    - path: ../../fittings/seed/remote-shell-runtime
     - path: ../../fittings/seed/roadmaps
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
@@ -107,18 +107,6 @@ x-garrison:
             speak_enabled: true
             pendant_enabled: true
             capture_policy: wake_only
-            # The same wake windows omi-channel above already runs. The shipped
-            # DEFAULTS (silence 4000 / max 20000) are what the pendant path was
-            # started on, and they are the reason a spoken command lost its last
-            # word: speech reaches the wake bus in bursts - across 22 pendant wake
-            # hits only 2 follow-on segments ever landed inside the window - so a
-            # 4s close means the command is whatever the wake-word segment itself
-            # carried, and "Zeca, vamos comer morangos e chocolate mais logo" was
-            # assembled without the "logo" that was the entire time reference.
-            # 15000 is not a guess: it is the value the omi path was raised to
-            # after the same truncation, and it also brings wake_settled_close_ms
-            # (5000) back into play, so a sentence that ends in punctuation still
-            # closes fast.
             wake_silence_close_ms: 15000
             wake_min_capture_ms: 0
             wake_max_capture_ms: 45000
@@ -157,7 +145,9 @@ x-garrison:
         - id: remote-shell-runtime
           config:
             port: 7098
-            transports: '{"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","label":"CSG work","routingTarget":"csg-work"}}'
+            transports: >-
+              {"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","label":"CSG
+              work","routingTarget":"csg-work"}}
         - id: agent-sdk-runtime
           config:
             provider: anthropic
@@ -658,25 +648,6 @@ x-garrison:
       - probe-question
       - dispatch
     targets:
-      # ALL-OPENAI composition, on the ChatGPT plan rather than metered API tokens.
-      #
-      # THREE models, because the Codex catalog (read live 2026-08-23) has exactly
-      # three agentic coding tiers and they map cleanly onto what the Anthropic
-      # composition expressed with Opus / Sonnet / Haiku:
-      #   gpt-5.6-sol   "Latest frontier agentic coding model"      <- opus, cc-opus, fable
-      #   gpt-5.6-terra "Balanced agentic coding model for everyday" <- cc-sonnet
-      #   gpt-5.6-luna  "Fast and affordable agentic coding model"   <- cc-haiku, dispatch
-      # The four frontier aliases collapsed into one target on purpose: they were
-      # four names for "the best model available", and here there is one.
-      #
-      # DEPTH IS THE CELL'S JOB, not the target's. Every duty cell already carries
-      # its own `effort`, and all three models take low|medium|high|xhigh|max, so a
-      # tier does not need its own target id - one per model keeps the routing table
-      # honest about what actually differs.
-      #
-      # `provider: chatgpt-subscription` is what makes these run on the plan: no API
-      # key, the OAuth credential from the pinned account's home, Responses API at
-      # the Codex backend. See the runtime fitting for the caveats that carries.
       - id: dispatch-fast
         runtime: openai-agents
         model: gpt-5.6-luna
@@ -711,9 +682,6 @@ x-garrison:
           type: runtime-target
           promptMode: coding
           maxTurns: 500
-      # Delegates that are deliberately NOT the primary engine: gemini serves the
-      # vision duties, `codex exec` stays available as a CLI-shaped delegate on the
-      # same subscription, and csg-work attaches to the remote machine.
       - id: sec-gemini
         runtime: gemini
         model: gemini-2.5-flash
