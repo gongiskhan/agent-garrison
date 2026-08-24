@@ -1139,7 +1139,7 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
       </div>
       <p className={styles.surfaceHint}>
         Deterministic dry-run: a heuristic classifier resolves the rail here. The real live
-        Orchestrator inference runs in the gateway before the session's turn.
+        Orchestrator inference runs in the gateway before the session&apos;s turn.
       </p>
       {result?.error ? <div className={styles.tryitError}>{result.error}</div> : null}
       {result && !result.error ? (
