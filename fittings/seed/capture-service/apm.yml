@@ -76,24 +76,24 @@ x-garrison:
       description: >-
         Routing target every classification call is pinned to (wake intent).
         Unpinned these land on the composition's other/L1 duty cell - a full
-        operative turn carrying the whole toolset, measured at 82s for one
+        full turn carrying the whole toolset, measured at 82s for one
         classification, while the speaker waits. Empty = no pin.
     - key: delegate_enabled
       type: boolean
       default: true
       description: >-
-        Allow a spoken command to be handed to the full operative (its tools and
+        Allow a spoken command to be handed to the full session (its tools and
         connected services) when the fast lane cannot do it. The answer arrives
         as a follow-up notification. Off = spoken requests are limited to cards
         and notes.
     - key: delegate_timeout_ms
       type: integer
       default: 600000
-      description: Wall-clock budget for one delegated operative turn. Nobody is blocked on this; it is a work budget, not a response budget.
+      description: Wall-clock budget for one delegated session turn. Nobody is blocked on this; it is a work budget, not a response budget.
     - key: wake_variants
       type: string
       default: 'zeca,zeka,zecca,zéca,ze ca'
-      description: Comma-separated spellings of the operative's name (Zeca), matched case-insensitively on word boundaries in address position; a space inside a spelling also matches a hyphen. Portuguese and English transcripts both occur.
+      description: Comma-separated spellings of the agent's name (Zeca), matched case-insensitively on word boundaries in address position; a space inside a spelling also matches a hyphen. Portuguese and English transcripts both occur.
     - key: wake_silence_close_ms
       type: integer
       default: 4000

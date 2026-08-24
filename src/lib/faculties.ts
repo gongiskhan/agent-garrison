@@ -1,7 +1,7 @@
 import type { FacultyDefinition, FacultyId, GarrisonMetadata } from "./types";
 
 // Faculties are ROLES (the Quarters pivot). Each is a slot a Fitting fills; the
-// own-port runtime residue (dev-env, screen-share, outposts, browser, monitor,
+// own-port runtime residue (dev-env, screen-share, browser, monitor,
 // web-channel, voice) folds under sessions / channels / observability and is
 // detected via the `own_port` metadata flag.
 // Legacy faculty names map here via metadata.ts normalizeDeprecations.
@@ -96,12 +96,12 @@ export const faculties: FacultyDefinition[] = [
     order: 8,
     name: "Surfaces",
     // Split out of sessions 2026-06-18: the auxiliary own-port live viewers
-    // (screen share, standalone browser, remote Outpost bridge) are ways to
+    // (screen share, standalone browser) are ways to
     // *see/reach* the machine, distinct from the primary dev session.
     cardinality: "multi",
     shapes: ["plugin", "script"],
     notes:
-      "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Fittings group.",
+      "Auxiliary own-port live surfaces — screen share and the standalone browser. Each is detected via the own_port flag and linked from the sidebar Fittings group.",
     tier: "dev"
   },
   // ── Optional capability faculties (2026-06-24) ──────────────────────────────
@@ -230,7 +230,7 @@ export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> =
   },
   surfaces: {
     role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",
-    fit: "Screen share, standalone browser, and remote Outpost bridges — each detected via the own_port flag and linked from the sidebar Fittings group."
+    fit: "Screen share and the standalone browser — each detected via the own_port flag and linked from the sidebar Fittings group."
   },
   knowledge: {
     role: "Lets the operative create, edit, and organize documents and notes.",

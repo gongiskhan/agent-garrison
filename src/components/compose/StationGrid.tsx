@@ -287,7 +287,7 @@ export function StationGrid() {
             <TierSection
               tier="agent"
               title="Agent faculties"
-              blurb="The everyday Operative — brain, memory, channels, gateway, and what it knows."
+              blurb="The everyday session — brain, memory, channels, gateway, and what it knows."
               composition={composition}
               library={library}
               verifyResults={verifyResults}

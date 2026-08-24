@@ -2,7 +2,7 @@ name: cortex-automations
 version: 0.1.0
 description: >-
   Remote automations view (connectors role). A skill-first Fitting over an automation runner
-  that lives OFF this machine: it teaches the operative to find what it may start, start a run
+  that lives OFF this node: it teaches the session to find what it may start, start a run
   under an idempotency key, follow that run to a conclusion, and read its logs - through the
   capability CLI a companion Fitting installs. No engine, no scheduler, no port and no server
   of its own; the runs execute on the provider's side under a user-scoped key, and this Fitting
@@ -29,7 +29,7 @@ x-garrison:
         entry: garrison:skill
         route: /skill
       # A hands-on rig over the SAME key-reachable API the skill describes, for
-      # the human rather than the operative: configure the origin, see whether
+      # the human rather than the session: configure the origin, see whether
       # the credential exists, call an action, start a run and follow it. It
       # drives the HTTP surface directly through a Garrison server proxy, not
       # the CLI, so it works before any CLI is installed - which is exactly when
@@ -50,7 +50,7 @@ x-garrison:
   platforms:
     - all
   summary: >-
-    A remote automation runner, driven from the session. An operative on a workstation is
+    A remote automation runner, driven from the session. A session on a workstation is
     frequently the wrong place to EXECUTE long, gated, multi-step work - it needs a machine that
     stays up, keeps the run's state, and holds its own integrations - but it is exactly the right
     place to DECIDE to start that work and to act on the outcome. This Fitting is that seam: the

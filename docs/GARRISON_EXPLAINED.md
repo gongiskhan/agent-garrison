@@ -404,7 +404,6 @@ Examples:
 
 - `dev-env` — per-session Claude Code dev environment (Claude + shell PTYs, browser pane; sessions on the current branch).
 - `screen-share-default` — macOS screen-capture viewer.
-- `outpost-tailscale-host` — remote-Mac bridge management.
 - `web-channel-default` — mobile-friendly chat surface.
 - `browser-default` — embedded Chromium with DevTools.
 - `monitor-default` — read-only PID/port/log dashboard.
@@ -772,14 +771,11 @@ live registry and several entries below no longer exist. Use
 |---|---|---|
 | `http-gateway` | gateway | Small stdlib HTTP gateway. Inbound jobs, channel events, session checks. SDK-backed `POST /chat/stream`. |
 | `mcp-gateway` | gateway | Exposes installed Faculties as MCP tools to workbench-launched Claude Code sessions. Stdio + HTTP transports. |
-| `vault-sync` | sync | Periodic host→outpost directory mirror (e.g. Obsidian vault). Scheduler-driven. |
 
 ### Outposts (multi-machine)
 
 | Fitting | Faculty | What it does |
 |---|---|---|
-| `outpost-tailscale-host` | outposts | Bridge for a Tailscale-connected remote Mac. Spawn processes, read files via the Outpost Protocol. |
-| `outpost-actions` | skills | Agent skill for invoking ops on remote outposts — run commands, read/write files. |
 
 ### Workbench (tool-facing, own-port)
 

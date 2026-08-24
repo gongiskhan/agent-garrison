@@ -5,10 +5,10 @@
 # dir. Every writable control-plane surface is projected per profile here; a bare
 # `next dev` bypasses this and will scribble on whichever home it inherits.
 #
-#   profile  offset   app     gateway  outpost  fittings  scheduler  home
-#   node         0    8777     5777     4702     80xx      8099      ~/.garrison   (+ real ~/.claude)
-#   dev     +10000   18777    15777    14702    180xx     18099     ~/.garrison-dev
-#   codex   +20000   28777    25777    24702    280xx     28099     ~/.garrison-codex
+#   profile  offset   app     gateway  fittings  scheduler  home
+#   node         0    8777     5777     80xx      8099      ~/.garrison   (+ real ~/.claude)
+#   dev     +10000   18777    15777    180xx     18099     ~/.garrison-dev
+#   codex   +20000   28777    25777    280xx     28099     ~/.garrison-codex
 #
 # Fitting and gateway ports are NOT set here — they come from the composition's
 # single committed port map, shifted by src/lib/instance-profile.ts. This script
@@ -78,6 +78,9 @@ export GARRISON_CLAUDE_HOME="${GARRISON_CLAUDE_HOME_OVERRIDE:-$DEFAULT_CLAUDE_HO
 
 # --- process-level ports ----------------------------------------------------
 export GARRISON_APP_PORT="${GARRISON_APP_PORT:-$((8777 + PORT_OFFSET))}"
+# DEPRECATED — the outpost WS bridge daemon it addressed was retired with the
+# mesh (phase 3E). Still exported for one release so a stale process or an old
+# fitting config reads a per-instance value rather than colliding on 4702.
 export GARRISON_OUTPOST_PORT="${GARRISON_OUTPOST_PORT:-$((4702 + PORT_OFFSET))}"
 export GARRISON_SCHEDULER_HEALTH_PORT="${GARRISON_SCHEDULER_HEALTH_PORT:-$((8099 + PORT_OFFSET))}"
 # Next reads PORT; the runner's self-URL prefers GARRISON_APP_PORT but falls
@@ -230,7 +233,6 @@ fi
 cd "$REPO_ROOT"
 
 scheduler_cmd="node \"$GARRISON_SCHEDULER_SCRIPT\" daemon --health-port $GARRISON_SCHEDULER_HEALTH_PORT"
-outpost_cmd="node scripts/outpost-host.mjs"
 
 case "$mode" in
   build)
@@ -243,20 +245,17 @@ case "$mode" in
         echo "node: $NEXT_DIST_DIR missing — run '$0 node build' first" >&2
         exit 1
       fi
-      exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
+      exec concurrently --kill-others-on-fail --names next,scheduler \
         "next start -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
-        "$outpost_cmd" \
         "$scheduler_cmd"
     fi
-    exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
+    exec concurrently --kill-others-on-fail --names next,scheduler \
       "next dev -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
-      "$outpost_cmd" \
       "$scheduler_cmd"
     ;;
   dev)
-    exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
+    exec concurrently --kill-others-on-fail --names next,scheduler \
       "next dev -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
-      "$outpost_cmd" \
       "$scheduler_cmd"
     ;;
   next)
@@ -271,9 +270,8 @@ case "$mode" in
     # you control, and prefer a `tailscale serve` mapping where you can.
     echo "[garrison-instance] WARNING: 'mobile' binds 0.0.0.0 - the unauthenticated" >&2
     echo "[garrison-instance] shell and its cleartext vault are reachable from every NIC." >&2
-    exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
+    exec concurrently --kill-others-on-fail --names next,scheduler \
       "next dev -H 0.0.0.0 -p $GARRISON_APP_PORT" \
-      "$outpost_cmd" \
       "$scheduler_cmd"
     ;;
   env)

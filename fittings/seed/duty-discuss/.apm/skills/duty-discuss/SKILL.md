@@ -9,7 +9,7 @@ description: Talk a problem through in prose like a calm whiteboard conversation
 > kanban-loop fitting (`scripts/discuss.mjs`, `buildDiscussKickoff`) say the same
 > things in two formats. The kickoff is the LIVE source whenever this fitting is not
 > equipped in the running composition, which is the common case: it is what a Discuss
-> card actually sends the operative. Change one and change the other, and never let
+> card actually sends the session. Change one and change the other, and never let
 > them disagree.
 
 The discuss duty is the calm whiteboard conversation. You think a problem through
@@ -91,4 +91,4 @@ finished until it exists.
   it and let the next turn carry it.
 - **The brief is the handoff, not the work.** discuss produces the durable thinking;
   building is the develop/implement duties' job.
-- **Never hardcode the operative's name.** It comes from the Identity section.
+- **Never hardcode the agent's name.** It comes from the Identity section.

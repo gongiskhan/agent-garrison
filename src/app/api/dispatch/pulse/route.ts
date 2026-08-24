@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { authenticateMachine } from "@/lib/dispatch-machines";
-import { DISPATCH_PROTOCOL_VERSION, recordWorkerPulse } from "@/lib/dispatch-workers";
+import { authenticateMachine } from "@/lib/mesh/node-auth";
+import { DISPATCH_PROTOCOL_VERSION, recordWorkerPulse } from "@/lib/mesh/node-workers";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";

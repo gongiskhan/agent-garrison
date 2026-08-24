@@ -1664,7 +1664,7 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
       return;
     }
     if (placement && !proj && !personal) {
-      setErr("Choose the project explicitly before assigning this card to an Outpost, so its Loadout can be verified.");
+      setErr("Choose the project explicitly before assigning this card to another node, so its Loadout can be verified.");
       setSaving(false);
       return;
     }
@@ -1856,12 +1856,12 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
       <RunSpec spec={spec} setSpec={setSpec} options={options} optionsError={optionsError} />
       {/* WHERE the card runs (brief D6). Deliberately OUTSIDE <RunSpec>: routing
           decides runtime/model/effort, placement decides the MACHINE, and they are
-          orthogonal - any card can run on any outpost regardless of project. */}
+          orthogonal - any card can run on any node regardless of project. */}
       <div className="spec-grid">
         <SpecSelect
-          id="nc-machine" label="Machine" hint="this machine (the Garrison host)"
+          id="nc-machine" label="Machine" hint="this machine (this node)"
           value={placement}
-          disabled={machines && !machines.outpostsAvailable ? (machines.reason || "no outposts paired") : null}
+          disabled={machines && !machines.nodesAvailable ? (machines.reason || "no other nodes in the mesh") : null}
           options={(machines?.machines ?? [])
             .filter((m) => !m.isHost)
             .map((m) => ({
@@ -1881,7 +1881,7 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
       {placement && !selectedProject && !personal && (
         <div className="loadout-panel blocked" role="status">
           <div className="loadout-head"><b>Project Loadout</b><span className="chip alarm">blocked</span></div>
-          <p>Choose the project explicitly before assigning this card to an Outpost. Auto-inference happens too late to prove remote readiness.</p>
+          <p>Choose the project explicitly before assigning this card to another node. Auto-inference happens too late to prove remote readiness.</p>
         </div>
       )}
       <LoadoutPanel
@@ -2547,7 +2547,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   async function savePlacement(target = placementDraft, retry = false) {
     if (!detail) return;
     if (target !== "host" && !detail.card.project && detail.card.scope !== "personal") {
-      setActionErr("Assign a project before placing this card on an Outpost, so its Loadout can be verified.");
+      setActionErr("Assign a project before placing this card on another node, so its Loadout can be verified.");
       return;
     }
     if (target !== "host" && detail.card.project && detailLoadoutReady !== true) {
@@ -3071,7 +3071,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         {placementDraft !== "host" && !card.project && card.scope !== "personal" && (
           <div className="loadout-panel blocked" role="status">
             <div className="loadout-head"><b>Project Loadout</b><span className="chip alarm">blocked</span></div>
-            <p>Assign the project before choosing an Outpost. Project inference cannot substitute for a pre-placement Loadout check.</p>
+            <p>Assign the project before choosing a node. Project inference cannot substitute for a pre-placement Loadout check.</p>
           </div>
         )}
         <LoadoutPanel
@@ -3648,7 +3648,7 @@ function SessionViewer({
   const recordedRunIds = new Set(dispatchRuns.map((run) => run.runId));
   const remoteEntries = dispatchRuns.map((run, index) => ({
     key: `outpost-${run.runId}`,
-    label: `Outpost ${index + 1}${run.phase ? ` · ${run.phase}` : ""}${run.machine ? ` · ${run.machine}` : ""}`,
+    label: `Remote ${index + 1}${run.phase ? ` · ${run.phase}` : ""}${run.machine ? ` · ${run.machine}` : ""}`,
     url: `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(run.runId)}`,
     live: false
   }));
@@ -3656,7 +3656,7 @@ function SessionViewer({
     const dispatchLive = live && ["claimed", "running", "cancelling"].includes(dispatch.state);
     remoteEntries.push({
       key: `outpost-${dispatch.runId}`,
-      label: dispatchLive ? "Live · Outpost" : `Outpost run${dispatch.phase ? ` · ${dispatch.phase}` : ""}`,
+      label: dispatchLive ? "Live · Remote" : `Remote run${dispatch.phase ? ` · ${dispatch.phase}` : ""}`,
       url: dispatchLive
         ? `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`
         : `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(dispatch.runId)}`,
@@ -3793,7 +3793,7 @@ function WatchSheet({
 
   async function panic() {
     if (!window.confirm(remoteRun
-      ? "Request that the Outpost stop this remote process group? The card stays locked until the worker confirms cancellation; then its partial evidence is preserved and it returns to Needs attention."
+      ? "Request that the remote node stop this process group? The card stays locked until the worker confirms cancellation; then its partial evidence is preserved and it returns to Needs attention."
       : "Stop this card's active agent turn? Partial output will be kept but ignored, and the card will park in Needs attention. If this is a shared batch, every card in that runtime turn will stop."
     )) return;
     setPanicking(true);

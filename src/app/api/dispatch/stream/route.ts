@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { authenticateMachine } from "@/lib/dispatch-machines";
+import { authenticateMachine } from "@/lib/mesh/node-auth";
 import { appendDispatchStreamEvent } from "@/lib/dispatch-stream";
 import { readAllCards } from "@/lib/dispatch";
 import { jsonError } from "@/lib/http";

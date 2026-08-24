@@ -448,7 +448,7 @@ export function createOrchestratorTransport(
         listener?.({ type: "assistant", text: state.acc, ...coordinate });
       }
       if (!state.sawReply && !state.paintedTerminal) {
-        listener?.({ type: "assistant", text: "_The operative returned an empty reply. Try sending again._", ...coordinate });
+        listener?.({ type: "assistant", text: "_The session returned an empty reply. Try sending again._", ...coordinate });
       }
       const routeEv = routeEventFrom(data, state.seq);
       if (routeEv) listener?.({ ...routeEv, ...coordinate });

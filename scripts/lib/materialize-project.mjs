@@ -1,12 +1,12 @@
 // Loadout materializer — rebuild a project's working environment from its
-// descriptor (brief D2). Runs on WHICHEVER machine needs the environment: the
-// host (for the Phase 1 host-local proof, via scripts/materialize-loadout.mjs)
-// and every outpost (called by the worker on claim).
+// descriptor (brief D2). Runs on WHICHEVER node needs the environment: the CLI
+// (scripts/materialize-loadout.mjs) and the node installer, which renders a
+// project's `.env` from the state service's secret authority.
 //
 // Deliberately dependency-free .mjs so it can run on a bare Mac with nothing but
-// node, and so the host CLI and the worker execute THE SAME CODE — a materializer
-// that behaved differently in the two places would make the host-local gate
-// meaningless as evidence for the remote case.
+// node, and so every caller executes THE SAME CODE — a materializer that behaved
+// differently per entry point would make one node's green run meaningless as
+// evidence for the next.
 //
 // IDEMPOTENT BY CONSTRUCTION. Second run against the same target is a fast
 // no-op except the fetch: clone-or-fetch (never re-clone), migrate the checkout

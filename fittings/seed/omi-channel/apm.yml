@@ -86,20 +86,20 @@ x-garrison:
       description: >-
         Routing target every classification call is pinned to (wake intent, wake revision, batch
         triage). Unpinned these land on the composition's other/L1 duty cell - a full Sonnet turn
-        carrying the operative's whole toolset, measured at 82s for one classification, while the
+        carrying the session's whole toolset, measured at 82s for one classification, while the
         wearer waits. Empty = no pin.
     - key: delegate_enabled
       type: boolean
       default: true
       description: >-
-        Allow a spoken command or an Omi chat question to be handed to the full operative (its
+        Allow a spoken command or an Omi chat question to be handed to the full session (its
         tools and connected services) when the fast lane cannot do it. The answer arrives as a
         follow-up notification. Off = spoken requests are limited to cards, notes and card
         commands, and chat can only answer from general knowledge.
     - key: delegate_timeout_ms
       type: integer
       default: 600000
-      description: Wall-clock budget for one delegated operative turn. Nobody is blocked on this; it is a work budget, not a response budget.
+      description: Wall-clock budget for one delegated session turn. Nobody is blocked on this; it is a work budget, not a response budget.
     - key: allowed_categories
       type: string
       default: ''
@@ -116,7 +116,7 @@ x-garrison:
       type: string
       default: 'zeca,zeka,zecca,zéca,ze ca'
       description: >-
-        Comma-separated spellings of the operative's name (Zeca), matched case-insensitively on word boundaries; a
+        Comma-separated spellings of the agent's name (Zeca), matched case-insensitively on word boundaries; a
         space inside a spelling also matches a hyphen, for transcripts that split the name. Portuguese and English
         transcripts both occur. Position is not considered: the name ANYWHERE in a segment opens a capture window,
         mid-sentence included. A value left over from the retired name (gary, garry, gerry, géri) is ignored in

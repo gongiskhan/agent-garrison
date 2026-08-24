@@ -552,7 +552,7 @@ export interface RemoteRuntimeRequirement {
 }
 export interface MachinesView {
   machines: MachineOption[];
-  outpostsAvailable: boolean;
+  nodesAvailable: boolean;
   reason?: string;
   defaultRuntime?: RemoteRuntimeRequirement | null;
 }
@@ -657,8 +657,8 @@ export const api = {
       { method: "DELETE" }
     ),
   // GET /machines — the placement picker's vocabulary: the host plus every paired
-  // outpost and whether it is connected right now. Degrades to host-only with a
-  // `reason` when the outpost daemon is unreachable, so the picker is never an
+  // node and whether it is claim-ready right now. Degrades to this node only
+  // with a `reason` when the registry is unreachable, so the picker is never an
   // unexplained empty menu.
   machines: () => jfetch<MachinesView>("/machines"),
   loadoutReadiness: (project: string) =>

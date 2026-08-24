@@ -11,7 +11,7 @@ x-garrison:
   component_shape: cli-skill
   platforms:
     - claude-code
-  summary: Markdown documents workspace. The Operative captures decisions, plans, and specs here; the user reads and edits them in the sidebar.
+  summary: Markdown documents workspace. The session captures decisions, plans, and specs here; the user reads and edits them in the sidebar.
   for_consumers: |
     Use the Documents Faculty to capture decisions, plans, and specs that
     emerge from conversations. Trigger conditions:

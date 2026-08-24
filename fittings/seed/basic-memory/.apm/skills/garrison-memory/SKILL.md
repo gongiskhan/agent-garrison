@@ -1,11 +1,11 @@
 ---
 name: Garrison Memory
-description: Operative memory backed by Basic Memory — a plain-markdown Obsidian vault indexed into a queryable knowledge graph, shared across Claude, Codex, and Gemini.
+description: Session memory backed by Basic Memory — a plain-markdown Obsidian vault indexed into a queryable knowledge graph, shared across Claude, Codex, and Gemini.
 ---
 
 # Garrison Memory
 
-Operative memory is a single Obsidian vault indexed by **Basic Memory**
+Session memory is a single Obsidian vault indexed by **Basic Memory**
 (basicmachines-co). The vault is plain markdown; Basic Memory builds a
 local SQLite knowledge graph (notes, observations, relations) and exposes
 write/search/read tools over MCP. The same MCP server is registered with

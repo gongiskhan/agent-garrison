@@ -828,7 +828,7 @@ function CompositionCreator({
             }}
             className="composition-dialog"
           >
-            <span className="composition-dialog-kicker">Clone operative</span>
+            <span className="composition-dialog-kicker">Clone composition</span>
             <h2 id="new-composition-title">
               New composition
             </h2>

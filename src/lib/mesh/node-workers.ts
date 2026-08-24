@@ -1,18 +1,26 @@
-// Live Outpost worker registry.
+// Live node task-runner registry.
 //
-// Bridge presence and task-runner presence are deliberately separate signals:
-// the WebSocket bridge can be online while no process is polling for Kanban work.
-// Each worker writes its own atomically-replaced file so pulses from three Macs
-// never contend on one read/modify/write document.
+// Node presence and task-runner presence are deliberately separate signals: a
+// node can be up and beating while no process on it is polling for Kanban work.
+// Each runner writes its own atomically-replaced file so pulses from several
+// nodes never contend on one read/modify/write document.
+//
+// Salvaged verbatim from the retired Outpost Dispatch worker registry — the
+// atomic-per-machine file, the 45s staleness limit and the whole claim-verdict
+// vocabulary were already the right model for a mesh peer.
 
 import crypto from "node:crypto";
 import path from "node:path";
 import { readdir, readFile } from "node:fs/promises";
-import { garrisonDir } from "./claude-home";
-import { writeJsonAtomic } from "./atomic-write";
-import { REDACTED, redactSecretValues } from "./secret-redaction";
+import { garrisonDir } from "../claude-home";
+import { writeJsonAtomic } from "../atomic-write";
+import { REDACTED, redactSecretValues } from "../secret-redaction";
 
-export const DISPATCH_PROTOCOL_VERSION = "1.1";
+// Bumped to 2.0 with the mesh: the identity source behind a claim changed from
+// the outpost pairing registry to the node registry. `workerClaimVerdict`
+// already fails closed on a protocol mismatch, so a pre-mesh worker is refused
+// rather than silently misread.
+export const DISPATCH_PROTOCOL_VERSION = "2.0";
 export const WORKER_STALE_MS = 45_000;
 
 export type WorkerActivity = "idle" | "busy" | "degraded";
@@ -47,7 +55,7 @@ export interface WorkerClaimVerdict {
 }
 
 function registryDir(): string {
-  return path.join(garrisonDir(), "outpost-workers");
+  return path.join(garrisonDir(), "node-workers");
 }
 
 function recordPath(machine: string): string {

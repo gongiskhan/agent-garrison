@@ -91,8 +91,7 @@ async function readTransportsFile() {
 }
 
 // A leading "-" in a host (or a hostile user string) turns the ssh argv into
-// option injection — `-oProxyCommand=` is local RCE. Same guards as
-// outpost-tailscale-host's config-sync.
+// option injection — `-oProxyCommand=` is local RCE.
 const SSH_USER_RE = /^[a-z_][a-z0-9_-]{0,31}$/i;
 const SSH_HOST_RE = /^(?!-)[A-Za-z0-9._-]{1,253}$|^[0-9a-fA-F:]{2,45}$/;
 

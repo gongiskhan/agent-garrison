@@ -4013,7 +4013,7 @@ async function handleDispatchComplete(req, res, opts, id) {
   if (typeof body.verdict !== "string" || !body.verdict.trim()) {
     return jsonRes(res, 400, { error: "verdict is required" });
   }
-  const summary = typeof body.summary === "string" ? body.summary.trim().slice(0, 2000) : "completed on outpost";
+  const summary = typeof body.summary === "string" ? body.summary.trim().slice(0, 2000) : "completed on a remote node";
   const evidenceRunKey = createHash("sha256").update(String(body.runId)).digest("hex").slice(0, 32);
   const completed = {
     ...card,
@@ -4025,7 +4025,7 @@ async function handleDispatchComplete(req, res, opts, id) {
       ...dispatch,
       state: "done",
       heartbeatAt: new Date().toISOString(),
-      detail: summary || "completed on outpost",
+      detail: summary || "completed on a remote node",
       requestedTransition: body.verdict,
       ...(typeof body.sessionId === "string" && body.sessionId ? { sessionId: body.sessionId } : {}),
       logCursor: Number.isSafeInteger(body.logCursor) ? body.logCursor : 0,
@@ -4936,7 +4936,7 @@ export async function remotePlacementPreflight(input, opts = {}) {
       ok: false,
       status: 409,
       code: "remote-project-required",
-      detail: "Choose the project explicitly before assigning this card to an Outpost, so its Loadout can be verified."
+      detail: "Choose the project explicitly before assigning this card to another node, so its Loadout can be verified."
     };
   }
 
@@ -4997,7 +4997,7 @@ export async function remotePlacementPreflight(input, opts = {}) {
   }
 
   if (!resolveProjectName(project, { devRoot: opts?.devRoot || readDevRoot() })) {
-    return { ok: false, status: 409, code: "unknown-project", detail: "Choose a Git repository under the configured dev root before assigning an Outpost." };
+    return { ok: false, status: 409, code: "unknown-project", detail: "Choose a Git repository under the configured dev root before assigning it to a node." };
   }
   let loadoutResponse;
   try {
@@ -5032,7 +5032,7 @@ async function handleLoadoutReadiness(req, res, opts, projectId) {
       project: projectId,
       ready: false,
       status: "unknown-project",
-      detail: "Choose a Git repository under the configured dev root before assigning an Outpost."
+      detail: "Choose a Git repository under the configured dev root before assigning it to a node."
     });
   }
   const appUrl = loadoutAppUrl(opts);
@@ -5087,7 +5087,7 @@ async function handleLoadoutReadiness(req, res, opts, projectId) {
       project: projectId,
       ready: false,
       status: "vault-locked",
-      detail: body?.detail || "Unlock the host vault before assigning this project to an Outpost.",
+      detail: body?.detail || "Unlock the host vault before assigning this project to a node.",
       missing: [],
       editor: authored
     });
@@ -5376,39 +5376,25 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
       if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
-      // GET /machines — the placement picker's vocabulary: the host plus every
-      // paired outpost with its live connected state. Same-origin proxy of the
-      // outpost daemon, exactly as /route-options proxies the gateway, so the
-      // browser never needs to reach the daemon (which binds loopback) and the
-      // picker cannot offer a machine the dispatcher would then refuse.
+      // GET /machines — the placement picker's vocabulary: this node plus every
+      // other node in the mesh, with its live claim readiness. Same-origin proxy
+      // of the node's own Garrison app, exactly as /route-options proxies the
+      // gateway, so the browser never needs to reach a peer directly and the
+      // picker cannot offer a node the dispatcher would then refuse.
       //
-      // The daemon URL is INSTANCE-SPECIFIC and arrives already port-shifted as
-      // GARRISON_KANBANLOOP_OUTPOST_HOST_URL. No literal fallback: the old one
-      // named the codex port and every probe silently failed.
+      // The retired outpost WS bridge was the second source here; the node
+      // registry behind /api/dispatch/machines is now the only one.
       if (pathname === "/machines" && method === "GET") {
         const defaultRuntime = remoteRuntimeRequirement({}, resolvedModelCached(opts.root || kanbanRoot()));
-        const host = { name: "host", label: "This machine (Garrison host)", connected: true, isHost: true, bridge: "connected", worker: { state: "ready", ready: true, runtimes: [] } };
-        const daemon = (process.env.GARRISON_OUTPOST_URL
-          || process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL
-          || "").trim();
+        const host = { name: "host", label: "This machine (this node)", connected: true, isHost: true, bridge: "connected", worker: { state: "ready", ready: true, runtimes: [] } };
         const appUrl = (process.env.GARRISON_APP_URL || "").trim();
-        if (!daemon && !appUrl) return jsonRes(res, 200, { machines: [host], outpostsAvailable: false, defaultRuntime, reason: "outpost registry is not configured for this instance" });
+        if (!appUrl) return jsonRes(res, 200, { machines: [host], nodesAvailable: false, defaultRuntime, reason: "the node registry is not configured for this instance" });
         try {
-          const [bridgeResponse, workerResponse] = await Promise.all([
-            daemon
-              ? fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) }).catch(() => null)
-              : Promise.resolve(null),
-            appUrl
-              ? fetch(`${appUrl.replace(/\/+$/, "")}/api/dispatch/machines`, { signal: AbortSignal.timeout(3000) }).catch(() => null)
-              : Promise.resolve(null)
-          ]);
-          const bridges = bridgeResponse?.ok ? ((await bridgeResponse.json()).outposts || []) : [];
+          const workerResponse = await fetch(`${appUrl.replace(/\/+$/, "")}/api/dispatch/machines`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
           const dispatchMachines = workerResponse?.ok ? ((await workerResponse.json()).machines || []) : [];
-          const bridgeByName = new Map(bridges.map((machine) => [machine.name, machine]));
           const dispatchByName = new Map(dispatchMachines.map((machine) => [machine.name, machine]));
-          const names = [...new Set([...bridgeByName.keys(), ...dispatchByName.keys()])].filter((name) => typeof name === "string" && name !== "host").sort();
+          const names = [...dispatchByName.keys()].filter((name) => typeof name === "string" && name !== "host").sort();
           const machines = [host, ...names.map((name) => {
-            const bridge = bridgeByName.get(name);
             const dispatchMachine = dispatchByName.get(name);
             const worker = dispatchMachine?.worker || {
               state: "offline", ready: false, stale: true, runtimes: [],
@@ -5417,22 +5403,23 @@ export function makeRequestHandler(opts, distDir) {
             return {
               name,
               label: name,
-              connected: Boolean(bridge?.connected),
-              bridge: bridge?.connected ? "connected" : "offline",
-              pending: Boolean(bridge?.pending ?? dispatchMachine?.pending),
+              connected: worker.ready === true,
+              bridge: worker.ready === true ? "connected" : "offline",
+              pending: Boolean(dispatchMachine?.pending),
               worker,
               isHost: false
             };
           })];
-          return jsonRes(res, 200, { machines, outpostsAvailable: true, defaultRuntime });
+          return jsonRes(res, 200, { machines, nodesAvailable: true, defaultRuntime });
         } catch (e) {
-          // The daemon being down must not break card creation — degrade to
-          // host-only and SAY why, rather than rendering an empty picker.
+          // The registry being unreachable must not break card creation —
+          // degrade to this node only and SAY why, rather than rendering an
+          // empty picker.
           return jsonRes(res, 200, {
             machines: [host],
-            outpostsAvailable: false,
+            nodesAvailable: false,
             defaultRuntime,
-            reason: `outpost registry unavailable: ${e instanceof Error ? e.message : String(e)}`
+            reason: `node registry unavailable: ${e instanceof Error ? e.message : String(e)}`
           });
         }
       }

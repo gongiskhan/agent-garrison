@@ -43,9 +43,6 @@ x-garrison:
   provides:
     - kind: dev-env
       name: dev-env
-  consumes:
-    - kind: outpost
-      cardinality: any
   setup:
     command: node ui/build.mjs && node scripts/install-hooks.mjs
     idempotent: true

@@ -10,8 +10,8 @@
 //     auto-opens; each turn is persisted SERVER-SIDE into its thread (server.mjs
 //     tees the exchange on the upstream `done` event), so reopening shows the
 //     history and a mid-turn navigation never loses the exchange.
-//   • Rich operative console (explicit ?console=1) - the same component against
-//     the gateway's live /claude/* PTY surface. The operative test interface.
+//   • Rich session console (explicit ?console=1) - the same component against
+//     the gateway's live /claude/* PTY surface. The session test interface.
 //
 // The channel stays generic: a `thread` is an OPAQUE key + optional title a host
 // (Kanban / Automations) puts on the query string. The channel never interprets
@@ -100,7 +100,7 @@ interface UrlState {
   level: number | undefined;
   returnUrl: string | undefined;
   returnLabel: string | undefined;
-  /** Explicit ?console=1 - mount the raw PTY operative console instead of the
+  /** Explicit ?console=1 - mount the raw PTY session console instead of the
    *  threaded surface. */
   console: boolean;
 }
@@ -466,7 +466,7 @@ const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T
 
 // GET /api/route-options → the rail's menus. `?refresh=1` bypasses the proxy's 10s
 // cache, used when the user comes back to the tab having just started the board or
-// the operative (a 10s-stale "nothing available" reads as a broken UI).
+// the session (a 10s-stale "nothing available" reads as a broken UI).
 // Exported (like toHistory below) purely so the option/degradation mapping is
 // unit-testable - this module mounts itself, so a test drives it through stubs.
 export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | null> {
@@ -481,7 +481,7 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
     const sources = (d.sources ?? {}) as { gateway?: boolean; board?: boolean };
     const unavailable: NonNullable<RouteOptions["unavailable"]> = {};
     if (sources.gateway === false) {
-      const why = "the gateway is not answering - start the operative to pin routing";
+      const why = "the gateway is not answering - start the session to pin routing";
       unavailable.target = why;
       unavailable.model = why;
       unavailable.effort = why;
@@ -1525,7 +1525,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             key={`${activeId}:${historyRev}`}
             draftKey={activeId ?? undefined}
             transport={transport}
-            title="Operative"
+            title="Session"
             /* The phone composer row also carries voice, mic and attach, leaving
                the field ~180px - the full hint truncates mid-word there. */
             placeholder={activeRshTransport ? "Send to the remote agent — it lands in the console" : narrowComposer ? "Message…" : undefined}
@@ -1828,12 +1828,12 @@ function App() {
   }, []);
 
   if (threaded) return (<><ThreadedApp url={url} /><PushEnroller /></>);
-  // Explicit ?console=1: the rich operative console (live PTY surface).
+  // Explicit ?console=1: the rich session console (live PTY surface).
   return (
     <>
       <ClaudeChat
         transport={createHttpTransport("/api", { uploads: true })}
-        title="Shared operative console"
+        title="Shared session console"
         composerAdornment={voiceAdornment}
       />
       <PushEnroller />

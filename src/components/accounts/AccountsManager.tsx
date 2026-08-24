@@ -51,7 +51,7 @@ export interface RuntimeBinding {
   /** "" = unpinned machine login/default key · "auto" = Paymaster · else pinned. */
   account: string;
   /**
-   * The account this runtime is ACTUALLY running under, when the operative is up.
+   * The account this runtime is ACTUALLY running under, when the composition is up.
    * An account pin is projected into the spawn env (CODEX_HOME / the token rail),
    * so editing it mid-run changes the manifest and nothing else - undefined here
    * means nothing is running, and a value that differs from `account` means the
@@ -237,7 +237,7 @@ function RuntimeBindings({
         const railConflict = railConflicts.get(runtime.id);
         const compatibleAccounts = compatibleRuntimeAccounts(accounts, contract);
         const issue = runtimeAccountSelectionIssue(runtime.account, contract, accounts);
-        // The pin only reaches an engine at spawn. While the operative is up on a
+        // The pin only reaches an engine at spawn. While the composition is up on a
         // DIFFERENT account, the select is a statement of intent, not of fact, and
         // saying so is the difference between "switching accounts does nothing"
         // and "this takes effect on the next start".
@@ -291,7 +291,7 @@ function RuntimeBindings({
                 >
                   Pending: running as{" "}
                   <strong>{runtime.launchedAccount || "the machine login"}</strong> — restart the
-                  operative to apply.
+                  session to apply.
                 </span>
               ) : null}
               {issue ? (
@@ -687,7 +687,7 @@ export function AccountsManager() {
       <div className="head">
         <h1>Accounts</h1>
         <p className="ld">
-          The identities your operatives run under, grouped by engine. A runtime launches under one
+          The identities your sessions run under, grouped by engine. A runtime launches under one
           of three modes - the box&apos;s own login or <strong>default provider key</strong>, <strong>Auto</strong>{" "}
           (Claude only - rotates registered accounts by rate-limit usage), or a single{" "}
           <strong>pinned</strong> account. Each section below sets the mode for its runtimes

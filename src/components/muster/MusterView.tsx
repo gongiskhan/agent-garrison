@@ -411,7 +411,7 @@ export function DutyList({ model, actions }: { model: MusterModel; actions: Must
       <div className={styles.stateBox} data-testid="duties-empty">
         <div className={styles.stateTitle}>No duties selected</div>
         <p className={styles.stateBody}>
-          A composition runs the duties you select. Add one below to give the operative work to route.
+          A composition runs the duties you select. Add one below to give the session work to route.
         </p>
       </div>
     );

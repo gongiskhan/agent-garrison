@@ -100,14 +100,30 @@ describe("tours registry", () => {
     expect(tours.some((t) => t.name.endsWith("-overview"))).toBe(true);
   });
 
-  it("covers a valid seed UI fitting that is not listed in library.json", async () => {
-    // vault-sync declares ui.views and parses cleanly but is not in the curated
-    // library — the seed-directory scan must still cover it. (documents /
-    // tier-classifier declare views too but use parked pre-pivot faculty ids the
-    // parser rejects, so they are correctly excluded — dead seeds, not tours.)
+  it("unions the seed-directory scan with the library, de-duplicated by id", async () => {
+    // readFittingSources merges the curated library with a raw scan of
+    // fittings/seed, so a fitting present in only one of them is still covered
+    // by the "every UI fitting ships a tour" invariant. There is no seed-only UI
+    // fitting today — vault-sync was the last, and it retired with the outposts
+    // (2026-08-24) — so what is asserted here is the union's shape: every
+    // library UI fitting appears exactly once, alongside the repo-root shell
+    // tours that belong to no fitting.
     const tours = await loadTours();
-    const byFitting = new Set(tours.map((t) => t.fitting));
-    expect(byFitting.has("vault-sync")).toBe(true);
+    const perFitting = new Map<string, number>();
+    for (const tour of tours) {
+      if (!tour.fitting) continue;
+      perFitting.set(tour.fitting, (perFitting.get(tour.fitting) ?? 0) + 1);
+    }
+    const library = await readLibrary();
+    const uiFittings = library.filter((entry) => (entry.metadata.ui?.views?.length ?? 0) > 0);
+    expect(uiFittings.length).toBeGreaterThan(0);
+    for (const entry of uiFittings) {
+      expect(perFitting.get(entry.id), `${entry.id} tour count`).toBeGreaterThanOrEqual(1);
+    }
+    // The repo-root <repo>/tours source contributes ids that are NOT library
+    // entries at all — proof the loader is a union rather than a library read.
+    const nonLibrary = [...perFitting.keys()].filter((id) => !library.some((entry) => entry.id === id));
+    expect(nonLibrary.sort()).toEqual(["compose", "quarters", "shell"]);
   });
 
   it("returns undefined for an unknown tour name", async () => {

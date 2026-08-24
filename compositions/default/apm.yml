@@ -33,7 +33,6 @@ dependencies:
     - path: ../../fittings/seed/remote-shell-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
-    - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
     - path: ../../fittings/seed/roadmaps
@@ -208,7 +207,6 @@ x-garrison:
             tick_cron: '*/2 * * * *'
             review_cron: 0 8 * * 1
             review_stall_hours: 2
-            outpost_host_url: http://127.0.0.1:4702
         - id: loop-heartbeat
           config:
             cadence_minutes: 40
@@ -265,11 +263,6 @@ x-garrison:
             bind_host: 127.0.0.1
             idle_minutes: 30
             load_threshold: 1
-        - id: outpost-tailscale-host
-          config:
-            port: 8082
-            bind_host: 127.0.0.1
-            outpost_host_url: http://127.0.0.1:4702
       knowledge:
         - id: roadmaps
           config: {}

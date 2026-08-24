@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { mkdir, writeFile } from "node:fs/promises";
 import crypto from "node:crypto";
 import path from "node:path";
-import { authenticateMachine } from "@/lib/dispatch-machines";
+import { authenticateMachine } from "@/lib/mesh/node-auth";
 import { readAllCards } from "@/lib/dispatch";
 import { jsonError } from "@/lib/http";
 import { dispatchEvidenceDir, SAFE_DISPATCH_EVIDENCE_NAME } from "@/lib/dispatch-evidence";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 // Evidence copy-back (brief D7, full-copy variant). The worker uploads its
 // logs / transcript / captures here and they land on the HOST, so the board
-// stays self-contained: evidence survives the outpost going offline or being
+// stays self-contained: evidence survives the remote node going offline or being
 // wiped, which a link back to the machine would not.
 //
 // Phase 0 finding: there is no artifact store to upload into.

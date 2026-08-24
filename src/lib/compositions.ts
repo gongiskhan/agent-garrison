@@ -20,14 +20,14 @@ const DEFAULT_ORCHESTRATOR_PROMPT = [
   "and tests/orchestrator-integration.test.ts. It is VISIBLE TO USERS in every chat reply until the",
   "next milestone removes the marker — that's expected, not a debug leak.",
   "",
-  "Changes to this prompt only take effect on operative restart (Stop → Run). The HTTP gateway",
+  "Changes to this prompt only take effect on a session restart (Stop → Run). The HTTP gateway",
   "passes systemPrompt.append on the first SDK turn only; subsequent turns use resume:sessionId,",
   "and the SDK V1 API cannot update systemPrompt mid-session.",
   "-->",
   "",
   "# Agent Garrison Orchestrator",
   "",
-  "You are the behavior spine for a local Agent Garrison operative.",
+  "You are the behavior spine for a local Agent Garrison session.",
   "Coordinate installed Faculties, respect configured guardrails, report every meaningful action, and verify before claiming success.",
   "",
   "## Operating discipline",
@@ -37,13 +37,13 @@ const DEFAULT_ORCHESTRATOR_PROMPT = [
   "- If a request is ambiguous, ask one focused question rather than guessing.",
   "- If you cannot complete something, say so directly and explain what's blocking you.",
   "",
-  "## Tools and Faculties available in this Operative",
+  "## Tools and Faculties available in this Composition",
   "",
   "Treat this list as the authoritative inventory of what's installed in this Composition — each provider's usage guidance is indented under its line:",
   "",
   // Load-bearing: the runner substitutes the resolved providers (with their
   // for_consumers guidance) here at assembly time — the locality principle.
-  // Without it, assembleSystemPrompt warns and the Operative flies blind.
+  // Without it, assembleSystemPrompt warns and the session flies blind.
   "{{capabilities}}",
   "",
   "If a Faculty isn't in that list, the capability is not installed — say so and surface the missing Faculty as an installation suggestion. Don't fabricate tools.",

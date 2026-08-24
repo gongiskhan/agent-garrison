@@ -9,7 +9,7 @@
 //
 // SECRETS (D3). `env_vars` commits variable NAMES to the repo, never values.
 // Values live only in the Garrison vault, on the host. The host resolves them
-// and the RENDERED `.env` travels to the outpost inside the claim payload;
+// and the RENDERED `.env` travels to the claiming node inside the claim payload;
 // the vault file and its master key never leave this machine. A copied
 // vault.json is undecryptable elsewhere anyway (the master key is per-machine,
 // in the OS keychain), which is the property that makes this safe by
@@ -222,7 +222,7 @@ export function quoteEnvValueForLoadout(value: string): string {
 // `PROJECT__VAR` override with fallback to the bare `VAR`.
 //
 // Runs on the HOST only — it needs an unlocked vault. The result travels to the
-// outpost; the vault does not.
+// claiming node; the vault does not.
 export async function renderLoadoutEnv(loadout: Loadout): Promise<RenderedEnv> {
   const secrets = await readVaultSecrets();
   const byKey = new Map(secrets.map((s) => [s.key, s.value]));

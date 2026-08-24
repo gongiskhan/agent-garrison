@@ -122,8 +122,8 @@ export function RunConsole() {
           </h3>
           <p style={{ color: "var(--mute)", fontSize: 12.5, margin: "0 0 14px" }}>
             {isRunning
-              ? "The runner is up. Restart re-runs apm install + verify before relaunching the Operative."
-              : "Press Run to install Fittings, verify, and start the Operative."}
+              ? "The runner is up. Restart re-runs apm install + verify before relaunching the session."
+              : "Press Run to install Fittings, verify, and start the session."}
           </p>
           <div
             style={{
@@ -342,7 +342,7 @@ export function RunConsole() {
               Fittings
             </h3>
             <p style={{ color: "var(--mute)", fontSize: 12.5, margin: "4px 0 0" }}>
-              Every stationed Fitting starts with the Operative and stops with it.
+              Every stationed Fitting starts with the session and stops with it.
               View state persists across restarts.
             </p>
           </div>

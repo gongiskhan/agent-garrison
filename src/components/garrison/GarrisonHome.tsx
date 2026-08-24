@@ -87,21 +87,21 @@ export function GarrisonHome() {
               {greeting}
             </h1>
             <p>
-              {operativeSummary(status, verifyTotal, verifyOk)}
+              {sessionSummary(status, verifyTotal, verifyOk)}
             </p>
           </div>
           <div className={styles.commandControls}>
             <div className={styles.commandReadout}>
-              <span>operative state</span>
+              <span>composition state</span>
               <strong>{status}</strong>
               <small>
                 {verifyTotal ? `${verifyOk}/${verifyTotal} verified` : "verification pending"}
               </small>
             </div>
             <div className={styles.commandActions}>
-              <button data-testid="operative-run" className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
+              <button data-testid="composition-run" className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
                 <span className="ic"><Play size={14} aria-hidden /></span>
-                {isRunning ? "Restart operative" : "Run operative"}
+                {isRunning ? "Restart session" : "Run session"}
               </button>
               {isRunning ? (
                 <button className="btn danger" onClick={() => void runAction("down")} disabled={Boolean(busy)}>
@@ -126,7 +126,7 @@ export function GarrisonHome() {
             <div>
               <h5>Orchestrator station is empty</h5>
               <p>
-                The Operative needs a single governing Fitting to assemble its system prompt. Until one is
+                The session needs a single governing Fitting to assemble its system prompt. Until one is
                 stationed, the runner falls back to a stub orchestrator.
               </p>
               <div className="actions">
@@ -141,7 +141,7 @@ export function GarrisonHome() {
             fold. Renders nothing at all when nothing is parked. */}
         <OutboxStrip />
 
-        <article className={styles.operativeDossier}>
+        <article className={styles.sessionDossier}>
           <div className={styles.dossierHead}>
             <div>
               <span className={styles.eyebrow}>Active composition</span>
@@ -645,14 +645,14 @@ function prettySource(source: string): string {
   return source.charAt(0).toUpperCase() + source.slice(1);
 }
 
-function operativeSummary(status: string, verifyTotal: number, verifyOk: number): string {
+function sessionSummary(status: string, verifyTotal: number, verifyOk: number): string {
   if (status === "running") {
     return verifyTotal && verifyOk === verifyTotal
-      ? "One operative running. Verify clean. Heartbeat keeps the loop ticking."
-      : "One operative running. Verify partial — see the run console below for hook-by-hook detail.";
+      ? "One session running. Verify clean. Heartbeat keeps the loop ticking."
+      : "One session running. Verify partial — see the run console below for hook-by-hook detail.";
   }
   if (status === "starting" || status === "verifying") {
-    return "Bringing the operative up. APM install in progress, verify pending.";
+    return "Bringing the session up. APM install in progress, verify pending.";
   }
   if (status === "stopping") {
     return "Tearing down. Materialised .env will be wiped when this completes.";
@@ -660,7 +660,7 @@ function operativeSummary(status: string, verifyTotal: number, verifyOk: number)
   if (status === "failed") {
     return "Last run ended in failure. See the run console below for the runtime log.";
   }
-  return "Operative is idle. Press Run to install Fittings, verify, and start it.";
+  return "This node is idle. Press Run to install Fittings, verify, and start a session.";
 }
 function shortTime(iso: string): string {
   try {

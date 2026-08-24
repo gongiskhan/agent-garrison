@@ -151,7 +151,7 @@ The relevant historical Claude sessions were mapped without copying their raw
 transcripts. Their private session identifiers remain in the authoritative
 vault rather than in public Git history. The current state and remaining work
 from those sessions are captured in the named topic notes and in
-`docs/REMOTE_MAC_WORKFLOW.md`. The separately authored Claude project-memory
+`docs/INSTANCES.md`. The separately authored Claude project-memory
 notes are mirrored into Obsidian as described above. Raw JSONL files stay on the
 VM and are not part of the Codex workflow.
 
@@ -192,11 +192,11 @@ Useful checks from the Mac are:
 ```bash
 codex mcp get basic-memory
 cd /Users/ggomes/dev/garrison
-make remote-doctor
+curl -fsS http://127.0.0.1:8777/api/mesh/self
 ```
 
 The Basic Memory transport should show `/usr/bin/ssh` and `dev-madrid`. The
-remote doctor must pass without exposing secrets or changing either checkout.
+node's own health endpoint must answer without exposing secrets.
 If automatic capture cannot reach the VM, leave queued spool files in place;
 the next Garrison lifecycle event retries them.
 

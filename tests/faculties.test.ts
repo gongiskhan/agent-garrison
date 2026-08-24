@@ -161,7 +161,7 @@ describe("sessions split (2026-06-18)", () => {
   });
 
   it("moves the auxiliary own-port viewers out of sessions into surfaces", async () => {
-    for (const id of ["screen-share-default", "browser-default", "outpost-tailscale-host"]) {
+    for (const id of ["screen-share-default", "browser-default"]) {
       expect(await seedFaculty(id), id).toBe("surfaces");
     }
   });

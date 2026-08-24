@@ -1,4 +1,4 @@
-// Host-side validation for evidence uploaded by an Outpost worker.
+// Receiving-side validation for evidence uploaded by a remote node's task runner.
 //
 // Upload and completion are separate requests. The completion manifest binds
 // the files the worker says belong to this run to the bytes already persisted

@@ -22,7 +22,6 @@ const seedIds = [
   "deepgram-voice",
   "dev-env",
   "screen-share-default",
-  "outpost-tailscale-host",
   "monitor-default",
   "browser-default",
   "file-browser",
@@ -117,7 +116,6 @@ describe("seed Fittings", () => {
     expect(metadata.own_port).toBe(true);
     expect(metadata.default_port).toBe(8086);
     expect(metadata.provides).toEqual([{ kind: "dev-env", name: "dev-env" }]);
-    expect(metadata.consumes).toContainEqual({ kind: "outpost", cardinality: "any" });
     expect(metadata.setup?.[0]?.command).toContain("install-hooks");
   });
 

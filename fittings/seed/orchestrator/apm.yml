@@ -58,7 +58,7 @@ x-garrison:
     The Orchestrator owns the editable Identity, routing policy, and the dispatch
     duty. Deterministic rules run before its one-turn dispatch target; ambiguous
     human requests resolve to {duty, level, confidence, evidence} before the
-    Operative starts. Its layered authored + generated document is the actual
+    session starts. Its layered authored + generated document is the actual
     runtime prompt and its policy.json remains the machine-readable execution
     policy for the run engine.
     Every reply must end with `[route: <target-id> | rule: <rule-id> | profile: <name>]`.

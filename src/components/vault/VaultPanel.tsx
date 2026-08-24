@@ -61,7 +61,7 @@ export function VaultPanel() {
           </div>
           <p>
             Secret values stay encrypted at rest and materialise only for the
-            Fitting or Operative that declared them.
+            Fitting or session that declared them.
           </p>
         </header>
 
@@ -239,9 +239,9 @@ export function VaultPanel() {
             <tr>
               <td className="mono">in process</td>
               <td>
-                <code>process.env</code> of the spawned Operative
+                <code>process.env</code> of the spawned session
               </td>
-              <td>for the life of the Operative</td>
+              <td>for the life of the session</td>
             </tr>
             <tr>
               <td className="mono">in transit</td>

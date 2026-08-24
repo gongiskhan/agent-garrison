@@ -103,8 +103,8 @@ describe("ClaudeChat — context remains available as UI metadata", () => {
       path.join(process.cwd(), "fittings/seed/web-channel-default/ui/main.tsx"),
       "utf8"
     );
-    expect(source).toContain('title="Shared operative console"');
-    expect(source).toContain('title="Operative"');
+    expect(source).toContain('title="Shared session console"');
+    expect(source).toContain('title="Session"');
   });
 
   it("buildSendMeta returns undefined when both context and mode are absent", () => {

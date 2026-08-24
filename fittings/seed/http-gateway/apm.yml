@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Local HTTP gateway. All model turns drive the one routed Operative through an interactive Claude Code TUI session via @garrison/claude-pty (node-pty + headless xterm).
+  summary: Local HTTP gateway. All model turns drive the one routed session through an interactive Claude Code TUI session via @garrison/claude-pty (node-pty + headless xterm).
   config_schema:
     - key: port
       type: integer
@@ -44,11 +44,11 @@ x-garrison:
     - key: compact_enabled
       type: boolean
       default: true
-      description: Enable the Garrison compact controller (boundary-only /compact of the operative when context usage reaches the threshold).
+      description: Enable the Garrison compact controller (boundary-only /compact of the session when context usage reaches the threshold).
     - key: compact_threshold_pct
       type: integer
       default: 60
-      description: Context-usage percentage at or above which the controller compacts the operative at a turn/duty boundary.
+      description: Context-usage percentage at or above which the controller compacts the session at a turn/duty boundary.
     - key: compact_focus_template
       type: string
       default: ""

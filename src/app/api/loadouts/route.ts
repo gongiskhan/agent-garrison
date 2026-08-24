@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 // declared env var name, does the vault actually hold a value for it (either the
 // PROJECT__VAR override or the bare name)? A missing one is not an error here —
 // you author the Loadout first and fill the vault after — but it WILL fail
-// materialization on the outpost, so it is surfaced up front rather than
+// materialization on the claiming node, so it is surfaced up front rather than
 // discovered on a remote machine.
 //
 // NAMES ONLY, both ways. This endpoint never accepts or returns a secret VALUE;

@@ -38,7 +38,7 @@ x-garrison:
     timeout_ms: 10000
   for_consumers: |
     The Automations engine runs YAML automations and exposes automation-runner.
-    The Operative can list, read, and run automations; an automation's
+    The session can list, read, and run automations; an automation's
     `connector` step calls a connected service's catalog action (auth sealed in
     the Vault), and steps stream live into the run viewer over SSE. Automations
     are authored via the "Discuss an automation" flow (a Router-planned brief),

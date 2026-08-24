@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
-import { authenticateMachine } from "@/lib/dispatch-machines";
+import { authenticateMachine } from "@/lib/mesh/node-auth";
 import { readLoadout, renderLoadoutEnv } from "@/lib/loadout";
 import type { ClaimableCard, DispatchJob } from "@/lib/dispatch";
 import {
@@ -17,7 +17,7 @@ import {
   DISPATCH_LEASE_SECONDS
 } from "@/lib/dispatch";
 import { jsonError } from "@/lib/http";
-import { readWorkerView, workerClaimVerdict } from "@/lib/dispatch-workers";
+import { readWorkerView, workerClaimVerdict } from "@/lib/mesh/node-workers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -229,7 +229,7 @@ export async function POST(request: NextRequest) {
       },
       // Persist the read-time compatibility migration. Explicit placement is
       // now the only remote mechanism; the board projection no longer carries
-      // contradictory `outpost` affinity.
+      // contradictory legacy `outpost` affinity.
       placement: card.placement,
       outpost: null
     });

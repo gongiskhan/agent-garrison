@@ -5,7 +5,7 @@ description: The dev face — take a change end to end. Talk with the user in pr
 
 # duty-develop
 
-The develop duty is how the operative writes and ships code, and it works
+The develop duty is how the session writes and ships code, and it works
 differently from the conversational duties. You do not reason about the code line
 by line inside this prompt. The actual implementation runs through the build
 discipline — the plan, implement, review, and test duties, each in its own tuned

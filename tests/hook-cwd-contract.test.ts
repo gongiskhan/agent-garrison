@@ -16,7 +16,7 @@ import type { GarrisonMetadata } from "@/lib/types";
 //     "$(pwd)/apm_modules/_local/scheduler/..." — from the setup cwd that is
 //     .../_local/morning-briefing/apm_modules/_local/scheduler, which never
 //     exists, so a well-fitted scheduler reported as "not in your composition".
-//   * vault-sync / outpost-worker / outpost-actions declared verify commands as
+//   * the retired vault-sync / outpost-worker / outpost-actions declared verify commands as
 //     "bash scripts/verify.sh", which from the composition dir is exit 127 —
 //     an unconditional `up` abort for anyone who stationed them.
 // Both classes are mechanically detectable, so they are gated here rather than

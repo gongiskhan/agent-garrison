@@ -137,7 +137,7 @@ html, body {
 /* assistant - editorial column with a faint mono label + hairline, no bubble */
 .cc-assistant { margin-top: 14px; max-width: 100%; }
 .cc-assistant::before {
-  content: "OPERATIVE";
+  content: "SESSION";
   display: block;
   font-family: var(--cc-mono);
   font-size: 9.5px;

@@ -104,7 +104,7 @@ export default function EmbedPage() {
       <div style={{ padding: 24 }}>
         <h2 style={{ marginTop: 0 }}>{fittingId} is not running</h2>
         <p style={{ color: "var(--mute)" }}>
-          Start the operative to launch this view, or open the fitting overview
+          Start the composition to launch this view, or open the fitting overview
           to inspect it.
         </p>
       </div>

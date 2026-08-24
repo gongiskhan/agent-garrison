@@ -1,9 +1,9 @@
-// Outpost Dispatch — the host half of pull-based claiming (brief D1).
+// Mesh dispatch — the receiving half of pull-based claiming (brief D1).
 //
-// A worker on a remote machine polls this host, claims a card targeted at it,
-// heartbeats while working, and reports a terminal status. The host never dials
-// the worker; that is the whole point. The existing WebSocket bridge (host
-// pushes RPC to a Mac) stays for ad-hoc ops and is untouched here.
+// A task runner on another node polls this one, claims a card targeted at it,
+// heartbeats while working, and reports a terminal status. This node never
+// dials the runner; that is the whole point, and it is why the protocol
+// outlived the WebSocket bridge it was built beside (retired 2026-08-24).
 //
 // SPLIT OF RESPONSIBILITY
 //   reads  — from the STATE SERVICE, which owns the cards. Listing claimable
@@ -26,7 +26,7 @@
 import path from "node:path";
 import { mkdir, open, readdir, readFile } from "node:fs/promises";
 import { garrisonDir } from "./claude-home";
-import { HOST_TARGET } from "./dispatch-machines";
+import { SELF_TARGET } from "./mesh/node-auth";
 import { stateClient } from "./state-client";
 
 // How long a claim survives without a heartbeat before the card is reclaimed.
@@ -179,14 +179,14 @@ export function kanbanBoardDir(): string {
 }
 
 // Normalise whatever is on the card into a placement. An absent or malformed
-// placement is `host` — the default must be "run where Garrison runs", never
-// "eligible for any machine", or a typo would scatter work across the fleet.
+// placement is the SELF target — the default must be "run on this node", never
+// "eligible for any node", or a typo would scatter work across the mesh.
 export function parsePlacement(raw: unknown): CardPlacement {
-  if (!raw || typeof raw !== "object") return { target: HOST_TARGET };
+  if (!raw || typeof raw !== "object") return { target: SELF_TARGET };
   const target = (raw as { target?: unknown }).target;
   const notBefore = (raw as { not_before?: unknown }).not_before;
   if (typeof target !== "string" || target.trim().length === 0) {
-    return { target: HOST_TARGET };
+    return { target: SELF_TARGET };
   }
   return {
     target: target.trim(),
@@ -240,7 +240,7 @@ function parseCard(raw: unknown): ClaimableCard | null {
     placement: (() => {
       const parsed = parsePlacement(card.placement);
       const legacy = typeof card.outpost === "string" ? card.outpost.trim() : "";
-      return parsed.target === HOST_TARGET && legacy ? { ...parsed, target: legacy } : parsed;
+      return parsed.target === SELF_TARGET && legacy ? { ...parsed, target: legacy } : parsed;
     })(),
     dispatch: parseDispatch(card.dispatch),
     command: typeof card.dispatchCommand === "string" ? card.dispatchCommand : null,
@@ -269,15 +269,15 @@ export async function readAllCards(): Promise<ClaimableCard[]> {
     .filter((card): card is ClaimableCard => card !== null);
 }
 
-// The store never holds `host` — it has no referent once several machines run
-// Garrison — so a card meant to run here carries THIS node's name. Read it back
-// as `host` so claimability keeps its one meaning: "not for a remote worker".
-// A target naming any other node crosses verbatim. (board.mjs does the same
-// translation on the fitting side; this is the shell's half.)
+// The store never holds the SELF target — it has no referent once several nodes
+// run Garrison — so a card meant to run here carries THIS node's name. Read it
+// back as SELF_TARGET so claimability keeps its one meaning: "not for a remote
+// runner". A target naming any other node crosses verbatim. (board.mjs does the
+// same translation on the fitting side; this is the shell's half.)
 function localisePlacement(row: any, self: string | null): unknown {
   const target = row?.placement?.target;
   if (!self || typeof target !== "string" || target !== self) return row;
-  return { ...row, placement: { ...row.placement, target: HOST_TARGET } };
+  return { ...row, placement: { ...row.placement, target: SELF_TARGET } };
 }
 
 // Has this claim gone quiet past its lease?
@@ -306,8 +306,8 @@ export function claimability(
   now: number,
   leaseSeconds = DISPATCH_LEASE_SECONDS
 ): ClaimabilityVerdict {
-  if (card.placement.target === HOST_TARGET) {
-    return { claimable: false, reason: "targeted at the host" };
+  if (card.placement.target === SELF_TARGET) {
+    return { claimable: false, reason: "targeted at this node" };
   }
   if (card.placement.target !== machine) {
     return { claimable: false, reason: `targeted at ${card.placement.target}` };
@@ -409,12 +409,13 @@ export function buildDutyPrompt(card: ClaimableCard, validTransitions = validTra
   }
   parts.push(
     "",
-    "You are running on a Garrison OUTPOST, dispatched from the host board. The",
-    "repository has already been checked out and its environment materialized, so",
-    "work in the current directory. Finish exactly this phase, then stop.",
+    "You are running on a Garrison node, dispatched from the board of the node",
+    "that filed this card. The repository has already been checked out and its",
+    "environment materialized, so work in the current directory. Finish exactly",
+    "this phase, then stop.",
     "",
     `End your final response with exactly one transition token on its own final line: ${validTransitions.join(" | ") || "needs-attention"}.`,
-    "The host validates that token and advances only this one phase; do not claim the whole card is Done unless `done` is listed."
+    "The filing node validates that token and advances only this one phase; do not claim the whole card is Done unless `done` is listed."
   );
   return parts.join("\n");
 }
@@ -528,7 +529,7 @@ export async function reserveDispatchLog(cardId: string): Promise<number> {
   for (let n = highest + 1; n < highest + 100; n += 1) {
     try {
       const handle = await open(path.join(dir, `log-${n}.md`), "wx", 0o600);
-      await handle.writeFile(`# outpost dispatch\n`);
+      await handle.writeFile(`# mesh dispatch\n`);
       await handle.close();
       return n;
     } catch (error) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { POST as claim } from "@/app/api/dispatch/claim/route";
-import { recordWorkerPulse, DISPATCH_PROTOCOL_VERSION } from "@/lib/dispatch-workers";
+import { recordWorkerPulse, DISPATCH_PROTOCOL_VERSION } from "@/lib/mesh/node-workers";
 // @ts-ignore — fitting server and board are source ESM.
 import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore — fitting board is source ESM.

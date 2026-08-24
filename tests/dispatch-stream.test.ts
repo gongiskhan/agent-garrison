@@ -62,7 +62,7 @@ describe("remote Watch stream", () => {
     });
     await appendDispatchStreamEvent("CARD", dispatch, { eventId: 1, channel: "journal", text: journal });
     const log = readFileSync(join(root, "cards", "CARD", "log-2.md"), "utf8");
-    expect(log).toBe("# outpost dispatch\n");
+    expect(log).toBe("# mesh dispatch\n");
     expect(log).not.toContain("aGVsbG8=");
   });
 });

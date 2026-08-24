@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { authenticateMachine } from "@/lib/dispatch-machines";
+import { authenticateMachine } from "@/lib/mesh/node-auth";
 import {
   BoardUnavailableError,
   completeDispatchPhase,
@@ -73,8 +73,8 @@ export async function POST(request: NextRequest) {
       typeof body.summary === "string" && body.summary.trim()
         ? body.summary.trim().slice(0, 2000)
         : state === "done"
-          ? "completed on outpost"
-          : "failed on outpost";
+          ? "completed on a remote node"
+          : "failed on a remote node";
     const required = state === "done"
       ? ["transcript.md", `gate-status.${phase}.json`, ...(requestedTransition === "done" ? ["evidence.md"] : [])]
       : [];

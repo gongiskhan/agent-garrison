@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact, and consumes bounded personal Done-card packets into provenance-marked source notes under Personal/Kanban Completions when Kanban is present. Zero lock-in - the index rebuilds from the markdown files. On a remote backend (config key `backend`, default `local`) the MCP registration is skipped and the operative is taught the remote memory CLI instead; the garrison-memory skill installed in the session is authoritative about which tools actually exist. Moving an existing vault to a remote store is a bounded migration rather than a mode - `scripts/import-vault.mjs` seeds the remote once from the local files, `shadow_write` keeps both sides written while the two are compared, and a daily comparator files a dated diff report whose header carries the date the migration must end on.
+  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact, and consumes bounded personal Done-card packets into provenance-marked source notes under Personal/Kanban Completions when Kanban is present. Zero lock-in - the index rebuilds from the markdown files. On a remote backend (config key `backend`, default `local`) the MCP registration is skipped and the session is taught the remote memory CLI instead; the garrison-memory skill installed in the session is authoritative about which tools actually exist. Moving an existing vault to a remote store is a bounded migration rather than a mode - `scripts/import-vault.mjs` seeds the remote once from the local files, `shadow_write` keeps both sides written while the two are compared, and a daily comparator files a dated diff report whose header carries the date the migration must end on.
   config_schema:
     - key: backend
       type: select
@@ -26,13 +26,13 @@ x-garrison:
         - cortex
       default: local
       description: >-
-        Where operative memory lives. `local` (the default) is the whole stock fitting - upstream
+        Where the session's memory lives. `local` (the default) is the whole stock fitting - upstream
         Basic Memory, its MCP server registered with the local CLIs, a plain-markdown vault on this
         disk: no account, no network, works on a fresh clone with an empty vault. A remote backend
         suits the other shape of agent workstation - one whose memory has to outlive the machine and
         be readable from the phone, the laptop and the box in the corner at once, which a per-machine
         SQLite index cannot do. On a remote backend the fitting stops registering the local MCP
-        server, teaches the operative the remote memory CLI instead of the MCP tools, and turns the
+        server, teaches the session the remote memory CLI instead of the MCP tools, and turns the
         capture spool on so captures drain off the box. Any provider implementing the capability
         contract (docs/CAPABILITY_CONTRACT.md) can fill that slot; each ships its own enum value and
         skill variant, and `cortex` is the reference implementation that ships as the default remote.

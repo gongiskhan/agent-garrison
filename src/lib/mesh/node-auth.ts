@@ -1,35 +1,46 @@
-// Machine identity for Outpost Dispatch.
+// Node identity for the dispatch API.
 //
-// A worker on a remote Mac authenticates to the host with a bearer token. The
-// token store is the EXISTING outpost registry
-// (`$GARRISON_HOME/outpost-registry.json`, written by scripts/outpost-host.mjs's
-// /registry/pair) — deliberately not a new file. Phase 0 found two disjoint
-// machine registries already (outpost-registry.json and src/lib/hosts.ts, the
-// latter with zero callers); a third would be the point where "which registry
-// is authoritative" becomes unanswerable.
+// A task runner on another node authenticates to this one with a bearer token.
+// The token store is still `$GARRISON_HOME/outpost-registry.json` — the file
+// the retired pairing flow wrote — kept for ONE more release so every already
+// paired machine keeps working across the mesh cutover. Phase 4 replaces it
+// with per-node mesh tokens minted by the state service; until then this file
+// is the dispatch-token store and nothing else reads it.
 //
-// Reusing it means one pairing flow covers both transports: the WebSocket bridge
-// (host pushes RPC) and this pull-based dispatch API. A machine is paired once.
+// A single store is the point: Phase 0 found two disjoint machine registries
+// (this one and the since-deleted src/lib/hosts.ts, which had zero callers).
+// A third would be the point where "which registry is authoritative" becomes
+// unanswerable.
 //
 // SECURITY NOTES
 //   • Constant-time compare, same discipline as verifyInternalToken.
 //   • A `pending` registry entry (paired but never connected) is still a valid
-//     dispatch identity: pairing is what grants it, and the pull worker never
-//     dials the bridge, so requiring `connected` would lock out exactly the
+//     dispatch identity: pairing is what grants it, and a pull-based runner
+//     never dials back, so requiring `connected` would lock out exactly the
 //     machines this feature exists for.
-//   • "host" is a RESERVED name, never a registry entry. The Linux box Garrison
-//     runs on has no pairing token and needs none — it is the thing being
-//     authenticated TO. Rejecting it here stops a remote machine from claiming
-//     host-targeted work by registering itself under that name.
+//   • The self target is a RESERVED name, never a registry entry. The node
+//     Garrison runs on has no token and needs none — it is the thing being
+//     authenticated TO. Rejecting it here stops a peer from claiming
+//     locally-targeted work by registering itself under that name.
 
 import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { garrisonDir } from "./claude-home";
+import { garrisonDir } from "../claude-home";
 
-// The placement target meaning "run where Garrison itself runs". Not a machine
-// name — no registry entry may use it.
-export const HOST_TARGET = "host";
+// The placement target meaning "run on THIS node". Not a machine name — no
+// registry entry may use it.
+//
+// The LITERAL stays `"host"` deliberately. The mesh store never holds it — a
+// card meant for this node carries this node's id, and localisePlacement
+// (src/lib/dispatch.ts) translates that to this word on the way in and back on
+// the way out. So the string is a purely local reading, every pre-mesh card
+// carrying `placement.target: "host"` still parses, and only the NAME needed to
+// stop saying that one machine is special.
+export const SELF_TARGET = "host";
+
+/** @deprecated Pre-mesh name for {@link SELF_TARGET}. Kept for one release. */
+export const HOST_TARGET = SELF_TARGET;
 
 export interface DispatchMachine {
   name: string;
@@ -71,7 +82,7 @@ function isUsableEntry(entry: RegistryEntry): entry is { name: string; token: st
   return (
     typeof entry.name === "string" &&
     entry.name.trim().length > 0 &&
-    entry.name.trim() !== HOST_TARGET &&
+    entry.name.trim() !== SELF_TARGET &&
     typeof entry.token === "string" &&
     entry.token.length > 0
   );
@@ -120,10 +131,10 @@ export async function authenticateMachine(
   return resolved;
 }
 
-// A placement target is dispatchable when it is a paired machine. `host` is
-// valid as a target but is never dispatched — the local engine runs it.
+// A placement target is dispatchable when it is a paired node. The self target
+// is valid but is never dispatched — the local engine runs it.
 export async function isDispatchableTarget(target: string): Promise<boolean> {
-  if (target === HOST_TARGET) return false;
+  if (target === SELF_TARGET) return false;
   const machines = await listDispatchMachines();
   return machines.some((m) => m.name === target);
 }

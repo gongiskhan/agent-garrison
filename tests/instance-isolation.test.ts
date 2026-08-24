@@ -155,7 +155,7 @@ describe("Codex secondary-instance isolation", () => {
     );
 
     const startSource = readFileSync(LAUNCHER, "utf8");
-    expect(startSource).toContain("--names next,outpost,scheduler");
+    expect(startSource).toContain("--names next,scheduler");
     expect(startSource).toContain("--kill-others-on-fail");
     expect(startSource).toContain(
       'node \\"$GARRISON_SCHEDULER_SCRIPT\\" daemon --health-port $GARRISON_SCHEDULER_HEALTH_PORT'
@@ -392,7 +392,6 @@ describe("Codex secondary-instance isolation", () => {
     ports.set(Number(slack?.config?.slack_port), "slack-channel");
     ports.set(Number(scheduler?.config?.health_port), "scheduler");
     ports.set(8777, "garrison-next");
-    ports.set(4702, "outpost-host");
 
     // The codex secondary's reserved family (its launcher env + its checkout's
     // composition config): the primary composition must never squat these, or
@@ -672,8 +671,6 @@ describe("Codex secondary-instance isolation", () => {
         .toBe("~/.garrison/files");
       expect(config("sessions", "vault-git-sync")?.vault_dir, profile)
         .toBe("~/ObsidianVault");
-      expect(config("surfaces", "outpost-tailscale-host")?.outpost_host_url, profile)
-        .toBe("http://127.0.0.1:4702");
       const codexLeak = JSON.stringify(selections).includes(".garrison-codex");
       expect(codexLeak, `${profile} references the codex home`).toBe(false);
     }
@@ -683,49 +680,6 @@ describe("Codex secondary-instance isolation", () => {
     const sandbox = mkdtempSync(path.join(os.tmpdir(), "garrison-instance-helpers-"));
     sandboxes.push(sandbox);
     const garrison = path.join(sandbox, "garrison");
-    const pythonProbe = [
-      "import json, runpy, sys",
-      "values = runpy.run_path(sys.argv[1])",
-      "print(json.dumps({key: values[key] for key in sys.argv[2:]}))"
-    ].join("; ");
-    const pythonEnv = {
-      ...process.env,
-      GARRISON_HOME: garrison,
-      GARRISON_OUTPOST_PORT: "23888"
-    };
-
-    const outpost = JSON.parse(execFileSync(
-      "python3",
-      [
-        "-c",
-        pythonProbe,
-        path.join(ROOT, "fittings", "seed", "outpost-actions", "scripts", "outpost.py"),
-        "OUTPOST_HOST"
-      ],
-      { encoding: "utf8", env: pythonEnv }
-    ));
-    expect(outpost.OUTPOST_HOST).toBe("http://127.0.0.1:23888");
-
-    const vaultSync = JSON.parse(execFileSync(
-      "python3",
-      [
-        "-c",
-        pythonProbe,
-        path.join(ROOT, "fittings", "seed", "vault-sync", "scripts", "sync.py"),
-        "OUTPOST_HOST",
-        "_GARRISON_DIR",
-        "STATUS_PATH",
-        "CACHE_PATH"
-      ],
-      { encoding: "utf8", env: pythonEnv }
-    ));
-    expect(vaultSync).toEqual({
-      OUTPOST_HOST: "http://127.0.0.1:23888",
-      _GARRISON_DIR: garrison,
-      STATUS_PATH: path.join(garrison, "vault-sync-status.json"),
-      CACHE_PATH: path.join(garrison, "vault-sync-cache.json")
-    });
-
     const reportServe = readFileSync(
       path.join(
         ROOT,
@@ -881,62 +835,4 @@ describe("Codex secondary-instance isolation", () => {
     expect(drillSkill).toContain("$GARRISON_POLICY_PATH");
   });
 
-  // The outpost daemon URL is instance-specific (dev 3702 / prod 4702 / codex
-  // 23702). Three sites baked the CODEX literal into code every profile runs,
-  // so on dev and prod the kanban engine probed a daemon that does not exist,
-  // `outposts` came back empty, and EVERY card with an `outpost` affinity parked
-  // as "outpost offline" — the failure looked like a dead Mac, not a wrong port.
-  it("resolves the outpost daemon URL from config, never from a baked-in port", () => {
-    const engine = readFileSync(
-      path.join(ROOT, "fittings", "seed", "kanban-loop", "lib", "engine.mjs"),
-      "utf8"
-    );
-    const boardServer = readFileSync(
-      path.join(ROOT, "fittings", "seed", "kanban-loop", "scripts", "server.mjs"),
-      "utf8"
-    );
-    const hostDaemon = readFileSync(path.join(ROOT, "scripts", "outpost-host.mjs"), "utf8");
-
-    // No profile-specific literal survives in code any profile executes.
-    for (const [name, source] of [["engine.mjs", engine]] as const) {
-      expect(source.includes("23702"), `${name} hardcodes the codex outpost port`).toBe(false);
-      expect(source.includes("4702"), `${name} hardcodes the prod outpost port`).toBe(false);
-      expect(source.includes("3702"), `${name} hardcodes an outpost port`).toBe(false);
-    }
-
-    // Placement discovery (now owned by the board server; the engine never
-    // pushes remote work) reads the projected composition key.
-    expect(boardServer).toContain("GARRISON_KANBANLOOP_OUTPOST_HOST_URL");
-
-    // The bare-run fallback in the daemon is the BASE of the family (dev), per
-    // instance-profile.ts's "an unset profile IS dev" doctrine — not codex.
-    expect(hostDaemon).toContain('process.env.GARRISON_OUTPOST_PORT || "3702"');
-    expect(hostDaemon).not.toContain("23702");
-  });
-
-  it("declares outpost_host_url in every composition that stations kanban-loop", () => {
-    const compositionsDir = path.join(ROOT, "compositions");
-    let checked = 0;
-    for (const id of readdirSync(compositionsDir)) {
-      const manifest = path.join(compositionsDir, id, "apm.yml");
-      if (!existsSync(manifest)) continue;
-      const doc = yaml.load(readFileSync(manifest, "utf8")) as Record<string, unknown>;
-      const composition = (doc?.["x-garrison"] as Record<string, unknown> | undefined)
-        ?.composition as Record<string, unknown> | undefined;
-      const selections = composition?.selections as
-        | Record<string, Array<{ id?: string; config?: Record<string, unknown> }>>
-        | undefined;
-      if (!selections) continue;
-      for (const entries of Object.values(selections)) {
-        for (const entry of entries ?? []) {
-          if (entry?.id !== "kanban-loop") continue;
-          checked += 1;
-          // Base-family value: shiftLoopbackUrl rewrites the loopback port per
-          // profile, so the committed literal must be the 3702 base.
-          expect(entry.config?.outpost_host_url, `${id} kanban-loop`).toBe("http://127.0.0.1:4702");
-        }
-      }
-    }
-    expect(checked).toBeGreaterThan(0);
-  });
 });

@@ -28,9 +28,9 @@ to other machines and to personal-assistant use cases.
 > are implemented to varying degrees even where older sections below still say
 > “deferred.” Treat those sections as planning history, not a current feature
 > inventory. Current continuation and verification gaps are recorded in
-> [`REMOTE_MAC_WORKFLOW.md`](./REMOTE_MAC_WORKFLOW.md) and
+> [`INSTANCES.md`](./INSTANCES.md) and
 > [`CODEX_MEMORY_WORKFLOW.md`](./CODEX_MEMORY_WORKFLOW.md); repository and live
-> VM state remain authoritative.
+> node state remain authoritative.
 
 -----
 

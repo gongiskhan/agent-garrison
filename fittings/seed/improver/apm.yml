@@ -23,7 +23,7 @@ x-garrison:
     resolutions, and relative→absolute date fixes — review-queued under rule
     `memory-dream`, gated to one `memory_primary` machine so a shared vault is
     not triple-consolidated; and the SKILLS rule — a two-phase self-improvement
-    loop over the Operative's skills:
+    loop over the session's skills:
     (1) deterministic maintenance (stale/archive of owned, unpinned skills,
     reversible) and (2) ONE capped, evidence-cited PTY model pass
     (@garrison/claude-pty#oneShotTurn — never the Agent SDK, never the warm pool)

@@ -1081,7 +1081,7 @@ export function RuntimesPanel({ compositionId }: { compositionId: string }) {
     <div className={styles.rtPanel} data-testid="runtimes-panel">
       <div className={styles.rtPanelHead}>
         <p className={styles.stageLead}>
-          The execution engine for this operative. The primary runtime runs the orchestrator loop;
+          The execution engine for this composition. The primary runtime runs the orchestrator loop;
           secondary runtimes are available as delegate targets via the uniform runtime bridge.
         </p>
         <div className={styles.rtPanelActions}>

@@ -13,7 +13,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Serves a React chat UI on its own port (default 27083). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Talks to the Operative through the gateway; never spawns Claude itself.
+  summary: Serves a React chat UI on its own port (default 27083). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Talks to the session through the gateway; never spawns Claude itself.
   config_schema:
     - key: port
       type: integer
@@ -62,7 +62,7 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    The web-channel Fitting is the Operative's mobile surface — now a rich
+    The web-channel Fitting is the session's mobile surface — now a rich
     Claude Code chat (markdown replies, real status line, mode switcher,
     slash/skill autocomplete, collapsible raw terminal). The UI is the shared
     @garrison/claude-chat component talking to the http-gateway's PTY-backed

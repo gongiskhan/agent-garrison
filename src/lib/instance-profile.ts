@@ -35,9 +35,14 @@ export const PROFILE_PORT_OFFSET: Record<InstanceProfileId, number> = {
 // Base ports for the process-level listeners the compositions do NOT declare
 // (the Next app itself and the scheduler's health port when no composition
 // config supplies one). Fitting and gateway ports come from the composition,
-// offset by the profile. BASE_OUTPOST_PORT survives only until the outpost
-// bridge is deleted (phase 3 of the mesh plan).
+// offset by the profile.
 export const BASE_APP_PORT = 8777;
+/**
+ * @deprecated The outpost WS bridge daemon this addressed was retired with the
+ * mesh (2026-08-24). Kept for one release alongside the launcher's
+ * GARRISON_OUTPOST_PORT export so a stale process reads a per-instance value
+ * rather than colliding on 4702. Nothing in the mesh binds it.
+ */
 export const BASE_OUTPOST_PORT = 4702;
 export const BASE_GATEWAY_PORT = 5777;
 export const BASE_SCHEDULER_HEALTH_PORT = 8099;
@@ -73,6 +78,7 @@ export function appPort(profile: InstanceProfileId = currentProfile()): number {
   return profilePort(BASE_APP_PORT, profile);
 }
 
+/** @deprecated See {@link BASE_OUTPOST_PORT}. */
 export function outpostPort(profile: InstanceProfileId = currentProfile()): number {
   return profilePort(BASE_OUTPOST_PORT, profile);
 }

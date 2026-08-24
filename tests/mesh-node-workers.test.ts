@@ -10,13 +10,13 @@ import {
   workerView,
   DISPATCH_PROTOCOL_VERSION,
   WORKER_STALE_MS
-} from "@/lib/dispatch-workers";
+} from "@/lib/mesh/node-workers";
 
 let sandbox: string;
 let previous: string | undefined;
 
 beforeEach(() => {
-  sandbox = mkdtempSync(join(tmpdir(), "dispatch-workers-"));
+  sandbox = mkdtempSync(join(tmpdir(), "node-workers-"));
   previous = process.env.GARRISON_HOME;
   process.env.GARRISON_HOME = sandbox;
 });
@@ -27,7 +27,7 @@ afterEach(() => {
   rmSync(sandbox, { recursive: true, force: true });
 });
 
-describe("outpost worker presence", () => {
+describe("node task-runner presence", () => {
   it("bounds and secret-redacts remote diagnostics", () => {
     process.env.OUTPOST_TEST_TOKEN = "host-known-token-value";
     const pulse = normaliseWorkerPulse({
@@ -58,7 +58,7 @@ describe("outpost worker presence", () => {
     expect(views).toHaveLength(1);
     expect(views[0]).toMatchObject({ machine: "studio/mac", state: "ready", ready: true });
     expect(workerView(record, Date.parse(record.lastSeenAt) + WORKER_STALE_MS + 1).state).toBe("offline");
-    const file = join(sandbox, "outpost-workers");
+    const file = join(sandbox, "node-workers");
     const { readdirSync } = await import("node:fs");
     const recordPath = join(file, readdirSync(file)[0]);
     expect(statSync(recordPath).mode & 0o777).toBe(0o600);

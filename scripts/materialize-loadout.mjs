@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Materialize a Loadout on THIS machine (brief Phase 1, host-local proof).
+// Materialize a Loadout on THIS node.
 //
-// Runs the same materializer the outpost worker runs, against a vault-rendered
-// .env produced here. Sharing the code is the point: a host-local green run is
-// only evidence for the remote case if both execute identical logic.
+// Runs the shared materializer (scripts/lib/materialize-project.mjs) against a
+// vault-rendered .env produced here. Sharing the code is the point: a green run
+// on one node is only evidence for the next if both execute identical logic.
 //
 // Usage:
 //   node scripts/materialize-loadout.mjs <loadout-id> [--target <dir>] [--branch <b>] [--dry-env]
@@ -83,7 +83,7 @@ async function main() {
   }
 
   const { materialize, materializationTranscript } = await import(
-    path.join(repoRoot, "fittings/seed/outpost-worker/scripts/materialize.mjs")
+    path.join(repoRoot, "scripts/lib/materialize-project.mjs")
   );
 
   const projectsRoot = flag("target")

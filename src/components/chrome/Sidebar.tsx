@@ -95,7 +95,7 @@ export function Sidebar() {
     pathname === "/compose" ||
     pathname.startsWith("/compose/");
 
-  // Live-ticking uptime while the operative is up. Recomputed each second so
+  // Live-ticking uptime while the composition is up. Recomputed each second so
   // the footer reads like a running clock rather than a stale snapshot.
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
@@ -390,7 +390,6 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
   "deepgram-voice": Mic,
   "web-channel-default": MessagesSquare,
   "slack-channel": MessagesSquare,
-  "outpost-tailscale-host": Radio,
   roadmaps: Milestone
 };
 
@@ -960,7 +959,7 @@ function CompositionSwitcher() {
   if (compositions.length === 0 && !activePointer) {
     return (
       <div className="row">
-        <span>operative</span>
+        <span>composition</span>
         <b>{composition?.name ?? "-"}</b>
       </div>
     );
@@ -974,7 +973,7 @@ function CompositionSwitcher() {
   return (
     <div className="composition-switcher">
       <div className="row">
-        <label htmlFor="composition-switcher">operative</label>
+        <label htmlFor="composition-switcher">composition</label>
         {switching ? <span role="status">switching...</span> : null}
       </div>
       <select
@@ -992,9 +991,9 @@ function CompositionSwitcher() {
         ) : null}
         {compositions.map((entry) => (
           <option key={entry.id} value={entry.id}>
-            {/* Several compositions ship the same display name (three are
-                "Dogfood Operative"), so the name alone cannot identify what
-                this switches the running operative to. Matches MusterView. */}
+            {/* Several compositions ship the same display name, so the name
+                alone cannot identify what this switches the running session
+                to. Matches MusterView. */}
             {`${entry.name} (${entry.id})`}
           </option>
         ))}

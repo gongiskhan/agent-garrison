@@ -140,7 +140,7 @@
   color: #f3cdc7;
 }
 
-.operativeDossier {
+.sessionDossier {
   position: relative;
   margin-top: 1.75rem;
   border: 1px solid var(--rule);
@@ -149,7 +149,7 @@
   box-shadow: 0 1.2rem 2.8rem rgba(34, 44, 36, 0.08);
 }
 
-.operativeDossier::before {
+.sessionDossier::before {
   content: "";
   position: absolute;
   top: -3px;

@@ -20,7 +20,7 @@ instance is started, and when code changes actually take effect.
 | Claude config | `~/.claude-garrison-dev` (via `CLAUDE_CONFIG_DIR`) | the REAL `~/.claude` (`CLAUDE_CONFIG_DIR` unset) | `~/.claude-garrison-codex` |
 | Next dist dir | `.next` (`next dev`) | `.next-prod` (`next start`, prebuilt) | `.next` |
 | started by | `npm run dev` (systemd user unit `garrison-dev.service` when installed) | systemd user unit `garrison-prod.service` (`Restart=always`, lingering on) | `bash scripts/garrison-instance.sh codex start` |
-| code picks up | shell hot-reloads on save (`next dev`); fittings/operative only on `up` | ONLY at `npm run prod:redeploy` | on restart |
+| code picks up | shell hot-reloads on save (`next dev`); fittings/session only on `up` | ONLY at `npm run prod:redeploy` | on restart |
 | tailnet | never published (hard rule); loopback-bound, so not reachable off-box at all | app at `https://dev-madrid.tail31efa.ts.net/` (443 -> 8777); fittings at `8400 + (port % 1000)` (e.g. drill 8096 -> :8496) | never published |
 
 `npm start` starts the DEV instance (it is an alias of `npm run dev`), not
@@ -82,7 +82,6 @@ URLs to whatever host the client reached Garrison on (`resolveViewUrl` /
 |---|---|---|---|
 | monitor-default | 7077 | 8077 | 8477 |
 | screen-share-default | 7079 | 8079 | 8479 |
-| outpost-tailscale-host | 7082 | 8082 | 8482 |
 | web-channel-default | 7083 | 8083 | 8483 |
 | browser-default | 7084 | 8084 | 8484 |
 | deepgram-voice | 7085 | 8085 | 8485 |
@@ -106,7 +105,7 @@ Only fittings actually running get a `tailscale serve` mapping
 
 - **dev** - `scripts/garrison-instance.sh dev start` runs `next dev` on 7777
   plus the scheduler (7099) against `~/.garrison-dev` and an isolated Claude
-  config dir. UI and API route edits hot-reload instantly. The operative and
+  config dir. UI and API route edits hot-reload instantly. The session and
   own-port fittings are separate long-lived processes: they only see new code
   when THEY restart (`up`, or the chokidar watcher in `dev(composition)` mode
   which reruns `apm install` + restart when a local-path fitting dep changes).
@@ -119,24 +118,24 @@ Only fittings actually running get a `tailscale serve` mapping
 ## When do changes reach prod? (and is mid-session editing safe?)
 
 Editing, committing, and pushing garrison source changes NOTHING in running
-prod: it serves a built artifact, and the operative + fittings are long-lived
+prod: it serves a built artifact, and the session + fittings are long-lived
 processes holding the old code in memory. So working on garrison itself from
 the prod web channel is safe mid-session - your edits cannot break the session
 you are in.
 
 The moment of truth is `npm run prod:redeploy`
 (`scripts/garrison-redeploy.sh`), which is the ONLY sanctioned way changes
-land: build -> down (stops the operative and its fittings on the old code) ->
+land: build -> down (stops the session and its fittings on the old code) ->
 `systemctl --user restart garrison-prod` -> vault unlock (keychain-sealed, no
 passphrase - needed since account-pinned compositions fail a locked-vault up)
--> up (operative + all its fittings on the new code) -> tailnet serve mappings.
+-> up (session + all its fittings on the new code) -> tailnet serve mappings.
 A failed build aborts with the last good build still serving.
 
-That redeploy IS disruptive: the operative PTY is killed and restarted fresh
+That redeploy IS disruptive: the session PTY is killed and restarted fresh
 (the run-log ring buffer replays, but the Claude session state is gone) and
-the web channel reconnects to a new operative session. So: edit and commit
+the web channel reconnects to a new session. So: edit and commit
 freely at any time; run the redeploy at a moment you are willing to lose the
-live operative session.
+live session.
 
 ## When are fittings restarted?
 
@@ -155,16 +154,24 @@ live operative session.
 All profiles resolve the SAME checkout-relative `compositions/<id>/`, so a
 composition working tree can be up under only one instance at a time -
 `.garrison/owner.json` enforces it. Prod normally owns `default`; a dev
-operative must use a different composition. Starting the dev APP alongside
+dev instance must use a different composition. Starting the dev APP alongside
 prod is always safe - the isolation is per composition tree, not per server.
 
-## Mac editing with VM-only execution
+## Installer rules carried over from the retired Mac remote workflow
 
-When the source is edited on a Mac but the project runtime remains on
-`dev-madrid`, use the temporary Git snapshot workflow in
-[`REMOTE_MAC_WORKFLOW.md`](./REMOTE_MAC_WORKFLOW.md). `make remote-check`,
-`make remote-build`, and `make remote-preview` run with an ephemeral home;
-build and preview use the codex profile. None modifies this checkout or either
-running service.
-Never rsync an in-progress Mac worktree into the canonical VM directory: both
-`garrison-prod.service` and `garrison-dev.service` execute from it.
+The Mac-edits-here / VM-executes-there workflow (`scripts/remote-dev.sh`, the
+`make remote-*` targets, `docs/REMOTE_MAC_WORKFLOW.md`) retired on 2026-08-24
+with the outposts: on the mesh a Mac runs its own full Garrison node, so there
+is nothing to shuttle. Two of its rules were load-bearing and survive as
+**installer rules** for `scripts/install-node.sh`:
+
+- **Symlink refusal.** Before adopting an existing checkout, refuse when the
+  target path (or any component of it) is a symlink. `~/dev` and `~/Projects`
+  are symlinked to each other on these machines, so the same repository resolves
+  through two paths; adopting through the link installs a node whose
+  `GARRISON_HOME`, service unit and git remote disagree about where it lives.
+- **Never sync into a live checkout.** No installer or convergence step may
+  rsync a working tree over a checkout a service is executing from — on Linux
+  `garrison-node.service` and `garrison-dev.service` both run out of it, and on
+  a Mac the launchd node agent does. Code moves between nodes through git and
+  nothing else.

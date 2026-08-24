@@ -723,34 +723,6 @@
     }
   },
   {
-    "id": "outpost-tailscale-host",
-    "name": "Outpost",
-    "repo": "local:fittings/seed/outpost-tailscale-host",
-    "localPath": "fittings/seed/outpost-tailscale-host",
-    "summary": "Garrison Outpost bridge for a Tailscale-connected remote Mac. Spawn processes, read files, and manage git worktrees on the remote machine via Garrison Outpost Protocol v1.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4.3,
-      "claude_code": 4.3
-    }
-  },
-  {
-    "id": "outpost-worker",
-    "name": "Outpost Worker",
-    "repo": "local:fittings/seed/outpost-worker",
-    "localPath": "fittings/seed/outpost-worker",
-    "summary": "The remote half of Outpost Dispatch: install it ON an outpost so that machine polls the Garrison host, claims cards placed on it, materializes the project Loadout with a vault-rendered .env, runs the card, heartbeats, and copies evidence back to the host board. Outbound-only, so a sleeping machine simply stops asking.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
-    }
-  },
-  {
     "id": "pdf",
     "name": "Pdf",
     "repo": "local:fittings/seed/pdf",
@@ -957,20 +929,6 @@
     "ratings": {
       "global": 4.4,
       "claude_code": 4.4
-    }
-  },
-  {
-    "id": "vault-sync",
-    "name": "Vault Sync",
-    "repo": "local:fittings/seed/vault-sync",
-    "localPath": "fittings/seed/vault-sync",
-    "summary": "Mirrors a host-side directory to one or more outposts on a scheduler tick.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
     }
   },
   {

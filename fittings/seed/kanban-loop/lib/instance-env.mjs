@@ -49,13 +49,7 @@ export function instanceEnvPrefix() {
   const vars = {
     GARRISON_GATEWAY_URL: resolveGatewayUrl(),
     GARRISON_HOME: process.env.GARRISON_HOME,
-    GARRISON_KANBAN_DIR: process.env.GARRISON_KANBAN_DIR,
-    // The outpost daemon is instance-specific too, and the engine's affinity resolver
-    // has no fallback by design (its old literal named the codex port and parked every
-    // affinity card). Without this the tick cannot resolve an outpost either, and every
-    // outpost-affinity card it touches parks with "outpost offline".
-    GARRISON_KANBANLOOP_OUTPOST_HOST_URL: process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL,
-    GARRISON_OUTPOST_URL: process.env.GARRISON_OUTPOST_URL
+    GARRISON_KANBAN_DIR: process.env.GARRISON_KANBAN_DIR
   };
   return Object.entries(vars)
     .filter(([, v]) => typeof v === "string" && v.trim() && !v.includes("'"))

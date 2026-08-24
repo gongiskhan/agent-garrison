@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-// @ts-ignore — worker bundle is dependency-free source ESM.
-import { materialize } from "../fittings/seed/outpost-worker/scripts/materialize.mjs";
+// @ts-ignore — the materializer is dependency-free source ESM.
+import { materialize } from "../scripts/lib/materialize-project.mjs";
 
 const roots: string[] = [];
 
@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 function remoteFixture() {
-  const root = mkdtempSync(path.join(tmpdir(), "outpost-materialize-"));
+  const root = mkdtempSync(path.join(tmpdir(), "materialize-project-"));
   roots.push(root);
   const source = path.join(root, "source");
   const remote = path.join(root, "remote.git");

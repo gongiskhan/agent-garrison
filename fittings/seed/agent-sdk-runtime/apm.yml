@@ -47,7 +47,7 @@ x-garrison:
     - key: account
       type: string
       default: ""
-      description: Which Anthropic identity this runtime launches under - Machine login (this box's own Claude login), Auto (Garrison rotates your registered accounts by rate-limit usage), or a pinned account. Anthropic providers only; delegate sessions ride the operative's account. Set the mode here; manage the accounts on the Accounts page.
+      description: Which Anthropic identity this runtime launches under - Machine login (this box's own Claude login), Auto (Garrison rotates your registered accounts by rate-limit usage), or a pinned account. Anthropic providers only; delegate sessions ride the primary session's account. Set the mode here; manage the accounts on the Accounts page.
   provides:
     - kind: runtime
       name: agent-sdk

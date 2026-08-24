@@ -49,12 +49,12 @@ token is missing/expired/unrefreshable.
   form). The CLI does NOT parse natural language.
 - The CLI renders local-zone times to the user (zone resolved via
   `tzlocal`).
-- "Tomorrow at 2pm" is parsed by **you, the operative**, not by the
+- "Tomorrow at 2pm" is parsed by **you**, not by the
   CLI. Compute the UTC ISO yourself and hand it over.
 
 ## Conflict checking
 
-Conflict detection is operative discipline, not CLI behavior. When
+Conflict detection is your discipline, not CLI behavior. When
 about to `create`, first `list` the same time range and warn the
 user if there's an overlap. This is a manual workflow, not an
 automatic rejection.
@@ -77,7 +77,7 @@ automatic rejection.
 
 ## What's NOT in this CLI (intentionally)
 
-- Natural-language date parsing — operative-side.
+- Natural-language date parsing — your side, not the CLI's.
 - Recurring event creation — use Google Calendar's web UI.
 - All-day event creation — use the web UI; `update` handles them.
 - Multiple calendars — primary only for v1.

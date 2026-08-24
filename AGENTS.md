@@ -7,12 +7,13 @@ bootstrap spec is preserved verbatim at
 
 ## Codex on macOS
 
-When this checkout is edited on the Mac, the Mac is an editing and Git client
-only. The authoritative checkout, project runtime, tests, services, and
-deployment environment are on `dev-madrid`. Follow
-[docs/REMOTE_MAC_WORKFLOW.md](./docs/REMOTE_MAC_WORKFLOW.md); never install or
-run the Garrison Node.js runtime locally, and never sync an uncommitted snapshot
-into the live VM checkout.
+Every machine in the mesh runs its own full Garrison node, so a Mac is no longer
+an editing-only client: it builds, tests and serves locally. Two rules from the
+retired remote workflow still hold and are enforced by
+`scripts/install-node.sh` — refuse to adopt a checkout reached through a
+symlink, and never sync a working tree into a checkout a service is executing
+from. Code moves between nodes through git and nothing else. See
+[docs/INSTANCES.md](./docs/INSTANCES.md).
 
 Before meaningful work, check for `PRD.md`, `PLANING.md`, and `TASKS.md` and use
 them when present. Search the authoritative Basic Memory project `main` on

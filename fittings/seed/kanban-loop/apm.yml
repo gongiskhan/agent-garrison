@@ -11,7 +11,7 @@ x-garrison:
   component_shape: script
   # Own-port board UI (the kanban-board-ui slice). Garrison surfaces it at
   # /embed/kanban-loop from the status file scripts/server.mjs writes under
-  # ~/.garrison/ui-fittings/kanban-loop.json. operative-bound = the runner starts
+  # ~/.garrison/ui-fittings/kanban-loop.json. composition-bound = the runner starts
   # it during `up` and stops it during `down`.
   own_port: true
   default_port: 8089
@@ -67,10 +67,6 @@ x-garrison:
       type: integer
       default: 2
       description: Hours before a running or waiting card counts as stalled in the weekly review (override via KANBAN_REVIEW_STALL_HOURS).
-    - key: outpost_host_url
-      type: string
-      default: http://127.0.0.1:4702
-      description: Outpost host daemon this instance probes for a card's `outpost` affinity. Base-family value; the loopback port is shifted per profile (dev 3702 / prod 4702). Override via GARRISON_OUTPOST_URL.
   provides:
     - kind: automation-runner
       name: kanban-loop
@@ -104,4 +100,4 @@ x-garrison:
     them (one skill-decider per list, one effort/model decider in the router, no
     overlap). Goal-mode cards carry a runtime-neutral acceptance block; the guard is the
     iteration cap, not a host-specific slash command or goal hook. The two adversarial
-    lists are cross-model Codex passes via the codex CLI — the operative stays modest.
+    lists are cross-model Codex passes via the codex CLI — the session stays modest.

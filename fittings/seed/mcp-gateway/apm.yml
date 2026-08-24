@@ -38,7 +38,7 @@ x-garrison:
     expect: ok
     timeout_ms: 8000
   for_consumers: |
-    Faculty-tool sidecar - not invoked directly by the Operative. Interactive
+    Faculty-tool sidecar - not invoked directly by the session. Interactive
     sessions use it as a stdio MCP child (no port of its own); remote outpost
     sessions connect over HTTP MCP instead. Delegation is owned by the active
     runtime/orchestration layer, not by persona-named Soul sessions.

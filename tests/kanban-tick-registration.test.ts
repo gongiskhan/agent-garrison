@@ -105,10 +105,14 @@ describe("instanceEnvPrefix — the tick job carries this instance's identity", 
     expect(prefix.join(" ")).not.toContain("4777");
   });
 
-  it("carries the outpost daemon URL too — the engine's affinity resolver has no fallback", () => {
+  // The outpost daemon URL used to ride here too, because the engine's affinity
+  // resolver had no fallback. The daemon retired with the mesh (2026-08-24) and
+  // placement now resolves through the node registry behind GARRISON_APP_URL, so
+  // the prefix must NOT resurrect a variable nothing reads.
+  it("does not carry the retired outpost daemon URL", () => {
     process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL = "http://127.0.0.1:4702";
     try {
-      expect(instanceEnvPrefix()).toContain("GARRISON_KANBANLOOP_OUTPOST_HOST_URL='http://127.0.0.1:4702'");
+      expect(instanceEnvPrefix().join(" ")).not.toContain("OUTPOST");
     } finally {
       delete process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL;
     }

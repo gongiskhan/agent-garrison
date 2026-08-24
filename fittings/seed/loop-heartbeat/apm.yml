@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Scheduled loop that wakes the operative and dispatches through the gateway.
+  summary: Scheduled loop that wakes the session and dispatches through the gateway.
   config_schema:
     - key: cadence_minutes
       type: integer

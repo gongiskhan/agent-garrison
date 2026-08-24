@@ -107,7 +107,7 @@ If you want a different scheduled-prompt recipe (e.g. an end-of-day
 rollup), follow the morning-briefing Fitting's setup.sh as a
 template — POST `{kind, instructions}` to
 `http://$GARRISON_GATEWAY_HOST:$GARRISON_GATEWAY_PORT/jobs` and the
-gateway will dispatch it to the Operative as a synthetic prompt.
+gateway will dispatch it to the session as a synthetic prompt.
 
 ## How the daemon mode is wired
 

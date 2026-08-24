@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { listDispatchMachines } from "@/lib/dispatch-machines";
-import { listWorkerViews } from "@/lib/dispatch-workers";
+import { listDispatchMachines } from "@/lib/mesh/node-auth";
+import { DISPATCH_PROTOCOL_VERSION, listWorkerViews } from "@/lib/mesh/node-workers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export async function GET() {
   const [machines, workers] = await Promise.all([listDispatchMachines(), listWorkerViews()]);
   const byMachine = new Map(workers.map((worker) => [worker.machine, worker]));
   return NextResponse.json({
-    protocol: "outpost-dispatch/1.1",
+    protocol: `mesh-dispatch/${DISPATCH_PROTOCOL_VERSION}`,
     machines: machines.map((machine) => ({
       ...machine,
       worker: byMachine.get(machine.name) ?? {

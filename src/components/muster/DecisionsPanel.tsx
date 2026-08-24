@@ -291,7 +291,7 @@ export function DecisionsPanel({ compositionId }: { compositionId: string }) {
           </div>
         ) : decisions.length === 0 ? (
           <div className={styles.panelState} data-testid="decisions-empty">
-            No routing decisions logged yet. When the operative routes a request, Orchestrator
+            No routing decisions logged yet. When the session routes a request, Orchestrator
             records the <b>duty</b>, <b>level</b>, and <b>target</b> it chose here.
           </div>
         ) : (

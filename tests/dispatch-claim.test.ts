@@ -91,10 +91,13 @@ describe("claimability", () => {
     expect(claimability(card(), MACHINE, NOW).claimable).toBe(true);
   });
 
-  it("never claims a host-targeted card", () => {
+  // The pre-mesh literal. A card filed before the rename still carries
+  // `placement.target: "host"` and must still read as "runs where it was
+  // filed", never as claimable by a peer.
+  it("never claims a self-targeted card", () => {
     const verdict = claimability(card({ placement: { target: "host" } }), MACHINE, NOW);
     expect(verdict.claimable).toBe(false);
-    expect(verdict.reason).toContain("host");
+    expect(verdict.reason).toContain("this node");
   });
 
   it("never claims another machine's card", () => {
@@ -266,7 +269,7 @@ describe("buildDutyPrompt", () => {
     expect(p).toContain("Return 200 with a version string.");
     expect(p).toContain("# Acceptance");
     expect(p).toContain("GET /health returns 200.");
-    expect(p).toContain("OUTPOST");
+    expect(p).toContain("running on a Garrison node");
   });
 
   it("says the project must be inferred when the card has none", () => {

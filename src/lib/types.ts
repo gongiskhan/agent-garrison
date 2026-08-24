@@ -5,7 +5,7 @@ import type { TourDescriptor } from "./metadata";
 // Faculties are ROLES only (the Quarters pivot). Skills/Hooks/MCPs/Plugins/
 // Scripts/Settings are no longer faculties — they are platform primitives
 // surfaced in Quarters. The own-port runtime residue (dev-env, screen-share,
-// outposts, browser, monitor, web-channel, voice) folds under these roles
+// browser, monitor, web-channel, voice) folds under these roles
 // (sessions/channels/observability) and is detected via the `own_port`
 // metadata flag, not a dedicated faculty. Legacy faculty names are accepted
 // as deprecation aliases (see metadata.ts normalizeDeprecations).
@@ -18,7 +18,7 @@ export const facultyIds = [
   // runtimes + surfaces split out of the overloaded `sessions` role
   // (2026-06-18): runtimes = alternative execution engines (Agent SDK, Codex,
   // Gemini) behind the uniform runtime bridge; surfaces = the auxiliary
-  // own-port live viewers (screen share, standalone browser, remote Outpost).
+  // own-port live viewers (screen share, standalone browser).
   // `sessions` keeps the primary Dev Env surface + artifact store.
   "runtimes",
   "memory",

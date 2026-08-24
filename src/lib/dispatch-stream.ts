@@ -66,7 +66,7 @@ export async function appendDispatchStreamEvent(
   }
 
   const names = (await readdir(dir)).filter((name) => /^\d{10}\.json$/.test(name)).sort();
-  const parts: string[] = ["# outpost dispatch\n"];
+  const parts: string[] = ["# mesh dispatch\n"];
   let projectedBytes = Buffer.byteLength(parts[0]);
   for (const name of names) {
     let item: DispatchStreamEvent;

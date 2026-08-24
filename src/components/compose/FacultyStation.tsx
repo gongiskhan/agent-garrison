@@ -896,7 +896,7 @@ function OrchestratorGlobalConfig({
             }
             disabled={Boolean(busy)}
           />
-          <div className="hint">Where the Operative goes to work on projects.</div>
+          <div className="hint">Where the session goes to work on projects.</div>
         </div>
         <div className="field">
           <label>permissions_mode</label>
@@ -916,7 +916,7 @@ function OrchestratorGlobalConfig({
             <option value="allow-file-edits">allow-file-edits</option>
             <option value="conservative">conservative</option>
           </select>
-          <div className="hint">How aggressively the Operative is allowed to act.</div>
+          <div className="hint">How aggressively the session is allowed to act.</div>
         </div>
         <div className="field">
           <label>guardrails.max_tasks_per_tick</label>

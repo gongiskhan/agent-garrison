@@ -20,7 +20,7 @@ x-garrison:
     resolve_contact returns a list of candidates for a human to confirm;
     send_text only accepts an exact, already-confirmed WhatsApp JID and is not
     reachable from the Automations engine — only a live conversation with the
-    Operative can trigger a send, and an agent-triggered one is parked in the
+    session can trigger a send, and an agent-triggered one is parked in the
     daemon's outbox for a 60-second cancel window before it goes out.
   config_schema:
     - key: port
@@ -87,7 +87,7 @@ x-garrison:
           session (not an HTTP webhook, and not Scheduler-polled — "listener"
           is the closest of the two allowed trigger types). The own-port
           daemon stores each message locally as it arrives and forwards it to
-          the gateway's /chat so the Operative sees it live.
+          the gateway's /chat so the session sees it live.
   secret_scope: []
   provides:
     - kind: channel
@@ -117,8 +117,8 @@ x-garrison:
 
     Discover the running daemon at:
       ~/.garrison/ui-fittings/whatsapp-web.json   ({ fittingId, port, url, pid })
-    It starts with the Operative on `up` (own-port Fittings are
-    operative-bound). Not running? Start it from the Views sidebar
+    It starts with the composition on `up` (own-port Fittings are
+    composition-bound). Not running? Start it from the Views sidebar
     (Views -> WhatsApp). Pairing the account is a separate, one-time manual
     step done by QR from that same page — see instructions.md.
 
