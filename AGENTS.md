@@ -5,14 +5,85 @@ bootstrap spec is preserved verbatim at
 [docs/SPEC.md](./docs/SPEC.md); the live roadmap is at
 [docs/GARRISON_ROADMAP.md](./docs/GARRISON_ROADMAP.md).
 
+## The mesh, in one paragraph
+
+Garrison is installed as a **full node on every machine** (dev-madrid, Mac
+Pro, Mac mini, MacBook Air), all live, no main/dev asymmetry. Safety comes
+from a strict state split, and every agent working in this repo must know it:
+**shared state** lives in exactly one place - the state service on dev-madrid
+(SQLite behind an authenticated, tailnet-only HTTP API at
+`services/state/`; no process ever opens the DB file directly); **code**
+moves only through git (one clone per node, each on its permanent
+`node/<id>` branch); **session artifacts** (plans, evidence, logs,
+transcripts) stay on the node that produced them, with a nightly one-way
+plans/evidence backup to dev-madrid and 7-day retention; **memory** moves
+through git via the vault-git-sync fitting (15-minute cadence on every node,
+session-start pull, session-end push, staggered nightly backstop). Nothing
+is ever synchronized by ad-hoc file copy.
+
+A node is enrolled by `~/.garrison/state.json` (url + bearer token + node
+name, minted on dev-madrid by `services/state/scripts/issue-node-token.mjs`)
+and identified by `~/.garrison/node.json` (permanent name + closed-palette
+accent). Sessions are pinned to their home node; viewing, steering,
+answering and stopping route through `/api/mesh/nodes/<node>/...` from
+anywhere. Cards are pure state: created anywhere, run on the card's
+placement target.
+
+## Availability property (accepted deliberately)
+
+**When dev-madrid is down, no node can bring a composition or project up** -
+`up()` and project bootstrap render secrets from the state service's secret
+authority, and there is no offline mode, no cache, and no write queue by
+design. A running session keeps running; new work blocks with a clear error.
+This is consistent with Garrison's online-only positioning: a fork of shared
+state is worse than a clear stop. The state DB itself is snapshotted hourly
+(VACUUM INTO) and the newest daily snapshot ships off-box to a Mac -
+durability never has a single home even when state does.
+
+## Merge policy (aggressive, two rails, one revert command)
+
+Merges run **fully autonomously**. Merge whenever there is a reason -
+breakage, schema mismatch, an explicit request, the nightly convergence card
+- not on every push. Two mandatory rails on every non-trivial merge:
+
+1. **Preserve the pre-merge ref**: tag
+   `garrison/premerge/<project>/<node>/<stamp>` before resolving anything.
+   Reverting a bad merge is one command:
+   `node scripts/garrison-converge.mjs revert <project> <tag>`.
+2. **File a decision card** recording what was decided and why, so morning
+   review is a skim. Trivial fast-forwards file nothing.
+
+Never `git merge -X ours` / `-X theirs` (how a day's work vanishes
+politely). Lockfiles (`package-lock.json`, `apm.lock.yaml`) are
+**regenerated, never merged**. Binaries are refused and escalated. Conflicts
+are resolved file-by-file with both sides read in full, and the result must
+parse. The merge duty lives in `fittings/seed/merge-agent/`; the doctrine is
+its `garrison-merge` skill.
+
+The nightly convergence card (03:00, systemKey `mesh-convergence`) converges
+the Garrison codebase and every dev project: clean nodes only ("clean" =
+empty tree AND nothing unpushed AND no merge in progress AND **no running
+session with the repo as cwd**), dirty nodes are skipped with a
+notification, and a 3-night skip streak escalates to needs-attention naming
+the drift. Per-node redeploys are delegated to the converge one-shot
+(`scripts/garrison-converge.mjs`) and POLLED through a convergence intent -
+the card never owns the process that kills it.
+
+## Branch discipline
+
+Every node works on its permanent `node/<id>` branch, dev-madrid included;
+`main` is updated by the nightly card (or an on-demand converge). The
+no-new-branches hard rule stands: node branches are created ONCE by
+`scripts/install-node.sh`, never by an agent.
+
 ## Codex on macOS
 
-Every machine in the mesh runs its own full Garrison node, so a Mac is no longer
-an editing-only client: it builds, tests and serves locally. Two rules from the
-retired remote workflow still hold and are enforced by
-`scripts/install-node.sh` — refuse to adopt a checkout reached through a
-symlink, and never sync a working tree into a checkout a service is executing
-from. Code moves between nodes through git and nothing else. See
+Every machine in the mesh runs its own full Garrison node, so a Mac is no
+longer an editing-only client: it builds, tests and serves locally. Two
+rules from the retired remote workflow still hold and are enforced by
+`scripts/install-node.sh` - refuse to adopt a checkout reached through a
+symlink, and never sync a working tree into a checkout a service is
+executing from. Code moves between nodes through git and nothing else. See
 [docs/INSTANCES.md](./docs/INSTANCES.md).
 
 Before meaningful work, check for `PRD.md`, `PLANING.md`, and `TASKS.md` and use
@@ -41,8 +112,8 @@ client/CLI, never provider internals), never ask a provider to special-case Garr
 carries a user-scoped key delivered through `secret_scope`, no tenancy machinery in this repo, a
 local or null backend as the shipped default with the remote one opt-in, and no bridge code here.
 
-One rule worth repeating here because it shapes every UI decision: Garrison
-runs on one machine but is **used from other machines and mobile over the
-HTTPS tailnet address** — never hand the browser a machine-local absolute URL
+One rule worth repeating here because it shapes every UI decision: a Garrison
+node runs on its machine but is **used from other machines and mobile over the
+HTTPS tailnet address** - never hand the browser a machine-local absolute URL
 (see "Instances, ports, and deploying" in CLAUDE.md for the full rule and the
 loopback + tailnet URL-pair pattern).

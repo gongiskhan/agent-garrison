@@ -31,6 +31,14 @@ and spawns Claude Code via the Anthropic Agent SDK in-process.
 > spawns a process via `spawnGateway`/`spawnClaude`. See
 > [`docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md`](./docs/decisions/2026-06-07-faculties-as-roles-operative-folded.md).
 
+> **2026-08-24 Mesh.** Garrison is now installed as a full node on every
+> machine. Shared state (cards, config, compositions, coordination, secrets)
+> lives in the state service on dev-madrid (`services/state/`); code moves
+> only through git on per-node branches; session artifacts stay on their
+> node; memory rides vault-git-sync. See AGENTS.md for the state split,
+> merge policy, and the accepted availability property (dev-madrid down =
+> no new up() anywhere).
+
 Positioning: **open-source, local-first, single-user, no auth, talks
 only to `localhost`**. v1 targets Claude Code. The Honesty Test in
 [`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md) §3 gates every design
@@ -41,7 +49,7 @@ choice.
 ```bash
 npm install                                            # one-time (postinstall fixes node-pty perms)
 npm run dev                                            # DEV instance (7xxx, ~/.garrison-dev)
-npm run prod:redeploy                                  # build + restart prod, operative, fittings
+npm run node:redeploy                                  # build + restart the node, session, fittings (prod:redeploy = alias)
 npm run prod:start                                     # PROD instance by hand (normally systemd)
 npm run typecheck                                      # tsc --noEmit
 npm test                                               # vitest run
@@ -50,9 +58,7 @@ npm run check:integration                              # live SDK + composition 
 npm run test:integration                               # GARRISON_INTEGRATION=1 vitest run on orchestrator-integration
 npm run refresh:prompts                                # regenerate default Orchestrator prompts
 tsx scripts/validate-fitting.ts fittings/seed/<id>     # four-check validation pipeline
-make remote-doctor                                     # Mac: verify guarded dev-madrid workflow
-make remote-check                                      # Mac: snapshot locally edited code, validate on VM
-make remote-preview                                    # Mac: isolated VM preview over loopback SSH tunnel
+bash scripts/install-node.sh --name <n> --token <t> --state-url <url>   # enroll a machine as a mesh node
 ```
 
 The validation pipeline is four checks: **architecture** (real),
@@ -60,15 +66,12 @@ The validation pipeline is four checks: **architecture** (real),
 (placeholder pattern scanner), **quality** (real). AI-driven
 validators land in the runtime SDK milestone.
 
-Mac editing with all project execution on `dev-madrid` is documented in
-[`docs/REMOTE_MAC_WORKFLOW.md`](./docs/REMOTE_MAC_WORKFLOW.md). Its temporary
-snapshot workflow must not be replaced with a sync into the live prod/dev
-checkout.
-
-**On macOS, never run this project's `npm`, `node`, test, build, preview, or
-deployment commands locally.** Use the `make remote-*` targets; the Mac is an
-editing and Git client only. The ordinary npm commands above are for a Linux
-Garrison host.
+The remote-Mac snapshot workflow is RETIRED (2026-08-24 mesh): every machine
+runs a full node installed by `scripts/install-node.sh`, builds and serves
+locally, and moves code only through git on its `node/<id>` branch. The two
+safety rules that workflow taught survive in the installer: symlink refusal,
+and never syncing a working tree into a checkout a service is executing from
+(carried in docs/INSTANCES.md).
 
 ## Terminology — don't drift
 
@@ -79,7 +82,12 @@ Garrison host.
 - **Lifecycle for own-port Fittings** — fittings share the operative's lifecycle, always (2026-07-29 refit: the eager/detached split is gone; `x-garrison.lifecycle` is parsed-and-ignored with a deprecation warning). `up` starts EVERY own-port Fitting with the runner-projected env (gateway URL, composition id, selection config, vault) and heals running ones on env drift; `down` stops every one by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. The startup orphan sweep reaps anything not protected by a RUNNING composition. `/api/fittings/[id]/start|restart` remain as recovery/code-reload controls (env parity via `operativeEnvForFitting`). Every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock or `up`.
 - **Armory** — `/armory`, the Fitting registry browser.
 - **Fitting** — the concrete component installed into a slot.
-- **Operative** — the composed, running agent (the user's real Claude Code session post-pivot).
+- **Operative** — RETIRED VOCABULARY (2026-08-24 mesh): user-facing surfaces
+  say **session** (the running work) and **composition** (the configured
+  thing); a **node** is one machine's Garrison; the four nodes form the
+  **mesh**. The word survives only in internal identifiers and historical
+  docs; `tests/vocabulary.test.ts` keeps it out of UI copy and manifest
+  prose. Zeca remains the assistant persona defined inside a composition.
 - **Channel** — the way external surfaces (Slack, Web Channel) reach the Operative through the gateway. Garrison does not ship a built-in chat surface.
 - **`x-garrison`** — Garrison's metadata block inside the APM `apm.yml` manifest. APM preserves `x-*` keys. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
 
@@ -415,29 +423,37 @@ than this file.
 
 ## Instances, ports, and deploying (HARD RULES)
 
-Garrison runs as **profiled instances out of this one checkout**. The tailnet
-address `https://dev-madrid.tail31efa.ts.net` is **always-on PROD** and must
-never serve a dev process.
+Garrison runs as **profiled instances out of this one checkout**, and as a
+**mesh of full nodes** — one per machine (dev-madrid, Mac Pro, Mac mini,
+MacBook Air), each enrolled against the state service on dev-madrid
+(`services/state/`, tailnet-only authenticated API; see AGENTS.md for the
+mesh state split and merge policy). Each machine's tailnet address is that
+node's always-on surface and must never serve a sandbox process.
 
 **One committed port map, one offset per profile.** The compositions carry a
 single port map (the 7xxx family). Every instance is that map plus a fixed
 offset, defined once in `src/lib/instance-profile.ts` and mirrored in
 `scripts/garrison-instance.sh`:
 
-| profile | offset | app | gateway | outpost | fittings | scheduler | home |
-|---|---|---|---|---|---|---|---|
-| dev | 0 | 7777 | 4777 | 3702 | 70xx | 7099 | `~/.garrison-dev` |
-| **prod** | **+1000** | **8777** | **5777** | **4702** | **80xx** | **8099** | `~/.garrison` + real `~/.claude` |
-| codex | +20000 | 27777 | 24777 | 23702 | 270xx | 27099 | `~/.garrison-codex` |
+| profile | offset | app | gateway | fittings | scheduler | home |
+|---|---|---|---|---|---|---|
+| **node** | **0** | **8777** | **5777** | **80xx** | **8099** | `~/.garrison` + that machine's real `~/.claude` |
+| dev | +10000 | 18777 | 15777 | 180xx | 18099 | `~/.garrison-dev` |
+| codex | +20000 | 28777 | 25777 | 280xx | 28099 | `~/.garrison-codex` |
+
+(`prod` survives one release as a spelled-out alias for `node`. The 2026-08-24
+mesh re-axis moved the committed map to the 8xxx family — node-at-offset-0
+serves exactly the ports the old prod profile served, so nothing live moved.)
 
 - **HARD RULE — never hardcode a port.** Ports come from the composition,
   shifted by `profilePort()` / `applyPortOffsetToConfig()`. A literal `7777`,
   `4777`, `24777` or `27xxx` in new code is a bug: it pins one instance and
   silently sends the other instance's traffic there. `tests/instance-isolation.test.ts`
   pins the launcher and the TS module against each other.
-- **HARD RULE — prod and dev never share a port, a `GARRISON_HOME`, or a
-  Claude config dir.** Only prod owns the real `~/.claude`; a dev instance
-  pointing there would edit the user's live Claude Code config.
+- **HARD RULE — the node profile and the sandboxes never share a port, a
+  `GARRISON_HOME`, or a Claude config dir.** On every machine, the `node`
+  profile owns that machine's real `~/.claude`; a dev/codex sandbox pointing
+  there would edit the user's live Claude Code config.
 - **HARD RULE — one instance per composition working tree.** The launcher
   isolates ports, `GARRISON_HOME` and the Claude config dir, but
   `COMPOSITIONS_DIR` is checkout-relative, so all three profiles resolve the
@@ -468,12 +484,14 @@ offset, defined once in `src/lib/instance-profile.ts` and mirrored in
 - **HARD RULE — a new own-port view must be published to the tailnet.** Its port
   needs a `tailscale serve` mapping or the embedded view is a blank pane over
   HTTPS (a plain-HTTP frame is blocked as mixed content).
-  `npm run prod:redeploy` runs `scripts/tailnet-serve-views.mjs` for this;
+  `npm run node:redeploy` runs `scripts/tailnet-serve-views.mjs` for this;
   never hand an HTTPS page an `http://` URL.
-- **HARD RULE — only prod is published to the tailnet.**
-  `scripts/tailnet-serve-views.mjs` refuses to run from a non-prod shell. The
-  serve-port formula aliases prod's 80xx onto dev's 70xx, so publishing dev
-  would hand tailnet users a dev server.
+- **HARD RULE — only the node profile is published to the tailnet.**
+  `scripts/tailnet-serve-views.mjs` refuses a sandbox shell and a machine
+  with no `~/.garrison/node.json` identity. With every node at offset 0 the
+  serve-port formula (8400 + port%1000) is a mesh INVARIANT: same fitting,
+  same serve port on every machine, so peer view URLs are computable without
+  asking the peer (`tests/mesh-serve-ports.test.ts`).
 - **Never start an instance by hand.** Always
   `bash scripts/garrison-instance.sh <prod|dev|codex> <start|build|env>` (or
   `npm run dev` / `npm run prod:start`). A bare `next dev` inherits whatever
@@ -484,14 +502,14 @@ offset, defined once in `src/lib/instance-profile.ts` and mirrored in
 
 ### Deploying — reload for app changes, redeploy when a long-lived process holds the code
 
-**Reach for `npm run prod:reload` first.** It builds and restarts the Next app
+**Reach for `npm run node:reload` first.** It builds and restarts the Next app
 server and leaves the operative and the own-port fittings running. That is enough
 for anything confined to the app: `src/app/**`, `src/components/**`, and the
 `src/lib/**` modules the app imports. A full redeploy for those costs minutes,
 drops the running session, and re-runs 44 verify hooks to prove nothing that
 changed.
 
-**Use `npm run prod:redeploy` when the change is in code a LONG-LIVED process is
+**Use `npm run node:redeploy` when the change is in code a LONG-LIVED process is
 holding in memory**: `fittings/seed/**` (fitting servers, runtime adapters, the
 gateway), `packages/**`, `compositions/*/apm.yml` (stationing, accounts, targets -
 read at `up()`), or any change whose effect needs a fresh spawn to appear.
@@ -509,7 +527,7 @@ code in memory. Restarting the app server alone leaves a half-updated system.
 **After committing/pushing a significant change, run:**
 
 ```bash
-npm run prod:redeploy        # scripts/garrison-redeploy.sh
+npm run node:redeploy        # scripts/garrison-redeploy.sh (prod:redeploy = alias)
 ```
 
 which does, in order: `prod build` → `down` (operative + fittings on the old
@@ -545,24 +563,15 @@ standalone unit on the same jobs file double-fires every scheduled job.
   **existing** branch is fine. Work stays on the current/specified
   branch; to recover "lost" work, check existing branches / reflog /
   stash and `git checkout` the existing branch — don't invent one.
-- **Work lands by pushing straight to `main`. That is the intended flow here.**
-  `main` carries a GitHub branch-protection rule ("Changes must be made through
-  a pull request"), and the owner (`gongiskhan`) holds a **bypass** on it. So a
-  direct `git push origin main` succeeds and GitHub prints:
-
-  ```
-  remote: Bypassed rule violations for refs/heads/main:
-  remote: - Changes must be made through a pull request.
-  remote: - Cannot update this protected ref.
-  ```
-
-  **That output is expected and means the push landed.** Do not treat it as a
-  warning, do not flag it as a problem, and do not offer to move the work onto a
-  branch and open a PR instead. The protection exists to stop *other* accounts
-  pushing to `main`, not the owner. The PR flow described in
-  [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md) is for outside contributors.
-  (This is a solo, single-maintainer repo — see the environment notes: no team,
-  no shared infrastructure, no one else's work to break.)
+- **Branch discipline (mesh, 2026-08-24): every node works on its permanent
+  `node/<id>` branch — dev-madrid included — and `main` is updated by the
+  nightly convergence card or an on-demand converge.** Node branches are
+  created ONCE by `scripts/install-node.sh`; the no-new-branches hard rule
+  stands for everything else. TRANSITION NOTE: until the mini and Air
+  installs land and the nightly card has run green, direct pushes to `main`
+  from dev-madrid remain sanctioned; GitHub prints "Bypassed rule
+  violations" on them — that output is EXPECTED (the owner holds the bypass)
+  and means the push landed. Never flag it or offer a PR.
 - **Don't optimise the Faculty list further before §10 DoD is
   observable.** New Faculties land only when a real Fitting needs one.
 - **Don't add a new capability kind speculatively.** Add one when a Fitting
