@@ -57,6 +57,16 @@ x-garrison:
       type: string
       default: ""
       description: Path to the Microsoft devtunnel CLI. Empty = ~/.local/bin/devtunnel, then PATH.
+    - key: token_refresh_minutes
+      type: integer
+      default: 60
+      description: >-
+        How often to mint a fresh 24h devtunnel host token and push it to each
+        devtunnel-backed remote over the live ssh channel, so that machine never
+        needs an interactive `devtunnel user login` of its own. Far under the
+        token's lifetime on purpose: the remote keeps working through roughly a
+        day of Garrison being down. Env override:
+        GARRISON_REMOTESHELLRUNTIME_TOKEN_REFRESH_MIN.
     - key: default_transport
       type: string
       default: ""

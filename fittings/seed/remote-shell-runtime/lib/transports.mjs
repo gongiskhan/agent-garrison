@@ -154,12 +154,22 @@ export function sshArgv(transport, { pty = false } = {}) {
   return argv;
 }
 
-/** Run one command on the remote; resolves {code, stdout, stderr}. */
-export function sshExec(transport, remoteCommand, { timeoutMs = 15_000 } = {}) {
+/**
+ * Run one command on the remote; resolves {code, stdout, stderr}.
+ *
+ * `input` is written to the command's stdin and closed. It exists so a secret can
+ * be delivered without ever appearing in argv, where every other user on either
+ * box can read it out of `ps`.
+ */
+export function sshExec(transport, remoteCommand, { timeoutMs = 15_000, input = null } = {}) {
   return new Promise((resolve) => {
     const child = spawn("ssh", [...sshArgv(transport), remoteCommand], {
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: [input === null ? "ignore" : "pipe", "pipe", "pipe"]
     });
+    if (input !== null) {
+      child.stdin.on("error", () => { /* remote closed early; the exit code tells the story */ });
+      child.stdin.end(input);
+    }
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -188,7 +198,7 @@ export function sshExec(transport, remoteCommand, { timeoutMs = 15_000 } = {}) {
 
 // ── devtunnel client management ─────────────────────────────────────────────
 
-function resolveDevtunnelBin(env = process.env) {
+export function resolveDevtunnelBin(env = process.env) {
   const configured = env.GARRISON_REMOTESHELLRUNTIME_DEVTUNNEL_BIN?.trim();
   if (configured) return expandHome(configured);
   const local = path.join(HOME, ".local", "bin", "devtunnel");

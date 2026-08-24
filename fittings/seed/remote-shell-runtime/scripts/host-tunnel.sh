@@ -17,6 +17,21 @@
 # contacts Garrison. The inbound-only invariant holds - Garrison connects to the
 # same relay from its side.
 #
+# CREDENTIAL. Two ways to authenticate, in this order:
+#
+#   1. A HOST TOKEN at $HOME/.garrison/host-token (override: HOST_TUNNEL_TOKEN_FILE).
+#      Garrison mints one on its side and pushes it over the live tunnel, hourly;
+#      the token lasts 24h, so there is a full day of slack before a lapse. This
+#      machine then never needs an interactive `devtunnel user login` - which
+#      matters because it is reachable ONLY through the tunnel this script holds
+#      up, so a credential that needs a human here is a credential that cannot be
+#      renewed when it is needed most.
+#   2. Otherwise the machine's own devtunnel login, as before.
+#
+# The token is re-read from disk on every (re)start, so a freshly pushed one is
+# picked up by the next cycle with nothing to restart. It is passed on stdin
+# (`-t -`), never in argv, so it stays out of `ps` for every other user on the box.
+#
 # Usage, on the remote:
 #   sh host-tunnel.sh <tunnel-id>            # foreground, to watch it
 #   sh host-tunnel.sh <tunnel-id> --detach   # survive the terminal closing
@@ -31,6 +46,7 @@ TUNNEL="${1:-}"
 DEVTUNNEL="${DEVTUNNEL_BIN:-devtunnel}"
 LOG="${HOST_TUNNEL_LOG:-$HOME/.garrison/host-tunnel.log}"
 INTERVAL="${HOST_TUNNEL_INTERVAL:-20}"
+TOKEN_FILE="${HOST_TUNNEL_TOKEN_FILE:-$HOME/.garrison/host-token}"
 mkdir -p "$(dirname "$LOG")"
 
 if [ "${2:-}" = "--detach" ]; then
@@ -53,12 +69,24 @@ say() { echo "[$(date -u +%FT%TZ)] $*"; }
 # to exit, so a supervisor that only checked at startup would replace a child
 # that can never work, forever, silently. Checked here and again before every
 # replacement.
-logged_in() { "$DEVTUNNEL" user show 2>&1 | grep -qi "logged in"; }
+have_token() { [ -s "$TOKEN_FILE" ]; }
+logged_in() { have_token || "$DEVTUNNEL" user show 2>&1 | grep -qi "logged in"; }
+
+# Every devtunnel call goes through here so the token path and the login path
+# differ in exactly one place.
+dt() {
+  if have_token; then
+    "$DEVTUNNEL" "$@" -t - < "$TOKEN_FILE"
+  else
+    "$DEVTUNNEL" "$@"
+  fi
+}
 
 if ! logged_in; then
-  say "not logged in: run \`$DEVTUNNEL user login -g -d\` on this machine first" >&2
+  say "no credential: put a host token at $TOKEN_FILE, or run \`$DEVTUNNEL user login -g -d\` on this machine" >&2
   exit 3
 fi
+have_token && say "using host token from $TOKEN_FILE" || say "using this machine's devtunnel login"
 
 CHILD=""
 
@@ -75,7 +103,16 @@ reap_strays() {
 }
 
 start_host() {
-  "$DEVTUNNEL" host "$TUNNEL" &
+  # `( exec ... ) &` so the background pid IS devtunnel. Backgrounding a shell
+  # FUNCTION instead would make $CHILD a wrapper subshell, and killing that would
+  # leave the real host process orphaned - alive, still holding the tunnel, and
+  # invisible to every check here. The token file is re-read on each start, so one
+  # pushed since the last cycle is picked up with nothing to restart.
+  if have_token; then
+    ( exec "$DEVTUNNEL" host "$TUNNEL" -t - < "$TOKEN_FILE" ) &
+  else
+    ( exec "$DEVTUNNEL" host "$TUNNEL" ) &
+  fi
   CHILD=$!
   say "started devtunnel host (pid $CHILD)"
 }
@@ -96,7 +133,7 @@ stop_child() {
 # outage actually seen was a count of 0, so this stays a known gap rather than
 # guesswork about which host the service picked.
 hosted() {
-  "$DEVTUNNEL" show "$TUNNEL" --json 2>/dev/null | grep -q '"hostConnections"[: ]*[1-9]'
+  dt show "$TUNNEL" --json 2>/dev/null | grep -q '"hostConnections"[: ]*[1-9]'
 }
 
 trap 'stop_child; exit 0' INT TERM
@@ -126,7 +163,11 @@ while :; do
     # either. Say so once per lapse, at a slow cadence, and wait for a human -
     # the log is the only place this can be read from once the tunnel is down.
     if [ "$expired_said" != "1" ]; then
-      say "LOGIN EXPIRED on this machine - the tunnel stays down until someone runs \`$DEVTUNNEL user login -g -d\` HERE. Not restarting the host; it could not authenticate."
+      if have_token; then
+        say "HOST TOKEN REJECTED or expired ($TOKEN_FILE) - Garrison could not have pushed a fresh one for over a day. Not restarting the host; it could not authenticate."
+      else
+        say "LOGIN EXPIRED on this machine - the tunnel stays down until someone runs \`$DEVTUNNEL user login -g -d\` HERE. Not restarting the host; it could not authenticate."
+      fi
       expired_said=1
     fi
     sleep 60

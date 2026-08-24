@@ -19,6 +19,7 @@ import url from "node:url";
 import { WebSocketServer } from "ws";
 import { HttpError, SessionManager } from "../lib/sessions.mjs";
 import { TunnelManager, garrisonHome, loadTransports } from "../lib/transports.mjs";
+import { refreshHostTokens, DEFAULT_REFRESH_MS } from "../lib/host-credential.mjs";
 import { ForwardManager } from "../lib/forwards.mjs";
 import { listRemoteDir, readRemoteFile } from "../lib/remote-files.mjs";
 
@@ -387,7 +388,29 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     });
   });
 
+  // Keep the remote's host credential alive from HERE. The remote is reachable
+  // only through the tunnel it hosts, so a credential that must be renewed there
+  // cannot be renewed at all once it lapses. See lib/host-credential.mjs.
+  const refreshMin = Number(process.env.GARRISON_REMOTESHELLRUNTIME_TOKEN_REFRESH_MIN);
+  const refreshMs = Number.isFinite(refreshMin) && refreshMin > 0 ? refreshMin * 60_000 : DEFAULT_REFRESH_MS;
+  const pushTokens = async () => {
+    const results = await refreshHostTokens([...transports.values()], { ensure: (t) => tunnels.ensure(t) });
+    for (const r of results) {
+      if (r.ok) console.log(`[remote-shell] host token delivered to ${r.transport} (expires ${r.expiration ?? "unknown"})`);
+      else console.warn(`[remote-shell] host token ${r.stage} failed for ${r.transport}: ${r.error}`);
+    }
+  };
+  // Once at startup so a fresh deploy heals a remote whose token is stale, then
+  // hourly against a 24h token - a full day of slack before the remote lapses.
+  pushTokens().catch((err) => console.warn(`[remote-shell] host token refresh failed: ${err.message}`));
+  const refreshTimer = setInterval(
+    () => pushTokens().catch((err) => console.warn(`[remote-shell] host token refresh failed: ${err.message}`)),
+    refreshMs
+  );
+  refreshTimer.unref();
+
   const shutdown = async () => {
+    clearInterval(refreshTimer);
     manager.shutdownAll();
     tunnels.shutdown();
     try { await unlink(STATUS_FILE); } catch {}

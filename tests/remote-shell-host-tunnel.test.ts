@@ -10,10 +10,24 @@
 // that never exits, and a service that says nobody is hosting.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+/** Is a pid still alive? */
+function alive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+/** Stub host processes left behind by this test's own runs. */
+function strays(): number {
+  try {
+    return execFileSync("pgrep", ["-fc", "sleep 300"], { encoding: "utf8" }).trim() === "0" ? 0 : Number(execFileSync("pgrep", ["-fc", "sleep 300"], { encoding: "utf8" }).trim());
+  } catch {
+    return 0; // pgrep exits 1 when nothing matches
+  }
+}
 
 const SCRIPT = path.resolve(__dirname, "../fittings/seed/remote-shell-runtime/scripts/host-tunnel.sh");
 
@@ -55,12 +69,30 @@ function supervise(bin: string, ms: number): Promise<string> {
     setTimeout(() => {
       // SIGTERM so the script's trap stops its child too, leaving no sleep behind.
       try { child.kill("SIGTERM"); } catch { /* already gone */ }
-      setTimeout(() => resolve(out + (existsSync(log) ? readFileSync(log, "utf8") : "")), 400);
+      // POSIX sh runs a trap only once the running command returns, so allow more
+      // than one INTERVAL for the teardown to actually happen.
+      setTimeout(() => resolve(out + (existsSync(log) ? readFileSync(log, "utf8") : "")), 2000);
     }, ms);
   });
 }
 
 describe("host-tunnel supervisor", () => {
+  it("tracks the real host process, not a wrapper around it", async () => {
+    // Routing the spawn through a shell function makes $CHILD a wrapper subshell.
+    // Killing that leaves the actual `devtunnel host` orphaned - alive, still
+    // holding the tunnel, invisible to every check here. Found live: three
+    // processes where there should have been two.
+    const bin = stubCli(1);
+    const out = await supervise(bin, 2500);
+    expect(out).toMatch(/started devtunnel host \(pid (\d+)\)/);
+    const pid = Number(/started devtunnel host \(pid (\d+)\)/.exec(out)![1]);
+    // After the supervisor's trap ran, the pid it was tracking must be gone -
+    // and so must the host it started, because they are the same process.
+    expect(alive(pid)).toBe(false);
+    expect(strays()).toBe(0);
+  }, 20000);
+
+
   it("replaces a host that is alive but hosting nothing", async () => {
     const out = await supervise(stubCli(0), 5000);
     expect(out).toMatch(/started devtunnel host/);
@@ -113,7 +145,7 @@ describe("host-tunnel supervisor", () => {
     writeFileSync(bin, '#!/bin/sh\necho "GitHub login required."\nexit 3\n');
     chmodSync(bin, 0o755);
     const out = await supervise(bin, 1500);
-    expect(out).toMatch(/not logged in/);
+    expect(out).toMatch(/no credential/);
     expect(out).not.toMatch(/started devtunnel host/);
   }, 20000);
 });
