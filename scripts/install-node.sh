@@ -111,7 +111,14 @@ for fp in fittings/seed/*/package.json; do
   fd="$(dirname "$fp")"
   [ -d "$fd/node_modules" ] && continue
   say "fitting deps: $fd"
-  (cd "$fd" && npm install --no-audit --no-fund >/dev/null 2>&1) || say "fitting deps FAILED (non-fatal at install; build may fail): $fd"
+  # ci against a committed lockfile; --no-package-lock otherwise - a per-Mac
+  # npm rewriting TRACKED lockfiles was exactly the dirt that blocked the
+  # first convergence.
+  if [ -f "$fd/package-lock.json" ]; then
+    (cd "$fd" && npm ci --no-audit --no-fund >/dev/null 2>&1)       || (cd "$fd" && npm install --no-save --no-package-lock --no-audit --no-fund >/dev/null 2>&1)       || say "fitting deps FAILED (non-fatal at install; build may fail): $fd"
+  else
+    (cd "$fd" && npm install --no-save --no-package-lock --no-audit --no-fund >/dev/null 2>&1)       || say "fitting deps FAILED (non-fatal at install; build may fail): $fd"
+  fi
 done
 node scripts/node-branding.mjs || say "branding skipped (non-fatal): $?"
 
