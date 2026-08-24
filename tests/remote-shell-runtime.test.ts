@@ -213,6 +213,21 @@ describe.skipIf(!sshSelfOk)("live local-ssh attach", () => {
       const session = await manager.start("localtest", {});
       expect(session.state).toBe("idle");
 
+      // Scrolling is only possible through tmux's copy-mode, which the wheel
+      // reaches only under mouse mode — so bringing a session up must turn it
+      // on rather than hoping the remote's dotfiles did.
+      const mouse = spawnSync("tmux", ["show-options", "-t", tmuxName, "mouse"], { encoding: "utf8", timeout: 5000 });
+      expect(mouse.stdout.trim()).toBe("mouse on");
+
+      // Scrolled back = the pane is in copy-mode, where keys are copy commands.
+      // A dispatched instruction must still reach the shell: tmux swallows it
+      // silently otherwise, and the turn waits on an agent nobody asked.
+      spawnSync("tmux", ["copy-mode", "-t", tmuxName], { timeout: 5000 });
+      expect(
+        spawnSync("tmux", ["display-message", "-p", "-t", tmuxName, "#{pane_in_mode}"], { encoding: "utf8", timeout: 5000 })
+          .stdout.trim()
+      ).toBe("1");
+
       const turn = await manager.startTurn(session, "echo live-turn-marker");
       expect(session.state).toBe("running");
 

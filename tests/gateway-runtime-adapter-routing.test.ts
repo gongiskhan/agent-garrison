@@ -501,3 +501,47 @@ describe("classify() drives an adapter-backed classifier session (no runTurn)", 
     gw.shutdown?.();
   });
 });
+
+// A remote agent works for minutes with nothing to show for it until it stops.
+// The secondary lane therefore hands its onChunk to the adapter: an adapter that
+// can report progress (remote-shell reads back the remote pane while the turn
+// runs) streams through the same seam the SDK lane uses, so the channel that
+// dispatched the turn shows the work happening.
+describe("runSecondaryTurn streams adapter progress", () => {
+  it("passes its onChunk to awaitResponse and forwards what the adapter emits", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gar-secondary-chunk-"));
+    let receivedOpts: any = null;
+    const fake: any = {
+      spawn: async () => ({}),
+      awaitReady: async () => {},
+      sendTurn: async () => {},
+      awaitResponse: async (_session: any, opts: any) => {
+        receivedOpts = opts;
+        opts?.onChunk?.("the remote is halfway through", true);
+        return { text: "the remote finished" };
+      },
+      teardown: async () => {},
+    };
+    const gw: any = await createRoutedGateway({
+      compositionDir: tmp,
+      primaryEngine: "agent-sdk",
+      agentSdkAdapter: { name: "fake-sdk" },
+      operativeSpawnConfig: { compositionDir: tmp, model: "sonnet" },
+      claudeCodeResolvable: false,
+      logFn: () => {},
+    });
+    // Pre-seed the adapter cache so no fitting is imported from disk.
+    gw._secondaryAdapters.set("remote-shell", fake);
+    const chunks: Array<[string, boolean]> = [];
+    const route = { targetId: "csg-work", role: "delegate", target: { runtime: "remote-shell", model: "csg" } };
+    const r = await gw.runSecondaryTurn(route, "do the thing", {
+      cwd: tmp,
+      onChunk: (text: string, replace: boolean) => { chunks.push([text, replace]); },
+    });
+    expect(typeof receivedOpts?.onChunk).toBe("function");
+    expect(chunks).toEqual([["the remote is halfway through", true]]);
+    expect(r.reply).toBe("the remote finished");
+    expect(r.runtime).toBe("remote-shell");
+    gw.shutdown?.();
+  });
+});

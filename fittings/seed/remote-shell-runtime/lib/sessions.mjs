@@ -68,6 +68,13 @@ export function stripPromptChrome(text) {
   return lines.join("\n");
 }
 
+// Copy-mode is where scrolling lives, and keys sent to a pane in it are read as
+// copy commands. Cancel it before typing — conditionally, so the common case
+// does not spew tmux's "not in a mode" on stderr.
+const leaveCopyMode = (target) =>
+  `[ "$(tmux display-message -p -t ${target} '#{pane_in_mode}')" = "1" ] && ` +
+  `tmux send-keys -t ${target} -X cancel;`;
+
 export class SessionManager {
   constructor({ tunnels, transports, notify }) {
     this.tunnels = tunnels;
@@ -329,10 +336,16 @@ export class SessionManager {
   async sendInstruction(session, text) {
     const flat = String(text).replace(/\s*\n\s*/g, " ").trim();
     if (!flat) throw new HttpError(400, "empty instruction");
+    const target = shellQuote(session.tmuxSession);
     const r = await sshExec(
       session.transport,
-      `tmux send-keys -t ${shellQuote(session.tmuxSession)} -l ${shellQuote(flat)} && ` +
-        `sleep 0.15 && tmux send-keys -t ${shellQuote(session.tmuxSession)} Enter`
+      // Leave copy-mode first. Someone scrolling the pane back (in Garrison or
+      // in any other client) leaves it in a mode where keys are copy commands,
+      // not input: the instruction is swallowed without an error and the turn
+      // waits forever for an agent that was never asked anything.
+      `${leaveCopyMode(target)} ` +
+        `tmux send-keys -t ${target} -l ${shellQuote(flat)} && ` +
+        `sleep 0.15 && tmux send-keys -t ${target} Enter`
     );
     if (r.code !== 0) {
       throw new HttpError(502, `send-keys failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
@@ -343,9 +356,13 @@ export class SessionManager {
   async sendKeys(session, keys) {
     const safe = String(keys).trim();
     if (!/^[A-Za-z0-9-]{1,16}$/.test(safe)) throw new HttpError(400, "bad key name");
+    const target = shellQuote(session.tmuxSession);
     const r = await sshExec(
       session.transport,
-      `tmux send-keys -t ${shellQuote(session.tmuxSession)} ${shellQuote(safe)}`
+      // Same copy-mode guard as sendInstruction: a control key aimed at the
+      // agent (Escape to interrupt it) must not be eaten by the scrollback
+      // viewer instead.
+      `${leaveCopyMode(target)} tmux send-keys -t ${target} ${shellQuote(safe)}`
     );
     if (r.code !== 0) throw new HttpError(502, "send-keys failed");
   }
@@ -359,14 +376,23 @@ export class SessionManager {
     return r.code === 0 ? r.stdout : "";
   }
 
-  /** The pane's scrollback depth — the line cursor a turn's output is read from. */
-  async historySize(session) {
+  /**
+   * Where the pane's output currently ENDS, as one absolute line number:
+   * scrollback depth plus the cursor's row in the visible pane. A turn records
+   * this before it types, and reads back everything past it — without the
+   * cursor row a turn that scrolls nothing would "since" the whole screenful of
+   * whatever was already there.
+   */
+  async outputCursor(session) {
     const r = await sshExec(
       session.transport,
-      `tmux display-message -p -t ${shellQuote(session.tmuxSession)} '#{history_size}'`
+      `tmux display-message -p -t ${shellQuote(session.tmuxSession)} '#{history_size} #{cursor_y}'`
     );
-    const n = Number(String(r.stdout).trim());
-    return r.code === 0 && Number.isFinite(n) ? n : null;
+    const [h, y] = String(r.stdout).trim().split(/\s+/).map(Number);
+    if (r.code !== 0 || !Number.isFinite(h) || !Number.isFinite(y)) return null;
+    // A couple of rows of slack: the cursor idles INSIDE the agent's input box,
+    // and the first lines it prints replace that box's top.
+    return h + Math.max(0, y - 2);
   }
 
   /**
@@ -380,17 +406,26 @@ export class SessionManager {
    */
   async captureSince(session, baseline) {
     if (!Number.isFinite(baseline)) return this.capturePane(session, 60);
+    const base = Math.max(0, Math.floor(baseline));
     const target = shellQuote(session.tmuxSession);
     const r = await sshExec(
       session.transport,
       `h=$(tmux display-message -p -t ${target} '#{history_size}'); ` +
-        `back=$(( h - ${Math.max(0, Math.floor(baseline))} )); ` +
+        `back=$(( h - ${base} )); ` +
         `[ "$back" -lt 0 ] && back=0; ` +
         `[ "$back" -gt ${PROGRESS_MAX_LINES} ] && back=${PROGRESS_MAX_LINES}; ` +
+        `echo "H:$h"; ` +
         `tmux capture-pane -p -t ${target} -S -"$back" -E -`
     );
     if (r.code !== 0) return "";
-    return stripPromptChrome(r.stdout).slice(-PROGRESS_MAX_CHARS);
+    const lines = String(r.stdout).split("\n");
+    const header = lines.shift() ?? "";
+    // Nothing has scrolled off yet, so the capture necessarily starts at the top
+    // of the visible pane — above where this turn began. Drop that lead-in, or
+    // every short turn reports a screenful of the previous one's output.
+    const h = Number(header.replace(/^H:/, ""));
+    const skip = Number.isFinite(h) ? Math.max(0, Math.min(base - h, lines.length)) : 0;
+    return stripPromptChrome(lines.slice(skip).join("\n")).slice(-PROGRESS_MAX_CHARS);
   }
 
   // ── Turns (the delegate/chat lane) ───────────────────────────────────────
@@ -406,8 +441,8 @@ export class SessionManager {
       endedAt: null,
       state: "running",
       waiters: [],
-      // Progress (the delegate lane's live feedback): where in the pane's
-      // history this turn began, the output read back since, and a revision the
+      // Progress (the delegate lane's live feedback): the absolute pane line
+      // this turn started at, the output read back since, and a revision the
       // long-poll uses to hand a caller only what it has not seen.
       baseline: null,
       output: "",
@@ -418,7 +453,7 @@ export class SessionManager {
     session.activeTurn = turn;
     this.#setState(session, "running");
     try {
-      turn.baseline = await this.historySize(session);
+      turn.baseline = await this.outputCursor(session);
       await this.sendInstruction(session, text);
     } catch (err) {
       turn.state = "failed";

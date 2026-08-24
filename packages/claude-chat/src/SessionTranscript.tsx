@@ -682,9 +682,13 @@ function SessionNotice({
     );
   }
   // Errors open on arrival - a failure the reader has to click to see is a failure
-  // they will miss. Everything else is a one-line trace they can drill into.
+  // they will miss. So does a terminal result that survived the duplication check:
+  // nothing else in the turn carries that prose, so it IS the answer (the shape a
+  // delegated runtime produces when it reports once, at the end), and collapsing
+  // it leaves the reader looking at a turn that appears to have said nothing.
+  // Everything else is a one-line trace they can drill into.
   return (
-    <details className={className} open={tone === "danger"}>
+    <details className={className} open={tone === "danger" || Boolean(terminalText)}>
       <summary className="cc-session-notice-head">{head}</summary>
       {body}
     </details>

@@ -142,3 +142,24 @@ message buries the answer.
 
 This is the first half of retiring the terminal: the shell stays visible while
 the ledger is grown into something good enough to replace it.
+
+**The trap mouse mode brings with it.** Scrolling a pane means putting it in
+copy-mode, and keys sent to a pane in copy-mode are copy COMMANDS, not input —
+`tmux send-keys -l "..."` there returns 0 and the text simply vanishes. So a
+turn dispatched after anyone scrolled the pane back (in Garrison, in vscode.dev,
+anywhere) was swallowed, and the delegate lane then waited on an agent that had
+never been asked anything. Both `sendInstruction` and `sendKeys` now cancel
+copy-mode first, conditionally so the ordinary case does not spew tmux's "not in
+a mode". The live test seeds the pane INTO copy-mode before dispatching, and
+fails without the guard.
+
+**Rendering.** A turn whose only prose is the terminal result was collapsed
+behind the timeline's "Response complete" disclosure — the reply was there and
+invisible. `SessionNotice` now opens a notice whose terminal result survived the
+duplication check (nothing else in the turn carries that text), the same
+argument the code already made for errors. It affects every lane that reports
+once at the end, not just this one.
+
+Evidence: `scripts/remote-shell/ledger-stream-check.mjs` dispatches one turn from
+the real ledger and asserts the transcript grows while the turn is still
+running.

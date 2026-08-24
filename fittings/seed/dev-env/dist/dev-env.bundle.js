@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// node_modules/@xterm/xterm/lib/xterm.js
+// ../../../node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// node_modules/@xterm/addon-fit/lib/addon-fit.js
+// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,9 +30706,9 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// node_modules/highlight.js/lib/core.js
+// ../../../node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "node_modules/highlight.js/lib/core.js"(exports, module) {
+  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -32244,17 +32244,17 @@ var require_core = __commonJS({
   }
 });
 
-// fittings/seed/dev-env/ui/main.tsx
+// ui/main.tsx
 var import_react10 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// fittings/seed/dev-env/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// fittings/seed/dev-env/ui/terminal-theme.ts
+// ui/terminal-theme.ts
 var LS_KEY = "garrison.devenv.termTheme";
 var SYNC_EVENT = "garrison:devenv-theme";
 var DARK = {
@@ -32363,7 +32363,7 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// fittings/seed/dev-env/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -32630,13 +32630,13 @@ function TerminalPane({
   ] });
 }
 
-// fittings/seed/dev-env/ui/chat-pane.tsx
+// ui/chat-pane.tsx
 var import_react6 = __toESM(require_react());
 
-// packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
 var import_react5 = __toESM(require_react(), 1);
 
-// node_modules/marked/lib/marked.esm.js
+// ../../../node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
   return {
     async: false,
@@ -34686,11 +34686,11 @@ var parseInline = marked.parseInline;
 var parser = _Parser.parse;
 var lexer = _Lexer.lex;
 
-// node_modules/highlight.js/es/core.js
+// ../../../node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// node_modules/highlight.js/es/languages/typescript.js
+// ../../../node_modules/highlight.js/es/languages/typescript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -35504,7 +35504,7 @@ function typescript(hljs) {
   return tsLanguage;
 }
 
-// node_modules/highlight.js/es/languages/javascript.js
+// ../../../node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS2 = [
   "as",
@@ -36205,7 +36205,7 @@ function javascript2(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/python.js
+// ../../../node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -36620,7 +36620,7 @@ function python(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/bash.js
+// ../../../node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -37014,7 +37014,7 @@ function bash(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/json.js
+// ../../../node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -37054,7 +37054,7 @@ function json(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/css.js
+// ../../../node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -37991,7 +37991,7 @@ function css(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/xml.js
+// ../../../node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -38217,7 +38217,7 @@ function xml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/markdown.js
+// ../../../node_modules/highlight.js/es/languages/markdown.js
 function markdown(hljs) {
   const regex = hljs.regex;
   const INLINE_HTML = {
@@ -38449,7 +38449,7 @@ function markdown(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/yaml.js
+// ../../../node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS3 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -38650,7 +38650,7 @@ function yaml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/sql.js
+// ../../../node_modules/highlight.js/es/languages/sql.js
 function sql(hljs) {
   const regex = hljs.regex;
   const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -39293,7 +39293,7 @@ function sql(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/rust.js
+// ../../../node_modules/highlight.js/es/languages/rust.js
 function rust(hljs) {
   const regex = hljs.regex;
   const RAW_IDENTIFIER = /(r#)?/;
@@ -39606,7 +39606,7 @@ function rust(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/go.js
+// ../../../node_modules/highlight.js/es/languages/go.js
 function go(hljs) {
   const LITERALS3 = [
     "true",
@@ -39760,7 +39760,7 @@ function go(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/diff.js
+// ../../../node_modules/highlight.js/es/languages/diff.js
 function diff(hljs) {
   const regex = hljs.regex;
   return {
@@ -39813,7 +39813,7 @@ function diff(hljs) {
   };
 }
 
-// packages/claude-chat/src/journal.ts
+// ../../../packages/claude-chat/src/journal.ts
 var FANOUT_TOOL_NAMES = /* @__PURE__ */ new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
 var SESSION_RETRACT_CAP = 64;
 var FAILURE_SOURCES = /* @__PURE__ */ new Set([
@@ -40151,7 +40151,7 @@ function collectRelatedTasks(events, live = false) {
   return [...byKey.values()];
 }
 
-// packages/claude-chat/src/transport.ts
+// ../../../packages/claude-chat/src/transport.ts
 var ChatTransportError = class extends Error {
   failure;
   constructor(failure, message = failure.text) {
@@ -40306,10 +40306,10 @@ function createHttpTransport(base = "/api", opts) {
   };
 }
 
-// packages/claude-chat/src/AttributionRail.tsx
+// ../../../packages/claude-chat/src/AttributionRail.tsx
 var import_react2 = __toESM(require_react(), 1);
 
-// packages/claude-chat/src/run-context.ts
+// ../../../packages/claude-chat/src/run-context.ts
 function effortState(route) {
   const effort = str(route.effort);
   if (!effort) return null;
@@ -40501,7 +40501,7 @@ function railBadges(route) {
   return warned.length ? [...warned, ...badges.filter((badge) => badge.tone !== "warn")] : badges;
 }
 
-// packages/claude-chat/src/AttributionRail.tsx
+// ../../../packages/claude-chat/src/AttributionRail.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var BADGE_FIELDS = {
   duty: ["duty", "level"],
@@ -41159,7 +41159,7 @@ function AttributionRail({
   ] });
 }
 
-// packages/claude-chat/src/RoutingModal.tsx
+// ../../../packages/claude-chat/src/RoutingModal.tsx
 var import_react3 = __toESM(require_react(), 1);
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function str3(v) {
@@ -41203,9 +41203,29 @@ var EVERY_PIN_CLEARED = {
   phasesOff: null,
   phasesOn: null
 };
-function Row({
+var SECTION_OF_FIELD = {
+  duty: "work",
+  level: "work",
+  tier: "tier",
+  target: "execution",
+  model: "execution",
+  effort: "execution",
+  account: "account",
+  project: "project",
+  flow: "flow",
+  phasesOff: "phases",
+  phasesOn: "phases"
+};
+function LockGlyph() {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { width: "11", height: "11", viewBox: "0 0 12 12", "aria-hidden": "true", className: "cc-rm-lock", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "2.2", y: "5", width: "7.6", height: "5.4", rx: "1.2", fill: "none", stroke: "currentColor", strokeWidth: "1.2" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 5V3.8a2 2 0 0 1 4 0V5", fill: "none", stroke: "currentColor", strokeWidth: "1.2" })
+  ] });
+}
+function Opt({
   label,
   detail,
+  mono,
   selected,
   disabled,
   onPick
@@ -41214,44 +41234,23 @@ function Row({
     "button",
     {
       type: "button",
-      className: `cc-rm-row${selected ? " cc-rm-row-sel" : ""}`,
+      className: `cc-rm-opt${selected ? " cc-rm-opt-sel" : ""}`,
       disabled,
       onClick: onPick,
       role: "radio",
       "aria-checked": selected ?? false,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-row-dot", "aria-hidden": true }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-rm-row-main", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-row-label", children: label }),
-          detail ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-row-detail", children: detail }) : null
-        ] })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `cc-rm-opt-label${mono ? " cc-rm-mono" : ""}`, children: label }),
+        detail ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-opt-detail", children: detail }) : null
       ]
     }
   );
 }
-function Section({
-  id,
-  title: title2,
-  hint,
-  pinnedNote,
-  children,
-  refFn,
-  disabled,
-  disabledNote
-}) {
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `cc-rm-section${disabled ? " cc-rm-section-off" : ""}`, "data-section": id, ref: refFn, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "cc-rm-sechead", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { children: title2 }),
-      pinnedNote ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-pinned", children: pinnedNote }) : null
-    ] }),
-    hint ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-hint", children: hint }) : null,
-    disabled && disabledNote ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-gate", children: disabledNote }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-rows", role: "radiogroup", "aria-label": title2, "aria-disabled": disabled ?? false, children })
-  ] });
-}
 function RoutingModal({ pins, options: options2, onPin, onClose, focusField, musterUrl }) {
   const dialogRef = (0, import_react3.useRef)(null);
-  const sectionRefs = (0, import_react3.useRef)({});
+  const [active, setActive] = (0, import_react3.useState)(
+    focusField && SECTION_OF_FIELD[focusField] || "work"
+  );
   const [projectQuery, setProjectQuery] = (0, import_react3.useState)("");
   const [modelDraft, setModelDraft] = (0, import_react3.useState)(str3(pinnedValue(pins, "model")));
   (0, import_react3.useEffect)(() => {
@@ -41262,47 +41261,66 @@ function RoutingModal({ pins, options: options2, onPin, onClose, focusField, mus
     dialogRef.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
-  (0, import_react3.useEffect)(() => {
-    if (!focusField) return;
-    const sectionOf = {
-      duty: "work",
-      level: "work",
-      tier: "tier",
-      target: "execution",
-      model: "execution",
-      effort: "execution",
-      account: "account",
-      project: "project",
-      flow: "flow",
-      phasesOff: "phases",
-      phasesOn: "phases"
-    };
-    const el = sectionRefs.current[sectionOf[focusField] ?? "work"];
-    el?.scrollIntoView({ block: "start" });
-  }, [focusField]);
   const duty = str3(pinnedValue(pins, "duty"));
   const level = pinnedValue(pins, "level");
   const tier = str3(pinnedValue(pins, "tier"));
   const target = str3(pinnedValue(pins, "target"));
   const model = str3(pinnedValue(pins, "model"));
   const effort = str3(pinnedValue(pins, "effort"));
-  const account = pins?.account === null ? null : str3(pinnedValue(pins, "account")) || null;
+  const account = str3(pinnedValue(pins, "account"));
   const project = str3(pinnedValue(pins, "project"));
   const flowPin = str3(pinnedValue(pins, "flow"));
-  const anyPin = Boolean(
-    duty || level || tier || target || model || effort || account || project || flowPin || str3(pinnedValue(pins, "phasesOff")) || str3(pinnedValue(pins, "phasesOn"))
-  );
+  const phasesOff = (0, import_react3.useMemo)(() => splitPhasesOff(pinnedValue(pins, "phasesOff")), [pins]);
+  const phasesOn = (0, import_react3.useMemo)(() => splitPhasesOff(pinnedValue(pins, "phasesOn")), [pins]);
   const dutyOptions = options2?.duties ?? [];
   const selectedDuty = dutyOptions.find((d) => str3(d.id) === duty) ?? null;
   const groups = (0, import_react3.useMemo)(() => runtimeGroups(options2), [options2]);
   const plan = (0, import_react3.useMemo)(() => resolvedPlanForPins(options2, pins), [options2, pins]);
-  const phasesOff = (0, import_react3.useMemo)(() => splitPhasesOff(pinnedValue(pins, "phasesOff")), [pins]);
-  const phasesOn = (0, import_react3.useMemo)(() => splitPhasesOff(pinnedValue(pins, "phasesOn")), [pins]);
   const catalog = (options2?.phaseCatalog ?? []).map((p) => str3(p)).filter(Boolean);
   const beyondPlan = catalog.filter((p) => !(plan?.phases ?? []).includes(p));
-  const sectionRef = (0, import_react3.useCallback)((id) => (el) => {
-    sectionRefs.current[id] = el;
-  }, []);
+  const tierGated = Boolean(tier);
+  const effortBlocked = str3(options2?.unavailable?.effort);
+  const projects = (options2?.projects ?? []).filter(
+    (p) => !projectQuery.trim() || p.toLowerCase().includes(projectQuery.trim().toLowerCase())
+  );
+  const pinChips = (0, import_react3.useMemo)(() => {
+    const chips = [];
+    if (duty) chips.push({ key: "duty", label: `${duty}${level ? ` L${level}` : ""}`, patch: { duty: null, level: null } });
+    if (tier) chips.push({ key: "tier", label: tier, patch: { tier: null } });
+    if (target) chips.push({ key: "target", label: target, patch: { target: null } });
+    if (model) chips.push({ key: "model", label: model, patch: { model: null } });
+    if (effort) chips.push({ key: "effort", label: `effort ${effort}`, patch: { effort: null } });
+    if (account) chips.push({ key: "account", label: account, patch: { account: null } });
+    if (project) chips.push({ key: "project", label: project, patch: { project: null } });
+    if (flowPin) chips.push({ key: "flow", label: `flow ${flowPin}`, patch: { flow: null } });
+    if (phasesOff.length) chips.push({ key: "phasesOff", label: `-${phasesOff.length} phase${phasesOff.length > 1 ? "s" : ""}`, patch: { phasesOff: null } });
+    if (phasesOn.length) chips.push({ key: "phasesOn", label: `+${phasesOn.length} phase${phasesOn.length > 1 ? "s" : ""}`, patch: { phasesOn: null } });
+    return chips;
+  }, [duty, level, tier, target, model, effort, account, project, flowPin, phasesOff, phasesOn]);
+  const navValue = {
+    work: { value: duty ? `${duty}${level ? ` L${level}` : ""}` : "auto", pinned: Boolean(duty) },
+    tier: { value: tier || "auto", pinned: Boolean(tier) },
+    execution: tierGated ? { value: "tier-decided", pinned: false, gated: true } : {
+      value: [target, model, effort].filter(Boolean).join(" \xB7 ") || "auto",
+      pinned: Boolean(target || model || effort)
+    },
+    account: { value: account || "auto", pinned: Boolean(account) },
+    project: { value: project || "auto", pinned: Boolean(project) },
+    flow: { value: flowPin || (str3(options2?.defaultFlow) ? `auto \xB7 ${options2?.defaultFlow}` : "auto"), pinned: Boolean(flowPin) },
+    phases: {
+      value: phasesOff.length || phasesOn.length ? [phasesOff.length ? `-${phasesOff.length}` : "", phasesOn.length ? `+${phasesOn.length}` : ""].filter(Boolean).join(" ") : "plan",
+      pinned: Boolean(phasesOff.length || phasesOn.length)
+    }
+  };
+  const NAV = [
+    { id: "work", label: "Duty & level" },
+    { id: "tier", label: "Tier" },
+    { id: "execution", label: "Execution" },
+    { id: "account", label: "Account" },
+    { id: "project", label: "Project" },
+    { id: "flow", label: "Flow" },
+    { id: "phases", label: "Phases" }
+  ];
   const togglePlanPhase = (0, import_react3.useCallback)((id) => {
     const next = phasesOff.includes(id) ? phasesOff.filter((p) => p !== id) : [...phasesOff, id];
     onPin({ phasesOff: joinPhasesOff(next, plan?.phases ?? []) });
@@ -41316,92 +41334,79 @@ function RoutingModal({ pins, options: options2, onPin, onClose, focusField, mus
     if (value === model) return;
     onPin({ model: value || null });
   }, [modelDraft, model, onPin]);
-  const tierGated = Boolean(tier);
-  const effortBlocked = str3(options2?.unavailable?.effort);
-  const projects = (options2?.projects ?? []).filter(
-    (p) => !projectQuery.trim() || p.toLowerCase().includes(projectQuery.trim().toLowerCase())
-  );
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-backdrop", onMouseDown: (e) => {
-    if (e.target === e.currentTarget) onClose();
-  }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm", role: "dialog", "aria-modal": "true", "aria-label": "Turn routing", tabIndex: -1, ref: dialogRef, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "cc-rm-head", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Turn routing" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: "Pins apply to the next message in this conversation and stay in force until cleared. Everything saves as you tap." })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "cc-rm-close", onClick: onClose, "aria-label": "Close", children: "\xD7" })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-body", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
-        Section,
-        {
-          id: "work",
-          title: "Duty & level",
-          refFn: sectionRef("work"),
-          hint: "What kind of work the next message is. The router infers this when automatic; pinning skips the classifier. Pinning a duty releases a pinned flow \u2014 they answer the same question.",
-          pinnedNote: duty ? `pinned: ${duty}${level ? ` L${level}` : ""}` : null,
-          children: [
+  const hint = (text) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-hint", children: text });
+  const detail = (() => {
+    switch (active) {
+      case "work":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "work", children: [
+          hint("What kind of work the next message is. Automatic lets routing inference read the message; pinning skips the classifier. Pinning a duty releases a pinned flow \u2014 they answer the same question."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Duty", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              Row,
+              Opt,
               {
                 label: "Automatic",
-                detail: "Routing inference reads the message and picks the duty and level.",
+                detail: "Routing inference picks the duty and level from the message.",
                 selected: !duty && !flowPin,
                 onPick: () => onPin({ duty: null, level: null, flow: null, phasesOff: null, phasesOn: null })
               }
             ),
-            dutyOptions.map((d) => {
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-grid", children: dutyOptions.map((d) => {
               const id = str3(d.id);
               if (!id) return null;
-              return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                Row,
+              return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+                "button",
                 {
-                  label: str3(d.title) || id,
-                  detail: id !== str3(d.title) ? id : null,
-                  selected: duty === id,
-                  onPick: () => onPin({ duty: id, level: null, flow: null, phasesOff: null, phasesOn: null })
+                  type: "button",
+                  role: "radio",
+                  "aria-checked": duty === id,
+                  className: `cc-rm-card${duty === id ? " cc-rm-card-sel" : ""}`,
+                  onClick: () => onPin({ duty: id, level: null, flow: null, phasesOff: null, phasesOn: null }),
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-card-title", children: str3(d.title) || id }),
+                    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-card-id cc-rm-mono", children: id })
+                  ]
                 },
                 id
               );
-            }),
-            selectedDuty && (selectedDuty.levels ?? []).length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-levels", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-levels-title", children: "Level" }),
+            }) })
+          ] }),
+          selectedDuty && (selectedDuty.levels ?? []).length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-sub", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Level" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-seg", role: "radiogroup", "aria-label": "Level", children: [
               /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                Row,
+                "button",
                 {
-                  label: "Automatic",
-                  detail: "The router picks the level from the message.",
-                  selected: level === null,
-                  onPick: () => onPin({ level: null })
+                  type: "button",
+                  className: `cc-rm-segbtn${level === null ? " cc-rm-segbtn-sel" : ""}`,
+                  onClick: () => onPin({ level: null }),
+                  children: "auto"
                 }
               ),
               (selectedDuty.levels ?? []).map(
-                (l) => typeof l?.n === "number" && l.n > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                  Row,
+                (l) => typeof l?.n === "number" && l.n > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+                  "button",
                   {
-                    label: `L${l.n}`,
-                    detail: str3(l.description) || null,
-                    selected: level === Math.trunc(l.n),
-                    onPick: () => onPin({ level: Math.trunc(l.n) })
+                    type: "button",
+                    className: `cc-rm-segbtn${level === Math.trunc(l.n) ? " cc-rm-segbtn-sel" : ""}`,
+                    onClick: () => onPin({ level: Math.trunc(l.n) }),
+                    children: [
+                      "L",
+                      l.n
+                    ]
                   },
                   l.n
                 ) : null
               )
-            ] }) : null
-          ]
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
-        Section,
-        {
-          id: "tier",
-          title: "Tier",
-          refFn: sectionRef("tier"),
-          hint: "The compute tier the routing matrix is keyed on. A pinned tier decides the execution \u2014 runtime, model, and effort come from the duty\xD7tier cell, so those controls disable below.",
-          pinnedNote: tier ? `pinned: ${tier}` : null,
-          children: [
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-leveldesc", children: level ? str3((selectedDuty.levels ?? []).find((l) => Math.trunc(l?.n ?? 0) === level)?.description) || "\xA0" : "Automatic \u2014 the router weighs the message and picks the level." })
+          ] }) : null
+        ] });
+      case "tier":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "tier", children: [
+          hint("The compute tier the routing matrix is keyed on. A pinned tier decides the execution \u2014 runtime, model, and effort come from the duty\xD7tier cell."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Tier", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              Row,
+              Opt,
               {
                 label: "Automatic",
                 detail: "Routing inference weighs the message and picks the tier.",
@@ -41410,157 +41415,145 @@ function RoutingModal({ pins, options: options2, onPin, onClose, focusField, mus
               }
             ),
             (options2?.tiers ?? []).map((t) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              Row,
+              Opt,
               {
                 label: t,
+                mono: true,
                 detail: str3(options2?.tierDefinitions?.[t]) || null,
                 selected: tier === t,
                 onPick: () => onPin({ tier: t })
               },
               t
             ))
-          ]
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
-        Section,
-        {
-          id: "execution",
-          title: "Execution \u2014 runtime, model, effort",
-          refFn: sectionRef("execution"),
-          hint: "Which engine runs the message. Picking a target pins the coherent runtime+model pair; the model box overlays a different model id onto the resolved target.",
-          disabled: tierGated,
-          disabledNote: `The pinned tier (${tier}) decides the execution. Clear the tier to pin these manually.`,
-          pinnedNote: target || model || effort ? `pinned: ${[target, model, effort].filter(Boolean).join(" \xB7 ")}` : null,
-          children: [
+          ] })
+        ] });
+      case "execution":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: `cc-rm-pane${tierGated ? " cc-rm-section-off" : ""}`, "data-section": "execution", children: tierGated ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-gatecard", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LockGlyph, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: tier }),
+            " decides the execution \u2014 runtime, model, and effort come from the duty\xD7tier cell."
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "cc-rm-ghost", onClick: () => onPin({ tier: null }), children: "Clear tier" })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          hint("Which engine runs the message. A target pins the coherent runtime+model pair; the model box overlays a different model id onto it."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Target", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              Row,
+              Opt,
               {
                 label: "Automatic",
                 detail: "The composition's routing picks the target.",
                 selected: !target,
-                disabled: tierGated,
                 onPick: () => onPin({ target: null, model: null })
               }
             ),
             [...groups.entries()].map(([runtime, targets]) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-group", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-group-title", children: runtime }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: runtime }),
               (targets ?? []).map((t) => {
                 const id = str3(t.id);
                 if (!id) return null;
-                const detail = [str3(t.model), str3(t.effort) && `effort ${str3(t.effort)}`, str3(t.account)].filter(Boolean).join(" \xB7 ");
+                const notes = [str3(t.model), str3(t.effort) && `effort ${str3(t.effort)}`, str3(t.account)].filter(Boolean).join(" \xB7 ");
                 return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                  Row,
+                  Opt,
                   {
                     label: id,
-                    detail: detail || null,
+                    mono: true,
+                    detail: notes || null,
                     selected: target === id,
-                    disabled: tierGated,
                     onPick: () => onPin({ target: id, model: null })
                   },
                   id
                 );
               })
-            ] }, runtime)),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "cc-rm-model", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: "Model override" }),
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                "input",
-                {
-                  type: "text",
-                  value: modelDraft,
-                  disabled: tierGated,
-                  placeholder: "exact model id (overlays the resolved target)",
-                  onChange: (e) => setModelDraft(e.target.value),
-                  onBlur: applyModelDraft,
-                  onKeyDown: (e) => {
-                    if (e.key === "Enter") applyModelDraft();
-                  }
-                }
-              )
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-group", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-group-title", children: "effort" }),
-              effortBlocked ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-gate", children: effortBlocked }) : null,
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-seg", role: "radiogroup", "aria-label": "Effort", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                  "button",
-                  {
-                    type: "button",
-                    className: `cc-rm-segbtn${!effort ? " cc-rm-segbtn-sel" : ""}`,
-                    disabled: tierGated || Boolean(effortBlocked),
-                    onClick: () => onPin({ effort: null }),
-                    children: "auto"
-                  }
-                ),
-                (options2?.efforts ?? []).map((e) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                  "button",
-                  {
-                    type: "button",
-                    className: `cc-rm-segbtn${effort === e ? " cc-rm-segbtn-sel" : ""}`,
-                    disabled: tierGated || Boolean(effortBlocked),
-                    onClick: () => onPin({ effort: e }),
-                    children: e
-                  },
-                  e
-                ))
-              ] })
-            ] })
-          ]
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
-        Section,
-        {
-          id: "account",
-          title: "Account",
-          refFn: sectionRef("account"),
-          hint: "The named runtime account the turn authenticates as. Only meaningful for targets whose platform matches \u2014 a mismatched pin is refused at the edge, with the reason on the badge.",
-          pinnedNote: account ? `pinned: ${account}` : null,
-          children: [
+            ] }, runtime))
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-sub", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Model override" }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              Row,
+              "input",
+              {
+                className: "cc-rm-input cc-rm-mono",
+                type: "text",
+                value: modelDraft,
+                placeholder: "exact model id \u2014 overlays the resolved target",
+                onChange: (e) => setModelDraft(e.target.value),
+                onBlur: applyModelDraft,
+                onKeyDown: (e) => {
+                  if (e.key === "Enter") applyModelDraft();
+                }
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-sub", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Effort" }),
+            effortBlocked ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-gate", children: effortBlocked }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-seg", role: "radiogroup", "aria-label": "Effort", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: `cc-rm-segbtn${!effort ? " cc-rm-segbtn-sel" : ""}`,
+                  disabled: Boolean(effortBlocked),
+                  onClick: () => onPin({ effort: null }),
+                  children: "auto"
+                }
+              ),
+              (options2?.efforts ?? []).map((e) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: `cc-rm-segbtn${effort === e ? " cc-rm-segbtn-sel" : ""}`,
+                  disabled: Boolean(effortBlocked),
+                  onClick: () => onPin({ effort: e }),
+                  children: e
+                },
+                e
+              ))
+            ] })
+          ] })
+        ] }) });
+      case "account":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "account", children: [
+          hint("The named runtime account the turn authenticates as. Only meaningful for targets on a matching platform \u2014 a mismatched pin is refused at the edge, with the reason on the badge."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Account", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
               {
                 label: "Automatic",
-                detail: "The composition's account (or the machine's own login).",
+                detail: "The composition's account, or the machine's own login.",
                 selected: !account,
                 onPick: () => onPin({ account: null })
               }
             ),
             (options2?.accounts ?? []).map((a) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              Row,
+              Opt,
               {
                 label: a.name,
+                mono: true,
                 detail: str3(a.platform) ? `platform: ${a.platform}` : null,
                 selected: account === a.name,
                 onPick: () => onPin({ account: a.name })
               },
               a.name
             ))
-          ]
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
-        Section,
-        {
-          id: "project",
-          title: "Project",
-          refFn: sectionRef("project"),
-          hint: "The repository the turn runs in (its working directory). Sticky: new conversations start with your last pinned project until you clear it.",
-          pinnedNote: project ? `pinned: ${project}` : null,
-          children: [
+          ] })
+        ] });
+      case "project":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "project", children: [
+          hint("The repository the turn runs in (its working directory). Sticky: new conversations start with your last pinned project until you clear it."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            "input",
+            {
+              className: "cc-rm-input",
+              type: "search",
+              placeholder: "Filter projects\u2026",
+              value: projectQuery,
+              onChange: (e) => setProjectQuery(e.target.value)
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list cc-rm-scroll", role: "radiogroup", "aria-label": "Project", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              "input",
-              {
-                className: "cc-rm-filter",
-                type: "search",
-                placeholder: "Filter projects\u2026",
-                value: projectQuery,
-                onChange: (e) => setProjectQuery(e.target.value)
-              }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              Row,
+              Opt,
               {
                 label: "Automatic",
                 detail: "The operative's own directory.",
@@ -41568,82 +41561,145 @@ function RoutingModal({ pins, options: options2, onPin, onClose, focusField, mus
                 onPick: () => onPin({ project: null })
               }
             ),
-            projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Row, { label: p, selected: project === p, onPick: () => onPin({ project: p }) }, p))
-          ]
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
-        Section,
-        {
-          id: "flow",
-          title: "Flow",
-          refFn: sectionRef("flow"),
-          hint: "The phase plan for work that becomes a card. Automatic derives the flow from the routed duty (its level picks the plan). Pinning a flow releases a pinned duty \u2014 same one question, asked from the plan end.",
-          pinnedNote: flowPin ? `pinned: ${flowPin}` : null,
-          children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              Row,
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-grid cc-rm-grid-tight", children: projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              "button",
               {
-                label: str3(options2?.defaultFlow) ? `Automatic (default: ${options2?.defaultFlow})` : "Automatic",
+                type: "button",
+                role: "radio",
+                "aria-checked": project === p,
+                className: `cc-rm-card cc-rm-card-slim${project === p ? " cc-rm-card-sel" : ""}`,
+                onClick: () => onPin({ project: p }),
+                children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-card-title cc-rm-mono", children: p })
+              },
+              p
+            )) })
+          ] })
+        ] });
+      case "flow":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "flow", children: [
+          hint("The phase plan for work that becomes a card. Automatic derives the flow from the routed duty; its level picks the plan. Pinning a flow releases a pinned duty \u2014 same question, asked from the plan end."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Flow", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: str3(options2?.defaultFlow) ? `Automatic \u2014 default ${options2?.defaultFlow}` : "Automatic",
                 detail: "The router derives the flow from the duty; the flow's level defines the plan.",
                 selected: !flowPin,
-                onPick: () => onPin({ flow: null, duty: duty ? duty : null, phasesOff: null, phasesOn: null })
+                onPick: () => onPin({ flow: null, phasesOff: null, phasesOn: null })
               }
             ),
             (options2?.flows ?? []).map((f) => {
               const id = str3(f.id);
               if (!id) return null;
               const phases = (f.phases ?? []).map((p) => str3(p)).filter(Boolean);
-              return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                Row,
+              return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+                "button",
                 {
-                  label: id,
-                  detail: [str3(f.description), phases.length ? `plan: ${phases.join(" \u2192 ")}` : ""].filter(Boolean).join(" \u2014 ") || null,
-                  selected: flowPin === id,
-                  onPick: () => onPin({ flow: id, duty: null, level: null, phasesOff: null, phasesOn: null })
+                  type: "button",
+                  role: "radio",
+                  "aria-checked": flowPin === id,
+                  className: `cc-rm-flow${flowPin === id ? " cc-rm-flow-sel" : ""}`,
+                  onClick: () => onPin({ flow: id, duty: null, level: null, phasesOff: null, phasesOn: null }),
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-rm-flow-head", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-mono cc-rm-flow-id", children: id }),
+                      phases.length ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-flow-plan cc-rm-mono", children: phases.join(" \u2192 ") }) : null
+                    ] }),
+                    str3(f.description) ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-opt-detail", children: f.description }) : null
+                  ]
                 },
                 id
               );
             })
-          ]
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-        Section,
-        {
-          id: "phases",
-          title: "Phases",
-          refFn: sectionRef("phases"),
-          hint: plan ? `Toggles against the ${plan.pinned ? "pinned" : "default"} flow's plan (${plan.flowId}). Unchecking a plan phase skips it; the second list adds phases the plan does not carry. A phase both added and skipped stays off.` : "No resolved plan to toggle against \u2014 pin a flow (or set a default flow in the policy) first.",
-          children: plan ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-            plan.phases.map((p) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "cc-rm-check", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                "input",
+          ] })
+        ] });
+      case "phases":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "phases", children: [
+          plan ? hint(`Toggles against the ${plan.pinned ? "pinned" : "default"} flow's plan (${plan.flowId}). Tap a plan phase to skip it; tap one beyond the plan to add it. A phase both added and skipped stays off.`) : hint("No resolved plan to toggle against \u2014 pin a flow (or set a default flow in the policy) first."),
+          plan ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-chips", children: plan.phases.map((p) => {
+              const off = phasesOff.includes(p);
+              return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
                 {
-                  type: "checkbox",
-                  checked: !phasesOff.includes(p),
-                  onChange: () => togglePlanPhase(p)
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: p })
-            ] }, p)),
-            beyondPlan.length ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-group", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-group-title", children: "beyond the plan" }),
-              beyondPlan.map((p) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "cc-rm-check", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-                  "input",
+                  type: "button",
+                  "aria-pressed": !off,
+                  className: `cc-rm-phase cc-rm-mono${off ? " cc-rm-phase-off" : ""}`,
+                  onClick: () => togglePlanPhase(p),
+                  title: off ? "Skipped \u2014 tap to run it" : "In the plan \u2014 tap to skip",
+                  children: p
+                },
+                p
+              );
+            }) }),
+            beyondPlan.length ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-sub", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Beyond the plan" }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-chips", children: beyondPlan.map((p) => {
+                const on = phasesOn.includes(p);
+                return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                  "button",
                   {
-                    type: "checkbox",
-                    checked: phasesOn.includes(p),
-                    onChange: () => toggleExtraPhase(p)
-                  }
-                ),
-                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: p })
-              ] }, p))
+                    type: "button",
+                    "aria-pressed": on,
+                    className: `cc-rm-phase cc-rm-phase-extra cc-rm-mono${on ? " cc-rm-phase-added" : ""}`,
+                    onClick: () => toggleExtraPhase(p),
+                    title: on ? "Added \u2014 tap to remove" : "Not in the plan \u2014 tap to add",
+                    children: p
+                  },
+                  p
+                );
+              }) })
             ] }) : null
           ] }) : null
-        }
-      )
+        ] });
+    }
+  })();
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-backdrop", onMouseDown: (e) => {
+    if (e.target === e.currentTarget) onClose();
+  }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm", role: "dialog", "aria-modal": "true", "aria-label": "Turn routing", tabIndex: -1, ref: dialogRef, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "cc-rm-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-head-text", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Routing" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Where your next message runs" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "cc-rm-close", onClick: onClose, "aria-label": "Close", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { width: "14", height: "14", viewBox: "0 0 14 14", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M3 3l8 8M11 3l-8 8", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round" }) }) })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-pins", "aria-label": "Pins in force", children: pinChips.length ? pinChips.map((c) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+      "button",
+      {
+        type: "button",
+        className: "cc-rm-chip cc-rm-mono",
+        title: "Clear this pin",
+        onClick: () => onPin(c.patch),
+        children: [
+          c.label,
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-chip-x", "aria-hidden": true, children: "\xD7" })
+        ]
+      },
+      c.key
+    )) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-pins-none", children: "Everything automatic \u2014 the router decides. Saves as you tap." }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-split", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("nav", { className: "cc-rm-nav", "aria-label": "Routing dimensions", children: NAV.map((n) => {
+        const v = navValue[n.id];
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+          "button",
+          {
+            type: "button",
+            className: `cc-rm-navitem${active === n.id ? " cc-rm-navitem-on" : ""}`,
+            "aria-current": active === n.id ? "true" : void 0,
+            onClick: () => setActive(n.id),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-rm-navlabel", children: [
+                n.label,
+                v.gated ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LockGlyph, {}) : null
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `cc-rm-navvalue cc-rm-mono${v.pinned ? " cc-rm-navvalue-pin" : ""}`, children: v.value })
+            ]
+          },
+          n.id
+        );
+      }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-detail", children: detail })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("footer", { className: "cc-rm-foot", children: [
       musterUrl ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("a", { href: musterUrl, target: "_blank", rel: "noreferrer", className: "cc-rm-muster", children: "Composition defaults live in Muster" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", {}),
@@ -41652,8 +41708,8 @@ function RoutingModal({ pins, options: options2, onPin, onClose, focusField, mus
           "button",
           {
             type: "button",
-            className: "cc-rm-clear",
-            disabled: !anyPin,
+            className: "cc-rm-ghost",
+            disabled: !pinChips.length,
             onClick: () => onPin(EVERY_PIN_CLEARED),
             children: "Clear all pins"
           }
@@ -41664,7 +41720,7 @@ function RoutingModal({ pins, options: options2, onPin, onClose, focusField, mus
   ] }) });
 }
 
-// packages/claude-chat/src/chat-theme.ts
+// ../../../packages/claude-chat/src/chat-theme.ts
 var LS_KEY2 = "garrison.devenv.termTheme";
 var SYNC_EVENT2 = "garrison:devenv-theme";
 var listeners2 = /* @__PURE__ */ new Set();
@@ -41731,7 +41787,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(SYNC_EVENT2, reread);
 }
 
-// packages/claude-chat/src/voice.ts
+// ../../../packages/claude-chat/src/voice.ts
 function createVoiceClient(base = "") {
   const b = base.replace(/\/$/, "");
   const u = (p) => `${b}/voice/${p}`;
@@ -41774,7 +41830,7 @@ function createVoiceClient(base = "") {
   };
 }
 
-// packages/claude-chat/src/sanitize.ts
+// ../../../packages/claude-chat/src/sanitize.ts
 function sanitizeAssistantBadges(raw) {
   const input = typeof raw === "string" ? raw : "";
   const meta = {};
@@ -41852,7 +41908,7 @@ function routeChipFromAttribution(route) {
   return { label, title: title2 || void 0 };
 }
 
-// packages/claude-chat/src/host-rewrite.ts
+// ../../../packages/claude-chat/src/host-rewrite.ts
 var LOOPBACK = /^(https?:\/\/)(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?=[:/?#]|$)/i;
 function rewriteHostUrl(raw, ctx) {
   if (!raw || !LOOPBACK.test(raw)) return raw;
@@ -41931,7 +41987,7 @@ function filePathMarkedExtension() {
   };
 }
 
-// packages/claude-chat/src/markdown-safety.ts
+// ../../../packages/claude-chat/src/markdown-safety.ts
 var serveMap = {};
 var hostMapPromise = null;
 function loadHostMap() {
@@ -41993,7 +42049,7 @@ function installSafeMarkdownRenderer(marked2, hostContext = hostCtx) {
   });
 }
 
-// packages/claude-chat/src/SessionTranscript.tsx
+// ../../../packages/claude-chat/src/SessionTranscript.tsx
 var React2 = __toESM(require_react(), 1);
 var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
@@ -42068,6 +42124,7 @@ function ActivityDetails({
     }
   );
 }
+var NOTICE_INLINE_CHARS = 90;
 function elapsedLabel(elapsedMs) {
   if (typeof elapsedMs !== "number" || !Number.isFinite(elapsedMs) || elapsedMs < 0) return null;
   if (elapsedMs < 1e3) return `${Math.round(elapsedMs)}ms`;
@@ -42457,22 +42514,30 @@ function SessionNotice({
     label = status === "error" ? "Response failed" : status === "cancelled" ? "Response stopped" : "Response complete";
     detail = terminalSummary(block2);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `cc-session-notice cc-session-notice-${tone}${block2.type === "error" ? " cc-session-error" : ""}`, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-notice-head", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-notice-label", children: label }),
-      block2.type === "error" && (block2.code || block2.requestId) && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-notice-meta", children: [compactNoticeText(block2.code), block2.requestId ? `request ${compactNoticeText(block2.requestId)}` : ""].filter(Boolean).join(" \xB7 ") }),
-      block2.type === "retry" && typeof block2.httpStatus === "number" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-session-notice-meta", children: [
-        "HTTP ",
-        block2.httpStatus
-      ] })
-    ] }),
-    detail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-notice-detail", children: detail }),
+  const meta = block2.type === "error" && (block2.code || block2.requestId) ? [compactNoticeText(block2.code), block2.requestId ? `request ${compactNoticeText(block2.requestId)}` : ""].filter(Boolean).join(" \xB7 ") : block2.type === "retry" && typeof block2.httpStatus === "number" ? `HTTP ${block2.httpStatus}` : null;
+  const terminalText = block2.type === "turn_end" && renderTerminalResult && !terminalResultDuplicated && typeof block2.result === "string" && block2.result.trim() ? block2.result : null;
+  const hasBody = Boolean(reset || terminalText || detail && detail.length > NOTICE_INLINE_CHARS);
+  const head = /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-notice-label", children: label }),
+    detail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-notice-lede", children: detail }),
+    meta && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-notice-meta", children: meta })
+  ] });
+  const body = /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-notice-body", children: [
+    detail && detail.length > NOTICE_INLINE_CHARS && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-notice-detail", children: detail }),
     reset && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-notice-reset", children: [
       timePrefix,
       " ",
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("time", { dateTime: reset.dateTime, children: reset.label })
     ] }),
-    block2.type === "turn_end" && renderTerminalResult && !terminalResultDuplicated && typeof block2.result === "string" && block2.result.trim() && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-terminal-text cc-session-markdown", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TextBlock, { text: block2.result, role: "assistant", renderMarkdown }) })
+    terminalText && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-terminal-text cc-session-markdown", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TextBlock, { text: terminalText, role: "assistant", renderMarkdown }) })
+  ] });
+  const className = `cc-session-notice cc-session-notice-${tone}${block2.type === "error" ? " cc-session-error" : ""}`;
+  if (!hasBody) {
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: `${className} is-flat`, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-notice-head", children: head }) });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("details", { className, open: tone === "danger" || Boolean(terminalText), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("summary", { className: "cc-session-notice-head", children: head }),
+    body
   ] });
 }
 function FailureNotice({ failure }) {
@@ -42969,7 +43034,7 @@ function SessionStream({
   ] });
 }
 
-// packages/claude-chat/src/ClaudeChat.tsx
+// ../../../packages/claude-chat/src/ClaudeChat.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 var md2 = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
@@ -45235,27 +45300,25 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
           )
         }
       ),
-      showFlightRail && !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-          AttributionRail,
-          {
-            variant: "flight",
-            route: rewriteRouteForHost(latestAssistant?.route, hostCtx()),
-            pins,
-            pendingFields: pendingPins,
-            options: routeOptions ?? void 0,
-            onPin: applyPin,
-            onOpenTranscript,
-            label: "Run context for your next message",
-            musterUrl,
-            onOpenModal: (field) => setRouteModal({ open: true, focus: field }),
-            children: flightRailEnd
-          }
-        ),
-        (pinSavePending || pinSaveError) && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: `cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { children: pinSaveError?.message ?? "Saving route choices\u2026" }),
-          pinSaveError && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", onClick: retryPinSave, children: "Retry save" })
-        ] })
+      showFlightRail && !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_jsx_runtime5.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+        AttributionRail,
+        {
+          variant: "flight",
+          route: rewriteRouteForHost(latestAssistant?.route, hostCtx()),
+          pins,
+          pendingFields: pendingPins,
+          options: routeOptions ?? void 0,
+          onPin: applyPin,
+          onOpenTranscript,
+          label: "Run context for your next message",
+          musterUrl,
+          onOpenModal: (field) => setRouteModal({ open: true, focus: field }),
+          children: flightRailEnd
+        }
+      ) }),
+      (pinSavePending || pinSaveError) && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: `cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { children: pinSaveError?.message ?? "Saving route choices\u2026" }),
+        pinSaveError && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", onClick: retryPinSave, children: "Retry save" })
       ] }),
       routeModal.open && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         RoutingModal,
@@ -45335,8 +45398,8 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
                 "aria-haspopup": "dialog",
                 "aria-expanded": routeSheetOpen,
                 "aria-label": "Run context for your next message",
-                title: "Route: duty, model, effort, account or project for your next message",
-                onClick: () => setRouteSheetOpen(true),
+                title: "Route: duty, level, tier, runtime, model, effort, account, project, flow or phases for your next message",
+                onClick: () => setRouteModal({ open: true }),
                 children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "15", height: "15", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M8 14V9m0 0L3.5 5.2M8 9l4.5-3.8", fill: "none", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round" }),
                   /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("circle", { cx: "3", cy: "4.2", r: "1.6", fill: "currentColor" }),
@@ -45466,7 +45529,7 @@ ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
   ] });
 }
 
-// fittings/seed/dev-env/ui/chat-pane.tsx
+// ui/chat-pane.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
   const transport = (0, import_react6.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
@@ -45480,7 +45543,7 @@ function ChatPane({ sessionId, branch }) {
   );
 }
 
-// fittings/seed/dev-env/ui/browser-pane.tsx
+// ui/browser-pane.tsx
 var import_react7 = __toESM(require_react());
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
@@ -45814,10 +45877,10 @@ function BrowserPane({
   ] });
 }
 
-// fittings/seed/dev-env/ui/dialogs.tsx
+// ui/dialogs.tsx
 var import_react8 = __toESM(require_react());
 
-// fittings/seed/dev-env/ui/session-request.ts
+// ui/session-request.ts
 var MODE_OPTIONS = [
   { value: "operative", label: "Operative \u2014 Orchestrator identity (default)" },
   { value: "plain", label: "Plain claude, for debugging Garrison itself (unorchestrated, logged)" }
@@ -45840,7 +45903,7 @@ function buildSessionRequest({
   return body;
 }
 
-// fittings/seed/dev-env/ui/dialogs.tsx
+// ui/dialogs.tsx
 var import_jsx_runtime8 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
@@ -46048,7 +46111,7 @@ function Toast({ message }) {
   return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "toast", children: message });
 }
 
-// fittings/seed/dev-env/ui/session-panels.tsx
+// ui/session-panels.tsx
 var import_react9 = __toESM(require_react());
 var import_jsx_runtime9 = __toESM(require_jsx_runtime());
 function basename2(p) {
@@ -46167,7 +46230,7 @@ function SessionsPanel({
   ] });
 }
 
-// fittings/seed/dev-env/ui/main.tsx
+// ui/main.tsx
 var import_jsx_runtime10 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {
