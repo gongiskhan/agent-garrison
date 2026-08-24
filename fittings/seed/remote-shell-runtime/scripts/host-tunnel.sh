@@ -47,9 +47,16 @@ fi
 
 say() { echo "[$(date -u +%FT%TZ)] $*"; }
 
-# Fail loudly on the one prerequisite rather than looping on it forever.
-if ! "$DEVTUNNEL" user show 2>&1 | grep -qi "logged in"; then
-  say "not logged in: run \`$DEVTUNNEL user login\` on this machine first" >&2
+# The credential is the one thing this script cannot repair. A devtunnel GitHub
+# login lasts well under a day, so it WILL lapse under a long-running supervisor
+# - and when it does, `devtunnel host` cannot authenticate while still refusing
+# to exit, so a supervisor that only checked at startup would replace a child
+# that can never work, forever, silently. Checked here and again before every
+# replacement.
+logged_in() { "$DEVTUNNEL" user show 2>&1 | grep -qi "logged in"; }
+
+if ! logged_in; then
+  say "not logged in: run \`$DEVTUNNEL user login -g -d\` on this machine first" >&2
   exit 3
 fi
 
@@ -97,6 +104,7 @@ trap 'stop_child; exit 0' INT TERM
 reap_strays
 start_host
 misses=0
+expired_said=0
 
 while :; do
   sleep "$INTERVAL"
@@ -113,6 +121,18 @@ while :; do
   misses=$((misses + 1))
   # One miss can be a transient read against the service; two is a dead host.
   [ "$misses" -ge 2 ] || continue
+  if ! logged_in; then
+    # Replacing the child would achieve nothing: the new one cannot authenticate
+    # either. Say so once per lapse, at a slow cadence, and wait for a human -
+    # the log is the only place this can be read from once the tunnel is down.
+    if [ "$expired_said" != "1" ]; then
+      say "LOGIN EXPIRED on this machine - the tunnel stays down until someone runs \`$DEVTUNNEL user login -g -d\` HERE. Not restarting the host; it could not authenticate."
+      expired_said=1
+    fi
+    sleep 60
+    continue
+  fi
+  expired_said=0
   say "tunnel reports no host while pid $CHILD is still alive - replacing it"
   stop_child
   reap_strays

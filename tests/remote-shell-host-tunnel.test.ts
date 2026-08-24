@@ -76,6 +76,38 @@ describe("host-tunnel supervisor", () => {
     expect(out.match(/started devtunnel host/g)).toHaveLength(1);
   }, 20000);
 
+  it("stops replacing the host once the credential under it lapses", async () => {
+    // The credential outlives nothing: a devtunnel GitHub login lasts under a
+    // day, so it WILL lapse beneath a long-running supervisor. `devtunnel host`
+    // then cannot authenticate while still refusing to exit, so a supervisor
+    // that only checked at startup would replace a doomed child forever, in
+    // silence, on a machine reachable only through the tunnel it is failing to
+    // hold up. The log is the only channel left; it has to name the fix.
+    const bin = path.join(dir, "devtunnel");
+    const flag = path.join(dir, "logged-in");
+    writeFileSync(flag, "yes");
+    writeFileSync(
+      bin,
+      [
+        "#!/bin/sh",
+        `case "$1 $2" in "user show") [ "$(cat ${flag})" = yes ] && echo "Logged in as tester using GitHub." || echo "Login token expired."; exit 0 ;; esac`,
+        'case "$1" in',
+        '  host) echo "hosting $2"; exec sleep 300 ;;',
+        `  show) printf '{ "tunnel": { "hostConnections": 0 } }\\n'; exit 0 ;;`,
+        "esac"
+      ].join("\n")
+    );
+    chmodSync(bin, 0o755);
+    // Lapse the credential a moment after it starts, mid-flight.
+    setTimeout(() => writeFileSync(flag, "no"), 1200);
+    const out = await supervise(bin, 6000);
+    expect(out).toMatch(/LOGIN EXPIRED on this machine/);
+    expect(out).toMatch(/devtunnel user login -g -d/);
+    expect(out).toMatch(/could not authenticate/);
+    // Said once per lapse, not once per cycle - this log is read hours later.
+    expect(out.match(/LOGIN EXPIRED/g)).toHaveLength(1);
+  }, 20000);
+
   it("refuses to loop forever on the one prerequisite it cannot fix", async () => {
     const bin = path.join(dir, "devtunnel");
     writeFileSync(bin, '#!/bin/sh\necho "GitHub login required."\nexit 3\n');
