@@ -254,7 +254,14 @@ function importBoard() {
       `INSERT INTO cards(id, list, position, status, title, project, scope, rev, coordination_seq,
         placement_target, placement_not_before, scheduled_for, schedule_json, occurrence_key, system_key,
         origin_id, created_at, updated_at, updated_by, body_json)
-       VALUES (@id,@list,@position,@status,@title,@project,@scope,@rev,@cseq,@pt,@pnb,@sf,@sj,@ok,@sk,@oid,@cat,@uat,'import',@body)`
+       VALUES (@id,@list,@position,@status,@title,@project,@scope,@rev,@cseq,@pt,@pnb,@sf,@sj,@ok,@sk,@oid,@cat,@uat,'import',@body)
+       ON CONFLICT(id) DO UPDATE SET list=excluded.list, position=excluded.position, status=excluded.status,
+         title=excluded.title, project=excluded.project, scope=excluded.scope, rev=excluded.rev,
+         coordination_seq=MAX(cards.coordination_seq, excluded.coordination_seq),
+         placement_target=excluded.placement_target, placement_not_before=excluded.placement_not_before,
+         scheduled_for=excluded.scheduled_for, schedule_json=excluded.schedule_json,
+         occurrence_key=excluded.occurrence_key, system_key=excluded.system_key, origin_id=excluded.origin_id,
+         updated_at=excluded.updated_at, updated_by='import', body_json=excluded.body_json`
     ).run({
       id,
       list: String(card.list ?? "inbox"),
