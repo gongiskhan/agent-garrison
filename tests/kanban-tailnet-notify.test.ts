@@ -6,7 +6,7 @@
 // http://127.0.0.1:<port> link (unreachable + mixed content); these pin that the
 // per-channel deliveries carry the tailnet form while the transform stays a pure,
 // map-driven function with a loopback fallback for local/dev.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +18,19 @@ process.env.GARRISON_HOME = GARRISON_HOME;
 import { serveMapFromStatus, rehostToTailnet, rehostTextToTailnet } from "../fittings/seed/kanban-loop/lib/tailnet-serve.mjs";
 // @ts-ignore
 import { fanOutNotification } from "../fittings/seed/kanban-loop/lib/notify-origin.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // A serve map with the board port (7089) mapped and one unrelated port.
 const STATUS = {

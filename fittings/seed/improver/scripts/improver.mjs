@@ -403,7 +403,7 @@ async function runSkills() {
   // HIGH-WEIGHT evidence and proposes phase-plan / matrix / kind-matcher edits into
   // the SAME queue — composer ghost edits, never auto-applied.
   try {
-    const feedbackRule = runFeedbackRule({ now });
+    const feedbackRule = await runFeedbackRule({ now });
     for (const p of feedbackRule.proposals) {
       writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
       queue = upsertQueue(queue, p);

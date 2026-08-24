@@ -8,7 +8,7 @@
 // and activity is read from the card's OWN timestamps, never a channel thread file.
 // Hermetic: a per-test tmpdir, no gateway, no socket.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,25 @@ import { join } from "node:path";
 import { seedBoard, sweepIdleDiscussCards, discussIdleWindowMs, lastCardActivityAt } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, saveCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// The card store is shared by every test in this file now, where a fresh tmp root
+// used to isolate them; wipe it between tests so one test's cards can never show
+// up in another's sweep, batch, or board read.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const DAY = 24 * 60 * 60 * 1000;
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-discuss-archive-"));

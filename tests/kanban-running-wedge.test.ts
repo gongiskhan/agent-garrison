@@ -22,7 +22,7 @@
 //
 // The contract these tests pin: a finished run ALWAYS lands its terminal state.
 // A benign concurrent write may not strand the card in "running".
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir, hostname } from "node:os";
 import path from "node:path";
@@ -36,9 +36,27 @@ import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore pure mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore pure mjs
-import { atomicWriteJSON, loadCard, updateCardCAS, saveCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { atomicWriteJSON, loadCard, updateCardCAS, saveCardCAS, deleteCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore pure mjs
 import { compilePolicy, stableStringify } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState, seedCard } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// Fixed-ULID fixtures are reused across tests in this file; a per-test wipe gives
+// each one the fresh board its own tmp root used to give it.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const ROOT = path.resolve(__dirname, "..");
 const SEED_CONFIG = path.join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
@@ -74,7 +92,7 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
   };
   mkdirSync(path.join(root, "cards", card.id), { recursive: true });
   if (card.runDir) mkdirSync(card.runDir as string, { recursive: true });
-  await atomicWriteJSON(path.join(root, "cards", card.id, "card.json"), card);
+  await seedCard(card);
   return card;
 }
 
@@ -638,9 +656,11 @@ describe("recoverInterruptedRuns — a live foreign driver is left alone", () =>
 // resurrected it. saveCardCAS never legitimately creates: createCard writes the
 // first version directly, and every other caller is updating a card it just read.
 describe("saveCardCAS — a deleted card is never resurrected", () => {
-  it("refuses the write and reports `deleted` when the card file is gone", async () => {
+  it("refuses the write and reports `deleted` when the card is gone", async () => {
     const card = await makeCard(tmp, { id: "01DELETEDCARD00000000000001" });
-    rmSync(path.join(tmp, "cards", card.id), { recursive: true, force: true });
+    // The store tombstones the card; a PATCH against it is structurally a 404,
+    // which is the same refusal the missing file used to produce.
+    expect(await deleteCard(tmp, card.id)).toBe(true);
 
     const res: any = await saveCardCAS(tmp, { ...card, list: "done" }, card.rev ?? 0);
 
@@ -655,7 +675,7 @@ describe("saveCardCAS — a deleted card is never resurrected", () => {
 
     // The user deletes the card while the operative is still working.
     const runFn = async ({ card: c }: { card: any }) => {
-      rmSync(path.join(tmp, "cards", c.id), { recursive: true, force: true });
+      await deleteCard(tmp, c.id);
       landGate(c.runDir as string, "implement", "review");
       return { reply: "review" };
     };

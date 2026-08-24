@@ -1,8 +1,10 @@
-// probe-store.mjs — the Improver Probe's I/O (paths, reads, atomic queue append,
-// pending lifecycle, stale-pending sweep). Every function here touches disk; the
-// pure logic lives in probe-core.mjs. Kept dependency-light (node builtins only)
-// so the Stop-hook path stays fast and the module installs cleanly into the
-// improver fitting's own dir (containment: probe machinery lives HERE).
+// probe-store.mjs — the Improver Probe's I/O (paths, reads, the feedback-queue
+// append, pending lifecycle, stale-pending sweep). Pending state, flags and the
+// skip log are still node-local files; the feedback queue is the state service
+// (feedback-signals.mjs owns that seam). The pure logic lives in probe-core.mjs.
+// Kept dependency-light so the Stop-hook path stays fast and the module installs
+// cleanly into the improver fitting's own dir (containment: probe machinery
+// lives HERE).
 
 import {
   existsSync,
@@ -17,6 +19,7 @@ import {
 import path from "node:path";
 import os from "node:os";
 import { dayStamp, buildFeedbackRecord } from "./probe-core.mjs";
+import { appendFeedbackRecord } from "./feedback-signals.mjs";
 
 // ── Paths (env-overridable for tests + non-default homes) ────────────────────
 export function garrisonHome() {
@@ -29,9 +32,9 @@ export function dataDir() {
   return o && o.trim().length ? o : path.join(garrisonHome(), "improver");
 }
 
-// Shared with the gateway's override writer — MUST be byte-identical to
-// http-gateway/scripts/lib/feedback-queue.mjs improverQueuePath() so probe,
-// retrospective and override records land in ONE queue the nightly rule reads.
+// PRE-MESH. The queue moved into the state service (feedback-signals.mjs); this
+// path is where it lived before the importer renamed it `*.pre-mesh`, and is
+// kept only as the honest answer to "where was this".
 export function queuePath() {
   return path.join(garrisonHome(), "improver", "feedback-queue.jsonl");
 }
@@ -202,14 +205,18 @@ export function clearPending(sessionId) {
   }
 }
 
-// ── Atomic feedback-queue append ─────────────────────────────────────────────
-// One O_APPEND write per record (the atomicity the routing telemetry relies on).
-// A single appendFileSync with flag "a" is a single write() under the hood, so
-// concurrent single-writer appends never interleave a partial line.
-export function appendFeedbackSync(record, file = queuePath()) {
-  mkdirSync(path.dirname(file), { recursive: true });
-  appendFileSync(file, JSON.stringify(record) + "\n", { encoding: "utf8", flag: "a" });
-  return file;
+// ── Feedback-queue append ────────────────────────────────────────────────────
+// One record, one transaction in the state service. The O_APPEND single-write
+// trick this used to rely on bought atomicity against the other two producers;
+// a transaction is strictly stronger, and a duplicate id is now a 409 rather
+// than a silent second copy.
+//
+// ASYNC, unavoidably — there is no synchronous HTTP. The Stop-hook path awaits
+// it (probe-capture.mjs, probe-generate.mjs); a failure there propagates and the
+// hook's own fail-safe decides what to do, which is the honest shape: a feedback
+// record that could not be written must not be reported as written.
+export async function appendFeedback(record, { client } = {}) {
+  return appendFeedbackRecord(record, { client });
 }
 
 // ── Out-of-band delivery bookkeeping ─────────────────────────────────────────
@@ -279,7 +286,7 @@ export function wasDeliveredOutOfBand(pending) {
 export const RELAY_MAX_AGE_MS = 90_000;
 export const OUT_OF_BAND_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function sweepStalePending({ now, sessionId, maxAgeMs = RELAY_MAX_AGE_MS, outOfBandMaxAgeMs = OUT_OF_BAND_MAX_AGE_MS } = {}) {
+export async function sweepStalePending({ now, sessionId, maxAgeMs = RELAY_MAX_AGE_MS, outOfBandMaxAgeMs = OUT_OF_BAND_MAX_AGE_MS } = {}) {
   const pending = readPending(sessionId);
   if (!pending || !pending.askedAt) return { swept: false, records: [] };
   const outOfBand = wasDeliveredOutOfBand(pending);
@@ -303,7 +310,7 @@ export function sweepStalePending({ now, sessionId, maxAgeMs = RELAY_MAX_AGE_MS,
       delivered_via: deliveredVia,
       at: now || new Date().toISOString(),
     });
-    appendFeedbackSync(rec);
+    await appendFeedback(rec);
     records.push(rec);
   }
   clearPending(pending.session_id);
@@ -326,7 +333,7 @@ export function sweepStalePending({ now, sessionId, maxAgeMs = RELAY_MAX_AGE_MS,
  * up to four, and losing three because one was answered from a phone would be a
  * worse bug than the one this path fixes.
  */
-export function recordProbeAnswer({ pendingId, questionIndex = 0, answer, now, deliveredVia = "out-of-band" } = {}) {
+export async function recordProbeAnswer({ pendingId, questionIndex = 0, answer, now, deliveredVia = "out-of-band" } = {}) {
   const pending = findPendingById(pendingId);
   if (!pending) return { ok: false, code: "not-found" };
   const questions = Array.isArray(pending.questions) ? pending.questions : [];
@@ -347,7 +354,7 @@ export function recordProbeAnswer({ pendingId, questionIndex = 0, answer, now, d
     delivered_via: deliveredVia,
     at,
   });
-  appendFeedbackSync(record);
+  await appendFeedback(record);
   const remaining = questions.filter((_, i) => i !== idx);
   if (remaining.length) {
     writePending({ ...pending, questions: remaining });

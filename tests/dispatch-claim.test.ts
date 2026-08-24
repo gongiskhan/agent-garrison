@@ -4,7 +4,7 @@
 // same card, or whether a card can be stranded on a dead one. They are pure
 // functions precisely so they can be tested without a board, a worker, or a Mac.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   claimability,
   findExpiredClaims,
@@ -18,6 +18,19 @@ import {
   type CardDispatch,
   type ClaimableCard
 } from "@/lib/dispatch";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const NOW = Date.parse("2026-07-27T12:00:00.000Z");
 const MACHINE = "goncalos-mac-mini-1";

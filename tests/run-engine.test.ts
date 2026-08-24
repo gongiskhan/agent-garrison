@@ -2,7 +2,7 @@
 // durable gate-evidence transitions (D9), rail fast-forward + per-card phase
 // toggles (D17), engine-owned list locks (D16 API side), the in-process
 // library entry (D13), and the board schema migrations.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -38,6 +38,24 @@ import { atomicWriteJSON, loadCard, BOARD_VERSION } from "../fittings/seed/kanba
 // @ts-ignore pure mjs
 import { compilePolicy, stableStringify } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState, seedCard } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// Fixed-ULID fixtures are reused across tests in this file; a per-test wipe gives
+// each one the fresh board its own tmp root used to give it.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
+
 const ROOT = path.resolve(__dirname, "..");
 const SEED_CONFIG = path.join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
 
@@ -70,7 +88,7 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
     ...overrides
   };
   mkdirSync(path.join(root, "cards", card.id), { recursive: true });
-  await atomicWriteJSON(path.join(root, "cards", card.id, "card.json"), card);
+  await seedCard(card);
   return card;
 }
 

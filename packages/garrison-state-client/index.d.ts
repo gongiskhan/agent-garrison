@@ -182,6 +182,7 @@ export class StateClient {
   appendFeedback(input: { id?: string; kind?: string; area?: string; sessionId?: string; payload?: Record<string, unknown>; legacyKey?: string }): Promise<{ id: string; seq: number }>;
   listFeedback(params?: { sinceSeq?: number; limit?: number; includeTombstoned?: boolean }): Promise<any[]>;
   tombstoneFeedback(target: string, reason?: string): Promise<{ seq: number }>;
+  listFeedbackTombstones(limit?: number): Promise<{ seq: number; target: string; at: string; node: string; reason: string | null }[]>;
 
   appendPaymasterUsage(input: { account: string; platform?: string; tokens?: Record<string, unknown>; headers?: Record<string, unknown> }): Promise<{ ok: boolean }>;
   listPaymasterUsage(params?: { account?: string; since?: string; limit?: number }): Promise<any[]>;

@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, createCard, updateCardCAS } from "../lib/board.mjs";
+import { kanbanRoot, atomicWriteJSON, loadBoard, saveBoard, loadAllCards, createCard, updateCardCAS } from "../lib/board.mjs";
 import { normaliseCardSchedule } from "../lib/schedules.mjs";
 import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
@@ -589,10 +589,13 @@ async function setup() {
   console.log("kanban-loop: personal workspace ready at", personalWorkspace);
   const root = kanbanRoot();
   await fs.mkdir(path.join(root, "cards"), { recursive: true });
-  const boardFile = path.join(root, "board.json");
-  if (!existsSync(boardFile)) {
-    await atomicWriteJSON(boardFile, resolveSeedBoard(root));
-    console.log("kanban-loop: seeded board at", boardFile);
+  // The board layout is a shared document in the state service now, so its
+  // presence is a read, not an existsSync. Seed-or-migrate-never-clobber is
+  // unchanged: an existing layout is reconciled, never overwritten.
+  const seeded = await loadBoard(root).catch(() => null);
+  if (!seeded) {
+    await saveBoard(resolveSeedBoard(root), root);
+    console.log("kanban-loop: seeded board layout");
   } else {
     // RECONCILE an existing board's phase-list definitions to the current resolved
     // model (D15): add/drop selected duties and refresh engine-owned mechanics even
@@ -601,21 +604,20 @@ async function setup() {
     // (membership is derived from card files); any card stranded on a removed list
     // is relocated to needs-attention. No model on disk → leave the board untouched.
     const model = loadResolvedModel(root);
-    const existing = model ? await loadBoard(root).catch(() => null) : null;
+    const existing = model ? seeded : null;
     if (model && existing) {
       const { board, removed, added, updated } = reconcileExistingBoard(existing, model);
       if (removed.length || added.length || updated.length) {
-        await atomicWriteJSON(boardFile, board);
+        await saveBoard(board, root);
         const moved = await relocateStrandedCards(root, board, removed);
         console.log(
-          `kanban-loop: reconciled board (+[${added.join(", ")}] -[${removed.join(", ")}] ~[${updated.join(", ")}]${moved.length ? `, moved ${moved.length} stranded card(s) to needs-attention` : ""}) at`,
-          boardFile
+          `kanban-loop: reconciled board layout (+[${added.join(", ")}] -[${removed.join(", ")}] ~[${updated.join(", ")}]${moved.length ? `, moved ${moved.length} stranded card(s) to needs-attention` : ""})`
         );
       } else {
-        console.log("kanban-loop: board up to date with the resolved model at", boardFile);
+        console.log("kanban-loop: board layout up to date with the resolved model");
       }
     } else {
-      console.log("kanban-loop: board exists at", boardFile);
+      console.log("kanban-loop: board layout exists");
     }
   }
   const board = await loadBoard(root);

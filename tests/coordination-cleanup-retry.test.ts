@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -14,6 +14,19 @@ import {
   repairPendingCoordinationCleanups
   // @ts-ignore — pure .mjs
 } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 process.env.GARRISON_HOME = mkdtempSync(join(tmpdir(), "coord-cleanup-home-"));
 

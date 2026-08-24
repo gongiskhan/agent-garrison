@@ -3,9 +3,10 @@
 // GARRISON_COMPOSITION_DIR must be set before importing this module.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, mkdirSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createStateClient } from "./state-client.mjs";
 
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 
@@ -440,28 +441,66 @@ function callScript(scriptPath, input, timeoutMs) {
 }
 
 // ── Improver Probe capture-fallback (GARRISON-FLOW-V2 S8, D26/E13) ───────────
-// Append ONE probe answer to ~/.garrison/improver/feedback-queue.jsonl directly.
-// Same queue + D26 schema the PostToolUse capture and the gateway override writer
-// use; a single O_APPEND write per record keeps concurrent appends from
-// interleaving. This is the belt for surfaces without a PostToolUse hook.
-export async function callRecordImproverFeedback(input) {
+// Record ONE probe answer into the shared feedback queue — the state service's
+// `feedback_queue` since mesh phase 2 (§4.5), where it used to be
+// ~/.garrison/improver/feedback-queue.jsonl. Same D26 schema the PostToolUse
+// capture and the gateway override writer use, and the payload is that record
+// verbatim. This is the belt for surfaces without a PostToolUse hook.
+//
+// It now stamps an id, which it never did on the file: the id is what makes a
+// record deletable from the Signals view. FORMAT SOURCE OF TRUTH:
+// improver/lib/feedback-signals.mjs `mintFeedbackId` —
+// `fq-<9 chars base36 millis>-<8 hex random>`, replicated rather than imported
+// because that module lives in another fitting and cross-fitting imports break
+// containment (the same reason the gateway's writer replicates it).
+//
+// FAILS LOUD: no local fallback file. A feedback loop that silently splits in
+// two is worse than one that stops and says so.
+function mintFeedbackId(at) {
+  const parsed = Date.parse(at ?? "");
+  const ms = Number.isFinite(parsed) ? parsed : Date.now();
+  const stamp = Math.max(0, ms).toString(36).padStart(9, "0").slice(-9);
+  const bytes = new Uint8Array(4);
+  globalThis.crypto.getRandomValues(bytes);
+  const rand = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `fq-${stamp}-${rand}`;
+}
+
+let cachedStateClient = null;
+function stateClient(client = null) {
+  if (client) return client;
+  cachedStateClient ??= createStateClient({ readFileSync });
+  return cachedStateClient;
+}
+
+/** Drop the cached client (token rotation, tests). */
+export function resetFeedbackClient() {
+  cachedStateClient = null;
+}
+
+export async function callRecordImproverFeedback(input, { client } = {}) {
   const { session_id, area, question, answer } = input || {};
   if (!area || !question || answer == null) {
     throw new Error("record_improver_feedback requires area, question, answer");
   }
-  const home = process.env.GARRISON_HOME ?? path.join(os.homedir(), ".garrison");
-  const file = path.join(home, "improver", "feedback-queue.jsonl");
+  const at = new Date().toISOString();
   const rec = {};
+  rec.id = mintFeedbackId(at);
   if (session_id != null && String(session_id).length) rec.session_id = String(session_id);
   rec.area = String(area);
   rec.question = String(question);
   rec.answer = String(answer);
-  rec.timestamp = new Date().toISOString();
+  rec.timestamp = at;
   rec.provenance = "probe";
   rec.classification = { kind: null, tier: null, plan: null };
-  mkdirSync(path.dirname(file), { recursive: true });
-  appendFileSync(file, JSON.stringify(rec) + "\n", { encoding: "utf8", flag: "a" });
-  return { recorded: true, queue: file };
+  const { id, seq } = await stateClient(client).appendFeedback({
+    id: rec.id,
+    kind: rec.provenance,
+    area: rec.area,
+    ...(rec.session_id ? { sessionId: rec.session_id } : {}),
+    payload: rec
+  });
+  return { recorded: true, id, seq };
 }
 
 export async function callClassifyTier(input) {

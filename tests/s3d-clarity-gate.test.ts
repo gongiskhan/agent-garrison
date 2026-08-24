@@ -43,6 +43,19 @@ import { resolveDiscussInterception, pickPendingQuestion, isAffirmativeGo } from
 import { parseCompositionV4 } from "../src/lib/compositions";
 import { computeKanbanResolvedModel } from "../src/lib/kanban-model";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 // A dispatch model (duties-and-levels) the pure core reads.
 const dispModel: any = {
   duties: { code: { id: "code", title: "Code", description: "code", levels: [{ description: "l1", cell: {} }, { description: "l2", cell: {} }] } },

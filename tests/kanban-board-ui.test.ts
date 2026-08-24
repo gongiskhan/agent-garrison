@@ -17,6 +17,19 @@ import { realpathSync, symlinkSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 // The server imports @garrison/claude-pty (paths helper). Point the transcript
 // dir at a sandbox so the resolver is deterministic and never touches ~/.claude.
 const TMP = path.join(os.tmpdir(), `kanban-ui-test-${process.pid}-${Date.now()}`);

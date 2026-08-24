@@ -182,10 +182,12 @@ async function discoverTools() {
   }
 
   // Improver Probe capture-fallback (GARRISON-FLOW-V2 S8, D26/E13). Always
-  // available: it writes directly to ~/.garrison/improver/feedback-queue.jsonl, so
-  // it does not depend on garrison-control (the http gateway). The PostToolUse
+  // available: it records straight into the state service's feedback queue, so it
+  // does not depend on garrison-control (the http gateway). The PostToolUse
   // AskUserQuestion capture is the primary path; this tool is the belt for surfaces
-  // that carry no PostToolUse hook.
+  // that carry no PostToolUse hook. It needs GARRISON_STATE_URL/_TOKEN (or a
+  // readable $GARRISON_HOME/state.json) in this process's env — an MCP server
+  // started by Claude Code inherits CLAUDE's env, not a fitting's.
   tools.push({
     name: "record_improver_feedback",
     description:

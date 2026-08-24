@@ -1,6 +1,6 @@
 // GARRISON-FLOW-V2 S1 (Q1/Q2/Q8) — touch-set schema + overlap scorer + repo
 // resolver + serialize gate. Pure-function coverage; no board/engine driving.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 // Policy-less mode (no compiled policy) — coordinationConfig then yields the code
 // defaults, matching how the engine runs when the composer hasn't surfaced the
@@ -14,6 +14,19 @@ import { join } from "node:path";
 import { scoreOverlap, validateTouchSet, readTouchSet, inspectTouchSet, touchSetValidationIssue, coordinationConfig, DEFAULT_COORDINATION, repoPathForProject, serializeGate } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const ts = (o: any) => ({ version: 1, files: [], dirs: [], surfaces: [], exclusive: [], ...o });
 

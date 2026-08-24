@@ -42,7 +42,7 @@ describe("failed runner up claim cleanup", () => {
   });
 
   it("preserves a prior same-profile owner and its env on failed re-entry", async () => {
-    process.env.GARRISON_INSTANCE_ID = "prod";
+    process.env.GARRISON_INSTANCE_ID = "node";
     const dir = sandbox();
     await claimComposition(dir, "glm");
     const reentry = await claimCompositionForLaunch(dir, "glm");
@@ -56,7 +56,7 @@ describe("failed runner up claim cleanup", () => {
       )
     ).toEqual([]);
     expect(existsSync(path.join(dir, ".env"))).toBe(true);
-    expect((await readCompositionOwner(dir))?.instanceId).toBe("prod");
+    expect((await readCompositionOwner(dir))?.instanceId).toBe("node");
   });
 
   it("preserves a fresh claim while any launched resource may still be live", async () => {

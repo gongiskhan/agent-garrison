@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, beforeAll } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -22,6 +22,19 @@ import { createCard, saveCardCAS, saveCardCASWithHooks } from "../fittings/seed/
 import { processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore - pure ESM .mjs
 import { buildPersonalCompletionPacket, enqueuePersonalCompletion, personalCompletionPacketFile, personalCompletionPacketsDir, reconcilePersonalCompletionOutbox } from "../fittings/seed/kanban-loop/lib/personal-memory-outbox.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 afterAll(() => {
   for (const root of ROOTS) rmSync(root, { recursive: true, force: true });

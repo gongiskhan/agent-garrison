@@ -11,7 +11,7 @@
 // convergence cap and mint a runDir on the wrong machine while the card just
 // sits there waiting to be claimed.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 import { mkdtempSync } from "node:fs";
@@ -25,6 +25,19 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 import { createCard, loadCard, normalisePlacement } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-placement-"));

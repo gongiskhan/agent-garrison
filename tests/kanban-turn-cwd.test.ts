@@ -11,7 +11,7 @@
 // silently change their behaviour. `routing.project` is the pinned-intent channel the
 // gateway validates at the edge and resolves to a git repo under the dev root — and an
 // unresolvable name is REJECTED rather than silently run in the composition dir.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -28,6 +28,19 @@ import { batchGatewayRunFn } from "../fittings/seed/kanban-loop/scripts/kanban.m
 import { sanitizeRouting } from "../fittings/seed/http-gateway/scripts/gateway-pty.mjs";
 // @ts-ignore pure mjs
 import { applyTurnOverride } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // A gateway stub that captures ONE request body and returns a minimal SSE turn.
 async function captureBody(run: (url: string) => Promise<unknown>, response?: string): Promise<any> {

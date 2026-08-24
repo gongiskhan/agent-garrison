@@ -6,7 +6,7 @@
 // editing an agent-only field on a manual list), plus the structure invariant
 // (id/order/kind never change). Hermetic — no socket, no filesystem.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -17,6 +17,19 @@ process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState, seedBoardLayout } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // Plain ESM .mjs with no .d.ts — import via a non-literal specifier so tsc
 // treats it as `any` (same convention as tests/kanban-board-ui.test.ts).
@@ -263,7 +276,7 @@ describe("isValidListId", () => {
 describe("saveBoardCAS — board-rev compare-and-swap (no lost update)", () => {
   it("two concurrent same-rev edits: exactly one wins, the other conflicts, rev advances once", async () => {
     const root = mkdtempSync(join(tmpdir(), "kanban-cas-"));
-    await atomicWriteJSON(`${root}/board.json`, fakeBoard()); // rev undefined → treated as 0
+    await seedBoardLayout(fakeBoard()); // rev undefined → treated as 0
     const [a, b] = await Promise.all([
       saveBoardCAS(root, 0, (board: any) => applyListConfig(board, "plan", { title: "A" })),
       saveBoardCAS(root, 0, (board: any) => applyListConfig(board, "plan", { title: "B" }))
@@ -276,7 +289,7 @@ describe("saveBoardCAS — board-rev compare-and-swap (no lost update)", () => {
 
   it("a stale expectedRev conflicts; a fresh one succeeds", async () => {
     const root = mkdtempSync(join(tmpdir(), "kanban-cas2-"));
-    await atomicWriteJSON(`${root}/board.json`, fakeBoard());
+    await seedBoardLayout(fakeBoard());
     const first = await saveBoardCAS(root, 0, (board: any) => applyListConfig(board, "plan", { title: "First" }));
     expect(first.ok).toBe(true);
     expect(first.rev).toBe(1);

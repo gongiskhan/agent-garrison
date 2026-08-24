@@ -35,6 +35,7 @@ import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/pro
 import os from "node:os";
 import path from "node:path";
 import { LiveEventStreamRegistry } from "../lib/live-event-stream.mjs";
+import { noteThread, forgetThread } from "../lib/thread-registry.mjs";
 
 function garrisonDir() {
   const override = process.env.GARRISON_HOME?.trim();
@@ -81,6 +82,11 @@ async function atomicWriteJson(file, obj) {
   const tmp = `${file}.${process.pid}.${Date.now()}.${(tmpSeq = (tmpSeq + 1) % 1e6)}.tmp`;
   await writeFile(tmp, JSON.stringify(obj, null, 2), "utf8");
   await rename(tmp, file);
+  // Mirror this thread's METADATA into the mesh registry (debounced, capped,
+  // best-effort). Messages never leave this node — see lib/thread-registry.mjs.
+  if (file.startsWith(THREADS_DIR)) {
+    try { void noteThread(obj, toMeta(obj)); } catch { /* the transcript write already landed */ }
+  }
 }
 
 // Atomic rename prevents a torn JSON file, but it does not make two independent
@@ -1879,6 +1885,7 @@ export async function deleteThread(id) {
     )) return false;
     try {
       await unlink(threadPath(safe));
+      void forgetThread(safe);
       return true;
     } catch {
       return false;

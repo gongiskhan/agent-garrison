@@ -48,6 +48,19 @@ import { saveBoard, createCard, loadCard, updateCardCAS } from "../fittings/seed
 // @ts-ignore
 import { acquireLeases, registerTouchSetIntent } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 // ── git helpers (same shape as tests/coordination-attribution.test.ts) ──
 function git(repo: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" });

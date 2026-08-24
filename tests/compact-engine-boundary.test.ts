@@ -2,7 +2,7 @@
 // composition -> resolved model -> board reader, the dispatch carries the
 // contextHold + dutyKey route hints, and a genuine advance fires the gateway's
 // duty-boundary check with the card's focus context.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 // Policy-less transition mechanics + a sandboxed runs home (mirrors the other
 // engine tests so nothing touches the real ~/.garrison).
@@ -21,6 +21,19 @@ import { processCard, focusContextForCard } from "../fittings/seed/kanban-loop/l
 import { createCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard, phaseTemplatesFrom } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const tmp = () => mkdtempSync(join(tmpdir(), "compact-engine-"));
 const templates = () => phaseTemplatesFrom(seedBoard());

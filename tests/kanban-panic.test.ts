@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
 import http from "node:http";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +14,24 @@ import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 import { liveSessionPointerFile } from "../fittings/seed/kanban-loop/lib/live-session.mjs";
 // @ts-ignore fitting modules are plain ESM
 import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState, seedCard } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// Fixed-ULID fixtures are reused across tests in this file; a per-test wipe gives
+// each one the fresh board its own tmp root used to give it.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const roots: string[] = [];
 
@@ -57,8 +75,10 @@ async function putCard(root: string, id: string, overrides: Record<string, unkno
     goalMode: false,
     ...overrides
   };
-  await atomicWriteJSON(path.join(root, "cards", id, "card.json"), card);
-  return card;
+  // The store assigns the revision (a create always lands at 0), so hand back
+  // what it actually holds rather than the fixture's wish.
+  const stored = await seedCard(card);
+  return { ...card, rev: stored.rev, position: stored.position };
 }
 
 async function listen(server: http.Server) {
@@ -389,7 +409,7 @@ describe("POST /cards/:id/panic", () => {
       expect(interruptBody).toEqual({ cardId: card.id });
       // A separate endpoint write would bump rev and race processCard's terminal
       // CAS. Panic only signals; the active engine turn owns the eventual park.
-      expect(await loadCard(root, card.id)).toMatchObject({ status: "running", list: "plan", rev: 7, runSeq: 3 });
+      expect(await loadCard(root, card.id)).toMatchObject({ status: "running", list: "plan", rev: card.rev, runSeq: 3 });
     } finally {
       await close(server);
       await close(gateway);

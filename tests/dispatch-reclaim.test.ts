@@ -14,7 +14,7 @@
 //     locally or matches an unrelated local process. Either way it would reclaim
 //     a card a worker is actively heartbeating on, and then two machines run it.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 import { mkdtempSync } from "node:fs";
@@ -36,6 +36,19 @@ import { sweepExpiredDispatchClaims, isOrphanedRun } from "../fittings/seed/kanb
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, saveCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
 import { DISPATCH_LEASE_SECONDS as APP_LEASE } from "@/lib/dispatch";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const NOW = Date.parse("2026-07-29T12:00:00.000Z");
 const MACHINE = "goncalos-mac-mini-1";

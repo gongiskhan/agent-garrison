@@ -3,7 +3,7 @@
 // the push service accepts and the phone silently discards, which is
 // indistinguishable from "notifications just don't work". So the encryption
 // chain is round-tripped, and the VAPID JWT is verified with a real public key.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import crypto from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -17,6 +17,19 @@ import {
   decryptPayload,
   sendPush
 } from "../fittings/seed/web-channel-default/lib/webpush.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // Stand in for a browser's PushSubscription: a P-256 keypair plus a 16-byte
 // auth secret, exactly what the Push API hands the page.

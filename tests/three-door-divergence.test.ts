@@ -27,7 +27,7 @@ const KANBAN_DIR = mkdtempSync(join(tmpdir(), "three-door-kanban-"));
 mkdirSync(KANBAN_DIR, { recursive: true });
 process.env.GARRISON_KANBAN_DIR = KANBAN_DIR;
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, afterAll } from "vitest";
 
 import { writeKanbanResolvedModel } from "@/lib/kanban-model";
 import { buildControlModel, resolvedSequenceFrom } from "@/lib/garrison-control";
@@ -38,6 +38,19 @@ import { loadResolvedModel, resolveCardSequence } from "../fittings/seed/kanban-
 import { RoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs dispatch core (door 1's real dispatch path)
 import * as dispatchCore from "../fittings/seed/orchestrator/lib/dispatch-core.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // The develop composite (level 2 = the full inner pipeline) + its leaf steps.
 const leaf = (id: string): DutySpec => ({

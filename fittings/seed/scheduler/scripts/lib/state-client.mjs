@@ -295,6 +295,10 @@ export class StateClient {
     return this.request("GET", `/v1/feedback?${q}`).then((r) => r.feedback);
   }
   tombstoneFeedback(target, reason) { return this.request("POST", "/v1/feedback/tombstones", { body: { target, reason } }); }
+  listFeedbackTombstones(limit) {
+    const q = limit ? `?limit=${limit}` : "";
+    return this.request("GET", `/v1/feedback/tombstones${q}`).then((r) => r.tombstones);
+  }
 
   // ── paymaster ──
   appendPaymasterUsage(input) { return this.request("POST", "/v1/paymaster/usage", { body: input }); }

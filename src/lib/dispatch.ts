@@ -6,25 +6,28 @@
 // pushes RPC to a Mac) stays for ad-hoc ops and is untouched here.
 //
 // SPLIT OF RESPONSIBILITY
-//   reads  — straight off disk (cards/<id>/card.json), the same convention
-//            board-summary.ts uses, so listing claimable work does not depend
-//            on the board's server process being up.
+//   reads  — from the STATE SERVICE, which owns the cards. Listing claimable
+//            work therefore does not depend on the board's server process being
+//            up, exactly as reading card files did not.
 //   writes — through the board's own HTTP API with `x-garrison-engine`, so every
 //            mutation goes through saveCardCAS. That is the single write choke
 //            point: terminal-edge side effects (handoff generation, routing,
-//            steering) fire there. A second writer poking card.json directly
+//            steering) fire there. A second writer going straight to the store
 //            would silently skip all of it and race the engine's own CAS.
 //
 // WHY rev-CAS AND NOT THE CARD LOCK
 // The board's per-card `.lock` carries a pid and checks liveness with a local
 // `kill(pid, 0)` — meaningless for a pid on another machine, where it may well
 // collide with an unrelated local process. Cross-host mutual exclusion rides
-// the card's `rev` compare-and-swap instead, which is machine-agnostic.
+// the card's `rev` compare-and-swap instead, which is machine-agnostic — plus,
+// since the mesh, a fenced `dispatch:<cardId>` lease (see below), because a TTL
+// alone still lets a stalled holder wake past expiry and write.
 
 import path from "node:path";
 import { mkdir, open, readdir, readFile } from "node:fs/promises";
 import { garrisonDir } from "./claude-home";
 import { HOST_TARGET } from "./dispatch-machines";
+import { stateClient } from "./state-client";
 
 // How long a claim survives without a heartbeat before the card is reclaimed.
 // Generous relative to the worker's own beat (see DISPATCH_HEARTBEAT_SECONDS):
@@ -259,24 +262,22 @@ function parseCard(raw: unknown): ClaimableCard | null {
 }
 
 export async function readAllCards(): Promise<ClaimableCard[]> {
-  const cardsDir = path.join(kanbanBoardDir(), "cards");
-  let ids: string[];
-  try {
-    ids = await readdir(cardsDir);
-  } catch {
-    return [];
-  }
-  const reads = await Promise.all(
-    ids.map(async (id) => {
-      try {
-        return parseCard(JSON.parse(await readFile(path.join(cardsDir, id, "card.json"), "utf8")));
-      } catch {
-        // One unreadable card never takes dispatch down.
-        return null;
-      }
-    })
-  );
-  return reads.filter((card): card is ClaimableCard => card !== null);
+  const client = stateClient();
+  const rows = await client.listCards();
+  return rows
+    .map((row) => parseCard(localisePlacement(row, client.node)))
+    .filter((card): card is ClaimableCard => card !== null);
+}
+
+// The store never holds `host` — it has no referent once several machines run
+// Garrison — so a card meant to run here carries THIS node's name. Read it back
+// as `host` so claimability keeps its one meaning: "not for a remote worker".
+// A target naming any other node crosses verbatim. (board.mjs does the same
+// translation on the fitting side; this is the shell's half.)
+function localisePlacement(row: any, self: string | null): unknown {
+  const target = row?.placement?.target;
+  if (!self || typeof target !== "string" || target !== self) return row;
+  return { ...row, placement: { ...row.placement, target: HOST_TARGET } };
 }
 
 // Has this claim gone quiet past its lease?
@@ -465,9 +466,9 @@ export async function validTransitionsForCard(card: ClaimableCard): Promise<stri
   const resolved = validTransitionsFromSequence(card);
   if (resolved.length) return resolved;
   try {
-    const board = JSON.parse(await readFile(path.join(kanbanBoardDir(), "board.json"), "utf8")) as {
-      lists?: Array<{ id?: unknown; validNext?: unknown }>;
-    };
+    const doc = await stateClient().getConfig("board.layout", "global");
+    const board = (doc?.body ?? null) as { lists?: Array<{ id?: unknown; validNext?: unknown }> } | null;
+    if (!board) return [];
     const list = (board.lists ?? []).find((item) => item.id === card.list);
     return Array.isArray(list?.validNext)
       ? list!.validNext.filter((item): item is string => typeof item === "string" && item.length > 0)
@@ -535,6 +536,50 @@ export async function reserveDispatchLog(cardId: string): Promise<number> {
     }
   }
   throw new Error(`could not reserve a dispatch log for ${cardId}`);
+}
+
+// ── the claim lease ──────────────────────────────────────────────────────────
+
+// A rev CAS decides who wins a simultaneous claim; it says nothing about a
+// holder that went quiet and then woke up. So a claim also takes the store's
+// `dispatch:<cardId>` lease, whose grant carries a monotonic FENCE. The claim
+// records that fence on the card as `leaseFence`, and every later write from
+// that claim carries it — a write whose fence is lower than the one the card
+// records is refused. No pid is consulted anywhere.
+export interface DispatchLease {
+  fence: number;
+  holderToken: string;
+  expiresAt: string;
+}
+
+export function dispatchLeaseKey(cardId: string): string {
+  return `dispatch:${cardId}`;
+}
+
+/** Null when another holder still owns the lease — the honest answer is "idle". */
+export async function acquireDispatchLease(cardId: string, holder: string): Promise<DispatchLease | null> {
+  const grant = await stateClient().acquireLease({
+    key: dispatchLeaseKey(cardId),
+    holder,
+    ttlMs: DISPATCH_LEASE_SECONDS * 1000,
+    meta: { cardId }
+  });
+  if (!grant.granted || typeof grant.fence !== "number" || !grant.holderToken) return null;
+  return { fence: grant.fence, holderToken: grant.holderToken, expiresAt: grant.expiresAt ?? "" };
+}
+
+export async function renewDispatchLease(cardId: string, holderToken: string): Promise<boolean> {
+  const res = await stateClient().renewLease({
+    key: dispatchLeaseKey(cardId),
+    holderToken,
+    ttlMs: DISPATCH_LEASE_SECONDS * 1000
+  });
+  return res.renewed === true;
+}
+
+export async function releaseDispatchLease(cardId: string, holderToken: string): Promise<boolean> {
+  const res = await stateClient().releaseLease({ key: dispatchLeaseKey(cardId), holderToken });
+  return res.released === true;
 }
 
 // ── board writes ─────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 // a hardcoded column set), and a card walks EXACTLY its (duty, level) resolved
 // sequence, skipping every list not on it. These tests cross-check the fitting's
 // board derivation + card-sequence flow against the Resolver (src/lib/resolver.ts).
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 
 // Policy-less mode (pure transition mechanics; the gate-evidence path is covered
 // elsewhere) + a sandboxed runs home so nothing touches the real ~/.garrison.
@@ -29,6 +29,25 @@ import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, ge
 import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { LEGACY_DEFAULT_PHASE_PROMPTS, seedBoard, phaseTemplatesFrom, reconcileExistingBoard, relocateStrandedCards } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// The card store is shared by every test in this file now, where a fresh tmp root
+// used to isolate them; wipe it between tests so one test's cards can never show
+// up in another's sweep, batch, or board read.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-resolved-"));
 

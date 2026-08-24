@@ -77,6 +77,13 @@ import {
   jobDescription,
   prepareClaimForAcknowledgement
 } from "./lib/job-ingress.mjs";
+import {
+  announceSession,
+  touchSession,
+  openGeneration as announceGenerationOpen,
+  closeGeneration as announceGenerationClose,
+  endSession
+} from "./lib/session-registry.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
@@ -1151,6 +1158,7 @@ async function spawnOperative({ resume = true } = {}) {
   await markPriorSession();
   startAskWatcher();
   logEvent("stdout", { kind: "ready", session_id: session.getClaudeSessionId(), continued: continueSession });
+  void touchSession(SESSION_LOG_RUN, "idle", { runtime: primaryRuntime() });
   readyResolve();
 }
 
@@ -4000,6 +4008,11 @@ function enqueueTurn(message, onChunk, hints, opts = {}) {
   // its resolved lane demands it (see the per-lane queues in gateway-routing and
   // the operative gate above).
   const runP = runTurn(message, onChunk, hints, opts);
+  // Mesh session registry: every lane's turn passes through here, so this is the
+  // one place the run is honestly "busy". The registry counts overlapping turns,
+  // so the row only returns to idle when the LAST one settles.
+  void announceGenerationOpen(SESSION_LOG_RUN);
+  runP.then(() => announceGenerationClose(SESSION_LOG_RUN), () => announceGenerationClose(SESSION_LOG_RUN));
   // Turn-boundary compaction check (S1b): only the standing claude-code
   // operative accumulates context across turns (maybeCompact self-filters), so
   // the check queues on the OPERATIVE lane - it must never overlap an operative
@@ -4826,9 +4839,11 @@ const server = http.createServer(async (request, response) => {
         original: body.original ?? null,
         applied: body.applied ?? null,
       });
-      const file = await appendFeedback(record);
+      // The queue is the state service now, so what comes back is the row's
+      // {id, seq}, not a path — reported as such rather than dressed up as one.
+      const { id, seq } = await appendFeedback(record);
       logEvent("stdout", { kind: "override-feedback", via: "endpoint", session_id: record.session_id ?? null });
-      sendJson(response, 200, { ok: true, recorded: true, path: file });
+      sendJson(response, 200, { ok: true, recorded: true, id, seq });
       return;
     }
 
@@ -4998,6 +5013,16 @@ async function main() {
       domain: "lifecycle", kind: "run-start",
       payload: { composition: COMPOSITION_ID, port: PORT, model: MODEL, engine: "pty" },
     });
+    // Mesh session registry (metadata only): this run becomes visible to peers
+    // the moment it is listening, not once the operative is warm.
+    void announceSession({
+      id: SESSION_LOG_RUN,
+      compositionId: COMPOSITION_ID,
+      runtime: primaryRuntime(),
+      model: MODEL,
+      cwd: COMPOSITION_DIR,
+      status: "starting",
+    });
     logEvent("stdout", {
       kind: "listening",
       host: HOST,
@@ -5010,6 +5035,7 @@ async function main() {
     (async () => {
       const attempt = async () => {
         if (ROUTING_ENABLED && (await initRouting())) {
+          void touchSession(SESSION_LOG_RUN, "idle", { runtime: primaryRuntime() });
           readyResolve();
           return;
         }
@@ -5042,6 +5068,7 @@ async function main() {
         ptyStatus = "failed";
         ptyError = finalErr.message;
         logEvent("stderr", { kind: "spawn-failed", error: finalErr.message });
+        void touchSession(SESSION_LOG_RUN, "failed");
         // Unblock waiters so pending /chat calls fail fast instead of hanging.
         readyResolve();
       }
@@ -5051,6 +5078,11 @@ async function main() {
 
 async function shutdown(signal) {
   logEvent("stdout", { kind: "shutdown", signal });
+  // Close the registry row. Started FIRST so it overlaps the seconds spent
+  // letting claude persist its conversation, and awaited below so the write
+  // actually lands before the process exits — a run left reading "running"
+  // forever is exactly the lie the nightly convergence check would trip over.
+  const registryClosed = endSession(SESSION_LOG_RUN, "ended");
   // Give claude a chance to persist the conversation (so a restart can
   // --continue with context): double Ctrl-C exits the TUI cleanly. Then kill.
   try {
@@ -5078,6 +5110,7 @@ async function shutdown(signal) {
   } catch {
     /* ignore */
   }
+  await registryClosed; // never rejects; bounded by the client's own timeout
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 5000).unref();
 }

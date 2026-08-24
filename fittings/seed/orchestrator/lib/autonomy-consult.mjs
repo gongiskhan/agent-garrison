@@ -21,19 +21,25 @@
 // design exists to prevent.
 //
 // Everything here is DERIVED. There is no counter, no accumulated state, no
-// cache of a band: every call re-folds the two append-only logs from disk. These
-// are dispatch-time calls (one per routed turn, already behind a model call), so
-// correctness beats cleverness and nothing here is optimised.
+// cache of a band: every call re-folds the two append-only logs. The feedback
+// queue moved into the state service (mesh phase 2, §4.5) and is read through
+// GET /v1/feedback, which drops tombstoned rows in SQL; the decisions log is
+// high-volume audit and stays node-local. These are dispatch-time calls (one per
+// routed turn, already behind a model call), so correctness beats cleverness and
+// nothing here is optimised.
 //
 // The ONE piece of state is the ask budget - a dated counter of questions
 // actually posed - and it lives in its own tiny file so deleting it resets the
 // day rather than corrupting the evidence.
 
 import fs from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+
+import { createStateClient } from "./state-client.mjs";
 
 import {
   CATEGORIES,
@@ -52,16 +58,19 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The shipped cold-start seed. A composition's own copy overrides it. */
 const SHIPPED_SEED_PATH = path.join(HERE, "..", "config", "autonomy-seed.json");
 
-/** Where each log lives, relative to the two roots the caller passes. */
+/** Where each log lives, relative to the two roots the caller passes.
+ *  FEEDBACK_QUEUE_REL is PRE-MESH: the queue is the state service now, and the
+ *  path survives only for a transition read of a leftover `*.pre-mesh` file. */
 export const FEEDBACK_QUEUE_REL = path.join("improver", "feedback-queue.jsonl");
 export const DECISIONS_REL = path.join(".garrison", "decisions.jsonl");
 export const ASK_BUDGET_REL = path.join(".garrison", "ask-budget.json");
 export const SEED_OVERRIDE_REL = path.join(".garrison", "autonomy-seed.json");
 
-/** GARRISON_HOME, resolved the way every other reader of that queue resolves it
- *  (improver/lib/feedback-signals.mjs garrisonHome, probe-store.queuePath, the
- *  gateway's improverQueuePath). All of them must name ONE file or the loop
- *  silently splits into two halves that each look under-evidenced. */
+/** GARRISON_HOME, resolved the way every other reader of that queue resolved it
+ *  before the mesh (improver/lib/feedback-signals.mjs garrisonHome,
+ *  probe-store.queuePath, the gateway's improverQueuePath). One endpoint has
+ *  replaced the four spellings of one path; this stays for the other files that
+ *  still live under the home. */
 export function garrisonHome(explicit = null) {
   const given = typeof explicit === "string" ? explicit.trim() : "";
   if (given) return given;
@@ -167,19 +176,22 @@ function parseJsonl(text) {
   return out;
 }
 
-// ── 2. The delete contract, read side ───────────────────────────────────────
+// ── 2. The delete contract, read side (PRE-MESH parser) ─────────────────────
 //
 // §8.3 needs a wrong inference to be deletable, and the whole point of deriving
 // tracks rather than counting them is that deleting the record deletes its
 // effect on the band. The Signals view's delete appends a tombstone naming the
-// record's key; every reader drops what a tombstone names. A rewrite of the file
-// is not an option - three producers hold it open in O_APPEND.
+// record's key; every reader drops what a tombstone names. That join now runs in
+// the service (GET /v1/feedback), so `readEvidence` above never sees a deleted
+// record and this parser is off the live path.
 //
-// The two key derivations below must stay byte-identical to
-// improver/lib/feedback-signals.mjs (keyForRecord / derivedKeyForLine), the
-// WRITER of those tombstones, and to routing-tracks.ts, the shell's reader.
-// Cross-fitting imports are forbidden, so the FORMAT is the shared thing and the
-// parity tests are what keep the three copies honest.
+// It survives for the one job SQL cannot do: reading a leftover
+// `feedback-queue.jsonl(.pre-mesh)`. Its two key derivations must therefore stay
+// byte-identical to improver/lib/feedback-signals.mjs (keyForRecord /
+// derivedKeyForLine), to routing-tracks.ts, and to the importer that computed
+// the `legacy_key` column for every id-less historical record. Cross-fitting
+// imports are forbidden, so the FORMAT is the shared thing and the parity tests
+// are what keep the copies honest.
 
 export const TOMBSTONE_KIND = "tombstone";
 export const DERIVED_KEY_PREFIX = "raw:";
@@ -264,17 +276,61 @@ async function readJsonTolerant(file) {
   }
 }
 
-/** Read every piece of evidence currently on disk. */
-export async function readEvidence({ compositionDir, garrisonHome: home = null } = {}) {
-  const queueFile = path.join(garrisonHome(home), FEEDBACK_QUEUE_REL);
+// One client per gateway process (this module is dynamically imported into it),
+// built lazily so importing it never requires the node to be enrolled.
+let cachedClient = null;
+function stateClient(client = null) {
+  if (client) return client;
+  cachedClient ??= createStateClient({ readFileSync });
+  return cachedClient;
+}
+
+/** Drop the cached client (token rotation, tests). */
+export function resetFeedbackClient() {
+  cachedClient = null;
+}
+
+const FEEDBACK_READ_LIMIT = 5000;
+const FEEDBACK_PAGE = 500;
+
+/** Every live feedback record, oldest first. The service's reader has already
+ *  dropped the rows a tombstone names — the half this fold depends on, since
+ *  deleting the record is what deletes the inference. */
+async function readFeedbackRecords(client) {
+  const c = stateClient(client);
+  const out = [];
+  let sinceSeq = 0;
+  while (out.length < FEEDBACK_READ_LIMIT) {
+    const size = Math.min(FEEDBACK_PAGE, FEEDBACK_READ_LIMIT - out.length);
+    const page = await c.listFeedback({ sinceSeq, limit: size });
+    if (!page.length) break;
+    for (const row of page) out.push(row.payload ?? {});
+    sinceSeq = page[page.length - 1].seq;
+    // The tombstone join runs in SQL BEFORE the LIMIT, so a short page means the
+    // scan reached the end, not that the rest was filtered away.
+    if (page.length < size) break;
+  }
+  return out;
+}
+
+/**
+ * Read every piece of evidence: the feedback queue from the state service, the
+ * decisions log from the composition directory.
+ *
+ * An unreachable service THROWS rather than folding to zero evidence. The
+ * gateway's `autonomyFor` catches it, logs `autonomy-consult-failed` and FAILS
+ * OPEN — which is the documented behaviour of this seam, and strictly better
+ * than silently computing a band from an evidence set that could not be loaded.
+ */
+export async function readEvidence({ compositionDir, garrisonHome: home = null, client = null } = {}) {
+  void home; // the queue is no longer under the home; kept for call-site compatibility
   const decisionsFile = compositionDir ? path.join(compositionDir, DECISIONS_REL) : null;
   const [verdicts, decisions] = await Promise.all([
-    readTextTolerant(queueFile),
+    readFeedbackRecords(client),
     decisionsFile ? readTextTolerant(decisionsFile) : Promise.resolve("")
   ]);
   const all = [
-    // The feedback queue is the deletable one: this side reads through tombstones.
-    ...parseFeedbackQueue(verdicts).flatMap(evidenceFromVerdict),
+    ...verdicts.flatMap(evidenceFromVerdict),
     ...parseJsonl(decisions).flatMap(evidenceFromDecision)
   ].map((e) => ({ ...e, shape: adoptShape(e.shape) }));
   return collapseBursts(all);

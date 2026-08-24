@@ -1,7 +1,7 @@
 // Adversarial lifecycle locking: the per-card lock is external to cards/<id>,
 // every transition checks existence/rev before running preflight side effects,
 // and Delete cannot unlink a held lock then let a late writer resurrect the card.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +15,19 @@ import {
   saveCardCASWithHooks
   // @ts-ignore — pure .mjs
 } from "../fittings/seed/kanban-loop/lib/board.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-lifecycle-"));
 
@@ -105,7 +118,8 @@ describe("external per-card lifecycle lock", () => {
 
     // This starts while save owns the lifecycle lock. With the historical
     // cards/<id>/.lock location, Delete removed the lock and a late save could
-    // recreate card.json. The external lock forces save-then-delete ordering.
+    // recreate the card. The external lock forces save-then-delete ordering, and
+    // the store's no-resurrection rule is the backstop if it ever did not.
     const deletion = deleteCard(root, card.id);
     release();
 

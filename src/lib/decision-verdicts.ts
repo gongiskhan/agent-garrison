@@ -5,11 +5,11 @@
 // can be corrected, and correction only compounds if it is CAPTURED. This module is
 // the capture.
 //
-// It deliberately creates NO new store. `~/.garrison/improver/feedback-queue.jsonl`
-// already exists, already has a writer contract (the gateway's
-// `buildOverrideRecord`), and already has a consumer (the Improver's `feedback`
-// rule, which turns operator answers into REVIEWABLE proposals and never
-// auto-applies them). Until now that queue had exactly one producer — regex
+// It deliberately creates NO new store. The Improver's feedback queue already
+// exists (a shared JSONL then, the state service's `feedback_queue` now), already
+// has a writer contract (the gateway's `buildOverrideRecord`), and already has a
+// consumer (the Improver's `feedback` rule, which turns operator answers into
+// REVIEWABLE proposals and never auto-applies them). Until now that queue had exactly one producer — regex
 // phrase-matching on the user's message ("run the full pipeline") — and on this box
 // it has never been written to at all. A verdict from the Decisions panel is a far
 // stronger signal than a phrase match: a human looked at a specific resolved route

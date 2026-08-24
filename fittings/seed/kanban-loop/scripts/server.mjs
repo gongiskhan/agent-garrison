@@ -3645,7 +3645,7 @@ async function handleReconcile(req, res, opts) {
   const { board, removed, added, updated } = reconcileExistingBoard(existing, model);
   let moved = [];
   if (removed.length || added.length || updated.length) {
-    await atomicWriteJSON(path.join(root, "board.json"), board);
+    await saveBoard(board, root);
     moved = await relocateStrandedCards(root, board, removed);
     try { await registerSchedulerBeats(); } catch { /* beat sync is best-effort here */ }
   }
@@ -5513,7 +5513,7 @@ export function makeRequestHandler(opts, distDir) {
         if (!id) return jsonRes(res, 400, { error: "could not derive a valid id from that name" });
         const newList = { id, title, kind: "manual", trigger: "manual", userCreated: true, validNext: [] };
         const next = { ...board, lists: insertUserLists(board.lists, [newList]) };
-        await atomicWriteJSON(path.join(opts.root, "board.json"), next);
+        await saveBoard(next, opts.root);
         return jsonRes(res, 200, { ok: true, list: newList });
       }
       if (listMatch && method === "DELETE") {
@@ -5530,7 +5530,7 @@ export function makeRequestHandler(opts, distDir) {
         // composition writer), which deselects the duty and reconciles the board.
         if (isUserList(target)) {
           const next = { ...board, lists: (board.lists || []).filter((l) => l.id !== listId) };
-          await atomicWriteJSON(path.join(opts.root, "board.json"), next);
+          await saveBoard(next, opts.root);
           const moved = await relocateStrandedCards(opts.root, next, [listId]);
           return jsonRes(res, 200, { ok: true, removed: [listId], movedToAttention: moved });
         }

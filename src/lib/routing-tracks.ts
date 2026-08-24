@@ -9,11 +9,12 @@
 // So there is no counter. Tracks are folded fresh from the two append-only logs
 // that already exist:
 //
-//   • `improver/feedback-queue.jsonl` — every verdict Gonçalo gave, with the
-//     per-dimension correction attached (decision-verdicts.ts). That file is
-//     SHARED: the gateway's conversational overrides and the Improver's probe
-//     answers append to it too, so a reader here has to recognise a verdict
-//     rather than assume every line is one.
+//   • the state service's feedback queue (GET /v1/feedback) — every verdict
+//     Gonçalo gave, with the per-dimension correction attached
+//     (decision-verdicts.ts). That queue is SHARED: the gateway's conversational
+//     overrides and the Improver's probe answers append to it too, so a reader
+//     here has to recognise a verdict rather than assume every row is one. The
+//     service joins tombstoned rows out before we ever see them.
 //   • `<composition>/.garrison/decisions.jsonl` — every routing decision, incl.
 //     turn-overrides and escalations
 //
@@ -26,7 +27,7 @@ import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { readFileTolerant } from "./atomic-write";
 import { DECISIONS_REL } from "./decisions-feed";
-import { feedbackQueuePath } from "./decision-verdicts-store";
+import { withState } from "./state-client";
 
 const AUTONOMY_CORE_PATH = path.join(
   process.cwd(),
@@ -213,22 +214,20 @@ function parseJsonl(text: string): unknown[] {
 }
 
 /**
- * The feedback queue's DELETE contract, read side.
+ * The feedback queue's DELETE contract, read side — PRE-MESH, off the live path.
  *
  * §8.3 of the brief needs a wrong inference to be deletable, and the whole point
  * of deriving tracks rather than counting them is that deleting the record
- * deletes its effect on the band. So the Signals view's delete appends a
- * tombstone — `{kind:"tombstone", target}` — to the same queue, and this reader
- * drops the records those tombstones name. A rewrite of the file is not an
- * option: three producers hold it open in O_APPEND and a filter-rewrite loses
- * whatever landed between the read and the write.
+ * deletes its effect on the band. The service enforces that in SQL now: the
+ * reader joins out every row whose `id` or `legacy_key` a tombstone names, so
+ * `readEvidence` above never sees a deleted record.
  *
- * The two key derivations below MUST stay byte-identical to
- * `fittings/seed/improver/lib/feedback-signals.mjs` (`keyForRecord` /
- * `derivedKeyForLine`) — the writer of the tombstones. If they drift, a record
- * deleted in the Signals view keeps feeding the bands on the home page, which is
- * precisely the "confident for reasons nobody can reconstruct" failure this
- * module exists to prevent. `tests/improver-signals.test.ts` pins them together.
+ * This parser survives for the one job the SQL cannot do: reading a leftover
+ * `feedback-queue.jsonl(.pre-mesh)`. Its two key derivations MUST therefore stay
+ * byte-identical to `fittings/seed/improver/lib/feedback-signals.mjs`
+ * (`keyForRecord` / `derivedKeyForLine`) and to the importer's, which is what
+ * computed the `legacy_key` column for every id-less historical record.
+ * `tests/improver-signals.test.ts` pins them together.
  */
 const TOMBSTONE_KIND = "tombstone";
 
@@ -305,16 +304,52 @@ export function collapseBursts(evidence: Evidence[], windowSeconds = BURST_WINDO
   return out;
 }
 
-/** Read every piece of evidence currently on disk. */
+/** How many feedback rows a fold walks, paged. A ceiling on work rather than a
+ *  silent truncation at the service's default page size. */
+const FEEDBACK_READ_LIMIT = 5000;
+const FEEDBACK_PAGE = 500;
+
+/** Every live feedback record, oldest first. The service's reader has already
+ *  dropped the rows a tombstone names, which is the half this fold depends on:
+ *  deleting the record is what deletes the inference. */
+async function readFeedbackRecords(): Promise<unknown[]> {
+  return withState(async (client) => {
+    const out: unknown[] = [];
+    let sinceSeq = 0;
+    while (out.length < FEEDBACK_READ_LIMIT) {
+      const size = Math.min(FEEDBACK_PAGE, FEEDBACK_READ_LIMIT - out.length);
+      const page = (await client.listFeedback({ sinceSeq, limit: size })) as Array<{
+        seq: number;
+        payload?: unknown;
+      }>;
+      if (!page.length) break;
+      for (const row of page) out.push(row.payload ?? {});
+      sinceSeq = page[page.length - 1].seq;
+      // The tombstone join runs in SQL BEFORE the LIMIT, so a short page means
+      // the scan reached the end, not that the rest was filtered away.
+      if (page.length < size) break;
+    }
+    return out;
+  });
+}
+
+/**
+ * Read every piece of evidence: the feedback queue from the state service, the
+ * decisions log from the composition's own directory (high-volume audit, node-local
+ * by design).
+ *
+ * An unreachable state service THROWS rather than folding to zero evidence. Silent
+ * emptiness here would read as "the router has no track record", which is a
+ * different claim from "the evidence store is unreachable" and would quietly move
+ * every band back to `ask`.
+ */
 export async function readEvidence(compositionDir: string): Promise<Evidence[]> {
   const [verdicts, decisions] = await Promise.all([
-    readFileTolerant(feedbackQueuePath()),
+    readFeedbackRecords(),
     readFileTolerant(path.join(compositionDir, DECISIONS_REL))
   ]);
   const all = [
-    // The feedback queue is the deletable one: a wrong inference is corrected by
-    // deleting the record behind it, so this side reads through the tombstones.
-    ...parseFeedbackQueue(verdicts.exists ? verdicts.text : "").flatMap(evidenceFromVerdict),
+    ...verdicts.flatMap(evidenceFromVerdict),
     ...parseJsonl(decisions.exists ? decisions.text : "").flatMap(evidenceFromDecision)
   ].map((e) => ({ ...e, shape: adoptShape(e.shape) }));
   return collapseBursts(all);

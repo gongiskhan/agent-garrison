@@ -10,13 +10,26 @@
 //   2. `--setup` (the apm.yml hook, which has no gateway URL in scope) and the board
 //      server (which does) BOTH call registerTick. The job command is persisted, so
 //      the env-less setup registration silently overwrote the good one.
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // @ts-ignore pure mjs
 import { instanceEnvPrefix } from "../fittings/seed/kanban-loop/lib/instance-env.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // Non-literal specifier: tsc treats a pure .mjs import as `any` instead of erroring
 // on missing declarations (the convention used by the other kanban tests).

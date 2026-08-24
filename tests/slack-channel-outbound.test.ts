@@ -5,7 +5,7 @@
 // createRequire (same pattern as tests/spotter-dhash.test.ts). The Slack Web API
 // is never touched: createOutbound takes an injected postMessage, so these
 // exercise the real delivery decisions rather than a mock of them.
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { createRequire } from "node:module";
 import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +17,19 @@ import { originIdFor } from "../fittings/seed/http-gateway/scripts/lib/discuss-i
 import { deriveOriginId, parseOriginId } from "../fittings/seed/kanban-loop/lib/origins.mjs";
 // @ts-ignore - pure ESM .mjs, no .d.ts
 import { deliverScheduleReminder } from "../fittings/seed/kanban-loop/lib/notify-origin.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const require_ = createRequire(__filename);
 const {

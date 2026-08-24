@@ -3,24 +3,41 @@
 // Conversational overrides are the first evidence the gateway records here: when
 // the operator's words reclassify the work ("full pipeline", "just do it
 // quickly", "run in the background"), the gateway appends ONE override event to
-// ~/.garrison/improver/feedback-queue.jsonl carrying BOTH the prior resolution
-// and the applied one. The nightly Improver consumes the queue as high-weight
+// the shared feedback queue carrying BOTH the prior resolution and the applied
+// one. The nightly Improver consumes the queue as high-weight
 // evidence (S8 wires the consumer + the probe/retrospective writers that share
 // this file + schema). Agreement — the operator not overriding — is never
 // recorded per turn; only a real override leaves a mark.
 //
-// The queue is a single-writer, append-only JSONL: one complete record per
-// appendFile call (the same atomicity the routing telemetry relies on).
+// The queue is append-only and now lives in the state service (POST /v1/feedback
+// into `feedback_queue`): one record per call, one transaction, shared by every
+// node. It used to be a JSONL file three writers held open in O_APPEND.
 
-import fs from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { createStateClient } from "./state-client.mjs";
 
-// The improver evidence queue path. GARRISON_HOME wins (tests + non-default
-// homes), else ~/.garrison — the same resolution the board discovery uses.
+// PRE-MESH. Where the queue lived before the importer moved it into the service
+// and renamed the file `*.pre-mesh`. Nothing on the live path reads or writes it.
 export function improverQueuePath() {
   const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
   return path.join(home, "improver", "feedback-queue.jsonl");
+}
+
+// One client per gateway process, built lazily: importing this module must not
+// require the node to be enrolled (detectOverride/buildOverrideRecord are pure
+// and are imported by tests that never write).
+let cachedClient = null;
+function stateClient(client = null) {
+  if (client) return client;
+  cachedClient ??= createStateClient({ readFileSync });
+  return cachedClient;
+}
+
+/** Drop the cached client (token rotation, tests). */
+export function resetFeedbackClient() {
+  cachedClient = null;
 }
 
 // IMPERATIVE override phrasings (the brief's examples + close variants), mapped to
@@ -96,11 +113,32 @@ export function buildOverrideRecord({ session_id, answer, original, applied, at 
   return rec;
 }
 
-// Append one record as a single JSON line, creating the queue (and its dir) on
-// first write. One appendFile call per record keeps concurrent single-writer
-// appends from interleaving.
-export async function appendFeedback(record, file = improverQueuePath()) {
-  await fs.promises.mkdir(path.dirname(file), { recursive: true });
-  await fs.promises.appendFile(file, JSON.stringify(record) + "\n", "utf8");
-  return file;
+// Append one record. Returns the service's {id, seq} — the id is the one the
+// producer minted above, which the service enforces UNIQUE, so a retry that
+// lands twice is a 409 rather than a duplicate signal.
+//
+// MIRROR — SOURCE OF TRUTH: improver/lib/feedback-signals.mjs
+// `feedbackRowFromRecord`. Replicated rather than imported for the same reason
+// `mintFeedbackId` is: that module lives in the improver fitting, a separate
+// installed package at runtime, and a cross-fitting import would break this
+// fitting's containment. The payload is the record VERBATIM, so a reader
+// reconstructs exactly the line this used to write; the promoted columns are a
+// query convenience and `payload.provenance` stays the discriminator.
+//
+// FAILS LOUD: no local fallback file. A feedback loop that silently splits in
+// two is worse than one that stops and says so — every caller here already logs
+// the failure and carries on with the turn.
+export async function appendFeedback(record, { client } = {}) {
+  const rec = record && typeof record === "object" ? record : {};
+  const id = typeof rec.id === "string" && rec.id.trim() ? rec.id.trim() : undefined;
+  const kind = typeof rec.provenance === "string" && rec.provenance.trim() ? rec.provenance.trim() : undefined;
+  const area = typeof rec.area === "string" && rec.area.trim() ? rec.area.trim() : undefined;
+  const sessionId = typeof rec.session_id === "string" && rec.session_id.trim() ? rec.session_id.trim() : undefined;
+  return stateClient(client).appendFeedback({
+    ...(id ? { id } : {}),
+    ...(kind ? { kind } : {}),
+    ...(area ? { area } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    payload: rec,
+  });
 }

@@ -1,9 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { POST as uploadEvidence } from "@/app/api/dispatch/evidence/route";
 import { dispatchRunKey } from "@/lib/dispatch-evidence";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file; the dispatch evidence/run directories under the board
+// root stay exactly where they were.
+import { setupKanbanState, seedCard } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 let root: string;
 let board: string;
@@ -22,11 +35,16 @@ beforeEach(() => {
   writeFileSync(path.join(root, "outpost-registry.json"), JSON.stringify([
     { name: "studio", token: "test-token", registeredAt: new Date().toISOString(), pending: false }
   ]));
-  writeFileSync(path.join(board, "cards", CARD, "card.json"), JSON.stringify({
+});
+
+beforeEach(async () => {
+  // A fresh board root no longer isolates the cards; wipe the shared store and
+  // seed this file's one card into it.
+  await __kanbanState.reset();
+  await seedCard({
     id: CARD,
     title: "remote evidence",
     list: "implement",
-    rev: 1,
     placement: { target: "studio" },
     dispatch: {
       machine: "studio",
@@ -38,7 +56,7 @@ beforeEach(() => {
       heartbeatAt: new Date().toISOString(),
       state: "running"
     }
-  }));
+  });
 });
 
 afterEach(() => {

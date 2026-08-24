@@ -2,7 +2,20 @@
 // originating thread when it lands terminal (done / needs-attention). These
 // cover the PURE edge logic + message shape; the fetch side is fire-and-forget
 // by design and exercised by the live run.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // @ts-ignore — pure .mjs
 const lib = () => import("../fittings/seed/kanban-loop/lib/notify-origin.mjs");

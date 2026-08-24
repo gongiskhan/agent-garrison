@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
+import { startStateService } from "./state-service-harness";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = path.join(REPO_ROOT, "fittings", "seed", "improver", "scripts", "server.mjs");
@@ -240,39 +241,55 @@ describe("escalation proposals apply through the shell's policy API", () => {
 });
 
 describe("the Signals API over HTTP", () => {
+  // The signals the API serves live in the state service (mesh phase 2, §4.5),
+  // so the fixture is two rows in a real service on an ephemeral port and the
+  // server child gets its discovery env the way the runner projects it.
   let proc: ChildProcess | undefined;
   let tmp: string;
   let port: number;
-  let queueFile: string;
+  let h: Awaited<ReturnType<typeof startStateService>>;
 
   beforeAll(async () => {
     port = await freePort();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "garrison-improver-signals-"));
     const data = path.join(tmp, "improver");
     fs.mkdirSync(data, { recursive: true });
-    queueFile = path.join(data, "feedback-queue.jsonl");
-    fs.writeFileSync(
-      queueFile,
-      [
-        JSON.stringify({ id: "fq-000000001-aaaaaaaa", provenance: "override", answer: "full pipeline", applied: { plan: "full", flow: "fix" }, timestamp: "2026-08-13T09:00:00.000Z" }),
-        JSON.stringify({ provenance: "probe", question: "How did that go?", answer: "Needed rework", classification: { kind: "fix", tier: null, plan: null }, timestamp: "2026-08-13T10:00:00.000Z" }),
-      ].join("\n") + "\n"
-    );
+    h = await startStateService();
+    await h.client.appendFeedback({
+      id: "fq-000000001-aaaaaaaa",
+      kind: "override",
+      payload: { id: "fq-000000001-aaaaaaaa", provenance: "override", answer: "full pipeline", applied: { plan: "full", flow: "fix" }, timestamp: "2026-08-13T09:00:00.000Z" }
+    });
+    // An id-less historical row, the way the importer inserted one: its only
+    // handle is the derived key of its raw line.
+    const legacy = { provenance: "probe", question: "How did that go?", answer: "Needed rework", classification: { kind: "fix", tier: null, plan: null }, timestamp: "2026-08-13T10:00:00.000Z" };
+    const legacyKey = `raw:${require("node:crypto").createHash("sha256").update(JSON.stringify(legacy)).digest("hex").slice(0, 32)}`;
+    await h.client.appendFeedback({ id: legacyKey, legacyKey, kind: "probe", payload: legacy });
     fs.writeFileSync(path.join(data, "probe-pending-s1.json"), JSON.stringify({ id: "p-9", session_id: "s1", mode: "probe", askedAt: "2026-08-13T11:00:00.000Z", questions: [{ area: "went-well", question: "How did that go?", options: ["Went well", "Needed rework"] }] }));
 
     proc = spawn("node", [SERVER], {
-      env: { ...process.env, IMPROVER_PORT: String(port), IMPROVER_HOST: "127.0.0.1", IMPROVER_DATA: data, GARRISON_HOME: tmp },
+      env: {
+        ...process.env,
+        IMPROVER_PORT: String(port),
+        IMPROVER_HOST: "127.0.0.1",
+        IMPROVER_DATA: data,
+        GARRISON_HOME: tmp,
+        GARRISON_STATE_URL: h.url,
+        GARRISON_STATE_TOKEN: h.token,
+        GARRISON_NODE_NAME: "test-node"
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     await waitHealth(port);
-  }, 20_000);
+  }, 30_000);
 
-  afterAll(() => {
+  afterAll(async () => {
     try {
       proc?.kill("SIGTERM");
     } catch {
       /* ignore */
     }
+    await h?.stop();
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -296,12 +313,15 @@ describe("the Signals API over HTTP", () => {
     const after = await api(port, "GET", "/api/signals");
     const row = after.json.signals.find((s: any) => s.key === target.key);
     expect(row.tombstoned).toBe(true);
-    expect(row.tombstoneReason).toBe("test noise");
+    // `tombstoneReason` is null: the reason IS recorded, in `feedback_tombstones`,
+    // but the service exposes no read verb for that table — so the view reports
+    // the deletion without inventing its metadata.
+    expect(row.tombstoneReason).toBeNull();
     expect(after.json.counts.live).toBe(1);
-    // append-only: the original line is untouched on disk
-    const lines = fs.readFileSync(queueFile, "utf8").split("\n").filter(Boolean);
-    expect(lines).toHaveLength(3);
-    expect(JSON.parse(lines[2]).kind).toBe("tombstone");
+    // Append-only: the record itself was never rewritten, and comes back intact.
+    const raw = await h.client.listFeedback({ limit: 10, includeTombstoned: true });
+    expect(raw).toHaveLength(2);
+    expect((raw.find((r: any) => r.id === target.key)!.payload as any).answer).toBe("full pipeline");
   });
 
   it("deleting something that is not there is a 404, not a silent tombstone", async () => {
@@ -313,8 +333,8 @@ describe("the Signals API over HTTP", () => {
     const r = await fetch(`http://127.0.0.1:${port}/api/probe/p-9/answer?question=0&answer=${encodeURIComponent("Needed rework")}`);
     expect(r.status).toBe(200);
     expect(r.headers.get("content-type")).toContain("text/html");
-    const lines = fs.readFileSync(queueFile, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
-    const answer = lines[lines.length - 1];
+    const rows = await h.client.listFeedback({ limit: 10, includeTombstoned: true });
+    const answer = rows[rows.length - 1].payload as any;
     expect(answer).toMatchObject({ session_id: "s1", answer: "Needed rework", provenance: "probe", delivered_via: "out-of-band" });
     // the pending is gone, so a second tap records nothing
     const again = await fetch(`http://127.0.0.1:${port}/api/probe/p-9/answer?question=0&answer=x`);

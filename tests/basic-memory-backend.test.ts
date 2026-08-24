@@ -22,14 +22,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const FITTING_SRC = path.join(REPO_ROOT, "fittings", "seed", "basic-memory");
-const SCHEDULER_SRC = path.join(
-  REPO_ROOT,
-  "fittings",
-  "seed",
-  "scheduler",
-  "scripts",
-  "scheduler.mjs"
-);
+// The whole scripts DIR, not just scheduler.mjs: the CLI imports lib/job-store.mjs
+// and lib/materialise.mjs, so a lone copy of the entry file cannot resolve.
+const SCHEDULER_SRC = path.join(REPO_ROOT, "fittings", "seed", "scheduler", "scripts");
 const LOCAL_SKILL_SRC = path.join(FITTING_SRC, ".apm", "skills", "garrison-memory", "SKILL.md");
 const CORTEX_SKILL_SRC = path.join(FITTING_SRC, "skill-variants", "cortex", "SKILL.md");
 
@@ -143,7 +138,7 @@ describe("basic-memory backend switch", () => {
     await fsp.cp(FITTING_SRC, fitting, { recursive: true });
     const schedulerDir = path.join(comp, "apm_modules", "_local", "scheduler", "scripts");
     await fsp.mkdir(schedulerDir, { recursive: true });
-    await fsp.cp(SCHEDULER_SRC, path.join(schedulerDir, "scheduler.mjs"));
+    await fsp.cp(SCHEDULER_SRC, schedulerDir, { recursive: true });
     await fsp.mkdir(path.dirname(installedSkillPath), { recursive: true });
     await fsp.cp(LOCAL_SKILL_SRC, installedSkillPath);
   });

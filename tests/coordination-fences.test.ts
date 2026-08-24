@@ -1,7 +1,7 @@
 // GARRISON-FLOW-V2 S2 (Q5) — commit fences over a REAL temp git repo. Scoped
 // staging (never -A), the trailer format, empty-fence HEAD anchors, and touch-set
 // growth re-registration.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +13,19 @@ process.env.GARRISON_HOME = mkdtempSync(join(tmpdir(), "gh-fences-"));
 import { commitFence } from "../fittings/seed/kanban-loop/lib/fences.mjs";
 // @ts-ignore — pure .mjs
 import { registerTouchSetIntent, reregisterTouchSetIfGrown, resetCoordinationCache } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 function git(repo: string, ...args: string[]) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" });

@@ -1,10 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import crypto from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { POST as status } from "@/app/api/dispatch/status/route";
 import { dispatchRunKey } from "@/lib/dispatch-evidence";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file; the dispatch evidence/run directories under the board
+// root stay exactly where they were.
+import { setupKanbanState, seedCard } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 let root: string;
 let board: string;
@@ -25,6 +38,12 @@ beforeEach(() => {
   ]));
 });
 
+// A fresh board root no longer isolates the cards — the store is shared by both
+// tests in this file, and they reuse one card id.
+beforeEach(async () => {
+  await __kanbanState.reset();
+});
+
 afterEach(() => {
   if (priorHome === undefined) delete process.env.GARRISON_HOME;
   else process.env.GARRISON_HOME = priorHome;
@@ -33,13 +52,12 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function putCard(rev: number, claimRevision: number) {
-  writeFileSync(path.join(board, "cards", CARD, "card.json"), JSON.stringify({
+function cardBody(claimRevision: number) {
+  return {
     id: CARD,
     title: "remote phase",
     list: "implement",
     project: null,
-    rev,
     placement: { target: "studio" },
     sequence: ["implement", "review", "done"],
     level: 2,
@@ -55,7 +73,16 @@ function putCard(rev: number, claimRevision: number) {
       state: "running",
       claimRevision
     }
-  }));
+  };
+}
+
+// The STORE owns the revision — a fixture cannot pin one — so seed the card and
+// then express the drift this test is about RELATIVE to the revision the store
+// assigned. `putCard(8, 7)` still means "the claim is one revision behind".
+async function putCard(rev: number, claimRevision: number) {
+  const seeded = await seedCard(cardBody(0));
+  const settled = (seeded.rev as number) + 1; // the patch below bumps it once
+  await seedCard(cardBody(settled + (claimRevision - rev)));
 }
 
 function evidence(name: string, content: string) {
@@ -86,14 +113,14 @@ function request(manifest: unknown[] = []) {
 
 describe("dispatch completion authority", () => {
   it("stops completion after revision drift outside tracked heartbeats", async () => {
-    putCard(8, 7);
+    await putCard(8, 7);
     const response = await status(request());
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ stop: true });
   });
 
   it("rejects a correctly hashed gate that does not authorize the requested transition", async () => {
-    putCard(7, 7);
+    await putCard(7, 7);
     const transcript = evidence("transcript.md", "phase transcript\n");
     const gate = evidence("gate-status.implement.json", JSON.stringify({ status: "passed", next_phase: "done" }));
     const response = await status(request([transcript, gate]));

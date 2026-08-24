@@ -22,12 +22,11 @@ import path from "node:path";
 import os from "node:os";
 import {
   readFeedbackQueue,
-  feedbackQueuePath,
-  buildTombstone,
+  tombstoneFeedbackRecord,
+  FEEDBACK_SOURCE,
   trackContributionForRecord,
 } from "./feedback-signals.mjs";
 import { describeFeedbackSignal } from "./feedback-rule.mjs";
-import { appendFeedbackSync } from "./probe-store.mjs";
 
 function dataDir() {
   const o = process.env.IMPROVER_DATA;
@@ -76,6 +75,9 @@ export function describeSignal(entry) {
     feedsTracks: tracks,
     contributes: Boolean(rule.category) || tracks.length > 0,
     tombstoned: entry.tombstoned,
+    // WHEN and WHY a row was deleted are recorded in `feedback_tombstones` but
+    // the service exposes no read verb for that table, so they are null here
+    // rather than invented. THAT it was deleted is what the view branches on.
     tombstonedAt: entry.tombstonedBy?.at ?? null,
     tombstoneReason: entry.tombstonedBy?.reason ?? null,
     lineNumber: entry.lineNumber,
@@ -132,11 +134,13 @@ export function readProbeSkips(dir = dataDir(), maxLines = 40) {
  * are NOT records but are just as much "signal state" — questions still waiting
  * for an answer, and the skips that explain a quiet Probe.
  */
-export function collectSignals({ queueFile = feedbackQueuePath(), dir = dataDir(), cap = 500 } = {}) {
-  const { entries, tombstones } = readFeedbackQueue(queueFile);
+export async function collectSignals({ client, dir = dataDir(), cap = 500 } = {}) {
+  // The deleted rows are asked for explicitly: this view exists to show that a
+  // deletion happened, not to hide it the way every other consumer wants.
+  const { entries, tombstones } = await readFeedbackQueue({ client, includeTombstoned: true });
   const signals = entries.map(describeSignal).reverse().slice(0, cap);
   return {
-    queueFile,
+    queueFile: FEEDBACK_SOURCE,
     signals,
     counts: {
       total: entries.length,
@@ -151,20 +155,24 @@ export function collectSignals({ queueFile = feedbackQueuePath(), dir = dataDir(
 }
 
 /**
- * Delete one signal: append a tombstone naming its key.
+ * Delete one signal: append a tombstone naming its key. Never a rewrite — the
+ * service has no update or delete verb for either table.
  *
- * Returns {ok:false, code:"not-found"} when no live record carries that key, so
- * the UI never reports a deletion that deleted nothing. Re-deleting an already
- * tombstoned record is a no-op success (the log already says what it needs to).
+ * Returns {ok:false, code:"not-found"} when no record carries that key, so the
+ * UI never reports a deletion that deleted nothing. Re-deleting an already
+ * tombstoned record is a no-op success (the log already says what it needs to),
+ * which also keeps the tombstone table free of rows that name nothing.
+ *
+ * `at` is no longer accepted: the service stamps the tombstone's time, and a
+ * caller-supplied one would only ever disagree with it.
  */
-export function tombstoneSignal(key, { reason, at, queueFile = feedbackQueuePath() } = {}) {
+export async function tombstoneSignal(key, { reason, client } = {}) {
   const target = typeof key === "string" ? key.trim() : "";
   if (!target) return { ok: false, code: "bad-key" };
-  const { entries } = readFeedbackQueue(queueFile);
+  const { entries } = await readFeedbackQueue({ client, includeTombstoned: true });
   const entry = entries.find((e) => e.key === target);
   if (!entry) return { ok: false, code: "not-found" };
   if (entry.tombstoned) return { ok: true, alreadyDeleted: true, target };
-  const tombstone = buildTombstone({ target, at, reason });
-  appendFeedbackSync(tombstone, queueFile);
-  return { ok: true, target, tombstone };
+  await tombstoneFeedbackRecord(target, { reason, client });
+  return { ok: true, target, tombstone: { target, ...(reason ? { reason } : {}) } };
 }

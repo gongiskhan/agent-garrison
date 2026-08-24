@@ -37,6 +37,19 @@ import { readOriginEvents } from "../fittings/seed/kanban-loop/lib/origins.mjs";
 // @ts-ignore
 import { RoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 const CARD = (over: any = {}) => ({ title: "Add login", list: "implement", sequence: ["plan", "implement", "review", "test"], ...over });
 const model: any = { version: 2, compositionId: "t", kanbanLists: ["plan", "implement", "review", "test"], sequences: { develop: { "2": ["plan", "implement", "review", "test"] } }, cells: {}, holds: {} };
 const board = buildBoard(model, { templates: phaseTemplatesFrom(seedBoard()) });

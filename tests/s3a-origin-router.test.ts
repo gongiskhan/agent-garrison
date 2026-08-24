@@ -1,5 +1,5 @@
 // S3a — origin records + the per-transport lifecycle event router (D8).
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -32,6 +32,26 @@ import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.
 import { seedBoard, phaseTemplatesFrom } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
 import { buildBoard } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// The card store is shared by every test in this file now, where a fresh tmp root
+// used to isolate them; wipe the cards between tests so one test's cards can never
+// show up in another's sweep, batch, or board read. The board layout this file
+// seeds once survives — reset() only clears cards.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const tmp = () => mkdtempSync(join(tmpdir(), "s3a-root-"));
 
@@ -118,6 +138,18 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
   let threadServer: http.Server;
   const received: any[] = [];
 
+  // Terminal routing is fire-and-forget, and its path now includes a state
+  // service round trip, so a fixed sleep is a race under a loaded suite. Poll
+  // for the delivery instead; the assertion that follows still owns the verdict.
+  async function waitForDelivery(match: string, timeoutMs = 5_000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const hit = received.find((m) => m.url.includes(match));
+      if (hit || Date.now() > deadline) return hit;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
+
   beforeAll(async () => {
     threadServer = http.createServer((req, res) => {
       if (req.method === "POST" && /\/api\/threads\/.+\/messages/.test(req.url || "")) {
@@ -153,8 +185,7 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
     // event log always written (synchronously)
     expect(readOriginEvents(root, "web:chat-xyz").map((e: any) => e.kind)).toEqual(["finished"]);
     // web delivery is fire-and-forget — give it a tick
-    await new Promise((r) => setTimeout(r, 120));
-    const hit = received.find((m) => m.url.includes("chat-xyz"));
+    const hit = await waitForDelivery("chat-xyz");
     expect(hit).toBeTruthy();
     expect(hit.body.messages[0].text).toContain("Run complete — web card.");
   });
@@ -191,7 +222,7 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
     const result = await processCard({ root, board, card, cwd: root, runFn: async () => ({ reply }) });
     expect(result.outcome).toMatchObject({ status: "moved", to: "done" });
 
-    await new Promise((r) => setTimeout(r, 160));
+    await waitForDelivery(threadId);
     const hits = received.filter((m) => m.url.includes(threadId));
     expect(hits).toHaveLength(1);
     expect(hits[0].body.messages[0].text).toContain(marker);

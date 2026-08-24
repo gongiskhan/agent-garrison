@@ -58,18 +58,56 @@ import { autonomyActedMessage, ORIGIN_EVENT_KINDS } from "../fittings/seed/kanba
 // @ts-ignore
 import { isAckableEventKind } from "../fittings/seed/kanban-loop/lib/ack.mjs";
 
-const queueFile = path.join(HOME, "improver", "feedback-queue.jsonl");
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 const decisionsFile = path.join(COMPOSITION, ".garrison", "decisions.jsonl");
 
-function writeLogs(queue: unknown[], decisions: unknown[]) {
-  mkdirSync(path.dirname(queueFile), { recursive: true });
+/**
+ * Put an exact evidence set in place.
+ *
+ * The decisions log is still a file. The feedback queue is the state service
+ * (mesh phase 2, §4.5), which is append-only and has NO delete verb — so
+ * "replace" here means: tombstone whatever is still live, then append this
+ * fixture. A `{kind:"tombstone"}` entry in the fixture becomes a real tombstone
+ * against its target, and an id-less record is inserted the way the one-time
+ * importer inserted historical lines: keyed by the derived hash of its raw line,
+ * stored in `legacy_key`.
+ */
+async function writeLogs(queue: unknown[], decisions: unknown[]) {
   mkdirSync(path.dirname(decisionsFile), { recursive: true });
-  writeFileSync(queueFile, queue.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
   writeFileSync(decisionsFile, decisions.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  const client = __kanbanState.client;
+  for (const row of await client.listFeedback({ limit: 5000 })) {
+    await client.tombstoneFeedback(row.id, "fixture reset");
+  }
+  for (const rec of queue as any[]) {
+    if (rec?.kind === "tombstone") {
+      await client.tombstoneFeedback(rec.target, rec.reason ?? null);
+      continue;
+    }
+    const id = typeof rec?.id === "string" && rec.id.trim() ? rec.id.trim() : null;
+    const legacyKey = id ? null : consult.derivedKeyForLine(JSON.stringify(rec));
+    await client.appendFeedback({
+      id: id ?? legacyKey!,
+      ...(legacyKey ? { legacyKey } : {}),
+      payload: rec
+    });
+  }
 }
 
-function clearLogs() {
-  writeLogs([], []);
+async function clearLogs() {
+  await writeLogs([], []);
   rmSync(path.join(COMPOSITION, ".garrison", "ask-budget.json"), { force: true });
 }
 
@@ -177,7 +215,7 @@ describe("evidence fold parity - the fitting's fold and the shell's must agree",
       { at: "2026-08-02T13:00:00.000Z", kind: "duty-route", duty: "implement", level: 2 }
     ];
 
-    writeLogs(
+    await writeLogs(
       [verdictKeep, verdictWrongFlow, verdictWrongBoth, verdictUnsure, override, verdictDeleted, tombstone, legacy, legacyTombstone],
       decisions
     );
@@ -210,7 +248,7 @@ describe("evidence fold parity - the fitting's fold and the shell's must agree",
   });
 
   it("reads the seed the same way the Autonomy panel does", async () => {
-    clearLogs();
+    await clearLogs();
     const seed = await consult.loadSeedEntries(COMPOSITION);
     expect(seed.length).toBeGreaterThan(0);
     const fitting = await consult.summariseTracks({ compositionDir: COMPOSITION, seed });
@@ -226,7 +264,7 @@ describe("evidence fold parity - the fitting's fold and the shell's must agree",
 
 describe("consultAutonomy", () => {
   it("cold start asks: no track record means no freedom", async () => {
-    clearLogs();
+    await clearLogs();
     const out = await consult.consultAutonomy({
       compositionDir: COMPOSITION,
       decision: { flow: "brand-new-shape", duty: "implement", level: 2 },
@@ -241,7 +279,7 @@ describe("consultAutonomy", () => {
   });
 
   it("a seeded shape acts, and offers to revert", async () => {
-    clearLogs();
+    await clearLogs();
     const out = await consult.consultAutonomy({
       compositionDir: COMPOSITION,
       decision: { flow: "fix", duty: "implement", level: 2 },
@@ -253,10 +291,10 @@ describe("consultAutonomy", () => {
   });
 
   it("the whole decision moves at the pace of its least-trusted half", async () => {
-    clearLogs();
+    await clearLogs();
     // Corrections on the LEVEL track only. The flow track keeps its seeded
     // act-revert; the decision must still come back ask.
-    writeLogs(
+    await writeLogs(
       [],
       Array.from({ length: 6 }, (_, i) => ({
         at: `2026-08-0${i + 1}T09:00:00.000Z`,
@@ -277,7 +315,7 @@ describe("consultAutonomy", () => {
   });
 
   it("an irreversible action never reaches the top band, however good the record", async () => {
-    clearLogs();
+    await clearLogs();
     const perfect = Array.from({ length: 40 }, (_, i) => ({
       id: `fq-perfect-${i}`,
       area: "orchestrator",
@@ -288,7 +326,7 @@ describe("consultAutonomy", () => {
       timestamp: new Date(Date.UTC(2026, 6, 1, i, 0, 0)).toISOString(),
       provenance: "decision-verdict"
     }));
-    writeLogs(perfect, []);
+    await writeLogs(perfect, []);
     const reversible = await consult.consultAutonomy({
       compositionDir: COMPOSITION,
       decision: { flow: "outreach", duty: "implement", level: 2 },
@@ -307,7 +345,7 @@ describe("consultAutonomy", () => {
   });
 
   it("the budget defers an information-value question but never a required one", async () => {
-    clearLogs();
+    await clearLogs();
     const day = consult.budgetDay();
     mkdirSync(path.join(COMPOSITION, ".garrison"), { recursive: true });
     writeFileSync(
@@ -342,7 +380,7 @@ describe("consultAutonomy", () => {
   });
 
   it("recordAsked counts posed questions and resets with the day", async () => {
-    clearLogs();
+    await clearLogs();
     const first = await consult.recordAsked(COMPOSITION);
     expect(first.asked).toBe(1);
     const second = await consult.recordAsked(COMPOSITION);
@@ -358,7 +396,7 @@ describe("consultAutonomy", () => {
   });
 
   it("a go writes a confirmation both folds read as explicit-confirmation", async () => {
-    clearLogs();
+    await clearLogs();
     const record = consult.buildGoConfirmationRecord({
       flow: "brand-new-shape",
       duty: "implement",
@@ -371,7 +409,7 @@ describe("consultAutonomy", () => {
     expect(record.original).toMatchObject({ flow: "brand-new-shape" });
     expect(String(record.id).startsWith("fq-")).toBe(true);
 
-    writeLogs([record], []);
+    await writeLogs([record], []);
     const { summariseTracks } = await import("@/lib/routing-tracks");
     const shell = await summariseTracks(COMPOSITION, { seed: [] });
     const fitting = await consult.summariseTracks({ compositionDir: COMPOSITION, seed: [] });
@@ -380,9 +418,12 @@ describe("consultAutonomy", () => {
     expect(key(shell).signals["explicit-confirmation"]).toBe(1);
   });
 
-  it("a broken or absent evidence log degrades to a cold start, never to a throw", async () => {
-    mkdirSync(path.dirname(queueFile), { recursive: true });
-    writeFileSync(queueFile, "{not json\n\n{\"provenance\":\"decision-verdict\"}\n", "utf8");
+  it("an absent evidence log degrades to a cold start, never to a throw", async () => {
+    // The "malformed line" half of this case has no successor: there are no
+    // lines. A row that cannot be stored is a 4xx at write time now, not a
+    // silently skipped line at read time. What still has to hold is the other
+    // half — no evidence at all is a cold start, not an error.
+    await writeLogs([{ provenance: "decision-verdict" }], []);
     rmSync(decisionsFile, { force: true });
     const out = await consult.consultAutonomy({
       compositionDir: COMPOSITION,
@@ -390,7 +431,7 @@ describe("consultAutonomy", () => {
       seed: []
     });
     expect(out.band).toBe("ask");
-    clearLogs();
+    await clearLogs();
   });
 });
 
@@ -502,7 +543,7 @@ function lastDecision() {
 
 describe("the router consults the bands at decision time", () => {
   it("an unpinned human turn on a cold shape comes back holding, and says so in the log", async () => {
-    clearLogs();
+    await clearLogs();
     const gw = gatewayFor("implement", 2);
     const pre = await gw.preRoute("do the thing", { channel: "web", sessionId: "t-hold" });
     expect(pre.autonomy).toBeTruthy();
@@ -516,7 +557,7 @@ describe("the router consults the bands at decision time", () => {
   });
 
   it("a card-originated turn is never re-gated - it was routed and authorised already", async () => {
-    clearLogs();
+    await clearLogs();
     const gw = gatewayFor("implement", 2);
     const pre = await gw.preRoute("run the next phase", { channel: "kanban", sessionId: "t-card" });
     expect(pre.autonomy).toBeNull();
@@ -524,14 +565,14 @@ describe("the router consults the bands at decision time", () => {
   });
 
   it("a scheduled/internal turn is never re-gated either", async () => {
-    clearLogs();
+    await clearLogs();
     const gw = gatewayFor("implement", 2);
     const pre = await gw.preRoute("nightly sweep", { channel: "scheduler" });
     expect(pre.autonomy).toBeNull();
   });
 
   it("an explicit pin IS the answer - the router does not ask about it", async () => {
-    clearLogs();
+    await clearLogs();
     const gw = gatewayFor("implement", 2);
     const pre = await gw.preRoute("do the thing", {
       channel: "web",
@@ -543,7 +584,7 @@ describe("the router consults the bands at decision time", () => {
   });
 
   it("fails OPEN: an unavailable consult routes exactly as it did before the seam existed", async () => {
-    clearLogs();
+    await clearLogs();
     const gw = gatewayFor("implement", 2);
     gw._autonomyLib = null; // the module would not import on this box
     const pre = await gw.preRoute("do the thing", { channel: "web", sessionId: "t-open" });
@@ -553,9 +594,9 @@ describe("the router consults the bands at decision time", () => {
   });
 
   it("an acting band proceeds and enriches the record instead of holding", async () => {
-    clearLogs();
+    await clearLogs();
     // Enough deliberate confirmations on this shape to clear the upper threshold.
-    writeLogs(
+    await writeLogs(
       Array.from({ length: 40 }, (_, i) => ({
         id: `fq-trusted-${i}`,
         area: "orchestrator",
@@ -574,7 +615,7 @@ describe("the router consults the bands at decision time", () => {
     const record = lastDecision();
     expect(record.autonomy.band).toBe(pre.autonomy.band);
     expect(typeof record.autonomy.bands.flow.confidence).toBe("number");
-    clearLogs();
+    await clearLogs();
   });
 });
 

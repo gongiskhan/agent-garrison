@@ -1,7 +1,7 @@
 // GARRISON-FLOW-V2 S1 (Q3) — the stability point. stabilityFields predicate +
 // its fold at all three engine seams (processCard / advanceCardPhase /
 // processBatch), idempotence, and review->implement NOT emitting.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 import { mkdtempSync as __mkdtemp } from "node:fs";
@@ -21,6 +21,19 @@ import { processCard, advanceCardPhase, processBatch } from "../fittings/seed/ka
 import { createCard, loadCard, saveCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const tmp = () => mkdtempSync(join(tmpdir(), "coord-stab-"));
 const board = seedBoard();

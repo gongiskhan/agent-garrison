@@ -8,7 +8,7 @@
 // a real notification (the fitting-env lesson: tests once deleted a live
 // status file the same way).
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +30,25 @@ import { parseCron as parseSchedulerCron, cronMatches as schedulerCronMatches } 
 // @ts-ignore — pure .mjs
 import { resolveArtifactRef } from "../fittings/seed/kanban-loop/lib/links.mjs";
 import { claimability, type ClaimableCard } from "../src/lib/dispatch";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// The card store is shared by every test in this file now, where a fresh tmp root
+// used to isolate them; wipe it between tests so one test's cards can never show
+// up in another's sweep, batch, or board read.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-sched-"));

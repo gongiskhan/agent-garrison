@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -27,6 +27,19 @@ import { routeFromDone } from "../fittings/seed/kanban-loop/lib/gateway-client.m
 import { PERSONAL_SCOPE_TOKEN } from "../fittings/seed/kanban-loop/lib/personal-workspace.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const board = {
   version: 2,

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   lstatSync,
   mkdirSync,
@@ -22,6 +22,19 @@ import { PERSONAL_SCOPE_TOKEN as GATEWAY_PERSONAL_SCOPE_TOKEN, resolveProjectNam
 import { resolveProjectName as kanbanResolveProjectName } from "../fittings/seed/kanban-loop/lib/discover.mjs";
 // @ts-ignore pure mjs
 import { cardWorkdir } from "../fittings/seed/kanban-loop/scripts/server.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const roots: string[] = [];
 const KANBAN_CLI = path.resolve(__dirname, "../fittings/seed/kanban-loop/scripts/kanban.mjs");

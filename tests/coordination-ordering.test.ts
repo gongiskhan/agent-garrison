@@ -3,7 +3,7 @@
 // second) is deferred behind the earlier one — medium overlap waits for the
 // earlier run's stability point, heavy waits for it to reach terminal. The card
 // SITS in Plan (not moved), tick skips it, and reevaluateWaiting releases it.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 
 import { mkdtempSync as __mkdtemp, writeFileSync as __write } from "node:fs";
 import { tmpdir as __tmpdir } from "node:os";
@@ -31,6 +31,25 @@ import { createCard, loadCard, saveCard, deleteCard, loadAllCards, updateCardCAS
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
 import { reevaluateWaiting, serializeGate, coordinationAvailability, resetCoordinationCache, acquireLeases, renewLeases, releaseLeases, registerTouchSetIntent } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// The card store is shared by every test in this file now, where a fresh tmp root
+// used to isolate them; wipe it between tests so one test's cards can never show
+// up in another's sweep, batch, or board read.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "coord-order-"));

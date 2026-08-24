@@ -423,12 +423,12 @@ export async function startServer(opts = {}) {
       }
       // ── Signals: the raw evidence, and the one way to delete a wrong one ──
       if (pathname === "/api/signals" && req.method === "GET") {
-        return json(res, 200, collectSignals({ dir: DATA_DIR }));
+        return json(res, 200, await collectSignals({ dir: DATA_DIR }));
       }
       const del = pathname.match(/^\/api\/signals\/(.+)$/);
       if (del && req.method === "DELETE") {
         const body = await readBody(req).catch(() => ({}));
-        const r = tombstoneSignal(decodeURIComponent(del[1]), {
+        const r = await tombstoneSignal(decodeURIComponent(del[1]), {
           reason: typeof body?.reason === "string" ? body.reason : undefined,
         });
         return json(res, r.ok ? 200 : r.code === "not-found" ? 404 : 400, r);
@@ -448,7 +448,7 @@ export async function startServer(opts = {}) {
       if (answer && (req.method === "POST" || req.method === "GET")) {
         const body = req.method === "POST" ? await readBody(req).catch(() => ({})) : {};
         const q = parsed.query || {};
-        const r = recordProbeAnswer({
+        const r = await recordProbeAnswer({
           pendingId: decodeURIComponent(answer[1]),
           questionIndex: body.question ?? q.question ?? 0,
           answer: body.answer ?? q.answer,

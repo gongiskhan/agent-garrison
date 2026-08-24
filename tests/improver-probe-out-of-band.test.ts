@@ -12,12 +12,16 @@
 // apart), and the sweep stops treating a pushed question as 90-seconds-perishable.
 
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { startStateService } from "./state-service-harness";
+
 // @ts-ignore - pure .mjs
 import * as store from "../fittings/seed/improver/lib/probe-store.mjs";
+// @ts-ignore - pure .mjs
+import * as signals from "../fittings/seed/improver/lib/feedback-signals.mjs";
 // @ts-ignore - pure .mjs
 import * as notify from "../fittings/seed/improver/lib/probe-notify.mjs";
 // @ts-ignore - pure .mjs
@@ -29,6 +33,9 @@ let home: string;
 let dataDir: string;
 const savedHome = process.env.GARRISON_HOME;
 const savedData = process.env.IMPROVER_DATA;
+const savedStateUrl = process.env.GARRISON_STATE_URL;
+const savedStateToken = process.env.GARRISON_STATE_TOKEN;
+let h: Awaited<ReturnType<typeof startStateService>>;
 
 function pending(extra: Record<string, unknown> = {}) {
   return {
@@ -50,10 +57,13 @@ function pending(extra: Record<string, unknown> = {}) {
   };
 }
 
-function readQueue(): any[] {
-  const f = path.join(dataDir, "feedback-queue.jsonl");
-  if (!existsSync(f)) return [];
-  return readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+// The feedback queue is the state service now (mesh phase 2, §4.5), so the
+// records these paths write are read back through it rather than off a file.
+// A fresh service per test is the isolation: both feedback tables are
+// append-only and have no delete verb.
+async function readQueue(): Promise<any[]> {
+  const rows = await h.client.listFeedback({ limit: 500 });
+  return rows.map((r: { payload: unknown }) => r.payload);
 }
 
 function registerFitting(id: string, url: string) {
@@ -62,19 +72,29 @@ function registerFitting(id: string, url: string) {
   writeFileSync(path.join(dir, `${id}.json`), JSON.stringify({ fittingId: id, url, port: Number(new URL(url).port) }));
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   home = mkdtempSync(path.join(tmpdir(), "gar-probe-oob-"));
   dataDir = path.join(home, "improver");
   mkdirSync(dataDir, { recursive: true });
   process.env.GARRISON_HOME = home;
   process.env.IMPROVER_DATA = dataDir;
+  h = await startStateService();
+  process.env.GARRISON_STATE_URL = h.url;
+  process.env.GARRISON_STATE_TOKEN = h.token;
+  signals.resetFeedbackClient();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await h?.stop();
   if (savedHome === undefined) delete process.env.GARRISON_HOME;
   else process.env.GARRISON_HOME = savedHome;
   if (savedData === undefined) delete process.env.IMPROVER_DATA;
   else process.env.IMPROVER_DATA = savedData;
+  if (savedStateUrl === undefined) delete process.env.GARRISON_STATE_URL;
+  else process.env.GARRISON_STATE_URL = savedStateUrl;
+  if (savedStateToken === undefined) delete process.env.GARRISON_STATE_TOKEN;
+  else process.env.GARRISON_STATE_TOKEN = savedStateToken;
+  signals.resetFeedbackClient();
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -153,9 +173,9 @@ describe("out-of-band delivery", () => {
 });
 
 describe("the answer coming back", () => {
-  it("writes exactly the record feedback-rule already consumes, and clears the pending", () => {
+  it("writes exactly the record feedback-rule already consumes, and clears the pending", async () => {
     store.writePending(pending());
-    const res = store.recordProbeAnswer({
+    const res = await store.recordProbeAnswer({
       pendingId: "p-1",
       questionIndex: 0,
       answer: "Should have gone deeper",
@@ -166,7 +186,7 @@ describe("the answer coming back", () => {
     expect(res.cleared).toBe(true);
     expect(store.readPending("sess-1")).toBeNull();
 
-    const [rec] = readQueue();
+    const [rec] = await readQueue();
     // The schema is the one probe-capture.mjs writes — same provenance, same
     // classification block, same question text. The learning loop must not be
     // able to tell which path the answer came in on.
@@ -182,14 +202,13 @@ describe("the answer coming back", () => {
     expect(String(rec.id)).toMatch(/^fq-/);
 
     // And the rule really does consume it: two of these clear the min-signal bar.
-    const queueFile = path.join(dataDir, "feedback-queue.jsonl");
     store.writePending(pending({ id: "p-2", session_id: "sess-2" }));
-    store.recordProbeAnswer({ pendingId: "p-2", answer: "Should have gone deeper", now: AT });
-    const props = feedbackRule.runFeedbackRule({ now: AT, queueFile }).proposals;
+    await store.recordProbeAnswer({ pendingId: "p-2", answer: "Should have gone deeper", now: AT });
+    const props = (await feedbackRule.runFeedbackRule({ now: AT })).proposals;
     expect(props.some((p: any) => p.id.startsWith("feedback-deeper-"))).toBe(true);
   });
 
-  it("answering one of a retrospective's questions keeps the rest open", () => {
+  it("answering one of a retrospective's questions keeps the rest open", async () => {
     const multi = pending({
       mode: "retrospective",
       questions: [
@@ -198,67 +217,67 @@ describe("the answer coming back", () => {
       ],
     });
     store.writePending(multi);
-    const res = store.recordProbeAnswer({ pendingId: "p-1", questionIndex: 0, answer: "a", now: AT });
+    const res = await store.recordProbeAnswer({ pendingId: "p-1", questionIndex: 0, answer: "a", now: AT });
     expect(res.remaining).toBe(1);
     const still = store.readPending("sess-1");
     expect(still.questions).toHaveLength(1);
     expect(still.questions[0].question).toBe("Q2?");
-    expect(readQueue()[0]).toMatchObject({ provenance: "retrospective", question: "Q1?" });
+    expect((await readQueue())[0]).toMatchObject({ provenance: "retrospective", question: "Q1?" });
   });
 
-  it("a second tap on the same option records nothing", () => {
+  it("a second tap on the same option records nothing", async () => {
     store.writePending(pending());
-    store.recordProbeAnswer({ pendingId: "p-1", answer: "Right call", now: AT });
-    expect(store.recordProbeAnswer({ pendingId: "p-1", answer: "Right call", now: AT })).toMatchObject({
+    await store.recordProbeAnswer({ pendingId: "p-1", answer: "Right call", now: AT });
+    expect(await store.recordProbeAnswer({ pendingId: "p-1", answer: "Right call", now: AT })).toMatchObject({
       ok: false,
       code: "not-found",
     });
-    expect(readQueue()).toHaveLength(1);
+    expect(await readQueue()).toHaveLength(1);
   });
 
-  it("refuses an empty answer rather than recording a blank verdict", () => {
+  it("refuses an empty answer rather than recording a blank verdict", async () => {
     store.writePending(pending());
-    expect(store.recordProbeAnswer({ pendingId: "p-1", answer: "  ", now: AT })).toMatchObject({ code: "empty-answer" });
-    expect(readQueue()).toHaveLength(0);
+    expect(await store.recordProbeAnswer({ pendingId: "p-1", answer: "  ", now: AT })).toMatchObject({ code: "empty-answer" });
+    expect(await readQueue()).toHaveLength(0);
   });
 });
 
 describe("the stale sweep respects the delivery path", () => {
   const later = (ms: number) => new Date(Date.parse(AT) + ms).toISOString();
 
-  it("a relay-only question is still swept at 90 seconds", () => {
+  it("a relay-only question is still swept at 90 seconds", async () => {
     store.writePending(pending());
-    const res = store.sweepStalePending({ now: later(store.RELAY_MAX_AGE_MS + 1000), sessionId: "sess-1" });
+    const res = await store.sweepStalePending({ now: later(store.RELAY_MAX_AGE_MS + 1000), sessionId: "sess-1" });
     expect(res.swept).toBe(true);
     expect(res.outOfBand).toBe(false);
-    expect(readQueue()[0]).toMatchObject({ answer: "dismissed", delivered_via: "stop-hook-relay" });
+    expect((await readQueue())[0]).toMatchObject({ answer: "dismissed", delivered_via: "stop-hook-relay" });
   });
 
-  it("a question pushed to a channel survives far past 90 seconds", () => {
+  it("a question pushed to a channel survives far past 90 seconds", async () => {
     // The 90s figure only ever made sense for a question open inside a blocking
     // AskUserQuestion. A notification sitting in a list does not expire in a
     // minute and a half, and sweeping it discards an answer the operator can
     // still give — the exact failure this pass exists to end.
     store.writePending(pending({ deliveredVia: { relay: true, channels: ["web-channel-default"] } }));
-    expect(store.sweepStalePending({ now: later(6 * 60 * 60 * 1000), sessionId: "sess-1" })).toMatchObject({ swept: false, fresh: true });
+    expect(await store.sweepStalePending({ now: later(6 * 60 * 60 * 1000), sessionId: "sess-1" })).toMatchObject({ swept: false, fresh: true });
     expect(store.readPending("sess-1")).not.toBeNull();
   });
 
-  it("but it does not live forever — a week out, it is dismissed and says which path timed out", () => {
+  it("but it does not live forever — a week out, it is dismissed and says which path timed out", async () => {
     store.writePending(pending({ deliveredVia: { relay: true, channels: ["web-channel-default", "omi-channel"] } }));
-    const res = store.sweepStalePending({ now: later(store.OUT_OF_BAND_MAX_AGE_MS + 1000), sessionId: "sess-1" });
+    const res = await store.sweepStalePending({ now: later(store.OUT_OF_BAND_MAX_AGE_MS + 1000), sessionId: "sess-1" });
     expect(res.swept).toBe(true);
     expect(res.outOfBand).toBe(true);
-    expect(readQueue()[0]).toMatchObject({
+    expect((await readQueue())[0]).toMatchObject({
       answer: "dismissed",
       delivered_via: "out-of-band:web-channel-default,omi-channel",
     });
   });
 
-  it("an EMPTY channel list is relay-only, not out-of-band", () => {
+  it("an EMPTY channel list is relay-only, not out-of-band", async () => {
     // Delivery was attempted and nothing accepted it. Treating that as
     // out-of-band would give a question nobody can see a seven-day lifetime.
     store.writePending(pending({ deliveredVia: { relay: true, channels: [] } }));
-    expect(store.sweepStalePending({ now: later(store.RELAY_MAX_AGE_MS + 1000), sessionId: "sess-1" }).swept).toBe(true);
+    expect((await store.sweepStalePending({ now: later(store.RELAY_MAX_AGE_MS + 1000), sessionId: "sess-1" })).swept).toBe(true);
   });
 });

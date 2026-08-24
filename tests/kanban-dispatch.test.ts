@@ -3,7 +3,7 @@
 // then (manual/interactive/scheduler-beat targets just move). Plus the engine actually
 // runs + advances the card when dispatched (processCard with an injected runFn — the same
 // path the board's gatewayRunFn drives against the live gateway).
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi, beforeAll, afterAll } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -32,6 +32,19 @@ import { processBatch, processCard } from "../fittings/seed/kanban-loop/lib/engi
 import { gatewayRunFn } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
 // @ts-ignore — pure .mjs
 import { liveSessionPointerFile, readLiveSessionPointer } from "../fittings/seed/kanban-loop/lib/live-session.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-dispatch-"));

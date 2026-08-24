@@ -6,7 +6,7 @@
 // happened. These tests pin the fixes: the prompt carries the work item; outcomes are
 // distinguished (empty vs no-match vs moved) with honest reasons + the operative's
 // actual reply; every transition appends a timeline event; and project inference parses.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -31,6 +31,19 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { parseInferredProject, buildInferencePrompt, inferProject, explicitWorkspaceFromCard } from "../fittings/seed/kanban-loop/lib/infer-project.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-vis-"));

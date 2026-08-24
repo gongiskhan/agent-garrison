@@ -5,9 +5,22 @@
 // that ambiguity is a large part of why the orchestration is hard to hold in your
 // head (ORCHESTRATOR_COHERENCE.md §2.4).
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 // @ts-expect-error — plain .mjs fitting module, no types
 import { migrateBoard, BOARD_VERSION, dutyListTitle, relocateRetiredListCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const v5Board = () => ({
   version: 5,

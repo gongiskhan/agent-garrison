@@ -1302,6 +1302,10 @@ export function tombstoneFeedback(db, authNode, { target, reason }) {
   return { seq };
 }
 
+export function listFeedbackTombstones(db, { limit = 1000 } = {}) {
+  return db.prepare("SELECT seq, target, at, node, reason FROM feedback_tombstones ORDER BY seq DESC LIMIT ?").all(limit);
+}
+
 // The reader joins and drops tombstoned rows — exactly the two-pass semantics
 // of feedback-signals.mjs, expressed as SQL.
 export function listFeedback(db, { sinceSeq = 0, limit = 500, includeTombstoned = false }) {

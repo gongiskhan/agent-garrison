@@ -13,6 +13,7 @@ import {
   reserveDispatchLog,
   readDispatchRuntimeTarget,
   validTransitionsForCard,
+  acquireDispatchLease,
   DISPATCH_LEASE_SECONDS
 } from "@/lib/dispatch";
 import { jsonError } from "@/lib/http";
@@ -192,11 +193,19 @@ export async function POST(request: NextRequest) {
     const nowIso = new Date(now).toISOString();
     const takeover = card.dispatch ? claimability(card, machine, now).reason : "ready";
 
+    // Take the card's dispatch lease BEFORE writing the claim. Not granted means
+    // a live holder still owns it, and idle is the honest answer. The grant's
+    // monotonic fence rides onto the card, so a holder that stalls past its
+    // lease and wakes up is refused by the store rather than by a pid probe.
+    const lease = await acquireDispatchLease(card.id, `${machine}/${workerId || "worker"}`);
+    if (!lease) return NextResponse.json({ job: null, reason: "claim lease held" });
+
     // Claim by writing the dispatch record through the board's CAS path. `rev`
     // is the cross-host mutual exclusion: two workers that select the same card
     // both PATCH, and the second is rejected as a conflict.
     const result = await patchCard(card.id, {
       rev: card.rev,
+      leaseFence: lease.fence,
       // Mark the card running so the board shows it as in flight on that
       // machine. The local orphan sweep skips a card with a live dispatch
       // claim, so this cannot be mistaken for a lost local run.
@@ -213,7 +222,10 @@ export async function POST(request: NextRequest) {
         routingToken,
         phase: card.list,
         logIndex,
-        claimRevision
+        claimRevision,
+        leaseFence: lease.fence,
+        leaseToken: lease.holderToken,
+        leaseExpiresAt: lease.expiresAt
       },
       // Persist the read-time compatibility migration. Explicit placement is
       // now the only remote mechanism; the board projection no longer carries

@@ -1,8 +1,10 @@
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it, beforeAll, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { startStateService } from "./state-service-harness";
+import { resetStateClient } from "../src/lib/state-client";
 import {
   buildVerdictRecord,
   sanitizeCorrection,
@@ -123,21 +125,43 @@ describe("buildVerdictRecord", () => {
 });
 
 describe("recordDecisionVerdict", () => {
-  it("appends one line per verdict, creating the queue on first write", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "verdict-"));
-    const file = path.join(dir, "improver", "feedback-queue.jsonl");
-    expect(await recordDecisionVerdict({ decisionId: "a1", verdict: "right" }, file)).toBe(true);
-    expect(await recordDecisionVerdict({ decisionId: "a2", verdict: "wrong" }, file)).toBe(true);
-    const lines = (await fs.readFile(file, "utf8")).trim().split("\n");
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[1]).decision_id).toBe("a2");
+  // The verdict queue is the state service's `feedback_queue` since mesh phase 2
+  // (§4.5) — one shared queue for all three producers on every node, instead of
+  // one JSONL file per machine. The writer takes no file argument any more:
+  // there is no file, and no local fallback if the service is unreachable.
+  let h: Awaited<ReturnType<typeof startStateService>>;
+  const saved = { url: process.env.GARRISON_STATE_URL, token: process.env.GARRISON_STATE_TOKEN };
+
+  beforeEach(async () => {
+    h = await startStateService();
+    process.env.GARRISON_STATE_URL = h.url;
+    process.env.GARRISON_STATE_TOKEN = h.token;
+    resetStateClient();
+  });
+
+  afterEach(async () => {
+    await h?.stop();
+    if (saved.url === undefined) delete process.env.GARRISON_STATE_URL;
+    else process.env.GARRISON_STATE_URL = saved.url;
+    if (saved.token === undefined) delete process.env.GARRISON_STATE_TOKEN;
+    else process.env.GARRISON_STATE_TOKEN = saved.token;
+    resetStateClient();
+  });
+
+  it("appends one row per verdict, in order, carrying the record verbatim", async () => {
+    expect(await recordDecisionVerdict({ decisionId: "a1", verdict: "right" })).toBe(true);
+    expect(await recordDecisionVerdict({ decisionId: "a2", verdict: "wrong" })).toBe(true);
+    const rows = await h.client.listFeedback({ limit: 100 });
+    expect(rows).toHaveLength(2);
+    expect((rows[1].payload as { decision_id: string }).decision_id).toBe("a2");
+    // The minted id is the row id, which is the handle a tombstone names.
+    expect(rows[1].id).toBe((rows[1].payload as { id: string }).id);
+    expect(rows[1].kind).toBe("decision-verdict");
   });
 
   it("reports a refusal instead of silently writing nothing", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "verdict-"));
-    const file = path.join(dir, "q.jsonl");
-    expect(await recordDecisionVerdict({ decisionId: "", verdict: "right" }, file)).toBe(false);
-    await expect(fs.readFile(file, "utf8")).rejects.toThrow();
+    expect(await recordDecisionVerdict({ decisionId: "", verdict: "right" })).toBe(false);
+    expect(await h.client.listFeedback({ limit: 100 })).toHaveLength(0);
   });
 });
 

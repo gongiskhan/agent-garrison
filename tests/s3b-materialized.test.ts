@@ -30,6 +30,19 @@ import { RoutedGateway, shouldUseEphemeralSession } from "../fittings/seed/http-
 // @ts-ignore — pure .mjs
 import { cardsByOrigin, createAutonomousCard } from "../fittings/seed/http-gateway/scripts/lib/autonomous-cards.mjs";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 // web-channel server computes its dirs at MODULE LOAD from GARRISON_HOME, and static
 // imports hoist above the env assignment — load it dynamically after the sandbox is set.
 // @ts-ignore

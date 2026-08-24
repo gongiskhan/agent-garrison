@@ -1,10 +1,21 @@
-// Kanban Loop storage (V1a): file-per-card under ~/.garrison/kanban-loop.
-//   board.json            — list defs + order + per-list config (NEVER membership)
-//   cards/<ulid>/card.json — title, project, list, status, iterations, goalMode, ts
-//   cards/<ulid>/log-N.md  — per-session logs (written by the engine)
-// List membership is DERIVED by scanning cards (brief §3) — never stored on disk.
-// Every mutation is read-immediately-before-write + atomic (temp file then rename).
-import { promises as fs, readdirSync } from "node:fs";
+// Kanban Loop storage: the GARRISON STATE SERVICE owns the cards and the board
+// layout. This module keeps every name and signature its callers already use —
+// engine.mjs, coordination.mjs and the board server are untouched — and only its
+// bodies moved off the filesystem.
+//
+//   cards                  — `cards` rows in the state service. rev CAS via
+//                            If-Match, coordination_seq as a monotonic floor,
+//                            no resurrection, occurrence_key UNIQUE, and an
+//                            unparseable schedule refused at the door.
+//   board layout           — config doc `board.layout` / scope `global`.
+//   cards/<id>/brief.md,
+//   attachments/, log-N.md — still node-local files.
+//
+// The `root` argument every function still accepts selects where those
+// node-local SIDE FILES live (kanbanRoot()); it no longer selects a card store.
+//
+// List membership is still DERIVED from the cards, never stored.
+import { promises as fs, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
@@ -21,6 +32,7 @@ import {
   normaliseCardSchedule,
   scheduleNextAt
 } from "./schedules.mjs";
+import { createStateClient, StateApiError } from "./state-client.mjs";
 
 export { SCHEDULE_ACTIONS, normaliseScheduleAction, normaliseScheduledFor, normaliseCardSchedule } from "./schedules.mjs";
 
@@ -38,8 +50,132 @@ export async function atomicWriteJSON(file, obj) {
   await fs.rename(tmp, file);
 }
 
-async function readJSON(file) {
-  return JSON.parse(await fs.readFile(file, "utf8"));
+// ── the state service seam ─────────────────────────────────────────
+// ONE client per process, memoised on the discovery inputs so a token rotation
+// — or a test pointing this process at its own ephemeral service — is picked up
+// without a restart. The client throws loudly when the node is not enrolled;
+// there is deliberately NO fallback to a local card store, no cache and no write
+// queue. A stale read is worse than a clear stop.
+let stateClientCache = null;
+let stateClientKey = null;
+
+function stateDiscoveryKey(env) {
+  return [
+    env.GARRISON_STATE_URL ?? "",
+    env.GARRISON_STATE_TOKEN ?? "",
+    env.GARRISON_HOME ?? "",
+    env.GARRISON_NODE_NAME ?? ""
+  ].join("|");
+}
+
+export function boardStateClient() {
+  const key = stateDiscoveryKey(process.env);
+  if (stateClientCache && stateClientKey === key) return stateClientCache;
+  stateClientCache = createStateClient({ readFileSync });
+  stateClientKey = key;
+  return stateClientCache;
+}
+
+function isStatus(err, status) {
+  return err instanceof StateApiError && err.status === status;
+}
+
+// How many times a lock-scoped (recovery) write re-reads and re-runs its mutator
+// after losing the CAS. The lifecycle lock used to make that impossible; the
+// service transaction plus a bounded retry is the same guarantee without a pid.
+const LOCKED_WRITE_TRIES = 6;
+
+// This node's name. `host` placement resolves through it (see below), so an
+// unnamed node is a hard, loud error rather than a card that quietly lands
+// nowhere.
+function localNodeName() {
+  const client = boardStateClient();
+  const name = String(client.node || process.env.GARRISON_NODE_NAME || "").trim();
+  if (!name) {
+    throw new Error(
+      "kanban: this node has no name — set GARRISON_NODE_NAME (or `node` in $GARRISON_HOME/state.json) so placement can resolve \"host\""
+    );
+  }
+  return name;
+}
+
+// `host` means \"run where Garrison runs\" — a phrase with no referent once
+// several machines all run Garrison, so the store never holds it (the service
+// rejects it outright). It is WRITTEN as this node's name and READ BACK as
+// `host` when the target IS this node, which is exactly what \"mine to run\"
+// means locally. A target naming another node crosses both ways verbatim, so
+// the engine's local/remote split and dispatch claimability are unchanged.
+function placementToStore(placement) {
+  if (!placement || typeof placement !== "object") return placement ?? null;
+  if (placement.target !== HOST_PLACEMENT_TARGET) return placement;
+  return { ...placement, target: localNodeName() };
+}
+
+function placementFromStore(placement) {
+  if (!placement || typeof placement !== "object") return placement ?? null;
+  let self = null;
+  try { self = localNodeName(); } catch { self = null; }
+  if (!self || placement.target !== self) return placement;
+  return { ...placement, target: HOST_PLACEMENT_TARGET };
+}
+
+// A NULL promoted column comes back as an absent key; the board's card shape
+// uses explicit nulls, and a reader that wrote `null` must read `null`.
+const NULLABLE_PROMOTED = [
+  "position", "project", "scheduledFor", "schedule", "occurrenceKey", "systemKey", "origin_id", "placement"
+];
+
+// `compat` mirrors exactly where the file store applied its read-time fixups:
+// loadCard did, and a write's return value did NOT. Relocating a retired list on
+// the way OUT of a write would rename the caller's own card under it.
+function cardFromStore(row, { compat = false } = {}) {
+  if (!row) return null;
+  const card = { ...row };
+  // The service's own bookkeeping; the card carries `created` / `updated`.
+  delete card.created_at;
+  delete card.updated_at;
+  for (const field of NULLABLE_PROMOTED) {
+    if (card[field] === undefined) card[field] = null;
+  }
+  card.placement = placementFromStore(card.placement);
+  if (!compat) return card;
+  // Compat on read, exactly as the file store did: adopt the pre-rename flow key
+  // and relocate a card left in a list the v6 migration retired.
+  return relocateRetiredListCards(adoptFlowKeys(card));
+}
+
+function cardToStore(card) {
+  const out = { ...card };
+  delete out.created_at;
+  delete out.updated_at;
+  if (out.placement) out.placement = placementToStore(out.placement);
+  return out;
+}
+
+// Position allocation happens inside the write transaction now — that was the
+// whole job of withCardOrderLock. An explicit finite number is honoured; anything
+// else lands at the BOTTOM, which is the order a null `position` already had when
+// it fell back to the creation instant.
+function positionHint(card) {
+  return typeof card?.position === "number" && Number.isFinite(card.position) ? card.position : "bottom";
+}
+
+// ── node-local card mirror (batch-one bridge) ─────────────────────────
+// The service is the source of truth and nothing in this module ever READS the
+// mirror. It exists because three callers have not been migrated yet and still
+// open cards/<id>/card.json on the node that wrote it:
+//   * src/lib/board-summary.ts               (the Next app's board summary)
+//   * coordination.mjs readCardStateForCleanup (the durable cleanup guard)
+//   * personal-memory-outbox.mjs reconcilePersonalCompletionOutbox
+// It is write-only and best-effort, and it goes away with those three.
+async function mirrorCard(root, card) {
+  if (!card || !card.id) return card;
+  try {
+    await atomicWriteJSON(cardFile(root, card.id), card);
+  } catch (err) {
+    console.error(`[kanban] card mirror failed for ${card.id}: ${err?.message ?? err}`);
+  }
+  return card;
 }
 
 // The current on-disk board schema version. Bumped whenever a migration below
@@ -236,8 +372,24 @@ export function relocateRetiredListCards(card) {
   return card;
 }
 
+// The board layout is ONE shared document, not a per-root file: config doc
+// `board.layout` at scope `global`.
+export const BOARD_NAMESPACE = "board.layout";
+export const BOARD_SCOPE = "global";
+
+// An absent layout stays an ENOENT-shaped throw — the seeding paths
+// (kanban.mjs --setup) catch exactly that and seed, and a silent default here
+// would clobber the seed-or-migrate-never-clobber rule.
+function missingBoardError() {
+  const err = new Error("kanban: no board layout — the board has not been seeded");
+  err.code = "ENOENT";
+  return err;
+}
+
 export async function loadBoard(root = kanbanRoot()) {
-  const board = await readJSON(path.join(root, "board.json"));
+  const doc = await boardStateClient().getConfig(BOARD_NAMESPACE, BOARD_SCOPE);
+  const board = doc?.body ?? null;
+  if (!board || typeof board !== "object") throw missingBoardError();
   // Migration on read, persisted back so it runs once; a fresh board is already at
   // BOARD_VERSION.
   if (board && (board.version || 0) < BOARD_VERSION) {
@@ -249,7 +401,19 @@ export async function loadBoard(root = kanbanRoot()) {
 }
 
 export async function saveBoard(board, root = kanbanRoot()) {
-  await atomicWriteJSON(path.join(root, "board.json"), board);
+  const client = boardStateClient();
+  // saveBoard carries no precondition of its own (that is saveBoardCAS's job), so
+  // a concurrent writer just means re-reading the document rev and writing again.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const doc = await client.getConfig(BOARD_NAMESPACE, BOARD_SCOPE);
+    try {
+      await client.putConfig(BOARD_NAMESPACE, BOARD_SCOPE, board, { ifMatchRev: doc?.rev ?? 0 });
+      return;
+    } catch (err) {
+      if (!isStatus(err, 409)) throw err;
+    }
+  }
+  throw new Error("kanban: the board layout write lost the race 5 times");
 }
 
 const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
@@ -419,7 +583,7 @@ export async function createCard(root, { title, description = "", project = null
   // creation door (Continue button, create_continuation tool, gateway) gets it.
   if (validContinues && !duty && !sequence) {
     try {
-      const prev = JSON.parse(await fs.readFile(cardFile(root, validContinues), "utf8"));
+      const prev = await loadCard(root, validContinues);
       duty = prev.duty ?? null;
       level = prev.level ?? null;
       sequence = Array.isArray(prev.sequence) && prev.sequence.length ? [...prev.sequence] : null;
@@ -582,14 +746,20 @@ export async function createCard(root, { title, description = "", project = null
   // is kept in sync for back-compat (notify-origin's web delivery reads it).
   card.origin_id =
     typeof explicitOriginId === "string" && explicitOriginId ? explicitOriginId : deriveOriginId(card);
-  await atomicWriteJSON(cardFile(root, id), card);
-  return card;
+  const row = await boardStateClient().createCard(cardToStore({ ...card, position: positionHint(card) }));
+  return mirrorCard(root, cardFromStore(row));
 }
 
+// Missing card throws (ENOENT-shaped), as reading a missing file did — every
+// caller already funnels that through a try/catch.
 export async function loadCard(root, id) {
-  // Compat on read: adopt the pre-rename flow key (saveCard only writes the new
-  // one), and relocate a card left in a list the v6 migration retired.
-  return relocateRetiredListCards(adoptFlowKeys(await readJSON(cardFile(root, id))));
+  const row = await boardStateClient().getCard(id);
+  if (!row) {
+    const err = new Error(`kanban: no such card ${id}`);
+    err.code = "ENOENT";
+    throw err;
+  }
+  return cardFromStore(row, { compat: true });
 }
 
 function coordinationSeqForWrite(disk, candidate) {
@@ -607,21 +777,24 @@ function coordinationSeqForWrite(disk, candidate) {
   return changed ? current + 1 : current;
 }
 
-// Read-immediately-before-write then atomic-write the mutated card. Bumps rev.
+// Read-immediately-before-write, then write the mutated card. Bumps rev.
 export async function saveCard(root, card, at = new Date().toISOString()) {
   // saveCard is primarily a setup/test helper, but it must preserve the same
-  // lifecycle-generation semantics as the production CAS path below.
-  let disk = null;
-  try { disk = await readJSON(cardFile(root, card.id)); }
-  catch { /* the existing write behavior remains authoritative */ }
+  // lifecycle-generation semantics as the production CAS path below. It carries
+  // no precondition of its own and, exactly as the write-through file store did,
+  // it CREATES the card when it does not exist yet.
+  const client = boardStateClient();
+  const disk = cardFromStore(await client.getCard(card.id), { compat: true });
   const next = {
     ...card,
     coordinationSeq: coordinationSeqForWrite(disk, card),
     rev: (card.rev ?? 0) + 1,
     updated: at
   };
-  await atomicWriteJSON(cardFile(root, card.id), next);
-  return next;
+  const row = disk
+    ? await client.patchCard(card.id, cardToStore(next), { ifMatchRev: disk.rev ?? 0 })
+    : await client.createCard(cardToStore({ ...next, position: positionHint(next) }));
+  return mirrorCard(root, cardFromStore(row));
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -816,6 +989,26 @@ export async function withFileLock(lockPath, label, fn) {
   }
 }
 
+// ── what the store's CAS replaced, and what it did not ───────────────
+// The store's rev CAS is now the cross-node guarantee for a single card's
+// read→mutate→write, and no-resurrection is structural (a PATCH never upserts).
+// That is strictly stronger than a file lock, which cannot mean anything on
+// another machine.
+//
+// It is NOT, however, a substitute for every one of these locks, because a
+// service transaction is per REQUEST and two of them span more than one card:
+//
+//   * withCardLock still serialises NODE-LOCAL lifecycle edges. coordination.mjs
+//     reads the BLOCKER and writes the WAITER inside one section, and the board
+//     server orders a save against a delete; neither is one request, so the CAS
+//     cannot cover it. The lock is only ever taken by processes on this box, so
+//     its pid-liveness probe is sound where it is used.
+//   * withCardOrderLock still serialises the position ALLOCATOR (below): the
+//     caller picks the float, and the store honours the number it is handed.
+//
+// withBoardLock is the one whose job did move: the board layout is a single
+// document with its own rev, so saveBoardCAS's precondition is the critical
+// section and re-reads on conflict.
 export async function withCardLock(root, id, fn) {
   // The lock MUST live outside cards/<id>. Delete removes that whole directory;
   // when the lock lived inside it, a delete could unlink an acquired lock and a
@@ -825,29 +1018,42 @@ export async function withCardLock(root, id, fn) {
   return withFileLock(path.join(root, ".card-locks", `${id}.lock`), `card ${id}`, fn);
 }
 
-// Board-level exclusive lock (board.json is one shared file). Serializes the
-// whole-board read→mutate→write so a board-rev CAS is a true critical section:
-// two concurrent writers cannot both read the same rev and both save.
 export async function withBoardLock(root, fn) {
-  return withFileLock(path.join(root, ".board.lock"), "board", fn);
+  return fn();
 }
 
-// Collection-level ordering lock. Card files have independent CAS locks, but
-// choosing a new top position requires a read of every card in the destination
-// list followed by a create/move. Serialise only that short allocator window so
-// concurrent POSTs cannot all choose the same/null position.
+// The ORDER lock is NOT a pass-through, because its job did not move. Choosing a
+// new top position still happens in the CALLER: it reads every card in the
+// destination list and picks a float below the current top, then hands the store
+// an explicit number the store must honour verbatim. Two concurrent allocators
+// would otherwise read the same top and pick the same position. (Node-local
+// only; the cross-node form of this is a lease, which is not batch-one work.)
 export async function withCardOrderLock(root, fn) {
   return withFileLock(path.join(root, ".card-order.lock"), "card order", fn);
 }
 
-// Compare-and-swap whole-board save. Runs the read→check-rev→mutate→write inside
-// withBoardLock, so simultaneous writers can't lost-update board.json. `mutate`
-// receives the fresh board and returns { board } (or { error } to abort). On rev
-// mismatch returns { ok:false, conflict:true, rev }. Bumps board.rev on success.
+// Compare-and-swap whole-board save. `mutate` receives the fresh board and
+// returns { board } (or { error } to abort). On rev mismatch returns
+// { ok:false, conflict:true, rev }. Bumps board.rev on success.
+//
+// TWO revs are in play and they are not the same thing: `board.rev` is the
+// caller-visible CAS this contract has always exposed, and the config document's
+// own rev is the service-side precondition. Losing the document race means
+// another writer landed between the read and the write, so re-read and redo —
+// which is what the board lock used to make impossible.
 export async function saveBoardCAS(root, expectedRev, mutate) {
-  return withBoardLock(root, async () => {
-    const board = await loadBoard(root);
+  const client = boardStateClient();
+  let lastRev = 0;
+  for (let attempt = 0; attempt < LOCKED_WRITE_TRIES; attempt += 1) {
+    const doc = await client.getConfig(BOARD_NAMESPACE, BOARD_SCOPE);
+    const stored = doc?.body ?? null;
+    if (!stored || typeof stored !== "object") throw missingBoardError();
+    // Migrate in memory; this very write persists it. Calling loadBoard here
+    // would persist the migration separately and invalidate the doc rev we just
+    // read, turning every migrating board write into a self-inflicted conflict.
+    const board = (stored.version || 0) < BOARD_VERSION ? migrateBoard(stored) : stored;
     const currentRev = Number.isInteger(board.rev) ? board.rev : 0;
+    lastRev = currentRev;
     if (Number.isInteger(expectedRev) && expectedRev !== currentRev) {
       return { ok: false, conflict: true, rev: currentRev };
     }
@@ -855,9 +1061,15 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
     if (result && result.error) return { ok: false, error: result.error };
     const nextBoard = result.board;
     nextBoard.rev = currentRev + 1;
-    await saveBoard(nextBoard, root);
+    try {
+      await client.putConfig(BOARD_NAMESPACE, BOARD_SCOPE, nextBoard, { ifMatchRev: doc?.rev ?? 0 });
+    } catch (err) {
+      if (isStatus(err, 409)) continue;
+      throw err;
+    }
     return { ok: true, board: nextBoard, list: result.list, rev: nextBoard.rev };
-  });
+  }
+  return { ok: false, conflict: true, rev: lastRev };
 }
 
 // Compare-and-swap save: only write when the on-disk rev still matches what the
@@ -875,83 +1087,126 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
 // A post-commit hook failure is reported as `postCommitError` but never turns a
 // committed card write into a false CAS failure.
 async function writeCardWithHooks(root, { id, card = null, expectedRev = null, mutate = null, at, hooks = {} }) {
-  // Snapshot the terminal edge while the CAS lock owns the authoritative
-  // before/after pair, then perform the neutral outbox I/O only after the lock
-  // is released. Vault/provider work is never done by this module at all.
+  // Snapshot the terminal edge while the CAS owns the authoritative before/after
+  // pair, then perform the neutral outbox I/O only after the write commits.
+  // Vault/provider work is never done by this module at all.
   let personalCompletionEdge = null;
   let doneHandoffEdge = null;
+  const client = boardStateClient();
+  // A `mutate` caller is a recovery path: it must see the authoritative card and
+  // its write must land, which is what holding the lifecycle lock across the
+  // read→mutate→write used to guarantee. Losing the service CAS therefore means
+  // re-read and re-run the mutator. A `card` + `expectedRev` caller owns its own
+  // precondition, so a conflict is REPORTED, never retried.
+  const attempts = typeof mutate === "function" ? LOCKED_WRITE_TRIES : 1;
   const result = await withCardLock(root, id, async () => {
-    let disk = null;
-    try {
-      disk = await loadCard(root, id);
-    } catch {
-      disk = null;
-    }
-    // The card file is GONE — it was deleted while this writer held its in-memory
-    // copy. Writing would RESURRECT it, and the old code did exactly that: the
-    // missing-disk case skipped the rev check ("first write of a brand-new card")
-    // and wrote anyway. Observed live — a deleted card reappeared, parked, a minute
-    // later when the run that was still in flight committed its result.
-    //
-    // saveCardCAS never legitimately CREATES: createCard writes the first version
-    // with atomicWriteJSON directly, and every other caller is updating a card it
-    // just read. So a missing file is always a delete, and always a refusal.
-    if (!disk) {
-      return { ok: false, deleted: true, card: null };
-    }
-    if (typeof mutate !== "function" && (disk.rev ?? 0) !== expectedRev) {
-      return { ok: false, conflict: true, card: disk };
-    }
-    const candidate = typeof mutate === "function" ? await mutate(disk) : card;
-    if (!candidate) return { ok: false, skipped: true, card: disk };
-    const next = {
-      ...candidate,
-      coordinationSeq: coordinationSeqForWrite(disk, candidate),
-      rev: (disk.rev ?? 0) + 1,
-      updated: at
-    };
-    let prepared = null;
-    if (typeof hooks.beforeWrite === "function") {
-      prepared = await hooks.beforeWrite({ disk, next });
-      if (prepared && prepared.ok === false) {
-        return { ok: false, precondition: true, detail: prepared, card: disk };
-      }
-    }
-    // A beforeWrite hook may enrich the candidate while the lifecycle lock is
-    // held. Recompute from the final candidate so a future hook that changes a
-    // coordination identity field cannot accidentally preserve the old epoch.
-    next.coordinationSeq = coordinationSeqForWrite(disk, next);
-    await atomicWriteJSON(cardFile(root, id), next);
-    if (isPersonalDoneTransition(disk, next)) personalCompletionEdge = { prev: disk, next };
-    if (next.list === "done" && (disk?.list ?? null) !== "done") {
-      doneHandoffEdge = { prev: disk, next, summary: hooks.terminalSummary ?? null };
-    }
-    // Feedback to the originating channel on a terminal transition (done /
-    // needs-attention). saveCardCAS is the one write path every mover uses
-    // (engine, server PATCH, batch), so the edge fires exactly once per
-    // outcome. Fire-and-forget — never delays or fails the write.
-    // S3a lifecycle router: on the terminal edge (into done / needs-attention) route
-    // a finished | blocked | failed event — appends to the origin's durable event log
-    // for ALL transports, and posts the (legacy) web text to the originating thread.
-    routeTerminalTransition(root, disk, next, { summary: hooks.terminalSummary });
-    // The Done handoff is scheduled only AFTER withCardLock returns below. If it
-    // were queued here, the lock's asynchronous cleanup could yield to that
-    // callback before processCard writes its final duty-summary.
-    // S3c: a card reaching a terminal list strands any unapplied revisit directive
-    // (the boundary guard early-returns before it) — clear it so the chip resolves and
-    // it can never fire on a reopened card. No-op when there is no pending directive.
-    if ((next.list === "done" || next.list === "needs-attention") && (disk?.list ?? null) !== next.list) {
-      markSteeringApplied(root, next.id, "obsolete-terminal");
-    }
-    let postCommitError = null;
-    if (typeof hooks.afterWrite === "function") {
+    let outcome = { ok: false, conflict: true, card: null };
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      personalCompletionEdge = null;
+      doneHandoffEdge = null;
+      let disk = null;
       try {
-        await hooks.afterWrite({ disk, next, prepared });
-      } catch (err) {
-        postCommitError = err;
+        disk = await loadCard(root, id);
+      } catch {
+        disk = null;
       }
+      // The card is GONE — it was deleted while this writer held its in-memory
+      // copy. Writing would RESURRECT it, and the old code did exactly that: the
+      // missing-disk case skipped the rev check ("first write of a brand-new card")
+      // and wrote anyway. Observed live — a deleted card reappeared, parked, a minute
+      // later when the run that was still in flight committed its result. The store
+      // now refuses structurally too (a PATCH never upserts), so this is belt and
+      // braces rather than the only guard.
+      //
+      // saveCardCAS never legitimately CREATES: createCard writes the first version,
+      // and every other caller is updating a card it just read. So a missing card is
+      // always a delete, and always a refusal.
+      if (!disk) {
+        return { ok: false, deleted: true, card: null };
+      }
+      if (typeof mutate !== "function" && (disk.rev ?? 0) !== expectedRev) {
+        return { ok: false, conflict: true, card: disk };
+      }
+      const candidate = typeof mutate === "function" ? await mutate(disk) : card;
+      if (!candidate) return { ok: false, skipped: true, card: disk };
+      const next = {
+        ...candidate,
+        coordinationSeq: coordinationSeqForWrite(disk, candidate),
+        rev: (disk.rev ?? 0) + 1,
+        updated: at
+      };
+      let prepared = null;
+      if (typeof hooks.beforeWrite === "function") {
+        prepared = await hooks.beforeWrite({ disk, next });
+        if (prepared && prepared.ok === false) {
+          return { ok: false, precondition: true, detail: prepared, card: disk };
+        }
+      }
+      // A beforeWrite hook may enrich the candidate. Recompute from the final
+      // candidate so a future hook that changes a coordination identity field
+      // cannot accidentally preserve the old epoch. (The store applies the same
+      // value as a monotonic FLOOR, so a stale client can never rewind it.)
+      next.coordinationSeq = coordinationSeqForWrite(disk, next);
+      // A card claimed under a lease records the FENCE it was claimed with. Every
+      // write from that claim carries it, so a holder that stalled past its lease
+      // and woke up still holding the old card is refused — which a TTL alone
+      // cannot do. A card with no claim carries no fence and no precondition.
+      const fence = Number.isFinite(Number(next.leaseFence)) ? Number(next.leaseFence) : undefined;
+      let written;
+      try {
+        written = cardFromStore(await client.patchCard(id, cardToStore(next), {
+          ifMatchRev: disk.rev ?? 0,
+          ...(fence !== undefined ? { fence } : {})
+        }));
+      } catch (err) {
+        if (isStatus(err, 404)) return { ok: false, deleted: true, card: null };
+        if (isStatus(err, 409) && err.body?.error === "fenced") {
+          // Reported as a conflict so every existing caller's !ok branch still
+          // does the right thing, and flagged so a caller that cares can say why.
+          return { ok: false, conflict: true, fenced: true, card: disk };
+        }
+        if (isStatus(err, 409) && err.body?.error === "conflict") {
+          // The 409 carries the CURRENT card, so the caller can merge without a
+          // second round trip — and a retrying mutator re-reads it next pass.
+          outcome = { ok: false, conflict: true, card: cardFromStore(err.body?.card, { compat: true }) ?? disk };
+          continue;
+        }
+        throw err;
+      }
+      await mirrorCard(root, written);
+      if (isPersonalDoneTransition(disk, written)) personalCompletionEdge = { prev: disk, next: written };
+      if (written.list === "done" && (disk?.list ?? null) !== "done") {
+        doneHandoffEdge = { prev: disk, next: written, summary: hooks.terminalSummary ?? null };
+      }
+      // Feedback to the originating channel on a terminal transition (done /
+      // needs-attention). saveCardCAS is the one write path every mover uses
+      // (engine, server PATCH, batch), so the edge fires exactly once per
+      // outcome. Fire-and-forget — never delays or fails the write.
+      // S3a lifecycle router: on the terminal edge (into done / needs-attention) route
+      // a finished | blocked | failed event — appends to the origin's durable event log
+      // for ALL transports, and posts the (legacy) web text to the originating thread.
+      routeTerminalTransition(root, disk, written, { summary: hooks.terminalSummary });
+      // The Done handoff is scheduled only after this loop returns. If it were
+      // queued here, its callback could run before processCard writes its final
+      // duty-summary.
+      // S3c: a card reaching a terminal list strands any unapplied revisit directive
+      // (the boundary guard early-returns before it) — clear it so the chip resolves and
+      // it can never fire on a reopened card. No-op when there is no pending directive.
+      if ((written.list === "done" || written.list === "needs-attention") && (disk?.list ?? null) !== written.list) {
+        markSteeringApplied(root, written.id, "obsolete-terminal");
+      }
+      let postCommitError = null;
+      if (typeof hooks.afterWrite === "function") {
+        try {
+          await hooks.afterWrite({ disk, next: written, prepared });
+        } catch (err) {
+          postCommitError = err;
+        }
+      }
+      outcome = { ok: true, card: written, ...(postCommitError ? { postCommitError } : {}) };
+      break;
     }
-    return { ok: true, card: next, ...(postCommitError ? { postCommitError } : {}) };
+    return outcome;
   });
 
   if (!result?.ok) return result;
@@ -1036,26 +1291,15 @@ export async function updateCardCAS(root, id, mutate, tries = 6) {
   return null; // lost the CAS race `tries` times
 }
 
+// An unreachable store is a LOUD failure, not an empty board: swallowing it into
+// "no cards" is precisely the stale read the mesh design refuses. An empty list
+// from a reachable service is a real empty board.
 export async function listCardIds(root = kanbanRoot()) {
-  try {
-    const entries = await fs.readdir(path.join(root, "cards"), { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
-    return [];
-  }
+  return (await boardStateClient().listCards()).map((row) => row.id);
 }
 
 export async function loadAllCards(root = kanbanRoot()) {
-  const ids = await listCardIds(root);
-  const cards = [];
-  for (const id of ids) {
-    try {
-      cards.push(await loadCard(root, id));
-    } catch {
-      // skip an unreadable/partial card dir
-    }
-  }
-  return cards;
+  return (await boardStateClient().listCards()).map((row) => cardFromStore(row, { compat: true }));
 }
 
 // Derive list membership from the cards (pure) — never stored.
@@ -1085,19 +1329,27 @@ export async function deleteCard(root, id, expectedRev = null, hooks = {}) {
       return false; // caller must re-authorize against the fresh lifecycle state
     }
     try {
-      await fs.rm(dir, { recursive: true, force: true });
-      if (typeof hooks.afterDelete === "function") {
-        try { await hooks.afterDelete({ disk }); }
-        catch (err) {
-          // Deletion is committed, but post-commit cleanup failures must remain
-          // observable. Coordination cleanup journals its retry before throwing.
-          console.error(`[kanban] post-delete cleanup failed for ${id}:`, err?.message || err);
-        }
-      }
-      return true;
-    } catch {
-      return false;
+      // The store's delete is the commit: it tombstones the row under an If-Match,
+      // so even a writer on another node either lost the CAS or is refused as a
+      // resurrection.
+      await boardStateClient().deleteCard(id, { ifMatchRev: disk.rev ?? 0 });
+    } catch (err) {
+      if (isStatus(err, 404) || isStatus(err, 409)) return false;
+      throw err;
     }
+    // The card's own node-local directory goes with it — the mirror, every
+    // log-<n>.md, the brief and the attachments. Never the run dir or the shared
+    // transcripts; the server's delete handler decides those.
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    if (typeof hooks.afterDelete === "function") {
+      try { await hooks.afterDelete({ disk }); }
+      catch (err) {
+        // Deletion is committed, but post-commit cleanup failures must remain
+        // observable. Coordination cleanup journals its retry before throwing.
+        console.error(`[kanban] post-delete cleanup failed for ${id}:`, err?.message || err);
+      }
+    }
+    return true;
   });
 }
 
@@ -1105,6 +1357,15 @@ export async function appendCardLog(root, id, n, text) {
   const file = path.join(root, "cards", id, `log-${n}.md`);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.appendFile(file, text.endsWith("\n") ? text : text + "\n", "utf8");
+  // The LIVE stream stays node-local — writeCardLog rewrites the whole file on
+  // every chunk, which is a write storm over HTTP. The DURABLE per-turn text is
+  // mirrored into the card's docs so a peer can read the record. Best effort by
+  // construction: a failed mirror is logged and NEVER fails the append.
+  try {
+    await boardStateClient().putCardDoc(id, `log-${n}.md`, await fs.readFile(file, "utf8"));
+  } catch (err) {
+    console.error(`[kanban] log mirror failed for ${id} log-${n}: ${err?.message ?? err}`);
+  }
   return file;
 }
 

@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startStateService } from "./state-service-harness";
 // @ts-ignore — plain .mjs fitting module
 import { resolveDiscussInterception } from "../fittings/seed/http-gateway/scripts/lib/discuss-intercept.mjs";
 // @ts-ignore — pure .mjs routing layer, no .d.ts
@@ -276,10 +277,14 @@ function dispatchModel() {
 describe("RoutedGateway.correctHeldCard", () => {
   let home: string;
   let compositionDir: string;
+  // The correction's SIGNAL goes to the state service's feedback queue (mesh
+  // phase 2, §4.5); its AUDIT line is still a file in the composition dir.
+  let h: Awaited<ReturnType<typeof startStateService>>;
   const savedHome = process.env.GARRISON_HOME;
+  const savedState = { url: process.env.GARRISON_STATE_URL, token: process.env.GARRISON_STATE_TOKEN };
   const realFetch = globalThis.fetch;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     home = mkdtempSync(join(tmpdir(), "gar-correct-home-"));
     compositionDir = mkdtempSync(join(tmpdir(), "gar-correct-comp-"));
     // The dispatch's own routing-evidence line lands here too; without the dir the
@@ -287,11 +292,25 @@ describe("RoutedGateway.correctHeldCard", () => {
     // only its own fake writer ever created.
     mkdirSync(join(compositionDir, ".garrison"), { recursive: true });
     process.env.GARRISON_HOME = home;
+    h = await startStateService();
+    process.env.GARRISON_STATE_URL = h.url;
+    process.env.GARRISON_STATE_TOKEN = h.token;
+    // @ts-ignore — plain .mjs fitting module
+    const { resetFeedbackClient } = await import("../fittings/seed/http-gateway/scripts/lib/feedback-queue.mjs");
+    resetFeedbackClient();
   });
-  afterEach(() => {
+  afterEach(async () => {
     globalThis.fetch = realFetch;
+    await h?.stop();
+    // @ts-ignore — plain .mjs fitting module
+    const { resetFeedbackClient } = await import("../fittings/seed/http-gateway/scripts/lib/feedback-queue.mjs");
+    resetFeedbackClient();
     if (savedHome === undefined) delete process.env.GARRISON_HOME;
     else process.env.GARRISON_HOME = savedHome;
+    if (savedState.url === undefined) delete process.env.GARRISON_STATE_URL;
+    else process.env.GARRISON_STATE_URL = savedState.url;
+    if (savedState.token === undefined) delete process.env.GARRISON_STATE_TOKEN;
+    else process.env.GARRISON_STATE_TOKEN = savedState.token;
     for (const dir of [home, compositionDir]) {
       try {
         rmSync(dir, { recursive: true, force: true });
@@ -306,6 +325,10 @@ describe("RoutedGateway.correctHeldCard", () => {
   function boot(pick: Record<string, unknown>, boardOk = true) {
     const writes: any[] = [];
     const fetchImpl = async (url: string, init?: any) => {
+      // The fake stands in for the BOARD, not for the network: the correction's
+      // signal goes to the real state service on its ephemeral port, so those
+      // calls pass straight through.
+      if (String(url).startsWith(h.url)) return realFetch(url, init);
       if (!init) return { ok: true, json: async () => ({ card: { rev: 3 } }) };
       writes.push({ url, body: JSON.parse(init.body), headers: init.headers });
       if (!boardOk) return { ok: false, status: 400, json: async () => ({ error: "engine-owned" }) };
@@ -371,9 +394,9 @@ describe("RoutedGateway.correctHeldCard", () => {
     // evidence's digest does.
     expect(decisions.some((d) => JSON.stringify(d).includes("I was asking a question"))).toBe(false);
 
-    const queue = join(home, "improver", "feedback-queue.jsonl");
-    expect(existsSync(queue)).toBe(true);
-    const signal = JSON.parse(readFileSync(queue, "utf8").trim());
+    const rows = await h.client.listFeedback({ limit: 10 });
+    expect(rows).toHaveLength(1);
+    const signal = rows[0].payload as Record<string, unknown>;
     expect(signal).toMatchObject({ question: "decision-verdict", answer: "wrong", original: { duty: "image" }, applied: { duty: "discuss" } });
     expect(evidenceFromVerdict(signal).every((e: any) => e.signal === "explicit-negative" && e.shape === "image")).toBe(true);
   });

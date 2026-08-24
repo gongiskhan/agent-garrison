@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,19 @@ import { processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore pure mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState, seedCard } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const previousPolicyPath = process.env.GARRISON_POLICY_PATH;
 
@@ -60,7 +73,7 @@ describe("Kanban live-log write ordering", () => {
     };
     mkdirSync(path.join(root, "cards", card.id), { recursive: true });
     mkdirSync(card.runDir, { recursive: true });
-    await atomicWriteJSON(path.join(root, "cards", card.id, "card.json"), card);
+    await seedCard(card);
 
     // Deliberate policy-less mode keeps this test focused on log finalization.
     process.env.GARRISON_POLICY_PATH = path.join(root, "missing-policy.json");

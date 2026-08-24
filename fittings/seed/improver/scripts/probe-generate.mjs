@@ -132,7 +132,7 @@ async function main() {
   // 1) sweep THIS session's stale pending → dismissed records, then pass through
   //    (F1: never another session's — a background/pool Stop must not dismiss an
   //    attended session's still-open question).
-  const sweep = store.sweepStalePending({ now, sessionId });
+  const sweep = await store.sweepStalePending({ now, sessionId });
   if (sweep.swept) return 0;
   // 2) a FRESH pending means we already asked THIS session — stay silent.
   if (sweep.fresh) return 0;

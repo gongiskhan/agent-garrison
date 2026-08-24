@@ -28,7 +28,7 @@ import {
   putSchedulerJob, listSchedulerJobs, deleteSchedulerJob,
   recordSchedulerRun, listSchedulerRuns,
   appendPlan, listPlans, declareIntent, releaseIntents, listIntents,
-  appendFeedback, tombstoneFeedback, listFeedback,
+  appendFeedback, tombstoneFeedback, listFeedback, listFeedbackTombstones,
   appendPaymasterUsage, listPaymasterUsage
 } from "./store.mjs";
 import { changeBus, signalChange, readChanges, maxSeq, minSeq } from "./lib/changes.mjs";
@@ -410,6 +410,9 @@ const server = http.createServer(async (req, res) => {
         });
       }
       if (req.method === "POST" && p[1] === "tombstones") return send(res, 201, mutate(() => tombstoneFeedback(db, node, body ?? {})));
+      if (req.method === "GET" && p[1] === "tombstones") {
+        return send(res, 200, { tombstones: listFeedbackTombstones(db, { limit: Number(url.searchParams.get("limit") ?? 1000) }) });
+      }
     }
 
     // ── paymaster ──

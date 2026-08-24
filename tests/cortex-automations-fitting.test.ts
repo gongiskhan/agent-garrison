@@ -381,7 +381,7 @@ describe("the local automations engine is untouched, and nothing binds to the wr
     const metadata = await loadSeedMetadata("automations");
     expect(metadata.faculty).toBe("observability");
     expect(metadata.own_port).toBe(true);
-    expect(metadata.default_port).toBe(7090);
+    expect(metadata.default_port).toBe(8090);
     expect(metadata.provides).toEqual([{ kind: "automation-runner", name: "automations" }]);
     expect(metadata.setup?.[0]?.command).toBe("bash scripts/setup.sh");
     expect(metadata.verify.command).toContain("scripts/server.mjs --probe");

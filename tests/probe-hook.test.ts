@@ -6,6 +6,7 @@
 // escape/timeout + mute), #19 (retrospective once/day).
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
+import { startStateService } from "./state-service-harness";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,6 +21,11 @@ const COMPILE = path.join(ROOT, "fittings/seed/orchestrator/scripts/compile.mjs"
 const NOW = "2026-07-11T12:00:00.000Z";
 let sb: string;
 let env: NodeJS.ProcessEnv;
+// The hooks write their D26 records into the state service's feedback queue
+// (mesh phase 2, §4.5), so each test gets a real service on an ephemeral port
+// and the child processes get its discovery env — the same two variables the
+// runner projects into a fitting.
+let h: Awaited<ReturnType<typeof startStateService>>;
 
 function writePolicy(home: string) {
   // Compile the real seed into the sandbox policy so the probe-question cell is
@@ -46,10 +52,9 @@ function runGen(payload: object): string {
 function runCap(payload: object): void {
   execFileSync("node", [CAP], { input: JSON.stringify(payload), env, encoding: "utf8" });
 }
-function readQueue(): any[] {
-  const f = path.join(sb, "garrison", "improver", "feedback-queue.jsonl");
-  if (!existsSync(f)) return [];
-  return readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+async function readQueue(): Promise<any[]> {
+  const rows = await h.client.listFeedback({ limit: 500 });
+  return rows.map((r: { payload: unknown }) => r.payload);
 }
 function pendingFile(session = "attended-1"): string {
   return path.join(sb, "garrison", "improver", `probe-pending-${session}.json`);
@@ -64,8 +69,9 @@ function readPending(session = "attended-1"): any | null {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   sb = mkdtempSync(path.join(tmpdir(), "probe-hook-"));
+  h = await startStateService();
   const home = path.join(sb, "garrison");
   for (const d of ["orchestrator", "sessions", "improver", "kanban-loop/cards"]) mkdirSync(path.join(home, d), { recursive: true });
   mkdirSync(path.join(sb, "comp", ".garrison"), { recursive: true });
@@ -82,10 +88,16 @@ beforeEach(() => {
     GARRISON_SESSIONS_STATE: path.join(home, "sessions", "state.json"),
     GARRISON_KANBAN_DIR: path.join(home, "kanban-loop"),
     GARRISON_COMPOSITION_DIR: path.join(sb, "comp"),
+    GARRISON_STATE_URL: h.url,
+    GARRISON_STATE_TOKEN: h.token,
+    GARRISON_NODE_NAME: "test-node",
     PROBE_NOW: NOW,
   };
 });
-afterEach(() => rmSync(sb, { recursive: true, force: true }));
+afterEach(async () => {
+  await h?.stop();
+  rmSync(sb, { recursive: true, force: true });
+});
 
 describe("probe-generate — gating + block (#17)", () => {
   it("attended session + a real completed task → blocks with a verbatim relay + writes a pending", () => {
@@ -163,11 +175,11 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
     return readPending();
   }
 
-  it("captures the selected answer into a D26 record and clears the pending", () => {
+  it("captures the selected answer into a D26 record and clears the pending", async () => {
     const pending = seedProbe();
     const q = pending.questions[0].question;
     runCap({ session_id: "attended-1", tool_name: "AskUserQuestion", tool_response: { answers: { [q]: "Went well" } } });
-    const recs = readQueue();
+    const recs = await readQueue();
     expect(recs).toHaveLength(1);
     expect(recs[0].answer).toBe("Went well");
     expect(recs[0].provenance).toBe("probe");
@@ -175,7 +187,7 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
     expect(readPending()).toBeNull();
   });
 
-  it("a multi-question (retrospective) pending ignores an unrelated single-answer AskUserQuestion (left for the sweeper)", () => {
+  it("a multi-question (retrospective) pending ignores an unrelated single-answer AskUserQuestion (left for the sweeper)", async () => {
     // A retrospective pending carries 2+ questions; an answer that matches none of
     // them is the operative's OWN AskUserQuestion — never captured against a
     // multi-question probe (the single-question rephrase fallback does not apply).
@@ -191,11 +203,11 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
     };
     writeFileSync(pendingFile("attended-1"), JSON.stringify(pending));
     runCap({ session_id: "attended-1", tool_name: "AskUserQuestion", tool_response: { answers: { "operative's own question?": "whatever" } } });
-    expect(readQueue()).toHaveLength(0);
+    expect(await readQueue()).toHaveLength(0);
     expect(readPending()).not.toBeNull(); // left for the sweeper
   });
 
-  it("a retrospective partial answer captures the answered task and dismisses the rest", () => {
+  it("a retrospective partial answer captures the answered task and dismisses the rest", async () => {
     const pending = {
       id: "p-y",
       session_id: "attended-1",
@@ -208,7 +220,7 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
     };
     writeFileSync(pendingFile("attended-1"), JSON.stringify(pending));
     runCap({ session_id: "attended-1", tool_name: "AskUserQuestion", tool_response: { answers: { "Q1?": "Should have run less" } } });
-    const recs = readQueue();
+    const recs = await readQueue();
     expect(recs).toHaveLength(2);
     const q1 = recs.find((r) => r.card_id === "c1");
     const q2 = recs.find((r) => r.card_id === "c2");
@@ -218,14 +230,14 @@ describe("probe-capture — answer + dismissed + unrelated (#18)", () => {
     expect(readPending()).toBeNull();
   });
 
-  it("a stale pending (>90s) is swept into an explicit dismissed record on the next Stop", () => {
+  it("a stale pending (>90s) is swept into an explicit dismissed record on the next Stop", async () => {
     const pending = seedProbe();
     pending.askedAt = "2026-07-11T11:58:00.000Z"; // 2 min old
     writeFileSync(pendingFile("attended-1"), JSON.stringify(pending));
     const t = writeTranscript(true);
     const out = runGen({ session_id: "attended-1", stop_hook_active: false, transcript_path: t });
     expect(out).toBe(""); // pass through, no re-ask
-    const recs = readQueue();
+    const recs = await readQueue();
     expect(recs).toHaveLength(1);
     expect(recs[0].answer).toBe("dismissed");
     expect(readPending()).toBeNull();
@@ -241,7 +253,7 @@ describe("probe — per-session pending isolation (F1)", () => {
     });
   }
 
-  it("session B's Stop does NOT sweep session A's (even stale) pending", () => {
+  it("session B's Stop does NOT sweep session A's (even stale) pending", async () => {
     twoAttended();
     // A has an OPEN, already-stale pending (its user has not answered yet).
     const aPending = {
@@ -259,10 +271,10 @@ describe("probe — per-session pending isolation (F1)", () => {
 
     // A's pending survives untouched; no dismissed record was written for A.
     expect(readPending("sess-A")).not.toBeNull();
-    expect(readQueue().some((r) => r.answer === "dismissed")).toBe(false);
+    expect((await readQueue()).some((r) => r.answer === "dismissed")).toBe(false);
   });
 
-  it("A's answer arriving AFTER B's stop still records provenance probe (no false dismissed)", () => {
+  it("A's answer arriving AFTER B's stop still records provenance probe (no false dismissed)", async () => {
     twoAttended();
     // A is probed and writes its own pending (fresh).
     const t = writeTranscript(true);
@@ -277,7 +289,7 @@ describe("probe — per-session pending isolation (F1)", () => {
     // A's user answers → the real answer is recorded, not a dismissed.
     const q = aPending.questions[0].question;
     runCap({ session_id: "sess-A", tool_name: "AskUserQuestion", tool_response: { answers: { [q]: "Went well" } } });
-    const recs = readQueue();
+    const recs = await readQueue();
     const answered = recs.filter((r) => r.session_id === "sess-A");
     expect(answered).toHaveLength(1);
     expect(answered[0].answer).toBe("Went well");
@@ -296,7 +308,7 @@ describe("probe-generate — retrospective once/day (#19)", () => {
       JSON.stringify({ id: "c1", title: "toggle", flow: "ui-change", phasePlan: "ui-change", updatedAt: "2026-07-10T09:00:00Z" })
     );
   }
-  it("first attended boundary of the day → retrospective; a record per task; flag prevents a second", () => {
+  it("first attended boundary of the day → retrospective; a record per task; flag prevents a second", async () => {
     seedYesterdayCard();
     const t = writeTranscript(true);
     runGen({ session_id: "attended-1", stop_hook_active: false, transcript_path: t });
@@ -308,7 +320,7 @@ describe("probe-generate — retrospective once/day (#19)", () => {
     // answer → one retrospective record per listed task
     const q = pending.questions[0].question;
     runCap({ session_id: "attended-1", tool_name: "AskUserQuestion", tool_response: { answers: { [q]: "Should have run the full pipeline" } } });
-    const recs = readQueue();
+    const recs = await readQueue();
     expect(recs).toHaveLength(1);
     expect(recs[0].provenance).toBe("retrospective");
     expect(recs[0].card_id).toBe("c1");

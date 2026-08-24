@@ -1,6 +1,6 @@
 // feedback-rule.mjs — the Improver's consumer of the feedback queue
-// (GARRISON-FLOW-V2 S8, D27). Three producers append to ONE queue,
-// ~/.garrison/improver/feedback-queue.jsonl: the Probe (probe/retrospective
+// (GARRISON-FLOW-V2 S8, D27). Three producers append to ONE queue, the state
+// service's `feedback_queue` table: the Probe (probe/retrospective
 // records), the gateway (conversational-override records), and the Decisions
 // panel (decision-verdict records). This rule reads that queue and turns
 // the operator's EXPLICIT answers into reviewable policy proposals — phase-plan
@@ -29,15 +29,21 @@ export { queuePath as feedbackQueuePath };
  * The delete path is what makes this filter load-bearing. A wrong inference is
  * corrected by deleting the record that caused it (Signals view → DELETE
  * /api/signals/:id, which appends a tombstone), and that correction is only real
- * if the next nightly run stops counting the record. Reading + tombstone
- * resolution live in feedback-signals.mjs so this consumer, the Signals API and
- * the shell's autonomy bands cannot disagree about what is still on the queue.
+ * if the next nightly run stops counting the record. The tombstone join now runs
+ * in the service, so this consumer, the Signals API and the shell's autonomy
+ * bands read the same rows by construction rather than by three matching
+ * implementations.
  *
- * `cap` now bounds the SURVIVING records rather than the raw lines: a deleted
- * record must not go on consuming a slot it was removed from.
+ * `cap` bounds the SURVIVING records rather than the raw rows: a deleted record
+ * must not go on consuming a slot it was removed from. It doubles as the read
+ * ceiling handed to the service.
+ *
+ * ASYNC since the queue became a service call; there is no file to read and no
+ * fallback if it is unreachable — the nightly run's caller logs and skips the
+ * rule rather than proposing from an evidence set it could not load.
  */
-export function collectFeedback(file = queuePath(), cap = 2000) {
-  const { entries } = readFeedbackQueue(file);
+export async function collectFeedback({ client, cap = 2000 } = {}) {
+  const { entries } = await readFeedbackQueue({ client, limit: cap });
   return liveRecords(entries).slice(0, cap);
 }
 
@@ -229,8 +235,8 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = DEFAULT
 }
 
 // Convenience: collect + analyze in one call (the improver run path).
-export function runFeedbackRule({ now, queueFile } = {}) {
-  const records = collectFeedback(queueFile);
+export async function runFeedbackRule({ now, client } = {}) {
+  const records = await collectFeedback({ client });
   return {
     proposals: analyzeFeedbackProposals({ records, at: now }),
     inputs: { records: records.length },
