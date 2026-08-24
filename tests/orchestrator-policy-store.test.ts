@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +20,20 @@ import {
   simulateTryIt,
   type PolicyWriteComposition
 } from "@/lib/orchestrator-policy";
+import { resetStateClient } from "@/lib/state-client";
+import { startStateService } from "./state-service-harness";
+
+// MESH: policy writes go through the state service (a write that cannot reach
+// shared state refuses rather than forking this node's file). Enroll the test
+// process against a throwaway service.
+let stateHarness: Awaited<ReturnType<typeof startStateService>>;
+beforeAll(async () => {
+  stateHarness = await startStateService({ nodes: ["policy-test"] });
+  process.env.GARRISON_STATE_URL = stateHarness.url;
+  process.env.GARRISON_STATE_TOKEN = stateHarness.token;
+  process.env.GARRISON_NODE_NAME = "policy-test";
+  resetStateClient();
+}, 30_000);
 
 let seq = 0;
 let dir = "";
@@ -43,6 +57,12 @@ beforeEach(() => {
   dir = join(sandbox, `comp-${seq++}`);
   mkdirSync(join(dir, ".garrison"), { recursive: true });
   rmSync(POLICY, { force: true });
+});
+afterAll(async () => {
+  await stateHarness?.stop();
+  delete process.env.GARRISON_STATE_URL;
+  delete process.env.GARRISON_STATE_TOKEN;
+  resetStateClient();
 });
 afterAll(() => rmSync(sandbox, { recursive: true, force: true }));
 

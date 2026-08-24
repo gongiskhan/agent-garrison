@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { ROOT_DIR } from "./paths";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
+import { stateClient, StateApiError, StateUnavailableError } from "./state-client";
 import { readComposition, selectedLibraryEntries } from "./compositions";
 import { computeKanbanResolvedModel } from "./kanban-model";
 import {
@@ -105,6 +106,25 @@ export async function readRoutingPolicy(compositionDir: string): Promise<PolicyR
     raw = await fs.readFile(SEED_ROUTING_PATH, "utf8");
     await fs.mkdir(path.dirname(target), { recursive: true });
     await writeFileAtomic(target, raw);
+  }
+  // MESH: refresh this node's materialisation when another node moved the
+  // authoritative document. Hash-compare before writing (the reconcile.ts
+  // echo-suppression pattern) — an unconditional rewrite would spin dev()'s
+  // chokidar watcher. Unreachable service degrades to the local file: reads
+  // must survive an outage even though writes refuse.
+  try {
+    const compositionId = path.basename(compositionDir);
+    const doc = await stateClient().getConfig("runtime.policy", `composition:${compositionId}`);
+    if (doc?.body) {
+      const docSerialized = JSON.stringify(doc.body, null, 2) + "\n";
+      if (docSerialized !== raw) {
+        await writeFileAtomic(target, docSerialized);
+        raw = docSerialized;
+      }
+    }
+  } catch {
+    // Service unreachable or node unenrolled — the local materialisation is
+    // the best truth available for a READ.
   }
   const core = await loadRoutingCore();
   // Compat: a routing.json written before the 2026-08-09 flow rename still carries
@@ -300,6 +320,38 @@ export async function writeRoutingPolicyForComposition(
   }
 
   const serialized = JSON.stringify(next, null, 2) + "\n";
+
+  // MESH: the state service holds the authoritative policy document; the file
+  // below is this node's materialisation (the gateway still reads the file at
+  // spawn). Service first — a policy write that cannot reach shared state
+  // FAILS rather than forking this node's file from the mesh (a local-only
+  // write would be a silent split-brain, which is worse than a clear stop).
+  try {
+    const client = stateClient();
+    const scope = `composition:${composition.id}`;
+    const currentDoc = await client.getConfig("runtime.policy", scope);
+    await client.putConfig("runtime.policy", scope, next, {
+      ifMatchRev: currentDoc?.rev ?? 0
+    });
+  } catch (err) {
+    if (err instanceof StateApiError && err.status === 409) {
+      // Another node changed the policy since this node last materialised it.
+      const theirs = (err.body as { body?: unknown }).body;
+      const theirsSerialized = JSON.stringify(theirs, null, 2) + "\n";
+      await writeFileAtomic(scopedRoutingPath(composition.directory), theirsSerialized);
+      return { status: "conflict", currentSha: sha256(theirsSerialized) };
+    }
+    if (err instanceof StateUnavailableError) {
+      return {
+        status: "invalid",
+        errors: [
+          `state service unreachable (${err.url}) — policy writes go through the mesh; retry when it is back`
+        ]
+      };
+    }
+    throw err;
+  }
+
   await writeFileAtomic(scopedRoutingPath(composition.directory), serialized);
   const policyFile =
     process.env.GARRISON_POLICY_PATH ?? path.join(garrisonDir(), "orchestrator", "policy.json");
