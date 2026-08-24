@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import {
   createStateClient,
+  discoverStateConfig,
   StateClient,
   StateUnavailableError,
   StateApiError
@@ -59,5 +60,25 @@ export async function withState<T>(fn: (client: StateClient) => Promise<T>): Pro
   } catch (err) {
     if (err instanceof StateUnavailableError) markStateDegraded(err);
     throw err;
+  }
+}
+
+// Env projection for fittings and runtime sessions. Part of the fitting env
+// FINGERPRINT, so a token rotation heals running fittings on the next up().
+// An unenrolled node projects nothing — the client then throws its loud
+// unenrolled error at first use, which is the honest failure.
+export function stateEnvForProjection(): Record<string, string> {
+  try {
+    const config = discoverStateConfig({
+      env: process.env,
+      readFileSync: (p: string, enc: string) => readFileSync(p, enc as BufferEncoding)
+    });
+    return {
+      GARRISON_STATE_URL: config.url,
+      GARRISON_STATE_TOKEN: config.token,
+      ...(config.node ? { GARRISON_NODE_NAME: config.node } : {})
+    };
+  } catch {
+    return {};
   }
 }

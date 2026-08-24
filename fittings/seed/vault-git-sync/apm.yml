@@ -18,18 +18,19 @@ x-garrison:
   platforms:
     - claude-code
   summary: >-
-    A scheduler-driven git sync for the Obsidian vault. On each fire it commits
-    local agent/editor writes, rebases in other machines' commits (--autostash,
-    aborts on conflict — never hard-resets), and pushes. Pure shell ($0, no
-    model). Registered as a scheduler job (default `0 4 * * *`, nightly after the
-    3:30 improver) by setup.sh; cadence is the `cron` config. The git logic lives
-    in the hardened ~/.claude/tools/obsidian-vault-sync.sh (single source of
-    truth); this fitting is the thin wrapper + scheduler registration. Status is
-    written to ~/.garrison/obsidian-vault-sync-status.json (distinct from the
-    rsync vault-sync fitting's status file). Replaces the standalone
-    com.ggomes.obsidian-vault-sync launchd agent.
+    A scheduler-driven git sync for the Obsidian vault — the SINGLE driver of
+    memory movement on every mesh node. On each fire it runs the Claude memory
+    mirror where present (fail-closed), commits local agent/editor writes,
+    rebases in other machines' commits (--autostash, aborts on conflict — never
+    hard-resets), and pushes. Pure shell ($0, no model). setup.sh registers TWO
+    jobs: the 15-minute sync (`cron` config) and a nightly --require-fresh
+    backstop staggered per node. The git logic lives IN-TREE at
+    scripts/obsidian-vault-sync.sh; the old ~/.claude/tools copy and the
+    standalone systemd/launchd timers are retired. Status:
+    ~/.garrison/obsidian-vault-sync-status.json (distinct from the retired
+    rsync vault-sync fitting's status file).
   for_consumers: |
-    Don't drive vault-git-sync from the Operative — it runs on the scheduler.
+    Don't drive vault-git-sync yourself — it runs on the scheduler.
     Force an immediate sync: `node apm_modules/_local/scheduler/scripts/scheduler.mjs run-now vault-git-sync`.
     Last-sync state: ~/.garrison/obsidian-vault-sync-status.json; full log:
     ~/Library/Logs/obsidian-vault-sync.log. Change cadence via the `cron` config
@@ -37,8 +38,8 @@ x-garrison:
   config_schema:
     - key: cron
       type: string
-      default: 0 4 * * *
-      description: Sync schedule (5-field cron). Default nightly at 04:00, after the 03:30 improver consolidation. Registered via the scheduler CLI in setup.sh.
+      default: "*/15 * * * *"
+      description: Sync schedule (5-field cron). Default every 15 minutes on every mesh node; a nightly --require-fresh backstop is registered alongside with a per-node staggered minute. Registered via the scheduler CLI in setup.sh.
     - key: vault_dir
       type: path
       default: ~/ObsidianVault

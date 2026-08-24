@@ -9,7 +9,11 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"            # .../vault-git-sync/script
 FITTING_DIR="$(cd "$SELF_DIR/.." && pwd)"            # .../vault-git-sync
 
 # config→env injection (runner.ts) provides these at setup time.
-CRON="${VAULT_GIT_SYNC_CRON:-0 4 * * *}"
+# Mesh cadence (2026-08-24): 15-minute sync on every node + a nightly
+# --require-fresh backstop whose minute is staggered per node (four nodes
+# pushing the same remote at the same second is a needless conflict
+# generator, and a hash needs no coordination).
+CRON="${VAULT_GIT_SYNC_CRON:-*/15 * * * *}"
 VAULT_DIR="${VAULT_GIT_SYNC_VAULT_DIR:-$HOME/ObsidianVault}"
 # Expand a leading ~ NOW. setupConfigEnv (runner.ts) projects a `type: path`
 # config value with a bare String(), so a configured "~/ObsidianVault" arrives
@@ -32,6 +36,15 @@ fi
 # reads OBSIDIAN_VAULT. The scheduler runs the command via `/bin/sh -c`.
 JOB_CMD="OBSIDIAN_VAULT='$VAULT_DIR' bash '$FITTING_DIR/scripts/sync.sh'"
 
-node "$SCHEDULER" remove vault-git-sync >/dev/null 2>&1 || true
-node "$SCHEDULER" add vault-git-sync "$CRON" "$JOB_CMD"
+# register, not add: PRESERVES the user's enable/disable choice on re-register.
+node "$SCHEDULER" register vault-git-sync "$CRON" -- "$JOB_CMD"
 echo "vault-git-sync: registered @ '$CRON' (vault=$VAULT_DIR)"
+
+# Nightly backstop: a FULL sync that refuses to lie — exit 75 when the lock
+# was held and no sync happened. Minute staggered by node-name hash.
+NODE_NAME="${GARRISON_NODE_NAME:-$(hostname -s | tr '[:upper:]' '[:lower:]')}"
+STAGGER_MIN=$(( 0x$(printf %s "$NODE_NAME" | sha1sum | cut -c1-6) % 60 ))
+BACKSTOP_CRON="$STAGGER_MIN 4 * * *"
+BACKSTOP_CMD="OBSIDIAN_VAULT='$VAULT_DIR' bash '$FITTING_DIR/scripts/sync.sh' --require-fresh"
+node "$SCHEDULER" register vault-git-sync-nightly "$BACKSTOP_CRON" -- "$BACKSTOP_CMD"
+echo "vault-git-sync: nightly backstop @ '$BACKSTOP_CRON' (node=$NODE_NAME)"

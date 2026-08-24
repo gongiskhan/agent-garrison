@@ -45,6 +45,7 @@ import {
   type KanbanResolvedModel
 } from "./kanban-model";
 import { garrisonDir } from "./claude-home";
+import { stateEnvForProjection } from "./state-client";
 import { appPort, applyPortOffsetToConfig, BASE_GATEWAY_PORT, profilePort } from "./instance-profile";
 import {
   claimCompositionForLaunch,
@@ -1211,6 +1212,9 @@ export async function startOperativeBoundFittings(
       // proxy reads (kanban-loop POST /lists -> ${GARRISON_APP_URL}/api/muster/
       // duty). GARRISON_BASE_URL predates it; both are this instance's app.
       GARRISON_APP_URL: garrisonSelfBaseUrl(),
+      // Mesh state service credentials — part of the env fingerprint, so a
+      // token rotation heals running fittings on the next up().
+      ...stateEnvForProjection(),
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
     envByFitting.set(entry.id, extraEnv);
@@ -1271,6 +1275,7 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
       // Same alias as the up() path (see startOperativeBoundFittings) so a
       // manual Views start/restart projects the identical env fingerprint.
       GARRISON_APP_URL: garrisonSelfBaseUrl(),
+      ...stateEnvForProjection(),
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
   }

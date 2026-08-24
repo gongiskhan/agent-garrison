@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# Thin wrapper fired by the scheduler. The commit/rebase/push logic lives in the
-# hardened ~/.claude/tools/obsidian-vault-sync.sh (single source of truth):
-# non-destructive — commit local writes, pull --rebase --autostash, abort on
-# conflict (never hard-reset), push. OBSIDIAN_VAULT is baked into the scheduler
-# job command by setup.sh. Override the script path via OBSIDIAN_VAULT_SYNC_SCRIPT.
+# Thin wrapper fired by the scheduler and the session hooks. The
+# commit/rebase/push logic lives IN-TREE at scripts/obsidian-vault-sync.sh —
+# the single driver on every mesh node (2026-08-24 reconciliation: the
+# out-of-repo systemd timer and the drifted ~/.claude/tools copy are retired;
+# the one live feature that copy had over this one, the Claude memory mirror,
+# was ported into the in-tree script, which runs it fail-closed wherever the
+# mirror exists).
+#
+# Resolution order: an explicit OBSIDIAN_VAULT_SYNC_SCRIPT override, then the
+# in-tree script. The old ~/.claude/tools preference is gone on purpose — it
+# is how a drifted copy silently kept winning on one machine.
 set -euo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_HOME="${GARRISON_CLAUDE_HOME:-$HOME/.claude}"
-# Resolution order: an explicit override, then the operator's hardened copy if it
-# exists, then the IN-TREE script. The in-tree copy is what makes this work on a
-# machine APM installed the fitting onto - ~/.claude/tools is a separate,
-# remote-less repo that no fitting payload ships, so an outpost never had one.
 if [ -n "${OBSIDIAN_VAULT_SYNC_SCRIPT:-}" ]; then
   SCRIPT="$OBSIDIAN_VAULT_SYNC_SCRIPT"
-elif [ -f "$CLAUDE_HOME/tools/obsidian-vault-sync.sh" ]; then
-  SCRIPT="$CLAUDE_HOME/tools/obsidian-vault-sync.sh"
 else
   SCRIPT="$SELF_DIR/obsidian-vault-sync.sh"
 fi
