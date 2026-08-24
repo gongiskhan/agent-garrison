@@ -105,3 +105,7 @@ docs/autothing/runs/**/owner.lock.json
 
 # aborted drill-graduation e2e runs leave their temp playwright config behind
 .tmp-drill-graduation-pw-config-*.mjs
+
+# mesh evidence run artifacts (transient)
+evidence/
+.mesh-shots-*.mjs

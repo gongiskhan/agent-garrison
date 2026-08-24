@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-21T13:06:55.186504+00:00'
+generated_at: '2026-08-24T19:17:11.175524+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -22,7 +22,7 @@ dependencies:
   - .claude/skills/garrison-memory
   - .claude/skills/garrison-memory/SKILL.md
   deployed_file_hashes:
-    .claude/skills/garrison-memory/SKILL.md: sha256:045d5b30c4d6abca8163ee1a25c2d7bfd6f051a2dbd146f18443110819d707fc
+    .claude/skills/garrison-memory/SKILL.md: sha256:d02e15fd7cee15654b6328925261fb08f03415ff11a76b8860739c2f9cd4621a
   source: local
   local_path: ../../fittings/seed/basic-memory
 - repo_url: _local/browser-default
@@ -126,7 +126,7 @@ dependencies:
   - .claude/skills/google-calendar
   - .claude/skills/google-calendar/SKILL.md
   deployed_file_hashes:
-    .claude/skills/google-calendar/SKILL.md: sha256:8818d0a97c2b3ace35aba433114df755746a1b3983f5f27e07f4a8348c83e9c8
+    .claude/skills/google-calendar/SKILL.md: sha256:2ab88c9049c110d131ecb61dd6447d7adb19d02eee8bfe5067c93cdadcec82fb
   source: local
   local_path: ../../fittings/seed/google
 - repo_url: _local/http-gateway
@@ -170,7 +170,7 @@ dependencies:
   deployed_files:
   - .claude/rules/loop-heartbeat.md
   deployed_file_hashes:
-    .claude/rules/loop-heartbeat.md: sha256:f7362ad4d0be0435a10b7e8ba4d165875fc2310cee90977c6558b4113cef7cac
+    .claude/rules/loop-heartbeat.md: sha256:c1460f86bbab5c4751aa774c699f0a23772166e00b62afd53e00b479098d1333
   source: local
   local_path: ../../fittings/seed/loop-heartbeat
 - repo_url: _local/mcp-gateway
@@ -213,12 +213,6 @@ dependencies:
     .claude/commands/orchestrator.md: sha256:89c156c3c5902d384f5c81f6ce9846a11e909007a82ed27a6ffb076a660d8e1c
   source: local
   local_path: ../../fittings/seed/orchestrator
-- repo_url: _local/outpost-tailscale-host
-  name: outpost-tailscale-host
-  version: 0.4.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/outpost-tailscale-host
 - repo_url: _local/ports-default
   name: ports-default
   version: 0.1.0
@@ -251,7 +245,7 @@ dependencies:
   - .claude/skills/scheduler
   - .claude/skills/scheduler/SKILL.md
   deployed_file_hashes:
-    .claude/skills/scheduler/SKILL.md: sha256:64e38be28851d8f659554b170ca117dd7d4be238480802f87f6f5ea197ec7423
+    .claude/skills/scheduler/SKILL.md: sha256:1dca18305696de49b625feda7153ead8d086f97f1a792f5822625fcb7aeb5a48
   source: local
   local_path: ../../fittings/seed/scheduler
 - repo_url: _local/screen-share-default
