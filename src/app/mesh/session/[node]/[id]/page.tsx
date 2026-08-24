@@ -128,8 +128,11 @@ function describe(status: number, body: unknown, node: string): Outcome {
 }
 
 export default function RemoteSessionPage({ params }: { params: { node: string; id: string } }) {
-  const node = params.node;
-  const sessionId = params.id;
+  // Next delivers dynamic segments URL-ENCODED; session ids carry '@' and
+  // ':' so an undecoded read looks up a nonexistent id (found live: the Pro
+  // showed "No session recorded" for a session that very much existed).
+  const node = decodeURIComponent(params.node);
+  const sessionId = decodeURIComponent(params.id);
 
   const [payload, setPayload] = useState<SessionsPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
