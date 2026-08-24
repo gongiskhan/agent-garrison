@@ -421,6 +421,19 @@ async function daemon(opts = {}) {
     await appendLog(`[${new Date().toISOString()}] node beat unavailable: ${err.message}`);
   }
 
+  // The git event pump: the DOWN-SURVIVAL floor under the file-browser
+  // fitting's pump. It only acts while that fitting's status file is absent,
+  // so the two never race — division by liveness, not preference. Disable
+  // with GARRISON_DISABLE_GIT_PUMP=1.
+  try {
+    const { startGitPump } = await import("./lib/git-pump.mjs");
+    if (startGitPump({ log: console })) {
+      await appendLog(`[${new Date().toISOString()}] git pump start`);
+    }
+  } catch (err) {
+    await appendLog(`[${new Date().toISOString()}] git pump unavailable: ${err.message}`);
+  }
+
   await superviseListeners();
   while (!shuttingDown) {
     try {
