@@ -10,8 +10,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildCoordState, heartbeatLogPath } from "./lib/coord-state.mjs";
-import { repoRoot } from "./lib/repo.mjs";
-import { forceReleaseLock } from "./lib/plan-lock.mjs";
+import { repoRef } from "./lib/repo.mjs";
+import { forceReleasePlanLease } from "./lib/plan-lease.mjs";
+import { clearWaiters } from "./lib/plan-store.mjs";
+import { StateUnavailableError } from "./lib/state.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,12 +34,26 @@ const VERDICT_RENDER = {
 };
 
 function focusRepo() {
-  return repoRoot(process.cwd());
+  return repoRef(undefined, process.cwd());
+}
+
+// The state service is the coordination store; when it is unreachable the CLI
+// says so in one line rather than printing a stack trace or, worse, an empty
+// board that reads as "nothing is being planned".
+function reportUnavailable(err) {
+  console.log("\n" + C.bold("Coordination") + "  " + VERDICT_RENDER.down(`state service unreachable — ${err.message}`));
+  console.log(C.dim("  • coord-mcp has no local fallback: planning locks and intents are mesh state.\n"));
 }
 
 async function status() {
   const now = new Date();
-  const st = await buildCoordState(focusRepo(), now, { liveness: true, globalSessions: true });
+  let st;
+  try {
+    st = await buildCoordState(focusRepo(), now, { liveness: true, globalSessions: true });
+  } catch (err) {
+    if (err instanceof StateUnavailableError) return reportUnavailable(err);
+    throw err;
+  }
 
   // Hero verdict — the one-second answer.
   const hv = st.heroVerdict || { overall: "unknown", reasons: ["state unavailable"] };
@@ -56,7 +72,9 @@ async function status() {
   const byRepo = {};
   for (const s of st.sessions) (byRepo[s.repo] ||= []).push(s);
   for (const [repo, list] of Object.entries(byRepo)) {
-    const intentCount = st.recentIntents.filter((i) => i.repo === repo).length;
+    // Intents are mesh-keyed; sessions are grouped by their local checkout path.
+    const keys = new Set(list.map((s2) => s2.repoKey).filter(Boolean));
+    const intentCount = st.recentIntents.filter((i) => keys.has(i.repo)).length;
     console.log(`  ${C.bold(repo)}  ${C.dim(`(intents: ${intentCount})`)}`);
     for (const s of list.slice(0, 5)) {
       const flag =
@@ -91,7 +109,8 @@ async function status() {
 
 async function emitStateJson() {
   const repoArg = (process.argv.find((a) => a.startsWith("--repo=")) || "").split("=")[1];
-  const st = await buildCoordState(repoArg || focusRepo(), new Date(), { liveness: true, globalSessions: true });
+  const ref = repoArg ? repoRef(repoArg, process.cwd()) : focusRepo();
+  const st = await buildCoordState(ref, new Date(), { liveness: true, globalSessions: true });
   process.stdout.write(JSON.stringify(st, null, 2) + "\n");
 }
 
@@ -129,9 +148,13 @@ async function canary() {
   }
 }
 
-function releaseLockCmd() {
-  const repo = (process.argv.find((a) => a.startsWith("--repo=")) || "").split("=")[1] || focusRepo();
-  const r = forceReleaseLock(repo);
+async function releaseLockCmd() {
+  const arg = (process.argv.find((a) => a.startsWith("--repo=")) || "").split("=")[1];
+  const ref = arg ? repoRef(arg, process.cwd()) : focusRepo();
+  const r = await forceReleasePlanLease(ref.key);
+  // The waiter records are append-only, so the force-release writes the floor
+  // that drops the ones recorded against the lease it just broke.
+  await clearWaiters(ref.key);
   process.stdout.write(JSON.stringify(r) + "\n");
 }
 
@@ -141,7 +164,7 @@ const cmd = process.argv[2];
   else if (cmd === "status") await status();
   else if (cmd === "state") await emitStateJson();
   else if (cmd === "canary") await canary();
-  else if (cmd === "release-lock") releaseLockCmd();
+  else if (cmd === "release-lock") await releaseLockCmd();
   else {
     console.log("usage: coord status [--tail] | coord state --json [--repo=PATH] | coord canary | coord release-lock --repo=PATH");
     process.exit(2);

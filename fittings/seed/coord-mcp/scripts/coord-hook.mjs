@@ -9,6 +9,12 @@
 // one heartbeat line per fire to ~/.garrison/coord/heartbeat.log (observability
 // layer 3). FAIL-OPEN: always exits 0; emits empty context on ANY error — it can
 // never block a session. PTY-safe: no model call.
+//
+// The lock/intent state comes from the Garrison state service, exactly as the
+// MCP tools read it. The asymmetry is deliberate: a TOOL shouts when the mesh is
+// unreachable (the agent must not assume it holds a lock), while this HOOK stays
+// SILENT — it fires on every prompt in every session, and a mesh outage must not
+// turn into an error on every turn.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -71,17 +77,19 @@ async function main() {
   }
 
   // Import the coordination libs from the fitting (sibling ./lib). On any import
-  // failure (fitting half-removed) we still emit empty context + exit 0.
+  // failure (fitting half-removed) OR an unreachable state service we still emit
+  // empty context + exit 0 — silence, never a broken prompt.
   let repo,
     digest = { text: "", bytes: 0, hasConflicts: false, conflicts: [] };
   try {
-    const { repoRoot } = await import(path.join(__dirname, "lib", "repo.mjs"));
+    const { repoRef } = await import(path.join(__dirname, "lib", "repo.mjs"));
     const { buildDigest } = await import(path.join(__dirname, "lib", "digest.mjs"));
-    repo = repoRoot(cwd);
+    const ref = repoRef(undefined, cwd);
+    repo = ref.path;
     // For UserPromptSubmit, the prompt text is a working-set hint; we pass it as a
     // loose "area" so an intent/lease naming the same area surfaces as a hard conflict.
     const area = event === "UserPromptSubmit" && typeof payload.prompt === "string" ? payload.prompt.slice(0, 200) : "";
-    digest = await buildDigest(repo, { session, area, files: [] }, new Date());
+    digest = await buildDigest(ref, { session, area, files: [] }, new Date());
   } catch {
     emit(event, "");
     return;

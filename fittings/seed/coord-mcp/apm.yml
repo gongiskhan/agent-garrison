@@ -2,10 +2,11 @@ name: coord-mcp
 version: 0.1.0
 description: >-
   The coordination planning gate — a Garrison-owned (MIT) stdio MCP server that
-  serializes planning per repo. Exposes begin_planning/end_planning with a per-repo
-  TTL+heartbeat mutex and a read-bundle (the last released plan + recent plans +
-  in-flight intents/leases), plus declare_intent and the repo-scoped digest. This is
-  the highest-stakes coordination guarantee: only one session plans a repo at a time,
+  serializes planning per repo across the whole mesh. Exposes begin_planning/
+  end_planning over a TTL+heartbeat lease on the Garrison state service, with a
+  read-bundle (the last released plan + recent plans + in-flight intents/leases),
+  plus declare_intent and the repo-scoped digest. This is the highest-stakes
+  coordination guarantee: only one session plans a repo at a time — on any node —
   and the next planner inherits everyone else's context instead of planning blind.
 target: claude
 type: hybrid
@@ -26,10 +27,12 @@ x-garrison:
   summary: >-
     Planning-gate MCP server (MIT, dependency-free). begin_planning grants a per-repo
     lock + returns the read-bundle, or returns WAIT with the current holder;
-    end_planning releases it. Lock is a file mutex with TTL + heartbeat so a crashed
-    planner auto-releases. Registered as a stdio MCP server in ~/.claude.json (user
-    scope) so direct + orchestrator sessions get the tools. All work is mechanical
-    (file scans + a bd query) — no model call (PTY-safe).
+    end_planning releases it. The lock is a fenced lease on the Garrison state
+    service, keyed by the repo's normalized origin URL, with TTL + heartbeat so a
+    crashed planner auto-releases — so planning is serialized across every node, not
+    just one box. Registered as a stdio MCP server in ~/.claude.json (user scope) so
+    direct + orchestrator sessions get the tools. All work is mechanical (state-service
+    reads + a bd query) — no model call (PTY-safe).
   config_schema:
     - key: lock_ttl_ms
       type: integer
@@ -69,3 +72,7 @@ x-garrison:
     sessions see your intent and conflicts surface in their digest. Bounded wait: if a
     lock is held past its TTL it auto-releases; an autonomous session that cannot
     acquire within its budget parks the task and surfaces it rather than hanging.
+    Coordination state is MESH state (the Garrison state service), so a holder may be
+    a session on another machine. If a tool answers status "ERROR" / "state-unavailable",
+    the mesh is unreachable: there is NO local fallback, so say so and do not proceed
+    as though you hold a lock.

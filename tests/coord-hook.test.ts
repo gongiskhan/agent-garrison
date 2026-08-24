@@ -2,9 +2,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { startStateService, type StateHarness } from "./state-service-harness";
 
-// CO4 — the coord-mcp digest/nudge command hook + its installer.
+// CO4 — the coord-mcp digest/nudge command hook + its installer. The digest it
+// injects is read from the state service, so the hook needs a mesh to talk to —
+// EXCEPT when there isn't one, which is its own case below (the hook stays
+// silent where a tool would shout).
 
 const FITTING = path.resolve(__dirname, "..", "fittings", "seed", "coord-mcp");
 const HOOK = path.join(FITTING, "scripts", "coord-hook.mjs");
@@ -16,19 +20,38 @@ let sb: string;
 let settingsPath: string;
 /** A cwd that has opted into coordination (the gate below requires a marker). */
 let optedInRepo: string;
+let harness: StateHarness & { tokens: Record<string, string> };
 
+function meshEnv(): Record<string, string> {
+  return {
+    GARRISON_STATE_URL: harness.url,
+    GARRISON_STATE_TOKEN: harness.token,
+    GARRISON_NODE_NAME: "test-node"
+  };
+}
 function runHook(payload: object, env: Record<string, string> = {}): string {
   return execFileSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
-    env: { ...process.env, GARRISON_HOME: sb, ...env },
+    env: { ...process.env, GARRISON_HOME: sb, ...meshEnv(), ...env },
     encoding: "utf8"
   });
 }
 function declareIntentVia(session: string, repo: string, area: string, reason: string): void {
   // Drive the server's declare_intent so an intent exists for the digest to surface.
   const req = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "declare_intent", arguments: { repo, area, reason } } });
-  execFileSync(process.execPath, [SERVER], { input: req + "\n", env: { ...process.env, GARRISON_HOME: sb, COORD_SESSION: session }, encoding: "utf8" });
+  execFileSync(process.execPath, [SERVER], {
+    input: req + "\n",
+    env: { ...process.env, GARRISON_HOME: sb, ...meshEnv(), COORD_SESSION: session },
+    encoding: "utf8"
+  });
 }
+
+beforeAll(async () => {
+  harness = await startStateService({ nodes: ["test-node"] });
+}, 30_000);
+afterAll(async () => {
+  await harness.stop();
+});
 
 beforeEach(() => {
   sb = mkdtempSync(path.join(tmpdir(), "coord-hook-"));
@@ -80,9 +103,21 @@ describe("coord-hook (digest/nudge command hook)", () => {
   });
 
   it("fails open (empty context, exit 0) on a malformed payload", () => {
-    const out = execFileSync(process.execPath, [HOOK], { input: "{ not json", env: { ...process.env, GARRISON_HOME: sb }, encoding: "utf8" });
+    const out = execFileSync(process.execPath, [HOOK], { input: "{ not json", env: { ...process.env, GARRISON_HOME: sb, ...meshEnv() }, encoding: "utf8" });
     const parsed = JSON.parse(out);
     expect(parsed.hookSpecificOutput.additionalContext).toBeDefined(); // emitted, did not crash
+  });
+
+  it("stays SILENT when the state service is unreachable (a mesh outage must not break every prompt)", () => {
+    // The asymmetry that matters: an MCP TOOL shouts here (the agent must not
+    // assume it holds a lock) while this hook, which fires on every prompt in
+    // every session, emits nothing and exits 0.
+    const out = execFileSync(process.execPath, [HOOK], {
+      input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "S1", cwd: optedInRepo, prompt: "anything" }),
+      env: { ...process.env, GARRISON_HOME: sb, GARRISON_STATE_URL: "http://127.0.0.1:1", GARRISON_STATE_TOKEN: "nope" },
+      encoding: "utf8"
+    });
+    expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("");
   });
 });
 
