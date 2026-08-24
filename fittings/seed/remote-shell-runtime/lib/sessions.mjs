@@ -23,6 +23,12 @@ import { garrisonHome, sshArgv, sshExec } from "./transports.mjs";
 
 const OUTPUT_BUFFER_BYTES = 512 * 1024; // full alt-screen redraw replay
 const EVENTS_BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
+// Turn progress: how often the running turn's output is re-read from the remote
+// pane, and how much of it is kept. One ssh exec per tick, and only while a
+// delegated turn is actually in flight.
+const PROGRESS_POLL_MS = 2500;
+const PROGRESS_MAX_LINES = 400;
+const PROGRESS_MAX_CHARS = 24_000;
 
 function stateDir() {
   return path.join(garrisonHome(), "remote-shell");
@@ -41,6 +47,26 @@ const remotePath = (p) => {
   const s = String(p);
   return s.startsWith("~/") ? `"$HOME"${shellQuote(s.slice(1))}` : shellQuote(s);
 };
+
+// A capture always ends with the agent TUI's own input box — the rule, the
+// "add a follow-up" prompt, the model/status bar — redrawn at the bottom of the
+// pane. That is furniture, not output, and repeating it under every message in
+// the ledger buries the actual answer. Cut from the last full-width divider in
+// the closing lines; anything else is kept verbatim, so a TUI whose box this
+// does not match simply keeps its trailer rather than losing content.
+const DIVIDER_RE = /^[\s▀-▟─-╿_=-]{8,}$/;
+const CHROME_TAIL_LINES = 12;
+
+export function stripPromptChrome(text) {
+  const lines = String(text).replace(/\s+$/, "").split("\n");
+  const from = Math.max(0, lines.length - CHROME_TAIL_LINES);
+  // The FIRST divider in that closing window opens the box, so everything from
+  // it down is the box.
+  for (let i = from; i < lines.length; i++) {
+    if (DIVIDER_RE.test(lines[i])) return lines.slice(0, i).join("\n").replace(/\s+$/, "");
+  }
+  return lines.join("\n");
+}
 
 export class SessionManager {
   constructor({ tunnels, transports, notify }) {
@@ -162,6 +188,14 @@ export class SessionManager {
         // Shared-attach sizing: the most recently active client drives the
         // window size, so a second smaller viewer doesn't shrink the first.
         `tmux set-option -t ${shellQuote(transport.tmuxSession)} -g window-size latest 2>/dev/null; ` +
+        // Scrolling. The attach client is ALWAYS in the alternate screen (tmux
+        // owns it), so the browser terminal has no scrollback of its own to
+        // move: xterm.js turns a wheel tick into a cursor-key sequence, which
+        // the remote agent's TUI reads as "previous message" instead of
+        // scrolling its output. The pane's history lives in tmux, and copy-mode
+        // is the only way in — which is what mouse mode binds the wheel to.
+        // Session-scoped (no -g) so it stays confined to the pane we attach to.
+        `tmux set-option -t ${shellQuote(transport.tmuxSession)} mouse on 2>/dev/null; ` +
         `tmux display-message -p -t ${shellQuote(transport.tmuxSession)} '#{pane_current_command}'`
     );
     if (ensure.code !== 0) {
@@ -325,6 +359,40 @@ export class SessionManager {
     return r.code === 0 ? r.stdout : "";
   }
 
+  /** The pane's scrollback depth — the line cursor a turn's output is read from. */
+  async historySize(session) {
+    const r = await sshExec(
+      session.transport,
+      `tmux display-message -p -t ${shellQuote(session.tmuxSession)} '#{history_size}'`
+    );
+    const n = Number(String(r.stdout).trim());
+    return r.code === 0 && Number.isFinite(n) ? n : null;
+  }
+
+  /**
+   * Everything the pane has printed since `baseline` scrollback lines — i.e.
+   * since the turn started. The agent TUI here renders INLINE (no alternate
+   * screen), so its output really does scroll into tmux's history and this is a
+   * faithful transcript rather than a screenshot of the last screenful.
+   *
+   * Both halves must read the same instant, so history_size is taken on the
+   * remote inside the same command rather than in a second round trip.
+   */
+  async captureSince(session, baseline) {
+    if (!Number.isFinite(baseline)) return this.capturePane(session, 60);
+    const target = shellQuote(session.tmuxSession);
+    const r = await sshExec(
+      session.transport,
+      `h=$(tmux display-message -p -t ${target} '#{history_size}'); ` +
+        `back=$(( h - ${Math.max(0, Math.floor(baseline))} )); ` +
+        `[ "$back" -lt 0 ] && back=0; ` +
+        `[ "$back" -gt ${PROGRESS_MAX_LINES} ] && back=${PROGRESS_MAX_LINES}; ` +
+        `tmux capture-pane -p -t ${target} -S -"$back" -E -`
+    );
+    if (r.code !== 0) return "";
+    return stripPromptChrome(r.stdout).slice(-PROGRESS_MAX_CHARS);
+  }
+
   // ── Turns (the delegate/chat lane) ───────────────────────────────────────
 
   async startTurn(session, text) {
@@ -337,12 +405,20 @@ export class SessionManager {
       startedAt: new Date().toISOString(),
       endedAt: null,
       state: "running",
-      waiters: []
+      waiters: [],
+      // Progress (the delegate lane's live feedback): where in the pane's
+      // history this turn began, the output read back since, and a revision the
+      // long-poll uses to hand a caller only what it has not seen.
+      baseline: null,
+      output: "",
+      outputRev: 0,
+      progressTimer: null
     };
     session.turns.set(turn.id, turn);
     session.activeTurn = turn;
     this.#setState(session, "running");
     try {
+      turn.baseline = await this.historySize(session);
       await this.sendInstruction(session, text);
     } catch (err) {
       turn.state = "failed";
@@ -352,14 +428,54 @@ export class SessionManager {
       this.#setState(session, "idle");
       throw err;
     }
+    this.#startProgress(session, turn);
     return turn;
   }
 
-  /** Resolve when the turn leaves `running`, or after waitMs. */
-  awaitTurn(session, turnId, waitMs) {
+  /** Re-read the running turn's output on a timer so the delegate lane can show
+   *  the work as it happens instead of one blob at the end. */
+  #startProgress(session, turn) {
+    if (turn.progressTimer) return;
+    let inFlight = false;
+    const tick = async () => {
+      if (turn.state !== "running") { this.#stopProgress(turn); return; }
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const text = await this.captureSince(session, turn.baseline);
+        if (text && text !== turn.output) {
+          turn.output = text;
+          turn.outputRev++;
+          for (const w of turn.waiters.splice(0)) w();
+        }
+      } catch {
+        /* a progress read must never fail the turn */
+      } finally {
+        inFlight = false;
+      }
+    };
+    turn.progressTimer = setInterval(tick, PROGRESS_POLL_MS);
+    turn.progressTimer.unref?.();
+  }
+
+  #stopProgress(turn) {
+    if (turn?.progressTimer) {
+      clearInterval(turn.progressTimer);
+      turn.progressTimer = null;
+    }
+  }
+
+  /**
+   * Resolve when the turn leaves `running`, when its output has moved past
+   * `sinceRev`, or after waitMs. The output condition is what makes the caller's
+   * long-poll a stream: it returns as soon as there is something new to show.
+   */
+  awaitTurn(session, turnId, waitMs, sinceRev = null) {
     const turn = session.turns.get(turnId);
     if (!turn) throw new HttpError(404, "unknown turn");
-    if (turn.state !== "running" || !waitMs) return Promise.resolve(turn);
+    const settled = () => turn.state !== "running";
+    const advanced = () => Number.isFinite(sinceRev) && turn.outputRev > sinceRev;
+    if (settled() || advanced() || !waitMs) return Promise.resolve(turn);
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         turn.waiters = turn.waiters.filter((w) => w !== waiter);
@@ -444,6 +560,12 @@ export class SessionManager {
     if (turn && turn.state === "running") {
       turn.state = "completed";
       turn.endedAt = evt.ts ?? new Date().toISOString();
+      this.#stopProgress(turn);
+      // The turn's own output (everything printed since it started) is the
+      // reply; the last-60-lines tail stays for callers that only ever wanted a
+      // screenful.
+      turn.output = await this.captureSince(session, turn.baseline).catch(() => turn.output);
+      turn.outputRev++;
       turn.tail = await this.capturePane(session, 60).catch(() => "");
       session.activeTurn = null;
       for (const w of turn.waiters.splice(0)) w();
@@ -481,6 +603,7 @@ export class SessionManager {
     if (!session) return false;
     session.eventsStopped = true;
     if (session.eventsChild) { try { session.eventsChild.kill(); } catch {} }
+    this.#stopProgress(session.activeTurn);
     this.detach(session);
     this.sessions.delete(id);
     await this.persist();
@@ -491,6 +614,7 @@ export class SessionManager {
     for (const session of this.sessions.values()) {
       session.eventsStopped = true;
       if (session.eventsChild) { try { session.eventsChild.kill(); } catch {} }
+      this.#stopProgress(session.activeTurn);
       this.detach(session);
     }
   }

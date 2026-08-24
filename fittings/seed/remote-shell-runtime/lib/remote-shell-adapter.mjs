@@ -18,6 +18,16 @@ import path from "node:path";
 
 const FITTING_ID = "remote-shell-runtime";
 
+/** Pane text is terminal output, not prose: fence it so a chat surface renders
+ *  it monospaced and leaves its box-drawing and backticks alone. */
+function remoteTranscript(text) {
+  const body = String(text).replace(/\s+$/, "");
+  // A fence has to be longer than the longest run of backticks inside it.
+  const longest = (body.match(/`+/g) ?? []).reduce((n, run) => Math.max(n, run.length), 0);
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `${fence}\n${body}\n${fence}`;
+}
+
 function garrisonHome() {
   const override = process.env.GARRISON_HOME?.trim();
   return override && override.length > 0 ? override : path.join(os.homedir(), ".garrison");
@@ -93,30 +103,56 @@ export class RemoteShellAdapter {
     session.pendingTurn = turn.id;
   }
 
-  async awaitResponse(session) {
+  /**
+   * Long-poll until the stop hook settles the turn. The remote agent can
+   * legitimately work for a long time; the gateway's own turn timeout / Stop
+   * wiring (adapter.cancel) bounds this loop from outside.
+   *
+   * `opts.onChunk(text, replace)` — the gateway's streaming seam — receives the
+   * remote pane's output as it grows, so the channel that dispatched the turn
+   * shows the work happening instead of a blank wait. Always a REPLACE: a TUI
+   * rewrites its last lines in place, so only the whole text is ever correct.
+   */
+  async awaitResponse(session, opts = {}) {
     if (!session.pendingTurn) throw new Error("RemoteShellAdapter: awaitResponse without a pending sendTurn");
     const turnId = session.pendingTurn;
     session.pendingTurn = null;
-    // Long-poll until the stop hook settles the turn. The remote agent can
-    // legitimately work for a long time; the gateway's own turn timeout / Stop
-    // wiring (adapter.cancel) bounds this loop from outside.
+    const onChunk = typeof opts.onChunk === "function" ? opts.onChunk : null;
+    let seenRev = 0;
+    let streamed = "";
     for (;;) {
       const { turn } = await api(
         session.base, "GET",
-        `/sessions/${session.sessionId}/turns/${turnId}?waitMs=115000`
+        `/sessions/${session.sessionId}/turns/${turnId}?waitMs=115000&sinceRev=${seenRev}`
       );
+      const output = typeof turn.output === "string" ? turn.output : "";
+      if (Number.isFinite(turn.outputRev) && turn.outputRev > seenRev) {
+        seenRev = turn.outputRev;
+        if (output && output !== streamed) {
+          streamed = output;
+          if (onChunk) {
+            try { onChunk(remoteTranscript(output), true); } catch { /* a consumer must not break the turn */ }
+          }
+        }
+      }
       if (turn.state === "running") {
         if (session.cancelRequested) {
           session.cancelRequested = false;
-          return { text: "(remote turn cancelled — the remote agent may still be working)", artifacts: [], stoppedReason: "cancelled" };
+          return {
+            text: streamed
+              ? `${remoteTranscript(streamed)}\n\n_Remote turn cancelled — the remote agent may still be working._`
+              : "(remote turn cancelled — the remote agent may still be working)",
+            artifacts: [],
+            stoppedReason: "cancelled"
+          };
         }
         continue;
       }
       if (turn.state === "failed") throw new Error(`remote-shell turn failed: ${turn.error}`);
-      const tail = (turn.tail ?? "").trim();
+      const body = output || streamed || (turn.tail ?? "").trim();
       return {
-        text: tail
-          ? `Remote agent finished (stop hook @ ${turn.endedAt}). Last terminal output:\n\n${tail}`
+        text: body
+          ? `${remoteTranscript(body)}\n\n_Remote agent finished (stop hook @ ${turn.endedAt})._`
           : `Remote agent finished (stop hook @ ${turn.endedAt}).`,
         artifacts: []
       };

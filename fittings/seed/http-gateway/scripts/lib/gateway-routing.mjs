@@ -2355,7 +2355,11 @@ export class RoutedGateway {
     await adapter.sendTurn(session, message);
     let resp;
     try {
-      resp = await adapter.awaitResponse(session);
+      // The streaming seam. A one-shot exec adapter ignores the options object;
+      // one that can report progress mid-turn (remote-shell watches a remote
+      // agent work for minutes) streams through it, so the channel shows the
+      // work instead of a blank wait.
+      resp = await adapter.awaitResponse(session, { onChunk: opts.onChunk });
     } finally {
       try {
         await adapter.teardown(session);

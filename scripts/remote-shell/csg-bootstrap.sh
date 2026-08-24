@@ -90,6 +90,10 @@ tmux has-session -t csg 2>/dev/null || tmux new-session -d -s csg -c ~/dev/pnmui
 # Shared-attach sizing: the most recently active client drives the window size,
 # so vscode.dev and Garrison can attach together without shrinking each other.
 tmux set-option -t csg -g window-size latest 2>/dev/null || true
+# Mouse mode: binds the wheel to copy-mode so a client can scroll the pane's
+# history. Without it an attached browser terminal has nothing to scroll (tmux
+# holds the history) and its wheel ticks reach the agent TUI as cursor keys.
+tmux set-option -t csg mouse on 2>/dev/null || true
 
 echo "== done. summary =="
 echo "sshd:  $(sudo ss -tlnp 2>/dev/null | grep ':2222' || echo 'NOT LISTENING')"

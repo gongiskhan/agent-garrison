@@ -260,13 +260,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         const tm = rest.match(/^\/turns\/([A-Za-z0-9-]+)$/);
         if (req.method === "GET" && tm) {
           const waitMs = Math.min(Number(query.waitMs) || 0, 120_000);
-          const turn = await manager.awaitTurn(session, tm[1], waitMs);
+          // `sinceRev` turns the long-poll into a stream: it returns as soon as
+          // the running turn has printed something the caller has not seen.
+          const sinceRev = query.sinceRev == null ? null : Number(query.sinceRev);
+          const turn = await manager.awaitTurn(session, tm[1], waitMs, sinceRev);
           return jsonRes(res, 200, {
             turn: {
               id: turn.id,
               state: turn.state,
               startedAt: turn.startedAt,
               endedAt: turn.endedAt,
+              output: turn.output ?? "",
+              outputRev: turn.outputRev ?? 0,
               tail: turn.tail ?? null,
               error: turn.error ?? null
             }

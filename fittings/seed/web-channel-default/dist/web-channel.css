@@ -1225,7 +1225,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   min-width: 0; flex: 1 1 auto; color: var(--cc-fg-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cc-session-notice[open] .cc-session-notice-lede { white-space: normal; overflow: visible; }
+/* The lede is clipped only while it is genuinely collapsed - i.e. there is more
+   to reveal by opening. On an OPEN row, or a flat one with no chevron at all,
+   clipping would hide text the reader has no way to get to. */
+.cc-session-notice[open] .cc-session-notice-lede,
+.cc-session-notice.is-flat .cc-session-notice-lede { white-space: normal; overflow: visible; }
 .cc-session-notice-body { display: flex; flex-direction: column; gap: 3px; padding: 6px 0 2px 10px; }
 .cc-session-notice-warning {
   border-left-color: var(--cc-rail-warn, #e8a598);

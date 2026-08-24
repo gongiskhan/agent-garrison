@@ -7,6 +7,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { currentTheme, subscribe as subscribeTheme } from "./terminal-theme";
+import { attachTerminalScrolling } from "./terminal-scroll";
 
 export function TerminalPane({
   ptyId,
@@ -112,31 +113,14 @@ export function TerminalPane({
       return true;
     });
 
-    // Alt-screen TUIs (Claude Code, vim, less, ...) replace xterm's scrollback
-    // with their own buffer, so xterm has nothing to scroll. Translate vertical
-    // wheel motion into arrow-key escape sequences so the embedded TUI can
-    // scroll its own contents.
-    //
-    // Under tmux (tmuxModeRef, set from init_ack) this is skipped entirely: the
-    // outer xterm is ALWAYS in the alternate screen, so the heuristic would
-    // hijack every scroll. tmux's own mouse mode handles wheel→history instead
-    // (and Shift+drag still does native text selection).
-    type WheelHandlerHost = {
-      attachCustomWheelEventHandler?: (handler: (ev: WheelEvent) => boolean) => void;
-    };
-    const wheelHost = term as unknown as WheelHandlerHost;
-    if (typeof wheelHost.attachCustomWheelEventHandler === "function") {
-      wheelHost.attachCustomWheelEventHandler((ev: WheelEvent) => {
-        if (tmuxModeRef.current) return true; // tmux owns scrolling
-        if (term.buffer.active.type !== "alternate") return true;
-        const sock = socketRef.current;
-        if (!sock || sock.readyState !== WebSocket.OPEN) return false;
-        const lines = Math.max(1, Math.round(Math.abs(ev.deltaY) / 16));
-        const seq = (ev.deltaY < 0 ? "\x1b[A" : "\x1b[B").repeat(lines);
-        sock.send(new TextEncoder().encode(seq));
-        return false;
-      });
-    }
+    // Scrolling. Under tmux the pane's history is the REMOTE's, reachable only
+    // through tmux's mouse mode + copy-mode; on a plain PTY xterm's own
+    // alt-screen handling is already right. Touch panning is dead in both cases
+    // until it is replayed as wheel ticks. All of that lives in
+    // terminal-scroll.ts, shared verbatim with web-channel's pane.
+    const detachScrolling = attachTerminalScrolling(term, containerRef.current, {
+      isTmux: () => tmuxModeRef.current
+    });
 
     // Continuous edge auto-scroll while drag-selecting under tmux. tmux's
     // copy-mode only advances the scroll on each fresh mouse-motion event, so
@@ -256,6 +240,7 @@ export function TerminalPane({
     return () => {
       cancelled = true;
       unsubscribeTheme();
+      detachScrolling();
       stopEdgeScroll();
       mountEl?.removeEventListener("mousedown", onTermMouseDown);
       window.removeEventListener("mousemove", onWinMouseMove);

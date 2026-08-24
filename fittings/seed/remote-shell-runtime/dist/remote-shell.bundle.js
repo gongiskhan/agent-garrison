@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// node_modules/@xterm/xterm/lib/xterm.js
+// ../../../node_modules/@xterm/xterm/lib/xterm.js
 var require_xterm = __commonJS({
-  "node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
+  "../../../node_modules/@xterm/xterm/lib/xterm.js"(exports, module) {
     !(function(e, t) {
       if ("object" == typeof exports && "object" == typeof module) module.exports = t();
       else if ("function" == typeof define && define.amd) define([], t);
@@ -29643,9 +29643,9 @@ WARNING: This link could potentially be dangerous`)) {
   }
 });
 
-// node_modules/@xterm/addon-fit/lib/addon-fit.js
+// ../../../node_modules/@xterm/addon-fit/lib/addon-fit.js
 var require_addon_fit = __commonJS({
-  "node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
     })(self, (() => (() => {
@@ -29679,9 +29679,9 @@ var require_addon_fit = __commonJS({
   }
 });
 
-// node_modules/@xterm/addon-web-links/lib/addon-web-links.js
+// ../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js
 var require_addon_web_links = __commonJS({
-  "node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
+  "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"(exports, module) {
     !(function(e, t) {
       "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.WebLinksAddon = t() : e.WebLinksAddon = t();
     })(self, (() => (() => {
@@ -29801,9 +29801,9 @@ var require_addon_web_links = __commonJS({
   }
 });
 
-// node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -30694,9 +30694,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -30706,17 +30706,17 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// fittings/seed/remote-shell-runtime/ui/main.tsx
+// ui/main.tsx
 var import_react2 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
-// fittings/seed/remote-shell-runtime/ui/terminal-pane.tsx
+// ui/terminal-pane.tsx
 var import_react = __toESM(require_react());
 var import_xterm = __toESM(require_xterm());
 var import_addon_fit = __toESM(require_addon_fit());
 var import_addon_web_links = __toESM(require_addon_web_links());
 
-// fittings/seed/remote-shell-runtime/ui/terminal-theme.ts
+// ui/terminal-theme.ts
 var LS_KEY = "garrison.remoteshell.termTheme";
 var SYNC_EVENT = "garrison:remoteshell-theme";
 var DARK = {
@@ -30809,7 +30809,100 @@ if (typeof window !== "undefined") {
 }
 syncRootVar();
 
-// fittings/seed/remote-shell-runtime/ui/terminal-pane.tsx
+// ui/terminal-scroll.ts
+var ROWS_PER_TICK = 5;
+var MIN_STEP_PX = 40;
+var WHEEL_NOTCH_PX = 100;
+var MAX_TICKS_PER_MOVE = 8;
+function attachTerminalScrolling(term, mount, { isTmux }) {
+  const mouseReported = () => {
+    try {
+      return term.modes.mouseTrackingMode !== "none";
+    } catch {
+      return false;
+    }
+  };
+  const wheelHost = term;
+  if (typeof wheelHost.attachCustomWheelEventHandler === "function") {
+    wheelHost.attachCustomWheelEventHandler(() => {
+      if (mouseReported()) return true;
+      if (isTmux()) return false;
+      return true;
+    });
+  }
+  const screenEl = () => mount.querySelector(".xterm-screen") ?? mount;
+  const stepPx = () => {
+    const rows = term.rows || 0;
+    const height = mount.getBoundingClientRect().height;
+    const rowHeight = rows > 0 && height > 0 ? height / rows : 0;
+    return Math.max(MIN_STEP_PX, Math.round(rowHeight * ROWS_PER_TICK));
+  };
+  let pointerId = null;
+  let anchorY = 0;
+  let lastX = 0;
+  const release = () => {
+    if (pointerId === null) return;
+    try {
+      mount.releasePointerCapture(pointerId);
+    } catch {
+    }
+    pointerId = null;
+  };
+  const onPointerDown = (ev) => {
+    if (ev.pointerType === "mouse" || !ev.isPrimary) return;
+    release();
+    pointerId = ev.pointerId;
+    anchorY = ev.clientY;
+    lastX = ev.clientX;
+    try {
+      mount.setPointerCapture(ev.pointerId);
+    } catch {
+      pointerId = null;
+    }
+  };
+  const onPointerMove = (ev) => {
+    if (pointerId === null || ev.pointerId !== pointerId) return;
+    const step = stepPx();
+    const travel = anchorY - ev.clientY;
+    const ticks = Math.trunc(travel / step);
+    if (ticks === 0) return;
+    anchorY -= ticks * step;
+    lastX = ev.clientX;
+    if (ev.cancelable) ev.preventDefault();
+    const el = screenEl();
+    const deltaY = ticks > 0 ? WHEEL_NOTCH_PX : -WHEEL_NOTCH_PX;
+    const count = Math.min(Math.abs(ticks), MAX_TICKS_PER_MOVE);
+    for (let i = 0; i < count; i++) {
+      el.dispatchEvent(new WheelEvent("wheel", {
+        deltaY,
+        deltaMode: 0,
+        clientX: lastX,
+        clientY: ev.clientY,
+        bubbles: true,
+        cancelable: true
+      }));
+    }
+  };
+  const onPointerEnd = (ev) => {
+    if (pointerId !== null && ev.pointerId === pointerId) release();
+  };
+  const priorTouchAction = mount.style.touchAction;
+  mount.style.touchAction = "none";
+  mount.addEventListener("pointerdown", onPointerDown);
+  mount.addEventListener("pointermove", onPointerMove);
+  mount.addEventListener("pointerup", onPointerEnd);
+  mount.addEventListener("pointercancel", onPointerEnd);
+  return () => {
+    release();
+    mount.style.touchAction = priorTouchAction;
+    mount.removeEventListener("pointerdown", onPointerDown);
+    mount.removeEventListener("pointermove", onPointerMove);
+    mount.removeEventListener("pointerup", onPointerEnd);
+    mount.removeEventListener("pointercancel", onPointerEnd);
+  };
+}
+
+// ui/terminal-pane.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function TerminalPane({
   ptyId,
@@ -30901,19 +30994,9 @@ function TerminalPane({
       }
       return true;
     });
-    const wheelHost = term;
-    if (typeof wheelHost.attachCustomWheelEventHandler === "function") {
-      wheelHost.attachCustomWheelEventHandler((ev) => {
-        if (tmuxModeRef.current) return true;
-        if (term.buffer.active.type !== "alternate") return true;
-        const sock = socketRef.current;
-        if (!sock || sock.readyState !== WebSocket.OPEN) return false;
-        const lines = Math.max(1, Math.round(Math.abs(ev.deltaY) / 16));
-        const seq = (ev.deltaY < 0 ? "\x1B[A" : "\x1B[B").repeat(lines);
-        sock.send(new TextEncoder().encode(seq));
-        return false;
-      });
-    }
+    const detachScrolling = attachTerminalScrolling(term, containerRef.current, {
+      isTmux: () => tmuxModeRef.current
+    });
     const mountEl = containerRef.current;
     let dragging = false;
     let edgeRow = 0;
@@ -31029,6 +31112,7 @@ function TerminalPane({
     return () => {
       cancelled = true;
       unsubscribeTheme();
+      detachScrolling();
       stopEdgeScroll();
       mountEl?.removeEventListener("mousedown", onTermMouseDown);
       window.removeEventListener("mousemove", onWinMouseMove);
@@ -31076,7 +31160,7 @@ function TerminalPane({
   ] });
 }
 
-// fittings/seed/remote-shell-runtime/ui/main.tsx
+// ui/main.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime());
 async function api(path, init) {
   const res = await fetch(path, {

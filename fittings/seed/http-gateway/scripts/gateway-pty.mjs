@@ -3131,6 +3131,10 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       cwd: pre.projectPath ?? workspaceCwdFallback(),
       registerStop: (stop) => registerTurnStop(pre.route.target.runtime, stop),
       onRuntimeAdmission: opts.onRuntimeAdmission,
+      // Progress from an adapter that has any to report (remote-shell streams
+      // the remote pane while its agent works). The final onChunk below replaces
+      // whatever streamed with the settled reply.
+      onChunk,
     });
     broadcastRich("status", {
       rows: [`Garrison orchestrator → runtime: ${r.runtime} · provider: ${r.provider} · model: ${r.model}`],

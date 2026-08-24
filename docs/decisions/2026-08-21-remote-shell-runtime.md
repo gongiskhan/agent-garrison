@@ -88,3 +88,57 @@ family), no CSG-specific code anywhere:
   absent) and the hermetic Playwright spec under
   `fittings/seed/remote-shell-runtime/ui/__tests__/` (browser typing → remote
   tmux → bytes back).
+
+## 2026-08-24 — scrolling, and progress in the delegate lane
+
+Two follow-ups after living with the CSG shell.
+
+**Scrolling.** A `tmux attach` client is permanently in the alternate screen, so
+the browser terminal has no scrollback of its own. xterm.js reacts to that by
+turning each wheel tick into a cursor-key sequence (its convenience for
+`less`/`vim`), which the remote agent's TUI reads as "recall the previous
+message" — on desktop the wheel walked the agent's prompt history instead of
+scrolling its output, and on mobile a finger pan did nothing at all. The pane's
+history is tmux's, and copy-mode is the only way into it, so `start()` now sets
+`mouse on` per tmux session at attach (also in `csg-bootstrap.sh` for fresh
+remotes). Desktop then works natively: xterm reports the wheel and tmux scrolls.
+
+Touch needs a bridge, in `ui/terminal-scroll.ts` (shared verbatim by the fitting
+pane and web-channel's pane): each ~5 rows of pan is replayed as a real
+`WheelEvent` on the terminal, so xterm encodes it in whatever mouse protocol the
+remote negotiated rather than us hand-rolling escape sequences. Two traps are
+load-bearing there:
+
+- The gesture rides **pointer events under an explicit pointer capture**, not
+  touch events. A finger lands on a text span inside `.xterm-rows`; the first
+  tick makes the remote redraw the pane, which replaces that span; touch events
+  keep going to their original target, so every ancestor listener goes deaf and
+  the pan freezes after a line or two. Capture retargets to the mount element.
+- `touch-action: none` on the mount, or the browser claims the pan and stops
+  sending moves.
+
+When mouse mode is absent the wheel is now SWALLOWED rather than allowed to
+become cursor keys: doing nothing beats typing into the agent's prompt.
+
+Evidence: `scripts/remote-shell/scroll-check.mjs` drives the real web-channel
+pane at 1440x900 and 390x844 and asserts against tmux itself over ssh
+(`#{pane_in_mode}`, `#{scroll_position}`) — wheel scrolls and auto-returns to the
+live tail, a pan scrolls roughly 1:1 with the finger and keeps going on the next
+pan, and a tap still focuses the terminal.
+
+**Progress in the delegate lane.** A delegated turn used to show nothing in the
+dispatch ledger until the stop hook fired, then one blob of the last 60 lines.
+The turn now records the pane's `history_size` at its start and re-reads
+everything printed since (`capture-pane -S -<n> -E -`) every 2.5s while it runs;
+`GET /turns/:id?sinceRev=R` returns early whenever that output moves, and
+`RemoteShellAdapter.awaitResponse(session, { onChunk })` streams it through the
+gateway's existing `onChunk` seam — `runSecondaryTurn` passes it now — so the
+web channel's normal `chunk` frames carry the remote's work as it happens.
+Always `replace: true`: a TUI rewrites its last lines in place, so only the whole
+text is ever correct. The settled reply is that same transcript, fenced, plus
+the stop timestamp. The agent's own input box is trimmed off the bottom of each
+capture (`stripPromptChrome`) — it is furniture, and repeating it under every
+message buries the answer.
+
+This is the first half of retiring the terminal: the shell stays visible while
+the ledger is grown into something good enough to replace it.

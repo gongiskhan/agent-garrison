@@ -11,6 +11,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { attachTerminalScrolling } from "./terminal-scroll";
 
 export interface RemoteShellMeta {
   agentState: "running" | "idle" | null;
@@ -30,6 +31,9 @@ export function RemoteShellPane({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  // The stream is a tmux attach (init_ack), which decides how scrolling works —
+  // see terminal-scroll.ts.
+  const tmuxModeRef = useRef(false);
   const [status, setStatus] = useState<string | null>(null);
   const [agentState, setAgentState] = useState<"running" | "idle" | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -42,7 +46,9 @@ export function RemoteShellPane({
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const mountEl = containerRef.current;
     let cancelled = false;
+    tmuxModeRef.current = false;
     setStatus(null);
     const term = new Terminal({
       cursorBlink: true,
@@ -86,6 +92,10 @@ export function RemoteShellPane({
       return true;
     });
 
+    const detachScrolling = attachTerminalScrolling(term, mountEl, {
+      isTmux: () => tmuxModeRef.current
+    });
+
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${proto}//${window.location.host}/remote-shell/io`);
     socket.binaryType = "arraybuffer";
@@ -102,6 +112,7 @@ export function RemoteShellPane({
             const msg = JSON.parse(ev.data);
             if (msg && typeof msg.type === "string") {
               if (msg.type === "init_ack") {
+                tmuxModeRef.current = msg.tmux === true;
                 if (msg.state === "running" || msg.state === "idle") setAgentState(msg.state);
                 return;
               }
@@ -153,6 +164,7 @@ export function RemoteShellPane({
     return () => {
       cancelled = true;
       if (refitTimer) clearTimeout(refitTimer);
+      detachScrolling();
       window.removeEventListener("resize", refit);
       resizeObs.disconnect();
       try { socket.close(); } catch {}

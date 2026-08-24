@@ -93,9 +93,12 @@ x-garrison:
     same one-slot convention Cursor uses for effort-in-model-id. A turn types
     the instruction into the remote agent's TUI (tmux send-keys) and completes
     when the remote agent's own stop hook appends to the remote events file —
-    terminal text is never scraped for state. The reply carries the stop
-    timestamp plus the last terminal lines; the live TUI itself streams in the
-    fitting's terminal view and in web-channel's terminal pane.
+    terminal text is never scraped for state. While the turn runs, whatever the
+    remote pane prints is read back on a timer and streamed to the caller
+    through the adapter's onChunk seam, so a channel shows the work as it
+    happens; the settled reply is that same transcript plus the stop timestamp.
+    The live TUI itself streams in the fitting's terminal view and in
+    web-channel's terminal pane.
 
     Discovery: ~/.garrison/ui-fittings/remote-shell-runtime.json
     ({fittingId, port, url, pid, startedAt}), then GET <url>/health.
@@ -107,7 +110,11 @@ x-garrison:
       POST /sessions/:id/input {text}           - type a line + Enter
       POST /sessions/:id/keys {keys}            - named key (Escape, C-c, ...)
       POST /sessions/:id/turn {text}            - start a tracked turn
-      GET  /sessions/:id/turns/:turnId?waitMs=N - long-poll settlement
+      GET  /sessions/:id/turns/:turnId?waitMs=N&sinceRev=R
+                                                - long-poll settlement; returns
+                                                  early with {output, outputRev}
+                                                  whenever the remote pane has
+                                                  printed something past R
       GET  /sessions/:id/screen?lines=N         - ANSI-free pane capture
       POST /sessions/:id/detach                 - drop the local attach client
       DELETE /sessions/:id                      - forget locally (remote tmux

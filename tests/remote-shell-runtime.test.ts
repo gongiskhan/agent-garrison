@@ -268,12 +268,22 @@ describe.skipIf(!sshSelfOk)("RemoteShellAdapter against a live server", () => {
       const session = await adapter.spawn({ model: "adp" });
       await adapter.awaitReady(session);
       await adapter.sendTurn(session, "echo adapter-turn-marker");
+      // Late enough that a progress tick lands first: the delegate lane must
+      // show the remote's output WHILE it works, not only once it stops.
       setTimeout(() => {
         writeFileSync(eventsFile, JSON.stringify({ ts: new Date().toISOString(), event: "agent-stop" }) + "\n", { flag: "a" });
-      }, 1200);
-      const resp = await adapter.awaitResponse(session);
+      }, 5000);
+      const chunks: Array<{ text: string; replace: boolean }> = [];
+      const resp = await adapter.awaitResponse(session, {
+        onChunk: (text: string, replace: boolean) => { chunks.push({ text, replace }); }
+      });
       expect(resp.text).toContain("adapter-turn-marker");
       expect(resp.text).toContain("finished");
+      expect(chunks.length).toBeGreaterThan(0);
+      expect(chunks.some((c) => c.text.includes("adapter-turn-marker"))).toBe(true);
+      // A TUI rewrites its last lines in place, so every chunk is a REPLACE of
+      // the whole text; appending them would duplicate the transcript.
+      expect(chunks.every((c) => c.replace === true)).toBe(true);
       await adapter.teardown(session);
     } finally {
       server.close();
