@@ -78,7 +78,8 @@ export function startGitPump({ log = console } = {}) {
         // Someone (this node's fitting pre-down, or an earlier tick) may have
         // replied already — a restart must not produce a duplicate commit.
         const replies = await c.listEvents({ kind: "git.commit-push.reply", sinceSeq: Math.max(0, ev.seq - 1), limit: 100 });
-        if (replies.some((r) => r.payload?.requestSeq === ev.seq && r.node === self)) continue;
+        const reqId = ev.payload?.requestId ?? null;
+        if (replies.some((r) => (r.payload?.requestId ?? null) === reqId && (r.payload?.node ?? r.node) === self)) continue;
         const url = appUrl();
         const token = internalToken();
         if (!url || !token) {
@@ -97,6 +98,11 @@ export function startGitPump({ log = console } = {}) {
           subjectType: "project",
           subjectId: String(ev.payload?.project ?? ""),
           payload: {
+            // The fitting protocol's correlation keys FIRST — a reply the
+            // requester cannot match is a reply that never happened (proven
+            // live on the first cross-node pull).
+            requestId: ev.payload?.requestId ?? null,
+            node: self,
             requestSeq: ev.seq,
             project: ev.payload?.project,
             via: "scheduler-daemon",
