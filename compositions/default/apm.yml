@@ -15,6 +15,7 @@ dependencies:
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
+    - path: ../../fittings/seed/merge-agent
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/garrison-call
@@ -271,6 +272,7 @@ x-garrison:
           config:
             port: 8096
             bind_host: 127.0.0.1
+        - id: merge-agent
       design:
         - id: taste
           config: {}
@@ -642,6 +644,7 @@ x-garrison:
       - other
       - probe-question
       - dispatch
+      - merge
     targets:
       - id: dispatch-fast
         runtime: agent-sdk

@@ -969,5 +969,22 @@
       "global": 4.3,
       "claude_code": 4.3
     }
+  },
+  {
+    "id": "merge-agent",
+    "name": "Merge Agent",
+    "repo": "local:fittings/seed/merge-agent",
+    "localPath": "fittings/seed/merge-agent",
+    "summary": "The mesh's merge duty: fetch, tag garrison/premerge/<project>/<node>/<stamp>, merge --no-ff with file-by-file conflict resolution that must parse, refuse lockfiles and binaries, and file a decision card for every non-trivial merge. Fast-forwards file nothing.",
+    "platforms": [
+      "linux",
+      "darwin"
+    ],
+    "ratings": {
+      "maintenance": 5,
+      "popularity": 3,
+      "security": 5,
+      "activity": 5
+    }
   }
 ]
