@@ -39,6 +39,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@garrison/claude-chat": "file:packages/claude-chat",
     "@garrison/claude-pty": "file:packages/claude-pty",
+    "@garrison/state-client": "file:packages/garrison-state-client",
     "@monaco-editor/react": "^4.7.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",

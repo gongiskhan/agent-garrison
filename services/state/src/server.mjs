@@ -182,14 +182,17 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { docs: listConfigDocs(db, url.searchParams.get("prefix") ?? undefined) });
       }
       if (p.length === 3) {
-        const [, namespace, scope] = p;
+        const namespace = decodeURIComponent(p[1]);
+        const scope = decodeURIComponent(p[2]);
         if (req.method === "GET") {
           const doc = getConfigDoc(db, namespace, scope);
           if (!doc) throw new StoreError(404, "not-found", "no such config document");
           return send(res, 200, doc);
         }
         if (req.method === "PUT") {
-          const baselineSha = req.headers["x-baseline-sha"] ? String(req.headers["x-baseline-sha"]) : undefined;
+          const baselineSha = "x-baseline-sha" in req.headers
+            ? (String(req.headers["x-baseline-sha"]) || null)
+            : undefined;
           const out = mutate(() => putConfigDoc(db, node, { namespace, scope, body, ifMatchRev: ifMatch(req), baselineSha }));
           return send(res, 200, out);
         }

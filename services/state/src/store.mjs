@@ -823,7 +823,7 @@ export function createCard(db, authNode, input) {
         body: JSON.stringify(input)
       });
     } catch (err) {
-      if (String(err?.message).includes("idx_cards_occurrence")) {
+      if (String(err?.message).includes("cards.occurrence_key")) {
         throw new StoreError(409, "occurrence-exists", `occurrence_key ${promoted.occurrence_key} already ran — scheduled work runs exactly once`);
       }
       throw err;
@@ -916,7 +916,7 @@ export function patchCard(db, authNode, id, patch, { ifMatchRev, fence } = {}) {
         body: JSON.stringify(nextBody)
       });
     } catch (err) {
-      if (String(err?.message).includes("idx_cards_occurrence")) {
+      if (String(err?.message).includes("cards.occurrence_key")) {
         throw new StoreError(409, "occurrence-exists", "occurrence_key already exists — scheduled work runs exactly once");
       }
       throw err;
