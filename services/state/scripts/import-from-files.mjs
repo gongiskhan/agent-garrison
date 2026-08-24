@@ -330,7 +330,10 @@ function importOrigins() {
       bump("origins");
     }
     const eventsPath = path.join(dir, f.replace(/\.json$/, ".events.jsonl"));
-    if (existsSync(eventsPath)) {
+    const alreadyImported = db.prepare("SELECT 1 FROM events WHERE origin_id=? AND node='import' LIMIT 1").get(originId);
+    if (alreadyImported && !FORCE) {
+      skip("origin-events", originId, "already imported");
+    } else if (existsSync(eventsPath)) {
       const lines = readFileSync(eventsPath, "utf8").split("\n").filter((l) => l.trim());
       for (const line of lines) {
         let ev;
@@ -493,6 +496,10 @@ function importCoord() {
         originUrl = readFileSync(path.join(repoPath, ".git", "config"), "utf8").match(/url\s*=\s*(.+)/)?.[1]?.trim() ?? null;
       } catch { /* no git config */ }
       const repoKey = normalizeForImport(originUrl, repoPath);
+      if (db.prepare("SELECT 1 FROM plans WHERE repo_key=? AND session LIKE '%' LIMIT 1").get(repoKey) && !FORCE) {
+        skip("coord-plans", repoKey, "already imported");
+        continue;
+      }
       const lines = readFileSync(path.join(plansDir, f), "utf8").split("\n").filter((l) => l.trim());
       for (const line of lines) {
         let plan;

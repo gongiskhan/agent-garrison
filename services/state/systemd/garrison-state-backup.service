@@ -8,3 +8,4 @@ Description=Garrison state DB snapshot
 Type=oneshot
 WorkingDirectory=%h/.garrison-state/current
 ExecStart=/usr/bin/env node scripts/backup.mjs
+Environment=PATH=/home/ggomes/.nvm/versions/node/v20.19.4/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

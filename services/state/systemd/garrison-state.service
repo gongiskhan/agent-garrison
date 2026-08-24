@@ -14,10 +14,16 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=%h/.garrison-state/current
 ExecStart=/usr/bin/env node src/server.mjs
-ExecStartPost=/usr/bin/env bash scripts/tailnet-publish.sh
+# '-' prefix: a failed publish must not hold the service down — the script
+# logs loudly and re-runs on every restart. (It 401s until
+# `sudo tailscale set --operator=ggomes` has been run once on the box.)
+ExecStartPost=-/usr/bin/env bash scripts/tailnet-publish.sh
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
+# nvm's node is not on systemd's minimal PATH; without this the service dies
+# with exit 127 (same gotcha garrison-prod.service documents).
+Environment=PATH=/home/ggomes/.nvm/versions/node/v20.19.4/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [Install]
 WantedBy=default.target
