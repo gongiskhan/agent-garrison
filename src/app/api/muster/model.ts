@@ -11,6 +11,7 @@
 // duties}; everything else in the manifest round-trips untouched.
 
 import path from "node:path";
+import { pushManifestToState } from "@/lib/composition-sync";
 import fs from "node:fs/promises";
 import {
   resolveModel,
@@ -1104,6 +1105,17 @@ async function mutateManifestAtomic(
   mutate(manifest);
   const raw = dumpYaml(manifest, { lineWidth: 100, noRefs: true, sortKeys: false });
   await writeFileAtomic(manifestPath, raw);
+  // MESH: the manifest edit flows back to the state service (rev CAS). An
+  // enrolled node whose edit cannot reach shared state must hear about it —
+  // the local file already changed, so surface loudly rather than fork
+  // silently; the next up() re-syncs from the service either way.
+  try {
+    await pushManifestToState(compositionId, raw);
+  } catch (err) {
+    throw new Error(
+      `manifest saved locally but NOT to the mesh state service — another node may not see this edit (${err instanceof Error ? err.message : String(err)})`
+    );
+  }
 }
 
 // Persist a whole new selections map: validate first (cardinality + faculty

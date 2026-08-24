@@ -21,7 +21,8 @@ import {
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
 import { deriveViewProvisions } from "./view-instances";
-import { materializeEnv, wipeMaterializedEnv } from "./vault";
+import { wipeMaterializedEnv } from "./vault";
+import { syncCompositionFromState, materializeEnvViaAuthority } from "./composition-sync";
 import { compositionFingerprint, readLastUp, writeLastUp } from "./up-fingerprint";
 import {
   DEFAULT_PRIMARY_RUNTIME,
@@ -456,6 +457,24 @@ async function upUnlocked(
       compositionDir: composition.directory,
       envMaterialized: false
     };
+    // MESH (S10): materialise the composition's SHARED files from the state
+    // service before anything reads them — the DB is the source of truth, this
+    // tree is one node's copy. Hash-compared writes keep dev()'s watcher calm,
+    // and a refreshed manifest breaks the fast-path fingerprint naturally. An
+    // ENROLLED node that cannot reach the service fails the launch (no
+    // offline fork of shared state); an unenrolled box behaves as ever.
+    {
+      const sync = await syncCompositionFromState(compositionId, composition.directory);
+      if (sync.source === "seeded-to-service") {
+        appendLog(compositionId, "runner", "composition seeded to the state service (first contact)");
+      } else if (sync.refreshedFiles.length) {
+        appendLog(
+          compositionId,
+          "runner",
+          `composition refreshed from the state service: ${sync.refreshedFiles.join(", ")}`
+        );
+      }
+    }
     // A composition-owned committed routing seed becomes local policy only at
     // this mutating launch seam. GET/Muster reads can preview the seed without
     // writing into a shared checkout; the claim above serializes the one-time
@@ -506,9 +525,16 @@ async function upUnlocked(
     } else {
       await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
     }
-    const envPath = await materializeEnv(composition.directory);
+    const { envPath, source: envSource } = await materializeEnvViaAuthority(
+      composition.directory,
+      compositionId
+    );
     launchClaim.envMaterialized = true;
-    appendLog(compositionId, "runner", `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)}`);
+    appendLog(
+      compositionId,
+      "runner",
+      `Materialised secrets to ${path.relative(ROOT_DIR, envPath)} (${envSource === "authority" ? "mesh secret authority" : "local vault"})`
+    );
     const soulEntries = await selectedLibraryEntries(composition.selections);
     // Project before fitting setup: kanban-loop's setup hook seeds/reconciles the
     // board from this manifest. Writing it afterwards left a live launch one
@@ -1491,11 +1517,11 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
   // (and setup hooks below) can see them. If the vault is locked, log a
   // clear actionable message rather than silently letting hooks fail.
   try {
-    const envPath = await materializeEnv(composition.directory);
+    const { envPath } = await materializeEnvViaAuthority(composition.directory, composition.id);
     appendLog(
       compositionId,
       "runner",
-      `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)} (verify will source them)`
+      `Materialised secrets to ${path.relative(ROOT_DIR, envPath)} (verify will source them)`
     );
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
