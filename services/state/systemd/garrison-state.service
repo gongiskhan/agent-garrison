@@ -1,0 +1,23 @@
+# Garrison state service — systemd user unit (dev-madrid only).
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp services/state/systemd/garrison-state.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now garrison-state
+# (User lingering is already on for garrison-prod.service.)
+
+[Unit]
+Description=Garrison Mesh state service (SQLite + tailnet HTTP API)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.garrison-state/current
+ExecStart=/usr/bin/env node src/server.mjs
+ExecStartPost=/usr/bin/env bash scripts/tailnet-publish.sh
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target

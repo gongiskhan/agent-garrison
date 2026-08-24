@@ -1,0 +1,14 @@
+{
+  "name": "@garrison/state-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Garrison Mesh state service: the single owner of shared mesh state (SQLite behind an authenticated tailnet-only HTTP API).",
+  "main": "src/server.mjs",
+  "scripts": {
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0"
+  }
+}
