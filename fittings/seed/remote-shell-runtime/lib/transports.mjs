@@ -259,7 +259,17 @@ export async function describeTunnel(tunnelId, { bin = "devtunnel", timeoutMs = 
       /* not JSON after all - fall through to the text-shaped answers */
     }
   }
-  if (/login required/i.test(text)) return { ok: false, reason: "login" };
+  // Two shapes of the same problem, and the CLI picks between them per command:
+  // `list` says "Login required.", `show` says "Login token expired." A GitHub
+  // login here lasts under a day, so EXPIRED is the common one - and matching
+  // only "required" sent it to the unknown branch, which told the reader to go
+  // debug a client that was never the problem.
+  if (/login token expired|token (?:has )?expired|login expired/i.test(text)) {
+    return { ok: false, reason: "login", expired: true };
+  }
+  if (/login required|not logged in|unauthorized|401/i.test(text)) {
+    return { ok: false, reason: "login", expired: false };
+  }
   if (/not found|does not exist|404/i.test(text)) return { ok: false, reason: "missing" };
   return { ok: false, reason: "unknown", detail: text.trim().slice(-300) };
 }
@@ -281,7 +291,10 @@ export function explainTunnel(info, dt) {
     return null;
   }
   if (info.reason === "login") {
-    return `this box is not logged in to dev tunnels, so ${dt.tunnel} cannot be reached - run \`devtunnel user login\` as this user and restart the fitting. (Each Garrison instance redirects XDG_DATA_HOME, so the login must be visible at $XDG_DATA_HOME/DevTunnels; the setup hook links the real store in.)`;
+    const lede = info.expired
+      ? `this box's dev tunnels login has EXPIRED (a GitHub login lasts well under a day), so ${dt.tunnel} cannot be reached`
+      : `this box is not logged in to dev tunnels, so ${dt.tunnel} cannot be reached`;
+    return `${lede} - run \`devtunnel user login -g -d\` as this user, HERE, not on the remote. (Each Garrison instance redirects XDG_DATA_HOME, so the login must be visible at $XDG_DATA_HOME/DevTunnels; the setup hook links the real store in.)`;
   }
   if (info.reason === "missing") {
     return `devtunnel ${dt.tunnel} does not exist - deleted, or owned by a different account than the one logged in here. Recreate it and repoint the transport.`;
@@ -323,20 +336,37 @@ export class TunnelManager {
         return { ok: true, via: "devtunnel", running: true };
       }
     }
+    // A `devtunnel connect` child that never brought the forward up is providing
+    // nothing, and it does not exit on its own - the same liveness-is-not-health
+    // trap as the host side. Retire it so the next attempt starts clean instead
+    // of inheriting a wedged client forever (one was found alive for ten hours,
+    // holding no forward, after the credential under it expired).
+    this.#retireClient(dt.tunnel);
     const hosted = info.ok ? `${info.hostConnections} host connection(s)` : "unknown host state";
     return {
       ok: false,
       via: "devtunnel",
       tunnel: info,
       error: this.lastError.get(dt.tunnel) ||
-        `devtunnel ${dt.tunnel} reports ${hosted}, but the local forward for port ${dt.port} never came up on 127.0.0.1:${transport.ssh.port}. The client is running; check \`devtunnel connect ${dt.tunnel}\` by hand for what it is waiting on.`
+        `devtunnel ${dt.tunnel} reports ${hosted}, but the local forward for port ${dt.port} never came up on 127.0.0.1:${transport.ssh.port}. The wedged client has been retired; retry, and if it recurs run \`devtunnel connect ${dt.tunnel}\` by hand to see what it waits on.`
     };
+  }
+
+  /** Kill a client that is alive but carrying nothing, so the next try is fresh. */
+  #retireClient(tunnelId) {
+    const rec = this.children.get(tunnelId);
+    if (!rec || rec.child.exitCode !== null) return;
+    rec.retiring = true;
+    try { rec.child.kill("SIGTERM"); } catch { /* already gone */ }
+    this.children.delete(tunnelId);
   }
 
   #startClient(tunnelId) {
     const existing = this.children.get(tunnelId);
     if (existing && existing.child.exitCode === null) return;
-    const child = spawn(this.bin, ["connect", tunnelId], {
+    // this.spawnFn, not spawn: the client's lifecycle is the half of this class
+    // that keeps going wrong, so it has to be reachable by a test.
+    const child = this.spawnFn(this.bin, ["connect", tunnelId], {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false
     });
@@ -349,6 +379,10 @@ export class TunnelManager {
     child.stdout.on("data", keepTail);
     child.stderr.on("data", keepTail);
     child.on("close", (code) => {
+      // Our own SIGTERM is not a diagnosis. Recording it would overwrite the real
+      // reason with "devtunnel connect exited (code 0)" and hide it from the
+      // message the user reads.
+      if (rec.retiring) return;
       this.lastError.set(tunnelId, `devtunnel connect exited (code ${code}): ${tail.trim().slice(-500)}`);
     });
     child.on("error", (err) => {
@@ -371,6 +405,7 @@ export class TunnelManager {
 
   shutdown() {
     for (const rec of this.children.values()) {
+      rec.retiring = true;
       try { rec.child.kill("SIGTERM"); } catch {}
     }
     this.children.clear();
