@@ -1,6 +1,9 @@
 name: file-browser
 version: 0.1.0
-description: File Browser — browse and read files in the scoped local workspace AND in the projects remote agents are working in.
+description: >-
+  Workspace — browse and read files in the scoped local workspace, in this node's
+  git projects, and in the projects remote agents are working in; plus the
+  git-aware surface (status, diff, log, fetch) the cross-node merge system runs on.
 target: claude
 type: hybrid
 includes: auto
@@ -14,17 +17,26 @@ x-garrison:
   platforms:
     - claude-code
   summary: >-
-    Browse and read files from two kinds of SOURCE, with one contract for both.
-    `local` is the scoped workspace root (default ~/.garrison/files),
+    Browse and read files from three kinds of SOURCE, with one contract for all
+    of them. `local` is the scoped workspace root (default ~/.garrison/files),
     read/write, path-traversal-confined, and refuses credential files - the
-    artifact surface that replaced the artifact-store. Each `remote:<transport>`
-    is a project an agent is working in on another machine, read over the ssh
-    transport the remote-shell runtime already holds and confined on the REMOTE
-    by a realpath check, so a symlink out of the project is caught where the
-    truth lives. Remote sources are READ-ONLY on purpose: an agent is running in
-    that tree and editing under it would race with work you cannot see. The
-    remote-shell fitting's address is discovered through the shell, never guessed
-    from a port literal.
+    artifact surface that replaced the artifact-store. Each `project:<name>` is a
+    git repository under this node's dev-root, resolved through the same
+    name-only discipline the gateway uses for a channel-supplied project, and it
+    is git-aware: status (porcelain v2 plus ahead/behind, with NO implicit
+    fetch), diff (500 KB cap, binaries refused), log, and an explicit fetch.
+    Each `remote:<transport>` is a project an agent is working in on another
+    machine, read over the ssh transport the remote-shell runtime already holds
+    and confined on the REMOTE by a realpath check, so a symlink out of the
+    project is caught where the truth lives. Confinement is per root, so a path
+    inside one project can never reach another. Project and remote sources are
+    READ-ONLY on purpose: an agent is running in that tree, and editing under it
+    would race work you cannot see - the edit path for a repository is git.
+    Cross-node merges are state-mediated: pull-from-others asks every peer to
+    commit and push (bounded 120s; silence is reported as no-reply, never
+    assumed clean) and then fetches, while push-to-others commits, pushes, and
+    files one `merge` duty card per target node so the merge runs on the node
+    that owns the tree and is visible on the board.
   config_schema:
     - key: root
       type: string
@@ -65,3 +77,24 @@ x-garrison:
     listings sort chronologically. The user views everything in the Files view
     (sidebar Views) on phone or desktop: markdown renders, images display
     inline, text files are editable.
+
+    The git surface, for a repository under this node's dev-root
+    (`source=project:<name>`):
+
+    - `GET  /api/git/status?source=` — branch, upstream, ahead/behind, dirty
+      entries, stash count, in-progress merge/rebase. Instant and
+      side-effect-free: it does NOT fetch.
+    - `POST /api/git/fetch {source}` — the only call that reaches a remote.
+    - `GET  /api/git/diff?source=&path=&staged=` — unified diff, 500 KB cap; a
+      single binary path is refused rather than answered with a placeholder.
+    - `GET  /api/git/log?source=&limit=`
+
+    And the two cross-node merge actions, both mediated by the state service:
+
+    - `POST /api/git/pull-from-others {project}` — asks every other node to
+      commit and push, waits 120s, fetches, and reports per node. It does NOT
+      merge; that is the `merge` duty's job.
+    - `POST /api/git/push-to-others {project}` — commits and pushes this node's
+      branch, then files one `merge` duty card per target node.
+    - `POST /api/git/commit-push {project}` — this node's executor; skipped when
+      a session is running with that repository as its cwd.

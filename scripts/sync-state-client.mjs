@@ -26,7 +26,8 @@ export const SYNC_MANIFEST = [
       "fittings/seed/orchestrator/lib/state-client.mjs",
       "fittings/seed/mcp-gateway/scripts/lib/state-client.mjs",
       "fittings/seed/web-channel-default/lib/state-client.mjs",
-      "fittings/seed/http-gateway/scripts/lib/state-client.mjs"
+      "fittings/seed/http-gateway/scripts/lib/state-client.mjs",
+      "fittings/seed/file-browser/lib/state-client.mjs"
     ]
   },
   {

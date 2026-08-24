@@ -7,7 +7,10 @@
 // the layer in front of it - the string handling that decides what is even put on
 // the wire, and the quoting that decides whether a filename can become a command.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterAll, beforeAll, describe, it, expect, beforeEach } from "vitest";
 // @ts-ignore - dependency-free fitting JavaScript
 import { shQuote, rootExpr, normalizeRel, MAX_READ_BYTES } from "../fittings/seed/remote-shell-runtime/lib/remote-files.mjs";
 // @ts-ignore
@@ -66,17 +69,38 @@ describe("relative path handling", () => {
 });
 
 describe("file-browser sources", () => {
+  // GARRISON_HOME pinning, the same discipline the rest of the suite uses. The
+  // source list now enumerates dev-root projects, so an unpinned env would read
+  // whatever repositories happen to sit in the developer's ~/dev and the
+  // assertions below would be about this machine rather than about the code.
+  let home: string;
+  let emptyDevRoot: string;
+  let env: Record<string, string>;
+
+  beforeAll(() => {
+    home = mkdtempSync(path.join(tmpdir(), "garrison-src-home-"));
+    emptyDevRoot = mkdtempSync(path.join(tmpdir(), "garrison-src-devroot-"));
+    writeFileSync(path.join(home, "dev-root"), emptyDevRoot);
+    env = { GARRISON_HOME: home };
+  });
+
+  afterAll(() => {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(emptyDevRoot, { recursive: true, force: true });
+  });
+
   beforeEach(() => resetSourceCache());
 
-  it("splits a source id into local and remote", () => {
+  it("splits a source id into local, project and remote", () => {
     expect(parseSourceId("local")).toEqual({ kind: "local" });
     expect(parseSourceId(undefined)).toEqual({ kind: "local" });
     expect(parseSourceId("remote:csg")).toEqual({ kind: "remote", transport: "csg" });
+    expect(parseSourceId("project:garrison")).toEqual({ kind: "project", project: "garrison" });
     expect(parseSourceId("nonsense")).toEqual({ kind: "unknown", raw: "nonsense" });
   });
 
   it("always offers the local source, even with no shell to ask", async () => {
-    const sources = await listSources({}, "/root/files");
+    const sources = await listSources(env, "/root/files");
     expect(sources).toHaveLength(1);
     expect(sources[0]).toMatchObject({ id: "local", writable: true, root: "/root/files" });
   });
@@ -94,7 +118,7 @@ describe("file-browser sources", () => {
       return new Response(JSON.stringify({ transports: [{ name: "csg", label: "CSG work", cwd: "~/dev/proj" }] }));
     }) as typeof fetch;
     try {
-      const sources = await listSources({ GARRISON_BASE_URL: "http://127.0.0.1:8777" }, "/root/files");
+      const sources = await listSources({ ...env, GARRISON_BASE_URL: "http://127.0.0.1:8777" }, "/root/files");
       expect(sources.map((s: any) => s.id)).toEqual(["local", "remote:csg"]);
       expect(sources[1]).toMatchObject({ kind: "remote", transport: "csg", root: "~/dev/proj", writable: false });
       expect(seen[0]).toContain("/api/fittings/views");
@@ -108,7 +132,7 @@ describe("file-browser sources", () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () => { throw new Error("connection refused"); }) as typeof fetch;
     try {
-      const sources = await listSources({ GARRISON_BASE_URL: "http://127.0.0.1:8777" }, "/root/files");
+      const sources = await listSources({ ...env, GARRISON_BASE_URL: "http://127.0.0.1:8777" }, "/root/files");
       expect(sources.map((s: any) => s.id)).toEqual(["local"]);
     } finally {
       globalThis.fetch = realFetch;
@@ -124,7 +148,7 @@ describe("file-browser sources", () => {
         ? new Response(JSON.stringify({ views: [{ fittingId: "remote-shell-runtime", url: "http://x" }] }))
         : new Response(JSON.stringify({ transports: [{ name: "a" }, { name: "b" }] }))) as typeof fetch;
     try {
-      const sources = await listSources({ GARRISON_BASE_URL: "http://s" }, "/r");
+      const sources = await listSources({ ...env, GARRISON_BASE_URL: "http://s" }, "/r");
       for (const s of sources.filter((x: any) => x.kind === "remote")) expect(s.writable).toBe(false);
     } finally {
       globalThis.fetch = realFetch;
