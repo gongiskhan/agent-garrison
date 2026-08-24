@@ -76,7 +76,7 @@ say "on branch node/$NAME @ $(git rev-parse --short HEAD)"
 # ── 3. identity + enrolment files ───────────────────────────────────────────
 mkdir -p "$HOME/.garrison"
 node - "$NAME" "$ACCENT" "$TAILNET_HOST" <<'EOF'
-const [name, accent, host] = process.argv.slice(1);
+const [name, accent, host] = process.argv.slice(2); // argv[1] is "-" under `node -`
 const fs = require("node:fs");
 const p = `${process.env.HOME}/.garrison/node.json`;
 if (!fs.existsSync(p)) {
@@ -92,7 +92,7 @@ if (!fs.existsSync(p)) {
 }
 EOF
 node - "$STATE_URL" "$TOKEN" "$NAME" <<'EOF'
-const [url, token, node] = process.argv.slice(1);
+const [url, token, node] = process.argv.slice(2); // argv[1] is "-" under `node -`
 const fs = require("node:fs");
 const p = `${process.env.HOME}/.garrison/state.json`;
 fs.writeFileSync(p, JSON.stringify({ url, token, node }, null, 2), { mode: 0o600 });
@@ -143,7 +143,7 @@ EOF
 
 # ── 7. project env materialisation (anything checked out runs immediately) ──
 node - "$STATE_URL" "$TOKEN" "$NAME" <<'EOF'
-const [url, token] = process.argv.slice(1);
+const [url, token] = process.argv.slice(2); // argv[1] is "-" under `node -`
 const fs = require("node:fs");
 const path = require("node:path");
 (async () => {

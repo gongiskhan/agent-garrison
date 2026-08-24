@@ -434,7 +434,15 @@ async function daemon(opts = {}) {
     await appendLog(`[${new Date().toISOString()}] git pump unavailable: ${err.message}`);
   }
 
-  await superviseListeners();
+  // Startup supervision must not be able to kill the daemon: a broken or
+  // unreachable state config here would exit(1), and under the launchd/systemd
+  // concurrently group that takes the WHOLE NODE down with it (proven on the
+  // first Mac enrolment). Log, keep ticking; the in-loop catch handles the rest.
+  try {
+    await superviseListeners();
+  } catch (err) {
+    await appendLog(`[${new Date().toISOString()}] startup supervision failed (continuing): ${err.message}`);
+  }
   while (!shuttingDown) {
     try {
       const ran = await tick();
