@@ -416,29 +416,54 @@ function BoardPanel() {
 
   useEffect(() => {
     let cancelled = false;
+    let timer = 0;
+    // A failed fetch used to wait the full poll interval before trying again,
+    // and until it succeeded the panel rendered "Board idle" - a state
+    // indistinguishable from a genuinely quiet board. So one slow first response
+    // showed the reader a confidently wrong dashboard for thirty seconds. Retry
+    // quickly instead, backing off to the steady cadence, so a transient failure
+    // costs seconds rather than half a minute.
+    let retryMs = 2_000;
+    const schedule = (ms: number) => {
+      if (cancelled) return;
+      timer = window.setTimeout(() => void load(), ms);
+    };
     const load = async () => {
       try {
         const res = await fetch("/api/board/summary");
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(String(res.status));
         const data = (await res.json()) as BoardSummary;
-        if (!cancelled) setSummary(data);
+        if (cancelled) return;
+        setSummary(data);
+        retryMs = 2_000;
+        schedule(30_000);
       } catch {
         // Keep the last known state; the panel stays quiet on a fetch failure.
+        schedule(retryMs);
+        retryMs = Math.min(retryMs * 2, 30_000);
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), 30_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, []);
 
   // Loading and fetch-failure render the idle state — a dashboard panel
   // should never show an error banner for a board that simply isn't there.
   const active = summary && !summary.idle ? summary : null;
-  const shownTitles = active?.needsAttentionCards.slice(0, ATTENTION_TITLES_SHOWN) ?? [];
-  const extraTitles = (active?.needsAttentionCards.length ?? 0) - shownTitles.length;
+  const allTitles = active?.needsAttentionCards ?? [];
+  const shownTitles = allTitles.slice(0, ATTENTION_TITLES_SHOWN);
+  const extraTitles = allTitles.length - shownTitles.length;
+  // Resolve against the host the reader actually reached Garrison on. Linking
+  // active.boardUrl verbatim sent a remote browser to its OWN 127.0.0.1 - a dead
+  // link everywhere except on the box itself. "" means no route from here, so
+  // callers fall through to an unlinked row rather than a broken one.
+  const boardHref = resolveViewUrl({
+    url: active?.boardUrl ?? null,
+    tailnetUrl: active?.boardTailnetUrl ?? null
+  });
 
   return (
     <Panel title="Board">
@@ -482,15 +507,6 @@ function BoardPanel() {
                   const bullet = (
                     <span aria-hidden style={{ width: 6, height: 6, background: "var(--alarm)", flexShrink: 0, alignSelf: "center" }} />
                   );
-                  // Resolve against the host the reader actually reached
-                  // Garrison on. Linking active.boardUrl verbatim sent a remote
-                  // browser to its OWN 127.0.0.1 - a dead link everywhere
-                  // except on the box itself. "" means no route from here, so
-                  // fall through to the unlinked row rather than a broken one.
-                  const boardHref = resolveViewUrl({
-                    url: active.boardUrl,
-                    tailnetUrl: active.boardTailnetUrl
-                  });
                   return boardHref ? (
                     <a key={card.id} href={boardHref} target="_blank" rel="noreferrer" title={card.reason ?? card.title} style={rowStyle}>
                       {bullet}
@@ -504,9 +520,27 @@ function BoardPanel() {
                   );
                 })}
                 {extraTitles > 0 ? (
-                  <div className="font-mono" style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}>
-                    +{extraTitles} more
-                  </div>
+                  // The panel is one of several on a dashboard, so it stays
+                  // capped rather than growing without bound - but the overflow
+                  // must not be a dead end. It said "+3 more" and offered no way
+                  // to see them; now it is the way. Unlinked only when no route
+                  // to the board exists from where this page was opened.
+                  boardHref ? (
+                    <a
+                      className="font-mono"
+                      data-testid="board-attention-more"
+                      href={boardHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ display: "inline-block", fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}
+                    >
+                      +{extraTitles} more on the board
+                    </a>
+                  ) : (
+                    <div className="font-mono" data-testid="board-attention-more" style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}>
+                      +{extraTitles} more
+                    </div>
+                  )
                 ) : null}
               </div>
             ) : null}
