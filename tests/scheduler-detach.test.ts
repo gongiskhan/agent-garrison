@@ -2,8 +2,21 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { rewriteJobCommands } from "../scripts/repoint-scheduler-jobs.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const SCRIPT = path.join(process.cwd(), "scripts", "repoint-scheduler-jobs.mjs");
 

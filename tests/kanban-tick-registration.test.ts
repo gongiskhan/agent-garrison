@@ -11,7 +11,9 @@
 //      server (which does) BOTH call registerTick. The job command is persisted, so
 //      the env-less setup registration silently overwrote the good one.
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -39,11 +41,30 @@ const BEATS_MODULE = "../fittings/seed/kanban-loop/lib/scheduler-beats.mjs";
 const SAVED = { ...process.env };
 let home: string;
 
-function writeJobs(jobs: unknown[]) {
-  writeFileSync(join(home, "scheduler-jobs.json"), JSON.stringify(jobs), "utf8");
+// The registry is read and written through the SCHEDULER CLI, not through a file.
+// Jobs live in the mesh state service on an enrolled node (this file boots one) and
+// in the legacy file when it is not, so a fixture that touched
+// $GARRISON_HOME/scheduler-jobs.json would seed a store the code under test no longer
+// reads — and would pass or fail for reasons that have nothing to do with registerTick.
+const SCHEDULER_CLI = fileURLToPath(
+  new URL("../fittings/seed/scheduler/scripts/scheduler.mjs", import.meta.url)
+);
+
+function sched(args: string[]): string {
+  return execFileSync(process.execPath, [SCHEDULER_CLI, ...args], { encoding: "utf8" });
 }
 function readJobs(): any[] {
-  return JSON.parse(readFileSync(join(home, "scheduler-jobs.json"), "utf8"));
+  return JSON.parse(sched(["list"])).jobs ?? [];
+}
+function clearJobs(): void {
+  for (const job of readJobs()) sched(["remove", job.id]);
+}
+function writeJobs(jobs: { id: string; cron: string; command: string; enabled?: boolean }[]) {
+  clearJobs();
+  for (const job of jobs) {
+    sched(["add", job.id, job.cron, job.command]);
+    if (job.enabled === false) sched(["disable", job.id]);
+  }
 }
 
 beforeEach(() => {
@@ -52,6 +73,8 @@ beforeEach(() => {
   delete process.env.GARRISON_GATEWAY_URL;
   delete process.env.GARRISON_GATEWAY_PORT;
   delete process.env.GARRISON_KANBAN_DIR;
+  // A fresh home no longer empties the registry: the state service outlives it.
+  clearJobs();
 });
 afterEach(() => {
   for (const k of ["GARRISON_HOME", "GARRISON_GATEWAY_URL", "GARRISON_GATEWAY_PORT", "GARRISON_KANBAN_DIR"]) {

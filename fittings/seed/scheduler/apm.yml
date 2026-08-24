@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - all
-  summary: Platform-agnostic always-on job scheduler. A plain Node daemon (no Claude Code dependency, no single OS) that ticks cron jobs and supervises listeners independent of the operative — it fires whether or not the operative is up. Reads a machine-global jobs file (~/.garrison/scheduler-jobs.json), persists last_run, exposes a /health endpoint, and is SIGTERM-safe. CLI exposes add/register/enable/disable/remove/list/run-now plus tick (one-shot) and daemon (long-running, --health-port). Fitting setup hooks register jobs via `register` (idempotent; preserves the user's enable/disable choice); any supervisor (systemd / Docker / PM2 / launchd — see launchers/) keeps the daemon alive.
+  summary: Platform-agnostic always-on job scheduler. A plain Node daemon (no Claude Code dependency, no single OS) that ticks cron jobs and supervises listeners independent of the operative — it fires whether or not the operative is up. On an enrolled mesh node, reads its jobs from the Garrison state service (structured specs, per-node targets, lease-guarded exactly-once for shared jobs) and records an occurrence ledger; an unenrolled box falls back to the machine-global jobs file (~/.garrison/scheduler-jobs.json) with last_run persistence, exposes a /health endpoint, and is SIGTERM-safe. CLI exposes add/register/enable/disable/remove/list/run-now plus tick (one-shot) and daemon (long-running, --health-port). Fitting setup hooks register jobs via `register` (idempotent; preserves the user's enable/disable choice); any supervisor (systemd / Docker / PM2 / launchd — see launchers/) keeps the daemon alive.
   config_schema:
     - key: jobs_file
       type: path

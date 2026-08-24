@@ -40,6 +40,14 @@ beforeEach(async () => {
     MARKER_PATH: path.join(tmpRoot, "marker.txt"),
     LISTENER_LOG: path.join(tmpRoot, "listener.log")
   };
+  // This suite pins the LEGACY FILE store, so the daemon must not discover a
+  // mesh. The env is spread wholesale above; an ambient enrolment (a shell that
+  // sourced the launcher env) would otherwise point these fixtures at the real
+  // state service. GARRISON_HOME is already pinned at an empty dir by
+  // tests/setup.ts, so state.json cannot resolve either.
+  delete env.GARRISON_STATE_URL;
+  delete env.GARRISON_STATE_TOKEN;
+  delete env.GARRISON_NODE_NAME;
 });
 
 afterEach(async () => {

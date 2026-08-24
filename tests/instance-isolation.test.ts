@@ -337,10 +337,11 @@ describe("Codex secondary-instance isolation", () => {
     }
   });
 
-  // Only prod is published to the tailnet. Without this the serve-port formula
-  // (8400 + port%1000) aliases prod's 80xx onto dev's 70xx and whichever
-  // instance ran the script last owns the always-on address.
-  it("refuses to publish a non-prod instance to the tailnet", () => {
+  // Only the node profile (legacy alias: prod) is published to the tailnet.
+  // Without this the serve-port formula (8400 + port%1000) aliases node's 80xx
+  // onto dev's 70xx and whichever instance ran the script last owns the
+  // always-on address.
+  it("refuses to publish a non-node instance to the tailnet", () => {
     const script = path.join(ROOT, "scripts", "tailnet-serve-views.mjs");
     let failed = false;
     try {
@@ -352,7 +353,7 @@ describe("Codex secondary-instance isolation", () => {
       });
     } catch (error: any) {
       failed = true;
-      expect(String(error.stderr)).toContain("only prod is served");
+      expect(String(error.stderr)).toContain("only the node profile is served");
     }
     expect(failed, "publishing a dev instance to the tailnet must fail").toBe(true);
   });
