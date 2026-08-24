@@ -103,6 +103,16 @@ EOF
 # ── 4. install + branding ───────────────────────────────────────────────────
 say "npm install (this takes a while on first run)"
 npm install --no-audit --no-fund >/dev/null 2>&1 || npm install --no-audit --no-fund
+# Fitting-local deps too: the Next build type-checks fitting ui/ sources, so a
+# fitting package.json without its node_modules fails the BUILD (drill's
+# @medv/finder taught us on the first Mac). Same rule the retired remote-Mac
+# workflow followed: root + every fitting lockfile.
+for fp in fittings/seed/*/package.json; do
+  fd="$(dirname "$fp")"
+  [ -d "$fd/node_modules" ] && continue
+  say "fitting deps: $fd"
+  (cd "$fd" && npm install --no-audit --no-fund >/dev/null 2>&1) || say "fitting deps FAILED (non-fatal at install; build may fail): $fd"
+done
 node scripts/node-branding.mjs || say "branding skipped (non-fatal): $?"
 
 # ── 5. Quarters adoption via the EXISTING install gate ──────────────────────
