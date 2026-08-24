@@ -1,0 +1,10 @@
+# One-shot: hourly WAL-safe snapshot (VACUUM INTO). Paired with
+# garrison-state-backup.timer. The daily variant ships off-box.
+
+[Unit]
+Description=Garrison state DB snapshot
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/.garrison-state/current
+ExecStart=/usr/bin/env node scripts/backup.mjs

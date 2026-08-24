@@ -38,23 +38,30 @@ export function getMasterKey() {
       { encoding: "utf8" }
     ).trim();
     if (out) {
-      const buf = Buffer.from(out, "base64");
-      if (buf.length === 32) {
-        cachedKey = buf;
-        return cachedKey;
-      }
+      cachedKey = normalizeKey(out);
+      return cachedKey;
     }
   } catch {
     // No libsecret backend — fall through to the keyfile.
   }
   const keyfile = path.join(os.homedir(), ".garrison", "vault-master.key");
-  const raw = readFileSync(keyfile, "utf8").trim();
-  const buf = Buffer.from(raw, "base64");
-  if (buf.length !== 32) {
-    throw new Error(`vault master keyfile at ${keyfile} did not decode to 32 bytes`);
-  }
-  cachedKey = buf;
+  cachedKey = normalizeKey(readFileSync(keyfile, "utf8"));
   return cachedKey;
+}
+
+// Same acceptance as src/lib/keychain.ts normalizeKey: 64 hex chars, base64
+// decoding to 32 bytes, or any other string hashed to 32 bytes — so the
+// service reads exactly the key the vault wrote, whatever its era.
+function normalizeKey(s) {
+  const trimmed = String(s).trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) return Buffer.from(trimmed, "hex");
+  try {
+    const b = Buffer.from(trimmed, "base64");
+    if (b.length === 32) return b;
+  } catch {
+    // fall through to hash
+  }
+  return crypto.createHash("sha256").update(trimmed).digest();
 }
 
 function deriveRowKey(masterKey, salt) {
