@@ -25,7 +25,7 @@ import os from "node:os";
 
 import { createStateClient, StateApiError, StateUnavailableError } from "../lib/state-client.mjs";
 import { ulid } from "../lib/ulid.mjs";
-import { gitCommitAll, gitFetch, gitHead, gitPush, gitStatus, hasOrigin } from "./git.mjs";
+import { gitCommitAll, gitFetch, gitHead, gitPush, gitStatus, hasOrigin, runGit, runGitOrThrow } from "./git.mjs";
 import { readDevRoot, resolveProjectName } from "./sources.mjs";
 
 export { StateApiError, StateUnavailableError };
@@ -195,19 +195,33 @@ export async function pullFromOthers(project, { env = process.env, client, now =
 
   const fetched = await gitFetch(cwd);
 
+  const mergeResults = new Map();
+  for (const [name, reply] of replies) {
+    try {
+      mergeResults.set(name, await mergeOneReply({ cwd, project, self, state, reply }));
+    } catch (err) {
+      mergeResults.set(name, { node: name, merge: "error", detail: String(err?.message ?? err) });
+    }
+  }
+
   const nodes = peers.map((name) => {
     const reply = replies.get(name);
-    if (!reply) return { node: name, status: "no-reply", branch: null, sha: null };
+    if (!reply) return { node: name, status: "no-reply", branch: null, sha: null, merge: "not-attempted" };
+    const m = mergeResults.get(name) ?? {};
     return {
       node: name,
       status: "replied",
       result: reply.status ?? null,
       branch: reply.branch ?? null,
       sha: reply.sha ?? null,
-      detail: reply.detail ?? null
+      detail: reply.detail ?? null,
+      merge: m.merge ?? "not-attempted",
+      mergedSha: m.sha ?? null,
+      premergeTag: m.tag ?? null
     };
   });
 
+  const anyMerged = nodes.some((n) => n.merge === "merged");
   return {
     project,
     requestId,
@@ -217,10 +231,85 @@ export async function pullFromOthers(project, { env = process.env, client, now =
     peers,
     nodes,
     fetch: fetched,
-    // Said plainly so no caller has to infer it from an empty list.
-    merged: false,
-    note: "peers were asked to commit and push, and this node fetched. The merge itself is the merge duty's job."
+    merged: anyMerged,
+    note: anyMerged
+      ? "peers pushed, this node fetched AND merged (rails applied; conflicts card out)."
+      : "peers were asked to commit and push, and this node fetched; nothing new to merge."
   };
+}
+
+
+// ── the local merge (the half "report-only day one" deferred) ───────────────
+// After peers pushed and this node fetched, MERGE their branches into the
+// current branch, under the merge doctrine's rails:
+//   * a DIRTY local tree is never merged onto - skipped-dirty, honestly;
+//   * already-contained shas report up-to-date and touch nothing;
+//   * a real merge takes the premerge TAG first (revert = one command), then
+//     `git merge --no-ff`; a conflict aborts CLEANLY and files a decision
+//     card - never -X ours/theirs, never a half-merged tree;
+//   * every non-trivial merge files its decision card; ff-shaped ones stay
+//     silent so the rail keeps being read.
+function premergeTagName(project, self, at = new Date()) {
+  const stamp = at.toISOString().replace(/[-:]/g, "").replace(/\..*/, "Z");
+  return `garrison/premerge/${project}/${self}/${stamp}`;
+}
+
+async function mergeOneReply({ cwd, project, self, state, reply }) {
+  const sha = reply.sha;
+  if (!sha) return { node: reply.node, merge: "no-sha" };
+  const contains = await runGit(cwd, ["merge-base", "--is-ancestor", sha, "HEAD"], { cap: 1024 });
+  if (contains.code === 0) return { node: reply.node, merge: "up-to-date" };
+
+  const dirty = (await runGit(cwd, ["status", "--porcelain"], { cap: 64 * 1024 })).stdout.trim();
+  if (dirty) return { node: reply.node, merge: "skipped-dirty" };
+
+  const ffShaped = (await runGit(cwd, ["merge-base", "--is-ancestor", "HEAD", sha], { cap: 1024 })).code === 0;
+  const tag = premergeTagName(project, self);
+  await runGitOrThrow(cwd, ["tag", tag, "HEAD"]);
+  const merged = await runGit(cwd, [
+    "merge", "--no-ff", "-m",
+    `mesh: merge ${reply.node}'s ${reply.branch ?? sha.slice(0, 8)} into ${self} (${tag})`,
+    sha
+  ], { timeoutMs: 60_000, cap: 256 * 1024 });
+
+  if (merged.code !== 0) {
+    await runGit(cwd, ["merge", "--abort"], { cap: 8192 });
+    try {
+      await state.createCard({
+        id: ulid(),
+        list: "needs-attention",
+        title: `merge conflict: ${project} from ${reply.node}`,
+        status: "idle",
+        routing: { duty: "merge", project },
+        description: [
+          `Merging \`${reply.node}\`'s ${sha.slice(0, 12)} into \`${self}\` hit a conflict and was aborted cleanly.`,
+          `Premerge tag: \`${tag}\` (revert = git reset --hard ${tag}).`,
+          "Resolve per the merge doctrine: file-by-file, both sides in full, result must parse;",
+          "lockfiles regenerate; never -X ours/theirs.",
+          "", "```", (merged.stderr || merged.stdout).slice(0, 1500), "```"
+        ].join("\n")
+      });
+    } catch { /* the conflict report must not die on a card hiccup */ }
+    return { node: reply.node, merge: "conflict", tag };
+  }
+
+  const mergedSha = (await runGit(cwd, ["rev-parse", "HEAD"], { cap: 1024 })).stdout.trim();
+  if (!ffShaped) {
+    try {
+      await state.createCard({
+        id: ulid(),
+        list: "done",
+        title: `merged ${project}: ${reply.node} -> ${self}`,
+        status: "done",
+        routing: { duty: "merge", project },
+        description: `Non-trivial merge of \`${reply.node}\`'s ${sha.slice(0, 12)} into \`${self}\` at ${mergedSha.slice(0, 12)}. Premerge tag \`${tag}\`; revert = git reset --hard ${tag}.`
+      });
+    } catch { /* decision record is best-effort; the merge itself already stands */ }
+  } else {
+    // ff-shaped: the tag was cheap insurance nobody needs to read about.
+    await runGit(cwd, ["tag", "-d", tag], { cap: 4096 });
+  }
+  return { node: reply.node, merge: "merged", sha: mergedSha, tag: ffShaped ? null : tag };
 }
 
 /** The instruction body a merge card carries day one. */

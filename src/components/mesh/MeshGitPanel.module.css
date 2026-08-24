@@ -1,0 +1,82 @@
+.panel {
+  margin-top: 2rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.head h2 {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.head p {
+  margin: 0 0 0.9rem;
+  color: var(--mute);
+  font-size: 0.9rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.controls select,
+.controls button {
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 7px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface-raised, var(--surface));
+  color: inherit;
+  cursor: pointer;
+}
+
+.controls button {
+  border-color: var(--node-accent, var(--brass));
+}
+
+.controls button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.note {
+  margin: 0.8rem 0 0;
+  color: var(--mute);
+  font-size: 0.85rem;
+}
+
+.result {
+  margin-top: 1rem;
+  font-size: 0.88rem;
+}
+
+.summary {
+  margin: 0 0 0.5rem;
+}
+
+.error {
+  margin: 0 0 0.5rem;
+  color: var(--danger, #a7626b);
+}
+
+.result ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.result li {
+  margin: 0.2rem 0;
+}
+
+.nodeName {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.8rem;
+}
