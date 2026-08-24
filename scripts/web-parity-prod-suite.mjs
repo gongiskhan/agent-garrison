@@ -16,18 +16,37 @@
 //   7  phone viewport       - the whole flow at 390x844 with the notice up
 //
 // Usage: node scripts/web-parity-prod-suite.mjs
-//   WEB_ORIGIN  (default https://dev-madrid.tail31efa.ts.net:8483)
-//   APP_ORIGIN  (default https://dev-madrid.tail31efa.ts.net)
+//   WEB_ORIGIN  (default: this node's tailnet host, :8483)
+//   APP_ORIGIN  (default: this node's tailnet host)
 //   LOCAL_WEB   (default http://127.0.0.1:8083)  - control-plane calls only
 
-import fs from "node:fs";
+import fs, { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(REPO, "evidence", "web-parity-prod-suite");
-const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "https://dev-madrid.tail31efa.ts.net:8483";
-const APP_ORIGIN = process.env.APP_ORIGIN ?? "https://dev-madrid.tail31efa.ts.net";
+
+// This node's tailnet host — node.json first, then tailscale itself. The old
+// hardcoded dev-madrid literal is exactly the main-instance assumption the
+// mesh removes: parity runs against THIS node unless told otherwise.
+function nodeTailnetHost() {
+  try {
+    const id = JSON.parse(readFileSync(path.join(os.homedir(), ".garrison", "node.json"), "utf8"));
+    if (id?.tailnetHost) return id.tailnetHost;
+  } catch {}
+  try {
+    const st = JSON.parse(execFileSync("tailscale", ["status", "--json"], { encoding: "utf8" }));
+    return st?.Self?.DNSName?.replace(/\.$/, "") ?? "127.0.0.1";
+  } catch {
+    return "127.0.0.1";
+  }
+}
+
+const WEB_ORIGIN = process.env.WEB_ORIGIN ?? `https://${nodeTailnetHost()}:8483`;
+const APP_ORIGIN = process.env.APP_ORIGIN ?? `https://${nodeTailnetHost()}`;
 const LOCAL_WEB = process.env.LOCAL_WEB ?? "http://127.0.0.1:8083";
 const LOCAL_APP = process.env.LOCAL_APP ?? "http://127.0.0.1:8777";
 const PIN = { target: "fable", duty: "discuss", level: 1 };

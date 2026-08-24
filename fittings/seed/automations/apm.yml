@@ -9,7 +9,7 @@ x-garrison:
   category: Operations
   cardinality_hint: single
   own_port: true
-  default_port: 7090
+  default_port: 8090
   component_shape: plugin
   platforms:
     - all

@@ -19,7 +19,7 @@ import { BASE_APP_PORT, profilePort } from "../../src/lib/instance-profile";
 // Read secrets through the RUNNING server, which already holds the unlocked vault;
 // a fresh process importing src/lib/vault would have to unlock it again.
 async function revealVaultSecret(key: string): Promise<string | null> {
-  const res = await fetch(`http://127.0.0.1:${profilePort(BASE_APP_PORT, "prod")}/api/vault/secrets/reveal`, {
+  const res = await fetch(`http://127.0.0.1:${profilePort(BASE_APP_PORT, "node")}/api/vault/secrets/reveal`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ key })
@@ -33,7 +33,7 @@ async function revealVaultSecret(key: string): Promise<string | null> {
 const REPO = process.cwd();
 const FITTING_ID = "omi-channel";
 const ENV_PREFIX = `GARRISON_${FITTING_ID.replace(/[^a-z0-9]/gi, "").toUpperCase()}_`;
-const PROFILE = "prod" as const;
+const PROFILE = "node" as const;
 const GARRISON_HOME = path.join(process.env.HOME ?? "/home/ggomes", ".garrison");
 
 type Cfg = Record<string, unknown>;

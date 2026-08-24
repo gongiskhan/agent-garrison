@@ -14,7 +14,7 @@
 // Usage:  node scripts/tailnet-serve-views.mjs [--dry-run]
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -123,11 +123,15 @@ function ownPortViews() {
     .sort((a, b) => a.port - b.port);
 }
 
-// Serve port = 8400 + (localPort mod 1000). Note this deliberately IGNORES the
-// profile offset, so prod's 8086 and dev's 7086 would both want 8486 — they
-// alias by construction. That is safe only because the tailnet fronts PROD
-// ALONE (see the guard in main()): the always-on address must never resolve to
-// a dev server, or an in-progress edit takes the tailnet down.
+// Serve port = 8400 + (localPort mod 1000). This deliberately IGNORES the
+// profile offset — on the mesh that is an INVARIANT, not a hazard: every node
+// runs the committed map at offset 0, so the same fitting gets the same serve
+// port on every machine, and a peer's view URL is computable as
+// https://<peer-host>:<8400 + port%1000> without asking the peer
+// (tests/mesh-serve-ports.test.ts pins this). The old aliasing hazard died
+// with the offsets; the guard in main() now protects the other half: only the
+// NODE profile (offset 0, this machine's real Garrison) may publish — a
+// dev/codex sandbox on shifted ports must never own the always-on address.
 function pickServePort(localPort, used) {
   let p = 8400 + (localPort % 1000);
   while (used.has(p) || p === 8443 || p === 8444 || p === 8445 || p === 443) p += 1;
@@ -135,15 +139,27 @@ function pickServePort(localPort, used) {
 }
 
 function main() {
-  // HARD RULE: only the prod instance is exposed on the tailnet. Running this
-  // from a dev/codex shell would map THAT instance's ports onto the always-on
-  // address and silently hand tailnet users a dev server.
+  // HARD RULE: only the NODE profile is exposed on the tailnet. Running this
+  // from a dev/codex shell would map THAT sandbox's ports onto the always-on
+  // address and silently hand tailnet users a sandbox server. "prod" is the
+  // legacy alias for node.
   const profile = (process.env.GARRISON_INSTANCE_ID || "").trim();
-  if (profile && profile !== "prod" && !process.argv.includes("--force")) {
+  if (profile && profile !== "node" && profile !== "prod" && !process.argv.includes("--force")) {
     console.error(
-      `Refusing to publish the '${profile}' instance to the tailnet — only prod is served.\n` +
-        `Run this from a prod shell:  bash scripts/garrison-instance.sh prod env\n` +
+      `Refusing to publish the '${profile}' instance to the tailnet — only the node profile is served.\n` +
+        `Run this from a node shell:  bash scripts/garrison-instance.sh node env\n` +
         `(override with --force only if you know why)`
+    );
+    process.exitCode = 2;
+    return;
+  }
+  // A machine that never ran the node installer has no mesh identity; publish
+  // is how its ports become the mesh's — identity first.
+  const nodeJsonPath = path.join(os.homedir(), ".garrison", "node.json");
+  if (!existsSync(nodeJsonPath) && !process.argv.includes("--force")) {
+    console.error(
+      `Refusing to publish: ${nodeJsonPath} does not exist — this machine has no node identity yet.\n` +
+        `Run scripts/install-node.sh first (or --force if you know why).`
     );
     process.exitCode = 2;
     return;

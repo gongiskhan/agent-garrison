@@ -66,22 +66,22 @@ x-garrison:
       orchestrator:
         - id: orchestrator
           config:
-            port: 7087
+            port: 8087
             bind_host: 127.0.0.1
       channels:
         - id: slack-channel
           config:
             slack_port: 9512
-            gateway_url: http://127.0.0.1:4777
+            gateway_url: http://127.0.0.1:5777
             chat_timeout_ms: 600000
         - id: web-channel-default
           config:
-            port: 7083
+            port: 8083
             bind_host: 127.0.0.1
             gateway_url: ''
         - id: omi-channel
           config:
-            port: 7094
+            port: 8094
             bind_host: 127.0.0.1
             public_base_url: https://dev-madrid.tail31efa.ts.net:8443
             enabled: true
@@ -97,7 +97,7 @@ x-garrison:
             wake_context_max_age_ms: 120000
         - id: capture-service
           config:
-            port: 7097
+            port: 8097
             bind_host: 127.0.0.1
             enabled: true
             transcribe_enabled: true
@@ -127,7 +127,7 @@ x-garrison:
       gateway:
         - id: http-gateway
           config:
-            port: 4777
+            port: 5777
             bind_host: 127.0.0.1
             compact_enabled: true
             compact_threshold_pct: 60
@@ -148,7 +148,7 @@ x-garrison:
           config: {}
         - id: remote-shell-runtime
           config:
-            port: 7098
+            port: 8098
             transports: '{"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","label":"CSG work","routingTarget":"csg-work"}}'
         - id: agent-sdk-runtime
           config:
@@ -176,17 +176,17 @@ x-garrison:
       observability:
         - id: monitor-default
           config:
-            port: 7077
+            port: 8077
             bind_host: 127.0.0.1
             poll_interval_ms: 1000
             log_retention_hours: 24
         - id: automations
           config:
-            port: 7090
+            port: 8090
             bind_host: 127.0.0.1
         - id: improver
           config:
-            port: 7093
+            port: 8093
             bind_host: 127.0.0.1
             cron: 30 3 * * *
             vault_dir: ~/ObsidianVault
@@ -197,10 +197,10 @@ x-garrison:
           config:
             jobs_file: ~/.garrison/scheduler-jobs.json
             log_file: ~/.garrison/scheduler.log
-            health_port: 7099
+            health_port: 8099
         - id: kanban-loop
           config:
-            port: 7089
+            port: 8089
             bind_host: 127.0.0.1
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
@@ -208,23 +208,23 @@ x-garrison:
             tick_cron: '*/2 * * * *'
             review_cron: 0 8 * * 1
             review_stall_hours: 2
-            outpost_host_url: http://127.0.0.1:3702
+            outpost_host_url: http://127.0.0.1:4702
         - id: loop-heartbeat
           config:
             cadence_minutes: 40
-            gateway_url: http://127.0.0.1:4777/jobs
+            gateway_url: http://127.0.0.1:5777/jobs
       sessions:
         - id: garrison-assistant
           config:
-            port: 7095
+            port: 8095
             bind_host: 127.0.0.1
         - id: dev-env
           config:
-            port: 7086
+            port: 8086
             bind_host: 127.0.0.1
         - id: file-browser
           config:
-            port: 7091
+            port: 8091
             bind_host: 127.0.0.1
             root: ~/.garrison/files
         - id: vault-git-sync
@@ -244,11 +244,11 @@ x-garrison:
       surfaces:
         - id: screen-share-default
           config:
-            port: 7079
+            port: 8079
             bind_host: 127.0.0.1
         - id: browser-default
           config:
-            port: 7084
+            port: 8084
             bind_host: 127.0.0.1
             viewport_width: 1600
             viewport_height: 1200
@@ -256,27 +256,27 @@ x-garrison:
             every_nth_frame: 1
         - id: ports-default
           config:
-            port: 7088
+            port: 8088
             bind_host: 127.0.0.1
             scan_interval_ms: 5000
         - id: power-default
           config:
-            port: 7092
+            port: 8092
             bind_host: 127.0.0.1
             idle_minutes: 30
             load_threshold: 1
         - id: outpost-tailscale-host
           config:
-            port: 7082
+            port: 8082
             bind_host: 127.0.0.1
-            outpost_host_url: http://127.0.0.1:3702
+            outpost_host_url: http://127.0.0.1:4702
       knowledge:
         - id: roadmaps
           config: {}
       building:
         - id: drill
           config:
-            port: 7096
+            port: 8096
             bind_host: 127.0.0.1
       design:
         - id: taste
@@ -286,7 +286,7 @@ x-garrison:
       connectors:
         - id: deepgram-voice
           config:
-            port: 7085
+            port: 8085
             bind_host: 127.0.0.1
             stt_model: nova-2
             tts_model: aura-asteria-en

@@ -10,7 +10,7 @@ x-garrison:
   cardinality_hint: multi
   component_shape: script
   own_port: true
-  default_port: 7097
+  default_port: 8097
   platforms:
     - claude-code
   summary: Makes the Garrison iOS companion app (deliberate, session-based capture — meetings, dictation, car sessions) one of Garrison's ears and its primary mouth, while Garrison remains the only brain. Every pipe behind its own default-off flag.
@@ -26,7 +26,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7097
+      default: 8097
       description: Local port the capture service binds to (base family; per-instance offset applied by the runner).
     - key: bind_host
       type: string

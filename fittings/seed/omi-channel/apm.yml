@@ -10,7 +10,7 @@ x-garrison:
   cardinality_hint: multi
   component_shape: script
   own_port: true
-  default_port: 7094
+  default_port: 8094
   platforms:
     - claude-code
   summary: Makes Omi (always-on wearable capture) Garrison's ears and one of its mouths while Garrison remains the only brain. Four pipes plus a backfeed, each behind its own default-off flag.
@@ -27,7 +27,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7094
+      default: 8094
       description: Local port the Omi channel server binds to (base family; per-instance offset applied by the runner).
     - key: bind_host
       type: string

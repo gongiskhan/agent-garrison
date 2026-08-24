@@ -14,7 +14,7 @@ x-garrison:
   # ~/.garrison/ui-fittings/kanban-loop.json. operative-bound = the runner starts
   # it during `up` and stops it during `down`.
   own_port: true
-  default_port: 7089
+  default_port: 8089
   platforms:
     - claude-code
   summary: >-
@@ -69,7 +69,7 @@ x-garrison:
       description: Hours before a running or waiting card counts as stalled in the weekly review (override via KANBAN_REVIEW_STALL_HOURS).
     - key: outpost_host_url
       type: string
-      default: http://127.0.0.1:3702
+      default: http://127.0.0.1:4702
       description: Outpost host daemon this instance probes for a card's `outpost` affinity. Base-family value; the loopback port is shifted per profile (dev 3702 / prod 4702). Override via GARRISON_OUTPOST_URL.
   provides:
     - kind: automation-runner

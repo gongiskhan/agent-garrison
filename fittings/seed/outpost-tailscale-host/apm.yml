@@ -9,7 +9,7 @@ x-garrison:
   category: Interfaces
   cardinality_hint: multi
   own_port: true
-  default_port: 7082
+  default_port: 8082
   component_shape: plugin
   platforms:
     - claude-code
@@ -17,7 +17,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7082
+      default: 8082
       description: HTTP port the outpost UI server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
@@ -25,7 +25,7 @@ x-garrison:
       description: Bind address; 0.0.0.0 to expose over Tailscale.
     - key: outpost_host_url
       type: string
-      default: http://127.0.0.1:3702
+      default: http://127.0.0.1:4702
       description: URL of the outpost-host daemon to proxy registry calls to.
     - key: dispatch_public_url
       type: string

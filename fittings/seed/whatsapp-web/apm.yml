@@ -8,7 +8,7 @@ x-garrison:
   faculty: channels
   cardinality_hint: multi
   own_port: true
-  default_port: 7080
+  default_port: 8080
   component_shape: script
   platforms:
     - claude-code
@@ -25,7 +25,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7080
+      default: 8080
       description: HTTP port the Node own-port daemon binds to (internal API; loopback only). Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

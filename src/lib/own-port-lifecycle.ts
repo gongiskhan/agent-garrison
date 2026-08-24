@@ -393,7 +393,7 @@ export interface StartOptions {
 // on every start heals a fitting that came up after the last redeploy without
 // waiting for scripts/tailnet-serve-views.mjs to re-run.
 function publishToTailnetAfterStart(fittingId: string): void {
-  if (currentProfile() !== "prod") return;
+  if (currentProfile() !== "node") return;
   void (async () => {
     for (let i = 0; i < 20; i++) {
       let port: number | null = null;

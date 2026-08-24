@@ -28,9 +28,13 @@
     "kanban:v1d:walkthrough": "node scripts/kanban-v1d-walkthrough.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.mjs",
     "prod:build": "bash scripts/garrison-instance.sh prod build",
+    "node:build": "bash scripts/garrison-instance.sh prod build",
     "prod:start": "bash scripts/garrison-instance.sh prod start",
+    "node:start": "bash scripts/garrison-instance.sh prod start",
     "prod:redeploy": "bash scripts/garrison-redeploy.sh",
+    "node:redeploy": "bash scripts/garrison-redeploy.sh",
     "prod:reload": "bash scripts/garrison-reload.sh",
+    "node:reload": "bash scripts/garrison-reload.sh",
     "codex:start": "bash scripts/garrison-instance.sh codex start"
   },
   "dependencies": {

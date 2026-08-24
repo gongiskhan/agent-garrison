@@ -13,8 +13,21 @@ import {
 import os from "node:os";
 import path from "node:path";
 import yaml from "js-yaml";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { shippedCompositionIds } from "./helpers/shipped-compositions";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const ROOT = process.cwd();
 // The profile-driven launcher. start-codex-instance.sh is now a thin shim onto
@@ -25,7 +38,7 @@ const START = path.join(ROOT, "scripts", "start-codex-instance.sh");
 // Must match PROFILE_PORT_OFFSET in src/lib/instance-profile.ts and the case
 // block in scripts/garrison-instance.sh. The three are pinned against each
 // other below so a change to one without the others fails here.
-const PROFILE_OFFSET: Record<string, number> = { dev: 0, prod: 1000, codex: 20000 };
+const PROFILE_OFFSET: Record<string, number> = { node: 0, dev: 10000, codex: 20000 };
 
 // Run the launcher's `env` mode for a profile under a throwaway HOME, with
 // every port/home override cleared so inherited shell env cannot leak in.
@@ -134,9 +147,9 @@ describe("Codex secondary-instance isolation", () => {
     expect(env.GARRISON_KEYCHAIN_SERVICE).toBe("agent-garrison-vault-codex");
     expect(env.GARRISON_KEYCHAIN_ACCOUNT).toBe("vault-master-key-codex");
     expect(env.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
-    expect(env.GARRISON_APP_PORT).toBe("27777");
-    expect(env.GARRISON_OUTPOST_PORT).toBe("23702");
-    expect(env.GARRISON_SCHEDULER_HEALTH_PORT).toBe("27099");
+    expect(env.GARRISON_APP_PORT).toBe("28777");
+    expect(env.GARRISON_OUTPOST_PORT).toBe("24702");
+    expect(env.GARRISON_SCHEDULER_HEALTH_PORT).toBe("28099");
     expect(env.GARRISON_SCHEDULER_SCRIPT).toBe(
       path.join(ROOT, "fittings", "seed", "scheduler", "scripts", "scheduler.mjs")
     );
@@ -159,7 +172,7 @@ describe("Codex secondary-instance isolation", () => {
   // They must never share a port, a Garrison home, or a Claude config dir —
   // the tailnet address is always-on prod, and a dev boot that lands on prod's
   // ports (or scribbles on the real ~/.claude) takes it down.
-  it("keeps prod, dev and codex on disjoint ports and disjoint state roots", () => {
+  it("keeps node, dev and codex on disjoint ports and disjoint state roots", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-profiles-"));
     sandboxes.push(fakeHome);
 
@@ -173,9 +186,9 @@ describe("Codex secondary-instance isolation", () => {
       const env = envs[profile];
       expect(env.GARRISON_INSTANCE_ID, `${profile} identity`).toBe(profile);
       expect(Number(env.GARRISON_PORT_OFFSET), `${profile} offset`).toBe(offset);
-      expect(Number(env.GARRISON_APP_PORT), `${profile} app port`).toBe(7777 + offset);
-      expect(Number(env.GARRISON_OUTPOST_PORT), `${profile} outpost port`).toBe(3702 + offset);
-      expect(Number(env.GARRISON_SCHEDULER_HEALTH_PORT), `${profile} scheduler port`).toBe(7099 + offset);
+      expect(Number(env.GARRISON_APP_PORT), `${profile} app port`).toBe(8777 + offset);
+      expect(Number(env.GARRISON_OUTPOST_PORT), `${profile} outpost port`).toBe(4702 + offset);
+      expect(Number(env.GARRISON_SCHEDULER_HEALTH_PORT), `${profile} scheduler port`).toBe(8099 + offset);
       // Next reads PORT; the runner's self-URL falls back to it. Drift between
       // the two sends every fitting's callback to the wrong instance.
       expect(env.PORT, `${profile} PORT tracks GARRISON_APP_PORT`).toBe(env.GARRISON_APP_PORT);
@@ -194,26 +207,26 @@ describe("Codex secondary-instance isolation", () => {
     // Disjoint state roots. Only prod owns the real ~/.garrison and ~/.claude —
     // that ownership IS Garrison's control plane, and a dev instance writing
     // there would edit the user's live Claude Code config.
-    expect(envs.prod.GARRISON_HOME).toBe(path.join(fakeHome, ".garrison"));
-    expect(envs.prod.GARRISON_CLAUDE_HOME).toBe(path.join(fakeHome, ".claude"));
-    const prodRoots = [envs.prod.GARRISON_HOME, envs.prod.GARRISON_CLAUDE_HOME];
+    expect(envs.node.GARRISON_HOME).toBe(path.join(fakeHome, ".garrison"));
+    expect(envs.node.GARRISON_CLAUDE_HOME).toBe(path.join(fakeHome, ".claude"));
+    const nodeRoots = [envs.node.GARRISON_HOME, envs.node.GARRISON_CLAUDE_HOME];
     for (const profile of ["dev", "codex"]) {
       for (const [key, value] of Object.entries(envs[profile])) {
         if (!value) continue;
         expect(
-          prodRoots.some((root) => value === root || value.startsWith(`${root}${path.sep}`)),
-          `${profile}.${key} (${value}) must stay out of prod's state roots`
+          nodeRoots.some((root) => value === root || value.startsWith(`${root}${path.sep}`)),
+          `${profile}.${key} (${value}) must stay out of the node profile's state roots`
         ).toBe(false);
       }
     }
 
     // Prod serves a BUILT artifact from its own dist dir, so `next build` can
     // never clobber a running dev server's .next (and vice versa).
-    expect(envs.prod.NEXT_DIST_DIR).toBe(".next-prod");
+    expect(envs.node.NEXT_DIST_DIR).toBe(".next-prod");
     expect(envs.dev.NEXT_DIST_DIR || "").toBe("");
 
     // The host-daemon sweep is single-owner: only prod reaps.
-    expect(envs.prod.GARRISON_DISABLE_HOST_DAEMONS || "").toBe("");
+    expect(envs.node.GARRISON_DISABLE_HOST_DAEMONS || "").toBe("");
     expect(envs.dev.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
     expect(envs.codex.GARRISON_DISABLE_HOST_DAEMONS).toBe("1");
   });
@@ -275,7 +288,7 @@ describe("Codex secondary-instance isolation", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-claudecfg-"));
     sandboxes.push(fakeHome);
 
-    const prod = launcherEnv("prod", fakeHome);
+    const prod = launcherEnv("node", fakeHome);
     expect(prod.GARRISON_CLAUDE_HOME).toBe(path.join(fakeHome, ".claude"));
     expect(prod.CLAUDE_CONFIG_DIR || "").toBe("");
     expect(prod.GARRISON_CLAUDE_JSON).toBe(path.join(fakeHome, ".claude.json"));
@@ -377,24 +390,24 @@ describe("Codex secondary-instance isolation", () => {
     ports.set(Number(gateway?.config?.port), "http-gateway");
     ports.set(Number(slack?.config?.slack_port), "slack-channel");
     ports.set(Number(scheduler?.config?.health_port), "scheduler");
-    ports.set(7777, "garrison-next");
-    ports.set(3702, "outpost-host");
+    ports.set(8777, "garrison-next");
+    ports.set(4702, "outpost-host");
 
     // The codex secondary's reserved family (its launcher env + its checkout's
     // composition config): the primary composition must never squat these, or
     // the two instances cannot run side by side.
     const codexPorts = new Set([
-      27777, 24777, 23702, 29512, 27999, 27077, 27079, 27082, 27083, 27084,
-      27085, 27086, 27087, 27088, 27089, 27090, 27091, 27092, 27093, 27095,
-      27096, 27098, 27099
+      28777, 25777, 24702, 29512, 28999, 28077, 28079, 28082, 28083, 28084,
+      28085, 28086, 28087, 28088, 28089, 28090, 28091, 28092, 28093, 28095,
+      28096, 28098, 28099
     ]);
     for (const [port, owner] of ports) {
       expect(codexPorts.has(port), `${owner} squats codex port ${port}`).toBe(false);
     }
-    expect(ports.get(7096)).toBe("drill");
-    expect(ports.get(7089)).toBe("kanban-loop");
-    expect(ports.get(4777)).toBe("http-gateway");
-    expect(ports.get(7099)).toBe("scheduler");
+    expect(ports.get(8096)).toBe("drill");
+    expect(ports.get(8089)).toBe("kanban-loop");
+    expect(ports.get(5777)).toBe("http-gateway");
+    expect(ports.get(8099)).toBe("scheduler");
   });
 
   // The assertion above resolves `selected.config?.port ?? metadata.default_port`
@@ -650,7 +663,7 @@ describe("Codex secondary-instance isolation", () => {
       expect(config("observability", "scheduler"), profile).toMatchObject({
         jobs_file: "~/.garrison/scheduler-jobs.json",
         log_file: "~/.garrison/scheduler.log",
-        health_port: 7099
+        health_port: 8099
       });
       expect(config("observability", "kanban-loop")?.board_dir, profile)
         .toBe("~/.garrison/kanban-loop");
@@ -659,7 +672,7 @@ describe("Codex secondary-instance isolation", () => {
       expect(config("sessions", "vault-git-sync")?.vault_dir, profile)
         .toBe("~/ObsidianVault");
       expect(config("surfaces", "outpost-tailscale-host")?.outpost_host_url, profile)
-        .toBe("http://127.0.0.1:3702");
+        .toBe("http://127.0.0.1:4702");
       const codexLeak = JSON.stringify(selections).includes(".garrison-codex");
       expect(codexLeak, `${profile} references the codex home`).toBe(false);
     }
@@ -919,7 +932,7 @@ describe("Codex secondary-instance isolation", () => {
           checked += 1;
           // Base-family value: shiftLoopbackUrl rewrites the loopback port per
           // profile, so the committed literal must be the 3702 base.
-          expect(entry.config?.outpost_host_url, `${id} kanban-loop`).toBe("http://127.0.0.1:3702");
+          expect(entry.config?.outpost_host_url, `${id} kanban-loop`).toBe("http://127.0.0.1:4702");
         }
       }
     }
