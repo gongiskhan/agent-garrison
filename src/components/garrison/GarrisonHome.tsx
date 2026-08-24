@@ -23,6 +23,8 @@ import {
 } from "@/lib/decision-feedback";
 import { RouterFeedbackCard } from "./RouterFeedbackCard";
 import { OutboxStrip } from "./OutboxStrip";
+import { Panel } from "./Panel";
+import { MeshPanel } from "@/components/mesh/MeshPanel";
 
 export function GarrisonHome() {
   const {
@@ -214,6 +216,7 @@ export function GarrisonHome() {
           </Panel>
 
           <BoardPanel />
+          <MeshPanel compact />
           <RouterPanel />
 
           {composition.derivedTasks ? (
@@ -557,33 +560,6 @@ function BoardPanel() {
         )}
       </div>
     </Panel>
-  );
-}
-
-function Panel({
-  title,
-  children,
-  tight,
-  feature
-}: {
-  title: string;
-  children: React.ReactNode;
-  tight?: boolean;
-  feature?: boolean;
-}) {
-  return (
-    <section
-      className={clsx(
-        styles.panel,
-        tight && styles.panelTight,
-        feature && styles.panelFeature
-      )}
-    >
-      <h4 className={styles.panelTitle}>
-        {title}
-      </h4>
-      {children}
-    </section>
   );
 }
 

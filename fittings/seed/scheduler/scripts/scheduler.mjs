@@ -19,6 +19,8 @@
 //   node scheduler.mjs daemon [--health-port <n>]    # always-on: tick + supervise
 //        # listeners until SIGTERM; serves /health. Platform-agnostic — any
 //        # supervisor (systemd/Docker/PM2/launchd, see launchers/) keeps it up.
+//        # Also pumps the mesh node heartbeat (lib/node-beat.mjs) unless
+//        # GARRISON_DISABLE_NODE_BEAT=1.
 //
 // Job execution: stdout/stderr appended to the log file with a header
 // line per run; non-zero exits are recorded but don't stop the loop.
@@ -304,6 +306,7 @@ async function daemon(opts = {}) {
   // server started listening, the default disposition would kill the process
   // mid-startup with a non-zero exit.
   let healthServer = null;
+  let nodeBeat = null;
 
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -312,6 +315,7 @@ async function daemon(opts = {}) {
     // Cancel any pending listener restart so we don't spawn during shutdown.
     for (const timer of listenerTimers.values()) clearTimeout(timer);
     listenerTimers.clear();
+    nodeBeat?.stop();
     healthServer?.close();
     // SIGTERM every listener, then WAIT for them to exit (bounded), so we never
     // orphan a child; SIGKILL any straggler past the grace window.
@@ -340,6 +344,22 @@ async function daemon(opts = {}) {
     listeners: [...listenerWorkers.keys()]
   }));
   await appendLog(`[${startedAt}] scheduler daemon start (interval ${TICK_INTERVAL_MS}ms, health :${healthPort})`);
+
+  // The mesh node heartbeat. The daemon owns this interval because the Next
+  // app cannot: its route modules are evicted and re-instantiated, so a
+  // module-level setInterval in a route file is not a daemon. Imported lazily
+  // and treated as fully optional - the scheduler must keep firing cron jobs on
+  // a node that is not enrolled in a mesh, or whose checkout predates one.
+  // Disable with GARRISON_DISABLE_NODE_BEAT=1.
+  try {
+    const { startNodeBeat, BEAT_INTERVAL_MS } = await import("./lib/node-beat.mjs");
+    nodeBeat = startNodeBeat();
+    if (nodeBeat) {
+      await appendLog(`[${new Date().toISOString()}] node beat start (every ${BEAT_INTERVAL_MS}ms)`);
+    }
+  } catch (err) {
+    await appendLog(`[${new Date().toISOString()}] node beat unavailable: ${err.message}`);
+  }
 
   await superviseListeners();
   while (!shuttingDown) {

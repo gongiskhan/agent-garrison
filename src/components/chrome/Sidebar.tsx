@@ -25,6 +25,7 @@ import {
   MessagesSquare,
   Archive,
   Radio,
+  Boxes,
   Brain,
   Cpu,
   Network,
@@ -35,6 +36,7 @@ import {
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { GarrisonMark } from "./GarrisonMark";
+import { NodeBadge, useNodeChrome } from "./NodeBadge";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
 import { fittingCategories, CATEGORY_BY_FACULTY } from "@/lib/types";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
@@ -72,6 +74,10 @@ export function Sidebar() {
     switchError
   } = useAppShell();
   const { entries: viewStatuses } = useFittingViewStatus();
+  // Which machine in the mesh this window is. Null until the mount effect has
+  // read <html data-node-*>, so the subtitle degrades to "v1" for one frame
+  // rather than flashing a wrong node name.
+  const node = useNodeChrome();
 
   const stationedCount = countStationed(composition);
   const totalFaculties = faculties.length;
@@ -181,7 +187,7 @@ export function Sidebar() {
           </span>
           <span className="brand-text">
             <span className="name">Agent Garrison</span>
-            <span className="sub">v1 · localhost</span>
+            <span className="sub">{node ? `v1 · ${node.name}` : "v1"}</span>
           </span>
         </Link>
         <button
@@ -194,6 +200,8 @@ export function Sidebar() {
           <ChevronLeft size={14} aria-hidden />
         </button>
       </div>
+
+      <NodeBadge />
 
       <nav className="tabs" aria-label="Garrison">
         <div className="nav-section-label">Command</div>
@@ -234,6 +242,13 @@ export function Sidebar() {
           icon={<Network aria-hidden />}
           label="Coordination"
           active={pathname === "/coordination" || pathname.startsWith("/coordination")}
+        />
+        <NavLink
+          href="/mesh"
+          pathname={pathname}
+          icon={<Boxes aria-hidden />}
+          label="Mesh"
+          active={pathname === "/mesh" || pathname.startsWith("/mesh/")}
         />
 
         <FittingViewsLinks

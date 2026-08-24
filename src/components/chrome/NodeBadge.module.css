@@ -1,0 +1,50 @@
+/* Sits under the sidebar brand, on the dark shell surface. Colours come from
+   the shell tokens in globals.css plus --node-accent, which layout.tsx sets on
+   <html> from this node's identity. */
+
+.badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px 10px;
+  padding: 6px 9px;
+  border: 1px solid var(--shell-rule);
+  border-left: 3px solid var(--node-accent, var(--brass-2));
+  border-radius: 6px;
+  background: var(--shell-2);
+  color: var(--shell-ink);
+  text-decoration: none;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.badge:hover {
+  background: var(--shell-3);
+}
+
+.dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--node-accent, var(--brass-2));
+}
+
+.name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.meta {
+  flex: 0 0 auto;
+  color: var(--shell-mute);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
