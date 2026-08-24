@@ -21,6 +21,31 @@ interface Degraded {
   detail: string;
 }
 
+// One registry session row, as `/api/mesh/nodes/<id>/sessions` returns it: the
+// state service's metadata plus the open link this app computed from the
+// serve-port invariant (the browser must never derive a peer address itself).
+export interface MeshSessionRow {
+  id: string;
+  homeNode: string;
+  threadId: string | null;
+  compositionId: string | null;
+  cardId: string | null;
+  runtime: string | null;
+  model: string | null;
+  cwd: string | null;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
+  openUrl: string | null;
+}
+
+// A session is listed while it has not ended. The registry keeps finished rows
+// (the convergence check reads them), but a roster that counts yesterday's runs
+// as live is the same lie the staleness pill exists to prevent.
+function isLive(session: MeshSessionRow): boolean {
+  return !session.endedAt;
+}
+
 const STATE_TONE: Record<NodeState, string> = {
   ready: styles.pillReady,
   busy: styles.pillBusy,
@@ -31,11 +56,36 @@ const STATE_TONE: Record<NodeState, string> = {
 export function MeshPanel({ compact }: { compact?: boolean } = {}) {
   const [nodes, setNodes] = useState<MeshNodeRow[] | null>(null);
   const [degraded, setDegraded] = useState<Degraded | null>(null);
+  // node id -> its live session rows. Read from the REGISTRY, not from the
+  // peer, so an offline node still shows what it was running when it went
+  // quiet - and the list renders at all when the peer is unreachable.
+  const [sessions, setSessions] = useState<Record<string, MeshSessionRow[]>>({});
   // Re-render on a timer even when the roster payload has not changed: a node
   // that stops beating goes stale by the CLOCK, not by a new response, and a
   // frozen "3s ago" next to a READY pill is the exact lie this page exists to
   // prevent.
   const [now, setNow] = useState(() => Date.now());
+
+  // Sessions ride the roster poll rather than a second timer, so a row's count
+  // and its state pill are always from the same instant. The compact variant
+  // skips this entirely - the dashboard card is a presence list, not a console.
+  const loadSessions = useCallback(async (ids: string[]) => {
+    const entries = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const res = await fetch(`/api/mesh/nodes/${encodeURIComponent(id)}/sessions`, { cache: "no-store" });
+          if (!res.ok) return [id, [] as MeshSessionRow[]] as const;
+          const body = await res.json();
+          const rows: MeshSessionRow[] = Array.isArray(body.sessions) ? body.sessions : [];
+          return [id, rows.filter(isLive)] as const;
+        } catch {
+          // One node's sessions failing must not blank the others'.
+          return [id, [] as MeshSessionRow[]] as const;
+        }
+      })
+    );
+    setSessions(Object.fromEntries(entries));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -43,13 +93,16 @@ export function MeshPanel({ compact }: { compact?: boolean } = {}) {
       const body = await res.json();
       setNow(Date.now());
       if (res.ok) {
-        setNodes(Array.isArray(body.nodes) ? body.nodes : []);
+        const rows: MeshNodeRow[] = Array.isArray(body.nodes) ? body.nodes : [];
+        setNodes(rows);
         setDegraded(null);
+        if (!compact) void loadSessions(rows.map((row) => row.id));
         return;
       }
       // The authority is unreachable. Drop the roster rather than keep showing
       // it: a stale roster invites acting on a node that left the mesh.
       setNodes(null);
+      setSessions({});
       setDegraded({
         since: typeof body?.since === "string" ? body.since : null,
         detail:
@@ -59,9 +112,10 @@ export function MeshPanel({ compact }: { compact?: boolean } = {}) {
       });
     } catch (err) {
       setNodes(null);
+      setSessions({});
       setDegraded({ since: null, detail: `The mesh roster could not be read: ${err instanceof Error ? err.message : String(err)}` });
     }
-  }, []);
+  }, [compact, loadSessions]);
 
   useEffect(() => {
     void load();
@@ -157,7 +211,7 @@ export function MeshPanel({ compact }: { compact?: boolean } = {}) {
         ) : (
           <ul className={styles.roster} data-testid="mesh-roster">
             {nodes.map((node) => (
-              <NodeCard key={node.id} node={node} now={now} />
+              <NodeCard key={node.id} node={node} now={now} sessions={sessions[node.id] ?? null} />
             ))}
           </ul>
         )}
@@ -166,7 +220,16 @@ export function MeshPanel({ compact }: { compact?: boolean } = {}) {
   );
 }
 
-function NodeCard({ node, now }: { node: MeshNodeRow; now: number }) {
+function NodeCard({
+  node,
+  now,
+  sessions
+}: {
+  node: MeshNodeRow;
+  now: number;
+  // null until the first sessions read for this node lands.
+  sessions: MeshSessionRow[] | null;
+}) {
   const health = nodeHealth(node);
   const git = health.git ?? null;
   const views = health.views ?? null;
@@ -245,6 +308,8 @@ function NodeCard({ node, now }: { node: MeshNodeRow; now: number }) {
         </Fact>
       </dl>
 
+      <NodeSessions node={node} sessions={sessions} />
+
       {node.tailnetHost ? (
         // A cross-origin NAVIGATION, not an embed: each node is its own HTTPS
         // origin on the tailnet, so opening it in a tab is the one thing that
@@ -258,6 +323,62 @@ function NodeCard({ node, now }: { node: MeshNodeRow; now: number }) {
       )}
     </li>
   );
+}
+
+// The sessions running on a node, and the way into controlling one from here.
+//
+// A peer's row links to /mesh/session/<node>/<id>, which drives that session
+// through the mesh proxy. This node's own sessions are listed for symmetry but
+// do NOT link there: proxying to yourself is refused (421), and the local
+// surfaces are already one click away on the dashboard.
+function NodeSessions({ node, sessions }: { node: MeshNodeRow; sessions: MeshSessionRow[] | null }) {
+  if (sessions === null) {
+    return (
+      <div className={styles.sessions}>
+        <span className={styles.sessionsHead}>Sessions</span>
+        <span className={styles.factNote}>reading…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.sessions} data-testid="mesh-node-sessions">
+      <span className={styles.sessionsHead}>
+        Sessions <span className="font-mono">{sessions.length}</span>
+      </span>
+      {sessions.length === 0 ? (
+        <span className={styles.factNote}>
+          {node.state === "offline" ? "None recorded before this node went quiet." : "Nothing running."}
+        </span>
+      ) : (
+        <ul className={styles.sessionList}>
+          {sessions.map((session) => (
+            <li key={session.id} className={styles.sessionRow}>
+              {node.isSelf ? (
+                <span className={styles.sessionName}>{sessionLabel(session)}</span>
+              ) : (
+                <Link
+                  className={styles.sessionLink}
+                  href={`/mesh/session/${encodeURIComponent(node.id)}/${encodeURIComponent(session.id)}`}
+                >
+                  {sessionLabel(session)}
+                </Link>
+              )}
+              <span className={styles.sessionMeta}>{session.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// The most identifying thing we have, in order: the card it is working, the
+// directory it is working in, then the run id.
+export function sessionLabel(session: MeshSessionRow): string {
+  if (session.cardId) return session.cardId;
+  if (session.cwd) return session.cwd.split("/").filter(Boolean).pop() ?? session.cwd;
+  return session.id;
 }
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
