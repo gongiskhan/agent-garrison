@@ -35,6 +35,24 @@ const TAILSCALE_CANDIDATES = [
 // "spawnSync /Applications/Tailscale.app/Contents/MacOS/Tailscale ENOENT" on a
 // Linux box that has a perfectly good /usr/bin/tailscale. The real error was a
 // 401 from the first candidate, discarded three iterations earlier.
+// tailscale >=1.98 requires root (or a sudo-capable operator) for EVERY serve
+// config write - the operator flag alone stopped being enough (this is what
+// silently broke publishes when the daemon upgraded). Serve WRITES try plain
+// first, then `sudo -n` (the sudoers NOPASSWD entry for /usr/bin/tailscale);
+// reads never elevate.
+function tailscaleServeWrite(args) {
+  try {
+    return tailscale(args);
+  } catch (err) {
+    if (!String(err?.message ?? err).includes("401")) throw err;
+    try {
+      return execFileSync("sudo", ["-n", "tailscale", ...args], { encoding: "utf8", timeout: 8000 });
+    } catch (sudoErr) {
+      throw enrich(err, "tailscale");
+    }
+  }
+}
+
 function tailscale(args) {
   for (const bin of TAILSCALE_CANDIDATES) {
     try {
@@ -190,7 +208,7 @@ function main() {
       continue;
     }
     try {
-      tailscale(args);
+      tailscaleServeWrite(args);
       result.push({ ...v, servePort, action: "added" });
     } catch (err) {
       // Row stays one word so the table survives; the reason is printed in full

@@ -15,15 +15,30 @@ AGENTMAIL_PORT="${GARRISON_AGENTMAIL_PORT:-28765}"
 SERVE_PORT=$((8400 + STATE_PORT % 1000))
 AGENTMAIL_SERVE_PORT=$((8400 + AGENTMAIL_PORT % 1000))
 
-tailscale serve --bg --https="$SERVE_PORT" "http://127.0.0.1:$STATE_PORT" >/dev/null
+# tailscale >=1.98 requires root (or a sudo-capable operator) for EVERY serve
+# config write - the operator flag alone stopped being enough. ts_serve tries
+# plain first (older daemons, macOS), then sudo -n (the committed sudoers
+# NOPASSWD entry for /usr/bin/tailscale), then says exactly what to fix.
+ts_serve() {
+  if tailscale serve "$@" >/dev/null 2>&1; then return 0; fi
+  if sudo -n tailscale serve "$@" >/dev/null 2>&1; then return 0; fi
+  echo "tailscale serve $* refused - need root or the sudoers entry:" >&2
+  echo "  echo 'ggomes ALL=(root) NOPASSWD: /usr/bin/tailscale' | sudo tee /etc/sudoers.d/tailscale-operator" >&2
+  return 1
+}
+ts_serve --bg --https="$SERVE_PORT" "http://127.0.0.1:$STATE_PORT"
 if [ "${GARRISON_PUBLISH_AGENTMAIL:-0}" = "1" ]; then
-  tailscale serve --bg --https="$AGENTMAIL_SERVE_PORT" "http://127.0.0.1:$AGENTMAIL_PORT" >/dev/null
+  ts_serve --bg --https="$AGENTMAIL_SERVE_PORT" "http://127.0.0.1:$AGENTMAIL_PORT"
 fi
 
-if tailscale funnel status 2>/dev/null | grep -qE ":($SERVE_PORT|$AGENTMAIL_SERVE_PORT)\b"; then
-  echo "FATAL: a funnel names the state or agent-mail serve port — the state service must NEVER be public" >&2
-  exit 1
-fi
+# AllowFunnel is the truth; `funnel status` prints the whole serve table and
+# false-positives on tailnet-only rows.
+FUNNELED="$(tailscale serve status --json 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const f=JSON.parse(d).AllowFunnel||{};console.log(Object.keys(f).filter(k=>f[k]).join(" "))}catch{console.log("")}})')"
+for bad in "$SERVE_PORT" "$AGENTMAIL_SERVE_PORT"; do
+  case " $FUNNELED " in
+    *":$bad "*|*":$bad") echo "FATAL: port $bad is FUNNELED — the state service must NEVER be public" >&2; exit 1 ;;
+  esac
+done
 
 HOST="$(tailscale status --json 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).Self.DNSName.replace(/\.$/,""))}catch{console.log("")}})')"
 echo "state service published at https://${HOST}:${SERVE_PORT}"

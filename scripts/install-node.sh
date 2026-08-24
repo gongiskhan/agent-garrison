@@ -247,7 +247,8 @@ say "/api/mesh/self is healthy"
 
 # ── 10. tailnet publish ─────────────────────────────────────────────────────
 tailscale serve --bg --https=443 "http://127.0.0.1:$APP_PORT" >/dev/null 2>&1 \
-  || say "root serve mapping failed — run: sudo tailscale set --operator=\$USER, then re-run this step"
+  || sudo -n tailscale serve --bg --https=443 "http://127.0.0.1:$APP_PORT" >/dev/null 2>&1 \
+  || say "root serve mapping failed - tailscale >=1.98 needs root for serve writes; add the sudoers NOPASSWD entry for tailscale and re-run"
 node scripts/tailnet-serve-views.mjs || say "view publish incomplete (operator flag?) — re-run after fixing"
 
 # ── 11. exit criterion ──────────────────────────────────────────────────────
