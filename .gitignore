@@ -32,6 +32,7 @@ compositions/*/.garrison/ask-budget.json
 compositions/*/.garrison/routing.json
 compositions/*/.garrison/orchestrator-authored.json
 compositions/*/.garrison/owner.json
+compositions/*/.garrison/last-up.json
 compositions/*/.garrison/routing.json.*.bak
 compositions/*/.garrison/souls/
 # Retired identity source. No composition ships one any more, but a pre-upgrade
