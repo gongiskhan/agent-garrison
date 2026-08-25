@@ -127,10 +127,33 @@ export async function commitPushProject(project, { env = process.env, client, me
     committed = result.committed;
   }
 
-  const sha = await gitHead(cwd);
   if (!(await hasOrigin(cwd))) {
-    return { project, cwd, status: committed ? "committed-no-origin" : "no-origin", branch: status.branch, sha };
+    const sha0 = await gitHead(cwd);
+    return { project, cwd, status: committed ? "committed-no-origin" : "no-origin", branch: status.branch, sha: sha0 };
   }
+
+  // BEHIND-REMOTE HEAL. dev-madrid's converge (and the nightly card) may move
+  // origin/<branch> while this node sleeps; a push from a strictly-behind
+  // local is then rejected non-fast-forward — the first live cross-node pull
+  // surfaced exactly that as an "error" reply. When we made NO commit and the
+  // local is an ancestor of origin, fast-forwarding local IS the honest state;
+  // then the push is a clean no-op. A genuinely diverged branch reports
+  // "diverged" — a state the merge duty resolves, never a force-push.
+  if (!committed) {
+    await gitFetch(cwd);
+    const remoteRef = `origin/${status.branch}`;
+    const behind = await runGit(cwd, ["merge-base", "--is-ancestor", "HEAD", remoteRef], { cap: 1024 });
+    const ahead = await runGit(cwd, ["merge-base", "--is-ancestor", remoteRef, "HEAD"], { cap: 1024 });
+    if (behind.code === 0 && ahead.code !== 0) {
+      await runGitOrThrow(cwd, ["merge", "--ff-only", remoteRef]);
+    } else if (behind.code !== 0 && ahead.code !== 0) {
+      const sha0 = await gitHead(cwd);
+      return { project, cwd, status: "diverged", branch: status.branch, sha: sha0,
+        detail: `local and ${remoteRef} have diverged - the merge duty resolves this, never a force-push` };
+    }
+  }
+
+  const sha = await gitHead(cwd);
   const push = await gitPush(cwd, status.branch);
   if (!push.ok) {
     return { project, cwd, status: "failed", branch: status.branch, sha, detail: push.output.slice(0, 500) };

@@ -29,14 +29,27 @@ const GIT_ENV = {
   GIT_OPTIONAL_LOCKS: "0"
 };
 
-async function git(cwd: string, args: string[]): Promise<string> {
+async function git(cwd: string, args: string[], timeout = 60_000): Promise<string> {
   const { stdout } = await execFileAsync("git", [...GIT_BASE, ...args], {
     cwd,
     env: GIT_ENV,
-    timeout: 60_000,
+    timeout,
     maxBuffer: 1024 * 1024
   });
   return stdout;
+}
+
+// Exit-code probe: merge-base --is-ancestor answers with its code, and git()
+// throws on non-zero — this wrapper turns the answer back into a number.
+async function gitCode(cwd: string, args: string[]): Promise<number> {
+  try {
+    await execFileAsync("git", [...GIT_BASE, ...args], {
+      cwd, env: GIT_ENV, timeout: 30_000, maxBuffer: 1024 * 1024
+    });
+    return 0;
+  } catch {
+    return 1;
+  }
 }
 
 // The dev-root name discipline (project-source.mjs's rules): plain child name,
@@ -62,7 +75,7 @@ export function resolveProjectDir(project: string): string {
 
 export interface CommitPushResult {
   project: string;
-  result: "pushed" | "nothing-to-push" | "skipped-session" | "skipped-unknown-sessions";
+  result: "pushed" | "nothing-to-push" | "skipped-session" | "skipped-unknown-sessions" | "diverged";
   branch?: string;
   sha?: string;
   detail?: string;
@@ -90,10 +103,28 @@ export async function commitPushProject(project: string): Promise<CommitPushResu
 
   const branch = (await git(dir, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
   const status = await git(dir, ["status", "--porcelain"]);
-  if (status.trim()) {
+  const madeCommit = Boolean(status.trim());
+  if (madeCommit) {
     await git(dir, ["add", "-A", "--"]);
     const node = readNodeIdentity().name;
     await git(dir, ["commit", "-q", "-m", `mesh: ${node} commit-push snapshot`]);
+  }
+
+  // Behind-remote heal (same rule as the fitting executor): a node whose
+  // branch fell behind origin while it slept fast-forwards before pushing;
+  // a genuinely diverged branch reports so honestly — never a force-push.
+  if (!madeCommit) {
+    await git(dir, ["fetch", "origin", branch], 120_000).catch(() => {});
+    const remoteRef = `origin/${branch}`;
+    const behind = await gitCode(dir, ["merge-base", "--is-ancestor", "HEAD", remoteRef]);
+    const ahead = await gitCode(dir, ["merge-base", "--is-ancestor", remoteRef, "HEAD"]);
+    if (behind === 0 && ahead !== 0) {
+      await git(dir, ["merge", "--ff-only", remoteRef]);
+    } else if (behind !== 0 && ahead !== 0) {
+      const divergedSha = (await git(dir, ["rev-parse", "HEAD"])).trim();
+      return { project, result: "diverged" as CommitPushResult["result"], branch, sha: divergedSha,
+        detail: `local and ${remoteRef} have diverged - the merge duty resolves this` };
+    }
   }
   // Push only when ahead (or with new commit). A push of nothing is a no-op
   // but the rev-list read makes the outcome honest.
