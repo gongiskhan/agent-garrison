@@ -45,8 +45,10 @@ else
   NODE_HASH6=$(printf %s "${GARRISON_NODE_NAME:-$(hostname -s)}" | shasum | cut -c1-6)
 fi
 if [ -z "$CRON" ]; then
+  # Four explicit minutes: the scheduler cron parser takes lists, not
+  # range-with-step (its "invalid range" refusal cost one Mac up()).
   OFF=$(( 0x$NODE_HASH6 % 15 ))
-  CRON="$OFF-59/15 * * * *"
+  CRON="$OFF,$((OFF+15)),$((OFF+30)),$((OFF+45)) * * * *"
 fi
 
 # register, not add: PRESERVES the user's enable/disable choice on re-register.
