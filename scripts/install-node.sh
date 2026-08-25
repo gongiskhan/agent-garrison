@@ -208,7 +208,7 @@ if [ "$(uname)" = "Darwin" ]; then
     <string>start</string>
   </array>
   <key>EnvironmentVariables</key><dict>
-    <key>PATH</key><string>$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin</string>
+    <key>PATH</key><string>$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -238,7 +238,7 @@ PL
   <key>ProgramArguments</key><array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>export PATH=$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin; export GARRISON_HOME=\$HOME/.garrison GARRISON_INSTANCE_ID=node GARRISON_APP_PORT=8777 GARRISON_SCHEDULER_JOBS=\$HOME/.garrison/scheduler-jobs.json GARRISON_SCHEDULER_LOG=\$HOME/.garrison/scheduler.log; cd $REPO_DIR; exec node fittings/seed/scheduler/scripts/scheduler.mjs daemon --health-port 8099 >> \$HOME/.garrison/scheduler-launchd.log 2>&1</string>
+    <string>export PATH=$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin; export GARRISON_HOME=\$HOME/.garrison GARRISON_INSTANCE_ID=node GARRISON_APP_PORT=8777 GARRISON_SCHEDULER_JOBS=\$HOME/.garrison/scheduler-jobs.json GARRISON_SCHEDULER_LOG=\$HOME/.garrison/scheduler.log; cd $REPO_DIR; exec node fittings/seed/scheduler/scripts/scheduler.mjs daemon --health-port 8099 >> \$HOME/.garrison/scheduler-launchd.log 2>&1</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
