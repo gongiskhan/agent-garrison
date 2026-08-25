@@ -227,7 +227,7 @@ x-garrison:
             root: ~/.garrison/files
         - id: vault-git-sync
           config:
-            cron: 0 4 * * *
+            cron: '*/15 * * * *'
             vault_dir: ~/ObsidianVault
         - id: snapshots-default
           config:

@@ -43,7 +43,14 @@ echo "vault-git-sync: registered @ '$CRON' (vault=$VAULT_DIR)"
 # Nightly backstop: a FULL sync that refuses to lie — exit 75 when the lock
 # was held and no sync happened. Minute staggered by node-name hash.
 NODE_NAME="${GARRISON_NODE_NAME:-$(hostname -s | tr '[:upper:]' '[:lower:]')}"
-STAGGER_MIN=$(( 0x$(printf %s "$NODE_NAME" | sha1sum | cut -c1-6) % 60 ))
+# shasum on macOS, sha1sum on Linux - the first mesh Mac up() died exit 127
+# on the missing binary.
+if command -v sha1sum >/dev/null 2>&1; then
+  NODE_HASH=$(printf %s "$NODE_NAME" | sha1sum | cut -c1-6)
+else
+  NODE_HASH=$(printf %s "$NODE_NAME" | shasum | cut -c1-6)
+fi
+STAGGER_MIN=$(( 0x$NODE_HASH % 60 ))
 BACKSTOP_CRON="$STAGGER_MIN 4 * * *"
 BACKSTOP_CMD="OBSIDIAN_VAULT='$VAULT_DIR' bash '$FITTING_DIR/scripts/sync.sh' --require-fresh"
 node "$SCHEDULER" register vault-git-sync-nightly "$BACKSTOP_CRON" -- "$BACKSTOP_CMD"
