@@ -115,7 +115,19 @@ export function RemoteShellWorkbench({
     return () => document.removeEventListener("keydown", onKey);
   }, [narrow, sheetOpen]);
 
-  const reattach = useCallback(() => setNonce((n) => n + 1), []);
+  // Reconnect recycles the fitting's ssh+tmux attach client too (recycle:
+  // true), not just this pane's WebSocket - it is the user's one-click way out
+  // of a wedged client state without touching tmux on the remote.
+  const reattach = useCallback(() => {
+    const t = transport?.name;
+    const bump = () => setNonce((n) => n + 1);
+    if (!t) return bump();
+    void fetch("/api/remote-shell/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ transport: t, recycle: true })
+    }).catch(() => { /* the WS reopen below still helps */ }).finally(bump);
+  }, [transport?.name]);
 
   // Seam drag: pointer-driven, clamped, persisted on release.
   const onSeamPointerDown = useCallback((e: React.PointerEvent) => {

@@ -96,7 +96,7 @@ export function sanitizeSidebar(raw) {
   const baselineAt = typeof src.baselineAt === "string" && !Number.isNaN(Date.parse(src.baselineAt))
     ? src.baselineAt
     : null;
-  return { groups, membership, order, read, archived, baselineAt };
+  return { groups, membership, order, read, archived, baselineAt, ungroupedCollapsed: Boolean(src.ungroupedCollapsed) };
 }
 
 export async function loadSidebar() {

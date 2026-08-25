@@ -60,6 +60,7 @@ interface SidebarState {
   archived: string[];
   /** The unread epoch - activity before this never reads as unread. */
   baselineAt: string | null;
+  ungroupedCollapsed: boolean;
 }
 
 interface Row {
@@ -77,7 +78,7 @@ interface Row {
   openUrl: string | null;
 }
 
-const EMPTY_SIDEBAR: SidebarState = { groups: [], membership: {}, order: {}, read: {}, archived: [], baselineAt: null };
+const EMPTY_SIDEBAR: SidebarState = { groups: [], membership: {}, order: {}, read: {}, archived: [], baselineAt: null, ungroupedCollapsed: false };
 const UNGROUPED = "_ungrouped";
 const ARCHIVED = "_archived";
 
@@ -720,7 +721,7 @@ export function SessionsRail(props: {
         {sidebar.groups.map((g) => {
           const members = sectionRows(g.id);
           return (
-            <div key={g.id} onDragOver={onSectionDragOver(g.id)} onDrop={onSectionDrop(g.id)}>
+            <div key={g.id} className="wc-group" onDragOver={onSectionDragOver(g.id)} onDrop={onSectionDrop(g.id)}>
               <button
                 type="button"
                 className={`wc-group-head${dropHint?.section === g.id && !dropHint.beforeKey ? " wc-group-head--drophint" : ""}`}
@@ -742,18 +743,26 @@ export function SessionsRail(props: {
           );
         })}
 
-        <div onDragOver={onSectionDragOver(UNGROUPED)} onDrop={onSectionDrop(UNGROUPED)}>
+        <div className="wc-group" onDragOver={onSectionDragOver(UNGROUPED)} onDrop={onSectionDrop(UNGROUPED)}>
           {hasGroups && (
-            <div className={`wc-group-head wc-group-head--static${dropHint?.section === UNGROUPED && !dropHint.beforeKey ? " wc-group-head--drophint" : ""}`}>
+            <button
+              type="button"
+              className={`wc-group-head${dropHint?.section === UNGROUPED && !dropHint.beforeKey ? " wc-group-head--drophint" : ""}`}
+              onClick={() => update((s) => ({ ...s, ungroupedCollapsed: !s.ungroupedCollapsed }))}
+              aria-expanded={!sidebar.ungroupedCollapsed}
+            >
+              <svg className={`wc-group-chev${sidebar.ungroupedCollapsed ? " wc-group-chev--closed" : ""}`} width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </svg>
               <span className="wc-group-name">Ungrouped</span>
               <span className="wc-group-count">{ungroupedRows.length}</span>
-            </div>
+            </button>
           )}
-          {ungroupedRows.map(renderRow)}
+          {(!hasGroups || !sidebar.ungroupedCollapsed) && ungroupedRows.map(renderRow)}
         </div>
 
         {archivedRows.length > 0 && (
-          <div onDragOver={onSectionDragOver(ARCHIVED)} onDrop={onSectionDrop(ARCHIVED)}>
+          <div className="wc-group" onDragOver={onSectionDragOver(ARCHIVED)} onDrop={onSectionDrop(ARCHIVED)}>
             <button
               type="button"
               className={`wc-group-head${dropHint?.section === ARCHIVED && !dropHint.beforeKey ? " wc-group-head--drophint" : ""}`}

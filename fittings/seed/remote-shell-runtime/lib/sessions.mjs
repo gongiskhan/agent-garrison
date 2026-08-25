@@ -180,7 +180,7 @@ export class SessionManager {
    * Start (or re-attach) the session for a transport. Idempotent per
    * (transport, tmuxSession): an existing record is revived in place.
    */
-  async start(transportName, { label } = {}) {
+  async start(transportName, { label, recycle = false } = {}) {
     const transport = this.transports.get(transportName);
     if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
 
@@ -192,9 +192,18 @@ export class SessionManager {
       transport,
       `tmux has-session -t ${shellQuote(transport.tmuxSession)} 2>/dev/null || ` +
         `tmux new-session -d -s ${shellQuote(transport.tmuxSession)} -c ${remotePath(transport.cwd)} -x 220 -y 50; ` +
-        // Shared-attach sizing: the most recently active client drives the
-        // window size, so a second smaller viewer doesn't shrink the first.
-        `tmux set-option -t ${shellQuote(transport.tmuxSession)} -g window-size latest 2>/dev/null; ` +
+        // Sizing is an explicit AUTHORITY, not an activity heuristic. With
+        // `latest`, two live clients at different sizes (the web pane plus a
+        // direct attach on the box) flip the window size on every answered
+        // terminal query - the inline agent TUI re-renders its transcript on
+        // each flip, which reads as the pane scrolling up and down forever.
+        // `manual` pins the size; resize() below is the one writer.
+        `tmux set-option -t ${shellQuote(transport.tmuxSession)} -g window-size manual 2>/dev/null; ` +
+        // Reap zombie viewers: a hard tunnel drop leaves the server-side sshd
+        // (and so its tmux client) alive at a stale size. Anything silent for
+        // an hour is not a viewer anymore.
+        `tmux list-clients -t ${shellQuote(transport.tmuxSession)} -F '#{client_tty} #{client_activity}' 2>/dev/null | ` +
+        `while read tty at; do [ $(( $(date +%s) - at )) -gt 3600 ] && tmux detach-client -t "$tty" 2>/dev/null; done; ` +
         // Scrolling. The attach client is ALWAYS in the alternate screen (tmux
         // owns it), so the browser terminal has no scrollback of its own to
         // move: xterm.js turns a wheel tick into a cursor-key sequence, which
@@ -236,6 +245,9 @@ export class SessionManager {
       );
     }
 
+    // An explicit reconnect recycles the attach client: whatever mode or
+    // half-dead state the old ssh/tmux client pair is in dies with it.
+    if (recycle) this.detach(session);
     this.ensureAttached(session);
     this.#ensureEventsWatcher(session);
     await this.persist();
@@ -290,6 +302,18 @@ export class SessionManager {
     if (session.pty) {
       try { session.pty.resize(session.cols, session.rows); } catch {}
     }
+    // window-size is manual (see start()), so the viewer's dimensions must be
+    // pushed to tmux explicitly - the pty resize alone no longer moves it.
+    // Debounced: a seam drag emits a burst, the tunnel round-trip is not free.
+    if (session.resizeTimer) clearTimeout(session.resizeTimer);
+    session.resizeTimer = setTimeout(() => {
+      session.resizeTimer = null;
+      sshExec(
+        session.transport,
+        `tmux resize-window -t ${shellQuote(session.tmuxSession)} -x ${session.cols} -y ${session.rows} 2>/dev/null`
+      ).catch(() => { /* next resize retries */ });
+    }, 300);
+    session.resizeTimer.unref?.();
   }
 
   /**
@@ -318,7 +342,24 @@ export class SessionManager {
       this.subscribers.set(session.id, set);
     }
     set.add(ws);
-    return () => set.delete(ws);
+    if (session.idleDetachTimer) {
+      clearTimeout(session.idleDetachTimer);
+      session.idleDetachTimer = null;
+    }
+    return () => {
+      set.delete(ws);
+      // Nobody watching: the attach client is just one more zombie-in-waiting
+      // holding a size vote and a tunnel slot. Drop it after a grace period;
+      // the buffer stays for replay and the next subscriber re-attaches.
+      if (set.size === 0) {
+        if (session.idleDetachTimer) clearTimeout(session.idleDetachTimer);
+        session.idleDetachTimer = setTimeout(() => {
+          session.idleDetachTimer = null;
+          if ((this.subscribers.get(session.id)?.size ?? 0) === 0) this.detach(session);
+        }, 60_000);
+        session.idleDetachTimer.unref?.();
+      }
+    };
   }
 
   // ── Input paths ──────────────────────────────────────────────────────────

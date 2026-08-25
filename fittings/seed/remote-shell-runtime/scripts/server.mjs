@@ -229,7 +229,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
       if (req.method === "POST" && pathname === "/sessions") {
         const body = await readJsonBody(req);
-        const session = await manager.start(String(body.transport || ""), { label: body.label });
+        const session = await manager.start(String(body.transport || ""), {
+          label: body.label,
+          recycle: body.recycle === true
+        });
         return jsonRes(res, 200, { session: manager.summary(session) });
       }
 

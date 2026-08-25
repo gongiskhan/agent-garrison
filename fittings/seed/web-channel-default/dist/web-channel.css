@@ -3666,6 +3666,12 @@ body {
 .wc-row-out { flex: none; color: #9fa69a; opacity: 0; transition: opacity 0.12s ease; }
 .wc-thread:hover .wc-row-out { opacity: 0.9; }
 
+/* Sections read as sections: a rule and a breath between each group, so the
+   eye lands on the boundary before the header text. First section joins the
+   rail head without doubling its rule. */
+.wc-group { border-top: 1px solid #3c4a3f; margin-top: 8px; padding-top: 2px; }
+.wc-side-scroll > .wc-group:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+
 /* Group headers: collapsible, right-clickable, drop targets. */
 .wc-group-head {
   display: flex;
