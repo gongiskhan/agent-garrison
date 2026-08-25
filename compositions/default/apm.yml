@@ -139,8 +139,7 @@ x-garrison:
         - id: garrison-call
           config: {}
         - id: codex-runtime
-          config:
-            account: pro-ekoa
+          config: {}
         - id: gemini-runtime
           config: {}
         - id: opencode-runtime
