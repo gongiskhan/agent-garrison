@@ -959,7 +959,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // Opening one is a cross-origin NAVIGATION to the node that owns it.
   const [meshNodes, setMeshNodes] = useState<{
     node: string; accentColor: string | null; status: string;
-    threads: { id: string; title: string | null; openUrl: string | null }[];
+    threads: { id: string; title: string | null; lastMessageAt: string | null; openUrl: string | null }[];
   }[]>([]);
   useEffect(() => {
     let alive = true;
@@ -1414,6 +1414,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
           <span className="wc-sidebar-title">Sessions</span>
           <button className="wc-new" onClick={newChat} title="Start a new conversation">+ New</button>
         </div>
+        <div className="wc-side-scroll">
         <div className="wc-thread-list">
           {threads.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
           {threads.map((t) => {
@@ -1454,35 +1455,48 @@ function ThreadedApp({ url }: { url: UrlState }) {
           })}
         </div>
         {meshNodes.some((n) => n.threads.length > 0) && (
-          <div className="wc-rsh-rail" aria-label="Mesh conversations">
-            <div className="wc-rsh-rail-title">Mesh</div>
-            {meshNodes.map((n) =>
-              n.threads.length === 0 ? null : (
+          <div className="wc-mesh" aria-label="Conversations on other nodes">
+            <div className="wc-mesh-title">Mesh</div>
+            {meshNodes.map((n) => {
+              if (n.threads.length === 0) return null;
+              const nodeName = n.node.replace(/^goncalos-/, "");
+              return (
                 <div key={n.node}>
-                  <div className="wc-rsh-rail-title" style={{ opacity: 0.75 }}>
-                    <span
-                      aria-hidden
-                      style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, marginRight: 6, background: n.accentColor || "#888", verticalAlign: "middle" }}
-                    />
-                    {n.node}
+                  <div className="wc-mesh-node">
+                    <span className="wc-mesh-dot" style={{ background: n.accentColor || "#888" }} aria-hidden />
+                    {nodeName}
                   </div>
-                  {n.threads.map((t) =>
-                    t.openUrl ? (
-                      <a key={t.id} className="wc-rsh-entry" href={t.openUrl} target="_blank" rel="noreferrer" title={`Open on ${n.node}`}>
-                        <span className="wc-rsh-entry-label">{t.title || t.id}</span>
-                        <span className="wc-rsh-entry-via">{n.node.replace("goncalos-", "")}</span>
+                  {n.threads.map((t) => {
+                    const when = fmtWhen(t.lastMessageAt);
+                    const body = (
+                      <span className="wc-thread-main">
+                        <span className="wc-thread-title">{t.title || "New conversation"}</span>
+                        {when && (
+                          <span className="wc-thread-meta">
+                            <span className="wc-thread-when">{when}</span>
+                          </span>
+                        )}
+                      </span>
+                    );
+                    return t.openUrl ? (
+                      <a key={t.id} className="wc-mesh-thread" href={t.openUrl} target="_blank" rel="noreferrer" title={`Open on ${nodeName}`}>
+                        {body}
+                        <svg className="wc-mesh-out" width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
+                          <path d="M3 8 8 3M4.2 3H8v3.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                        </svg>
                       </a>
                     ) : (
-                      <span key={t.id} className="wc-rsh-entry" title="No tailnet host recorded for this node">
-                        <span className="wc-rsh-entry-label">{t.title || t.id}</span>
+                      <span key={t.id} className="wc-mesh-thread wc-mesh-thread--inert" title="No tailnet host recorded for this node">
+                        {body}
                       </span>
-                    )
-                  )}
+                    );
+                  })}
                 </div>
-              )
-            )}
+              );
+            })}
           </div>
         )}
+        </div>
         {rshTransports.length > 0 && (
           <div className="wc-rsh-rail">
             <div className="wc-rsh-rail-title">Remote shells</div>

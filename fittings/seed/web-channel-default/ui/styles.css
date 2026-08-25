@@ -415,7 +415,10 @@ html, body {
 .wc-sidebar-collapse svg { transform: rotate(90deg); transition: transform .14s ease; }
 .wc-shell--rail .wc-sidebar-collapse svg { transform: rotate(0deg); }
 
-.wc-thread-list {
+/* One scroll flow for everything that IS a conversation - the local list and
+   the mesh section ride together, so the mesh follows the content instead of
+   being pinned below a dead gap. Utility rails (remote shells) stay outside. */
+.wc-side-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -635,6 +638,8 @@ html, body {
      text rather than a clean rail. */
   .wc-shell--rail .wc-sidebar-title,
   .wc-shell--rail .wc-new,
+  .wc-shell--rail .wc-side-scroll,
+  .wc-shell--rail .wc-rsh-rail,
   .wc-shell--rail .wc-thread-list { display: none; }
   .wc-shell--rail .wc-sidebar-head {
     justify-content: center;
@@ -1325,6 +1330,7 @@ body {
 ::-webkit-scrollbar-corner { background: transparent; }
 
 .wc-sidebar,
+.wc-side-scroll,
 .wc-thread-list,
 .cc-md pre,
 .cc-codeblock pre {
@@ -1562,14 +1568,16 @@ body {
   font-size: 12px;
 }
 /* The rail lives in the DARK sidebar; inherited colors here come from the
-   page's light-skin body and read dark-on-dark, so every color is explicit. */
-.wc-rsh-rail { border-top: 1px solid #4b584d; padding: 8px; }
+   page's light-skin body and read dark-on-dark, so every color is explicit.
+   Entries are flat rows in the SAME language as the session list - one list
+   dialect for the whole rail, no bordered chips. */
+.wc-rsh-rail { border-top: 1px solid #4b584d; padding: 4px 0 6px; }
 .wc-rsh-rail-title {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #9fa69a;
-  margin: 2px 0 6px;
+  margin: 8px 14px 2px;
 }
 .wc-rsh-entry {
   display: flex;
@@ -1579,16 +1587,65 @@ body {
   width: 100%;
   text-align: left;
   background: none;
-  border: 1px solid #4b584d;
-  border-radius: 7px;
-  padding: 7px 9px;
-  margin-bottom: 6px;
+  border: 0;
+  border-left: 3px solid transparent;
+  padding: 8px 10px 8px 14px;
   cursor: pointer;
-  color: #e6e9df;
+  color: #eef0e8;
   font: inherit;
 }
-.wc-rsh-entry:hover { background: rgba(255, 255, 255, 0.06); }
-.wc-rsh-entry-via { font-size: 11px; color: #9fa69a; }
+.wc-rsh-entry:hover { background: #2b372c; }
+.wc-rsh-entry-label {
+  font-size: 13px;
+  font-weight: 620;
+  letter-spacing: .005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wc-rsh-entry-via { font: 10px/1.3 var(--wc-mono); color: #9fa69a; flex: none; }
+
+/* ── Mesh: conversations living on other nodes ──────────────────────────────
+   Same row anatomy as the local session list (wc-thread-title / wc-thread-meta
+   are reused verbatim) because a conversation is a conversation wherever it
+   lives. The node group header carries the identity (accent dot + name), so
+   rows carry none of it; the outbound arrow on hover is the one signal that
+   opening navigates to the owning node. */
+.wc-mesh { border-top: 1px solid #4b584d; padding-bottom: 4px; }
+.wc-mesh-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9fa69a;
+  margin: 10px 14px 0;
+}
+.wc-mesh-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 14px 2px;
+  font: 10px/1.3 var(--wc-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9fa69a;
+}
+.wc-mesh-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.wc-mesh-thread {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px 9px 14px;
+  border-bottom: 1px solid #354137;
+  border-left: 3px solid transparent;
+  color: #eef0e8;
+  text-decoration: none;
+  cursor: pointer;
+}
+.wc-mesh-thread:hover { background: #2b372c; }
+.wc-mesh-thread--inert { cursor: default; }
+.wc-mesh-thread--inert:hover { background: transparent; }
+.wc-mesh-out { flex: none; color: #9fa69a; opacity: 0; transition: opacity 0.12s ease; }
+.wc-mesh-thread:hover .wc-mesh-out { opacity: 0.9; }
 
 /* ── Routing console (.cc-rm) in the Garrison skin: serif display, brass
    accent, olive nav strip against the paper detail pane. ─────────────────── */
