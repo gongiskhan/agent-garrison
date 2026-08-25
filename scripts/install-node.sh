@@ -219,6 +219,42 @@ PL
   launchctl bootout "gui/$(id -u)/io.garrison.node" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$PLIST"
   say "launchd unit io.garrison.node loaded"
+  # The scheduler gets its OWN unit on macOS: concurrently-inside-launchd
+  # silently dropped the scheduler lane on one Mac (exit 0, no stderr, same
+  # code fine elsewhere) - a dedicated job sidesteps the interplay entirely,
+  # and the daemon's single-daemon guard makes the pair safe on machines
+  # where the group lane still works.
+  SPLIST="$HOME/Library/LaunchAgents/io.garrison.node.scheduler.plist"
+  cat > "$SPLIST" <<SPL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>io.garrison.node.scheduler</string>
+  <key>ProgramArguments</key><array>
+    <string>$NODE_BIN</string>
+    <string>$REPO_DIR/fittings/seed/scheduler/scripts/scheduler.mjs</string>
+    <string>daemon</string>
+    <string>--health-port</string>
+    <string>8099</string>
+  </array>
+  <key>WorkingDirectory</key><string>$REPO_DIR</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin</string>
+    <key>GARRISON_HOME</key><string>$HOME/.garrison</string>
+    <key>GARRISON_INSTANCE_ID</key><string>node</string>
+    <key>GARRISON_APP_PORT</key><string>8777</string>
+    <key>GARRISON_SCHEDULER_JOBS</key><string>$HOME/.garrison/scheduler-jobs.json</string>
+    <key>GARRISON_SCHEDULER_LOG</key><string>$HOME/.garrison/scheduler.log</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$HOME/.garrison/scheduler-launchd.log</string>
+  <key>StandardErrorPath</key><string>$HOME/.garrison/scheduler-launchd.log</string>
+</dict></plist>
+SPL
+  launchctl bootout "gui/$(id -u)/io.garrison.node.scheduler" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$SPLIST"
+  say "launchd unit io.garrison.node.scheduler loaded"
 else
   UNIT="$HOME/.config/systemd/user/garrison-node.service"
   mkdir -p "$(dirname "$UNIT")"

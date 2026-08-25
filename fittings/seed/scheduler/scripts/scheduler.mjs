@@ -397,6 +397,20 @@ async function daemon(opts = {}) {
   process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
   process.on("SIGINT", () => { void shutdown("SIGINT"); });
 
+  // Single-daemon guard: if an ANSWERING scheduler already owns this node's
+  // health port, this spawn is redundant - exit 0 deliberately and quietly.
+  // (Without this, a second daemon keeps ticking portless and every
+  // node-local cron fires twice; the ledger only dedupes SHARED jobs.)
+  if (healthPort) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${healthPort}/health`, { signal: AbortSignal.timeout(1500) });
+      if (res.ok) {
+        await appendLog(`[${new Date().toISOString()}] another scheduler daemon answers :${healthPort} - exiting (single-daemon guard)`);
+        return;
+      }
+    } catch { /* nobody answering - this daemon owns the node */ }
+  }
+
   healthServer = startHealthServer(healthPort, () => ({
     startedAt,
     ticks,
