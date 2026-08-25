@@ -23,7 +23,16 @@ let degradedSince: string | null = null;
 
 export function stateClient(): StateClient {
   if (cached) return cached;
-  cached = createStateClient({ readFileSync: (p: string, enc: string) => readFileSync(p, enc as BufferEncoding) });
+  cached = createStateClient({
+    readFileSync: (p: string, enc: string) => readFileSync(p, enc as BufferEncoding),
+    // Next PATCHES global fetch with its Data Cache, which persists across
+    // restarts in .next-prod/cache — the roster intermittently replayed a
+    // pre-first-beat /v1/nodes body from a day earlier, showing live peers as
+    // "never" while the service was fresh (self looked fine only because the
+    // local snapshot overrides it). State reads are truth reads: no store.
+    fetchImpl: ((input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(input, { ...init, cache: "no-store" })) as typeof fetch
+  });
   return cached;
 }
 
