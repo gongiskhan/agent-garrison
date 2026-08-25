@@ -18,6 +18,7 @@
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { meshThreads } from "../lib/mesh-threads.mjs";
+import { loadSidebar, saveSidebar } from "./sidebar-state.mjs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
@@ -33,6 +34,7 @@ import {
   appendMessages,
   appendSessionEvent,
   deleteThread,
+  renameThread,
   setThreadSession,
   setThreadRouting,
   setThreadRouteSession,
@@ -2481,6 +2483,14 @@ async function handleThreadDelete(res, id) {
   jsonRes(res, ok ? 200 : 404, { ok });
 }
 
+async function handleThreadRename(req, res, id) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
+  const thread = await renameThread(id, body?.title);
+  if (!thread) return jsonRes(res, 404, { error: "thread not found or empty title" });
+  jsonRes(res, 200, { thread });
+}
+
 // Route /api/threads, /api/threads/:id, /api/threads/:id/live and mutations.
 // Returns true
 // when it handled the request.
@@ -2494,6 +2504,7 @@ function routeThreads(req, res, pathname, method, opts) {
     const id = parts[0];
     if (id && parts.length === 1 && method === "GET") { void handleThreadGet(res, id); return true; }
     if (id && parts.length === 1 && method === "DELETE") { void handleThreadDelete(res, id); return true; }
+    if (id && parts.length === 1 && method === "PATCH") { void handleThreadRename(req, res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "live" && method === "GET") { handleThreadLive(req, res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "inputs" && method === "GET") { void handleThreadInputsGet(res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "inputs" && method === "POST") { void handleThreadInputCreate(req, res, opts, id); return true; }
@@ -3270,6 +3281,17 @@ async function handleNotify(req, res, opts) {
       if (pathname === "/api/chat/interrupt" && method === "POST") return handleChatInterrupt(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
       if (pathname === "/api/route-options" && method === "GET") return handleRouteOptions(req, res, liveOpts);
+      if (pathname === "/api/sidebar" && method === "GET") {
+        return void loadSidebar()
+          .then((body) => jsonRes(res, 200, body))
+          .catch(() => jsonRes(res, 200, { groups: [], membership: {}, order: {}, read: {}, archived: [] }));
+      }
+      if (pathname === "/api/sidebar" && method === "PUT") {
+        return void readJsonBody(req)
+          .then((body) => saveSidebar(body))
+          .then((clean) => jsonRes(res, 200, clean))
+          .catch((err) => jsonRes(res, 400, { error: String(err?.message ?? err) }));
+      }
       if (pathname === "/api/mesh-threads" && method === "GET") {
         // Other nodes' conversations, from the state service's per-node thread
         // indexes. Empty on an unenrolled box; never an error surface.

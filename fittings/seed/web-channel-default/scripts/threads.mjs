@@ -1874,6 +1874,26 @@ export async function threadHasPendingInputs(id) {
 }
 
 /** Delete a thread. Returns true if a file was removed. */
+/**
+ * User-driven rename. Unlike ensureThread's fill-if-empty title semantics,
+ * this SETS the title: the user's chosen name wins over whatever the first
+ * message auto-titled the thread, and later auto-titling must not undo it
+ * (renamedAt records the decision).
+ */
+export async function renameThread(id, title) {
+  const safe = safeThreadId(id);
+  const clean = typeof title === "string" ? title.trim().slice(0, 120) : "";
+  if (!safe || !clean) return null;
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    thread.title = clean;
+    thread.renamedAt = new Date().toISOString();
+    await atomicWriteJson(threadPath(safe), thread);
+    return thread;
+  });
+}
+
 export async function deleteThread(id) {
   const safe = safeThreadId(id);
   if (!safe) return false;

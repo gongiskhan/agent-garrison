@@ -34,6 +34,7 @@ import {
 import { createOrchestratorTransport } from "./orchestrator-transport";
 import { VoiceConversation } from "./voice-conversation";
 import { RemoteShellWorkbench } from "./remote-shell-workbench";
+import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -103,6 +104,9 @@ interface UrlState {
   /** Explicit ?console=1 - mount the raw PTY session console instead of the
    *  threaded surface. */
   console: boolean;
+  /** ?new=1 - start a FRESH conversation on load (the cross-node "+ New"
+   *  entry point: another node's picker opens this URL). */
+  fresh: boolean;
 }
 
 // Return to whatever page the user came from (the board / Automations), robust across
@@ -127,7 +131,7 @@ function goBackToHost(): void {
 
 function readUrl(): UrlState {
   if (typeof window === "undefined") {
-    return { context: undefined, source: undefined, kickoff: undefined, thread: undefined, title: undefined, level: undefined, returnUrl: undefined, returnLabel: undefined, console: false };
+    return { context: undefined, source: undefined, kickoff: undefined, thread: undefined, title: undefined, level: undefined, returnUrl: undefined, returnLabel: undefined, console: false, fresh: false };
   }
   const q = new URLSearchParams(window.location.search);
   const sourceRaw = q.get("source");
@@ -153,6 +157,7 @@ function readUrl(): UrlState {
     returnUrl,
     returnLabel,
     console: q.get("console") === "1",
+    fresh: q.get("new") === "1",
   };
 }
 
@@ -432,6 +437,19 @@ async function apiEnsureThread(payload: { id?: string; title?: string; source?: 
     return d.thread ?? null;
   } catch { return null; }
 }
+async function apiRename(id: string, title: string): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/threads/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title })
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function apiDelete(id: string): Promise<boolean> {
   try {
     const response = await fetch(`/api/threads/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -957,16 +975,18 @@ function ThreadedApp({ url }: { url: UrlState }) {
   const [rshTransports, setRshTransports] = useState<RemoteShellTransport[]>([]);
   // Other nodes' conversations, from the mesh (state-service thread indexes).
   // Opening one is a cross-origin NAVIGATION to the node that owns it.
-  const [meshNodes, setMeshNodes] = useState<{
-    node: string; accentColor: string | null; status: string;
-    threads: { id: string; title: string | null; lastMessageAt: string | null; openUrl: string | null }[];
-  }[]>([]);
+  const [meshNodes, setMeshNodes] = useState<RailMeshNode[]>([]);
+  const [meshSelf, setMeshSelf] = useState<RailSelf>({ node: null, accentColor: null });
   useEffect(() => {
     let alive = true;
     const load = () => {
       fetch("/api/mesh-threads", { cache: "no-store" })
         .then((r) => r.json())
-        .then((d) => { if (alive) setMeshNodes(d.nodes ?? []); })
+        .then((d) => {
+          if (!alive) return;
+          setMeshNodes(d.nodes ?? []);
+          if (d.self) setMeshSelf(d.self);
+        })
         .catch(() => { /* empty rail is the degraded mode */ });
     };
     load();
@@ -1119,6 +1139,17 @@ function ThreadedApp({ url }: { url: UrlState }) {
           }
           await openThread(ensured.id, { kickoff: Boolean(url.kickoff) });
         }
+      } else if (url.fresh) {
+        // Cross-node "+ New" landing: start a fresh conversation, then drop
+        // the ?new=1 from the address bar so a reload doesn't mint another.
+        const ensured = await apiEnsureThread({ source: "chat" });
+        if (!alive) return;
+        if (ensured) await openThread(ensured.id);
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete("new");
+          window.history.replaceState(null, "", u.toString());
+        } catch { /* address bar keeps the param; harmless */ }
       } else if (list.length > 0) {
         await openThread(list[0].id);
       } else {
@@ -1164,8 +1195,8 @@ function ThreadedApp({ url }: { url: UrlState }) {
     await openThread(id);
   }, [activeId, openThread]);
 
-  const removeThread = useCallback(async (id: string, e: React.SyntheticEvent) => {
-    e.stopPropagation();
+  const removeThread = useCallback(async (id: string, e?: React.SyntheticEvent) => {
+    e?.stopPropagation();
     const deleted = await apiDelete(id);
     const list = await apiListThreads();
     setThreads(list);
@@ -1175,6 +1206,11 @@ function ThreadedApp({ url }: { url: UrlState }) {
       else await newChat();
     }
   }, [activeId, openThread, newChat]);
+
+  const renameThread = useCallback(async (id: string, title: string) => {
+    const ok = await apiRename(id, title);
+    if (ok) await refreshList();
+  }, [refreshList]);
 
   // Persistence is SERVER-SIDE: server.mjs handleChat tees each exchange into the
   // thread when the upstream `done` event arrives (the transport sends the thread
@@ -1399,121 +1435,20 @@ function ThreadedApp({ url }: { url: UrlState }) {
         </svg>
       </button>
       <aside className="wc-sidebar" aria-label="Sessions">
-        <div className="wc-sidebar-head">
-          <button
-            className="wc-sidebar-collapse"
-            aria-expanded={listOpen}
-            aria-label={listOpen ? "Collapse sessions" : "Expand sessions"}
-            title={listOpen ? "Collapse sessions" : "Expand sessions"}
-            onClick={() => setListOpen((v) => !v)}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-              <path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
-          </button>
-          <span className="wc-sidebar-title">Sessions</span>
-          <button className="wc-new" onClick={newChat} title="Start a new conversation">+ New</button>
-        </div>
-        <div className="wc-side-scroll">
-        <div className="wc-thread-list">
-          {threads.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
-          {threads.map((t) => {
-            const deleteDisabled = (t.pendingInputCount ?? 0) > 0;
-            return (
-              <div key={t.id} className={`wc-thread${t.id === activeId ? " wc-thread--active" : ""}`}>
-                <button
-                  type="button"
-                  className="wc-thread-open"
-                  onClick={() => selectThread(t.id)}
-                  title={t.title}
-                >
-                  <span className="wc-thread-main">
-                    <span className="wc-thread-title">{t.title || "New conversation"}</span>
-                    <span className="wc-thread-meta">
-                      {t.source && t.source !== "chat" && <span className="wc-thread-src">{t.source}</span>}
-                      {t.runningSince ? (
-                        <span className="wc-thread-src">Working</span>
-                      ) : deleteDisabled ? (
-                        <span className="wc-thread-src">{t.pendingInputCount} queued</span>
-                      ) : null}
-                      <span className="wc-thread-when">{fmtWhen(t.updatedAt)}</span>
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="wc-thread-del"
-                  aria-label={deleteDisabled ? "Conversation has pending messages" : "Delete conversation"}
-                  disabled={deleteDisabled}
-                  title={deleteDisabled ? "Finish or stop pending messages before deleting" : "Delete"}
-                  onClick={(e) => { void removeThread(t.id, e); }}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-        </div>
-        {meshNodes.some((n) => n.threads.length > 0) && (
-          <div className="wc-mesh" aria-label="Conversations on other nodes">
-            <div className="wc-mesh-title">Mesh</div>
-            {meshNodes.map((n) => {
-              if (n.threads.length === 0) return null;
-              const nodeName = n.node.replace(/^goncalos-/, "");
-              return (
-                <div key={n.node}>
-                  <div className="wc-mesh-node">
-                    <span className="wc-mesh-dot" style={{ background: n.accentColor || "#888" }} aria-hidden />
-                    {nodeName}
-                  </div>
-                  {n.threads.map((t) => {
-                    const when = fmtWhen(t.lastMessageAt);
-                    const body = (
-                      <span className="wc-thread-main">
-                        <span className="wc-thread-title">{t.title || "New conversation"}</span>
-                        {when && (
-                          <span className="wc-thread-meta">
-                            <span className="wc-thread-when">{when}</span>
-                          </span>
-                        )}
-                      </span>
-                    );
-                    return t.openUrl ? (
-                      <a key={t.id} className="wc-mesh-thread" href={t.openUrl} target="_blank" rel="noreferrer" title={`Open on ${nodeName}`}>
-                        {body}
-                        <svg className="wc-mesh-out" width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
-                          <path d="M3 8 8 3M4.2 3H8v3.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                        </svg>
-                      </a>
-                    ) : (
-                      <span key={t.id} className="wc-mesh-thread wc-mesh-thread--inert" title="No tailnet host recorded for this node">
-                        {body}
-                      </span>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        </div>
-        {rshTransports.length > 0 && (
-          <div className="wc-rsh-rail">
-            <div className="wc-rsh-rail-title">Remote shells</div>
-            {rshTransports.map((t) => (
-              <button
-                key={t.name}
-                type="button"
-                className="wc-rsh-entry"
-                onClick={() => { void openRemoteShell(t); }}
-                title={`Attach ${t.label || t.name} (${t.via})`}
-              >
-                <span className="wc-rsh-entry-label">{t.label || t.name}</span>
-                <span className="wc-rsh-entry-via">{t.via}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        <SessionsRail
+          threads={threads}
+          meshNodes={meshNodes}
+          self={meshSelf}
+          transports={rshTransports}
+          activeId={activeId}
+          listOpen={listOpen}
+          onToggleList={() => setListOpen((v) => !v)}
+          onSelect={(id) => { void selectThread(id); }}
+          onNewLocal={() => { void newChat(); }}
+          onOpenRemoteShell={(t) => { void openRemoteShell(t as RemoteShellTransport); }}
+          onDeleteLocal={(id) => { void removeThread(id); }}
+          onRenameLocal={renameThread}
+        />
       </aside>
       <div className="wc-sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
       <main className="wc-main">
@@ -1740,6 +1675,8 @@ function useComposerInset(active: boolean): void {
   }, [active]);
 }
 
+const EMBEDDED = (() => { try { return window.self !== window.top; } catch { return true; } })();
+
 function PushEnroller() {
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1747,6 +1684,7 @@ function PushEnroller() {
   const [noticeDismissed, setNoticeDismissed] = useState(false);
 
   useEffect(() => {
+    if (EMBEDDED) return;
     void registerServiceWorker().then(() => pushState().then(setState));
     // Render pushes that arrive while the app is focused: the OS usually
     // suppresses the system banner in that case, so without this an incoming

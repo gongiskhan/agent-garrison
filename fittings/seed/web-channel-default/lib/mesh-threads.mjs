@@ -53,12 +53,38 @@ function selfName() {
   }
 }
 
+// Mirror of the shell's NODE_ACCENTS palette (src/lib/node-identity.ts) so a
+// node.json carrying a palette ID resolves to the same hex the shell paints.
+const ACCENT_HEX = {
+  moss: "#4a7d5f", fern: "#478529", brass: "#85763a", copper: "#a26949",
+  rose: "#a7626b", plum: "#af5895", violet: "#8a62a7", steel: "#527c91"
+};
+
+// This node's own identity, so the unified session list can badge LOCAL rows
+// with the same accent the node paints everywhere else. node.json may carry a
+// raw hex or a palette id; resolve either. Absent file → null accent, and the
+// UI falls back to a neutral dot.
+function selfIdentity() {
+  const name = selfName();
+  let accent = null;
+  try {
+    const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+    const raw = JSON.parse(readFileSync(path.join(home, "node.json"), "utf8"));
+    const a = typeof raw.accent === "string" ? raw.accent.trim() : "";
+    accent = a.startsWith("#") ? a : ACCENT_HEX[a] ?? null;
+  } catch {
+    accent = null;
+  }
+  return { node: name, accentColor: accent };
+}
+
 export async function meshThreads({ limitPerNode = 8 } = {}) {
   const now = Date.now();
   if (cache.body && now - cache.at < CACHE_MS) return cache.body;
+  const self0 = selfIdentity();
   const c = client();
-  if (!c) return { nodes: [] };
-  const self = selfName();
+  if (!c) return { self: self0, nodes: [] };
+  const self = self0.node;
 
   const registry = await c.listNodes();
   const peers = registry.filter((n) => n.name !== self);
@@ -88,7 +114,7 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
       }))
     });
   }
-  const body = { nodes };
+  const body = { self: self0, nodes };
   cache = { at: now, body };
   return body;
 }
