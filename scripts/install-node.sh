@@ -225,31 +225,23 @@ PL
   # and the daemon's single-daemon guard makes the pair safe on machines
   # where the group lane still works.
   SPLIST="$HOME/Library/LaunchAgents/io.garrison.node.scheduler.plist"
+  # SHELL FORM, not direct exec: on one Mac, launchd spawned the direct
+  # [node, script, ...] form and it exited 0 instantly, silently, before the
+  # daemon's first log line - while the identical command under bash -c
+  # lives. Empirical, reproduced repeatedly; the shell form is the one that
+  # works everywhere.
   cat > "$SPLIST" <<SPL
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>io.garrison.node.scheduler</string>
   <key>ProgramArguments</key><array>
-    <string>$NODE_BIN</string>
-    <string>$REPO_DIR/fittings/seed/scheduler/scripts/scheduler.mjs</string>
-    <string>daemon</string>
-    <string>--health-port</string>
-    <string>8099</string>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>export PATH=$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin; export GARRISON_HOME=\$HOME/.garrison GARRISON_INSTANCE_ID=node GARRISON_APP_PORT=8777 GARRISON_SCHEDULER_JOBS=\$HOME/.garrison/scheduler-jobs.json GARRISON_SCHEDULER_LOG=\$HOME/.garrison/scheduler.log; cd $REPO_DIR; exec node fittings/seed/scheduler/scripts/scheduler.mjs daemon --health-port 8099 >> \$HOME/.garrison/scheduler-launchd.log 2>&1</string>
   </array>
-  <key>WorkingDirectory</key><string>$REPO_DIR</string>
-  <key>EnvironmentVariables</key><dict>
-    <key>PATH</key><string>$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin</string>
-    <key>GARRISON_HOME</key><string>$HOME/.garrison</string>
-    <key>GARRISON_INSTANCE_ID</key><string>node</string>
-    <key>GARRISON_APP_PORT</key><string>8777</string>
-    <key>GARRISON_SCHEDULER_JOBS</key><string>$HOME/.garrison/scheduler-jobs.json</string>
-    <key>GARRISON_SCHEDULER_LOG</key><string>$HOME/.garrison/scheduler.log</string>
-  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>$HOME/.garrison/scheduler-launchd.log</string>
-  <key>StandardErrorPath</key><string>$HOME/.garrison/scheduler-launchd.log</string>
 </dict></plist>
 SPL
   launchctl bootout "gui/$(id -u)/io.garrison.node.scheduler" 2>/dev/null || true
