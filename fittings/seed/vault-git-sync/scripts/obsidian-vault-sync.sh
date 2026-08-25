@@ -137,7 +137,15 @@ if [ "$MODE" != "pull" ]; then
     if git push origin "$BRANCH" >>"$LOG" 2>&1; then
       log "pushed"
       write_status ok "synced"
+    # Push mode skips step 2, so losing a push race to another node is
+    # NORMAL here (not network/auth). Heal in place: ingest the remote,
+    # then retry once. Only a second failure is a real fault.
+    elif git pull --rebase --autostash origin "$BRANCH" >>"$LOG" 2>&1 \
+      && git push origin "$BRANCH" >>"$LOG" 2>&1; then
+      log "pushed after rebase (lost a push race, healed)"
+      write_status ok "synced"
     else
+      git rebase --abort >>"$LOG" 2>&1 || true
       log "push failed (network/auth?)"
       write_status push-failed "git push failed; will retry next interval"
       exit 1
