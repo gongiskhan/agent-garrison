@@ -116,7 +116,7 @@ export function listNodes(db) {
 }
 
 export function hello(db, authNode, input, serverSchemaVersion) {
-  const { clientVersion, minSchema, maxSchema, capabilities, localTime, health, activeComposition, tailnetHost, tailnetIp, platform } = input ?? {};
+  const { clientVersion, minSchema, maxSchema, capabilities, localTime, health, activeComposition, tailnetHost, tailnetIp, platform, accentColor } = input ?? {};
   if (localTime) {
     const skew = Math.abs(Date.parse(localTime) - Date.now());
     if (Number.isFinite(skew) && skew > 120_000) {
@@ -138,7 +138,8 @@ export function hello(db, authNode, input, serverSchemaVersion) {
         capabilities_json=@caps, health_json=@health, status=@status,
         active_composition=COALESCE(@comp, active_composition),
         tailnet_host=COALESCE(@th, tailnet_host), tailnet_ip=COALESCE(@ti, tailnet_ip),
-        platform=COALESCE(@pf, platform)
+        platform=COALESCE(@pf, platform),
+        accent_color=COALESCE(NULLIF(@accent,''), accent_color)
        WHERE name=@name`
     ).run({
       at: now(),
@@ -151,6 +152,7 @@ export function hello(db, authNode, input, serverSchemaVersion) {
       th: tailnetHost ?? null,
       ti: tailnetIp ?? null,
       pf: platform ?? null,
+      accent: accentColor ?? null,
       name: authNode.name
     });
     if (behind && prior?.status !== "behind") {
