@@ -14,10 +14,13 @@ to the Operative the same way `/jobs` heartbeat ticks are routed.
 
 1. Treat the prompt like any other inbound message — same tier
    classifier, same orchestrator routing.
-2. Read today's calendar (the `data/calendar.md` mirror kept fresh
-   by the `google-calendar` Fitting's sync, or the calendar.py CLI
-   for ad-hoc lookups). Skip if the Calendar Fitting isn't
-   selected.
+2. Read today's calendar via the `google` connector:
+   `node apm_modules/_local/google/scripts/connector.mjs call
+   calendar.list_events '{"time_min":"<RFC3339 UTC>"}'` — there is
+   no `time_max` arg, so filter to today client-side on
+   `start.dateTime // start.date`. Skip if the google connector
+   isn't selected (an `awaiting_connector` reply means it isn't
+   OAuth-connected yet — say so, don't fabricate).
 3. Read open Trello tasks (the trello data source's "A Fazer"
    list). Skip if the Trello Fitting isn't selected.
 4. Compose a Slack message — events first (chronological), then up
