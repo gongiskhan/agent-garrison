@@ -955,6 +955,24 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // absent — the section simply doesn't render), and the fitting-side session
   // id backing the ACTIVE thread's terminal pane.
   const [rshTransports, setRshTransports] = useState<RemoteShellTransport[]>([]);
+  // Other nodes' conversations, from the mesh (state-service thread indexes).
+  // Opening one is a cross-origin NAVIGATION to the node that owns it.
+  const [meshNodes, setMeshNodes] = useState<{
+    node: string; accentColor: string | null; status: string;
+    threads: { id: string; title: string | null; openUrl: string | null }[];
+  }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetch("/api/mesh-threads", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => { if (alive) setMeshNodes(d.nodes ?? []); })
+        .catch(() => { /* empty rail is the degraded mode */ });
+    };
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, []);
   const [rshSessionId, setRshSessionId] = useState<string | null>(null);
   const [rshError, setRshError] = useState<string | null>(null);
 
@@ -1435,6 +1453,36 @@ function ThreadedApp({ url }: { url: UrlState }) {
             );
           })}
         </div>
+        {meshNodes.some((n) => n.threads.length > 0) && (
+          <div className="wc-rsh-rail" aria-label="Mesh conversations">
+            <div className="wc-rsh-rail-title">Mesh</div>
+            {meshNodes.map((n) =>
+              n.threads.length === 0 ? null : (
+                <div key={n.node}>
+                  <div className="wc-rsh-rail-title" style={{ opacity: 0.75 }}>
+                    <span
+                      aria-hidden
+                      style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, marginRight: 6, background: n.accentColor || "#888", verticalAlign: "middle" }}
+                    />
+                    {n.node}
+                  </div>
+                  {n.threads.map((t) =>
+                    t.openUrl ? (
+                      <a key={t.id} className="wc-rsh-entry" href={t.openUrl} target="_blank" rel="noreferrer" title={`Open on ${n.node}`}>
+                        <span className="wc-rsh-entry-label">{t.title || t.id}</span>
+                        <span className="wc-rsh-entry-via">{n.node.replace("goncalos-", "")}</span>
+                      </a>
+                    ) : (
+                      <span key={t.id} className="wc-rsh-entry" title="No tailnet host recorded for this node">
+                        <span className="wc-rsh-entry-label">{t.title || t.id}</span>
+                      </span>
+                    )
+                  )}
+                </div>
+              )
+            )}
+          </div>
+        )}
         {rshTransports.length > 0 && (
           <div className="wc-rsh-rail">
             <div className="wc-rsh-rail-title">Remote shells</div>

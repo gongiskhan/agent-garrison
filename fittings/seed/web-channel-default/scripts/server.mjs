@@ -17,6 +17,7 @@
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { meshThreads } from "../lib/mesh-threads.mjs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
@@ -3269,6 +3270,13 @@ async function handleNotify(req, res, opts) {
       if (pathname === "/api/chat/interrupt" && method === "POST") return handleChatInterrupt(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
       if (pathname === "/api/route-options" && method === "GET") return handleRouteOptions(req, res, liveOpts);
+      if (pathname === "/api/mesh-threads" && method === "GET") {
+        // Other nodes' conversations, from the state service's per-node thread
+        // indexes. Empty on an unenrolled box; never an error surface.
+        return void meshThreads()
+          .then((body) => jsonRes(res, 200, body))
+          .catch(() => jsonRes(res, 200, { nodes: [] }));
+      }
       if (pathname === "/api/brief" && method === "GET") return handleBriefGet(res, parsed.query.path);
       if (pathname === "/api/brief" && method === "PUT") return handleBriefPut(req, res);
       if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method, liveOpts)) return;
