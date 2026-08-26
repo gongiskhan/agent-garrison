@@ -985,6 +985,96 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-state.error { color: var(--cc-danger-border); }
 .cc-session-toolbody { display: flex; flex-direction: column; gap: 8px; padding: 0 9px 9px; }
 .cc-session-section-label { display: block; margin: 0 0 4px 2px; color: var(--cc-fg-dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+/* ── Conversation spine (stretch rules + ledger rows) ────────────────────────
+   A stretch is STRUCTURAL, so it reads as a rule across the column rather than
+   as another notice card competing with the reply it separates. A started
+   stretch is accented; an ended one recedes to a dashed divider, because the
+   interesting one is always the stretch still running - and the two rows carry
+   the same badges, so the reader needs to tell them apart without reading the
+   kicker. Built from the theme's own tokens, so both follow the light/dark swap
+   on .cc-root without a second palette. */
+.cc-stretch {
+  display: flex; flex-direction: column; gap: 5px; min-width: 0;
+  margin: 6px 0; padding: 7px 0 0; border-top: 1px solid var(--cc-border-strong);
+}
+.cc-stretch-started { border-top-color: color-mix(in srgb, var(--cc-accent) 45%, transparent); }
+.cc-stretch-ended { border-top-style: dashed; }
+.cc-stretch-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.cc-stretch-kicker {
+  flex: 0 0 auto; color: var(--cc-fg-dim); font-size: 10px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase;
+}
+.cc-stretch-started .cc-stretch-kicker { color: var(--cc-accent); }
+.cc-stretch-id {
+  min-width: 0; max-width: 28ch; color: var(--cc-fg-faint);
+  font: 10px/1.35 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cc-stretch-chip {
+  flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
+  color: var(--cc-fg-dim); white-space: nowrap;
+  font: 10px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-stretch-outcome { color: var(--cc-fg); border-color: var(--cc-fg-faint); }
+/* The stretch's own badges. Deliberately NOT `.cc-rbadge`: that name is the Turn
+   Rail's, its rules are all scoped `.cc-root .cc-rail …` (so they would inherit
+   nothing in a host that renders a transcript outside .cc-root), and reusing it
+   would break the day the rail restyles. Same vocabulary (railBadges), separate
+   skin. The row WRAPS, unlike the rail's single scrolling line: a stretch
+   boundary is a record being read, not a control surface being scanned, and a
+   horizontal scroller mid-transcript hides half its badges. */
+.cc-stretch-badges { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.cc-stretch-badge {
+  flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--cc-border); border-radius: 4px;
+  color: var(--cc-fg-dim);
+  font: 10px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Tone names mirror railBadges' model exactly, so the two can never disagree. */
+.cc-stretch-badge-dim { color: var(--cc-rail-fg-dim, var(--cc-fg-faint)); }
+.cc-stretch-badge-warn { color: var(--cc-rail-warn, #e8a598); border-color: var(--cc-rail-warn, #e8a598); }
+.cc-stretch-badge-link { color: var(--cc-accent); border-color: color-mix(in srgb, var(--cc-accent) 60%, transparent); }
+
+/* Ledger rows sit at the weight of a tool row: they are the record of what ran,
+   scanned far more often than read. Same disclosure mechanics as a notice. */
+.cc-ledger {
+  min-width: 0; padding: 4px 9px; border-left: 2px solid var(--cc-border);
+  border-radius: 0 6px 6px 0; color: var(--cc-fg); font-size: 12px; line-height: 1.4;
+}
+.cc-ledger-warn {
+  border-left-color: var(--cc-rail-warn, #e8a598);
+  background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 10%, transparent);
+}
+.cc-ledger > summary {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; min-width: 0;
+  list-style: none; cursor: pointer;
+}
+.cc-ledger > summary::-webkit-details-marker { display: none; }
+.cc-ledger-label {
+  flex: 0 0 auto; color: var(--cc-fg-faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+}
+.cc-ledger-title {
+  min-width: 0; flex: 1 1 auto; color: var(--cc-fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Once open there is nothing left to reveal by clipping the title. */
+.cc-ledger[open] .cc-ledger-title { white-space: normal; overflow: visible; }
+.cc-ledger-seq {
+  flex: 0 0 auto; margin-left: auto; color: var(--cc-fg-faint);
+  font: 10px/1.35 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.cc-ledger-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 6px 0 2px 10px; }
+/* Inert on purpose: the payload viewer is a later slice, and a reference that
+   looks like a link but goes nowhere is worse than one that reads as a label. */
+.cc-ledger-ref {
+  align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 7px; border: 1px dashed var(--cc-border-strong); border-radius: 2px;
+  color: var(--cc-fg-faint);
+  font: 10px/1.4 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-ledger-empty { color: var(--cc-fg-faint); font-size: 12px; }
+
 /* Notices are one-line rows that open, not standing cards. Three stacked blocks
    of route/error/status used to shout louder than the answer they annotate; the
    weight now matches the tool rows they sit beside. */
@@ -1032,6 +1122,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-session-notice-reset { color: var(--cc-fg-dim); font-size: 12px; }
 .cc-session-notice-reset time { color: var(--cc-fg); font-variant-numeric: tabular-nums; }
+
 .cc-session-error {
   padding: 8px 10px; border-left: 2px solid var(--cc-danger-border);
   border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--cc-danger-border) 10%, transparent);
@@ -1852,6 +1943,205 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   }
   .cc-rm-navitem { border-left: none; border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0; min-width: 118px; }
   .cc-rm-navitem-on { border-bottom-color: var(--rm-accent); }
+}
+
+/* ── Conversation surfaces ───────────────────────────────────────────────────
+   ConversationView, the jump flash, the pending-receipt tail strip and the
+   payload viewer. Three of the four render OUTSIDE `.cc-root` (the view wraps
+   the chat rather than living inside it), so `.cc-conversation` carries the
+   same --cc-* base block `.cc-root` does - a host re-points both together at the
+   same specificity, exactly as web-channel already does for `.wc-xscript`. */
+.cc-conversation {
+  --cc-bg: #0d1117;
+  --cc-bg-elev: #161b22;
+  --cc-bg-sunk: #010409;
+  --cc-fg: #e6edf3;
+  --cc-fg-dim: #8b949e;
+  --cc-fg-faint: #6e7681;
+  --cc-border: #21262d;
+  --cc-border-strong: #30363d;
+  --cc-accent: #1f6feb;
+  --cc-accent-fg: #fff;
+  --cc-slash-active: #1f2937;
+  display: flex; flex-direction: column; min-height: 0; height: 100%;
+  background: var(--cc-bg); color: var(--cc-fg);
+}
+.cc-conversation[data-theme="light"] {
+  --cc-bg: #fbf8f1;
+  --cc-bg-elev: #f4ede0;
+  --cc-bg-sunk: #efe7d6;
+  --cc-fg: #18211c;
+  --cc-fg-dim: #5f6356;
+  --cc-fg-faint: #8a8d82;
+  --cc-border: #d6cdba;
+  --cc-border-strong: #c4bba6;
+  --cc-accent: #3d6249;
+  --cc-slash-active: #e7decb;
+}
+.cc-conv-head {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 8px 10px; border-bottom: 1px solid var(--cc-border); background: var(--cc-bg-elev);
+}
+.cc-conv-title {
+  min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--cc-fg); font-size: 13px; font-weight: 650;
+}
+/* The outer header owns the conversation's name; the chat's own header keeps its
+   connection dot, model chip and Raw control, but not a second copy of the title. */
+.cc-conversation .cc-root > .cc-header > .cc-title { display: none; }
+.cc-conv-search { position: relative; margin-left: auto; min-width: 0; flex: 0 1 320px; }
+.cc-conv-searchinput {
+  box-sizing: border-box; width: 100%; min-height: 32px; padding: 5px 9px;
+  border: 1px solid var(--cc-border-strong); border-radius: 7px;
+  background: var(--cc-bg); color: var(--cc-fg); font: inherit; font-size: 12px;
+}
+.cc-conv-searchinput::placeholder { color: var(--cc-fg-faint); }
+.cc-conv-hits {
+  position: absolute; z-index: 40; top: calc(100% + 5px); right: 0; width: min(520px, 92vw);
+  max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column;
+  border: 1px solid var(--cc-border-strong); border-radius: 9px; background: var(--cc-bg-elev);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .38);
+}
+.cc-conv-hit {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0; width: 100%;
+  padding: 8px 10px; border: 0; border-bottom: 1px solid var(--cc-border);
+  background: transparent; color: var(--cc-fg); text-align: left; cursor: pointer; font: inherit;
+}
+.cc-conv-hit:last-child { border-bottom: 0; }
+.cc-conv-hit:hover, .cc-conv-hit:focus-visible { background: var(--cc-slash-active); }
+.cc-conv-hitkind {
+  flex: 0 0 auto; color: var(--cc-fg-faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+}
+.cc-conv-hitsnip {
+  min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--cc-fg-dim); font-size: 12px;
+}
+.cc-conv-hitseq {
+  flex: 0 0 auto; color: var(--cc-fg-faint); font-variant-numeric: tabular-nums;
+  font: 10px/1.35 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-conv-hitnote { padding: 8px 10px; color: var(--cc-fg-faint); font-size: 12px; }
+/* Stated, not implied: a reader who jumped is no longer looking at live, and the
+   way back has to be one click rather than a scroll of unknown length. */
+.cc-conv-jumped {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 5px 10px; border-bottom: 1px solid var(--cc-border);
+  background: var(--cc-bg-sunk); color: var(--cc-fg-dim); font-size: 12px;
+}
+.cc-conv-jumped button {
+  margin-left: auto; padding: 3px 9px; border: 1px solid var(--cc-border-strong); border-radius: 7px;
+  background: transparent; color: var(--cc-fg); font: inherit; font-size: 11px; cursor: pointer;
+}
+.cc-conv-jumped button:hover { border-color: var(--cc-accent); }
+.cc-conv-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.cc-conv-body > .cc-root { flex: 1 1 auto; min-width: 0; }
+
+/* The stream brings its own rhythm; the chat's bubble padding on top of it read
+   as a double frame. */
+.cc-scroll-stream { padding: 10px 10px 4px; }
+
+/* The tail strip: receipts for messages that have not landed in the record yet.
+   Thin, one line each, and visibly NOT part of the transcript above it. */
+.cc-tailstrip {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  padding: 6px 10px; border-top: 1px solid var(--cc-border); background: var(--cc-bg-sunk);
+}
+.cc-tailstrip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.cc-tailstrip-text {
+  min-width: 0; flex: 1 1 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--cc-fg-dim); font-size: 12px;
+}
+.cc-tailstrip-row .cc-lifecycle { flex: 0 0 auto; }
+
+/* A landed jump. One pass, then gone - a permanent highlight would still be
+   there the next time the reader looks and would read as a state, not an event. */
+.cc-focus-flash { animation: cc-focus-flash 1.2s ease-out 1; border-radius: 6px; }
+@keyframes cc-focus-flash {
+  0%   { background: color-mix(in srgb, var(--cc-accent) 34%, transparent); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-focus-flash { animation: none; outline: 2px solid var(--cc-accent); outline-offset: 2px; }
+}
+
+/* A ledger reference becomes a control only where a payload route exists; the
+   dashed label stays the resting look so the two read as the same thing. */
+.cc-ledger-ref-open {
+  cursor: pointer; font-family: var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  background: transparent; text-align: left;
+}
+.cc-ledger-ref-open:hover, .cc-ledger-ref-open:focus-visible {
+  color: var(--cc-accent); border-color: var(--cc-accent); border-style: solid;
+}
+
+/* ── Payload viewer ──────────────────────────────────────────────────────────
+   Read-only by construction: head, body, close. No save, no edit, no download -
+   a conversation payload is a record of what happened. */
+.cc-paymodal {
+  position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px;
+  width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0;
+  box-sizing: border-box; border: 0; color: var(--cc-fg, #e6edf3);
+  background: rgba(0, 0, 0, .72); backdrop-filter: blur(3px);
+}
+.cc-paymodal::backdrop { background: transparent; }
+.cc-paymodal-card {
+  display: flex; flex-direction: column; min-height: 0;
+  width: min(980px, 96vw); max-height: 92vh;
+  border: 1px solid var(--cc-border-strong, #30363d); border-radius: 12px;
+  background: var(--cc-bg, #0d1117); box-shadow: 0 24px 80px rgba(0, 0, 0, .5);
+}
+.cc-paymodal-head {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 9px 12px; border-bottom: 1px solid var(--cc-border, #21262d);
+}
+.cc-paymodal-name {
+  min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px;
+}
+.cc-paymodal-kind {
+  flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--cc-border-strong, #30363d); border-radius: 999px;
+  color: var(--cc-fg-dim, #8b949e);
+  font: 10px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-paymodal-raw, .cc-paymodal-head button {
+  flex: 0 0 auto; padding: 5px 9px; border: 1px solid var(--cc-border-strong, #30363d); border-radius: 7px;
+  background: var(--cc-bg-elev, #161b22); color: var(--cc-fg, #e6edf3);
+  font: inherit; font-size: 11.5px; text-decoration: none; cursor: pointer;
+}
+.cc-paymodal-raw:hover, .cc-paymodal-head button:hover { border-color: var(--cc-accent, #1f6feb); }
+.cc-paymodal-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px; }
+.cc-paymodal-pre {
+  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--cc-fg, #e6edf3); font: 12px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-paymodal-md { font-size: 13px; }
+.cc-paymodal-img { max-width: 100%; border-radius: 9px; background: #111; }
+.cc-paymodal-loading, .cc-paymodal-error, .cc-paymodal-omitted {
+  color: var(--cc-fg-dim, #8b949e); font-size: 12px;
+}
+.cc-paymodal-error { color: var(--cc-danger-border, #b34141); }
+.cc-paymodal-rows { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cc-paymodal-row > summary {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+  padding: 3px 6px; border-radius: 5px;
+  color: var(--cc-fg-dim, #8b949e);
+  font: 11.5px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-paymodal-row > summary:hover { background: var(--cc-slash-active, #1f2937); }
+.cc-paymodal-row[open] > summary { white-space: normal; color: var(--cc-fg, #e6edf3); }
+.cc-paymodal-row > .cc-paymodal-pre { padding: 4px 6px 8px 14px; }
+
+@media (max-width: 600px) {
+  .cc-conv-head { flex-wrap: wrap; }
+  .cc-conv-search { flex: 1 1 100%; margin-left: 0; }
+  .cc-conv-hits { width: 100%; right: auto; left: 0; }
+  .cc-paymodal { padding: 0; }
+  .cc-paymodal-card { width: 100%; max-height: 100dvh; height: 100dvh; border-radius: 0; border: 0; }
+}
+@media (any-pointer: coarse) {
+  .cc-conv-searchinput { min-height: 44px; }
+  .cc-conv-hit { min-height: 44px; }
+  .cc-conv-jumped button, .cc-paymodal-raw, .cc-paymodal-head button { min-height: 44px; min-width: 44px; }
 }
 
 /* === kanban skin (override layer) === */
@@ -2871,40 +3161,6 @@ body {
 .watch .wscr .gateline { color: #8fd39a; font-weight: 700; }
 .watch .wscr .hline { color: #f0e9d8; font-weight: 700; }
 
-/* Watch tabs: Terminal (the live PTY screen) vs Log (the phase log). */
-.watch .wbar .wtabs { display: inline-flex; gap: 0; margin-right: 10px; }
-.watch .wbar .wtab {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #9fb0a7;
-  background: transparent;
-  border: 1px solid #3a453f;
-  padding: 3px 10px;
-  cursor: pointer;
-}
-.watch .wbar .wtab + .wtab { border-left: 0; }
-.watch .wbar .wtab.on { color: #101512; background: #d7e3dc; border-color: #d7e3dc; }
-
-/* The operative terminal pane: the PTY's rendered screen verbatim - fixed
-   line grid, horizontal scroll instead of wrapping (a TUI reflows badly). */
-.watch .wterm {
-  padding: 12px 14px;
-  min-height: 120px;
-  max-height: 60vh;
-  overflow: auto;
-}
-.watch .wterm pre {
-  margin: 0;
-  color: #d7e3dc;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.45;
-  white-space: pre;
-}
-.watch .wterm-empty { color: #9fb0a7; font-family: var(--mono); font-size: 11.5px; }
-
 /* ── banners — Garrison .banner (default = alarm strip; .info = paper) ── */
 .banner {
   padding: 12px 18px;
@@ -3763,19 +4019,10 @@ button:active, .btn:active { transform: translateY(1px); }
 /* Absolute file paths linkified inline in card bodies (issue #2/#4). */
 .linkified-img { display: block; margin: 6px 0; max-width: 100%; max-height: 320px; border: 1px solid var(--rule-2); background: var(--paper-2); }
 
-/* Chip variants used by the session viewer (ported from the drill fitting). */
-.chip.click { cursor: pointer; }
-.chip.sage { border-color: var(--sage-2); background: var(--sage-soft); color: var(--sage); }
-.chip.brass { border-color: var(--brass); background: var(--warn-soft); color: var(--brass); }
+/* The blocked-loadout chip. The rest of the drill-ported chip variants left with
+   the runtime-transcript tab strip they belonged to. */
 .chip.alarm { border-color: var(--alarm); background: var(--alarm-soft); color: var(--alarm); }
-.chip.ink.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 
-.dr-empty { color: var(--mute); font-size: 12px; padding: 14px; border: 1px dashed var(--rule); }
-.dr-rowwrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
-.dr-rowwrap > * { min-width: 0; }
-
-.dr-session-viewer { min-width: 0; }
-.dr-session-tabs { margin-bottom: 8px; }
 .kanban-session-host.cc-root {
   display: block;
   height: auto;
@@ -3785,6 +4032,77 @@ button:active, .btn:active { transform: translateY(1px); }
   background: var(--paper);
 }
 .kanban-session-host .cc-session-scroll { max-height: 55vh; overflow-y: auto; }
+
+/* ── the card's conversation ──────────────────────────────────────────────────
+   ConversationView renders its header, hits list and payload modal OUTSIDE
+   `.cc-root`, so the --cc-* block has to be re-pointed on BOTH roots together -
+   the seam the package documents, and the same one web-channel uses for
+   `.wc-xscript`. Pointing it at the board's own palette is what makes the
+   conversation read as part of the card rather than as a transplanted chat. */
+.conv-block { margin: 16px 0 4px; }
+.kanban-conversation {
+  height: min(60vh, 520px);
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+}
+.kanban-conversation .cc-conversation,
+.kanban-conversation .cc-root {
+  --cc-bg: var(--paper);
+  --cc-bg-elev: var(--paper-2);
+  --cc-bg-sunk: var(--paper-3);
+  --cc-fg: var(--ink);
+  --cc-fg-dim: var(--mute);
+  --cc-fg-faint: var(--mute-2);
+  --cc-border: var(--rule);
+  --cc-border-strong: var(--rule-2);
+  --cc-accent: var(--sage-2);
+  --cc-accent-fg: var(--paper);
+  --cc-user-bg: var(--sage-soft);
+  --cc-user-fg: var(--ink);
+  --cc-code-bg: var(--paper-3);
+  --cc-code-fg: var(--ink);
+  --cc-code-border: var(--rule);
+  --cc-slash-active: var(--paper-3);
+  --cc-danger-bg: var(--alarm);
+  --cc-danger-border: var(--alarm);
+  --cc-tok-kw: #a3303d; --cc-tok-str: #2f6347; --cc-tok-com: var(--mute-2);
+  --cc-tok-fn: #6b4d9a; --cc-tok-num: #2f5d86; --cc-tok-attr: #2f6347;
+}
+/* Two strips the chat carries for a live PTY, which is not what is behind a
+   conversation: its own header (a dark dossier bar whose title the package
+   already hides here, whose model/context chips never fill, and whose Raw
+   control opens an always-empty terminal pane) and the Claude Code status line
+   under the transcript, permanently reading "no status". The conversation's
+   header is the row above; the stream reports its own liveness in the body. The
+   connection probe behind the header's dot is kept and correct - it is simply
+   not drawn on this surface. */
+.kanban-conversation .cc-root > .cc-header,
+.kanban-conversation .cc-statusstrip { display: none; }
+/* A frozen card's conversation is a record, not a place to write. The transport
+   refuses the write too - this only stops the board offering a dead control.
+   Replace with ConversationView's own read-only prop once it has one. */
+.kanban-conversation.frozen .cc-composer { display: none; }
+
+.conv-rawlog {
+  flex: 0 0 auto; padding: 4px 9px; font: inherit; font-size: 11px; font-family: var(--mono);
+  letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer;
+  border: 1px solid var(--cc-border-strong); background: var(--cc-bg); color: var(--cc-fg-dim);
+}
+.conv-rawlog:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+/* The stretch ran somewhere other than the project the card names. Amber ink on
+   the amber wash, per the contrast note at the top of this file. */
+.conv-degraded {
+  flex: 0 1 auto; max-width: 100%; overflow-wrap: anywhere;
+  padding: 3px 8px; font-family: var(--mono); font-size: 11px;
+  border: 1px solid var(--warn); background: var(--warn-soft); color: var(--warn-ink);
+}
+@media (max-width: 780px) {
+  /* The header wraps to two or three rows on a phone, so the panel is given back
+     the height that costs it. The tap target follows the package's own mobile
+     floor for the controls beside it. */
+  .kanban-conversation { height: 68vh; }
+  .conv-rawlog { min-height: 44px; }
+}
 
 /* Terminal host (copied from dev-env) + the Terminal modal shell. */
 .term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }

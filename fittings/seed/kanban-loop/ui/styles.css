@@ -1014,40 +1014,6 @@ body {
 .watch .wscr .gateline { color: #8fd39a; font-weight: 700; }
 .watch .wscr .hline { color: #f0e9d8; font-weight: 700; }
 
-/* Watch tabs: Terminal (the live PTY screen) vs Log (the phase log). */
-.watch .wbar .wtabs { display: inline-flex; gap: 0; margin-right: 10px; }
-.watch .wbar .wtab {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #9fb0a7;
-  background: transparent;
-  border: 1px solid #3a453f;
-  padding: 3px 10px;
-  cursor: pointer;
-}
-.watch .wbar .wtab + .wtab { border-left: 0; }
-.watch .wbar .wtab.on { color: #101512; background: #d7e3dc; border-color: #d7e3dc; }
-
-/* The operative terminal pane: the PTY's rendered screen verbatim - fixed
-   line grid, horizontal scroll instead of wrapping (a TUI reflows badly). */
-.watch .wterm {
-  padding: 12px 14px;
-  min-height: 120px;
-  max-height: 60vh;
-  overflow: auto;
-}
-.watch .wterm pre {
-  margin: 0;
-  color: #d7e3dc;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.45;
-  white-space: pre;
-}
-.watch .wterm-empty { color: #9fb0a7; font-family: var(--mono); font-size: 11.5px; }
-
 /* ── banners — Garrison .banner (default = alarm strip; .info = paper) ── */
 .banner {
   padding: 12px 18px;
@@ -1906,19 +1872,10 @@ button:active, .btn:active { transform: translateY(1px); }
 /* Absolute file paths linkified inline in card bodies (issue #2/#4). */
 .linkified-img { display: block; margin: 6px 0; max-width: 100%; max-height: 320px; border: 1px solid var(--rule-2); background: var(--paper-2); }
 
-/* Chip variants used by the session viewer (ported from the drill fitting). */
-.chip.click { cursor: pointer; }
-.chip.sage { border-color: var(--sage-2); background: var(--sage-soft); color: var(--sage); }
-.chip.brass { border-color: var(--brass); background: var(--warn-soft); color: var(--brass); }
+/* The blocked-loadout chip. The rest of the drill-ported chip variants left with
+   the runtime-transcript tab strip they belonged to. */
 .chip.alarm { border-color: var(--alarm); background: var(--alarm-soft); color: var(--alarm); }
-.chip.ink.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 
-.dr-empty { color: var(--mute); font-size: 12px; padding: 14px; border: 1px dashed var(--rule); }
-.dr-rowwrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
-.dr-rowwrap > * { min-width: 0; }
-
-.dr-session-viewer { min-width: 0; }
-.dr-session-tabs { margin-bottom: 8px; }
 .kanban-session-host.cc-root {
   display: block;
   height: auto;
@@ -1928,6 +1885,77 @@ button:active, .btn:active { transform: translateY(1px); }
   background: var(--paper);
 }
 .kanban-session-host .cc-session-scroll { max-height: 55vh; overflow-y: auto; }
+
+/* ── the card's conversation ──────────────────────────────────────────────────
+   ConversationView renders its header, hits list and payload modal OUTSIDE
+   `.cc-root`, so the --cc-* block has to be re-pointed on BOTH roots together -
+   the seam the package documents, and the same one web-channel uses for
+   `.wc-xscript`. Pointing it at the board's own palette is what makes the
+   conversation read as part of the card rather than as a transplanted chat. */
+.conv-block { margin: 16px 0 4px; }
+.kanban-conversation {
+  height: min(60vh, 520px);
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+}
+.kanban-conversation .cc-conversation,
+.kanban-conversation .cc-root {
+  --cc-bg: var(--paper);
+  --cc-bg-elev: var(--paper-2);
+  --cc-bg-sunk: var(--paper-3);
+  --cc-fg: var(--ink);
+  --cc-fg-dim: var(--mute);
+  --cc-fg-faint: var(--mute-2);
+  --cc-border: var(--rule);
+  --cc-border-strong: var(--rule-2);
+  --cc-accent: var(--sage-2);
+  --cc-accent-fg: var(--paper);
+  --cc-user-bg: var(--sage-soft);
+  --cc-user-fg: var(--ink);
+  --cc-code-bg: var(--paper-3);
+  --cc-code-fg: var(--ink);
+  --cc-code-border: var(--rule);
+  --cc-slash-active: var(--paper-3);
+  --cc-danger-bg: var(--alarm);
+  --cc-danger-border: var(--alarm);
+  --cc-tok-kw: #a3303d; --cc-tok-str: #2f6347; --cc-tok-com: var(--mute-2);
+  --cc-tok-fn: #6b4d9a; --cc-tok-num: #2f5d86; --cc-tok-attr: #2f6347;
+}
+/* Two strips the chat carries for a live PTY, which is not what is behind a
+   conversation: its own header (a dark dossier bar whose title the package
+   already hides here, whose model/context chips never fill, and whose Raw
+   control opens an always-empty terminal pane) and the Claude Code status line
+   under the transcript, permanently reading "no status". The conversation's
+   header is the row above; the stream reports its own liveness in the body. The
+   connection probe behind the header's dot is kept and correct - it is simply
+   not drawn on this surface. */
+.kanban-conversation .cc-root > .cc-header,
+.kanban-conversation .cc-statusstrip { display: none; }
+/* A frozen card's conversation is a record, not a place to write. The transport
+   refuses the write too - this only stops the board offering a dead control.
+   Replace with ConversationView's own read-only prop once it has one. */
+.kanban-conversation.frozen .cc-composer { display: none; }
+
+.conv-rawlog {
+  flex: 0 0 auto; padding: 4px 9px; font: inherit; font-size: 11px; font-family: var(--mono);
+  letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer;
+  border: 1px solid var(--cc-border-strong); background: var(--cc-bg); color: var(--cc-fg-dim);
+}
+.conv-rawlog:hover { color: var(--cc-fg); border-color: var(--cc-accent); }
+/* The stretch ran somewhere other than the project the card names. Amber ink on
+   the amber wash, per the contrast note at the top of this file. */
+.conv-degraded {
+  flex: 0 1 auto; max-width: 100%; overflow-wrap: anywhere;
+  padding: 3px 8px; font-family: var(--mono); font-size: 11px;
+  border: 1px solid var(--warn); background: var(--warn-soft); color: var(--warn-ink);
+}
+@media (max-width: 780px) {
+  /* The header wraps to two or three rows on a phone, so the panel is given back
+     the height that costs it. The tap target follows the package's own mobile
+     floor for the controls beside it. */
+  .kanban-conversation { height: 68vh; }
+  .conv-rawlog { min-height: 44px; }
+}
 
 /* Terminal host (copied from dev-env) + the Terminal modal shell. */
 .term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }

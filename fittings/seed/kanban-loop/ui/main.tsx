@@ -1,13 +1,13 @@
 // Kanban Loop board UI — responsive, phone-first (the v4 wireframe is the spec).
 // Lists are columns in a horizontally-scrollable board; each card front shows
 // title, project chip, list, iter N/cap, goalMode and the actions:
-// Start/Advance · Move · Watch. Clicking the card body opens its detail sheet
-// (the decision-10 LINKS: plan, brief, sessions, gate markers, screenshots, video)
-// + the small decision log;
-// the card LINKS its artifacts, never inlines their bodies (FINDING 10). Watch
-// streams the card's log over SSE for a live run, opens the web chat for an
-// interactive list (Discuss), or shows the linked static logs when nothing is
-// live — it never tmux-attaches (the pooled gateway operative is raw node-pty).
+// Start/Advance · Move · Raw log. Clicking the card body opens its detail sheet,
+// whose body is the card's CONVERSATION - the append-only ledger every stretch
+// wrote, with the composer that writes the next message into it - plus the
+// decision-10 LINKS (plan, brief, transcripts, gate markers, screenshots, video)
+// and the small decision log; the card LINKS its artifacts, never inlines their
+// bodies (FINDING 10). Under the conversation sits the raw layer: the card's
+// phase log over SSE, in its own sheet - it never tmux-attaches.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MutableRefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -78,6 +78,7 @@ import {
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
+import { CardConversation } from "./card-conversation";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
 import { deriveMoveTargets, isManualImportTarget } from "./move-targets";
@@ -94,12 +95,6 @@ import {
   DRAG_HOLD_TOLERANCE_TOUCH,
   shouldActivateDrag
 } from "./drag-activation";
-// The Discuss URL contract is shared with the server (pure builder, no node
-// imports — see scripts/discuss.mjs). The board hands the generic web channel
-// the card as an OPAQUE context blob; the Discuss duty reads it.
-// @ts-expect-error — plain ESM .mjs sibling, no .d.ts; esbuild bundles it.
-import { buildDiscussUrl } from "../scripts/discuss.mjs";
-
 const ITERATION_CAP = 10;
 
 // localPort → HTTPS tailnet URL, fetched once from the same-origin /host-map
@@ -712,15 +707,15 @@ function CardActions({
           <MoveIcon /> <span className="btn-label">Move</span>
         </button>
       )}
-      {/* Discuss opens a thread pinned to the Discuss duty; other lists expose Watch. */}
+      {/* Discuss opens the card ON its conversation; other lists expose the raw log. */}
       {list.interactive ? (
-        <button className="btn small primary" title="open a Discuss-duty conversation seeded with this card" onClick={() => h.onDiscuss(card)}>
+        <button className="btn small primary" title="open this card's conversation" onClick={() => h.onDiscuss(card)}>
           <ChatIcon /> <span className="btn-label">Discuss</span>
         </button>
       ) : (
         <>
-          <button className="btn small" title="watch this card's live log" onClick={() => h.onWatch(card)}>
-            <WatchIcon /> <span className="btn-label">Watch</span>
+          <button className="btn small" title="this card's raw phase log, live while it runs" onClick={() => h.onWatch(card)}>
+            <WatchIcon /> <span className="btn-label">Raw log</span>
           </button>
           {/* Terminal opens in the card's real project, or in the dedicated
               personal workspace when a personal card has no project. */}
@@ -2391,12 +2386,68 @@ function Section({ title, defaultOpen = false, tone, badge, children }: {
   );
 }
 
-function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers }) {
+/**
+ * One runtime transcript, opened from a stretch's `transcript` badge. The badge
+ * carries the runtime's own id; the card's recorded transcripts are addressed by
+ * POSITION, so an id the card has not recorded yet is reported as exactly that
+ * rather than resolved to whichever transcript happens to be nearest.
+ */
+function RuntimeTranscriptModal({
+  cardId,
+  sessionId,
+  index,
+  onClose
+}: {
+  cardId: string;
+  sessionId: string;
+  index: number;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const label = `Runtime transcript ${index >= 0 ? index + 1 : ""}`.trim();
+  return (
+    <div className="art-scrim" onClick={onClose}>
+      <div className="art-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={label}>
+        <div className="art-head">
+          <span className="art-title">{label}</span>
+          <span className="art-tag">{sessionId.slice(0, 12)}</span>
+          <span className="art-spacer" />
+          <button type="button" className="art-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="art-body">
+          {index >= 0 ? (
+            <div className="kanban-session-host cc-root" data-theme="light">
+              <SharedSessionStream
+                url={`/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`}
+                live={false}
+                title={label}
+              />
+            </div>
+          ) : (
+            <p className="muted">
+              This card has not recorded a transcript for {sessionId} - the runtime writes it when the stretch ends.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions, focus, readOnly = false }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers; focus?: "conversation"; readOnly?: boolean }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [openArt, setOpenArt] = useState<ArtifactRef | null>(null);
+  // A stretch's runtime-transcript badge opens the card's own transcript stream;
+  // `conversationRef` is where Discuss lands when it opens the card.
+  const [openTranscript, setOpenTranscript] = useState<{ sessionId: string; index: number } | null>(null);
+  const conversationRef = useRef<HTMLDivElement | null>(null);
   // S2 (Q7): abandonment + revert action state — separate from the delete flow.
   const [abandoning, setAbandoning] = useState(false);
   const [reverting, setReverting] = useState(false);
@@ -2460,6 +2511,18 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
 
   useEffect(() => { setProjectDraft(null); }, [cardId]);
   useEffect(() => { setRoutingDraft(null); }, [cardId]);
+  // Discuss opens the card ON its conversation: scroll the surface into view and
+  // put the caret in the composer, so the thing the user asked for is the thing
+  // under the cursor. Waits for the first detail load - the surface is not
+  // mounted before it.
+  useEffect(() => {
+    if (focus !== "conversation" || !detail?.card.conversationId) return;
+    const host = conversationRef.current;
+    if (!host) return;
+    host.scrollIntoView({ block: "nearest" });
+    host.querySelector("textarea")?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, detail?.card.conversationId]);
   useEffect(() => { setPlacementDraft("host"); }, [cardId]);
   useEffect(() => {
     let alive = true;
@@ -2865,10 +2928,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   // Schedule / checklist / attachments are benign and stay editable.
   const cardList = board?.lists.find((l) => l.id === card.list) ?? null;
   const lockedCard = Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
+  // A conversation-linked card shows its CONVERSATION here: the ledger carries
+  // the evidence refs a stretch's handoff had to prove, so a second Evidence
+  // block would be the same facts one layer thinner. A legacy card - one frozen
+  // before the conversations pivot, so with no ledger to read - keeps the runDir
+  // evidence block, which is the only proof it has.
+  const conversationId = card.conversationId ?? null;
   // Evidence is expected from Walkthrough onward — so at those stages we show the
   // Evidence section even when empty, surfacing the GAP (the user looks here for proof).
   const evidence = links.evidence ?? [];
-  const showEvidence = evidence.length > 0 || ["walkthrough", "validate", "done"].includes(card.list);
+  const showEvidence = !conversationId &&
+    (evidence.length > 0 || ["walkthrough", "validate", "done"].includes(card.list));
   // The description body without the ClaudeChat attachment block (which renders in
   // its own Attachments section below).
   const descBody = card.description ? stripAttachmentBlock(card.description) : "";
@@ -2924,9 +2994,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             <WrenchIcon /> Rename
           </button>
         )}
-        <button className="btn small" onClick={() => onWatch?.(card)}>
-          <WatchIcon /> Watch (Log)
-        </button>
+        {/* A conversation card reaches its raw phase log from the conversation
+            header instead, where the rest of that surface's controls live. */}
+        {!conversationId && (
+          <button className="btn small" onClick={() => onWatch?.(card)}>
+            <WatchIcon /> Raw log
+          </button>
+        )}
         {(card.project || card.scope === "personal") && (
           <button className="btn small" onClick={() => onTerminal?.(card)}>
             <TerminalIcon /> Terminal
@@ -3468,6 +3542,25 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         </div>
       )}
 
+      {/* THE CONVERSATION - the card's own thread: every stretch that ran, every
+          handoff and delegation it recorded, and the composer that writes the next
+          message into it. One id, one record: the conversation is the card. */}
+      {conversationId && (
+        <div className="conv-block" ref={conversationRef}>
+          <CardConversation
+            conversationId={conversationId}
+            title={card.title}
+            generation={`${card.rev}:${card.status}`}
+            frozen={readOnly}
+            onRawLog={() => onWatch?.(card)}
+            onOpenRuntimeTranscript={(sessionId) => setOpenTranscript({
+              sessionId,
+              index: (card.sessionIds ?? []).indexOf(sessionId)
+            })}
+          />
+        </div>
+      )}
+
       {/* EVIDENCE — the tangible proof the pipeline leaves at the late stages: a
           screenshot for anything visual, an evidence.md log for backend/static changes.
           Always shown from Walkthrough onward (even empty, so a missing-evidence GAP is
@@ -3549,6 +3642,14 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           attachments (outside History) also open it, so a collapsed History section
           must never unmount the overlay. */}
       {openArt && <ArtifactModal cardId={card.id} art={openArt} onClose={() => setOpenArt(null)} />}
+      {openTranscript && (
+        <RuntimeTranscriptModal
+          cardId={card.id}
+          sessionId={openTranscript.sessionId}
+          index={openTranscript.index}
+          onClose={() => setOpenTranscript(null)}
+        />
+      )}
 
       {/* The same action row the card front carries, at the bottom of the opened
           card - so everything you can do to a card is reachable from wherever you
@@ -3627,88 +3728,6 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   );
 }
 
-// Rich activity uses @garrison/claude-chat's canonical SessionStream — the same
-// renderer as Web Channel (grouped turns, live tool progress, screenshot modal,
-// related tasks and retry). This wrapper only supplies card-scoped stream URLs
-// and the historical/live session picker.
-function SessionViewer({
-  cardId,
-  sessionIds,
-  live,
-  dispatch,
-  dispatchRuns
-}: {
-  cardId: string;
-  sessionIds: string[];
-  live: boolean;
-  dispatch: CardSummary["dispatch"];
-  dispatchRuns: NonNullable<CardSummary["dispatchRuns"]>;
-}) {
-  const recordedRunIds = new Set(dispatchRuns.map((run) => run.runId));
-  const remoteEntries = dispatchRuns.map((run, index) => ({
-    key: `outpost-${run.runId}`,
-    label: `Remote ${index + 1}${run.phase ? ` · ${run.phase}` : ""}${run.machine ? ` · ${run.machine}` : ""}`,
-    url: `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(run.runId)}`,
-    live: false
-  }));
-  if (dispatch?.runId && !recordedRunIds.has(dispatch.runId)) {
-    const dispatchLive = live && ["claimed", "running", "cancelling"].includes(dispatch.state);
-    remoteEntries.push({
-      key: `outpost-${dispatch.runId}`,
-      label: dispatchLive ? "Live · Remote" : `Remote run${dispatch.phase ? ` · ${dispatch.phase}` : ""}`,
-      url: dispatchLive
-        ? `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`
-        : `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(dispatch.runId)}`,
-      live: dispatchLive
-    });
-  }
-  const entries = [
-    ...sessionIds.map((_sessionId, index) => ({ key: `history-${index}`, label: `Transcript ${index + 1}`, url: `/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`, live: false })),
-    ...remoteEntries,
-    ...(!dispatch?.runId && live
-      ? [{ key: "live", label: "Live", url: `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`, live: true }]
-      : [])
-  ];
-  const count = entries.length;
-  const [selected, setSelected] = useState<number>(count > 0 ? count - 1 : 0);
-  useEffect(() => {
-    // Default to the most-recent session; re-clamp if the count shrinks.
-    setSelected((cur) => (cur >= 0 && cur < count ? cur : Math.max(0, count - 1)));
-  }, [count]);
-  if (count === 0) {
-    return <div className="dr-empty">No runtime transcript yet for this card — use the Raw tab for its phase log.</div>;
-  }
-  return (
-    <div className="dr-session-viewer">
-      {count > 1 && (
-        <div className="dr-rowwrap dr-session-tabs" role="tablist" aria-label="Runtime transcripts">
-          {entries.map((entry, index) => (
-            <button
-              key={entry.key}
-              role="tab"
-              aria-selected={selected === index}
-              className={"chip click" + (selected === index ? " ink active" : "")}
-              onClick={() => setSelected(index)}
-            >
-              {entry.label}
-            </button>
-          ))}
-        </div>
-      )}
-      {entries[selected] && (
-        <div className="kanban-session-host cc-root" data-theme="light">
-          <SharedSessionStream
-            key={entries[selected].key}
-            url={entries[selected].url}
-            live={entries[selected].live}
-            title={entries[selected].label === "Live" ? "Live activity" : entries[selected].label}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── terminal modal — interactive shell PTY at the card's project cwd ─────────
 // A real terminal (xterm + node-pty over /io) opened in the card's project, PLUS
 // a read-only "operative screen" pane shown ONLY when the gateway reports a live
@@ -3758,11 +3777,11 @@ function TerminalModal({ card, onClose }: { card: CardSummary; onClose: () => vo
   );
 }
 
-// ── watch sheet — rich Log (session transcript) primary, Raw phase log fallback ─
-// The Log tab renders the operative's rich session transcript(s); the Raw tab
-// keeps the card's phase log over SSE (the fallback for cards with no session
-// yet). The live operative TERMINAL moved to its own Terminal modal. The
-// Interactive Discuss uses its duty-pinned conversation instead.
+// ── raw log sheet - the card's phase log over SSE ────────────────────────────
+// The rich account of what happened lives in the card's conversation (the opened
+// card renders it); this sheet is the RAW layer under it - the phase log the run
+// wrote line by line, plus the Panic control for a card that has to be stopped.
+// The interactive TERMINAL has its own modal.
 function WatchSheet({
   card,
   onClose,
@@ -3774,12 +3793,6 @@ function WatchSheet({
   onChanged: () => void;
   onReviewRouting: () => void;
 }) {
-  const hasRemoteReplay = Boolean(card.dispatch?.runId || card.dispatchRuns?.length);
-  const hasSession = card.status === "running" || hasRemoteReplay || (card.sessionIds?.length ?? 0) > 0;
-  // Default to the rich Log (session transcript) when the card has a session;
-  // otherwise the Raw phase log. The live operative TERMINAL moved to its own
-  // Terminal modal.
-  const [tab, setTab] = useState<"session" | "raw">(hasSession ? "session" : "raw");
   const [lines, setLines] = useState<string>("");
   const [live, setLive] = useState<boolean | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -3832,7 +3845,7 @@ function WatchSheet({
 
   useEffect(() => {
     if (scrRef.current) scrRef.current.scrollTop = scrRef.current.scrollHeight;
-  }, [lines, tab]);
+  }, [lines]);
 
   // Log formatting: markdown-ish headers, gate verdicts and the Adv-Review
   // "CODEX CALL" line (FINDING 6) get their own styling so a phase log reads
@@ -3846,7 +3859,7 @@ function WatchSheet({
   });
 
   return (
-    <Sheet title={`Watch: ${card.title}`} onClose={onClose} size="wide">
+    <Sheet title={`Raw log: ${card.title}`} onClose={onClose} size="wide">
       {card.status === "needs-attention" && card.attentionReason && (
         <div className="state-callout parked" style={{ marginTop: 0 }}>{card.attentionReason}</div>
       )}
@@ -3870,34 +3883,16 @@ function WatchSheet({
       {panicError && <div className="dispatch-err panic-error">{remoteRun ? "Stop & reroute" : "Panic"} did not stop anything: {panicError}</div>}
       <div className="watch">
         <div className="wbar">
-          <span className="wtabs">
-            <button className={`wtab${tab === "session" ? " on" : ""}`} onClick={() => setTab("session")}
-              title="this card's runtime transcript">Log</button>
-            <button className={`wtab${tab === "raw" ? " on" : ""}`} onClick={() => setTab("raw")}
-              title="this card's raw phase log">Raw</button>
-          </span>
           card {card.id.slice(0, 6)} · {card.list}
-          {tab === "raw" && (
-            <span className={`live${live ? "" : " off"}`}>
-              {live === null ? "connecting…" : live ? "live" : "static logs"}
-            </span>
-          )}
+          <span className={`live${live ? "" : " off"}`}>
+            {live === null ? "connecting…" : live ? "live" : "static logs"}
+          </span>
         </div>
-        {tab === "session" ? (
-          <SessionViewer
-            cardId={card.id}
-            sessionIds={card.sessionIds ?? []}
-            live={card.status === "running" && live !== false && !done}
-            dispatch={card.dispatch}
-            dispatchRuns={card.dispatchRuns ?? []}
-          />
-        ) : (
-          <div className="wscr" ref={scrRef}>
-            {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
-          </div>
-        )}
+        <div className="wscr" ref={scrRef}>
+          {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
+        </div>
       </div>
-      {tab === "raw" && done && (
+      {done && (
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
           stream ended: {done}
         </p>
@@ -4271,7 +4266,7 @@ function Sheet({ title, onClose, children, size = "default" }: { title: string; 
 type Overlay =
   | { kind: "new"; placement?: string }
   | { kind: "move"; card: CardSummary }
-  | { kind: "detail"; cardId: string }
+  | { kind: "detail"; cardId: string; focus?: "conversation" }
   | { kind: "watch"; card: CardSummary }
   | { kind: "terminal"; card: CardSummary }
   | { kind: "config"; listId: string }
@@ -4775,40 +4770,12 @@ function App() {
     }
   }
 
-  // Open a Discuss-duty conversation seeded with this card. buildDiscussUrl carries
-  // the card context + an auto-sent kickoff (analyse the description, ask questions,
-  // write the brief). Crossing fittings: the board runs embedded (/embed/kanban-loop),
-  // so when embedded we ask the Garrison shell to swap the embedded view (its
-  // postMessage listener); standalone we navigate directly. The channel id is
-  // discovered at runtime (not hardcoded) so a non-default web channel works too.
-  async function onDiscuss(card: CardSummary) {
-    const channelId = runtime?.webChannelEmbedId ?? null;
-    if (!channelId) {
-      setNotice("No web channel is installed/running — install/start a web channel fitting to use Discuss.");
-      return;
-    }
-    // The board summary carries checklist COUNTS, not the items - and a card's
-    // real content is often the checklist (an empty description with six items
-    // opened a Discuss that said "the card is just a title"). Pull the detail so
-    // the kickoff can carry what the card actually says; a failed fetch still
-    // opens the conversation with what the board already has.
-    let seed: CardSummary & { checklist?: ChecklistItem[] } = card;
-    try {
-      const detail = await api.card(card.id);
-      seed = { ...card, ...detail.card, checklist: detail.checklist ?? [] };
-    } catch {
-      /* offline/board hiccup - discuss with the summary rather than not at all */
-    }
-    const chatHref = buildDiscussUrl(seed, { webChannelBase: `/embed/${channelId}`, cardsAbsDir: runtime?.cardsAbsDir ?? null });
-    const u = new URL(chatHref, window.location.origin);
-    const fittingId = u.pathname.split("/").filter(Boolean).pop() || channelId;
-    const params: Record<string, string> = {};
-    u.searchParams.forEach((v, k) => { params[k] = v; });
-    if (window.top && window.top !== window.self) {
-      window.top.postMessage({ type: "garrison:navigate-fitting", fittingId, params }, "*");
-    } else {
-      window.location.href = chatHref;
-    }
+  // Talking about a card IS its conversation now, so this no longer navigates to
+  // a separate chat surface seeded with a copy of the card: it opens the card and
+  // lands on the ledger the card already has. A card whose first stretch has not
+  // run yet still opens - the surface appears the moment a conversation exists.
+  function onDiscuss(card: CardSummary) {
+    setOverlay({ kind: "detail", cardId: card.id, focus: "conversation" });
   }
 
   // Apply a card's prepared revert (S2, Q7). A guarded, deliberate press: a native
@@ -5232,6 +5199,7 @@ function App() {
           key={overlay.cardId}
           cardId={overlay.cardId}
           board={board}
+          focus={overlay.focus}
           onClose={closeCardOverlay}
           onChanged={() => void load()}
           onWatch={(c) => setOverlay({ kind: "watch", card: c })}

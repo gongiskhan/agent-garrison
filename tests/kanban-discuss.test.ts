@@ -493,9 +493,16 @@ describe("kanban discuss — the card's checklist is part of what it says", () =
     expect(JSON.parse(Buffer.from(decodeURIComponent(bareCtx), "base64").toString("utf8"))).not.toHaveProperty("checklist");
   });
 
-  it("is wired to the board: Discuss pulls the DETAIL, since the summary has only counts", () => {
+  // The board no longer navigates anywhere to discuss a card. Discussion IS the
+  // card's conversation, so Discuss opens the card ON that surface - no seeded
+  // copy of the card, no cross-fitting hop, nothing to keep in sync. The builders
+  // above still stand on their own (the URL contract is shared with the server
+  // and with the web channel's context decode), but the BOARD has stopped calling
+  // them, and this is the case that says so.
+  it("is wired to the board: Discuss opens the card on its conversation, and navigates nowhere", () => {
     const main = readFileSync(new URL("../fittings/seed/kanban-loop/ui/main.tsx", import.meta.url), "utf8");
-    expect(main).toContain("const detail = await api.card(card.id);");
-    expect(main).toContain("checklist: detail.checklist ?? []");
+    expect(main).toContain('setOverlay({ kind: "detail", cardId: card.id, focus: "conversation" });');
+    expect(main).not.toContain("buildDiscussUrl");
+    expect(main).not.toContain("garrison:navigate-fitting");
   });
 });
