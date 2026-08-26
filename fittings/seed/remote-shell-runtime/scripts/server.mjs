@@ -256,10 +256,21 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (req.method === "POST" && pathname === "/sessions") {
         const body = await readJsonBody(req);
         const session = await manager.start(String(body.transport || ""), {
-          label: body.label,
-          recycle: body.recycle === true
+          label: typeof body.label === "string" ? body.label : undefined,
+          recycle: body.recycle === true,
+          // The multi-session spec: a named tmux session in a chosen project
+          // folder. Absent, this is the transport's standing session as ever.
+          tmuxSession: typeof body.tmuxSession === "string" && body.tmuxSession.trim() ? body.tmuxSession.trim() : null,
+          cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null
         });
         return jsonRes(res, 200, { session: manager.summary(session) });
+      }
+
+      // The spawn targets the Shells picker offers: folders under ~/dev on the
+      // transport, annotated with any session already working there.
+      if (req.method === "GET" && pathname === "/projects") {
+        const projects = await manager.listProjects(String(query.transport || ""));
+        return jsonRes(res, 200, { projects });
       }
 
       const m = pathname?.match(/^\/sessions\/([A-Za-z0-9-]+)(\/.*)?$/);
@@ -319,7 +330,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           return jsonRes(res, 200, { ok: true });
         }
         if (req.method === "DELETE" && rest === "") {
-          await manager.remove(session.id);
+          await manager.remove(session.id, { killRemote: query.kill === "1" });
           return jsonRes(res, 200, { ok: true });
         }
       }

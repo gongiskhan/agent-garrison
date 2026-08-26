@@ -57,6 +57,25 @@ function sessionsFile() {
 
 const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
+// A remote cwd from the UI: ~-relative or absolute, one line, no control
+// bytes. shellQuote/remotePath contain injection; this contains nonsense.
+function cleanRemoteCwd(raw) {
+  const p = String(raw ?? "").trim();
+  if (!p || p.length > 300 || /[\n\r\0]/.test(p)) return null;
+  if (!p.startsWith("~/") && !p.startsWith("/") && p !== "~") return null;
+  return p.replace(/\/+$/, "") || "/";
+}
+
+// Events attribution across MULTIPLE sessions on one transport: the hook now
+// stamps the agent's cwd into every event, and ~-vs-absolute must not break
+// the match. "~/dev/x" and "/home/anyone/dev/x" both normalize to "/dev/x".
+function normCwd(raw) {
+  return String(raw ?? "")
+    .replace(/^~(?=\/|$)/, "")
+    .replace(/^\/home\/[^/]+(?=\/|$)/, "")
+    .replace(/\/+$/, "") || "/";
+}
+
 // Remote paths configured as ~/... must expand on the REMOTE shell — a
 // single-quoted tilde never does, so `tail -F '~/x'` follows a nonexistent
 // literal path forever, silently. Splice in an unquoted "$HOME" instead.
@@ -121,6 +140,25 @@ const FANOUT_FLUSH_MS = 40;
 // A stalled pulse would otherwise let the remote byte file grow without bound.
 const PANE_BYTES_CEILING = 64 * 1024 * 1024;
 
+// The lifecycle hook the fitting maintains at ~/.garrison/agent-event-hook.sh
+// on every transport. It gained "cwd" the day one transport stopped meaning
+// one session: without it, every session on a machine flips running/idle on
+// every other session's events. Content-addressed write: one exec per fitting
+// process per transport, and only when the bytes differ.
+export const REMOTE_EVENT_HOOK = `#!/usr/bin/env bash
+# Append one JSON line per agent lifecycle event to a local file.
+# $1 = event name (agent-start | agent-stop). Never makes network calls.
+# Maintained by Garrison's remote-shell fitting - local edits are overwritten.
+event="\${1:-agent-stop}"
+input=$(cat 2>/dev/null || true)
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+sid=$(printf '%s' "$input" | grep -oE '"(conversation_id|session_id|chat_id)"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\\1/')
+cwd=$(printf '%s' "$input" | grep -oE '"(cwd|workspace_root|workspacePath)"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\\1/')
+[ -z "$cwd" ] && cwd="$PWD"
+printf '{"ts":"%s","event":"%s","session_id":"%s","cwd":"%s"}\\n' "$ts" "$event" "\${sid:-unknown}" "$cwd" >> ~/.garrison/events.jsonl
+exit 0
+`;
+
 export class SessionManager {
   constructor({ tunnels, transports, notify, exec = sshExec, ptySpawn = null, env = process.env }) {
     this.tunnels = tunnels;
@@ -134,6 +172,62 @@ export class SessionManager {
     this.attachBudgetBytes = (Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_ATTACH_BUDGET_MB) * 1024 * 1024;
     this.sessions = new Map(); // id -> record
     this.subscribers = new Map(); // id -> Set<ws-like {send}>
+  }
+
+  // ── Remote lifecycle hook upkeep ─────────────────────────────────────────
+
+  /** Write REMOTE_EVENT_HOOK to the transport if the bytes differ. Once per
+   *  fitting process per transport - the hook is part of this fitting's
+   *  contract with the remote, not a manual install step someone remembers. */
+  async #ensureRemoteHook(transport) {
+    this.hookEnsured ??= new Set();
+    if (this.hookEnsured.has(transport.name)) return;
+    this.hookEnsured.add(transport.name);
+    const r = await this.#exec(
+      transport,
+      `mkdir -p "$HOME/.garrison" && cat > "$HOME/.garrison/.agent-event-hook.next" && ` +
+        `if cmp -s "$HOME/.garrison/.agent-event-hook.next" "$HOME/.garrison/agent-event-hook.sh" 2>/dev/null; then ` +
+        `rm -f "$HOME/.garrison/.agent-event-hook.next"; echo SAME; else ` +
+        `mv "$HOME/.garrison/.agent-event-hook.next" "$HOME/.garrison/agent-event-hook.sh" && ` +
+        `chmod +x "$HOME/.garrison/agent-event-hook.sh" && echo UPDATED; fi`,
+      { input: REMOTE_EVENT_HOOK }
+    ).catch(() => null);
+    if (r?.stdout?.includes("UPDATED")) {
+      console.log(`[remote-shell] lifecycle hook updated on ${transport.name}`);
+    } else if (!r || r.code !== 0) {
+      // Non-fatal: the old hook still reports events, only without cwd.
+      this.hookEnsured.delete(transport.name);
+    }
+  }
+
+  // ── Remote project listing ───────────────────────────────────────────────
+
+  /** Folders under ~/dev on the transport - the spawn targets the picker
+   *  offers. Ordinary exec, no cache: one ls per modal open is cheaper than
+   *  one staleness bug. */
+  async listProjects(transportName) {
+    const transport = this.transports.get(transportName);
+    if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
+    const tunnel = await this.tunnels.ensure(transport);
+    if (!tunnel.ok) throw new HttpError(502, tunnel.error);
+    const r = await this.#exec(
+      transport,
+      `for d in "$HOME"/dev/*/ ; do [ -d "$d" ] && printf '%s\n' "$d"; done`
+    );
+    if (r.code !== 0) {
+      throw new HttpError(502, `cannot list projects on ${transport.name}: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
+    }
+    const bySession = new Map(
+      [...this.sessions.values()]
+        .filter((x) => x.transport.name === transportName && x.cwd)
+        .map((x) => [normCwd(x.cwd), x])
+    );
+    return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean).map((abs) => {
+      const name = abs.replace(/\/+$/, "").split("/").pop() ?? abs;
+      const home = `~/dev/${name}`;
+      const live = bySession.get(normCwd(home));
+      return { name, path: home, sessionId: live?.id ?? null, state: live?.state ?? null };
+    }).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // ── The one ssh choke point ───────────────────────────────────────────────
@@ -164,6 +258,7 @@ export class SessionManager {
       id: s.id,
       transport: s.transport.name,
       tmuxSession: s.tmuxSession,
+      cwd: s.cwd ?? null,
       label: s.label,
       createdAt: s.createdAt,
       state: s.state === "running" ? "running" : "idle",
@@ -187,6 +282,7 @@ export class SessionManager {
         id: row.id,
         transport,
         tmuxSession: row.tmuxSession,
+        cwd: typeof row.cwd === "string" && row.cwd ? row.cwd : transport.cwd,
         label: row.label,
         createdAt: row.createdAt,
         // ALWAYS idle, never the persisted `running`. activeTurn is not
@@ -223,6 +319,7 @@ export class SessionManager {
       transport: s.transport.name,
       label: s.label,
       tmuxSession: s.tmuxSession,
+      cwd: s.cwd ?? null,
       state: s.state,
       createdAt: s.createdAt,
       lastEventAt: s.lastEventAt,
@@ -269,29 +366,45 @@ export class SessionManager {
    * Start (or re-attach) the session for a transport. Idempotent per
    * (transport, tmuxSession): an existing record is revived in place.
    */
-  async start(transportName, { label, recycle = false } = {}) {
+  async start(transportName, { label, recycle = false, tmuxSession = null, cwd = null } = {}) {
     const transport = this.transports.get(transportName);
     if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
+
+    // A transport is a MACHINE, not a session: any project folder on it can
+    // host its own tmux session + agent. The default (no spec) remains the
+    // transport's standing session, so every existing thread keeps working.
+    const sessName = tmuxSession
+      ? String(tmuxSession).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)
+      : transport.tmuxSession;
+    if (!sessName) throw new HttpError(400, "empty tmux session name");
+    const sessCwd = cwd ? cleanRemoteCwd(cwd) : (sessName === transport.tmuxSession ? transport.cwd : null);
+    if (!sessCwd) throw new HttpError(400, "a custom session needs a cwd (the project folder on the remote)");
 
     const tunnel = await this.tunnels.ensure(transport);
     if (!tunnel.ok) throw new HttpError(502, tunnel.error);
 
+    await this.#ensureRemoteHook(transport);
+
     // Reachability + remote tmux session (create if missing, in the work cwd).
+    // The cwd is asserted first: `tmux new-session -c <missing>` silently falls
+    // back to $HOME, and an agent started in the wrong tree looks exactly like
+    // a working session until it edits the wrong repo.
     const ensure = await this.#exec(
       transport,
-      `tmux has-session -t ${shellQuote(transport.tmuxSession)} 2>/dev/null || ` +
-        `tmux new-session -d -s ${shellQuote(transport.tmuxSession)} -c ${remotePath(transport.cwd)} -x 220 -y 50; ` +
+      `[ -d ${remotePath(sessCwd)} ] || { echo "NO_SUCH_DIR"; exit 9; }; ` +
+      `tmux has-session -t ${shellQuote(sessName)} 2>/dev/null || ` +
+        `tmux new-session -d -s ${shellQuote(sessName)} -c ${remotePath(sessCwd)} -x 220 -y 50; ` +
         // Sizing is an explicit AUTHORITY, not an activity heuristic. With
         // `latest`, two live clients at different sizes (the web pane plus a
         // direct attach on the box) flip the window size on every answered
         // terminal query - the inline agent TUI re-renders its transcript on
         // each flip, which reads as the pane scrolling up and down forever.
         // `manual` pins the size; resize() below is the one writer.
-        `tmux set-option -t ${shellQuote(transport.tmuxSession)} -g window-size manual 2>/dev/null; ` +
+        `tmux set-option -t ${shellQuote(sessName)} -g window-size manual 2>/dev/null; ` +
         // Reap zombie viewers: a hard tunnel drop leaves the server-side sshd
         // (and so its tmux client) alive at a stale size. Anything silent for
         // an hour is not a viewer anymore.
-        `tmux list-clients -t ${shellQuote(transport.tmuxSession)} -F '#{client_tty} #{client_activity}' 2>/dev/null | ` +
+        `tmux list-clients -t ${shellQuote(sessName)} -F '#{client_tty} #{client_activity}' 2>/dev/null | ` +
         `while read tty at; do [ $(( $(date +%s) - at )) -gt 3600 ] && tmux detach-client -t "$tty" 2>/dev/null; done; ` +
         // Scrolling. The attach client is ALWAYS in the alternate screen (tmux
         // owns it), so the browser terminal has no scrollback of its own to
@@ -300,26 +413,31 @@ export class SessionManager {
         // scrolling its output. The pane's history lives in tmux, and copy-mode
         // is the only way in — which is what mouse mode binds the wheel to.
         // Session-scoped (no -g) so it stays confined to the pane we attach to.
-        `tmux set-option -t ${shellQuote(transport.tmuxSession)} mouse on 2>/dev/null; ` +
-        `tmux display-message -p -t ${shellQuote(transport.tmuxSession)} '#{pane_current_command}'`
+        `tmux set-option -t ${shellQuote(sessName)} mouse on 2>/dev/null; ` +
+        `tmux display-message -p -t ${shellQuote(sessName)} '#{pane_current_command}'`
     );
     if (ensure.code !== 0) {
+      if (ensure.stdout.includes("NO_SUCH_DIR")) {
+        throw new HttpError(400, `no such folder on ${transport.name}: ${sessCwd}`);
+      }
       throw new HttpError(502, `cannot reach ${transport.name} over ssh: ${(ensure.stderr || ensure.stdout).trim().slice(0, 400)}`);
     }
 
-    let session = this.findByTarget(transportName, transport.tmuxSession);
+    let session = this.findByTarget(transportName, sessName);
     if (!session) {
       session = this.#register({
         id: randomUUID(),
         transport,
-        tmuxSession: transport.tmuxSession,
-        label: label || transport.label,
+        tmuxSession: sessName,
+        cwd: sessCwd,
+        label: label || (sessName === transport.tmuxSession ? transport.label : sessName),
         createdAt: new Date().toISOString(),
         state: "idle",
         lastEventAt: null
       });
-    } else if (label) {
-      session.label = label;
+    } else {
+      if (label) session.label = label;
+      if (!session.cwd) session.cwd = sessCwd;
     }
 
     // If the pane is sitting at a bare shell and the transport names an agent
@@ -329,8 +447,8 @@ export class SessionManager {
     if (transport.agentCommand && bareShells.has(paneCommand)) {
       await this.#exec(
         transport,
-        `tmux send-keys -t ${shellQuote(transport.tmuxSession)} -l ${shellQuote(transport.agentCommand)} && ` +
-          `tmux send-keys -t ${shellQuote(transport.tmuxSession)} Enter`
+        `tmux send-keys -t ${shellQuote(sessName)} -l ${shellQuote(transport.agentCommand)} && ` +
+          `tmux send-keys -t ${shellQuote(sessName)} Enter`
       );
     }
 
@@ -1010,6 +1128,11 @@ export class SessionManager {
     let evt;
     try { evt = JSON.parse(trimmed); } catch { return; }
     if (!evt || typeof evt.event !== "string") return;
+    // The events file is per MACHINE and every session on it tails the same
+    // file, so an event that names a cwd belongs only to the session working
+    // there. An event without one (the pre-cwd hook) keeps the old behavior
+    // rather than going silent.
+    if (evt.cwd && session.cwd && normCwd(evt.cwd) !== normCwd(session.cwd)) return;
     session.lastEventAt = evt.ts ?? new Date().toISOString();
 
     if (evt.event === "agent-start") {
@@ -1061,10 +1184,18 @@ export class SessionManager {
 
   // ── Teardown ─────────────────────────────────────────────────────────────
 
-  /** Forget the local record. The REMOTE tmux session is never killed. */
-  async remove(id) {
+  /** Forget the local record. The remote tmux session survives by DEFAULT -
+   *  a Garrison restart must never take the agent with it - and dies only on
+   *  the explicit killRemote a human clicked (the Shells picker's Stop). */
+  async remove(id, { killRemote = false } = {}) {
     const session = this.sessions.get(id);
     if (!session) return false;
+    if (killRemote) {
+      await this.#exec(
+        session.transport,
+        `tmux kill-session -t ${shellQuote(session.tmuxSession)} 2>/dev/null; true`
+      ).catch(() => {});
+    }
     session.eventsStopped = true;
     if (session.eventsChild) { try { session.eventsChild.kill(); } catch {} }
     const armed = session.pulseArmed;

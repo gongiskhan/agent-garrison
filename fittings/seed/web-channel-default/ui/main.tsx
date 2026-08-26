@@ -35,6 +35,7 @@ import { createOrchestratorTransport } from "./orchestrator-transport";
 import { VoiceConversation } from "./voice-conversation";
 import { RemoteShellWorkbench } from "./remote-shell-workbench";
 import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail";
+import { ShellsModal, slugForProject, type ShellOpenSpec } from "./shells-modal";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -1001,10 +1002,23 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // the context object's identity) every tick — an object here would retrigger
   // the attach effect below each poll, tearing down and re-creating the
   // session/WS ten times a minute with a visible pane gap during each POST.
-  const activeRshTransport = useMemo(() => {
-    const ctx = activeThread?.context as { remoteShell?: { transport?: unknown } } | undefined;
-    return typeof ctx?.remoteShell?.transport === "string" ? ctx.remoteShell.transport : null;
+  // The full session spec off the thread context, as a STRING: the 10s idle
+  // poll replaces the context object every tick, and an object key here would
+  // re-run the attach effect (and its POST) ten times a minute.
+  const activeRshSpecJson = useMemo(() => {
+    const rs = (activeThread?.context as { remoteShell?: { transport?: unknown; tmuxSession?: unknown; cwd?: unknown; label?: unknown } } | undefined)?.remoteShell;
+    if (!rs || typeof rs.transport !== "string") return null;
+    return JSON.stringify({
+      transport: rs.transport,
+      tmuxSession: typeof rs.tmuxSession === "string" ? rs.tmuxSession : null,
+      cwd: typeof rs.cwd === "string" ? rs.cwd : null,
+      label: typeof rs.label === "string" ? rs.label : null
+    });
   }, [activeThread?.context]);
+  const activeRshTransport = useMemo(
+    () => (activeRshSpecJson ? (JSON.parse(activeRshSpecJson) as { transport: string }).transport : null),
+    [activeRshSpecJson]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -1020,12 +1034,18 @@ function ThreadedApp({ url }: { url: UrlState }) {
   useEffect(() => {
     setRshSessionId(null);
     setRshError(null);
-    if (!activeRshTransport) return;
+    if (!activeRshSpecJson) return;
+    const spec = JSON.parse(activeRshSpecJson) as { transport: string; tmuxSession: string | null; cwd: string | null; label: string | null };
     let alive = true;
     void fetch("/api/remote-shell/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ transport: activeRshTransport })
+      body: JSON.stringify({
+        transport: spec.transport,
+        ...(spec.tmuxSession ? { tmuxSession: spec.tmuxSession } : {}),
+        ...(spec.cwd ? { cwd: spec.cwd } : {}),
+        ...(spec.label ? { label: spec.label } : {})
+      })
     })
       .then(async (r) => {
         const data = await r.json().catch(() => ({}));
@@ -1035,7 +1055,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
       })
       .catch((err) => { if (alive) setRshError(err instanceof Error ? err.message : String(err)); });
     return () => { alive = false; };
-  }, [activeRshTransport]);
+  }, [activeRshSpecJson]);
 
   const refreshList = useCallback(async (expectedEpoch = activityEpochRef.current) => {
     const list = await apiListThreads();
@@ -1175,6 +1195,26 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // One-step remote-shell entry ("CSG work"): a stable thread per transport,
   // carrying the binding in its context and pinning the transport's routing
   // target (once) so chat-lane turns delegate to the remote agent.
+  const [shellsOpen, setShellsOpen] = useState(false);
+
+  // The Shells picker's open action: a stable thread per (transport, project),
+  // carrying the full session spec in its context. Deliberately NO routing
+  // target pin: the delegate lane routes to a transport's STANDING session, so
+  // a project shell is terminal-first - the pane is the interaction surface.
+  const openProjectShell = useCallback(async (spec: ShellOpenSpec) => {
+    setShellsOpen(false);
+    const slug = slugForProject(spec.label || spec.tmuxSession);
+    const ensured = await apiEnsureThread({
+      id: `remote-shell-${spec.transport}-${slug}`,
+      title: spec.label || slug,
+      source: "remote-shell",
+      context: { remoteShell: { transport: spec.transport, tmuxSession: spec.tmuxSession, cwd: spec.cwd, label: spec.label } }
+    });
+    if (!ensured) return;
+    await openThread(ensured.id);
+    await refreshList();
+  }, [openThread, refreshList]);
+
   const openRemoteShell = useCallback(async (t: RemoteShellTransport) => {
     const ensured = await apiEnsureThread({
       id: `remote-shell-${t.name}`,
@@ -1446,11 +1486,19 @@ function ThreadedApp({ url }: { url: UrlState }) {
           onSelect={(id) => { void selectThread(id); }}
           onNewLocal={() => { void newChat(); }}
           onOpenRemoteShell={(t) => { void openRemoteShell(t as RemoteShellTransport); }}
+          onOpenShells={rshTransports.length > 0 ? () => setShellsOpen(true) : undefined}
           onDeleteLocal={(id) => { void removeThread(id); }}
           onRenameLocal={renameThread}
         />
       </aside>
       <div className="wc-sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+      {shellsOpen && (
+        <ShellsModal
+          transports={rshTransports}
+          onOpen={(spec) => { void openProjectShell(spec); }}
+          onClose={() => setShellsOpen(false)}
+        />
+      )}
       <main className="wc-main">
         {(backLabel || briefPath) && (
           <div className="wc-backbar">
@@ -1550,6 +1598,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
               <RemoteShellWorkbench
                 sessionId={rshSessionId}
                 transport={rshTransport}
+                sessionSpec={activeRshSpecJson ? JSON.parse(activeRshSpecJson) : null}
                 title={activeThread?.title || rshTransport?.label || "Remote shell"}
                 messageCount={activeThread?.messages?.length ?? 0}
                 hasActivity={Boolean(activeThread?.runningSince) || (activeThread?.pendingInputs?.length ?? 0) > 0}

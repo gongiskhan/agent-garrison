@@ -256,10 +256,14 @@ export function SessionsRail(props: {
   onOpenRemoteShell: (t: RailTransport) => void;
   onDeleteLocal: (id: string) => void;
   onRenameLocal: (id: string, title: string) => Promise<void>;
+  /** Opens the Shells picker (spawn an agent in any remote project folder).
+   *  Absent when no transport is configured - the button simply isn't there. */
+  onOpenShells?: () => void;
 }) {
   const {
     threads, meshNodes, self, transports, activeId,
-    listOpen, onToggleList, onSelect, onNewLocal, onOpenRemoteShell, onDeleteLocal, onRenameLocal
+    listOpen, onToggleList, onSelect, onNewLocal, onOpenRemoteShell, onDeleteLocal, onRenameLocal,
+    onOpenShells
   } = props;
 
   const [sidebar, setSidebar] = useState<SidebarState>(EMPTY_SIDEBAR);
@@ -672,6 +676,19 @@ export function SessionsRail(props: {
           </svg>
         </button>
         <span className="wc-sidebar-title">Sessions</span>
+        {onOpenShells && (
+          <button
+            type="button"
+            className="wc-shells-btn"
+            title="Interactive shells - spawn an agent in a project folder"
+            aria-label="Interactive shells"
+            onClick={onOpenShells}
+          >
+            <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true">
+              <path d="M2.5 3.5 6 7l-3.5 3.5M7.5 10.5h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          </button>
+        )}
         <div className="wc-new-wrap" ref={newRef}>
           <button className="wc-new" onClick={() => setNewOpen((v) => !v)} title="Start a new conversation" aria-expanded={newOpen}>
             + New

@@ -188,12 +188,17 @@ function readRemoteShellInfo() {
 // Subpaths the browser may reach through the relay. DELETE (forget session) and
 // anything unlisted stay on the fitting's own surface.
 const REMOTE_SHELL_PROXY_RE =
-  /^\/(transports|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
+  /^\/(transports|projects|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
+// DELETE relays only for the one shape that supports it: a session teardown.
+const REMOTE_SHELL_DELETE_RE = /^\/sessions\/[A-Za-z0-9-]+$/;
 
 async function handleRemoteShellProxy(req, res, subpath, query) {
   const info = readRemoteShellInfo();
   if (!info?.url) return jsonRes(res, 503, { error: "remote-shell fitting not available" });
-  if (!REMOTE_SHELL_PROXY_RE.test(subpath) || (req.method !== "GET" && req.method !== "POST")) {
+  const methodOk =
+    req.method === "GET" || req.method === "POST" ||
+    (req.method === "DELETE" && REMOTE_SHELL_DELETE_RE.test(subpath));
+  if (!REMOTE_SHELL_PROXY_RE.test(subpath) || !methodOk) {
     return jsonRes(res, 404, { error: "not relayed" });
   }
   let body = null;
