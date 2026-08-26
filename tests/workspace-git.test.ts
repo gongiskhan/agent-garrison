@@ -320,7 +320,7 @@ describe("project sources — the dev-root name discipline", () => {
 });
 
 describe("the workspace server — confinement is per ROOT", () => {
-  const PORT = 7196;
+  const PORT = 7190; // unique across the suite - 7196 is drill-authoring-api.test.ts's
   const BASE = `http://127.0.0.1:${PORT}`;
   let srv: ChildProcess | null = null;
   let home: string;
@@ -535,18 +535,26 @@ describe("pull-from-others — the event round trip", () => {
 
     expect(report.requestedBy).toBe("node-a");
     expect(report.peers).toEqual(["node-b"]);
-    expect(report.merged).toBe(false); // day one: report, never merge under the operator
     expect(report.fetch.ok).toBe(true);
+    // d12e6849 finished the half c67966a9 deferred: the REQUESTER merges what
+    // the peers pushed. This assertion read `false` until 2026-08-26 and had
+    // been red since that commit - the contract moved and the test did not.
+    expect(report.merged).toBe(true);
 
     const b = report.nodes.find((n: any) => n.node === "node-b");
     expect(b.status).toBe("replied");
     expect(b.result).toBe("pushed");
     expect(b.branch).toBe("main");
     expect(b.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(b.merge).toBe("merged");
+    expect(b.mergedSha).toMatch(/^[0-9a-f]{40}$/);
 
-    // The peer really did commit and push: node-a can see the work after the fetch.
+    // The peer really did commit and push: node-a can see the work after the
+    // fetch, and - the point of merging - in its own WORKING TREE, not just in
+    // origin/main.
     const show = await runGit(path.join(base, "dev-a", "proj"), ["show", "--name-only", "--format=", "origin/main"]);
     expect(show.stdout).toContain("from-b.txt");
+    expect(existsSync(path.join(base, "dev-a", "proj", "from-b.txt"))).toBe(true);
   }, 60_000);
 
   it("records the request and exactly one reply as events", async () => {

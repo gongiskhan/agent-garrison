@@ -424,7 +424,7 @@ describe("POST /api/card-drill — plan, scope, run, notify", () => {
     writeFileSync(join(ghome, "ui-fittings", "kanban-loop.json"), JSON.stringify({ url: `http://127.0.0.1:${kanbanPort}` }));
     writeFileSync(join(ghome, "ui-fittings", "web-channel-default.json"), JSON.stringify({ url: `http://127.0.0.1:${webPort}` }));
 
-    const port = 7241;
+    const port = 7191; // unique across the suite - 7241 is drill-gate.test.ts's
     drillBase = `http://127.0.0.1:${port}`;
     drillSrv = spawn("node", [DRILL_START], {
       stdio: "ignore",
