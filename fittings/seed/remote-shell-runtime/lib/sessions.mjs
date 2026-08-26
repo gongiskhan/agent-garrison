@@ -75,6 +75,12 @@ const leaveCopyMode = (target) =>
   `[ "$(tmux display-message -p -t ${target} '#{pane_in_mode}')" = "1" ] && ` +
   `tmux send-keys -t ${target} -X cancel;`;
 
+// A human-visible pane peaks in the low tens of KB/s; a repaint storm runs
+// hundreds. Sustained for this long with no turn streaming = pathology.
+const STORM_BYTES_PER_SEC = 250_000;
+const STORM_SUSTAIN_MS = 8_000;
+const STORM_COOLDOWN_MS = 5 * 60_000;
+
 export class SessionManager {
   constructor({ tunnels, transports, notify }) {
     this.tunnels = tunnels;
@@ -278,6 +284,7 @@ export class SessionManager {
       for (const ws of this.subscribers.get(session.id) ?? []) {
         try { ws.send(chunk); } catch {}
       }
+      this.#observeOutput(session, chunk.length);
     });
     child.onExit(({ exitCode }) => {
       if (session.pty === child) session.pty = null;
@@ -719,6 +726,77 @@ export class SessionManager {
     this.sessions.delete(id);
     await this.persist();
     return true;
+  }
+
+  // ── Render-storm detector + recovery ─────────────────────────────────────
+  //
+  // cursor-agent's inline TUI has a rendering pathology: once its live region
+  // (a tall diff, a long reply) exceeds the viewport, its idle animation
+  // repaints the ENTIRE screen every frame, forever - megabytes per second of
+  // output with zero input, zero clients needed (proven by pipe-pane on a
+  // client-less pane). Nothing outside the process can calm it; restarting the
+  // TUI and resuming the chat is the cure the user was performing by hand.
+  // This automates exactly that: sustained repaint-level output while no
+  // delegate turn is streaming -> respawn the pane to a fresh shell and type
+  // the transport's resume command.
+  #observeOutput(session, n) {
+    const now = Date.now();
+    const m = session.stormMeter ??= { bucketAt: now, bytes: 0, hotSince: 0, recoveredAt: 0, recovering: false };
+    if (now - m.bucketAt > 1000) {
+      // Close the previous 1s bucket: hot means repaint-level, not typing-level.
+      const hot = m.bytes >= STORM_BYTES_PER_SEC;
+      m.hotSince = hot ? (m.hotSince || m.bucketAt) : 0;
+      m.bucketAt = now;
+      m.bytes = 0;
+      if (
+        m.hotSince &&
+        now - m.hotSince >= STORM_SUSTAIN_MS &&
+        !m.recovering &&
+        now - m.recoveredAt > STORM_COOLDOWN_MS &&
+        !session.activeTurn &&
+        // A generating agent repaints exactly like a storming one; the hook
+        // -driven state is the discriminator. Storms happen at IDLE.
+        session.state !== "running"
+      ) {
+        m.recovering = true;
+        void this.#stormRecover(session).finally(() => {
+          m.recovering = false;
+          m.recoveredAt = Date.now();
+          m.hotSince = 0;
+        });
+      }
+    }
+    m.bytes += n;
+  }
+
+  async #stormRecover(session) {
+    const t = session.transport;
+    if (!t.agentResumeCommand) return;
+    const target = shellQuote(session.tmuxSession);
+    // Only ever bounce the agent we know how to bring back. A pane running
+    // anything else (a build, an editor) is not ours to kill.
+    const probe = await sshExec(t, `tmux display-message -p -t ${target} '#{pane_current_command}'`);
+    const cmd = String(probe.stdout).trim().split("\n").pop()?.trim() ?? "";
+    const agentBin = (t.agentCommand ?? "").trim().split(/\s+/)[0]?.split("/").pop() ?? "";
+    if (!agentBin || !cmd.includes(agentBin)) return;
+    console.warn(`[remote-shell] render storm on ${session.id} (${t.name}): respawning ${agentBin} and resuming`);
+    // respawn-pane -k to a BARE shell (the pane must outlive the agent's next
+    // exit), then type the resume command like start() types agentCommand.
+    const r = await sshExec(t, `tmux respawn-pane -k -t ${target}`);
+    if (r.code !== 0) return;
+    await new Promise((res) => setTimeout(res, 800));
+    await sshExec(
+      t,
+      `tmux send-keys -t ${target} -l ${shellQuote(t.agentResumeCommand)} && tmux send-keys -t ${target} Enter`
+    );
+    for (const ws of this.subscribers.get(session.id) ?? []) {
+      try { ws.send(JSON.stringify({ type: "error", message: "render storm: agent restarted and chat resumed" })); } catch {}
+    }
+    this.notify?.({
+      title: "Remote shell recovered",
+      text: `${t.label ?? t.name}: the agent TUI entered a render storm; it was restarted and the chat resumed.`,
+      tag: `rsh-storm-${t.name}`
+    }).catch?.(() => {});
   }
 
   shutdownAll() {

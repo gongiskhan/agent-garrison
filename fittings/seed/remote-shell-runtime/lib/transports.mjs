@@ -122,6 +122,12 @@ function normalizeTransport(name, t) {
     cwd: t.cwd ? String(t.cwd) : "~",
     eventsFile: t.eventsFile ? String(t.eventsFile) : "~/.garrison/events.jsonl",
     agentCommand: typeof t.agentCommand === "string" ? t.agentCommand : null,
+    // How to bring the agent BACK with its conversation after the storm
+    // recovery bounces it (see sessions.mjs #stormRecover). Defaults to the
+    // agent command plus its conventional non-interactive resume verb.
+    agentResumeCommand: typeof t.agentResumeCommand === "string" && t.agentResumeCommand.trim()
+      ? t.agentResumeCommand.trim()
+      : (typeof t.agentCommand === "string" && t.agentCommand.trim() ? `${t.agentCommand.trim()} resume` : null),
     // Optional routing-target id (composition policy) that chat-lane turns on a
     // thread bound to this transport should pin, e.g. "csg-work". Consumed by
     // the web channel; the server itself never routes.
