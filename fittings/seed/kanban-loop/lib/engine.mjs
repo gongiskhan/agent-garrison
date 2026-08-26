@@ -29,39 +29,7 @@ import { ulid } from "./ulid.mjs";
 import { isPersonalCard } from "./personal-workspace.mjs";
 import { projectNameForRouting } from "./gateway-client.mjs";
 
-import {
-  loadPolicy,
-  policyPath,
-  policyLoadState,
-  phaseForList,
-  skillForPhase,
-  classificationForPhase,
-  levelForPhase,
-  railForCard,
-  phaseOnForCard,
-  gateEvidenceNextList,
-  inspectPhaseGateEvidence,
-  snapshotPhaseGateEvidence
-} from "./policy.mjs";
 
-// Re-export phaseForList through the engine facade. scripts/kanban.mjs (the
-// `node scripts/kanban.mjs --setup` CLI entrypoint) imports the whole board-helper
-// surface from engine.mjs; phaseForList is defined in policy.mjs and engine only
-// imported it for internal use, so without this re-export that top-level import
-// throws "does not provide an export named 'phaseForList'" and setup exits 1. No
-// vitest exercises kanban.mjs's module load, so only a live `up` surfaces it.
-export { phaseForList };
-import { loadResolvedModel } from "./resolved-model.mjs";
-// The evidence predicates moved to evidence-gate.mjs (Conversations): the
-// duty-list dispatch that consumed them here is gone, but the predicates
-// survive — the launcher's exit gate and the board's Done invariant read the
-// same run-dir contract. Re-exported for one release for old importers.
-export {
-  hasEvidence,
-  evidenceRequiredForTransition,
-  evidenceContractForTransition,
-  gateContractForTransition
-} from "./evidence-gate.mjs";
 import { isDispatchClaimLive, isDispatchClaimExpired } from "./dispatch-lease.mjs";
 import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief, routeAutonomyActed, deliverScheduleReminder } from "./notify-origin.mjs";
 import {

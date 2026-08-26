@@ -2887,6 +2887,16 @@ async function handlePatchCard(req, res, opts, id) {
   if (body.checklist !== undefined) {
     next.checklist = body.checklist === null ? null : normaliseChecklist(body.checklist);
   }
+  // The conversation link is ENGINE-ONLY and write-once-shaped: the launcher's
+  // kick stamps it (patchCardEngine {conversationId}), and everything that
+  // distinguishes a conversation card — the Done evidence invariant, the
+  // sweeps' hands-off rule, the card modal's conversation surface — keys on
+  // it. The CREATE door already accepts it; without this the PATCH door
+  // silently dropped the launcher's link and every started card read as
+  // conversation-less (found on the first live smoke).
+  if (isEngineRequest(req) && typeof body.conversationId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(body.conversationId)) {
+    next.conversationId = body.conversationId;
+  }
   // The dispatch record is ENGINE-ONLY: it is the claim ledger (who holds this
   // card, and when they last checked in). A hand-edited claim would let any
   // caller steal or forge a lease.

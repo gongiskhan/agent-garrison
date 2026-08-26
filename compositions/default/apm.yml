@@ -299,6 +299,18 @@ x-garrison:
             package_subdir: clients/cortex-cli
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
+    # Named, ordered model rungs (floor -> top). A rung is a MODEL TIER; a duty
+    # level is DEPTH of work. They are independent axes: the rung picks the
+    # target, the level's cell still owns effort. A duty names its ladder
+    # (default `standard`) plus the rung it starts on and the rung it may
+    # escalate to.
+    ladders:
+      standard:
+        - { id: floor, target: sdk-haiku }
+        - { id: middle, target: cc-sonnet }
+        - { id: top, target: cc-opus }
+      adversarial:
+        - { id: cross, target: sol }
     duties:
       - id: implement
         title: Implement
@@ -318,6 +330,8 @@ x-garrison:
             cell:
               target: opus
               effort: xhigh
+        default: middle
+        ceiling: top
         context_hold: true
       - id: test
         title: Test
@@ -399,6 +413,8 @@ x-garrison:
             cell:
               target: cc-opus
               effort: max
+        default: middle
+        ceiling: top
       - id: image
         title: Image
         description: Produce or edit an image.
@@ -511,6 +527,9 @@ x-garrison:
             cell:
               target: sol
               effort: max
+        ladder: adversarial
+        default: cross
+        ceiling: cross
       - id: adversarial-test
         title: Adversarial Test
         description: An independent functional pass that has not seen the diff.
@@ -617,6 +636,30 @@ x-garrison:
             cell:
               target: dispatch-fast
               effort: low
+      - id: triage
+        title: Triage
+        description: Read the request, write the conversation's opening summary, and name the duty the work starts on.
+        levels:
+          - description: >-
+              standard: read the request and what is already known, write the opening
+              summary, name the first working duty
+            cell:
+              target: sdk-haiku
+              effort: medium
+        default: floor
+        ceiling: middle
+      - id: responder
+        title: Responder
+        description: Answer a user message in a conversation when no work is running.
+        levels:
+          - description: >-
+              standard: answer from the conversation summary, and record anything
+              promised back into it
+            cell:
+              target: sdk-haiku
+              effort: medium
+        default: floor
+        ceiling: middle
     selected_duties:
       - implement
       - test
@@ -640,6 +683,8 @@ x-garrison:
       - other
       - probe-question
       - dispatch
+      - triage
+      - responder
     targets:
       - id: dispatch-fast
         runtime: agent-sdk

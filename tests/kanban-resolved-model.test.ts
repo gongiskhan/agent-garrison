@@ -29,15 +29,12 @@ import { join } from "node:path";
 
 import { clearKanbanResolvedModel, computeKanbanResolvedModel } from "../src/lib/kanban-model";
 import { kanbanProjectionPlan } from "../src/lib/runner";
+// One line on purpose: `@ts-ignore` suppresses the NEXT line only, and an
+// ambient `declare module "*/kanban-loop/lib/resolved-model.mjs"` exists
+// (tests/instance-isolation-mjs.d.ts) declaring just one of these — so a
+// multi-line import reports an error per member, below the suppression.
 // @ts-ignore — pure .mjs
-import {
-  BOARD_LISTS,
-  buildBoard,
-  contextHoldFor,
-  dutyGateExplicit,
-  loadResolvedModel,
-  reconcileBoardLists
-} from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
+import { BOARD_LISTS, buildBoard, contextHoldFor, dutyGateExplicit, loadResolvedModel, reconcileBoardLists } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 // @ts-ignore — pure .mjs
 import { relocateStrandedCards } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
