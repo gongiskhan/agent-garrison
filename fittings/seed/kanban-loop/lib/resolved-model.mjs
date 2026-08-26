@@ -103,9 +103,11 @@ export function loadResolvedModel(root, expectedCompositionId = null) {
     if (!existsSync(file)) return null;
     const model = JSON.parse(readFileSync(file, "utf8"));
     // v1 is the original flow-only projection; v2 adds the Dispatcher vocabulary
-    // and exact execution steps. Unknown future/invalid versions fail closed so a
-    // stale board never guesses at a target shape it does not understand.
-    if (model?.version !== 1 && model?.version !== 2) return null;
+    // and exact execution steps; v3 adds the model ladders (a v2 file simply has
+    // no dutyLadder, and every ladder consumer falls back to the synthetic
+    // one-rung form). Unknown future/invalid versions fail closed so a stale board
+    // never guesses at a target shape it does not understand.
+    if (model?.version !== 1 && model?.version !== 2 && model?.version !== 3) return null;
     if (!model || !Array.isArray(model.kanbanLists) || model.kanbanLists.length === 0) return null;
     // model.json is machine-global. A gateway must name its active composition
     // and reject a projection left by a previous one; board-only callers omit
@@ -123,12 +125,13 @@ export function loadResolvedModel(root, expectedCompositionId = null) {
   }
 }
 
-// True only for the v2 execution manifest. A v1 model still drives board flow,
-// but it deliberately cannot claim exact runtime/model/effort routing.
+// True for the v2 execution manifest and its v3 superset (v3 only ADDS ladders).
+// A v1 model still drives board flow, but it deliberately cannot claim exact
+// runtime/model/effort routing.
 export function hasExecutionModel(model) {
   return !!(
     model &&
-    model.version === 2 &&
+    (model.version === 2 || model.version === 3) &&
     model.duties && typeof model.duties === "object" &&
     Array.isArray(model.selectedDuties) &&
     model.steps && typeof model.steps === "object"
@@ -188,6 +191,56 @@ export function executionRouteFor(input, model = null) {
     step,
     skill: step.skill ?? null
   };
+}
+
+// ── model ladders (Conversations A2) ───────────────────────────────────────
+// A LADDER is the ordered set of model tiers a duty may climb (floor -> top); a
+// LEVEL is depth of work. They are independent: the rung picks the target, the
+// level's cell still owns effort. The runner projects `dutyLadder[dutyId]` for
+// every selected duty (v3); these two helpers are the only readers a stretch
+// launcher needs, and both are pure.
+
+// The duty's ladder, or a SYNTHETIC one-rung ladder built from its level-1 cell.
+// The synthetic form is what makes a v2 projection (no dutyLadder at all) and a
+// duty that declares no ladder lines behave identically to today: one rung, no
+// escalation room. Null only when the duty has no resolvable target anywhere.
+export function ladderFor(model, dutyId) {
+  if (!model || typeof dutyId !== "string" || !dutyId) return null;
+  const projected = model.dutyLadder && typeof model.dutyLadder === "object" ? model.dutyLadder[dutyId] : null;
+  if (projected && Array.isArray(projected.rungs) && projected.rungs.length > 0) return projected;
+
+  const cell = model.cells && typeof model.cells === "object" ? model.cells[dutyId]?.["1"] : null;
+  const target = cell && typeof cell.target === "string" ? cell.target : null;
+  if (!target) return null;
+  const spec = Array.isArray(model.targets) ? model.targets.find((t) => t && t.id === target) : null;
+  return {
+    ladder: null,
+    rungs: [
+      {
+        id: target,
+        target,
+        runtime: spec?.runtime ?? cell.runtime ?? null,
+        provider: spec?.provider ?? cell.provider ?? null,
+        model: spec?.model ?? cell.model ?? null,
+        params: { ...(spec?.params ?? {}) }
+      }
+    ],
+    defaultIndex: 0,
+    ceilingIndex: 0
+  };
+}
+
+// The resolved rung at `index` on a duty's ladder — {id, target, runtime,
+// provider, model, params}. The index is CLAMPED into the ladder rather than
+// returning null: an escalation that walks off the top must land on the top
+// rung, never on nothing. A non-integer index falls back to the duty's default
+// rung. Null only when the duty has no ladder at all.
+export function rungTarget(model, dutyId, index) {
+  const ladder = ladderFor(model, dutyId);
+  if (!ladder) return null;
+  const wanted = Number.isInteger(index) ? index : ladder.defaultIndex;
+  const clamped = Math.min(Math.max(wanted, 0), ladder.rungs.length - 1);
+  return ladder.rungs[clamped] ?? null;
 }
 
 // A generic phase-list config for a leaf-duty id that has no canonical template

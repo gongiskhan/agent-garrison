@@ -374,6 +374,16 @@ export interface DutySpec {
   // message routed as steering). Only meaningful on the discuss duty today. Absent
   // (the default) = pass-through: the card advances automatically on the verdict.
   gate?: "explicit";
+  // Conversations A2 — the duty's model-ladder lines. `ladder` names the ladder
+  // (in the composition's `ladders` block) this duty climbs; absent = "standard".
+  // `default` is the rung a stretch starts on, `ceiling` the highest rung it may
+  // reach unaided. Both are RUNG ids, not target ids. A duty declaring none gets
+  // a synthetic one-rung ladder from its level-1 cell, so nothing has to be
+  // edited for an existing duty to keep working. Orthogonal to `levels`: a level
+  // is depth of work and still owns effort; a rung is model tier.
+  ladder?: string;
+  default?: string;
+  ceiling?: string;
 }
 
 export interface GarrisonMetadata {
