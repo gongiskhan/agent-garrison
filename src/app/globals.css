@@ -360,19 +360,14 @@ nav.tabs {
   gap: 3px;
   padding-top: 6px;
 }
-.nav-section-label {
-  padding: 12px 11px 5px;
-  color: #7f8b81;
-  font: 600 9px/1 var(--font-mono), monospace;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-}
-.nav-section-views {
-  margin-top: 9px;
-  padding-top: 14px;
+/* The menu: the Pinned group on top, then Command and Fittings — collapsible,
+   alphabetical, and separated by a rule so a collapsed menu still reads as
+   distinct shelves rather than one run of small caps. */
+.nav-group {
   border-top: 1px solid var(--shell-rule);
+  padding-top: 5px;
+  margin-top: 5px;
 }
-/* Fittings menu: faculty groups (collapsed by default) + the Pinned group. */
 .nav-group-head {
   display: flex;
   align-items: center;
@@ -414,6 +409,13 @@ button.nav-group-head:hover { color: var(--shell-ink); background: var(--shell-2
   padding: 2px 12px 9px;
   font: 500 10.5px/1.5 var(--font-mono), monospace;
   color: #79837a;
+}
+/* Pins are mesh-shared, so a refused write means the pin happened NOWHERE.
+   Say it where the gesture was, not in a console. */
+.pin-error {
+  padding: 2px 12px 9px;
+  font: 500 10.5px/1.45 var(--font-mono), monospace;
+  color: #d17a6f;
 }
 nav.tabs .item .pin-mark {
   display: inline-flex;

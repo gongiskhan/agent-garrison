@@ -41,6 +41,22 @@ export function resetStateClient(): void {
   cached = null;
 }
 
+// Is this machine enrolled in a mesh at all? A standalone Garrison (the
+// open-source single-machine install) has no state config, and shared-state
+// callers need to tell "not part of a mesh" apart from "the mesh is down":
+// the first is a normal local-only install, the second is an outage.
+export function stateEnrolled(): boolean {
+  try {
+    discoverStateConfig({
+      env: process.env,
+      readFileSync: (p: string, enc: string) => readFileSync(p, enc as BufferEncoding)
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function stateDegraded(): { degraded: boolean; since: string | null } {
   return { degraded: degradedSince !== null, since: degradedSince };
 }

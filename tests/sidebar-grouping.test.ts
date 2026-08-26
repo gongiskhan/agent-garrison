@@ -1,37 +1,66 @@
-// The Fittings menu groups by CATEGORY, not faculty.
+// The menu's grouping axis.
 //
-// Seventeen faculties make a precise type system and an unusable menu
-// (src/lib/types.ts: "faculty is no longer the grouping axis"). The category
-// vocabulary was introduced with CATEGORY_BY_FACULTY and every manifest gained a
-// `category`, but the only surface converted was StationGrid.tsx — which is
-// rendered NOWHERE. The live sidebar kept grouping by faculty, so the whole
-// change was invisible. These tests pin the axis so that cannot recur.
+// History: the sidebar first grouped Fittings by FACULTY (seventeen of them —
+// a precise type system and an unusable menu), then by the six-value CATEGORY
+// vocabulary. 2026-08-26 dropped sub-grouping from the menu entirely: Command
+// and Fittings are two flat, alphabetical, collapsible groups, and the row you
+// want is where its name says it is. Categories are still the axis the Compose
+// grid and the library use, so these tests keep BOTH honest: nothing groups the
+// menu, and no fitting loses its category.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fittingCategories, CATEGORY_BY_FACULTY, type FacultyId } from "../src/lib/types";
 import { faculties } from "../src/lib/faculties";
 import { readLibrary } from "../src/lib/library";
+import { COMMAND_ITEMS } from "../src/components/chrome/Sidebar";
 
 const SIDEBAR = readFileSync(
   join(import.meta.dirname, "../src/components/chrome/Sidebar.tsx"),
   "utf8"
 );
 
-describe("sidebar Fittings menu groups by category", () => {
-  it("iterates the category vocabulary, not the faculty list", () => {
-    expect(SIDEBAR).toContain("for (const category of fittingCategories)");
-    // The old axis must be gone from the grouping loop.
+describe("the menu is two flat alphabetical groups", () => {
+  it("does not sub-group the Fittings list", () => {
+    // Both retired axes must be gone from the menu, or a fitting is hidden
+    // inside a collapsed bucket the user did not ask for.
+    expect(SIDEBAR).not.toContain("for (const category of fittingCategories)");
     expect(SIDEBAR).not.toContain("row.entry.faculty === faculty.id");
   });
 
-  it("resolves the auto-expand group on the SAME axis as the groups", () => {
-    // Keying the groups by category while resolving the active group by faculty
-    // would expand an id that does not exist, and navigating to a fitting would
-    // leave its row hidden inside a collapsed group.
-    expect(SIDEBAR).toMatch(/activeGroupId\s*=\s*activeEntry\s*\?\s*\(categoryOf\(activeEntry\)/);
+  it("sorts both groups by label rather than trusting declaration order", () => {
+    // Command rows are declared as data; a route appended to the list must land
+    // in alphabetical position without anyone remembering to place it.
+    expect(SIDEBAR).toContain("[...COMMAND_ITEMS]\n    .sort((a, b) => a.label.localeCompare(b.label))");
+    expect(SIDEBAR).toContain("fittingRows.sort((a, b) => a.label.localeCompare(b.label));");
   });
 
+  it("resolves the auto-expand group on the SAME axis as the groups", () => {
+    // Keying the groups by `command`/`fittings` while resolving the active
+    // group by anything else would expand an id that does not exist, and
+    // navigating would leave the row hidden inside a collapsed group.
+    expect(SIDEBAR).toMatch(
+      /activeGroupId\s*=\s*activeFittingId\s*\?\s*"fittings"\s*:\s*activeCommand\s*\?\s*"command"\s*:\s*null/
+    );
+  });
+
+  it("keeps every Garrison route on the menu", () => {
+    // The refit moved these from inline JSX into data; a route dropped in that
+    // move would silently vanish from the shell.
+    expect(COMMAND_ITEMS.map((item) => item.href).sort()).toEqual([
+      "/",
+      "/accounts",
+      "/compose",
+      "/connectors",
+      "/coordination",
+      "/mesh",
+      "/quarters",
+      "/vault"
+    ]);
+  });
+});
+
+describe("categories still resolve for the surfaces that use them", () => {
   it("every faculty maps to a declared category, so no fitting can fall through", () => {
     for (const f of faculties) {
       const category = CATEGORY_BY_FACULTY[f.id as FacultyId];

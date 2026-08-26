@@ -1,12 +1,14 @@
 // Hand-written types for @garrison/state-client (the .mjs is the truth).
 
 export class StateUnavailableError extends Error {
+  constructor(url: string, cause: unknown);
   url: string;
   cause: unknown;
   since: string;
 }
 
 export class StateApiError extends Error {
+  constructor(status: number, body?: { error?: string; detail?: string; [k: string]: unknown });
   status: number;
   body: { error?: string; detail?: string; [k: string]: unknown };
 }

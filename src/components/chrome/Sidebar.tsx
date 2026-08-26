@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -38,28 +38,9 @@ import { useAppShell } from "./AppShell";
 import { GarrisonMark } from "./GarrisonMark";
 import { NodeBadge, useNodeChrome } from "./NodeBadge";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
-import { fittingCategories, CATEGORY_BY_FACULTY } from "@/lib/types";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
-import type {
-  CapabilityKind,
-  Composition,
-  FacultyId,
-  FittingCategory,
-  LibraryEntry
-} from "@/lib/types";
-
-// The Fittings menu groups by CATEGORY, not faculty. Seventeen faculties make a
-// precise type system and an unusable menu (src/lib/types.ts): faculty stays the
-// composition/routing axis and survives as a per-Fitting label, while these six
-// presentation buckets are what a human scans. resolveLibraryEntry always
-// populates `category`, but the field is optional on the type (hand-built test
-// fixtures omit it), so fall back the same way it does rather than dropping such
-// an entry into "Other" — a fitting must never lose its home to a missing
-// presentation hint.
-function categoryOf(entry: LibraryEntry): FittingCategory | null {
-  return entry.category ?? CATEGORY_BY_FACULTY[entry.faculty] ?? null;
-}
+import type { CapabilityKind, Composition, FacultyId, LibraryEntry } from "@/lib/types";
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
@@ -88,12 +69,6 @@ export function Sidebar() {
   const isRunning = status === "running";
   const liveViews = viewStatuses.filter((s) => s.healthy === true).length;
   const knownViews = viewStatuses.length;
-
-  const isCompose =
-    pathname === "/muster" ||
-    pathname.startsWith("/muster/") ||
-    pathname === "/compose" ||
-    pathname.startsWith("/compose/");
 
   // Live-ticking uptime while the composition is up. Recomputed each second so
   // the footer reads like a running clock rather than a stale snapshot.
@@ -204,58 +179,12 @@ export function Sidebar() {
       <NodeBadge />
 
       <nav className="tabs" aria-label="Garrison">
-        <div className="nav-section-label">Command</div>
-        <NavLink href="/" pathname={pathname} icon={<Home aria-hidden />} label="Garrison" />
-        <NavLink
-          href="/compose"
-          pathname={pathname}
-          icon={<Layers aria-hidden />}
-          label="Composition"
-          ct={`${stationedCount}/${totalFaculties}`}
-          active={isCompose}
-        />
-        <NavLink href="/vault" pathname={pathname} icon={<Lock aria-hidden />} label="Vault" />
-        <NavLink
-          href="/accounts"
-          pathname={pathname}
-          icon={<KeyRound aria-hidden />}
-          label="Accounts"
-          active={pathname === "/accounts" || pathname.startsWith("/accounts/")}
-        />
-        <NavLink
-          href="/connectors"
-          pathname={pathname}
-          icon={<Plug aria-hidden />}
-          label="Connectors"
-          active={pathname === "/connectors" || pathname.startsWith("/connectors")}
-        />
-        <NavLink
-          href="/quarters"
-          pathname={pathname}
-          icon={<LayoutGrid aria-hidden />}
-          label="Quarters"
-          active={pathname === "/quarters" || pathname.startsWith("/quarters/")}
-        />
-        <NavLink
-          href="/coordination"
-          pathname={pathname}
-          icon={<Network aria-hidden />}
-          label="Coordination"
-          active={pathname === "/coordination" || pathname.startsWith("/coordination")}
-        />
-        <NavLink
-          href="/mesh"
-          pathname={pathname}
-          icon={<Boxes aria-hidden />}
-          label="Mesh"
-          active={pathname === "/mesh" || pathname.startsWith("/mesh/")}
-        />
-
-        <FittingViewsLinks
+        <SidebarMenu
           composition={composition}
           library={library}
           pathname={pathname}
           viewStatuses={viewStatuses}
+          commandBadges={{ "nav:composition": `${stationedCount}/${totalFaculties}` }}
         />
       </nav>
 
@@ -430,47 +359,134 @@ function viewIcon(entry: LibraryEntry, ownPort: boolean): LucideIcon {
   return ownPort ? ExternalLink : Component;
 }
 
-// The Fittings menu: every equipped fitting, grouped by category with the
+// ── the menu ──────────────────────────────────────────────────────────────
+//
+// Three groups, one shape. Pinned sits on top and is always open; Command (the
+// fixed Garrison routes) and Fittings (every equipped fitting) are collapsible
+// and alphabetical. The category sub-groups the Fittings list used to carry are
+// gone: with one flat alphabetical list the row you want is where its name says
+// it is, and the menu is scanned, not navigated.
+//
+// Pins are dragged in (drop on the group to append, on a pinned row to insert
+// before it) and dragged out anywhere to unpin. They live in the state service
+// (`sidebar.pins`), so the menu looks the same on EVERY node in the mesh — pin
+// something on the Air and it is pinned on dev-madrid. A pinned row renders in
+// BOTH the Pinned group and its own group (with a pin marker there).
+
 /**
- * Should navigating to a fitting auto-expand its category group?
+ * Should navigating to a menu item auto-expand its group?
  *
- * Yes by default: navigation context should never be hidden. NOT when the fitting
- * is PINNED - it is already on screen in the Pinned group, so expanding its
- * category group reveals nothing and just reorganises the menu under a user who
- * only wanted to open a page. And never before the pin list has loaded, because
- * an empty list means "not known yet", and firing on it would expand the very
- * group a pin was meant to skip.
+ * Yes by default: navigation context should never be hidden. NOT when the active
+ * row is ALREADY REACHABLE without expanding anything - a pinned row is on
+ * screen in the Pinned group, and the dashboard is the brand link at the top of
+ * the sidebar - because expanding then reveals nothing and just reorganises the
+ * menu under a user who only wanted to open a page. That case is the common one:
+ * the dashboard is where the shell lands, and a group that springs open there
+ * every time is not a collapsed group at all. And never before the pin list has
+ * loaded, because an empty list means "not known yet", and firing on it would
+ * expand the very group a pin was meant to skip.
  */
 export function shouldAutoExpandGroup(args: {
   activeGroupId: string | null;
   pinsLoaded: boolean;
-  activeIsPinned: boolean;
+  activeIsReachable: boolean;
 }): boolean {
-  return !!args.activeGroupId && args.pinsLoaded && !args.activeIsPinned;
+  return !!args.activeGroupId && args.pinsLoaded && !args.activeIsReachable;
 }
 
-// groups collapsed by default (expansion is per-device UI state), plus an
-// always-visible Pinned group on top. Pins are dragged in (drop on the group
-// to append, on a pinned row to insert before it) and dragged out anywhere to
-// unpin; they persist server-side in ~/.garrison/sidebar-pins.json so every
-// browser sees the same list. A pinned fitting renders in BOTH the Pinned
-// group and its own category group (with a pin marker there).
-const EXPANDED_GROUPS_KEY = "garrison.sidebar.fittingGroups.v1";
+// Group expansion is per-device UI state; the PINS are the durable, now
+// mesh-wide preference. v2: the group ids changed from six categories to
+// `command` / `fittings`, so a stale v1 set would expand nothing.
+const EXPANDED_GROUPS_KEY = "garrison.sidebar.menuGroups.v2";
+
+// The fixed Garrison routes, as DATA rather than inline JSX: the Pinned group
+// renders the same row shapes the Command group does, so a nav item has to be
+// describable. The `nav:` id prefix keeps one flat pin list able to hold both a
+// route and a fitting id without either shadowing the other (the store's
+// PIN_ID_PATTERN accepts exactly these two shapes).
+export interface CommandItem {
+  id: string;
+  href: string;
+  label: string;
+  Icon: LucideIcon;
+  isActive: (pathname: string) => boolean;
+}
+
+// The dashboard, named once: the brand link renders it too, which is why the
+// auto-expand below treats it as already reachable.
+export const HOME_ITEM_ID = "nav:garrison";
+
+export const COMMAND_ITEMS: CommandItem[] = [
+  {
+    id: "nav:accounts",
+    href: "/accounts",
+    label: "Accounts",
+    Icon: KeyRound,
+    isActive: (p) => p === "/accounts" || p.startsWith("/accounts/")
+  },
+  {
+    id: "nav:composition",
+    href: "/compose",
+    label: "Composition",
+    Icon: Layers,
+    isActive: (p) =>
+      p === "/muster" || p.startsWith("/muster/") || p === "/compose" || p.startsWith("/compose/")
+  },
+  {
+    id: "nav:connectors",
+    href: "/connectors",
+    label: "Connectors",
+    Icon: Plug,
+    isActive: (p) => p === "/connectors" || p.startsWith("/connectors")
+  },
+  {
+    id: "nav:coordination",
+    href: "/coordination",
+    label: "Coordination",
+    Icon: Network,
+    isActive: (p) => p === "/coordination" || p.startsWith("/coordination")
+  },
+  { id: HOME_ITEM_ID, href: "/", label: "Garrison", Icon: Home, isActive: (p) => p === "/" },
+  {
+    id: "nav:mesh",
+    href: "/mesh",
+    label: "Mesh",
+    Icon: Boxes,
+    isActive: (p) => p === "/mesh" || p.startsWith("/mesh/")
+  },
+  {
+    id: "nav:quarters",
+    href: "/quarters",
+    label: "Quarters",
+    Icon: LayoutGrid,
+    isActive: (p) => p === "/quarters" || p.startsWith("/quarters/")
+  },
+  { id: "nav:vault", href: "/vault", label: "Vault", Icon: Lock, isActive: (p) => p === "/vault" }
+];
 
 type MenuRow =
-  | { kind: "embedded"; entry: LibraryEntry }
-  | { kind: "own-port"; entry: LibraryEntry; status: FittingViewStatus | null };
+  | { kind: "command"; id: string; label: string; item: CommandItem }
+  | { kind: "embedded"; id: string; label: string; entry: LibraryEntry }
+  | {
+      kind: "own-port";
+      id: string;
+      label: string;
+      entry: LibraryEntry;
+      status: FittingViewStatus | null;
+    };
 
-function FittingViewsLinks({
+function SidebarMenu({
   composition,
   library,
   pathname,
-  viewStatuses
+  viewStatuses,
+  commandBadges
 }: {
   composition: Composition | null;
   library: LibraryEntry[];
   pathname: string;
   viewStatuses: FittingViewStatus[];
+  commandBadges: Record<string, string>;
 }) {
   const isMobile = useIsMobileViewport();
   const [pinned, setPinned] = useState<string[]>([]);
@@ -478,6 +494,10 @@ function FittingViewsLinks({
   // "nothing pinned". The auto-expand below has to tell those apart or it fires
   // once on the pre-load state and expands a group it should have skipped.
   const [pinsLoaded, setPinsLoaded] = useState(false);
+  // A refused write is worth saying out loud: the list is mesh-shared, so with
+  // the state service down the pin does not happen ANYWHERE, and a silent
+  // roll-back would read as a broken drag.
+  const [pinError, setPinError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragging, setDragging] = useState<{ id: string; origin: "pinned" | "group" } | null>(
     null
@@ -501,8 +521,6 @@ function FittingViewsLinks({
     return () => window.removeEventListener("keydown", onKey);
   }, [dragging]);
 
-  // Group expansion is per-device UI state (localStorage); the PINS are the
-  // durable cross-device preference and live server-side.
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(EXPANDED_GROUPS_KEY);
@@ -534,9 +552,9 @@ function FittingViewsLinks({
         });
     };
     load();
-    // Slow re-sync so a pin made in another tab/browser shows up here without
-    // a reload (pins are a cross-device preference). Skipped mid-drag so a
-    // refresh can never clobber an in-flight gesture.
+    // Slow re-sync so a pin made on ANOTHER NODE (or another tab) shows up here
+    // without a reload — that convergence is the point of the shared list.
+    // Skipped mid-drag so a refresh can never clobber an in-flight gesture.
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       load();
@@ -547,112 +565,125 @@ function FittingViewsLinks({
     };
   }, []);
 
-  // Auto-expand the group holding the fitting whose route is active, as a
-  // TRANSIENT default (not written to localStorage): navigation context is
-  // never hidden, and the user can still collapse the group — the toggle acts
-  // on real membership, so it is never inert.
+  // Auto-expand the group holding the active route, as a TRANSIENT default (not
+  // written to localStorage): navigation context is never hidden, and the user
+  // can still collapse the group — the toggle acts on real membership, so it is
+  // never inert.
   const activeMatch = /^\/(?:fitting|embed)\/([^/]+)/.exec(pathname);
   const activeFittingId = activeMatch ? activeMatch[1] : null;
-  const activeEntry = activeFittingId
-    ? library.find((entry) => entry.id === activeFittingId)
-    : undefined;
-  // Must resolve on the SAME axis the groups are keyed by, or navigating to a
-  // fitting expands a group id that no longer exists and the row stays hidden.
-  const activeGroupId = activeEntry ? (categoryOf(activeEntry) ?? "other") : null;
-  const activeIsPinned = !!activeFittingId && pinned.includes(activeFittingId);
+  const activeCommand = activeFittingId
+    ? null
+    : (COMMAND_ITEMS.find((item) => item.isActive(pathname)) ?? null);
+  const activeId = activeFittingId ?? activeCommand?.id ?? null;
+  const activeGroupId = activeFittingId ? "fittings" : activeCommand ? "command" : null;
+  // The dashboard row counts as reachable: the brand link above the menu is the
+  // same destination, so expanding Command on "/" costs the user their
+  // collapsed menu and buys nothing.
+  const activeIsReachable =
+    !!activeId && (activeId === HOME_ITEM_ID || pinned.includes(activeId));
   useEffect(() => {
-    if (!shouldAutoExpandGroup({ activeGroupId, pinsLoaded, activeIsPinned })) return;
+    if (!shouldAutoExpandGroup({ activeGroupId, pinsLoaded, activeIsReachable })) return;
     setExpanded((prev) => {
       if (prev.has(activeGroupId!)) return prev;
       const next = new Set(prev);
       next.add(activeGroupId!);
       return next;
     });
-  }, [activeGroupId, activeIsPinned, pinsLoaded]);
+  }, [activeGroupId, activeIsReachable, pinsLoaded]);
 
-  if (!composition) return null;
-
-  const selectedIds = new Set<string>();
-  for (const selections of Object.values(composition.selections)) {
-    for (const selection of selections ?? []) {
-      selectedIds.add(selection.id);
-    }
-  }
-  const statusByFittingId = new Map<string, FittingViewStatus>(
-    viewStatuses.map((s) => [s.fittingId, s])
-  );
-  // ONLY equipped fittings — one row per fitting; own-port wins the row shape
-  // when both apply, since it carries the health signal. The composition
-  // object itself is poll-refreshed by AppShell, so fit/unfit lands here
-  // within seconds without a reload.
   const rowById = new Map<string, MenuRow>();
-  for (const entry of library) {
-    if (!selectedIds.has(entry.id) || rowById.has(entry.id)) continue;
-    rowById.set(
-      entry.id,
-      isOwnPortFitting(entry)
-        ? { kind: "own-port", entry, status: statusByFittingId.get(entry.id) ?? null }
-        : { kind: "embedded", entry }
+
+  // Command: alphabetical by label, sorted HERE rather than trusted to the
+  // declaration order, so a route added to the list lands in the right place.
+  const commandRows: MenuRow[] = [...COMMAND_ITEMS]
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .map((item) => ({ kind: "command", id: item.id, label: item.label, item }));
+  for (const row of commandRows) rowById.set(row.id, row);
+
+  // Fittings: ONLY equipped fittings — one row per fitting; own-port wins the
+  // row shape when both apply, since it carries the health signal. The
+  // composition object itself is poll-refreshed by AppShell, so fit/unfit lands
+  // here within seconds without a reload.
+  const fittingRows: MenuRow[] = [];
+  if (composition) {
+    const selectedIds = new Set<string>();
+    for (const selections of Object.values(composition.selections)) {
+      for (const selection of selections ?? []) {
+        selectedIds.add(selection.id);
+      }
+    }
+    const statusByFittingId = new Map<string, FittingViewStatus>(
+      viewStatuses.map((s) => [s.fittingId, s])
     );
-  }
-  if (rowById.size === 0) return null;
-
-  const groups: Array<{ id: string; name: string; rows: MenuRow[] }> = [];
-  const grouped = new Set<string>();
-  // Declared vocabulary order (Core → Interfaces → Building → …), not
-  // alphabetical: the order encodes how central a bucket is, and alphabetising
-  // it would bury Core under Building.
-  for (const category of fittingCategories) {
-    const rows = [...rowById.values()]
-      .filter((row) => categoryOf(row.entry) === category)
-      .sort((a, b) => a.entry.name.localeCompare(b.entry.name));
-    if (rows.length === 0) continue;
-    for (const row of rows) grouped.add(row.entry.id);
-    groups.push({ id: category, name: category, rows });
-  }
-  const leftover = [...rowById.values()]
-    .filter((row) => !grouped.has(row.entry.id))
-    .sort((a, b) => a.entry.name.localeCompare(b.entry.name));
-  if (leftover.length > 0) {
-    groups.push({ id: "other", name: "Other", rows: leftover });
+    const seen = new Set<string>();
+    for (const entry of library) {
+      if (!selectedIds.has(entry.id) || seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      fittingRows.push(
+        isOwnPortFitting(entry)
+          ? {
+              kind: "own-port",
+              id: entry.id,
+              label: entry.name,
+              entry,
+              status: statusByFittingId.get(entry.id) ?? null
+            }
+          : { kind: "embedded", id: entry.id, label: entry.name, entry }
+      );
+    }
+    fittingRows.sort((a, b) => a.label.localeCompare(b.label));
+    for (const row of fittingRows) rowById.set(row.id, row);
   }
 
-  // Pins render in stored order; a pinned id not equipped right now simply
-  // does not render (the pin survives — refit the fitting and it reappears).
+  const groups: Array<{ id: string; name: string; rows: MenuRow[] }> = [
+    { id: "command", name: "Command", rows: commandRows }
+  ];
+  if (fittingRows.length > 0) groups.push({ id: "fittings", name: "Fittings", rows: fittingRows });
+
+  // Pins render in stored order; a pinned id that is not on the menu right now
+  // simply does not render (the pin survives — refit the fitting and it
+  // reappears).
   const pinnedRows = pinned
     .map((id) => rowById.get(id))
     .filter((row): row is MenuRow => Boolean(row));
 
   const savePins = (next: string[]) => {
     setPinned(next);
+    const rollback = () => {
+      void fetch("/api/sidebar-pins")
+        .then((res) => res.json())
+        .then((data: { pins?: { pinned?: unknown } }) => {
+          const list = data.pins?.pinned;
+          if (Array.isArray(list) && !draggingRef.current) {
+            setPinned(list.filter((x): x is string => typeof x === "string"));
+          }
+        })
+        .catch(() => {});
+    };
     void fetch("/api/sidebar-pins", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pinned: next })
     })
       .then(async (res) => {
-        if (!res.ok) throw new Error(`PUT /api/sidebar-pins ${res.status}`);
-        // Reconcile from the server's canonical list so this tab converges
-        // with writes made elsewhere instead of drifting from a mount-time
-        // baseline.
-        const data = (await res.json()) as { pins?: { pinned?: unknown } };
+        const data = (await res.json().catch(() => ({}))) as {
+          pins?: { pinned?: unknown };
+          error?: string;
+        };
+        if (!res.ok) throw new Error(data.error || `PUT /api/sidebar-pins ${res.status}`);
+        setPinError(null);
+        // Reconcile from the server's canonical list so this tab converges with
+        // writes made elsewhere instead of drifting from a mount-time baseline.
         const list = data.pins?.pinned;
         if (Array.isArray(list) && !draggingRef.current) {
           setPinned(list.filter((x): x is string => typeof x === "string"));
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        setPinError(error instanceof Error ? error.message : "could not save pins");
         // Roll back to server truth so the UI never keeps a pin the server
         // refused (or lost); best-effort.
-        void fetch("/api/sidebar-pins")
-          .then((res) => res.json())
-          .then((data: { pins?: { pinned?: unknown } }) => {
-            const list = data.pins?.pinned;
-            if (Array.isArray(list) && !draggingRef.current) {
-              setPinned(list.filter((x): x is string => typeof x === "string"));
-            }
-          })
-          .catch(() => {});
+        rollback();
       });
   };
   const pinBefore = (id: string, beforeId: string | null) => {
@@ -681,7 +712,7 @@ function FittingViewsLinks({
   };
 
   const renderRow = (row: MenuRow, origin: "pinned" | "group") => {
-    const id = row.entry.id;
+    const id = row.id;
     const isPinned = pinned.includes(id);
     const isDragSource = dragging?.id === id && dragging.origin === origin;
     const dragProps = {
@@ -724,20 +755,19 @@ function FittingViewsLinks({
           }
         : {})
     };
-    const Icon = viewIcon(row.entry, row.kind === "own-port");
     const pinMark =
       origin === "group" && isPinned ? (
         <span className="pin-mark" title="Pinned">
           <Pin aria-hidden />
         </span>
       ) : null;
-    // Drag is desktop-only, but pins are a cross-device preference — on
-    // narrow viewports each row gets a tap toggle instead.
+    // Drag is desktop-only, but pins are a shared preference — on narrow
+    // viewports each row gets a tap toggle instead.
     const mobilePinToggle = isMobile ? (
       <button
         type="button"
         className="pin-toggle"
-        aria-label={isPinned ? `Unpin ${row.entry.name}` : `Pin ${row.entry.name}`}
+        aria-label={isPinned ? `Unpin ${row.label}` : `Pin ${row.label}`}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -752,6 +782,31 @@ function FittingViewsLinks({
       </button>
     ) : null;
 
+    if (row.kind === "command") {
+      const CommandIcon = row.item.Icon;
+      const isActive = row.item.isActive(pathname);
+      const badge = commandBadges[id];
+      return (
+        <Link
+          href={row.item.href}
+          className={clsx("item", isActive && "active", isDragSource && "drag-source")}
+          aria-current={isActive ? "page" : undefined}
+          {...dragProps}
+        >
+          <span>
+            <span className="ic">
+              <CommandIcon aria-hidden />
+            </span>
+            {row.label}
+            {pinMark}
+          </span>
+          {badge ? <span className="ct">{badge}</span> : null}
+          {mobilePinToggle}
+        </Link>
+      );
+    }
+
+    const Icon = viewIcon(row.entry, row.kind === "own-port");
     if (row.kind === "embedded") {
       const href = `/fitting/${id}`;
       const isActive = pathname === href || pathname.startsWith(`${href}/`);
@@ -766,7 +821,7 @@ function FittingViewsLinks({
             <span className="ic">
               <Icon aria-hidden />
             </span>
-            {row.entry.name}
+            {row.label}
             {pinMark}
           </span>
           {mobilePinToggle}
@@ -796,12 +851,12 @@ function FittingViewsLinks({
             target="_blank"
             rel="noopener noreferrer"
             className={clsx("item", isDragSource && "drag-source")}
-            title={`Open ${row.entry.name} in new tab (${openUrl})`}
+            title={`Open ${row.label} in new tab (${openUrl})`}
             {...dragProps}
           >
             <span>
               {icon}
-              {row.entry.name}
+              {row.label}
               {pinMark}
             </span>
             <span className="ct tone-live">live</span>
@@ -816,12 +871,12 @@ function FittingViewsLinks({
           href={embedHref}
           className={clsx("item", isActive && "active", isDragSource && "drag-source")}
           aria-current={isActive ? "page" : undefined}
-          title={`Open ${row.entry.name} embedded (${openUrl})`}
+          title={`Open ${row.label} embedded (${openUrl})`}
           {...dragProps}
         >
           <span>
             {icon}
-            {row.entry.name}
+            {row.label}
             {pinMark}
           </span>
           <span className="ct tone-live">live</span>
@@ -841,7 +896,7 @@ function FittingViewsLinks({
       >
         <span>
           {icon}
-          {row.entry.name}
+          {row.label}
           {pinMark}
         </span>
         <span className={clsx("ct", status?.healthy === false ? "tone-down" : "tone-off")}>
@@ -854,8 +909,6 @@ function FittingViewsLinks({
 
   return (
     <>
-      <div className="nav-section-label nav-section-views">Fittings</div>
-
       <div
         className={clsx("pin-zone", dragging && "drag-active", dragging && pinHover && "drag-hover")}
         onDragOver={(event) => {
@@ -872,8 +925,8 @@ function FittingViewsLinks({
           if (!dragging) return;
           event.preventDefault();
           droppedOnPinned.current = true;
-          // Re-dropping an already-pinned fitting from its category group is a
-          // no-op (it is already there); anything else appends.
+          // Re-dropping an already-pinned row from its group is a no-op (it is
+          // already there); anything else appends.
           if (dragging.origin === "pinned" || !pinned.includes(dragging.id)) {
             pinBefore(dragging.id, null);
           }
@@ -889,13 +942,22 @@ function FittingViewsLinks({
         </div>
         {pinnedRows.length === 0 ? (
           <div className="pin-hint">
-            {dragging ? "Drop to pin" : "Drag a fitting here to pin it"}
+            {dragging
+              ? "Drop to pin"
+              : isMobile
+                ? "Tap the pin on any row to pin it"
+                : "Drag a menu item here to pin it"}
           </div>
         ) : (
           pinnedRows.map((row) => (
-            <Fragment key={`pin:${row.entry.id}`}>{renderRow(row, "pinned")}</Fragment>
+            <Fragment key={`pin:${row.id}`}>{renderRow(row, "pinned")}</Fragment>
           ))
         )}
+        {pinError ? (
+          <div className="pin-error" role="alert">
+            {pinError}
+          </div>
+        ) : null}
       </div>
 
       {groups.map((group) => {
@@ -906,7 +968,7 @@ function FittingViewsLinks({
         const anyDown = ownPortRows.some((row) => row.status?.healthy === false);
         const anyLive = ownPortRows.some((row) => row.status?.healthy === true);
         return (
-          <div key={group.id}>
+          <div className="nav-group" key={group.id}>
             <button
               type="button"
               className="nav-group-head"
@@ -928,7 +990,7 @@ function FittingViewsLinks({
             </button>
             {open
               ? group.rows.map((row) => (
-                  <Fragment key={`grp:${row.entry.id}`}>{renderRow(row, "group")}</Fragment>
+                  <Fragment key={`grp:${row.id}`}>{renderRow(row, "group")}</Fragment>
                 ))
               : null}
           </div>
@@ -1012,37 +1074,6 @@ function CompositionSwitcher() {
         </div>
       ) : null}
     </div>
-  );
-}
-
-function NavLink({
-  href,
-  pathname,
-  icon,
-  label,
-  ct,
-  active
-}: {
-  href: string;
-  pathname: string;
-  icon: ReactNode;
-  label: string;
-  ct?: string;
-  active?: boolean;
-}) {
-  const isActive = active ?? (href === "/" ? pathname === "/" : pathname === href);
-  return (
-    <Link
-      href={href}
-      className={clsx("item", isActive && "active")}
-      aria-current={isActive ? "page" : undefined}
-    >
-      <span>
-        <span className="ic">{icon}</span>
-        {label}
-      </span>
-      {ct ? <span className="ct">{ct}</span> : null}
-    </Link>
   );
 }
 
