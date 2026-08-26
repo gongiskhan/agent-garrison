@@ -447,16 +447,15 @@ async function setup() {
     await saveBoard(resolveSeedBoard(root), root);
     console.log("kanban-loop: seeded board layout");
   } else {
-    // RECONCILE an existing board's phase-list definitions to the current resolved
-    // model (D15): add/drop selected duties and refresh engine-owned mechanics even
-    // when the list set is unchanged. Operator config survives; only explicitly
-    // recognized historical default prompts migrate. Card state is preserved
-    // (membership is derived from card files); any card stranded on a removed list
-    // is relocated to needs-attention. No model on disk → leave the board untouched.
-    const model = loadResolvedModel(root);
-    const existing = model ? seeded : null;
-    if (model && existing) {
-      const { board, removed, added, updated } = reconcileExistingBoard(existing, model);
+    // RECONCILE an existing FIVE-STATE board's lists to the fixed five —
+    // structural only (no phase templates or prompts exist any more). A
+    // pre-Conversations board (v9) is left strictly alone: reconciling it here
+    // would rebuild the five columns UNDER 200+ legacy cards and strand every
+    // one of them — exactly the half-migrated hazard migrateBoard's v10 guard
+    // exists to prevent. The one-time migration script does board + cards in
+    // ONE pass.
+    if ((seeded.version || 0) >= 10) {
+      const { board, removed, added, updated } = reconcileExistingBoard(seeded);
       if (removed.length || added.length || updated.length) {
         await saveBoard(board, root);
         const moved = await relocateStrandedCards(root, board, removed);
@@ -464,10 +463,10 @@ async function setup() {
           `kanban-loop: reconciled board layout (+[${added.join(", ")}] -[${removed.join(", ")}] ~[${updated.join(", ")}]${moved.length ? `, moved ${moved.length} stranded card(s) to needs-attention` : ""})`
         );
       } else {
-        console.log("kanban-loop: board layout up to date with the resolved model");
+        console.log("kanban-loop: board layout up to date");
       }
     } else {
-      console.log("kanban-loop: board layout exists");
+      console.log("kanban-loop: board is pre-Conversations — left untouched; run scripts/migrate-conversations.mjs");
     }
   }
   const board = await loadBoard(root);
