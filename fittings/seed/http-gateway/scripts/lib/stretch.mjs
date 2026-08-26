@@ -171,6 +171,15 @@ export function tripwires(store, { duty, window = 12 } = {}) {
 /** The two flow invariants. Returns {next, rewritten, reason}. */
 export function applyFlowPolicy(next, { store, duty, selectedDuties = [] } = {}) {
   if (next !== "done") return { next, rewritten: false, reason: null };
+  // Triage never closes a conversation as done: its job is to open the work
+  // and name the first working duty, and a capable floor model will happily do
+  // a small task itself and hand off done (observed on the first live run —
+  // the whole deliverable written inside triage, skipping plan, implement and
+  // review). needs-input stays allowed: parking for clarity IS triage's call.
+  if (duty === "triage") {
+    const first = ["plan", "implement"].find((d) => selectedDuties.includes(d));
+    if (first) return { next: first, rewritten: true, reason: "triage-never-done" };
+  }
   // review-before-done: implement work is not done until someone else read it.
   if (CONVERSATION_FLOW.reviewBeforeDone.from.includes(duty)) {
     const insert = CONVERSATION_FLOW.reviewBeforeDone.insert.find((d) => selectedDuties.includes(d));

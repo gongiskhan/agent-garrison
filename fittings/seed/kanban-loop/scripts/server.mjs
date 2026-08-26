@@ -2897,6 +2897,14 @@ async function handlePatchCard(req, res, opts, id) {
   if (isEngineRequest(req) && typeof body.conversationId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(body.conversationId)) {
     next.conversationId = body.conversationId;
   }
+  // The launcher's done transition carries the terminal handoff's summary —
+  // dropped silently before, leaving every finished card summary-less.
+  if (isEngineRequest(req) && typeof body.terminalSummary === "string") {
+    next.terminalSummary = body.terminalSummary.slice(0, 600);
+  }
+  if (isEngineRequest(req) && typeof body.lastReply === "string") {
+    next.lastReply = body.lastReply.slice(0, 2000);
+  }
   // The dispatch record is ENGINE-ONLY: it is the claim ledger (who holds this
   // card, and when they last checked in). A hand-edited claim would let any
   // caller steal or forge a lease.

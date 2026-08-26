@@ -638,7 +638,7 @@ x-garrison:
               effort: low
       - id: triage
         title: Triage
-        description: Read the request, write the conversation's opening summary, and name the duty the work starts on.
+        description: Read the request, write the conversation's opening summary, and name the duty the work starts on. NEVER do the work in this stretch - even a small task goes to a working duty (plan or implement); your handoff's nextSteps.next names it.
         levels:
           - description: >-
               standard: read the request and what is already known, write the opening
@@ -729,7 +729,9 @@ x-garrison:
           type: secondary
       - id: cc-opus
         runtime: agent-sdk
-        model: opus
+        # Explicit id: the "opus" alias floats with the CLI's default and served
+        # 4.x — the ladder's top rung is pinned to Opus 5 (locked 2026-08-26).
+        model: claude-opus-5
         provider: anthropic
         params:
           type: runtime-target
@@ -737,7 +739,9 @@ x-garrison:
           maxTurns: 500
       - id: cc-sonnet
         runtime: agent-sdk
-        model: sonnet
+        # Explicit id: the "sonnet" alias served 4.6 — the middle rung is
+        # Sonnet 5 (locked 2026-08-26).
+        model: claude-sonnet-5
         provider: anthropic
         params:
           type: runtime-target

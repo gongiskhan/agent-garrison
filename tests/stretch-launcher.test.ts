@@ -405,6 +405,22 @@ describe("runConversation", () => {
 // renders — carries only ledger boundaries, and a conversation reads as
 // "stretch started … handoff … stretch ended" with the assistant's prose
 // reachable nowhere (found live by the web-channel integration).
+describe("applyFlowPolicy — triage never closes the conversation", () => {
+  it("rewrites a triage done to the first working duty (observed live: the floor model did the whole task inside triage)", () => {
+    const store = { tail: () => [] } as any;
+    const res = applyFlowPolicy("done", { store, duty: "triage", selectedDuties: ["triage", "plan", "implement", "test"] });
+    expect(res).toMatchObject({ next: "plan", rewritten: true, reason: "triage-never-done" });
+    const noPlan = applyFlowPolicy("done", { store, duty: "triage", selectedDuties: ["triage", "implement"] });
+    expect(noPlan.next).toBe("implement");
+  });
+
+  it("leaves triage's needs-input alone — parking for clarity IS triage's call", () => {
+    const store = { tail: () => [] } as any;
+    const res = applyFlowPolicy("needs-input", { store, duty: "triage", selectedDuties: ["triage", "plan"] });
+    expect(res.rewritten).toBe(false);
+  });
+});
+
 describe("makeStretchEventTee — the stretch transcript reaches the store", () => {
   it("throttles revisions per event id and flush()es the final state", () => {
     const store = openConversation("tee-1", { role: "gateway", env });
