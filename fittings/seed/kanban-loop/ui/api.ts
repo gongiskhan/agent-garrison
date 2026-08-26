@@ -147,6 +147,10 @@ export interface CardSummary {
   scope: CardScope;
   list: string;
   status: string;
+  /** The duty the current/last stretch ran (Conversations) — a chip, not a column. */
+  duty?: string | null;
+  /** The card's conversation id (equals the card id once a stretch has run). */
+  conversationId?: string | null;
   iterations: number;
   goalMode: boolean;
   rev: number;

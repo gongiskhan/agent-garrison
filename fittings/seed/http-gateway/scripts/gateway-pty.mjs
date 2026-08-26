@@ -4802,6 +4802,48 @@ const server = http.createServer(async (request, response) => {
         return sendJson(response, 202, { accepted: true, seq: rec.seq, pickedUpBy: running ? "running-stretch" : advancing ? "advancing" : "responder" });
       }
 
+      // Fire-and-forget start/recovery door: the board's tick and the Start
+      // action land here. Opens the store when new, links the card, clears the
+      // schedule trigger, and advances in the background. 202 always; a
+      // conversation already advancing answers 409 so kicks are idempotent.
+      if (request.method === "POST" && url.pathname === "/conversation/kick") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(body.conversationId)
+          ? body.conversationId
+          : "";
+        if (!conversationId) return sendJson(response, 400, { error: "conversationId is required" });
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        if (controllers.has(conversationId)) {
+          return sendJson(response, 409, { error: "conversation is already advancing", conversationId });
+        }
+        const store = openConversation(conversationId, { role: "gateway" });
+        store.init({
+          title: typeof body.title === "string" ? body.title.slice(0, 120) : "Conversation",
+          cardId: typeof body.cardId === "string" ? body.cardId : conversationId,
+        });
+        // Link the card to its conversation + clear the schedule-run trigger so
+        // the tick stops re-kicking; best-effort (the advance still runs).
+        void stretchLib
+          .patchCardEngine({
+            id: typeof body.cardId === "string" ? body.cardId : conversationId,
+            patch: { conversationId, scheduleAction: null },
+            logFn: (e) => logEvent("stdout", e),
+          })
+          .catch(() => {});
+        const controller = new AbortController();
+        controllers.set(conversationId, controller);
+        void stretchLib
+          .runConversation(router, {
+            conversationId,
+            task: typeof body.task === "string" && body.task.trim() ? body.task : null,
+            signal: controller.signal,
+          })
+          .then((r) => logEvent("stdout", { kind: "conversation-kick-done", conversationId, ...r }))
+          .catch((err) => logEvent("stderr", { kind: "conversation-kick-error", conversationId, error: err?.message }))
+          .finally(() => controllers.delete(conversationId));
+        return sendJson(response, 202, { accepted: true, conversationId });
+      }
+
       if (request.method === "POST" && url.pathname === "/conversation/cancel") {
         const body = await readJsonBody(request);
         const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";

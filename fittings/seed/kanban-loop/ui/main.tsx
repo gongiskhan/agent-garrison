@@ -195,11 +195,9 @@ function stripAttachmentBlock(description: string): string {
 
 function listClass(list: ListView): string {
   if (list.id === "scheduled") return "list scheduled";
-  if (list.id === "archived") return "list manual archived";
   if (list.id === "needs-attention") return "list attn";
-  if (list.interactive) return "list interactive";
-  if (list.phase && list.phase.includes("adversarial")) return "list codex";
-  if (list.kind === "agent") return "list agent";
+  if (list.id === "running" || list.kind === "system") return "list running";
+  if (list.kind === "scheduled") return "list manual";
   return "list manual";
 }
 
@@ -587,11 +585,12 @@ function AutoTextarea({
 // SAME action row (CardActions). Two copies of these booleans is exactly how the
 // two surfaces would drift into offering different things for one card.
 function cardActionFlags(card: CardSummary, list: ListView) {
-  const engineOwned = list.kind === "agent" && !list.interactive;
+  // Conversations: a card is the human's to move EXCEPT while a stretch holds
+  // it. That is the whole ownership model now — no engine-owned columns, one bit.
+  const launcherHeld = card.status === "running" || list.id === "running";
+  const engineOwned = launcherHeld;
   const scheduled = list.id === "scheduled";
-  // Archived is a terminal parking column: cards land there via Archive and leave
-  // only via Unarchive/Move. Distinguished from Done (also terminal) by id.
-  const archived = list.id === "archived";
+  const archived = false; // the Archived column is gone (frozen history holds the old one)
   const running = card.status === "running";
   const inferring = card.inferState === "running";
   return {
@@ -603,18 +602,18 @@ function cardActionFlags(card: CardSummary, list: ListView) {
     // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a
     // card ENTERS the automated flow (To Do → Plan) or is re-sent after parking.
     // Discuss (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
-    canAdvance: !scheduled && list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0,
+    canAdvance: !scheduled && !launcherHeld && !list.terminal && list.validNext.length > 0,
     startLabel: "Advance",
     // "Mark done": a one-click finish on any human-held, non-terminal card (Backlog,
     // To Do, Discuss, needs-attention). Engine-owned agent cards can't be moved by
     // hand (the API rejects it), and a card already on a terminal list has nowhere to go.
-    canMarkDone: !scheduled && !engineOwned && !list.terminal,
+    canMarkDone: !scheduled && !launcherHeld && !list.terminal,
     // "Archive": get a card out of the way. Available on any human-held column, not
     // just Done and needs-attention - a Backlog item you have decided against is the
     // most common thing you want to file away, and it previously had no Archive at
     // all. Still withheld from engine-owned cards (the API rejects a hand-move of a
     // card an autonomous list owns) and from the Archived column itself.
-    canArchive: !scheduled && !engineOwned && !archived,
+    canArchive: false, // Archive is retired: Done or Delete
     // A persisted dispatch failure (gateway unreachable / transport defer): a red chip +
     // inline reason, so a failed dispatch shows on the CARD.
     dispatchErr: card.lastDispatchError,
@@ -623,7 +622,9 @@ function cardActionFlags(card: CardSummary, list: ListView) {
     // non-running agent-list card that isn't parked (a parked card is recovered via the
     // needs-attention column's Advance/Move, and the batch path skips needs-attention
     // cards, so offering Run there would be a no-op); reads "Retry" after a dispatch error.
-    canRun: list.kind === "agent" && !list.interactive && !running && card.status !== "needs-attention",
+    // START: kick the card's conversation. Any non-running card off the
+    // scheduled column can start (needs-attention resumes via the launcher).
+    canRun: !scheduled && !running && !list.terminal,
     // Why a parked card is in the needs-attention column.
     parked: card.status === "needs-attention",
     // Offer "Infer" on a no-project card that isn't mid-inference (the visible attempt
@@ -842,11 +843,9 @@ function Card({
   const [titleError, setTitleError] = useState<string | null>(null);
   const titleEditRevision = useRef<number | null>(null);
   const titleEditJustEnded = useRef(false);
-  // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
-  // manual Move/edit on it (the API rejects them too). needs-attention is the one
-  // human touchpoint on the autonomous side; interactive + manual lists stay
-  // fully editable.
-  const engineOwned = list.kind === "agent" && !list.interactive;
+  // Conversations: a card is held by the LAUNCHER only while a stretch runs on
+  // it; every other card is the human's to edit and move.
+  const engineOwned = card.status === "running" || list.id === "running";
   const scheduled = list.id === "scheduled";
 
   function markTitleEditEnded() {
@@ -1031,8 +1030,8 @@ function Card({
           <span className="chip" title={`${card.blocking.length} card(s) are waiting on this one`}>blocks {card.blocking.length}</span>
         )}
         {card.parkedFrom && <span className="chip" title="the list it parked from">from {card.parkedFrom}</span>}
-        {list.kind === "agent" && (
-          <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
+        {card.status === "running" && card.duty && (
+          <span className="chip" title="the duty the current stretch is running">duty: {card.duty}</span>
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
         {(card.schedule || card.scheduledFor) && (
@@ -5112,12 +5111,8 @@ function App() {
                       <div className="lkind">
                         {list.id === "scheduled" ? (
                           "system · schedules"
-                        ) : list.kind === "agent" && !list.interactive ? (
-                          <span className={list.phase?.includes("adversarial") ? "cdx" : "sk"} title="the pipeline phase this list runs; skill/model/effort come from the Orchestrator policy">
-                            phase: {list.phase ?? list.id}
-                          </span>
-                        ) : list.interactive ? (
-                          "interactive · web chat"
+                        ) : list.id === "running" ? (
+                          "system · conversations"
                         ) : (
                           `${list.kind} · ${list.trigger}`
                         )}

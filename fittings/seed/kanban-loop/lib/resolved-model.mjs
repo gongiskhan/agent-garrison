@@ -26,65 +26,12 @@ import path from "node:path";
 import os from "node:os";
 import { isDeepStrictEqual } from "node:util";
 
-// The fixed system/human head columns (D15). Discuss is NOT a fixed human column — it
-// only exists as a phase list when the composition declares a discuss duty.
-export const HUMAN_HEAD = ["scheduled", "backlog", "todo"];
-// `archived` is a fixed human tail column (added 2026-08-04): a terminal parking
-// place for finished/abandoned cards so the Done column stays legible. It is
-// terminal (like Done) so it never counts a card as live, and carries no forward
-// edges — a card leaves it only by an explicit human Move/Unarchive.
-export const HUMAN_TAIL = ["done", "needs-attention", "archived"];
-
-// The phases whose FAIL edge loops a card back to implement (they can send work
-// backwards). This is phase SEMANTICS — which phases are gates — not a pipeline
-// order (the order is always the card's resolved sequence). It matches the
-// canonical develop pipeline's gate lists.
-export const GATE_PHASES = new Set([
-  "review",
-  "adversarial-review",
-  "test",
-  "adversarial-test",
-  "walkthrough",
-  "validate"
-]);
-
-// The canonical develop-pipeline SPINE, in order. This matches the built-in
-// default board (scripts/kanban.mjs) and every phase template's routerPrompt
-// (review tells the operative to emit `adversarial-review`, adversarial-review to
-// emit `test`, and so on). A no-duty / legacy card has no resolved sequence, so it
-// falls back to the board's STATIC validNext — which buildBoard must derive from
-// this spine, not from the raw composition phase-union order. Otherwise a phase
-// like `review` (whose template says "end with adversarial-review") gets a
-// union-order neighbour such as `drill`, the operative's compliant verdict is
-// refused, and the card parks with correct work. Duty-driven cards ignore this
-// entirely (they route on validNextForCard / their own sequence).
-export const CANONICAL_SPINE = [
-  "plan",
-  "implement",
-  "review",
-  "adversarial-review",
-  "test",
-  "adversarial-test",
-  "walkthrough",
-  "validate"
-];
-
-// The forward edge for a phase on the no-duty fallback chain. A spine phase
-// advances to the next spine phase that is actually PRESENT in the model (skipping
-// any the composition did not select), ending at "done"; a non-spine phase keeps
-// its union-order neighbour (a no-duty card never routes INTO those, and a
-// duty card ignores the static edge). Keeping the static validNext consistent with
-// the phase template's routerPrompt is what lets a legacy card's compliant verdict
-// advance instead of parking.
-export function forwardForPhase(id, presentPhases, unionForward) {
-  const spineIdx = CANONICAL_SPINE.indexOf(id);
-  if (spineIdx === -1) return unionForward;
-  const present = presentPhases instanceof Set ? presentPhases : new Set(presentPhases);
-  for (let j = spineIdx + 1; j < CANONICAL_SPINE.length; j++) {
-    if (present.has(CANONICAL_SPINE[j])) return CANONICAL_SPINE[j];
-  }
-  return "done";
-}
+// The FIVE fixed board lists (Conversations, 2026-08-26). Lists ARE the card
+// states — To do, Running, Needs input, Scheduled, Done — and nothing else.
+// Duty lists, Discuss, Backlog, Archived and the phase spine are gone: a
+// card's current duty is a FIELD rendered as a chip, sequencing is the stretch
+// handoff's job, and history is frozen cards behind the History view.
+export const BOARD_LISTS = ["todo", "running", "needs-attention", "scheduled", "done"];
 
 export function kanbanModelFile(root) {
   const garrisonHome = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -243,32 +190,6 @@ export function rungTarget(model, dutyId, index) {
   return ladder.rungs[clamped] ?? null;
 }
 
-// A generic phase-list config for a leaf-duty id that has no canonical template
-// (e.g. a bespoke duty like `code` / `research` a composition declares). The
-// caller (buildBoard) fills in id/order/validNext.
-function genericAgentTemplate(id) {
-  return {
-    kind: "agent",
-    trigger: "immediate",
-    phase: id,
-    executePrompt: `Run the ${id} phase for this card; write the ${id} phase's gate-status entry under the run directory before choosing the next list.`,
-    routerPrompt: `When the ${id} phase is complete (or already satisfied), end with the next list id on its own final line.`
-  };
-}
-
-// The structural fields buildBoard OWNS (recomputed from the model), never taken
-// from a template: id, order and validNext are derived, so strip them so a
-// template can only contribute BEHAVIOUR (prompts, trigger, gate flags).
-function phaseConfigFromTemplate(template, id) {
-  const base = template ? { ...template } : genericAgentTemplate(id);
-  delete base.id;
-  delete base.order;
-  delete base.validNext;
-  base.kind = base.kind || "agent";
-  base.phase = base.phase || id;
-  return base;
-}
-
 // Fields that define how the engine interprets a list. These are projected from
 // the resolved model / canonical phase template on every reconcile; retaining a
 // stale value here can silently weaken a gate (for example an old Test list that
@@ -361,155 +282,65 @@ export function dutyGateExplicit(model, dutyId) {
   return model.gates[dutyId] === "explicit";
 }
 
-// The fail edge for a gate phase: loop back to implement when the card's sequence
-// contains it, else the card's first phase (a gate with no implement upstream
-// still has somewhere to send failed work).
-function failEdgeFor(sequence) {
-  return sequence.includes("implement") ? "implement" : sequence[0];
-}
+// nextListForCard / validNextForCard / the GATE_PHASES fail-edge machinery are
+// GONE (Conversations): sequencing lives in the stretch handoff, and a list's
+// validNext is a human move-affordance only. resolveCardSequence survives above
+// because the gateway's inbound dispatch consult and garrison-control still
+// read a card's duty sequence.
 
-// The next list a card advances to from `currentPhase`, per ITS resolved
-// sequence — the next leaf after the current one, or "done" when it is the last.
-// THIS is the "goal hook" decider: which phase comes next is the card's sequence,
-// never a hardcoded column order. Returns null when the card has no sequence, or
-// is not currently on its sequence (caller falls back to the board's validNext).
-export function nextListForCard(card, currentPhase, model = null) {
-  const seq = resolveCardSequence(card, model);
-  if (!seq) return null;
-  const idx = seq.indexOf(currentPhase);
-  if (idx < 0) return null;
-  return idx + 1 < seq.length ? seq[idx + 1] : "done";
-}
-
-// The valid next-list ids for a card on `currentPhase`, per its resolved
-// sequence: the forward step, plus the implement fail-edge for a gate phase.
-// Returns null for a card with no usable sequence (→ legacy board validNext).
-export function validNextForCard(card, currentPhase, model = null) {
-  const seq = resolveCardSequence(card, model);
-  if (!seq) return null;
-  const idx = seq.indexOf(currentPhase);
-  if (idx < 0) return null;
-  const forward = idx + 1 < seq.length ? seq[idx + 1] : "done";
-  if (GATE_PHASES.has(currentPhase)) {
-    const fail = failEdgeFor(seq);
-    if (fail && fail !== forward) return [forward, fail];
-  }
-  return [forward];
-}
-
-// Build a whole board from a resolved model: the fixed human head, the phase
-// lists derived from `model.kanbanLists` (in that order), and the fixed human
-// tail. Each phase list's BEHAVIOUR comes from `opts.templates[id]` (the caller
-// passes the canonical per-phase configs) or a generic template; its ORDER and
-// validNext are derived from the model — the forward step is the next phase in
-// the union, plus an implement fail-edge for gate phases. Pure: no fs, no I/O.
-export function buildBoard(model, opts = {}) {
-  const templates = opts.templates || {};
-  const allPhases = Array.isArray(model?.kanbanLists) ? model.kanbanLists.filter((x) => typeof x === "string") : [];
-  // S3d (D9b): discuss is NOT part of the linear pipeline chain - it is a pre-plan
-  // Interactive Discuss detour (human-selected or clarity-gated) entered via a move /
-  // targetList, never a forward edge from another phase. Pull it out of the forward-
-  // edge computation and add it as its own interactive list edged to the first
-  // pipeline phase, so the main pipeline (plan -> implement -> ...) stays unbroken.
-  const hasDiscuss = allPhases.includes("discuss");
-  const phases = allPhases.filter((id) => id !== "discuss");
-  const first = phases[0] || "done";
-  const hasImplement = phases.includes("implement");
-  const failEdge = hasImplement ? "implement" : first;
-  // The discuss detour hands off to plan (the canonical build entry) when present,
-  // else the first pipeline phase.
-  const discussForward = phases.includes("plan") ? "plan" : first;
-
+// Build the board: the FIVE fixed state columns, in order. The resolved model
+// no longer shapes the list set at all (duty lists are gone — the launcher
+// reads duties/ladders from the model directly); the `model` parameter stays
+// for caller compatibility and future per-list config. Pure: no fs, no I/O.
+//
+// validNext is the HUMAN MOVE-AFFORDANCE ONLY (the Move menu / drag targets).
+// It is NOT a routing edge and never dispatches anything — sequencing lives in
+// the stretch handoff's nextSteps.next. Do not re-derive a pipeline from it.
+export function buildBoard(_model = null, _opts = {}) {
   const lists = [];
   let order = 0;
   const push = (list) => lists.push({ ...list, order: order++ });
 
+  push({
+    id: "todo",
+    title: "To do",
+    kind: "manual",
+    trigger: "manual",
+    onEnter: "infer-title-and-project",
+    validNext: ["done"]
+  });
+  // `kind: "system"` is NEW and ON PURPOSE: every legacy `kind === "agent"`
+  // branch anywhere is FALSE for it, so a stray dispatch path cannot fire on
+  // Running by accident, and card creation here stays launcher-only. A human
+  // cannot MOVE a card into Running (you cannot start a stretch by dragging);
+  // the edges below are the rescue exits for a wedged card.
+  push({
+    id: "running",
+    title: "Running",
+    kind: "system",
+    trigger: "launcher",
+    system: true,
+    validNext: ["needs-attention", "todo"]
+  });
+  push({
+    id: "needs-attention",
+    title: "Needs input",
+    kind: "manual",
+    trigger: "manual",
+    notifyOnEntry: true,
+    validNext: ["todo", "done"]
+  });
   push({
     id: "scheduled",
     title: "Scheduled",
     kind: "scheduled",
     trigger: "scheduler-beat",
     system: true,
-    validNext: []
-  });
-  push({
-    id: "backlog",
-    title: "Backlog",
-    kind: "manual",
-    trigger: "manual",
-    onEnter: "infer-title-and-project",
     validNext: ["todo"]
   });
-  push({
-    id: "todo",
-    title: "To Do",
-    kind: "manual",
-    trigger: "manual",
-    // A human can send a card to Discuss or straight to the pipeline.
-    validNext: hasDiscuss ? ["discuss", first] : [first]
-  });
-  // The Discuss detour is interactive (never auto-dispatched for a human-selected
-  // card; the engine's gated-discuss exemption dispatches a clarity-gated one). Its
-  // behaviour comes from the interactive template (surface / onEnter / interactive
-  // flag); its forward edge is recomputed to the pipeline entry.
-  if (hasDiscuss) {
-    const cfg = phaseConfigFromTemplate(templates.discuss, "discuss");
-    push({ ...cfg, id: "discuss", title: cfg.title || titleFor("discuss"), validNext: [discussForward] });
-  }
+  push({ id: "done", title: "Done", kind: "manual", trigger: "manual", terminal: true, validNext: ["todo"] });
 
-  const presentPhases = new Set(phases);
-  phases.forEach((id, i) => {
-    const unionForward = i + 1 < phases.length ? phases[i + 1] : "done";
-    // Spine phases route on the canonical successor (consistent with their
-    // template routerPrompt); non-spine phases keep the union-order neighbour.
-    const forward = forwardForPhase(id, presentPhases, unionForward);
-    const validNext = GATE_PHASES.has(id) && failEdge && failEdge !== forward ? [forward, failEdge] : [forward];
-    const cfg = phaseConfigFromTemplate(templates[id], id);
-    push({ ...cfg, id, title: cfg.title || titleFor(id), validNext });
-  });
-
-  push({ id: "done", title: "Done", kind: "manual", trigger: "manual", terminal: true, validNext: [] });
-  push({
-    id: "needs-attention",
-    title: "Needs attention",
-    kind: "manual",
-    trigger: "manual",
-    notifyOnEntry: true,
-    // The human touchpoint routes back to To-do, the first phase, and implement
-    // (a re-run entry point) when the pipeline has one.
-    validNext: [...new Set(hasImplement ? ["todo", first, "implement"] : ["todo", first])]
-  });
-  // The Archived tail: a terminal parking column. No forward edges — a card leaves
-  // it only by an explicit human Move/Unarchive back onto the board.
-  push({ id: "archived", title: "Archived", kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] });
-
-  return { version: 5, lists, projects: {} };
-}
-
-// A human-managed list the operator created from the Kanban "Add list" affordance
-// (NOT a composition duty). These are plain manual parking columns that carry no
-// agent behaviour and are NOT part of the resolved model, so the duty reconcile
-// must PRESERVE them rather than treat them as removed. Marked by `userCreated`.
-export function isUserList(list) {
-  return !!list && list.userCreated === true;
-}
-
-// Splice user-created manual lists into a board just before the fixed human tail
-// (done / needs-attention / archived), preserving their relative order. Each gets a
-// FRACTIONAL `order` in the gap so no existing list's order churns (idempotent
-// reconcile); `order` is only the fallback sort key — the operator-owned `userOrder`
-// (drag-reorder) still wins at serve time. Returns a NEW array; input untouched.
-export function insertUserLists(lists, extras) {
-  const base = Array.isArray(lists) ? lists : [];
-  if (!Array.isArray(extras) || extras.length === 0) return base.slice();
-  const tail = new Set(HUMAN_TAIL);
-  let at = base.findIndex((l) => tail.has(l.id));
-  if (at === -1) at = base.length;
-  const before = at === 0 ? 0 : Number(base[at - 1]?.order ?? at - 1);
-  const after = at < base.length ? Number(base[at]?.order ?? before + 1) : before + 1;
-  const step = (after - before) / (extras.length + 1);
-  const placed = extras.map((l, i) => ({ ...l, order: before + step * (i + 1) }));
-  return [...base.slice(0, at), ...placed, ...base.slice(at)];
+  return { version: 10, lists, projects: {} };
 }
 
 // Reconcile an EXISTING board's phase-list SET to the current resolved model
@@ -524,48 +355,31 @@ export function insertUserLists(lists, extras) {
 // projection or recognized default prompt changed (used by setup to persist even
 // when the list set itself stayed constant).
 // Pure: no fs, no I/O.
-export function reconcileBoardLists(existingBoard, model, opts = {}) {
+export function reconcileBoardLists(existingBoard, model = null, opts = {}) {
   const rebuilt = buildBoard(model, opts);
   const existingLists = Array.isArray(existingBoard?.lists) ? existingBoard.lists : [];
   const existingById = new Map(existingLists.map((list) => [list.id, list]));
   const oldIds = new Set(existingLists.map((l) => l.id));
   const newIds = new Set(rebuilt.lists.map((l) => l.id));
-  // User-created manual lists are NOT in the model. Preserve every one the model
-  // does not also define, and keep it OUT of `removed` so its cards are never
-  // stranded when duties change.
-  const userLists = existingLists.filter((l) => isUserList(l) && !newIds.has(l.id));
-  const userListIds = new Set(userLists.map((l) => l.id));
-  const removed = [...oldIds].filter((id) => !newIds.has(id) && !userListIds.has(id));
+  // No user-created lists under the five-state board (the Add-list affordance
+  // is gone): everything outside the five is `removed`, and the caller
+  // relocates any live card off a removed list so nothing is lost.
+  const removed = [...oldIds].filter((id) => !newIds.has(id));
   const added = [...newIds].filter((id) => !oldIds.has(id));
   const reconciled = rebuilt.lists.map((list) =>
     reconcileList(existingById.get(list.id), list, opts.legacyDefaultPrompts)
   );
-  const lists = insertUserLists(reconciled, userLists);
-  const updated = lists
-    .filter(
-      (list) =>
-        oldIds.has(list.id) &&
-        !userListIds.has(list.id) &&
-        !isDeepStrictEqual(existingById.get(list.id), list)
-    )
+  const updated = reconciled
+    .filter((list) => oldIds.has(list.id) && !isDeepStrictEqual(existingById.get(list.id), list))
     .map((list) => list.id);
   const board = {
     ...rebuilt,
-    lists,
+    lists: reconciled,
     // Preserve the live board's project map + optimistic-concurrency rev. The
-    // engine-owned portion of each list is refreshed above, while operator list
-    // config survives unless it is an exact recognized legacy default.
+    // engine-owned portion of each list is refreshed above.
     projects: existingBoard?.projects && typeof existingBoard.projects === "object" ? existingBoard.projects : {},
-    rev: Number.isInteger(existingBoard?.rev) ? existingBoard.rev : 0
+    rev: Number.isInteger(existingBoard?.rev) ? existingBoard.rev : 0,
+    ...(existingBoard?.conversationsMigrated ? { conversationsMigrated: existingBoard.conversationsMigrated } : {})
   };
   return { board, removed, added, updated };
-}
-
-// A human title for a derived phase list id ("adversarial-review" → "Adversarial
-// Review"). Only used when a template omits a title.
-function titleFor(id) {
-  return String(id)
-    .split("-")
-    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
-    .join(" ");
 }

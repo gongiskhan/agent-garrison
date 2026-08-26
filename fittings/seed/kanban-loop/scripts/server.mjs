@@ -66,13 +66,9 @@ import {
   getList,
   validNextFor,
   processCard,
-  processChain,
-  processBatch,
-  advanceCardPhase,
   recoverInterruptedRuns,
   triggerFor,
   isInteractive,
-  isGatedDiscuss,
   withEvent,
   replySnippet,
   parkFields,
@@ -91,9 +87,9 @@ import {
   isUserList,
   insertUserLists
 } from "../lib/resolved-model.mjs";
-import { batchGatewayRunFn, reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
+import { reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
-import { gatewayRunFn, inferenceRunFn, compactBoundaryFn, interruptCardTurn, projectNameForRouting } from "../lib/gateway-client.mjs";
+import { inferenceRunFn, interruptCardTurn, projectNameForRouting } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
 import { loadPolicy, railForCard, railIsManualOnly, phaseTogglesFromCsv } from "../lib/policy.mjs";
 import {
@@ -437,6 +433,8 @@ export function cardSummary(card) {
     scope: cardScope(card),
     list: card.list,
     status: card.status ?? "ok",
+    duty: card.duty ?? null,
+    conversationId: card.conversationId ?? null,
     iterations: card.iterations ?? 0,
     goalMode: Boolean(card.goalMode),
     rev: card.rev ?? 0,
@@ -1217,14 +1215,6 @@ export function isReadableFile(p) {
   }
 }
 
-// A Move onto this list should AUTO-START the card's run iff it is an IMMEDIATE agent
-// list — not a manual column, not an interactive list (Discuss), not a scheduler-beat
-// list (Test, which runs batched on its own beat). This is what makes "moving a card to
-// Plan start planning" instead of silently parking it.
-export function shouldAutoDispatch(board, listId) {
-  const l = getList(board, listId);
-  return !!l && l.kind === "agent" && !isInteractive(l) && triggerFor(l) === "immediate";
-}
 
 // Is a card LIVE — occupying its project's serialize slot / counting as an overlap
 // candidate? Mirrors coordination.mjs's isLiveCard (which is module-private there):
@@ -1373,46 +1363,47 @@ async function handleSteerCard(req, res, opts, id) {
   // hold, and the card cannot become running/abandoned/deleted underneath us.
   if (action === "revisit" && revisitDuty && card.status !== "running") {
     const board = await loadBoard(opts.root);
-    if (getList(board, revisitDuty)) {
-      let events = withEvent(card, {
-        at,
-        kind: "steering",
-        message: `Steering: ${action} → ${revisitDuty}`,
-        detail: reason || null
-      });
-      events = withEvent({ events }, {
-        at,
-        kind: "steering-restage",
-        message: `Re-staged to ${revisitDuty} (steering)`
-      });
-      const target = {
-        ...card,
-        // A human sending a card back through the pipeline is a fresh, approved pass:
-        // clear the park reason and RESET the iteration counter (the convergence guard),
-        // exactly like un-parking. Without this a card re-staged from needs-attention
-        // (parked AT the cap) would trip the cap on its first tick and re-park, and a
-        // done card would burn straight into it. The runDir + steering.md carry the
-        // prior context forward, so "same card, same context" holds.
-        ...unparkRecoveryFields(card),
-        list: revisitDuty,
-        status: "ok",
-        runningSince: null,
-        events
-      };
-      const moved = await saveCardCASWithHooks(opts.root, target, card.rev ?? 0, at, {
-        beforeWrite: ({ next }) => prepareRecoveredCoordinationHold(board, next),
-        afterWrite: () => {
-          appendSteeringMd(opts.root, id, { at, action, message });
-          writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
-          markSteeringApplied(opts.root, id);
-        }
-      });
-      if (moved.precondition) return coordinationRecoveryConflict(res, moved.detail);
-      if (moved.deleted) return jsonRes(res, 404, { error: "card was deleted while you were steering it" });
-      if (!moved.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(moved.card) });
-      card = moved.card;
-      applied = true;
-    }
+    // Conversations: there is no duty LIST to re-stage onto. An idle revisit
+    // sets the card's DUTY (the chip the launcher reads for its next stretch)
+    // and stays on its state column; the conversation forwarding below is what
+    // actually carries the human's redirection into the next brief.
+    let events = withEvent(card, {
+      at,
+      kind: "steering",
+      message: `Steering: ${action} → ${revisitDuty}`,
+      detail: reason || null
+    });
+    events = withEvent({ events }, {
+      at,
+      kind: "steering-restage",
+      message: `Re-staged to ${revisitDuty} (steering)`
+    });
+    const target = {
+      ...card,
+      // A human sending a card back through the pipeline is a fresh, approved
+      // pass: clear the park reason and RESET the iteration counter, exactly
+      // like un-parking. A terminal/parked card RE-ENTERS on To do; a live
+      // card keeps its column and only its duty chip changes.
+      ...unparkRecoveryFields(card),
+      duty: revisitDuty,
+      ...(card.list === "done" || card.list === "needs-attention" || card.list === "archived" ? { list: "todo" } : {}),
+      status: "ok",
+      runningSince: null,
+      events
+    };
+    const moved = await saveCardCASWithHooks(opts.root, target, card.rev ?? 0, at, {
+      beforeWrite: ({ next }) => prepareRecoveredCoordinationHold(board, next),
+      afterWrite: () => {
+        appendSteeringMd(opts.root, id, { at, action, message });
+        writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
+        markSteeringApplied(opts.root, id);
+      }
+    });
+    if (moved.precondition) return coordinationRecoveryConflict(res, moved.detail);
+    if (moved.deleted) return jsonRes(res, 404, { error: "card was deleted while you were steering it" });
+    if (!moved.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(moved.card) });
+    card = moved.card;
+    applied = true;
   }
   if (!applied) {
     // Running revisits remain pending until the engine's next duty boundary;
@@ -1462,6 +1453,19 @@ async function handleSteerCard(req, res, opts, id) {
     routeOriginEvent(opts.root, null, fresh, { kind: "steering", message: confirmation, detail: { action, revisitDuty, viaTurn: body.viaTurn === true, applied } });
   } catch {
     /* origin routing is best-effort */
+  }
+  // Conversations: steering IS a user message on the card's conversation — a
+  // running stretch sees it in its next brief; an idle conversation wakes the
+  // responder/triage routing. Fire-and-forget; the sidecar above is the record.
+  if (card.conversationId && opts.gatewayUrl && message.trim()) {
+    const steerText = action === "revisit" && revisitDuty
+      ? `[steering: revisit ${revisitDuty}] ${message}${reason ? ` (${reason})` : ""}`
+      : `[steering] ${message}`;
+    void fetch(`${opts.gatewayUrl}/conversation/message`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ conversationId: card.conversationId, message: steerText, origin: "steering" })
+    }).catch(() => {});
   }
   jsonRes(res, 200, { ok: true, action, revisitDuty, applied });
 }
@@ -2996,74 +3000,11 @@ async function handlePatchCard(req, res, opts, id) {
   // carding move carries x-garrison-engine) - unlike a normal engine move, which the
   // doorway drives itself. A human Discuss card (no gate marker) still just
   // moves (shouldAutoDispatch is false for the interactive list).
-  const movedToGatedDiscuss =
-    typeof body.list === "string" && isGatedDiscuss(result.card, getList(board, body.list));
-  // An engine-context request suppresses the background chain UNLESS it explicitly
-  // hands progression to the board. The garrison doorway omits that intent because
-  // it drives in-session via advanceCardPhase; quick gateway cards omit it because
-  // they run inline. Significant gateway registrations include it because they
-  // return after registration and otherwise leave the card stranded until a tick or
-  // manual Run press.
-  const callerOwnsProgression = isEngineRequest(req) && !requestsAutoDispatch(req);
-  // §7.1: releasing an autonomy hold IS the authorisation to progress, so it
-  // dispatches even from an engine-context move. The gateway's channel-agnostic
-  // "go" resume moves the card with the engine header and no dispatch intent
-  // (moveCardEngine has one shape), and without this the answered card would sit
-  // on Plan until a tick noticed it - which reads to the person who just said
-  // "go" as nothing happening.
-  const autoDispatch =
-    movedToGatedDiscuss ||
-    (releasedAutonomyHold && typeof body.list === "string" && shouldAutoDispatch(board, body.list)) ||
-    (typeof body.list === "string" && shouldAutoDispatch(board, body.list) && !callerOwnsProgression);
-  if (autoDispatch && opts.gatewayUrl) {
-    // Coordination (GARRISON-FLOW-V2 S1) gates, applied the same way the tick does
-    // before dispatching: a card deferred behind an overlapping run does NOT
-    // auto-dispatch on move; and when coordination's substrate is degraded, the
-    // serialize gate lets only the oldest live card per project proceed. Both leave
-    // the card on its (already-moved) list, to be released/retried by a later tick.
-    if (result.card.waitingOn) {
-      const w = result.card.waitingOn;
-      return jsonRes(res, 200, {
-        card: cardSummary(result.card),
-        dispatched: false,
-        note: `waiting on ${w.cardTitle || w.cardId} (${w.until}) — will dispatch when released`
-      });
-    }
-    const coordCfg = coordinationConfig(loadPolicy());
-    if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
-      const allCards = await loadAllCards(root);
-      const gate = serializeGate(allCards, result.card, board);
-      if (!gate.allowed) {
-        return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: false, note: gate.reason });
-      }
-    }
-    if (await gatewayReachable(opts.gatewayUrl)) {
-      // processChain runs the AUTOMATED FLOW: this list, then the next immediate
-      // agent list, and so on (Plan → Implement → Review → …) without waiting for a
-      // Start press or the next tick. Fire-and-forget — the card flips to running and
-      // is watchable; the PATCH returns at once.
-      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
-        .catch((err) => console.error(`[kanban-loop] auto-dispatch on move failed for ${id}:`, err?.message || err));
-      return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: true });
-    }
-    // Gateway down: the card stays on the target list (already moved, status ok) and
-    // WAITS — it dispatches on the next tick or via Start once an operative is up. We
-    // do NOT fire a doomed run that would park it in needs-attention just for moving.
-    // Persist the reason on the card so the UI can render a visible badge instead of
-    // leaving the user to discover a silent failure in the patch response.
-    const withError = {
-      ...result.card,
-      lastDispatchError: {
-        at: new Date().toISOString(),
-        reason: "gateway-unavailable",
-        listId: body.list,
-        message: "gateway not reachable — start an operative (composition up) and Retry"
-      }
-    };
-    const errSave = await saveCardCAS(root, withError, result.card.rev ?? 0);
-    const finalCard = errSave.ok ? errSave.card : result.card;
-    return jsonRes(res, 200, { card: cardSummary(finalCard), dispatched: false, note: "gateway not reachable — card waits on this list until an operative is up" });
-  }
+  // Conversations: a MOVE never auto-dispatches. There are no duty lists, no
+  // dispatch-on-entry, and you cannot start a stretch by dragging — work starts
+  // through Start (/cards/:id/start → the gateway's conversation kick), the
+  // schedule sweep + tick, or the materialization door. The old auto-dispatch
+  // block (shouldAutoDispatch + processChain) died with the duty-list engine.
   jsonRes(res, 200, {
     card: cardSummary(result.card),
     ...(result.postCommitError ? { coordinationCleanupPending: true } : {})
@@ -3652,172 +3593,75 @@ async function handleReconcile(req, res, opts) {
   return jsonRes(res, 200, { ok: true, added, removed, updated, movedToAttention: moved });
 }
 
+// POST /cards/:id/start — Start. Conversations: starting a card means starting
+// (or resuming) its CONVERSATION through the gateway's launcher. A card with a
+// conversation already gets a "resume" user message (triage re-routes it from
+// the summary); a fresh card gets a kick carrying its title + description as
+// the opening task. The board never dispatches model turns itself anymore.
 async function handleStartCard(req, res, opts, id) {
   const root = opts.root;
   let card;
   try { card = await loadCard(root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
-  card.id = id; // pin to the validated route id — saveCardCAS/processCard write under this id
-  const board = await loadBoard(root);
-  const list = getList(board, card.list);
-  if (!list) return jsonRes(res, 400, { error: `card on unknown list: ${card.list}` });
-
-  // An INTERACTIVE list (Discuss) advances ONLY by a manual Move (PATCH) — never
-  // by Start/Advance (brief decision 8: the advance is manual). Reject it here so
-  // a Start cannot skip the brief-to-disk hand-off. EXCEPTION (S3d): a clarity-gated
-  // discuss card runs the discuss duty as a real session, so Start dispatches it
-  // like any agent list; a human Discuss card (no gate marker) stays manual.
-  if (isInteractive(list) && !isGatedDiscuss(card, list)) {
-    return jsonRes(res, 400, {
-      error: "interactive list (Discuss) advances by manual Move, not Start — open the web chat, then Move when ready"
-    });
+  card.id = id;
+  if (card.status === "running") {
+    return jsonRes(res, 409, { error: "already running", card: cardSummary(card) });
   }
-
-  // Manual columns normally advance to their first valid edge. Needs-attention
-  // instead resumes its still-valid parkedFrom phase, preserving the failed
-  // phase's run context. A gated Discuss card falls through to agent dispatch.
-  if (list.kind !== "agent" && !isGatedDiscuss(card, list)) {
-    // A manual-only rail (empty phase plan — the personal/channel kinds, or a
-    // card with every phase toggled off) never advances INTO the dev pipeline:
-    // its journey is the manual head/tail, so Advance targets the manual
-    // subset of the list's exits, or Done when the pipeline was the only exit.
-    // parkedFrom resume is skipped too — there is no phase context to preserve.
-    const manualOnly = railIsManualOnly(railForCard(loadPolicy(), card));
-    let targets = validNextFor(board, card.list);
-    if (manualOnly) {
-      const manual = targets.filter((t) => getList(board, t)?.kind === "manual");
-      targets = manual.length ? manual : ["done"];
-    }
-    const parkedTarget =
-      !manualOnly &&
-      card.list === ATTENTION_LIST &&
-      typeof card.parkedFrom === "string" &&
-      card.parkedFrom !== ATTENTION_LIST &&
-      getList(board, card.parkedFrom)
-        ? card.parkedFrom
-        : null;
-    const target = parkedTarget ?? targets[0];
-    if (!target) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
-    const recovering = card.list === ATTENTION_LIST;
-    const landedTerminal = Boolean(getList(board, target)?.terminal || target === "done");
-    const at = new Date().toISOString();
-    const overridden = consumeStartOverrides(card, at);
-    const recover = recovering ? unparkRecoveryFields(card) : {};
-    const fromTitle = list.title || card.list;
-    const toTitle = getList(board, target)?.title || target;
-    let events = withEvent(overridden, {
-      at,
-      kind: recovering ? "recovered" : "moved",
-      message: recovering ? `Recovered: advanced ${listProseLabel(fromTitle)} → ${listProseLabel(toTitle)}` : `Advanced ${listProseLabel(fromTitle)} → ${listProseLabel(toTitle)}`
-    });
-    if (recovering && card.retryKeepsContext) {
-      events = withEvent({ events }, {
-        at,
-        kind: "retry-keeps-context",
-        message: "Retry preserves prior context (phase runDir + iteration logs kept)"
-      });
-    }
-    const next = { ...overridden, list: target, status: "ok", events, ...recover };
-    const result = await saveCardCASWithHooks(root, next, card.rev ?? 0, at, {
-      beforeWrite: isHumanHeld(card, board) && !landedTerminal
-        ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(
-            board,
-            lockedNext,
-            undefined,
-            getList(board, lockedNext.list)?.phase ?? lockedNext.list ?? null
-          )
-        : undefined,
-      afterWrite: landedTerminal
-        ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)
-        : undefined
-    });
-    if (result.precondition) return coordinationRecoveryConflict(res, result.detail);
-    if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
-    if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
-    // If we advanced onto an immediate agent list, kick the automated flow.
-    if (shouldAutoDispatch(board, target) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
-      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
-        .catch((err) => console.error(`[kanban-loop] advance-chain failed for ${id}:`, err?.message || err));
-    }
-    return jsonRes(res, 200, {
-      card: cardSummary(result.card),
-      advanced: target,
-      ...(result.postCommitError ? { coordinationCleanupPending: true } : {})
-    });
+  if (card.list === "scheduled") {
+    return jsonRes(res, 409, { error: "scheduled template — use Run now instead of Start" });
   }
-
-  // Agent list: dispatch through the engine. Requires a LIVE gateway — PING it first
-  // so an explicit Start while no operative is up returns a clear 503 (telling the
-  // user to start an operative) instead of firing a doomed run that parks the card.
   const gatewayUrl = opts.gatewayUrl;
   if (!gatewayUrl || !(await gatewayReachable(gatewayUrl))) {
-    return jsonRes(res, 503, { error: "gateway not reachable — start an operative (composition up) before dispatching an agent list" });
+    return jsonRes(res, 503, { error: "gateway not reachable — start an operative (composition up) before starting a conversation" });
   }
-  // Coordination serialize gate (GARRISON-FLOW-V2 S1, Q8): when coordination is
-  // enabled but its substrate is degraded, only the oldest live card per project may
-  // dispatch — the same choke the tick applies. Start authorizes a waiting-card
-  // override, but the engine consumes it only in the eventual run-acquire CAS.
+  // Coordination serialize gate (GARRISON-FLOW-V2 S1): when coordination is
+  // enabled but degraded, only the oldest live card per project may start.
   {
     const coordCfg = coordinationConfig(loadPolicy());
     if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
       const allCards = await loadAllCards(root);
-      const gate = serializeGate(allCards, card, board);
+      const gate = serializeGate(allCards, card, await loadBoard(root));
       if (!gate.allowed) return jsonRes(res, 409, { error: gate.reason, card: cardSummary(card) });
     }
   }
-  // Do not consume wait/schedule in a standalone save here. The engine folds the
-  // explicit override into the exact status:"running" acquire CAS; every
-  // pre-acquire refusal/race therefore leaves both holds untouched.
-  const manualStart = Boolean(card.waitingOn || card.scheduledFor);
-  const cap = opts.cap;
-
-  // A BATCHED list (Test) runs one session per PROJECT with a per-card-verdict router
-  // format, so a manual Run must drive the BATCHED path — not the per-card chain (whose
-  // single-card reply can't satisfy the batch router prompt). Run just THIS card's
-  // project group, exactly as the scheduler beat would. This is what makes "Run" work
-  // on Test without waiting for the beat or fiddling with the trigger.
-  if (list.batched) {
-    const all = await loadAllCards(root);
-    const projectKey = card.project || "(no-project)";
-    const projectCards = all.filter((c) => c.list === card.list && (c.project || "(no-project)") === projectKey);
-    void processBatch({
-      root,
-      board,
-      listId: card.list,
-      cards: projectCards,
-      batchRunFn: batchGatewayRunFn(gatewayUrl),
-      cap,
-      cwd: opts.cwd,
-      manualStartIds: manualStart ? [card.id] : []
-    })
-      .catch((err) => console.error(`[kanban-loop] start/batch failed for ${id}:`, err?.message || err));
-    return jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true, batched: true });
+  try {
+    if (card.conversationId) {
+      // Resume: a user message on the settled conversation; the launcher's
+      // responder/triage routing decides what happens (needs-input + message →
+      // triage re-routes; done + message → responder answers).
+      const r = await fetch(`${gatewayUrl}/conversation/message`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: card.conversationId,
+          message: "The user pressed Start — resume this work from the summary and the last handoff.",
+          origin: "board"
+        })
+      });
+      if (!r.ok && r.status !== 202) {
+        return jsonRes(res, 502, { error: `gateway refused the resume: http ${r.status}` });
+      }
+    } else {
+      const r = await fetch(`${gatewayUrl}/conversation/kick`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: id,
+          cardId: id,
+          task: [card.title, card.description].filter(Boolean).join("\n\n") || card.title || "Untitled work",
+          title: card.title ?? null
+        })
+      });
+      if (r.status !== 202 && r.status !== 409) {
+        return jsonRes(res, 502, { error: `gateway refused the kick: http ${r.status}` });
+      }
+    }
+  } catch (err) {
+    return jsonRes(res, 502, { error: `gateway unreachable mid-start: ${err?.message}` });
   }
-
-  // Run the AUTOMATED FLOW fire-and-forget (a real chain is minutes long — never block
-  // the HTTP response on it). The card flips to running and is watchable; the response
-  // returns at once. This is the manual Run / Retry path (the UI shows it on any agent
-  // list card that isn't already running; immediate agent lists also auto-run on entry).
-  void processChain({
-    root,
-    board,
-    card,
-    runFn: gatewayRunFn(gatewayUrl),
-    cap,
-    cwd: opts.cwd,
-    onDutyBoundary: compactBoundaryFn(gatewayUrl),
-    manualStart
-  })
-    .catch((err) => console.error(`[kanban-loop] start/chain failed for ${id}:`, err?.message || err));
-  // This response is already an accepted-dispatch projection (the chain is
-  // intentionally fire-and-forget). Reflect the same override that the acquire
-  // CAS will consume, without writing it early: a failed acquire still leaves
-  // the durable wait/schedule untouched for a safe retry.
-  const acceptedCard = manualStart
-    ? consumeStartOverrides({ ...card, status: "running" }, new Date().toISOString())
-    : { ...card, status: "running" };
-  jsonRes(res, 200, { card: cardSummary(acceptedCard), dispatched: true });
+  return jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), started: true });
 }
+
 
 // POST /cards/:id/panic — stop only the gateway turn that proves it owns this
 // card. The endpoint intentionally does NOT mutate the card: processCard/processBatch
@@ -3983,89 +3827,11 @@ async function handlePanicCard(req, res, opts, id) {
   });
 }
 
-// Host-authoritative completion seam for a pull-based Outpost worker. The
-// Next host API has already authenticated the machine and verified the evidence
-// manifest; this board-side seam rechecks the durable claim identity and then
-// uses advanceCardPhase so remote work cannot bypass gate, evidence,
-// coordination, cleanup, or terminal hooks.
+// The outpost-era remote-dispatch completion seam is RETIRED (Conversations):
+// phase advancement died with the duty-list engine, and remote work now rides
+// the remote-shell runtime inside a conversation stretch.
 async function handleDispatchComplete(req, res, opts, id) {
-  if (!isEngineRequest(req)) return jsonRes(res, 403, { error: "engine authentication required" });
-  const body = (await readBody(req)) || {};
-  let card;
-  try { card = await loadCard(opts.root, id); }
-  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
-  const dispatch = card.dispatch && typeof card.dispatch === "object" ? card.dispatch : null;
-  if (!dispatch || dispatch.runId !== body.runId || dispatch.routingToken !== body.routingToken) {
-    return jsonRes(res, 409, { error: "dispatch claim identity changed" });
-  }
-  if (dispatch.releasedAt || dispatch.state === "done" || dispatch.state === "failed") {
-    return jsonRes(res, 409, { error: "dispatch claim is no longer active" });
-  }
-  if (dispatch.phase !== body.phase || card.list !== body.phase) {
-    return jsonRes(res, 409, { error: `card phase changed from ${body.phase || "unknown"} to ${card.list}` });
-  }
-  if (!Number.isInteger(dispatch.claimRevision)
-      || !Number.isInteger(body.rev)
-      || body.rev !== dispatch.claimRevision
-      || body.rev !== (card.rev ?? 0)) {
-    return jsonRes(res, 409, { error: "card revision changed", card: cardSummary(card) });
-  }
-  if (typeof body.verdict !== "string" || !body.verdict.trim()) {
-    return jsonRes(res, 400, { error: "verdict is required" });
-  }
-  const summary = typeof body.summary === "string" ? body.summary.trim().slice(0, 2000) : "completed on a remote node";
-  const evidenceRunKey = createHash("sha256").update(String(body.runId)).digest("hex").slice(0, 32);
-  const completed = {
-    ...card,
-    // Absolute and host-owned. The evidence endpoint writes the phase sidecar
-    // and tangible evidence here before this request is accepted.
-    runDir: path.join(opts.root, "cards", id, "dispatch", "runs", evidenceRunKey),
-    lastReply: summary || card.lastReply || null,
-    dispatch: {
-      ...dispatch,
-      state: "done",
-      heartbeatAt: new Date().toISOString(),
-      detail: summary || "completed on a remote node",
-      requestedTransition: body.verdict,
-      ...(typeof body.sessionId === "string" && body.sessionId ? { sessionId: body.sessionId } : {}),
-      logCursor: Number.isSafeInteger(body.logCursor) ? body.logCursor : 0,
-      evidenceManifest: Array.isArray(body.evidenceManifest) ? body.evidenceManifest : []
-    },
-    dispatchRuns: appendDispatchRunProvenance(card, {
-      runId: body.runId,
-      machine: dispatch.machine,
-      workerId: dispatch.workerId,
-      phase: body.phase,
-      state: "done",
-      claimedAt: dispatch.claimedAt,
-      completedAt: new Date().toISOString(),
-      logIndex: dispatch.logIndex,
-      sessionId: body.sessionId,
-      logCursor: body.logCursor,
-      evidenceManifest: body.evidenceManifest
-    })
-  };
-  const result = await advanceCardPhase({
-    root: opts.root,
-    board: await loadBoard(opts.root),
-    card: completed,
-    verdict: body.verdict.trim(),
-    cwd: opts.cwd,
-    onDutyBoundary: opts.gatewayUrl ? compactBoundaryFn(opts.gatewayUrl) : undefined
-  });
-  if (result?.outcome?.status !== "moved") {
-    return jsonRes(res, 422, {
-      error: `remote phase was not advanced: ${result?.outcome?.reason || result?.outcome?.status || "unknown"}`,
-      outcome: result?.outcome || null,
-      card: result?.card ? cardSummary(result.card) : cardSummary(card)
-    });
-  }
-  return jsonRes(res, 200, {
-    ok: true,
-    advanced: result.outcome.to,
-    outcome: result.outcome,
-    card: cardSummary(result.card)
-  });
+  return jsonRes(res, 410, { error: "remote dispatch completion is retired — work advances through conversation stretches now" });
 }
 
 async function handleDispatchCancelAck(req, res, opts, id) {

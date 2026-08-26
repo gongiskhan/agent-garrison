@@ -19,7 +19,8 @@ process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 // @ts-ignore - pure ESM .mjs
 import { createCard, saveCardCAS, saveCardCASWithHooks } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore - pure ESM .mjs
-import { processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+// (processCard died with duty-list dispatch — the Done edge is driven through
+// the board's own write choke point, which is where the hooks live anyway.)
 // @ts-ignore - pure ESM .mjs
 import { buildPersonalCompletionPacket, enqueuePersonalCompletion, personalCompletionPacketFile, personalCompletionPacketsDir, reconcilePersonalCompletionOutbox } from "../fittings/seed/kanban-loop/lib/personal-memory-outbox.mjs";
 
@@ -63,30 +64,25 @@ describe("personal Done-card neutral memory outbox", () => {
       flow: "api-change",
       list: "implement"
     });
-    const board = {
-      version: 4,
-      lists: [
-        { id: "implement", title: "Implement", kind: "agent", phase: "implement", trigger: "immediate", validNext: ["done"] },
-        { id: "done", title: "Done", kind: "manual", trigger: "manual", terminal: true, validNext: [] }
-      ]
-    };
-    const runFn = async ({ card: running }: any) => {
-      mkdirSync(running.runDir, { recursive: true });
-      writeFileSync(join(running.runDir, "gate-status.implement.json"), JSON.stringify({
-        summary: "Final implementation decision from the terminal duty"
-      }));
-      return { reply: "Implemented the final choice.\ndone" };
-    };
-
-    const completed = await processCard({
-      root,
-      board,
-      card,
-      runFn,
-      cwd: PROJECT_ROOT,
-      now: () => "2026-08-05T12:00:00.000Z"
-    });
-    expect(completed.outcome).toMatchObject({ status: "moved", to: "done" });
+    // Conversations: the run's artifacts are written by a stretch; the Done
+    // edge goes through the board's ONE write choke point. Reproduce the same
+    // terminal state directly.
+    const runDir = join(PROJECT_ROOT, `run-final-${card.id}`);
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, "duty-summary.implement.json"), JSON.stringify({
+      phase: "implement",
+      at: "2026-08-05T11:59:00.000Z",
+      summary: "Implemented the final choice.",
+      gateSummary: "Final implementation decision from the terminal duty"
+    }));
+    const completed = await saveCardCASWithHooks(root, {
+      ...card,
+      list: "done",
+      runDir,
+      lastReply: "Implemented the final choice.",
+      iterations: 1
+    }, card.rev, "2026-08-05T12:00:00.000Z");
+    expect(completed.ok).toBe(true);
 
     const handoffFile = join(root, "cards", card.id, "handoff.json");
     const packetFile = personalCompletionPacketFile(root, completed.card);

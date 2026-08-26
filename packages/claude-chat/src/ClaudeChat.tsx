@@ -1267,6 +1267,22 @@ export interface ClaudeChatProps {
    */
   autoShowTranscript?: boolean;
   /**
+   * The conversation stream IS the body. Hides the Chat/Transcript toggle, pins
+   * the transcript pane open (SessionStream on {@link transcriptUrl}), and renders
+   * the composer's pending-input receipts as a thin tail strip beneath it (a
+   * just-sent message shows queued/running immediately, then disappears into the
+   * stream once the store echoes it as a user event). Requires `transcriptUrl`.
+   * Default false - every existing embedder byte-identical.
+   */
+  transcriptOnly?: boolean;
+  /**
+   * Land the pinned transcript on ONE event (a search hit) instead of on live:
+   * threaded verbatim to {@link SessionStream}'s `focusEventId`. Only meaningful
+   * with `transcriptOnly`, because that is the only mode where this component
+   * owns the stream for the whole body rather than as a toggled pane.
+   */
+  transcriptFocusEventId?: string;
+  /**
    * Stable key for persisting the UNSENT composer draft (typed text + settled
    * attachments) across a re-mount. A multi-thread host re-mounts the component
    * with a fresh `key` when switching threads (see `initialHistory`), which would
@@ -1307,7 +1323,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -1383,6 +1399,10 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const [screen, setScreen] = useState<string[]>([]);
   const [showRaw, setShowRaw] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  // `transcriptOnly` can only mean something when there IS a stream to show.
+  // Derived once so the header, the body and the tail strip can never disagree
+  // about which surface is on screen.
+  const streamIsBody = Boolean(transcriptOnly && transcriptUrl);
   const [input, setInput] = useState(() => loadDraftText(draftKey));
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [menuIdx, setMenuIdx] = useState(0);
@@ -2766,6 +2786,24 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
 
   const hasPins = Object.keys(pins).length > 0;
   const showFlightRail = railOn && (busy || hasPins || railOpen || pinSavePending || Boolean(pinSaveError));
+  // The tail strip: with the bubble pane gone, an input receipt has nowhere else
+  // to appear. Pending states carry the "I have it, it is nth in line" feedback a
+  // just-pressed Send owes the user before the store echoes the message back into
+  // the stream; a FAILED receipt joins them because otherwise a refused send would
+  // vanish without a trace. Bounded at three so a run of failures cannot grow a
+  // second transcript under the first.
+  const tailTurns = useMemo(
+    () =>
+      streamIsBody
+        ? turns
+            .filter((turn) =>
+              (!turn.eventTerminal && isPendingInputState(turn.inputState)) ||
+              (turn.inputState === "failed" && Boolean(turn.failure))
+            )
+            .slice(-3)
+        : [],
+    [streamIsBody, turns]
+  );
   // The flight rail's right-hand slot: the live elapsed time and the Stop pair
   // while busy; otherwise a way to put the rail away again.
   const generatedStopDisabled = !activeGeneratedTurn?.generationId || activeGeneratedTurn.inputState === "stopping";
@@ -2848,7 +2886,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             ))}
           </div>
         )}
-        {transcriptUrl && (
+        {/* No toggle where the stream IS the body: there is no other surface to
+            switch to, and a control whose two states look identical is chrome. */}
+        {transcriptUrl && !streamIsBody && (
           <button
             className="cc-rawtoggle"
             onClick={() => setShowTranscript((v) => !v)}
@@ -2862,8 +2902,20 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         </button>
       </header>
 
-      <div className="cc-scroll" ref={scrollRef} onScroll={onScroll} onClick={onCodeCopyClick}>
-        {showTranscript && transcriptUrl ? (
+      <div
+        className={`cc-scroll${streamIsBody ? " cc-scroll-stream" : ""}`}
+        ref={scrollRef}
+        onScroll={onScroll}
+        onClick={onCodeCopyClick}
+      >
+        {streamIsBody ? (
+          <SessionStream
+            url={transcriptUrl!}
+            live={busy}
+            announceLiveUpdates={false}
+            focusEventId={transcriptFocusEventId}
+          />
+        ) : showTranscript && transcriptUrl ? (
           <SessionStream url={transcriptUrl} live={busy} announceLiveUpdates={false} />
         ) : (
         <>
@@ -3096,6 +3148,29 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           <pre className="cc-raw">{screen.join("\n")}</pre>
         )}
       </div>
+
+      {/* The tail strip. It is deliberately NOT a bubble: what it carries is a
+          receipt for a message that has not landed in the record yet, and once the
+          store echoes the message back as a user event the stream above owns it
+          and the row goes. */}
+      {tailTurns.length > 0 && (
+        <div className="cc-tailstrip">
+          {tailTurns.map((t) => (
+            <div className="cc-tailstrip-row" key={t.id}>
+              {t.user.trim() !== "" && (
+                <span className="cc-tailstrip-text" title={t.user}>{t.user}</span>
+              )}
+              <InputLifecycleStatus
+                turn={t}
+                elapsed={isActiveInputState(t.inputState) ? elapsed : 0}
+                hint={generatedMode ? (t.activity ?? "") : workingHint}
+                onRetryStop={() => { if (t.generationId) void requestGeneratedStop(t, false); }}
+              />
+              {t.failure && <FailureNotice failure={t.failure} />}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="cc-statusstrip" title="Claude Code status line">
         {status.rows.length > 0 ? status.rows.map((r, i) => <div key={i} className="cc-statusrow">{r}</div>) : <div className="cc-statusrow cc-dim">no status</div>}

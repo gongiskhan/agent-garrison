@@ -23,13 +23,11 @@ import { classifySteering, parseSteering, steeringShortCircuit, steeringEvidence
 // @ts-ignore
 import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore
-import { seedBoard, phaseTemplatesFrom } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
 import { saveBoard, createCard, loadCard, saveCard, saveCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore
 import { buildBoard } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
-// @ts-ignore
-import { processCard, buildCardPrompt } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore
 import { readSteeringDirective, writeSteeringDirective, readSteeringMd, isEarlierPhase } from "../fittings/seed/kanban-loop/lib/steering.mjs";
 // @ts-ignore
@@ -50,9 +48,9 @@ afterAll(async () => {
 });
 
 
-const CARD = (over: any = {}) => ({ title: "Add login", list: "implement", sequence: ["plan", "implement", "review", "test"], ...over });
-const model: any = { version: 2, compositionId: "t", kanbanLists: ["plan", "implement", "review", "test"], sequences: { develop: { "2": ["plan", "implement", "review", "test"] } }, cells: {}, holds: {} };
-const board = buildBoard(model, { templates: phaseTemplatesFrom(seedBoard()) });
+// Conversations: lists are the five states; the current PHASE is the duty chip.
+const CARD = (over: any = {}) => ({ title: "Add login", list: "todo", duty: "implement", sequence: ["plan", "implement", "review", "test"], ...over });
+const board = buildBoard();
 
 let server: http.Server;
 let base = "";
@@ -134,65 +132,34 @@ describe("board POST /cards/:id/steer", () => {
     expect(res.body).toMatchObject({ action: "absorb", applied: false });
     expect(readSteeringMd(KANBAN_DIR, c.id)).toContain("use the existing util");
     const got = await loadCard(KANBAN_DIR, c.id);
-    expect(got.list).toBe("implement"); // unchanged
+    expect(got.list).toBe("todo"); // unchanged
     expect(got.events.some((e: any) => e.kind === "steering")).toBe(true);
   });
 
-  it("revisit on an IDLE card re-stages immediately (applied:true)", async () => {
-    const c = await createCard(KANBAN_DIR, CARD({ list: "review", project: "p" }));
+  it("revisit on an IDLE card re-stages immediately (applied:true) — duty chip, not a column", async () => {
+    const c = await createCard(KANBAN_DIR, CARD({ duty: "review", project: "p" }));
     const res = await post(`/cards/${c.id}/steer`, { message: "go back to plan", action: "revisit", revisitDuty: "plan" });
     expect(res.body).toMatchObject({ action: "revisit", applied: true });
     const got = await loadCard(KANBAN_DIR, c.id);
-    expect(got.list).toBe("plan"); // re-staged
+    expect(got.duty).toBe("plan"); // re-staged via the duty chip
+    expect(got.list).toBe("todo"); // the state column does not move
     expect(got.events.some((e: any) => e.kind === "steering-restage")).toBe(true);
     expect(readSteeringDirective(KANBAN_DIR, c.id)).toBeNull(); // marked applied
   });
 
   it("revisit on a RUNNING card DEFERS (directive written, card stays)", async () => {
-    const c = await createCard(KANBAN_DIR, CARD({ list: "review", project: "p" }));
+    const c = await createCard(KANBAN_DIR, CARD({ duty: "review", project: "p" }));
     await saveCard(KANBAN_DIR, { ...(await loadCard(KANBAN_DIR, c.id)), id: c.id, status: "running" });
     const res = await post(`/cards/${c.id}/steer`, { message: "go back to plan", action: "revisit", revisitDuty: "plan" });
     expect(res.body).toMatchObject({ action: "revisit", applied: false });
     const got = await loadCard(KANBAN_DIR, c.id);
-    expect(got.list).toBe("review"); // NOT moved — deferred to the boundary
+    expect(got.duty).toBe("review"); // NOT re-staged — deferred to the stretch boundary
     expect(readSteeringDirective(KANBAN_DIR, c.id)).toMatchObject({ action: "revisit", revisitDuty: "plan", applied: false });
   });
 
   it("rejects an unknown action", async () => {
     const c = await createCard(KANBAN_DIR, CARD({ project: "p" }));
     expect((await post(`/cards/${c.id}/steer`, { message: "x", action: "bogus" })).status).toBe(400);
-  });
-});
-
-describe("engine boundary steering", () => {
-  it("a pending revisit re-stages the card at the pre-dispatch boundary + origin event", async () => {
-    const c = await createCard(KANBAN_DIR, CARD({ list: "review", project: "demo", duty: "develop", level: 2 }));
-    // a pending revisit directive to an EARLIER phase
-    writeSteeringDirective(KANBAN_DIR, c.id, { action: "revisit", revisitDuty: "plan", reason: "add caching", applied: false });
-    let runFnCalled = false;
-    const runFn = async () => {
-      runFnCalled = true;
-      return { reply: "review" };
-    };
-    const { card: next, outcome } = await processCard({ root: KANBAN_DIR, board, card: await loadCard(KANBAN_DIR, c.id).then((x: any) => ({ ...x, id: c.id })), runFn, cap: 10, model, cwd: KANBAN_DIR });
-    expect(runFnCalled).toBe(false); // re-staged BEFORE dispatch
-    expect(outcome.status).toBe("moved");
-    expect(outcome.to).toBe("plan");
-    expect(next.list).toBe("plan");
-    expect(readSteeringDirective(KANBAN_DIR, c.id)).toBeNull(); // applied
-    expect(readOriginEvents(KANBAN_DIR, "board").some((e: any) => e.kind === "steering")).toBe(true);
-  });
-
-  it("buildCardPrompt folds the steering guidance in", () => {
-    const prompt = buildCardPrompt({
-      list: { kind: "agent", title: "Implement", executePrompt: "do it" },
-      card: CARD(),
-      validNext: ["review"],
-      steeringContext: "## 2026 [absorb]\nuse the shared cache helper",
-      phase: "implement"
-    });
-    expect(prompt).toContain("Steering guidance from the origin");
-    expect(prompt).toContain("use the shared cache helper");
   });
 });
 
@@ -208,7 +175,7 @@ describe("gateway steering (RoutedGateway)", () => {
     const gw = new RoutedGateway({ config: { taskTypes: [], tiers: [] } });
     const posted = await gw.postSteer(c.id, { message: "go back to plan", action: "revisit", revisitDuty: "plan" });
     expect(posted).toMatchObject({ action: "revisit", applied: true });
-    expect((await loadCard(KANBAN_DIR, c.id)).list).toBe("plan");
+    expect((await loadCard(KANBAN_DIR, c.id)).duty).toBe("plan");
   });
 
   // fix1 (HIGH): a same-session follow-up hits the in-RAM attach path (cardId only, no
@@ -233,38 +200,23 @@ describe("gateway steering (RoutedGateway)", () => {
 });
 
 describe("hardening", () => {
-  it("fix2: the endpoint rejects a FORWARD revisit (revisitDuty:test on a card in plan)", async () => {
-    const c = await createCard(KANBAN_DIR, CARD({ list: "plan", project: "p" }));
+  it("fix2: the endpoint rejects a FORWARD revisit (revisitDuty:test on a card on plan duty)", async () => {
+    const c = await createCard(KANBAN_DIR, CARD({ duty: "plan", project: "p" }));
     const res = await post(`/cards/${c.id}/steer`, { message: "jump ahead", action: "revisit", revisitDuty: "test" });
     expect(res.status).toBe(400);
-    expect((await loadCard(KANBAN_DIR, c.id)).list).toBe("plan"); // NOT moved forward
-  });
-
-  it("fix2: engine applyPendingRevisit skips a forward directive (marks it applied, no move)", async () => {
-    const c = await createCard(KANBAN_DIR, CARD({ list: "plan", project: "demo", duty: "develop", level: 2 }));
-    writeSteeringDirective(KANBAN_DIR, c.id, { action: "revisit", revisitDuty: "test", reason: "forward", applied: false });
-    let ran = false;
-    const runFn = async () => {
-      ran = true;
-      return { reply: "implement" };
-    };
-    const loaded = { ...(await loadCard(KANBAN_DIR, c.id)), id: c.id };
-    const { card: next } = await processCard({ root: KANBAN_DIR, board, card: loaded, runFn, cap: 10, model, cwd: KANBAN_DIR });
-    expect(next.list).not.toBe("test"); // never marched forward
-    expect(readSteeringDirective(KANBAN_DIR, c.id)).toBeNull(); // cleared (not-earlier)
-    expect(ran).toBe(true); // proceeded to dispatch the current phase
+    expect((await loadCard(KANBAN_DIR, c.id)).duty).toBe("plan"); // NOT marched forward
   });
 
   // Board Feedback surface: a card that reached the end (done) or stopped
   // (needs-attention) can be sent BACK through the pipeline with the same context.
   it("isEarlierPhase: a terminal/off-sequence card may revisit any in-sequence phase", () => {
-    const done = CARD({ list: "done" }); // "done" is not in the sequence
+    const done = CARD({ list: "done", duty: "review" }); // terminal list = re-entry, whatever duty it stopped on
     expect(isEarlierPhase(done, "plan")).toBe(true);
     expect(isEarlierPhase(done, "test")).toBe(true); // re-entry: every phase is "earlier" than done
     expect(isEarlierPhase(done, "nope")).toBe(false); // must still name a real phase
-    // on a live phase the strict go-back invariant still holds
-    expect(isEarlierPhase(CARD({ list: "review" }), "test")).toBe(false); // forward
-    expect(isEarlierPhase(CARD({ list: "review" }), "plan")).toBe(true); // back
+    // on a live phase (the duty chip) the strict go-back invariant still holds
+    expect(isEarlierPhase(CARD({ duty: "review" }), "test")).toBe(false); // forward
+    expect(isEarlierPhase(CARD({ duty: "review" }), "plan")).toBe(true); // back
   });
 
   it("Feedback on a DONE card re-stages it back and RESETS the iteration counter", async () => {
@@ -275,7 +227,8 @@ describe("hardening", () => {
     const res = await post(`/cards/${c.id}/steer`, { message: "you forgot the export button", action: "revisit", revisitDuty: "plan" });
     expect(res.body).toMatchObject({ action: "revisit", applied: true });
     const got = await loadCard(KANBAN_DIR, c.id);
-    expect(got.list).toBe("plan"); // sent back to the start of the queue
+    expect(got.list).toBe("todo"); // re-enters the live board
+    expect(got.duty).toBe("plan"); // at the phase the human named
     expect(got.iterations).toBe(0); // counter reset
     expect(readSteeringMd(KANBAN_DIR, c.id)).toContain("you forgot the export button"); // same-context guidance folded in
   });
@@ -293,14 +246,15 @@ describe("hardening", () => {
     const res = await post(`/cards/${c.id}/steer`, { message: "try a smaller change", action: "revisit", revisitDuty: "implement" });
     expect(res.body).toMatchObject({ action: "revisit", applied: true });
     const got = await loadCard(KANBAN_DIR, c.id);
-    expect(got.list).toBe("implement");
+    expect(got.list).toBe("todo"); // re-enters the live board
+    expect(got.duty).toBe("implement");
     expect(got.status).toBe("ok");
     expect(got.iterations).toBe(0);
     expect(got.attentionReason).toBeNull(); // un-parked
   });
 
   it("fix3: a terminal transition clears a stranded pending directive", async () => {
-    const c = await createCard(KANBAN_DIR, CARD({ list: "review", project: "p" }));
+    const c = await createCard(KANBAN_DIR, CARD({ duty: "review", project: "p" }));
     writeSteeringDirective(KANBAN_DIR, c.id, { action: "revisit", revisitDuty: "plan", applied: false });
     expect(readSteeringDirective(KANBAN_DIR, c.id)).not.toBeNull();
     const disk = { ...(await loadCard(KANBAN_DIR, c.id)), id: c.id };

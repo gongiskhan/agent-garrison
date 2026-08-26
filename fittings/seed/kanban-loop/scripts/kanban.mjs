@@ -16,15 +16,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, saveBoard, loadAllCards, createCard, updateCardCAS } from "../lib/board.mjs";
 import { normaliseCardSchedule } from "../lib/schedules.mjs";
-import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../lib/engine.mjs";
-import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
+import { getList, withEvent, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../lib/engine.mjs";
+import { conversationKickFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
 import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
 import { deliverBoardNotice } from "../lib/notify-origin.mjs";
 import { MORNING_BRIEF_SYSTEM_KEY, reconcileMorningBriefDeliveries } from "../lib/morning-briefing.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
-import { loadResolvedModel, buildBoard, reconcileBoardLists, validNextForCard } from "../lib/resolved-model.mjs";
+import { buildBoard, reconcileBoardLists } from "../lib/resolved-model.mjs";
 import {
   PERSONAL_SCOPE_TOKEN,
   ensurePersonalWorkspace,
@@ -83,135 +83,9 @@ export const LEGACY_DEFAULT_PHASE_PROMPTS = {
 
 export { migrateBoard } from "../lib/board.mjs";
 
+// The seed board IS the built board: five fixed state columns.
 export function seedBoard() {
-  return {
-    version: 5,
-    lists: [
-      {
-        id: "scheduled", title: "Scheduled", order: -1, userOrder: -1,
-        kind: "scheduled", trigger: "scheduler-beat", system: true, validNext: []
-      },
-      {
-        id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual",
-        // On entry: infer the title eagerly; apply the project only at >=70% confidence,
-        // else park in needs-attention (engine.resolveBacklogInference — FINDING 3).
-        onEnter: "infer-title-and-project",
-        validNext: ["todo"]
-      },
-      { id: "todo", title: "To Do", order: 1, kind: "manual", trigger: "manual", validNext: ["discuss", "plan"] },
-      {
-        id: "discuss", title: "Discuss", order: 2, kind: "agent-interactive", trigger: "manual",
-        // Interactive: NOT auto-dispatched. The board opens the web chat; the operative
-        // produces a brief to disk; the human advances manually. (Per-list mode is DEAD
-        // — D15; the gateway resolves the face.)
-        interactive: true, surface: "web-channel",
-        onEnter: "open-web-chat",
-        validNext: ["plan"]
-      },
-      // ── Autonomous lists (Plan onward). A list maps to a PHASE NAME and nothing
-      // else (D15): skill / model / effort / runtime resolve from the compiled
-      // Orchestrator policy at dispatch time (lib/policy.mjs); the engine injects
-      // the policy-bound skill into the prompt. These lists are ENGINE-OWNED
-      // (D16): the board API + UI reject manual moves/edits on them.
-      {
-        id: "plan", title: "Plan", order: 3, kind: "agent", trigger: "immediate", phase: "plan",
-        executePrompt:
-          "Plan this card: explore, then write the implementation plan and machine-checkable acceptance under the run directory, and write the plan phase's gate-status entry.",
-        routerPrompt: "When the plan + acceptance are written (or already exist in the run directory) AND the plan phase's gate-status entry exists, end with `implement` on its own final line.",
-        validNext: ["implement"]
-      },
-      {
-        id: "implement", title: "Implement", order: 4, kind: "agent", trigger: "immediate", phase: "implement",
-        executePrompt:
-          `Implement the planned slice end-to-end. Read the plan + acceptance from the run directory, and the project's architecture doc (${ARCH_DOC}) WHEN THE PROJECT HAS ONE - it is a convention, not a requirement, and a project without it is normal (GARRISON-FLOW-V2 D12: the flow is project-agnostic). Follow the project's existing conventions; fix forward; write the implement phase's gate-status entry.`,
-        routerPrompt: "When the code is written and self-checks pass — or the change is already present and complete — end with `review` on its own final line.",
-        validNext: ["review"]
-      },
-      {
-        id: "review", title: "Review", order: 5, kind: "agent", trigger: "immediate", phase: "review",
-        // Rail-relative, never a hardcoded phase name: a levelled flow's rail may be a
-        // SUBSET of the pipeline (fix L2 is implement -> test -> review -> done), and a
-        // gate record naming a phase the card does not run is refused by the engine and
-        // parks the card (F11 - a passing codex review did exactly that). The Test
-        // batch's equivalent instruction demonstrably keeps the same model on-rail.
-        executePrompt: "Review the slice diff for correctness then quality; write the review phase's gate-status entry with the verdict. Before emitting it, inspect the entry you wrote and replace any stale or invalid `next_phase` so it exactly matches one of THIS card's listed next-options.",
-        routerPrompt: "If the review is clean OR the slice is already complete (no real issues), end with this card's FORWARD next-option. Only if real issues remain, end with `implement`. Both come from the card's listed next-options; end with the bare token on its own final line.",
-        validNext: ["adversarial-review", "implement"]
-      },
-      {
-        id: "adversarial-review", title: "Adversarial Review", order: 6, kind: "agent", trigger: "immediate", phase: "adversarial-review",
-        executePrompt: "Run the adversarial review phase: a fresh-context pass that tries to break the diff; iterate to approve; write the phase's gate-status entry. Before emitting it, inspect the entry you wrote and replace any stale or invalid `next_phase` so it exactly matches one of THIS card's listed next-options.",
-        routerPrompt: "If the adversarial review approves — or there is nothing left to review (already complete/clean) — end with this card's FORWARD next-option. Only if it found real issues, end with `implement`. Both come from the card's listed next-options; end with the bare token on its own final line.",
-        validNext: ["test", "implement"]
-      },
-      {
-        id: "test", title: "Test", order: 7, kind: "agent", trigger: "scheduler-beat", phase: "test",
-        // Runs on its OWN scheduler beat (default every 2h, editable as a cron), not
-        // the global heartbeat, and is BATCHED per project: one session per project
-        // against one test plan, one verdict per card (list MECHANICS, preserved — D9).
-        // 2026-08-13: tightened from 5h — the fix flow's modal card finished implement
-        // in nine minutes and then waited hours for its test batch, which is exactly
-        // the latency that sends small work back to a raw session (F8).
-        beatCron: "0 */2 * * *",
-        batched: true,
-        // A resolved workflow may end at Test (for example develop level 2 is
-        // plan -> implement -> review -> test -> done) and therefore never visit
-        // Walkthrough. In that transition Test owns the always-on evidence report;
-        // the engine verifies the exact file before allowing Test -> Done. Longer
-        // workflows still produce their richer visual proof in Walkthrough.
-        requiresEvidenceOn: ["done"],
-        requiredEvidenceFile: "evidence.md",
-        executePrompt:
-          "Run the test phase: write + run the committed correctness gate (and typecheck/lint/build) for each card's slice. " +
-          "For EACH card, during THIS attempt create or overwrite `<runDir>/gate-status.test.json`; a pre-existing gate record is stale input, never proof for this attempt. Before emitting the verdict, inspect the gate record you just wrote and replace any stale or invalid `next_phase` so it exactly matches one of THAT card's listed next-options. Use `done` when `done` is that card's green terminal option. " +
-          "For every card whose next-options include `done` (Test is its final executable phase), ALWAYS create or overwrite `<runDir>/evidence/evidence.md` before the verdict. Record the exact verification commands you ran, their key results/output, and a concise pass/fail summary so the finished card has durable, user-openable proof.",
-        routerPrompt:
-          "For each card, use THAT card's listed next-options. Before the verdict, verify this attempt created or overwrote that card's `<runDir>/gate-status.test.json` and that its `next_phase` exactly equals the next-list you emit; replace any stale value first. Emit `<cardId> <the first listed forward option>` if green (especially `<cardId> done` when `done` is its terminal option), or `<cardId> implement` only if it is genuinely failing and implement is listed. Never name a board column outside that card's next-options.",
-        validNext: ["adversarial-test", "implement"]
-      },
-      {
-        id: "adversarial-test", title: "Adversarial Test", order: 8, kind: "agent", trigger: "immediate", phase: "adversarial-test",
-        executePrompt: "Run the adversarial-test phase: an independent pass drives the running app through the acceptance with its own probes; write the phase's gate-status entry.",
-        routerPrompt: "If the independent pass passed — or there is nothing left to test (already complete) — end with `walkthrough`. Only if it genuinely failed, end with `implement`. End with the bare token on its own final line.",
-        validNext: ["walkthrough", "implement"]
-      },
-      {
-        id: "walkthrough", title: "Walkthrough", order: 9, kind: "agent", trigger: "immediate", phase: "walkthrough",
-        // The engine ENFORCES this: the card cannot advance off Walkthrough unless
-        // <runDir>/evidence/ actually contains a file (screenshot or evidence.md).
-        requiresEvidence: true,
-        executePrompt:
-          "Leave TANGIBLE EVIDENCE for this change under the run directory's evidence/ folder (create `<runDir>/evidence/`), and write the walkthrough phase's gate-status entry. This is the proof the user opens on the finished card, so it must always exist:\n" +
-          "1. ALWAYS write `<runDir>/evidence/evidence.md` — a short log: WHAT changed (the diff or a concise summary with file:line), and HOW you verified it (the commands you ran + their key output).\n" +
-          "2. If the change has ANY visual / UI surface, ALSO capture at least one screenshot of the affected page or state into `<runDir>/evidence/` as a .png. Name it descriptively (e.g. after.png).\n" +
-          "3. If the change genuinely warrants a full recorded walkthrough video (real multi-step UI behavior), record it and also set the card's videoUrl.\n" +
-          "For a trivial change (a static text/copy/config tweak), steps 1 (and 2 if there's a page) are enough — do NOT force a video. Keep your reply short.",
-        routerPrompt: "If you produced the evidence bundle (a screenshot and/or evidence.md under <runDir>/evidence/, plus a video if warranted), end with `validate`. Only if you could not produce ANY evidence at all, end with `implement`. End with the bare token on its own final line.",
-        validNext: ["validate", "implement"]
-      },
-      {
-        id: "validate", title: "Validate", order: 10, kind: "agent", trigger: "immediate", phase: "validate",
-        executePrompt:
-          "Run the validate phase against this card's run directory + slice: check every APPLICABLE DoD gate (tests/typecheck/lint/build/e2e, review, adversarial passes; a phase the card's rail turned OFF is recorded off, never a silent pass) and write the durable gate record. " +
-          "CONFIRM the evidence bundle exists under `<runDir>/evidence/` — that tangible proof is part of the DoD. " +
-          "A gate that was legitimately size-skipped for a trivial change COUNTS AS SATISFIED, but DO expect at least the evidence.md log. Keep your reply short.",
-        routerPrompt: "If the Definition of Done holds — all applicable gates pass, are rail-off, or are size-skip-satisfied AND the evidence bundle exists — end with `done`. Only if a gate genuinely FAILED or NO evidence was produced, end with `implement`. End with the bare token on its own final line.",
-        validNext: ["done", "implement"]
-      },
-      { id: "done", title: "Done", order: 11, kind: "manual", trigger: "manual", terminal: true, validNext: [] },
-      {
-        id: "needs-attention", title: "Needs attention", order: 12, kind: "manual", trigger: "manual",
-        // Always notifies on entry (the surface honours notifyOnEntry). The ONE human
-        // touchpoint on the autonomous side (D16): edit, resolve, re-enter the pipeline.
-        notifyOnEntry: true,
-        validNext: ["todo", "plan", "implement"]
-      },
-      // A terminal parking column for finished/abandoned cards, so the Done column
-      // stays legible. No forward edges — a card leaves it only by a human Move/Unarchive.
-      { id: "archived", title: "Archived", order: 13, kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] }
-    ],
-    projects: {}
-  };
+  return buildBoard();
 }
 
 // Move the legacy scheduledFor/scheduleAction shape into the v5 Scheduled
@@ -350,9 +224,9 @@ export async function ensureMorningBriefTemplate(root, board, { force = false, n
       `Cannot safely seed Morning briefing: scheduler registry ${legacyState.file} could not be read and parsed (${legacyState.error})`
     );
   }
-  const other = getList(board, "other");
-  const fallback = (board.lists || []).find((list) => list.kind === "agent" && !isInteractive(list));
-  const executionList = other?.id ?? fallback?.id ?? null;
+  // Conversations: there are no agent execution lists. The occurrence lands on
+  // To do with scheduleAction "run" and the tick kicks its conversation.
+  const executionList = getList(board, "todo")?.id ?? null;
   const pendingCutover = Boolean(legacy && !force);
   const desiredEnabled = legacy ? legacy.enabled !== false : true;
   const legacyCron = typeof legacy?.cron === "string" && normaliseCardSchedule({
@@ -376,9 +250,12 @@ export async function ensureMorningBriefTemplate(root, board, { force = false, n
     list: "scheduled",
     origin: "scheduler",
     origin_id: "schedule:morning-briefing",
-    duty: other ? "other" : null,
-    level: other ? 1 : null,
-    sequence: executionList ? [executionList] : null,
+    // Conversations: the briefing runs as a conversation on the `other` duty;
+    // sequence/lists are gone (executionList above is only the occurrence's
+    // landing column, To do).
+    duty: "other",
+    level: 1,
+    sequence: null,
     systemKey: MORNING_BRIEF_SYSTEM_KEY,
     schedule: {
       kind: "cron",
@@ -394,42 +271,14 @@ export async function ensureMorningBriefTemplate(root, board, { force = false, n
   return { card, created: true, cutoverPending: pendingCutover, skippedLegacy: false, legacyEnabled: legacy?.enabled !== false };
 }
 
-// The canonical per-phase list configs (prompts, trigger, gate flags), indexed
-// by phase id from the default pipeline — the SINGLE source buildBoard reuses so
-// a derived board's phase lists carry the same behaviour as the built-in
-// pipeline. Structural fields (id/order/validNext) are stripped by buildBoard and
-// recomputed from the resolved model.
-export function phaseTemplatesFrom(board) {
-  const out = {};
-  for (const l of board.lists || []) {
-    // Capture agent lists AND the interactive Discuss template (S3d) - the resolved-
-    // model board reuses its interactive/surface/onEnter behaviour when a composition
-    // selects a discuss duty (buildBoard recomputes only its structural edges).
-    if (l.kind === "agent" || l.kind === "agent-interactive") out[l.id] = l;
-  }
-  return out;
+// The single setup-time reconcile contract: the five-state board carries no
+// per-phase templates or prompts, so reconcile is structural only.
+export function reconcileExistingBoard(existingBoard, _model = null) {
+  return reconcileBoardLists(existingBoard);
 }
 
-// The single setup-time reconcile contract. Keeping the prompt-migration
-// whitelist beside the canonical seed makes the live setup path and focused
-// tests exercise the same ownership-aware merge.
-export function reconcileExistingBoard(existingBoard, model) {
-  return reconcileBoardLists(existingBoard, model, {
-    templates: phaseTemplatesFrom(seedBoard()),
-    legacyDefaultPrompts: LEGACY_DEFAULT_PHASE_PROMPTS
-  });
-}
-
-// The board to seed: DRIVEN BY the resolved model when the runner has projected
-// one to ~/.garrison/kanban-loop/model.json (D15 — the fixed human columns plus
-// one phase list per leaf duty in the composition's resolved sequences), else the
-// built-in default pipeline. seedBoard() itself stays pure (a fixed default) so
-// it is safe to call as an in-memory default; the model only drives the board
-// that is actually PERSISTED to disk here at --setup.
-export function resolveSeedBoard(root) {
-  const model = loadResolvedModel(root);
-  if (!model) return seedBoard();
-  return buildBoard(model, { templates: phaseTemplatesFrom(seedBoard()) });
+export function resolveSeedBoard(_root) {
+  return buildBoard();
 }
 
 // A card must never be LOST when its list is removed by a duty reconcile. Move every
@@ -638,7 +487,7 @@ async function probe() {
   } catch {
     // an absent board is fine for the probe — setup seeds it
   }
-  if (typeof processCard !== "function" || typeof processBatch !== "function") {
+  if (typeof sweepDueSchedules !== "function" || typeof sweepOrphanedRuns !== "function") {
     console.error("KANBAN-FAIL: engine not loadable");
     process.exit(1);
   }
@@ -655,220 +504,6 @@ async function seedMorningBrief() {
   const board = await loadBoard(root);
   const result = await ensureMorningBriefTemplate(root, board);
   console.log(`kanban-loop: Morning briefing ${result.created ? `created (${result.card.id})` : result.cutover ? `cut over (${result.card.id})` : `already exists (${result.card.id})`}${result.cutoverPending ? " — paused pending legacy-job removal" : ""}`);
-}
-
-// Dispatch goes through the shared, transport-aware gateway client (lib/gateway-client.mjs,
-// imported at the top of this file): one wire shape + one failure classification across the
-// tick and the board, so a transient gateway failure reverts a card rather than parking it.
-
-// Batched dispatch for the Test list: ONE session per project covering all of the
-// project's waiting cards. The prompt is the list's execute/router prompt plus the
-// card roster (id + runDir + slice), and the session is asked to emit one verdict line
-// per card (`<cardId> <next-list>`); processBatch parses each verdict per card.
-// Exported so the board server's manual "Run" can drive a batched list (Test) through
-// the SAME batch wire shape the scheduler beat uses (one session per project).
-export function batchGatewayRunFn(gatewayUrl) {
-  // Delegate the wire to the SAME transport-aware streaming client the per-card
-  // path uses (gateway-client.mjs): /chat/stream + the generous kanban per-turn
-  // timeout + err.transport classification. The old blocking /chat had NO
-  // timeoutMs (the gateway capped a real batched test run at the 5-min PTY
-  // default) and died at the HTTP client's ~5-min headersTimeout — either way
-  // a legitimate long batch parked its whole project group.
-  const streamRunFn = gatewayRunFn(gatewayUrl);
-  const batchCard = (project) => {
-    if (project === PERSONAL_SCOPE_TOKEN) return { scope: "personal" };
-    if (project && project !== "(no-project)") return { project };
-    return null;
-  };
-  const batchLabel = (project) => project === PERSONAL_SCOPE_TOKEN ? "personal" : project;
-  return async ({
-    project,
-    cards,
-    list,
-    classification,
-    skill,
-    suppressContinuations,
-    nudge,
-    duty,
-    level,
-    phase: routedPhase,
-    stepIndex,
-    sequence,
-    onChunk,
-    onJournal
-  }) => {
-    const routeContext = { duty, level, phase: routedPhase, stepIndex, sequence };
-    // A verdict NUDGE (engine backstop) replaces the roster prompt: same
-    // session, ask for nothing but the per-card verdict lines.
-    if (nudge) {
-      return streamRunFn({
-        prompt: nudge,
-        // A batch runs one session per PROJECT, so the whole group shares a cwd —
-        // the same routing.project the per-card path sends. Without it the batch
-        // (the Test list) ran in the composition dir too.
-        card: batchCard(project),
-        classification,
-        skill,
-        suppressContinuations: suppressContinuations ?? true,
-        cardIds: cards.map((c) => c.id).filter(Boolean),
-        onChunk,
-        onJournal,
-        ...routeContext
-      });
-    }
-    // D15 (S4a): each card's valid next steps come from ITS resolved (duty, level)
-    // sequence (cached on the card), so a sequence-ended card is offered `done`, not
-    // the board's next column. A legacy card (no sequence) falls back to the list's
-    // static validNext. Tell the operative each card's own options so the verdict it
-    // emits matches what parseBatchVerdicts will accept.
-    const phase = phaseForList(list) || list.id;
-    const roster = cards
-      .map((c) => {
-        const opts = validNextForCard(c, phase, null) ?? list.validNext ?? [];
-        return `- ${c.id} :: title="${c.title}" runDir=${c.runDir || "(none)"} slice=${c.sliceId || "(none)"} next-options=[${opts.join(" | ")}]`;
-      })
-      .join("\n");
-    // Lead with the list's mode so the gateway switches the operative's face (same as
-    // the per-card buildCardPrompt). Inert if the gateway ignores it.
-    const mode = (list?.mode || "").trim();
-    const prompt = [
-      ...(mode ? [`${mode}, take on the following batched test run.`, ""] : []),
-      `Batched test run for scope "${batchLabel(project)}". Test ALL of these cards' slices in ONE session against one test plan:`,
-      roster,
-      "",
-      list.executePrompt || "",
-      "",
-      "Emit ONE verdict line per card, each on its own line, EXACTLY in the form `<cardId> <next-list>` where <next-list> is one of THAT card's own next-options listed above.",
-      list.routerPrompt || ""
-    ].join("\n");
-    return streamRunFn({
-      prompt,
-      // The batch is grouped BY project, so every card in it shares this cwd.
-      card: batchCard(project),
-      classification,
-      skill,
-      suppressContinuations: suppressContinuations ?? true,
-      cardIds: cards.map((c) => c.id).filter(Boolean),
-      onChunk,
-      onJournal,
-      ...routeContext
-    });
-  };
-}
-
-
-// The scheduler tick runs out-of-band (launchd) with no operative, so PING the gateway
-// first and skip the whole tick when it is down — immediate cards WAIT for an operative
-// instead of every card failing its run and parking in needs-attention.
-async function gatewayReachable(url) {
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 1500);
-    const r = await fetch(url, { method: "GET", signal: ctrl.signal }).catch(() => null);
-    clearTimeout(t);
-    return Boolean(r); // any HTTP response (even 404) means the gateway is up
-  } catch {
-    return false;
-  }
-}
-
-// ── Discuss inactivity auto-archive ─────────────────────────────────────────
-// A Discuss card is a resumable conversation, which is exactly why it never leaves
-// on its own: the list is interactive, the engine never dispatches it, and a
-// discussion nobody comes back to sits on the board forever. So a Discuss card that
-// has gone quiet for the idle window moves to the terminal `archived` column with an
-// event naming the reason. A HELD card archives on the same terms - being parked on
-// a question nobody answered for a week IS inactivity.
-//
-// Archiving is reversible (a human Move brings the card back), needs no gateway, and
-// is the least destructive way to say "this conversation is over".
-const DEFAULT_DISCUSS_IDLE_DAYS = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-// The idle window in ms. GARRISON_KANBAN_DISCUSS_IDLE_DAYS overrides the default (the
-// same env-knob shape as GARRISON_KANBAN_ITERATION_CAP); an explicit 0 turns the
-// sweep OFF. A non-numeric or negative value falls back to the default rather than
-// silently disabling a sweep the operator thought they had configured.
-export function discussIdleWindowMs(env = process.env) {
-  const raw = String(env.GARRISON_KANBAN_DISCUSS_IDLE_DAYS ?? "").trim();
-  if (!raw) return DEFAULT_DISCUSS_IDLE_DAYS * DAY_MS;
-  const days = Number(raw);
-  if (!Number.isFinite(days) || days < 0) return DEFAULT_DISCUSS_IDLE_DAYS * DAY_MS;
-  return Math.round(days * DAY_MS);
-}
-
-// The freshest timestamp the CARD ITSELF carries: its created/updated stamps, the
-// last of its events, and a live run's start. Deliberately NOT the web channel's
-// thread file - the board owns cards, the channel owns threads, and reaching across
-// that line to age a card would make the board depend on a surface it does not
-// install. Every card write stamps `updated`, so a reply that touches the card (a
-// brief link, a hold, a move) counts as activity. Null when a card carries no
-// parseable timestamp at all; such a card is never archived, because we cannot prove
-// it is idle.
-export function lastCardActivityAt(card) {
-  let newest = null;
-  const consider = (value) => {
-    const t = Date.parse(value ?? "");
-    if (Number.isFinite(t) && (newest === null || t > newest)) newest = t;
-  };
-  consider(card?.created);
-  consider(card?.updated);
-  consider(card?.runningSince);
-  for (const event of Array.isArray(card?.events) ? card.events : []) consider(event?.at);
-  return newest;
-}
-
-export async function sweepIdleDiscussCards(
-  root,
-  board,
-  { now = () => Date.now(), windowMs = discussIdleWindowMs() } = {}
-) {
-  if (!(windowMs > 0)) return [];
-  const lists = Array.isArray(board?.lists) ? board.lists : [];
-  // Without the terminal column there is nowhere to archive TO, and moving a card to
-  // a list the board does not have would make it invisible.
-  if (!lists.some((l) => l?.id === "archived")) return [];
-  const discussLists = new Set(lists.filter((l) => phaseForList(l) === "discuss").map((l) => l.id));
-  if (!discussLists.size) return [];
-  const cards = await loadAllCards(root);
-  const archived = [];
-  for (const card of cards) {
-    if (!discussLists.has(card.list)) continue;
-    // A live run is not idle. A run that DIED mid-turn is released by
-    // sweepOrphanedRuns earlier in this same tick, so it becomes eligible next tick.
-    if (card.status === "running") continue;
-    const last = lastCardActivityAt(card);
-    if (last === null) continue;
-    if (now() - last < windowMs) continue;
-    const res = await updateCardCAS(root, card.id, (c) => {
-      // Re-check against the card the CAS loop just read: a reply may have landed
-      // between our scan and this write, and a reply un-idles the conversation.
-      if (!discussLists.has(c.list) || c.status === "running") return null;
-      const fresh = lastCardActivityAt(c);
-      if (fresh === null || now() - fresh < windowMs) return null;
-      const idleDays = Math.floor((now() - fresh) / DAY_MS);
-      return {
-        ...c,
-        list: "archived",
-        status: "ok",
-        runningSince: null,
-        events: withEvent(c, {
-          at: new Date(now()).toISOString(),
-          kind: "archived",
-          message: `Archived from Discuss: discuss-inactivity (${idleDays}d quiet)`,
-          detail:
-            `Nothing touched this Discuss card for ${idleDays} day(s), past the ${Math.round(windowMs / DAY_MS)}-day ` +
-            `inactivity window (GARRISON_KANBAN_DISCUSS_IDLE_DAYS). The conversation is kept - move the card back ` +
-            `to Discuss to pick it up again.`
-        })
-      };
-    });
-    // updateCardCAS returns the UNCHANGED card when the mutate opts out, so a
-    // declined re-check is truthy. Only a card that actually landed on `archived`
-    // is reported (and logged) as archived.
-    if (res?.list === "archived") archived.push(card.id);
-  }
-  return archived;
 }
 
 // Process due IMMEDIATE agent-list cards. Skips scheduler-beat (Test runs on its own
@@ -903,146 +538,57 @@ async function tick() {
   for (const failure of morning.errors) {
     console.log(`kanban-loop: Morning briefing reconciliation failed for ${failure.cardId}: ${failure.error}`);
   }
-  // Retire conversations nobody came back to. Local bookkeeping like the sweeps
-  // above, so it runs whether or not a gateway is reachable.
-  const staleDiscuss = await sweepIdleDiscussCards(root, board).catch((error) => {
-    console.log(`kanban-loop: discuss inactivity sweep failed: ${error?.message || error}`);
-    return [];
-  });
-  for (const id of staleDiscuss) console.log(`kanban-loop: archived idle Discuss card ${id} (discuss-inactivity)`);
   if (!gatewayUrl) {
     // Distinct from "the gateway is down": this instance never told the tick WHICH
-    // gateway is its own, so dispatching would be a guess. Silently logging
+    // gateway is its own, so kicking would be a guess. Silently logging
     // "not reachable" here is what hid the dead prod tick for weeks.
     console.log(
       "kanban-loop: NO gateway URL for this instance (neither GARRISON_GATEWAY_URL nor " +
-      "GARRISON_GATEWAY_PORT is set) — the tick cannot dispatch. Re-run `kanban.mjs --setup` " +
+      "GARRISON_GATEWAY_PORT is set) — the tick cannot kick conversations. Re-run `kanban.mjs --setup` " +
       "from the running fitting so the job command carries this instance's gateway."
     );
     return;
   }
   if (!(await gatewayReachable(gatewayUrl))) {
-    console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to dispatch (immediate cards wait for an operative).`);
+    console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to kick (conversations wait for an operative).`);
     return;
   }
-  const cap = Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10);
   // Coordination (GARRISON-FLOW-V2 S1): release any waiting cards whose blocker
-  // reached its release point BEFORE dispatching, then reload so released cards
-  // are seen on their new list this same tick.
+  // reached its release point BEFORE kicking, then reload so released cards are
+  // seen on their new list this same tick.
   const cards0 = await loadAllCards(root);
   await reevaluateWaiting({ root, board, cards: cards0 }).catch(() => {});
   const cards = await loadAllCards(root);
-  const coordCfg = coordinationConfig(loadPolicy());
-  const degraded = coordCfg.enabled && !coordinationAvailability().ok && coordCfg.serializeWhenUnavailable;
-  const runFn = gatewayRunFn(gatewayUrl);
-  const onDutyBoundary = compactBoundaryFn(gatewayUrl);
-  let processed = 0;
+  // Conversations: the tick no longer dispatches duty turns. It KICKS the
+  // launcher (fire-and-forget /conversation/kick) for exactly two shapes:
+  //   - a due schedule occurrence sitting on To do with scheduleAction "run"
+  //     (the nightly and every Run-now come through here), and
+  //   - RECOVERY: a card stuck in Running with no advancing conversation
+  //     (a crashed gateway left it mid-flight; the kick resumes from the store).
+  // Everything else starts through the Start action or the materialization
+  // door. The gateway 409s an already-advancing conversation, so kicks are
+  // idempotent at every 2-minute beat.
+  const kick = conversationKickFn(gatewayUrl);
+  let kicked = 0;
   for (const card of cards) {
-    const list = getList(board, card.list);
-    if (!list) continue;
-    // S3d review R2: a clarity-gated discuss card whose move-time dispatch failed is
-    // otherwise stranded (the tick skips agent-interactive lists). Let it THROUGH the
-    // list-kind/trigger/interactive guards so the tick self-heals it like any agent
-    // list; a card held-for-go is left alone (processCard's discuss-held guard skips it,
-    // and !discussHeld gates it here too).
-    // §7.1: a card the router held below its autonomy threshold is waiting for a
-    // go and the tick must not answer on the human's behalf. A held card sits in
-    // the capture list, which the list-kind guard below already skips, so this is
-    // belt-and-suspenders in the same spirit as the discuss-held skip - and it is
-    // checked BEFORE the gated-discuss exemption, which is the one path that
-    // deliberately walks past those guards.
-    if (card.autonomyHeld === true) continue;
-    const gatedDiscuss = isGatedDiscuss(card, list) && card.discussHeld !== true;
-    if (!gatedDiscuss) {
-      if (list.kind !== "agent") continue;                // manual / agent-interactive skip
-      if (triggerFor(list) !== "immediate") continue;     // scheduler-beat / manual skip
-      if (isInteractive(list)) continue;                  // belt-and-suspenders
+    if (card.autonomyHeld === true || card.waitingOn) continue;
+    const dueRun = card.list === "todo" && card.scheduleAction === "run";
+    const recovery = card.list === "running";
+    if (!dueRun && !recovery) continue;
+    const res = await kick({
+      conversationId: card.conversationId ?? card.id,
+      cardId: card.id,
+      task: dueRun ? [card.title, card.description].filter(Boolean).join("\n\n") : null,
+      title: card.title ?? null
+    });
+    if (res.ok && res.kicked) {
+      console.log(`kanban-loop: kicked conversation for card ${card.id} (${dueRun ? "schedule-run" : "recovery"})`);
+      kicked++;
+    } else if (!res.ok) {
+      console.log(`kanban-loop: kick failed for card ${card.id}: ${res.error}`);
     }
-    if (card.status === "running" || card.status === "needs-attention") continue;
-    if (card.waitingOn) continue;                         // deferred behind an overlapping run
-    // Serialize gate (D9): coordination enabled but its substrate is unusable —
-    // run only the oldest live card per project until it recovers.
-    if (degraded) {
-      const gate = serializeGate(cards, card, board);
-      if (!gate.allowed) { console.log(`kanban-loop: card ${card.id} → ${gate.reason}`); continue; }
-    }
-    const { outcome } = await processCard({ root, board, card, runFn, cap, onDutyBoundary });
-    console.log(`kanban-loop: card ${card.id} → ${outcome.status}${outcome.to ? " " + outcome.to : ""}`);
-    processed++;
   }
-  console.log(`kanban-loop: tick processed ${processed} card(s)`);
-}
-
-// Process ONE list. For a batched list (Test) this is the per-project batched path
-// invoked by the Test scheduler beat; for any other agent list it falls back to the
-// per-card path (manual single-list kick).
-async function tickList(listId) {
-  const gatewayUrl = resolveGatewayUrl();
-  // Parity with tick(): release lost runs first (no operative needed), and say
-  // "no gateway configured" distinctly from "the gateway is down". Without the
-  // first branch this would print `gateway not reachable at null` — the same
-  // indistinguishable message that hid the dead prod tick for weeks.
-  const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
-  for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
-  // Same beat, the cross-machine case: a dispatched card whose worker stopped
-  // heartbeating. Needs no gateway either — reclaiming is local bookkeeping.
-  const reclaimed = await sweepExpiredDispatchClaims(kanbanRoot()).catch(() => []);
-  for (const id of reclaimed) console.log(`kanban-loop: reclaimed card ${id} from a silent outpost`);
-  if (!gatewayUrl) {
-    console.log(
-      "kanban-loop: NO gateway URL for this instance (neither GARRISON_GATEWAY_URL nor " +
-      "GARRISON_GATEWAY_PORT is set) — the beat cannot dispatch. Re-run `kanban.mjs --setup` " +
-      "from the running fitting so the job command carries this instance's gateway."
-    );
-    return;
-  }
-  if (!(await gatewayReachable(gatewayUrl))) {
-    console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to dispatch (cards wait for an operative).`);
-    return;
-  }
-  const root = kanbanRoot();
-  const board = await loadBoard(root);
-  const list = getList(board, listId);
-  if (!list || list.kind !== "agent") {
-    console.log(`kanban-loop: list '${listId}' is not an agent list — nothing to dispatch.`);
-    return;
-  }
-  const cap = Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10);
-  // Release waiting cards first (same as tick), then read fresh.
-  const cards0 = await loadAllCards(root);
-  await reevaluateWaiting({ root, board, cards: cards0 }).catch(() => {});
-  const cards = await loadAllCards(root);
-  const coordCfg = coordinationConfig(loadPolicy());
-  const degraded = coordCfg.enabled && !coordinationAvailability().ok && coordCfg.serializeWhenUnavailable;
-
-  if (list.batched) {
-    const batchRunFn = batchGatewayRunFn(gatewayUrl);
-    const listCards = cards.filter((c) => c.list === listId);
-    const { outcomes } = await processBatch({ root, board, listId, cards: listCards, batchRunFn, cap, cwd: process.cwd() });
-    const projects = new Set(outcomes.map((o) => o.project));
-    for (const o of outcomes) {
-      console.log(`kanban-loop: [${o.project}] card ${o.id} → ${o.status}${o.to ? " " + o.to : ""}`);
-    }
-    console.log(`kanban-loop: --tick-list ${listId} batched ${outcomes.length} card(s) across ${projects.size} project(s)`);
-    return;
-  }
-
-  const runFn = gatewayRunFn(gatewayUrl);
-  const onDutyBoundary = compactBoundaryFn(gatewayUrl);
-  let processed = 0;
-  for (const card of cards) {
-    if (card.list !== listId) continue;
-    if (card.status === "running" || card.status === "needs-attention") continue;
-    if (card.waitingOn) continue;                         // deferred behind an overlapping run
-    if (degraded) {
-      const gate = serializeGate(cards, card, board);
-      if (!gate.allowed) { console.log(`kanban-loop: card ${card.id} → ${gate.reason}`); continue; }
-    }
-    const { outcome } = await processCard({ root, board, card, runFn, cap, onDutyBoundary });
-    console.log(`kanban-loop: card ${card.id} → ${outcome.status}${outcome.to ? " " + outcome.to : ""}`);
-    processed++;
-  }
-  console.log(`kanban-loop: --tick-list ${listId} processed ${processed} card(s)`);
+  console.log(`kanban-loop: tick kicked ${kicked} conversation(s)`);
 }
 
 // Only dispatch the CLI when run directly (so `import { seedBoard }` from a test is
@@ -1053,8 +599,8 @@ if (invokedDirectly) {
   if (arg === "--setup") await setup();
   else if (arg === "--probe") await probe();
   else if (arg === "--tick") await tick();
-  else if (arg === "--tick-list") await tickList(process.argv[3]);
+  else if (arg === "--tick-list") console.log("kanban-loop: --tick-list is retired (Conversations) — the tick kicks conversations; per-list dispatch is gone.");
   else if (arg === "--review") await review();
   else if (arg === "--seed-morning-brief") await seedMorningBrief();
-  else console.log("usage: kanban.mjs --setup | --probe | --tick | --tick-list <id> | --review | --seed-morning-brief");
+  else console.log("usage: kanban.mjs --setup | --probe | --tick | --review | --seed-morning-brief");
 }

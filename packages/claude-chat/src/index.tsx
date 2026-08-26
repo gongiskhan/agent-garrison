@@ -18,8 +18,25 @@ export {
   rewriteRouteForHost,
 } from "./ClaudeChat";
 export type { GeneratedTurnCoordinate, GeneratedTurnState, SessionEventTurn } from "./ClaudeChat";
-export { FailureNotice, SessionEventTimeline, SessionStream } from "./SessionTranscript";
+export {
+  FailureNotice,
+  renderTranscriptMarkdown,
+  SessionEventTimeline,
+  SessionStream,
+  trapDialogTab,
+  useModalLifecycle,
+} from "./SessionTranscript";
 export type { SessionEventTimelineProps, SessionStreamProps } from "./SessionTranscript";
+// The conversation surface: the append-only stream as the body, its search/jump
+// loop, and the payload viewer a ledger row opens. `PayloadOpenerContext` is
+// exported because a host that renders a transcript OUTSIDE ConversationView can
+// still light up its ledger references by providing one.
+export { ConversationView, conversationEventId } from "./ConversationView";
+export type { ConversationViewProps, ConversationSearchHit } from "./ConversationView";
+export { PayloadModal } from "./PayloadModal";
+export type { PayloadModalProps } from "./PayloadModal";
+export { PayloadOpenerContext, payloadKindFromName } from "./payload-context";
+export type { PayloadKind, PayloadTarget } from "./payload-context";
 export {
   collectRelatedTasks,
   hasVisibleSessionActivity,

@@ -1,8 +1,9 @@
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Marked } from "marked";
 import { filePathMarkedExtension } from "./host-rewrite";
 import { installSafeMarkdownRenderer, loadHostMap } from "./markdown-safety";
+import { PayloadOpenerContext } from "./payload-context";
 import { railBadges } from "./run-context";
 import type { RouteAttribution } from "./transport";
 import {
@@ -35,7 +36,71 @@ installSafeMarkdownRenderer(md);
 // Absolute paths in prose (e.g. a screenshot the operative wrote) render inline.
 md.use({ extensions: [filePathMarkedExtension()] });
 
+/**
+ * The transcript's own Markdown seam: raw HTML escaped, links host-rewritten and
+ * `garrison://` resolved, absolute file paths linked. Exported so a sibling
+ * conversation surface (the payload viewer) renders prose through THIS renderer
+ * instead of standing up a second Marked instance whose security posture would
+ * then have to be kept in step with this one by hand.
+ */
+export function renderTranscriptMarkdown(text: string): string {
+  return md.parse(text ?? "") as string;
+}
+
 type StreamStatus = "connecting" | "streaming" | "ended" | "unavailable";
+
+/** Long enough for the eye to catch the row it landed on, short enough that it is
+ * gone before the reader starts reading it. */
+const FOCUS_FLASH_MS = 1200;
+const FOCUS_FLASH_CLASS = "cc-focus-flash";
+
+/**
+ * Land a jump: once the event carrying `focusEventId` has rendered inside
+ * `containerRef`, scroll it into view and flash it. The returned ref reads true
+ * while the landing is still pending, so a LIVE stream can suppress its
+ * stick-to-bottom until the jump has happened - without that the two fight and
+ * the hit is scrolled off screen the instant it appears.
+ *
+ * An id that never renders is not an error: nothing scrolls, nothing flashes, and
+ * the stream keeps behaving normally. The match is done by walking the stamped
+ * nodes rather than through a selector, so an id carrying quotes or a colon (a
+ * conversation id does) needs no escaping dance.
+ */
+function useFocusedEvent(
+  containerRef: React.RefObject<HTMLElement | null>,
+  focusEventId: string | undefined,
+  renderedEvents: unknown
+): React.MutableRefObject<boolean> {
+  const pendingRef = useRef(Boolean(focusEventId));
+  const lastIdRef = useRef(focusEventId);
+  // A NEW focus target re-arms the landing (the same component instance is
+  // re-pointed when the user clicks a second search hit). Mirrors the file's
+  // existing render-phase `liveRef.current = live` pattern.
+  if (lastIdRef.current !== focusEventId) {
+    lastIdRef.current = focusEventId;
+    pendingRef.current = Boolean(focusEventId);
+  }
+  useEffect(() => {
+    if (!focusEventId || !pendingRef.current) return;
+    const root = containerRef.current;
+    if (!root) return;
+    let target: HTMLElement | null = null;
+    for (const node of Array.from(root.querySelectorAll<HTMLElement>("[data-session-event-id]"))) {
+      if (node.getAttribute("data-session-event-id") === focusEventId) {
+        target = node;
+        break;
+      }
+    }
+    if (!target) return;
+    const landed = target;
+    pendingRef.current = false;
+    landed.scrollIntoView({ block: "center" });
+    landed.classList.add(FOCUS_FLASH_CLASS);
+    const timer = setTimeout(() => landed.classList.remove(FOCUS_FLASH_CLASS), FOCUS_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [focusEventId, renderedEvents]);
+  return pendingRef;
+}
 
 export interface SessionStreamProps {
   url: string;
@@ -45,6 +110,14 @@ export interface SessionStreamProps {
   /** The surrounding ClaudeChat owns the page's stable live region. Standalone
    * transcript hosts leave this enabled so their working state is announced. */
   announceLiveUpdates?: boolean;
+  /**
+   * Land on one event instead of on live: after the stream renders, the element
+   * stamped with this `data-session-event-id` is scrolled into view and flashed,
+   * and the stick-to-bottom is suppressed for that landing (a jump that is
+   * immediately scrolled away from is not a jump). Absent → exactly the previous
+   * behaviour. An id no event carries is inert.
+   */
+  focusEventId?: string;
 }
 
 export interface SessionEventTimelineProps {
@@ -61,6 +134,10 @@ export interface SessionEventTimelineProps {
    * decision. A pending block from any other/terminal generation stays visible
    * as history but never renders actionable controls. */
   permissionGenerationId?: string;
+  /** Scroll the event stamped with this `data-session-event-id` into view and
+   * flash it once it has rendered. The inline timeline owns no scroller of its
+   * own, so the jump walks up to whichever ancestor does. */
+  focusEventId?: string;
 }
 
 function displayJsonValue(value: unknown): string {
@@ -768,9 +845,12 @@ const LEDGER_LABELS: Record<string, string> = {
 const LEDGER_WARN_KINDS = new Set(["delegation-failed", "escalation"]);
 
 /** One conversation-ledger row, using the same expand-in-place disclosure the
- * tool rows use. `payloadRef` is an inert reference label for now: the payload
- * viewer is a later slice, and a link that goes nowhere is worse than a label. */
+ * tool rows use. `payloadRef` becomes a control only where a host has supplied a
+ * payload opener (ConversationView knows the serving base; dev-env and the
+ * related-task overlay do not) - everywhere else it stays the inert reference
+ * label it was, because a click that 404s is worse than a label. */
 function LedgerRow({ block }: { block: SessionBlock }) {
+  const openPayload = useContext(PayloadOpenerContext);
   const kind = compactNoticeText(block.kind);
   const label = LEDGER_LABELS[kind] ?? "Ledger";
   const title = compactNoticeText(block.title);
@@ -794,7 +874,18 @@ function LedgerRow({ block }: { block: SessionBlock }) {
       <div className="cc-ledger-body">
         {detail.trim() ? <pre className="cc-session-pre">{detail}</pre> : null}
         {payloadRef ? (
-          <span className="cc-ledger-ref" title={`payload ${payloadRef}`}>payload {payloadRef}</span>
+          openPayload ? (
+            <button
+              type="button"
+              className="cc-ledger-ref cc-ledger-ref-open"
+              title={`Open payload ${payloadRef}`}
+              onClick={() => openPayload({ ref: payloadRef, name: payloadRef })}
+            >
+              payload {payloadRef}
+            </button>
+          ) : (
+            <span className="cc-ledger-ref" title={`payload ${payloadRef}`}>payload {payloadRef}</span>
+          )
         ) : null}
         {!detail.trim() && !payloadRef ? (
           <div className="cc-ledger-empty">No further detail was recorded.</div>
@@ -941,9 +1032,11 @@ export function SessionEventTimeline({
   renderMarkdown,
   onPermissionDecision,
   permissionGenerationId,
+  focusEventId,
 }: SessionEventTimelineProps) {
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [, setHostMapReady] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     let alive = true;
     void loadHostMap().then(() => { if (alive) setHostMapReady(true); });
@@ -966,9 +1059,11 @@ export function SessionEventTimeline({
     }
     return latest?.type === "thinking" ? latest : null;
   }, [events, live]);
+  useFocusedEvent(rootRef, focusEventId, events);
 
   return (
     <div
+      ref={rootRef}
       className={`cc-session-inline${className ? ` ${className}` : ""}`}
     >
       <ActivityTimeline
@@ -1043,7 +1138,11 @@ function RelatedTasks({ tasks, onOpen }: { tasks: RelatedTask[]; onOpen: (task: 
   );
 }
 
-function useModalLifecycle(
+/** Open a <dialog> modally, lock the page behind it, focus the first control and
+ * put focus back where it came from on close. Exported so a sibling modal (the
+ * payload viewer) inherits the same behaviour instead of re-deriving it - a modal
+ * that forgets one of these four is the one that traps a keyboard user. */
+export function useModalLifecycle(
   dialogRef: React.RefObject<HTMLDialogElement>,
   initialFocusRef: React.RefObject<HTMLElement>
 ) {
@@ -1066,7 +1165,8 @@ function useModalLifecycle(
   }, []);
 }
 
-function trapDialogTab(event: React.KeyboardEvent<HTMLDialogElement>, dialog: HTMLDialogElement | null) {
+/** Keep Tab inside an open dialog. Exported alongside {@link useModalLifecycle}. */
+export function trapDialogTab(event: React.KeyboardEvent<HTMLDialogElement>, dialog: HTMLDialogElement | null) {
   if (event.key !== "Tab") return;
   const focusable = dialog?.querySelectorAll<HTMLElement>(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -1136,6 +1236,7 @@ export function SessionStream({
   live = false,
   title: titleProp,
   announceLiveUpdates = true,
+  focusEventId,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
@@ -1149,6 +1250,7 @@ export function SessionStream({
   const liveRef = useRef(live);
   const previousLiveRef = useRef(live);
   liveRef.current = live;
+  const focusPendingRef = useFocusedEvent(scrollRef, focusEventId, events);
 
   useEffect(() => {
     const becameLive = live && !previousLiveRef.current;
@@ -1167,7 +1269,9 @@ export function SessionStream({
     setTitle(titleProp ?? null);
     setStatus("connecting");
     setRelatedView(null);
-    stickRef.current = true;
+    // A pending jump owns the scroll position for this mount: sticking to the
+    // bottom would scroll straight past the hit the reader asked to land on.
+    stickRef.current = !focusPendingRef.current;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const retryWhileLive = () => {
       if (!liveRef.current || retryTimer) return;
