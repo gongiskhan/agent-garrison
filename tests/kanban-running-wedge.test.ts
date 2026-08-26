@@ -1,42 +1,36 @@
-// THE "card stuck in Code forever" regression (2026-07-29).
+// THE "card stuck running forever" regression (2026-07-29), re-aimed twice by
+// the Conversations cut (2026-08-26).
 //
-// Observed: card 01KYP7Q584BP7F8AMFMJPCAWQS ("on ekoa-code move the Pedidos into
-// a tab in the settings area") was dispatched at 06:06:48.327Z, the operative did
-// the whole job and replied "done" at 06:13Z, and its runDir held a valid
-// gate-status.json ({"code":{"status":"passed","next_phase":"done"}}). The card
-// nonetheless sat at status "running" indefinitely — the board showed a live
-// elapsed timer that just counted up, and nothing ever cleared it.
+// Observed originally: a card was dispatched, the operative did the whole job
+// and replied "done", and the card nonetheless sat at status "running"
+// indefinitely — a live elapsed timer that just counted up, and nothing ever
+// cleared it. The dispatch engine's terminal-write machinery (commitRunResult
+// and friends) fixed that era's wedge and died with the engine: the launcher's
+// writeCardTransition + the tick's kick lane replaced it.
 //
-// Cause: processCard CAS-acquires the card (capturing `runRev`), then awaits a
-// minutes-long gateway turn, then writes the terminal state with that ORIGINAL
-// rev. Anything that touches the card meanwhile bumps its rev, so the terminal
-// saveCardCAS fails the compare and the engine returns
-// `{status:"needs-attention", reason:"conflict-during-run"}` WITHOUT ever writing
-// — leaving status:"running" on disk with no owner and no recovery.
+// What SURVIVES, and what this file drives, are the two sweeps that release a
+// run whose driver went away — plus the second-generation bug the five-state
+// board introduced: every release used to clear `status` to "ok" while leaving
+// `list` alone, and board.mjs coherentCardState re-derives status FROM the list
+// at the write choke point, so the release was a silent no-op and the card
+// stayed wedged (worse: the same write nulled runOwner, so the next sweep no
+// longer classified it as orphaned at all). A release now MOVES the card to
+// To do — under the five-state board, `list` IS the state.
 //
-// The concurrent writer in the real incident was the board's own fire-and-forget
-// project inference (server.mjs runProjectInference), which landed
-// "Inferred the project: ekoa-code" 4.4s AFTER the dispatch acquire. So the race
-// fires on the most ordinary path there is: a card created with no project and
-// dispatched immediately.
-//
-// The contract these tests pin: a finished run ALWAYS lands its terminal state.
-// A benign concurrent write may not strand the card in "running".
+// The contract, unchanged since the first incident: NO path may leave a card
+// showing "running" with nobody driving it — and, new with Conversations, no
+// sweep may yank a card whose conversation the kick lane can resume.
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir, hostname } from "node:os";
 import path from "node:path";
 
 // @ts-ignore pure mjs
-import { commitRunResult, processCard, sweepOrphanedRuns, orphanRunThresholdMs, recoverInterruptedRuns, INFER_SETTLE_GRACE_MS } from "../fittings/seed/kanban-loop/lib/engine.mjs";
-// @ts-ignore pure mjs
-import { KANBAN_INFER_TIMEOUT_MS } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
+import { sweepOrphanedRuns, orphanRunThresholdMs, recoverInterruptedRuns, isOrphanedRun } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore pure mjs
 import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore pure mjs
-import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
-// @ts-ignore pure mjs
-import { atomicWriteJSON, loadCard, updateCardCAS, saveCardCAS, deleteCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { loadCard, saveCardCAS, deleteCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore pure mjs
 import { compilePolicy, stableStringify } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
 
@@ -57,7 +51,6 @@ beforeEach(async () => {
   await __kanbanState?.reset();
 });
 
-
 const ROOT = path.resolve(__dirname, "..");
 const SEED_CONFIG = path.join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
 
@@ -69,18 +62,23 @@ function writePolicy(file: string) {
   resetPolicyCache();
 }
 
-async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
+// A card mid-run. Conversations: `list` IS the state, so a running card lives on
+// the `running` list — the store's write choke point re-derives `status` from it,
+// and a fixture on any other list would silently read back as "ok".
+async function makeRunningCard(root: string, overrides: Record<string, unknown> = {}) {
   const id = (overrides.id as string) || "01WEDGECARD000000000000000";
   const card = {
     id,
     title: "on ekoa-code move the Pedidos into a tab in the settings area",
     description: "on ekoa-code move the Pedidos into a tab in the settings area",
     project: null,
-    list: "implement",
-    status: "ok",
+    list: "running",
+    status: "running",
+    runningSince: "2026-01-01T00:00:01Z",
+    runOwner: { pid: process.pid, host: hostname(), at: "2026-01-01T00:00:01Z" },
+    runSeq: 1,
     iterations: 0,
     rev: 0,
-    flow: "full-feature",
     goalMode: true,
     acceptance: null,
     events: [],
@@ -92,16 +90,8 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
   };
   mkdirSync(path.join(root, "cards", card.id), { recursive: true });
   if (card.runDir) mkdirSync(card.runDir as string, { recursive: true });
-  await seedCard(card);
-  return card;
-}
-
-function landGate(runDir: string, phase: string, nextPhase: string) {
-  writeFileSync(
-    path.join(runDir, `gate-status.${phase}.json`),
-    JSON.stringify({ phase, status: "passed", next_phase: nextPhase }),
-    "utf8"
-  );
+  const stored = await seedCard(card);
+  return { ...card, rev: stored.rev, position: stored.position } as any;
 }
 
 beforeEach(() => {
@@ -112,523 +102,115 @@ beforeEach(() => {
   writePolicy(process.env.GARRISON_POLICY_PATH);
 });
 
-describe("processCard — a concurrent card write during the run must not wedge it in `running`", () => {
-  it("(a) the exact incident: project inference lands mid-run, the run then succeeds → card ADVANCES and is not left running", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp);
-
-    // The run: the operative works for a while, and WHILE IT WORKS the board's
-    // fire-and-forget project inference writes the card (exactly as
-    // runProjectInference does ~4s after an immediate dispatch). That write bumps
-    // the rev out from under the run.
-    const runFn = async () => {
-      await updateCardCAS(tmp, card.id, (c: any) => ({
-        ...c,
-        project: "ekoa-code",
-        inferState: "done",
-        events: [...(c.events || []), { at: "2026-01-01T00:00:05Z", kind: "inference", message: "Inferred the project: ekoa-code" }]
-      }));
-      landGate(card.runDir as string, "implement", "review");
-      return { reply: "all done\n\nreview" };
-    };
-
-    const { outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    // THE BUG: this used to be status "running" forever, with
-    // outcome.reason === "conflict-during-run" and nothing written.
-    expect(onDisk.status).not.toBe("running");
-    expect(onDisk.runningSince ?? null).toBeNull();
-    expect(outcome.status).toBe("moved");
-    expect(onDisk.list).toBe("review");
-    // the concurrent writer's data is preserved — the retry must merge, not clobber
-    expect(onDisk.project).toBe("ekoa-code");
-  });
-
-  it("(b) a concurrent write + a run that parks → the card parks, and is never left running", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01WEDGECARD000000000000002" });
-
-    const runFn = async () => {
-      await updateCardCAS(tmp, card.id, (c: any) => ({ ...c, project: "ekoa-code" }));
-      return { reply: "I did some things but never named a next list." };
-    };
-
-    const { outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(onDisk.status).not.toBe("running");
-    expect(onDisk.runningSince ?? null).toBeNull();
-    expect(outcome.status).toBe("needs-attention");
-    expect(onDisk.list).toBe("needs-attention");
-    expect(onDisk.project).toBe("ekoa-code");
-  });
-
-  it("(c) a GENUINE takeover (someone moved the card off the list mid-run) is still refused — the run does not overwrite it", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01WEDGECARD000000000000003" });
-
-    // A human drags the card to needs-attention while the run is in flight. The
-    // run's verdict must NOT drag it back — but it must also not leave it running.
-    const runFn = async () => {
-      await updateCardCAS(tmp, card.id, (c: any) => ({
-        ...c,
-        list: "todo",
-        status: "ok",
-        runningSince: null
-      }));
-      landGate(card.runDir as string, "implement", "review");
-      return { reply: "review" };
-    };
-
-    const { outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(onDisk.list).toBe("todo"); // the human's move wins
-    expect(onDisk.status).not.toBe("running");
-    expect(["skipped", "needs-attention"]).toContain(outcome.status);
-  });
-});
-
 // ── the backstop: a run whose DRIVER died, while the board server lives on ────
 //
 // recoverInterruptedRuns only fires at board-SERVER boot — which never comes for
-// an always-on prod server. And the tick SKIPS cards in status "running", so a card
-// whose driver went away (a killed `--tick` CLI, a crashed chain) was never looked
-// at again by anything. sweepOrphanedRuns closes that hole on every tick.
+// an always-on prod server — so a card whose driver went away is only ever
+// looked at again by sweepOrphanedRuns on the tick.
 describe("sweepOrphanedRuns — a lost run is released instead of wedging the board", () => {
-  it("releases a run whose owner pid is dead on this host", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, {
+  it("releases a run whose owner pid is dead on this host — and the release MOVES the card", async () => {
+    const card = await makeRunningCard(tmp, {
       id: "01ORPHANCARD00000000000001",
-      status: "running",
       runningSince: new Date().toISOString(),
-      // pid 2^22 is above Linux's default pid_max — reliably not a live process.
       runOwner: { pid: 4194303, host: hostname(), at: new Date().toISOString() }
     });
-    void board;
-
-    const swept = await sweepOrphanedRuns(tmp);
-    expect(swept).toEqual([card.id]);
-
+    expect(await sweepOrphanedRuns(tmp)).toContain(card.id);
     const onDisk: any = await loadCard(tmp, card.id);
-    expect(onDisk.status).toBe("ok");
-    expect(onDisk.runningSince).toBeNull();
+    // Off the running list, or coherentCardState stamps "running" right back.
+    expect(onDisk.list).toBe("todo");
+    expect(onDisk.status).not.toBe("running");
+    expect(onDisk.runningSince ?? null).toBeNull();
+    expect(onDisk.runOwner ?? null).toBeNull();
     expect(onDisk.lastDispatchError.reason).toBe("orphaned");
     expect(onDisk.events.some((e: any) => e.kind === "recovered")).toBe(true);
   });
 
   it("leaves a run with a LIVE owner alone, however long it has been going", async () => {
-    const card = await makeCard(tmp, {
+    const card = await makeRunningCard(tmp, {
       id: "01ORPHANCARD00000000000002",
-      status: "running",
-      runningSince: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6h
-      runOwner: { pid: process.pid, host: hostname(), at: new Date().toISOString() }
+      runningSince: new Date(Date.now() - 10 * orphanRunThresholdMs()).toISOString(),
+      runOwner: { pid: process.ppid, host: hostname(), at: new Date().toISOString() }
     });
-
     expect(await sweepOrphanedRuns(tmp)).toEqual([]);
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(onDisk.status).toBe("running");
+    expect(((await loadCard(tmp, card.id)) as any).status).toBe("running");
   });
 
   it("falls back to the age ceiling when there is no usable owner stamp (a pre-existing card)", async () => {
-    const fresh = await makeCard(tmp, {
+    const fresh = await makeRunningCard(tmp, {
       id: "01ORPHANCARD00000000000003",
-      status: "running",
-      runningSince: new Date(Date.now() - 60 * 1000).toISOString() // 1 min — legitimate
+      runningSince: new Date().toISOString(),
+      runOwner: null
     });
-    const ancient = await makeCard(tmp, {
-      id: "01ORPHANCARD00000000000004",
-      status: "running",
-      runningSince: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() // 3h — past any turn
-    });
-
-    const swept = await sweepOrphanedRuns(tmp);
-    expect(swept).toEqual([ancient.id]);
+    expect(await sweepOrphanedRuns(tmp)).toEqual([]);
     expect(((await loadCard(tmp, fresh.id)) as any).status).toBe("running");
-    expect(((await loadCard(tmp, ancient.id)) as any).status).toBe("ok");
+
+    const stale = await makeRunningCard(tmp, {
+      id: "01ORPHANCARD00000000000004",
+      runningSince: new Date(Date.now() - orphanRunThresholdMs() - 60_000).toISOString(),
+      runOwner: null
+    });
+    expect(await sweepOrphanedRuns(tmp)).toContain(stale.id);
+    const onDisk: any = await loadCard(tmp, stale.id);
+    expect(onDisk.list).toBe("todo");
+    expect(onDisk.status).not.toBe("running");
+  });
+
+  it("NEVER touches a conversation-linked card — the kick lane owns that recovery", async () => {
+    // A crashed gateway leaves the card on Running with a resumable conversation
+    // behind it. The tick re-POSTs /conversation/kick (409-idempotent) and the
+    // launcher resumes from the store — a sweep release here would strand work
+    // the launcher can pick straight back up.
+    const card = await makeRunningCard(tmp, {
+      id: "01ORPHANCARD00000000000005",
+      conversationId: "01ORPHANCARD00000000000005",
+      runningSince: new Date(Date.now() - 10 * orphanRunThresholdMs()).toISOString(),
+      runOwner: { pid: 4194303, host: hostname(), at: new Date().toISOString() }
+    });
+    expect(isOrphanedRun(card)).toBeNull();
+    expect(await sweepOrphanedRuns(tmp)).toEqual([]);
+    const onDisk: any = await loadCard(tmp, card.id);
+    expect(onDisk.list).toBe("running");
+    expect(onDisk.status).toBe("running");
   });
 
   it("the threshold is derived from the dispatcher's per-turn timeout, never a bare literal", () => {
-    const prev = process.env.KANBAN_TURN_TIMEOUT_MS;
-    process.env.KANBAN_TURN_TIMEOUT_MS = String(60 * 60 * 1000); // 1h turns
+    const turn = process.env.KANBAN_TURN_TIMEOUT_MS;
+    const slack = process.env.KANBAN_ORPHAN_SLACK_MS;
     try {
-      expect(orphanRunThresholdMs()).toBeGreaterThan(60 * 60 * 1000);
+      process.env.KANBAN_TURN_TIMEOUT_MS = "60000";
+      process.env.KANBAN_ORPHAN_SLACK_MS = "1000";
+      expect(orphanRunThresholdMs()).toBe(61_000);
     } finally {
-      if (prev === undefined) delete process.env.KANBAN_TURN_TIMEOUT_MS;
-      else process.env.KANBAN_TURN_TIMEOUT_MS = prev;
+      if (turn === undefined) delete process.env.KANBAN_TURN_TIMEOUT_MS; else process.env.KANBAN_TURN_TIMEOUT_MS = turn;
+      if (slack === undefined) delete process.env.KANBAN_ORPHAN_SLACK_MS; else process.env.KANBAN_ORPHAN_SLACK_MS = slack;
     }
   });
-
-  it("a finished run clears its owner stamp, so it can never look sweepable", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01ORPHANCARD00000000000005" });
-    const runFn = async () => {
-      landGate(card.runDir as string, "implement", "review");
-      return { reply: "review" };
-    };
-    await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(onDisk.runOwner ?? null).toBeNull();
-    expect(await sweepOrphanedRuns(tmp)).toEqual([]);
-  });
 });
 
-// The failure paths CAS with the same stale rev as the success path did, so they
-// wedge the card identically — a transport blip or a thrown run during a benign
-// concurrent write used to leave "running" on disk too.
-describe("processCard — the FAILURE paths also land their terminal state under a concurrent write", () => {
-  it("a transport failure (gateway down) reverts the card instead of stranding it running", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01WEDGEFAIL000000000000001" });
-    const runFn = async () => {
-      await updateCardCAS(tmp, card.id, (c: any) => ({ ...c, project: "ekoa-code" }));
-      const e: any = new Error("gateway unreachable: fetch failed");
-      e.transport = true;
-      throw e;
-    };
-
-    const { outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(outcome.status).toBe("deferred");
-    expect(onDisk.status).not.toBe("running");
-    expect(onDisk.runningSince ?? null).toBeNull();
-    expect(onDisk.lastDispatchError.reason).toBe("gateway-unavailable");
-    expect(onDisk.project).toBe("ekoa-code");
-  });
-
-  it("a thrown run parks the card instead of stranding it running", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01WEDGEFAIL000000000000002" });
-    const runFn = async () => {
-      await updateCardCAS(tmp, card.id, (c: any) => ({ ...c, project: "ekoa-code" }));
-      throw new Error("the runtime blew up");
-    };
-
-    const { outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(outcome.status).toBe("needs-attention");
-    expect(onDisk.status).not.toBe("running");
-    expect(onDisk.runningSince ?? null).toBeNull();
-    expect(onDisk.list).toBe("needs-attention");
-    expect(onDisk.project).toBe("ekoa-code");
-  });
-});
-
-// A released run that comes back late must NOT clobber the run that replaced it.
-// mintRunFields is idempotent, so a re-dispatched card keeps the same runId — only
-// the run GENERATION distinguishes them.
-describe("run generations — a zombie run cannot overwrite the run that replaced it", () => {
-  it("a run whose card was released and re-dispatched loses ownership and is refused", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01ZOMBIECARD00000000000001" });
-
-    // Run A starts, and WHILE IT IS RUNNING the card is released (orphan sweep) and
-    // re-dispatched as run B. A then tries to commit its verdict.
-    let released = false;
-    const runFn = async ({ card: c }: { card: any }) => {
-      if (!released) {
-        released = true;
-        // sweep releases it...
-        await updateCardCAS(tmp, c.id, (x: any) => ({ ...x, status: "ok", runningSince: null, runOwner: null }));
-        // ...and run B acquires it (same runId, next generation).
-        await updateCardCAS(tmp, c.id, (x: any) => ({
-          ...x,
-          status: "running",
-          runningSince: new Date().toISOString(),
-          runSeq: (x.runSeq ?? 0) + 1,
-          runOwner: { pid: process.pid, host: hostname(), at: new Date().toISOString() }
-        }));
-      }
-      landGate(c.runDir as string, "implement", "review");
-      return { reply: "review" };
-    };
-
-    const { outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    // Run A's verdict is refused — run B still owns the card.
-    expect(outcome.status).toBe("skipped");
-    expect(outcome.reason).toBe("taken-over-during-run");
-    expect(onDisk.list).toBe("implement"); // NOT advanced to review by the zombie
-    expect(onDisk.status).toBe("running"); // run B is still going
-  });
-});
-
-// The card that started all this had runDir `runs/no-project/<runId>` even though its
-// project was inferred 4.4s later — the immediate dispatch beat the fire-and-forget
-// inference. The runDir literal is baked into the operative's prompt, so it can never
-// be corrected after the fact; the only fix is not to mint it too early.
-describe("settleProjectInference — an immediate dispatch waits for the project", () => {
-  it("waits while inference is running, then mints under the inferred project", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, {
-      id: "01INFERCARD000000000000001",
-      project: null,
-      inferState: "running",
-      runId: null,
-      runDir: null
-    });
-
-    // The inference lands on the 2nd poll, exactly as it did in the incident.
-    let polls = 0;
-    const sleep = async () => {
-      polls += 1;
-      if (polls === 2) {
-        await updateCardCAS(tmp, card.id, (c: any) => ({ ...c, project: "ekoa-code", inferState: "done" }));
-      }
-    };
-
-    const runFn = async ({ card: c }: { card: any }) => {
-      mkdirSync(c.runDir as string, { recursive: true }); // freshly minted by this dispatch
-      landGate(c.runDir as string, "implement", "review");
-      return { reply: "review" };
-    };
-
-    const { outcome } = await processCard({
-      root: tmp, board, card, runFn, cwd: tmp,
-      settle: { intervalMs: 1, checks: 10, sleep }
-    });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(polls).toBeGreaterThanOrEqual(2); // it actually waited
-    expect(outcome.status).toBe("moved");    // and the acquire CAS did not conflict
-    expect(onDisk.project).toBe("ekoa-code");
-    expect(onDisk.runDir).toContain("ekoa-code");
-    expect(onDisk.runDir).not.toContain("no-project");
-  });
-
-  it("does NOT wait when inference already settled, or was never attempted", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01INFERCARD000000000000002", project: null, inferState: "none" });
-    let polls = 0;
-    const runFn = async () => ({ reply: "review" });
-    await processCard({
-      root: tmp, board, card, runFn, cwd: tmp,
-      settle: { intervalMs: 1, checks: 10, sleep: async () => { polls += 1; } }
-    });
-    // A settled/absent inference never blocks a dispatch - with nothing in flight the
-    // SHORT bound governs, and the long in-flight ceiling below never applies.
-    expect(polls).toBe(0);
-  });
-
-  it("never waits once the project is known, even while the card still reads inferring", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01INFERCARD000000000000006", project: "garrison", inferState: "running" });
-    let polls = 0;
-    const runFn = async () => ({ reply: "review" });
-    await processCard({
-      root: tmp, board, card, runFn, cwd: tmp,
-      settle: { intervalMs: 1, sleep: async () => { polls += 1; } }
-    });
-    expect(polls).toBe(0); // the answer is already here, there is nothing to wait for
-  });
-
-  it("gives up after the bounded window so a busy operative can never block a run", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01INFERCARD000000000000003", project: null, inferState: "running" });
-    let polls = 0;
-    const runFn = async () => ({ reply: "review" });
-    await processCard({
-      root: tmp, board, card, runFn, cwd: tmp,
-      settle: { intervalMs: 1, checks: 5, sleep: async () => { polls += 1; } } // never settles
-    });
-    expect(polls).toBe(5); // bounded, then proceeds honestly under no-project
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(onDisk.status).not.toBe("running");
-  });
-
-  // The gate's own bound used to be the bug: 24 x 250ms = 6s, while the inference turn
-  // it waits on is budgeted at KANBAN_INFER_TIMEOUT_MS (90s) because it QUEUES behind a
-  // busy operative. So the ordinary case - operative mid-run, inference answering at
-  // ~20s - advanced the card un-fenced at 6s under project:null, and the answer was
-  // then discarded on arrival ("the first run had already started").
-  it("keeps waiting past the old 6s bound while an attempt is genuinely in flight", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, {
-      id: "01INFERCARD000000000000004",
-      project: null,
-      inferState: "running",
-      runId: null,
-      runDir: null
-    });
-
-    // The operative was busy, so the inference queued and only answered on the 60th
-    // poll, well past the 24 checks the gate used to give up at.
-    let polls = 0;
-    const sleep = async () => {
-      polls += 1;
-      if (polls === 60) {
-        await updateCardCAS(tmp, card.id, (c: any) => ({ ...c, project: "ekoa-code", inferState: "done" }));
-      }
-    };
-
-    const runFn = async ({ card: c }: { card: any }) => {
-      mkdirSync(c.runDir as string, { recursive: true }); // freshly minted by this dispatch
-      landGate(c.runDir as string, "implement", "review");
-      return { reply: "review" };
-    };
-
-    const { outcome } = await processCard({
-      root: tmp, board, card, runFn, cwd: tmp,
-      settle: { intervalMs: 1, sleep } // no `checks`: the DEFAULT sizing is what's under test
-    });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(polls).toBe(60);               // it waited for the answer instead of racing it
-    expect(outcome.status).toBe("moved"); // and the acquire CAS did not conflict
-    expect(onDisk.project).toBe("ekoa-code");
-    expect(onDisk.runDir).toContain("ekoa-code");
-    expect(onDisk.runDir).not.toContain("no-project");
-  });
-
-  it("the in-flight ceiling is the inference budget + grace, and is still finite", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01INFERCARD000000000000005", project: null, inferState: "running" });
-    let polls = 0;
-    const runFn = async () => ({ reply: "review" });
-    await processCard({
-      root: tmp, board, card, runFn, cwd: tmp,
-      settle: { intervalMs: 1000, sleep: async () => { polls += 1; } } // never settles
-    });
-    // Sized off the real budget, not a number picked by hand.
-    expect(polls).toBe(Math.ceil((KANBAN_INFER_TIMEOUT_MS + INFER_SETTLE_GRACE_MS) / 1000));
-    expect(polls).toBeGreaterThan(24); // the old ceiling, which the inference outlived
-    // Fail-open is intact: an inference that never answers delays a dispatch, it can
-    // never park the card or hold it forever.
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(onDisk.status).not.toBe("running");
-  });
-
-  it("does not re-wait a whole budget for an attempt that died long ago", async () => {
-    const board = seedBoard();
-    // A server that restarts mid-inference leaves inferState "running" on disk for
-    // good, and runProjectInference refuses to re-enter a "running" card. Waiting the
-    // full budget out on EVERY later dispatch of that card would be the cure killing
-    // the patient: the gate waits what remains of the attempt, not a fresh copy of it.
-    const card = await makeCard(tmp, {
-      id: "01INFERCARD000000000000007",
-      project: null,
-      inferState: "running",
-      events: [{ at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), kind: "inference", message: "Inferring the project from the title + description…" }]
-    });
-    let polls = 0;
-    const runFn = async () => ({ reply: "review" });
-    await processCard({
-      root: tmp, board, card, runFn, cwd: tmp,
-      settle: { intervalMs: 1000, sleep: async () => { polls += 1; } }
-    });
-    expect(polls).toBe(0); // its budget expired 8 minutes ago
-  });
-});
-
-// The invariant, stated directly: NO path through a finished run may leave the card
-// showing "running" with nobody driving it. These cover the two escape hatches the
-// first cut of the fix still had — a takeover that preserved the running status, and
-// exhausting the rebase retries.
-describe("commitRunResult — the card is never left running, on any path", () => {
-  it("a takeover that PRESERVES status:running still gets released", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01NEVERRUNNING0000000000001" });
-
-    const runFn = async ({ card: c }: { card: any }) => {
-      // Moved to another list mid-run WITHOUT clearing the running flag.
-      await updateCardCAS(tmp, c.id, (x: any) => ({ ...x, list: "review" }));
-      landGate(c.runDir as string, "implement", "review");
-      return { reply: "review" };
-    };
-
-    const { outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(outcome.status).toBe("skipped");
-    expect(onDisk.status).not.toBe("running"); // released, not abandoned
-    expect(onDisk.runningSince ?? null).toBeNull();
-    expect(onDisk.events.some((e: any) => e.kind === "recovered")).toBe(true);
-  });
-
-  it("exhausting the rebase retries still releases the card", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01NEVERRUNNING0000000000002" });
-
-    // A writer that bumps the rev on every attempt so no CAS the run makes can land.
-    // Serialized and bounded — a free-running hammer would starve the per-card lock
-    // and the test would measure lock contention instead of the retry ceiling.
-    let hammering = true;
-    const hammerLoop = (async () => {
-      for (let i = 0; i < 40 && hammering; i++) {
-        await updateCardCAS(tmp, card.id, (c: any) => ({ ...c, hammered: (c.hammered ?? 0) + 1 }));
-        await new Promise((r) => setTimeout(r, 3));
-      }
-    })();
-
-    const runFn = async () => ({ reply: "review" });
-    const { outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-    hammering = false;
-    await hammerLoop;
-
-    const onDisk: any = await loadCard(tmp, card.id);
-    expect(onDisk.status).not.toBe("running");
-    expect(onDisk.runningSince ?? null).toBeNull();
-    void outcome;
-  }, 20000);
-
-  it("atomically releases its generation after the terminal retry budget is exhausted", async () => {
-    const base: any = await makeCard(tmp, {
-      id: "01NEVERRUNNING0000000000003",
-      status: "running",
-      runningSince: "2026-01-01T00:00:01Z",
-      runOwner: { pid: process.pid, host: hostname(), at: "2026-01-01T00:00:01Z" },
-      runSeq: 7
-    });
-    await updateCardCAS(tmp, base.id, (card: any) => ({ ...card, hammered: 1 }));
-
-    const result = await commitRunResult(tmp, {
-      base,
-      target: { ...base, list: "review", status: "ok", runningSince: null },
-      runRev: base.rev,
-      dispatchedFrom: "implement",
-      now: () => "2026-01-01T00:00:02Z",
-      tries: 0
-    });
-
-    const onDisk: any = await loadCard(tmp, base.id);
-    expect(result.ok).toBe(false);
-    expect(onDisk).toMatchObject({ list: "implement", status: "ok", runningSince: null, runOwner: null, hammered: 1 });
-    expect(onDisk.events.some((event: any) => event.kind === "recovered")).toBe(true);
-  });
-});
-
-// The boot sweep must not clear a run driven by a LIVE process that is not us. The
-// board server is not the only dispatcher — a `--tick` CLI drives runs from its own
-// short-lived process — so every prod:redeploy would otherwise reset a card mid-turn,
-// and that turn's own commitRunResult would then correctly refuse to write, silently
-// discarding a finished run's verdict.
+// The boot sweep must not clear a run driven by a LIVE process that is not us —
+// a board restart (every prod:redeploy) must never reset a card another local
+// process is still driving.
 describe("recoverInterruptedRuns — a live foreign driver is left alone", () => {
-  it("clears a run with a DEAD owner", async () => {
-    const card = await makeCard(tmp, {
+  it("clears a run with a DEAD owner — released to To do, not flipped in place", async () => {
+    const card = await makeRunningCard(tmp, {
       id: "01BOOTSWEEP000000000000001",
-      status: "running",
       runningSince: new Date().toISOString(),
       runOwner: { pid: 4194303, host: hostname(), at: new Date().toISOString() }
     });
     const recovered = await recoverInterruptedRuns(tmp);
     expect(recovered).toContain(card.id);
     const onDisk: any = await loadCard(tmp, card.id);
+    expect(onDisk.list).toBe("todo");
     expect(onDisk.status).toBe("ok");
     expect(onDisk.runOwner ?? null).toBeNull(); // the stale stamp is cleared too
   });
 
   it("does NOT clear a run whose driver is another live process on this host", async () => {
     // A pid that is alive but is not us: our own parent.
-    const livePid = process.ppid;
-    const card = await makeCard(tmp, {
+    const card = await makeRunningCard(tmp, {
       id: "01BOOTSWEEP000000000000002",
-      status: "running",
       runningSince: new Date().toISOString(),
-      runOwner: { pid: livePid, host: hostname(), at: new Date().toISOString() }
+      runOwner: { pid: process.ppid, host: hostname(), at: new Date().toISOString() }
     });
     const recovered = await recoverInterruptedRuns(tmp);
     expect(recovered).not.toContain(card.id);
@@ -636,28 +218,37 @@ describe("recoverInterruptedRuns — a live foreign driver is left alone", () =>
   });
 
   it("still clears a run stamped by THIS pid — that is our own previous life, not a live driver", async () => {
-    const card = await makeCard(tmp, {
+    const card = await makeRunningCard(tmp, {
       id: "01BOOTSWEEP000000000000003",
-      status: "running",
       runningSince: new Date().toISOString(),
       runOwner: { pid: process.pid, host: hostname(), at: new Date().toISOString() }
     });
     expect(await recoverInterruptedRuns(tmp)).toContain(card.id);
   });
+
+  it("NEVER touches a conversation-linked card — a board restart does not interrupt the gateway", async () => {
+    const card = await makeRunningCard(tmp, {
+      id: "01BOOTSWEEP000000000000004",
+      conversationId: "01BOOTSWEEP000000000000004",
+      runOwner: { pid: 4194303, host: hostname(), at: new Date().toISOString() }
+    });
+    expect(await recoverInterruptedRuns(tmp)).toEqual([]);
+    const onDisk: any = await loadCard(tmp, card.id);
+    expect(onDisk.list).toBe("running");
+    expect(onDisk.status).toBe("running");
+  });
 });
 
 // A DELETED card must stay deleted.
 //
-// Observed live: a probe card was deleted while its Plan turn was still in flight.
-// A minute later the card was BACK on the board, parked in needs-attention, with
-// only the artifacts of that final write in its directory. saveCardCAS skipped the
-// rev check whenever the card file was missing — commented "first write of a
-// brand-new card" — and wrote anyway, so any writer holding a stale in-memory copy
-// resurrected it. saveCardCAS never legitimately creates: createCard writes the
-// first version directly, and every other caller is updating a card it just read.
+// Observed live: a probe card was deleted while its turn was still in flight. A
+// minute later the card was BACK on the board, parked in needs-attention, with only
+// the artifacts of that final write in its directory. saveCardCAS skipped the rev
+// check whenever the card was missing — commented "first write of a brand-new card"
+// — and wrote anyway, so any writer holding a stale in-memory copy resurrected it.
 describe("saveCardCAS — a deleted card is never resurrected", () => {
   it("refuses the write and reports `deleted` when the card is gone", async () => {
-    const card = await makeCard(tmp, { id: "01DELETEDCARD00000000000001" });
+    const card = await makeRunningCard(tmp, { id: "01DELETEDCARD00000000000001" });
     // The store tombstones the card; a PATCH against it is structurally a 404,
     // which is the same refusal the missing file used to produce.
     expect(await deleteCard(tmp, card.id)).toBe(true);
@@ -669,28 +260,9 @@ describe("saveCardCAS — a deleted card is never resurrected", () => {
     expect(existsSync(path.join(tmp, "cards", card.id, "card.json"))).toBe(false);
   });
 
-  it("an in-flight run whose card was deleted mid-turn does not bring it back", async () => {
-    const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01DELETEDCARD00000000000002" });
-
-    // The user deletes the card while the operative is still working.
-    const runFn = async ({ card: c }: { card: any }) => {
-      await deleteCard(tmp, c.id);
-      landGate(c.runDir as string, "implement", "review");
-      return { reply: "review" };
-    };
-
-    const { outcome, card: returned } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
-
-    expect(outcome.status).toBe("skipped");
-    expect(outcome.reason).toBe("card-deleted-during-run");
-    expect(existsSync(path.join(tmp, "cards", card.id, "card.json"))).toBe(false);
-    expect(returned).toBeTruthy(); // the caller still gets the last known state, never null
-  });
-
   it("a normal update still works — the guard only fires on a missing file", async () => {
-    const card = await makeCard(tmp, { id: "01DELETEDCARD00000000000003" });
-    const res: any = await saveCardCAS(tmp, { ...card, list: "done" }, card.rev ?? 0);
+    const card = await makeRunningCard(tmp, { id: "01DELETEDCARD00000000000003" });
+    const res: any = await saveCardCAS(tmp, { ...card, list: "done", status: "ok", runningSince: null }, card.rev ?? 0);
     expect(res.ok).toBe(true);
     expect(res.card.list).toBe("done");
   });

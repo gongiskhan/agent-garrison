@@ -262,17 +262,12 @@ describe("Item 4 — export / import a list of cards", () => {
       .toEqual(before.body.lists.map((l: any) => l.cards.length));
   });
 
-  // KNOWN HOLE (reported, not papered over). The guard above used to be
-  // "never import onto an AGENT list — creating a card there auto-dispatches".
-  // The Conversations cut removed every agent list, so that branch is dead, and
-  // the list it should now be guarding — `running`, kind "system" — is not
-  // covered: handleImportCards calls createCard directly and so bypasses the
-  // POST /cards door, where targetList "running" requires the engine header.
-  // A plain browser-shaped import therefore mints cards with list "running" and
-  // (via coherentCardState) status "running" with no conversation behind them.
-  // `it.fails` keeps this suite honest AND green: it trips the moment
-  // server.mjs grows the guard, at which point this becomes a normal `it`.
-  it.fails("refuses to import onto the running list without the engine header", async () => {
+  // Cards enter Running only through the launcher: handleImportCards calls
+  // createCard directly (bypassing the POST /cards door), so it carries its own
+  // refusal — without it a plain browser-shaped import minted phantom "running"
+  // cards with no conversation behind them (coherentCardState stamped the
+  // status from the list).
+  it("refuses to import onto the running list without the engine header", async () => {
     const bundle = { kind: "garrison.kanban.cards", version: 1, cards: [{ title: "phantom", description: "no conversation behind it" }] };
     const bad = await jsend("POST", "/cards/import", { bundle, targetList: "running" });
     expect(bad.status).toBe(400);

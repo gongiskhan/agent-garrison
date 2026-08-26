@@ -1206,6 +1206,10 @@ export function isHumanHeld(card, board) {
   if (isParkedForHuman(card)) return true;
   const list = listById(board, card?.list);
   if (!list) return Boolean(card); // stranded/removed list cannot progress autonomously
+  // The Running column (kind:"system", five-state board) is the launcher's, not
+  // a human's — without this the whole wait/release half is inert: every column
+  // reads as human-held and reevaluateWaiting can never release a waiter.
+  if (list.kind === "system" || list.id === "running") return false;
   return Boolean(list && !isTerminalList(list, card?.list) && list.kind !== "agent");
 }
 

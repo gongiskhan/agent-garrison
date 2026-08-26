@@ -36,6 +36,7 @@ import {
   runLog,
 } from "@garrison/claude-pty";
 import { boardBase, cardById } from "./autonomous-cards.mjs";
+import { resolveRunScope, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
 
 export const STRETCH_TIMEOUT_MS = Number(process.env.GARRISON_STRETCH_TIMEOUT_MS) > 0
   ? Number(process.env.GARRISON_STRETCH_TIMEOUT_MS)
@@ -631,6 +632,29 @@ function consecutiveSameDuty(store, duty) {
  *
  * onFrame(name, data) mirrors the /chat/stream vocabulary for SSE relays.
  */
+/**
+ * Where a card's stretches EXECUTE. Explicit routing.project wins, then the
+ * card's own project, then the personal token for a personal-scope card —
+ * the same precedence the board's cardTurnRouting encoded. The label resolves
+ * through resolveRunScope (wire-safe: dev-root child names + the exact
+ * personal token, nothing else), so a hostile card body can never name an
+ * arbitrary cwd. Returns { label, cwd, degraded }: `degraded` means a project
+ * WAS specified but did not resolve on this machine — the stretch then runs in
+ * the composition dir and the stretch-started payload says so, because
+ * silently running project work in the wrong directory is the exact incident
+ * tests/kanban-turn-cwd.test.ts was written for.
+ */
+export function stretchScopeForCard(card) {
+  if (!card) return { label: null, cwd: null, degraded: false };
+  const routing = card.routing && typeof card.routing === "object" && !Array.isArray(card.routing) ? card.routing : {};
+  const explicit = typeof routing.project === "string" && routing.project.trim() ? routing.project.trim() : null;
+  const own = typeof card.project === "string" && card.project.trim() ? card.project.trim() : null;
+  const label = explicit ?? own ?? (card.scope === "personal" ? PERSONAL_SCOPE_TOKEN : null);
+  if (!label) return { label: null, cwd: null, degraded: false };
+  const cwd = resolveRunScope(label);
+  return { label, cwd, degraded: !cwd };
+}
+
 export async function runConversation(gateway, {
   conversationId,
   task = null,
@@ -649,6 +673,12 @@ export async function runConversation(gateway, {
     const model = await gateway.executionModel();
     const selectedDuties = model?.selectedDuties ?? [];
     const card = await cardById(conversationId).catch(() => null);
+    const scope = stretchScopeForCard(card);
+    if (scope.degraded) {
+      // Project named on the card but absent on this machine: say so in the
+      // ledger rather than silently working in the composition dir.
+      store.append({ kind: "policy-rewrite", payload: { from: `project:${scope.label}`, to: "composition-dir", reason: "project-not-resolvable-here" } });
+    }
     const runId = env.GARRISON_SESSION_LOG_RUN ?? null;
     let stretches = 0;
     let terminal = null;
@@ -752,6 +782,9 @@ export async function runConversation(gateway, {
         notify: rungPick.notify,
         attempt: consecutiveSameDuty(store, duty) + 1,
         cardId: card?.id ?? null,
+        project: scope.label,
+        cwd: scope.cwd,
+        cwdDegraded: scope.degraded,
       };
       store.append({ kind: "stretch-started", duty, stretch: stretchId, runId, payload: startedPayload });
       runLog()?.append({ domain: "lifecycle", kind: "stretch", turn: stretchId, payload: { conversationId, stretchId, duty, target: route.targetId } });
@@ -783,6 +816,7 @@ export async function runConversation(gateway, {
         route,
         brief,
         stretchId,
+        cwd: scope.cwd,
         turnId: `${conversationId}#${ordinal}`,
         onChunk: (text, replace) => onFrame("chunk", { type: "chunk", text, replace }),
         onEvent: (event) => onFrame("session_event", event),
@@ -806,7 +840,7 @@ export async function runConversation(gateway, {
           floorRoute.target.runtime === "agent-sdk" ? floorRoute : baseRoute ?? floorRoute,
           prompt,
           null,
-          { sessionKey: `repair:${stretchId}`, turnId: `${conversationId}#${ordinal}#repair` }
+          { sessionKey: `repair:${stretchId}`, turnId: `${conversationId}#${ordinal}#repair`, ...(scope.cwd ? { cwd: scope.cwd } : {}) }
         );
         await gateway.releaseConversationSessions?.(`repair:${stretchId}`)?.catch?.(() => {});
         return r?.reply ?? "";
@@ -822,6 +856,10 @@ export async function runConversation(gateway, {
         selectedDuties,
         reAsk,
         repair,
+        // Rule 10 (anti-fabrication) must look where the stretch actually
+        // worked: a project stretch's file/gate/run refs live in the repo,
+        // not the composition dir.
+        resolveEvidence: defaultResolveEvidence(scope.cwd ?? gateway.compositionDir),
       });
 
       // Persist the raw reply (L3) and the handoff event.

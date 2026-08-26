@@ -625,7 +625,7 @@ describe("a held card holds, and a go releases it", () => {
   let boardServer: http.Server;
   let gatewayServer: http.Server;
   let base = "";
-  let chatPosts = 0;
+  let kicks = 0;
 
   async function listen(server: http.Server) {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -662,10 +662,11 @@ describe("a held card holds, and a go releases it", () => {
     mkdirSync(path.join(BOARD, "cards"), { recursive: true });
     gatewayServer = http.createServer((req, res) => {
       if (req.method === "POST") {
-        if (String(req.url).startsWith("/chat")) chatPosts += 1;
-        res.writeHead(200, { "content-type": "text/event-stream" });
-        res.write(`event: done\ndata: ${JSON.stringify({ reply: "done" })}\n\n`);
-        return res.end();
+        // Conversations: the board reaches the gateway through the LAUNCHER, not
+        // /chat. Count kicks + resumes — that is what "the card started" means now.
+        if (String(req.url).startsWith("/conversation/")) kicks += 1;
+        res.writeHead(202, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ accepted: true }));
       }
       res.writeHead(200);
       res.end("ok");
@@ -678,9 +679,8 @@ describe("a held card holds, and a go releases it", () => {
     const { seedBoard } = await import("../fittings/seed/kanban-loop/scripts/kanban.mjs");
     // @ts-ignore
     const { saveBoard } = await import("../fittings/seed/kanban-loop/lib/board.mjs");
-    const board = seedBoard();
-    board.lists.find((l: { id: string }) => l.id === "plan").validNext = ["done"];
-    await saveBoard(board, BOARD);
+    // The five-state board, as shipped — no duty columns to bend.
+    await saveBoard(seedBoard(), BOARD);
     boardServer = http.createServer(
       makeRequestHandler({ root: BOARD, cwd: BOARD, gatewayUrl, cap: 5 }, path.join(KANBAN, "dist"))
     );
@@ -712,7 +712,7 @@ describe("a held card holds, and a go releases it", () => {
         level: 2,
         tier: "T1-standard",
         decisionId: "dec-held-1",
-        resumeList: "plan"
+        resumeList: "todo"
       }
     });
     expect(created.status).toBe(201);
@@ -723,8 +723,10 @@ describe("a held card holds, and a go releases it", () => {
     const card = await createHeld("hold-1");
     const stored = await getCard(card.id);
     expect(stored.autonomyHeld).toBe(true);
-    expect(stored.list).toBe("backlog"); // never on a dispatching list
-    expect(stored.autonomyAsk.resumeList).toBe("plan");
+    // Conversations: To do IS the capture list (Backlog is gone) and nothing
+    // starts from it on its own — work starts through Start or the launcher.
+    expect(stored.list).toBe("todo");
+    expect(stored.autonomyAsk.resumeList).toBe("todo");
     expect((await getCardEvents(card.id)).some((e: any) => e.kind === "autonomy-hold")).toBe(true);
 
     // @ts-ignore
@@ -737,61 +739,33 @@ describe("a held card holds, and a go releases it", () => {
     expect(event.detail.questions[0]).toMatch(/reply go to proceed/i);
   });
 
-  it("no dispatch path runs a held card - not the engine seam, not the tick", async () => {
+  // The engine seam this used to drive (processCard refusing a held card, and a
+  // manual Start refusing to be an answer to the question) went out with the
+  // duty-list engine. The tick's guard SURVIVES — `kanban.mjs` skips a card with
+  // `autonomyHeld === true` before it kicks a conversation — and the board still
+  // refuses to start anything by itself. What is pinned here is the state a
+  // guard-less implementation would run: a held card that is NOT in the capture
+  // list is still held, and the board never kicks it on its own.
+  it("a held card off the capture list is still held, and nothing starts it unasked", async () => {
     const card = await createHeld("hold-2");
-    // Put it on a dispatching list WITHOUT clearing the hold, which is the state
-    // a guard-less implementation would happily run.
     // @ts-ignore
-    const { loadCard, saveCardCAS, loadBoard } = await import("../fittings/seed/kanban-loop/lib/board.mjs");
-    // @ts-ignore
-    const { processCard } = await import("../fittings/seed/kanban-loop/lib/engine.mjs");
+    const { loadCard, saveCardCAS } = await import("../fittings/seed/kanban-loop/lib/board.mjs");
     const disk = { ...(await loadCard(BOARD, card.id)), id: card.id };
-    await saveCardCAS(BOARD, { ...disk, list: "plan" }, disk.rev ?? 0, new Date().toISOString());
-    const fresh = { ...(await loadCard(BOARD, card.id)), id: card.id };
-    const board = await loadBoard(BOARD);
+    // Move it WITHOUT going through PATCH (which would answer the hold), the
+    // exact shape a stray writer would leave behind.
+    await saveCardCAS(BOARD, { ...disk, list: "needs-attention" }, disk.rev ?? 0, new Date().toISOString());
 
-    let ran = false;
-    const out = await processCard({
-      root: BOARD,
-      board,
-      card: fresh,
-      runFn: async () => ((ran = true), { reply: "done" }),
-      cwd: BOARD
-    });
-    expect(out.outcome).toMatchObject({ status: "skipped", reason: "autonomy-held" });
-    expect(ran).toBe(false);
-
-    // A manual Start is a button next to the question, not an answer to it.
-    const started = await processCard({
-      root: BOARD,
-      board,
-      card: fresh,
-      runFn: async () => ((ran = true), { reply: "done" }),
-      cwd: BOARD,
-      manualStart: true
-    });
-    expect(started.outcome.reason).toBe("autonomy-held");
-    expect(ran).toBe(false);
-  });
-
-  it("a Move clears the hold in the same write, records it, and starts the card", async () => {
-    const card = await createHeld("hold-3");
-    const before = chatPosts;
-    const fresh = await getCard(card.id);
-    const moved = await jsend("PATCH", `/cards/${card.id}`, { list: "plan", rev: fresh.rev });
-    expect(moved.status).toBe(200);
-    const stored = await getCard(card.id);
-    expect(stored.autonomyHeld).toBe(false);
-    expect(stored.list).toBe("plan");
-    expect((await getCardEvents(card.id)).some((e: any) => e.kind === "autonomy-go")).toBe(true);
-    // Releasing IS the authorisation to progress: the card runs rather than
-    // waiting for a tick to notice it.
-    expect(await waitFor(() => chatPosts > before)).toBe(true);
+    const held = await getCard(card.id);
+    expect(held.autonomyHeld).toBe(true);
+    expect(held.list).toBe("needs-attention");
+    // No dispatch has happened, and none can happen without someone acting: the
+    // board never starts a card off a list, and the tick skips a held card.
+    expect(kicks).toBe(0);
   });
 
   it("the go is channel-agnostic and never fires on an unheld card", async () => {
-    const held = { id: "C1", list: "backlog", autonomyHeld: true, autonomyAsk: { resumeList: "plan" } };
-    const free = { id: "C2", list: "backlog", autonomyHeld: false };
+    const held = { id: "C1", list: "todo", autonomyHeld: true, autonomyAsk: { resumeList: "todo" } };
+    const free = { id: "C2", list: "todo", autonomyHeld: false };
     for (const channel of ["web", "omi", "slack"]) {
       const decision = await resolveDiscussInterception({
         text: "go",
@@ -867,54 +841,11 @@ describe("the acting notice", () => {
     expect(text).toContain("Still the right shape for this?");
   });
 
-  it("fires once, at the first real dispatch, and never again", async () => {
-    // @ts-ignore
-    const { saveBoard, loadBoard, loadCard, saveCardCAS, createCard } = await import("../fittings/seed/kanban-loop/lib/board.mjs");
-    // @ts-ignore
-    const { seedBoard } = await import("../fittings/seed/kanban-loop/scripts/kanban.mjs");
-    // @ts-ignore
-    const { processCard } = await import("../fittings/seed/kanban-loop/lib/engine.mjs");
-    // @ts-ignore
-    const { readOriginEvents } = await import("../fittings/seed/kanban-loop/lib/origins.mjs");
-
-    const root = mkdtempSync(path.join(tmpdir(), "autonomy-notice-"));
-    mkdirSync(path.join(root, "cards"), { recursive: true });
-    const board = seedBoard();
-    board.lists.find((l: { id: string }) => l.id === "plan").validNext = ["done"];
-    await saveBoard(board, root);
-    const created = await createCard(root, {
-      title: "acted work",
-      description: "acted work",
-      project: "demo",
-      list: "plan",
-      originChannel: { channel: "web", threadId: "acted-1" }
-    });
-    const withBand = {
-      ...(await loadCard(root, created.id)),
-      id: created.id,
-      list: "plan",
-      autonomy: { band: "act-revert", flow: "fix", duty: "implement", level: 2 }
-    };
-    await saveCardCAS(root, withBand, withBand.rev ?? 0, new Date().toISOString());
-
-    const live = await loadBoard(root);
-    const first = { ...(await loadCard(root, created.id)), id: created.id };
-    await processCard({ root, board: live, card: first, runFn: async () => ({ reply: "next: done" }), cwd: root });
-
-    const events = () => readOriginEvents(root, "web:acted-1").filter((e: any) => e.kind === "autonomy-acted");
-    expect(events().length).toBe(1);
-    expect(events()[0].detail).toMatchObject({ band: "act-revert", flow: "fix" });
-    const stamped = await loadCard(root, created.id);
-    expect(typeof stamped.autonomyNoticedAt).toBe("string");
-
-    // A second dispatch of the same card announces nothing: the stamp rode into
-    // the acquire CAS, so "announced" and "running" became true together.
-    const again = { ...(await loadCard(root, created.id)), id: created.id, list: "plan", status: "ok" };
-    await saveCardCAS(root, again, again.rev ?? 0, new Date().toISOString());
-    const rerun = { ...(await loadCard(root, created.id)), id: created.id };
-    await processCard({ root, board: live, card: rerun, runFn: async () => ({ reply: "next: done" }), cwd: root });
-    expect(events().length).toBe(1);
-
-    rmSync(root, { recursive: true, force: true });
-  });
+  // "fires once, at the first real dispatch, and never again" drove processCard,
+  // which is where routeAutonomyActed was CALLED from — the notice rode into the
+  // acquire CAS so "announced" and "running" became true together. processCard is
+  // gone with the Conversations cut and routeAutonomyActed now has no caller at
+  // all, so there is no first-dispatch moment left to fire once at. The notice's
+  // shape and its origin-kind registration are still pinned above; re-wiring the
+  // trigger into the launcher needs a test on THAT seam, not this one.
 });

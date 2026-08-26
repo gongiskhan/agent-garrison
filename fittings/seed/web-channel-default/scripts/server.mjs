@@ -18,6 +18,7 @@
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { meshThreads } from "../lib/mesh-threads.mjs";
+import { gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
 import { loadSidebar, saveSidebar } from "./sidebar-state.mjs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -3353,6 +3354,16 @@ async function handleNotify(req, res, opts) {
       if (pathname === "/api/claude/interrupt" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
       if (pathname === "/api/claude/answer" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "answer", "POST");
       if (pathname === "/api/attachments" && method === "POST") return handleAttachments(req, res, liveOpts);
+      // The conversation router (Conversations plan, C1). Mounted at the SAME
+      // relative base here, on the kanban board and in the Next app, because a
+      // conversation view only ever builds relative URLs - the browser is almost
+      // never on this box.
+      if (pathname.startsWith("/api/conversation")) {
+        return void handleConversationRequest(req, res, {
+          role: "web-channel",
+          forwardMessage: gatewayMessageForwarder(liveOpts.gatewayUrl),
+        }).catch((err) => jsonRes(res, 500, { error: String(err?.message ?? err) }));
+      }
       if (pathname.startsWith("/api/")) {
         jsonRes(res, 404, { error: "not found", path: pathname });
         return;

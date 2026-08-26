@@ -1057,7 +1057,7 @@ function Card({
           </span>
         )}
         {card.flow && <span className="chip" title="flow (the policy phase plan this run follows)">{card.flow}</span>}
-        {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
+        {engineOwned && <span className="chip muted" title="The launcher owns this card while its conversation runs (D16). It becomes editable if it parks in Needs input.">launcher-held</span>}
         {card.fences?.sha && (
           <span className="chip fence" title={`last commit fence: ${card.fences.phase ?? "?"} @ ${card.fences.sha}`}>
             fence {card.fences.sha.slice(0, 7)}
@@ -1599,7 +1599,7 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
   const [scheduleTimezone, setScheduleTimezone] = useState(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
   );
-  const [scheduleTarget, setScheduleTarget] = useState("backlog");
+  const [scheduleTarget, setScheduleTarget] = useState("todo");
   const [scheduleAction, setScheduleAction] = useState<"notify" | "run">("notify");
   // Files attached at creation: uploaded right AFTER the card exists (the
   // upload endpoint is card-scoped), before the sheet closes.
@@ -2431,7 +2431,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const [schedTimezoneDraft, setSchedTimezoneDraft] = useState(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
   );
-  const [schedTargetDraft, setSchedTargetDraft] = useState("backlog");
+  const [schedTargetDraft, setSchedTargetDraft] = useState("todo");
   const [schedActionDraft, setSchedActionDraft] = useState<"notify" | "run">("notify");
   const [savingSched, setSavingSched] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -2657,7 +2657,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   }
 
   function scheduleTarget(card: CardSummary): string {
-    return card.schedule?.targetList ?? (card.list === "scheduled" ? "backlog" : card.list);
+    return card.schedule?.targetList ?? (card.list === "scheduled" ? "todo" : card.list);
   }
 
   function beginScheduleEdit(card: CardSummary) {
@@ -2666,7 +2666,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     setSchedDraft(localInputFromIso(current?.kind === "once" ? current.at ?? current.nextAt : null));
     setSchedCronDraft(current?.cron ?? "0 8 * * 1-5");
     setSchedTimezoneDraft(current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Lisbon");
-    setSchedTargetDraft(current?.targetList ?? (card.list === "scheduled" ? "backlog" : card.list));
+    setSchedTargetDraft(current?.targetList ?? (card.list === "scheduled" ? "todo" : card.list));
     setSchedActionDraft(current?.action ?? (card.scheduleAction === "run" ? "run" : "notify"));
   }
 
@@ -4348,7 +4348,7 @@ function ImportSheet({
   const manualLists = board.lists.filter(isManualImportTarget);
   const [bundle, setBundle] = useState<unknown | null>(null);
   const [fileName, setFileName] = useState("");
-  const [targetList, setTargetList] = useState(manualLists.find((list) => list.id === "backlog")?.id ?? manualLists[0]?.id ?? "");
+  const [targetList, setTargetList] = useState(manualLists.find((list) => list.id === "todo")?.id ?? manualLists[0]?.id ?? "");
   const [sourceList, setSourceList] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [preview, setPreview] = useState<CardImportPreview | null>(null);
@@ -4748,9 +4748,8 @@ function App() {
   }
 
   // WS2 (D7): continue a DONE card's work in one click — create a successor card
-  // (continues=<id>, its prompt seeded from the predecessor's handoff packet) and
-  // move it to plan so the run dispatches. A fresh backlog card is not engine-owned,
-  // so the human move to plan is allowed and auto-dispatches.
+  // (continues=<id>, its prompt seeded from the predecessor's handoff packet) on
+  // To do. Starting it kicks a fresh conversation seeded from that handoff.
   async function onContinue(card: CardSummary) {
     setBusyCard(card.id);
     setNotice(null);

@@ -26,7 +26,7 @@ const KANBAN_TURN_TIMEOUT_MS = Number(process.env.KANBAN_TURN_TIMEOUT_MS) || 25 
 // garrison-* run, so it gets a tight timeout: it must never tie the operative up the
 // way a Plan turn does. If the operative is mid-run it queues behind it; the abort
 // keeps a doomed inference from hanging the card-create path forever.
-// Exported because the dispatch-side gate (engine.settleProjectInference) has to size
+// Exported because anything gating on an in-flight inference has to size
 // its wait against THIS budget: a gate shorter than the turn it waits on advances the
 // card un-fenced and the inference result is discarded on arrival.
 export const KANBAN_INFER_TIMEOUT_MS = Number(process.env.KANBAN_INFER_TIMEOUT_MS) || 90 * 1000;

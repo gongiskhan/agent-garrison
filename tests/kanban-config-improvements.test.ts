@@ -2,9 +2,10 @@
 //   - title is OPTIONAL (server derives it from the description) — deriveTitle
 //   - per-list scheduler-beat schedule (beatCron) — applyListConfig + cronForList
 //   - project + skill discovery (dev-env parity) — listProjects / listSkills
-//   - the dispatch routes through the orchestrator (no per-list {taskType,tier} hint)
-//     and leads the prompt with the list's mode — buildCardPrompt + processCard
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+//
+// The buildCardPrompt / processCard half of this file went out with the
+// Conversations cut: there is no per-list dispatch to shape a prompt for.
+import { describe, it, expect } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -28,25 +29,8 @@ import { deriveTitle, applyListConfig, applyProjectMapping, isValidProjectLabel 
 import { cronForList, beatIdFor } from "../fittings/seed/kanban-loop/lib/scheduler-beats.mjs";
 // @ts-ignore — pure .mjs
 import { listProjects, listSkills } from "../fittings/seed/kanban-loop/lib/discover.mjs";
-// @ts-ignore — pure .mjs
-import { buildCardPrompt, processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
-// @ts-ignore — pure .mjs
-import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
-// @ts-ignore — pure .mjs
-import { createCard, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
-
-// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
-// Boot one for this file and project its discovery env before anything reads a
-// card; side files still live under the kanban root this file already pins.
-import { setupKanbanState } from "./kanban-state-env";
-let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
-beforeAll(async () => {
-  __kanbanState = await setupKanbanState();
-}, 30_000);
-afterAll(async () => {
-  await __kanbanState?.stop();
-});
-
+// Nothing here touches the card store any more (the engine half of this file
+// went out with the cut), so this file boots no state service.
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 
@@ -141,37 +125,6 @@ describe("discover — listProjects / listSkills (dev-env parity)", () => {
     const out = listSkills(home);
     expect(out.map((s: any) => s.name)).toEqual(["garrison-plan"]);
     expect(out[0].description).toBe("Plan a slice.");
-  });
-});
-
-describe("buildCardPrompt — no per-list mode lead (D15: mode is the gateway's job)", () => {
-  it("never leads with a mode name; the policy-bound skill line is injected instead", () => {
-    const board = seedBoard();
-    const list = board.lists.find((l: any) => l.id === "implement");
-    const prompt = buildCardPrompt({ list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"], skill: "garrison-implement", phase: "implement" });
-    expect(prompt.startsWith("# Work item:")).toBe(true);
-    expect(prompt).toContain("`garrison-implement`");
-    expect(prompt).toContain("gate-status entry");
-  });
-  it("omits the skill line when no policy binding resolves", () => {
-    const list = { id: "x", kind: "agent", executePrompt: "", routerPrompt: "" };
-    const prompt = buildCardPrompt({ list, card: { title: "T" }, validNext: ["y"] });
-    expect(prompt.startsWith("# Work item:")).toBe(true);
-    expect(prompt).not.toContain("gate-status entry under the run directory");
-  });
-});
-
-describe("processCard — routes through the orchestrator (no per-list classification hint)", () => {
-  it("dispatches with classification = null (the gateway/orchestrator classifies the tier)", async () => {
-    const root = tmp("kanban-noclass-");
-    const board = seedBoard();
-    const card = await createCard(root, { title: "route me", project: "g", list: "plan" });
-    let seen: any = "unset";
-    const runFn = async ({ classification }: any) => { seen = classification; return { reply: "implement" }; };
-    const { outcome } = await processCard({ root, board, card, runFn, cap: 10 });
-    expect(outcome.status).toBe("moved");
-    expect(seen).toBeNull(); // NOT { taskType, tier } — the orchestrator owns classification
-    expect((await loadCard(root, card.id)).list).toBe("implement");
   });
 });
 

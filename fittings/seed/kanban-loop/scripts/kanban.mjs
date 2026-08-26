@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, saveBoard, loadAllCards, createCard, updateCardCAS } from "../lib/board.mjs";
 import { normaliseCardSchedule } from "../lib/schedules.mjs";
 import { getList, withEvent, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../lib/engine.mjs";
+import { isDispatchClaimLive } from "../lib/dispatch-lease.mjs";
 import { conversationKickFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
@@ -572,6 +573,11 @@ async function tick() {
   let kicked = 0;
   for (const card of cards) {
     if (card.autonomyHeld === true || card.waitingOn) continue;
+    // A live dispatch claim means a worker on another machine is driving this
+    // card — kicking the LOCAL gateway would double-drive it. Claim expiry is
+    // swept above (sweepExpiredDispatchClaims), so a dead worker's card
+    // becomes kickable again on a later tick.
+    if (isDispatchClaimLive(card)) continue;
     const dueRun = card.list === "todo" && card.scheduleAction === "run";
     const recovery = card.list === "running";
     if (!dueRun && !recovery) continue;

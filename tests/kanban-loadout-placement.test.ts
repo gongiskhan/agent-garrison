@@ -9,6 +9,8 @@ import path from "node:path";
 import { makeRequestHandler, projectLoadoutPrefill } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore — source ESM board helpers.
 import { saveBoard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+// @ts-ignore — pure ESM .mjs, no .d.ts
+import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
 // The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
 // Boot one for this file and project its discovery env before anything reads a
@@ -213,13 +215,9 @@ describe("Kanban pre-placement Loadout surface", () => {
     const root = mkdtempSync(path.join(tmpdir(), "kanban-loadout-board-"));
     roots.push(root);
     writeExecutionModel(root);
-    await saveBoard({
-      version: 3,
-      lists: [
-        { id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual", validNext: ["plan"] },
-        { id: "needs-attention", title: "Needs attention", order: 1, kind: "manual", trigger: "manual", validNext: ["backlog"] }
-      ]
-    }, root);
+    // The five-state Conversations board: a card created with no explicit list
+    // lands on `todo`, which the old hand-written two-list fixture did not have.
+    await saveBoard(seedBoard(), root);
     const boardUrl = await listen(http.createServer(makeRequestHandler({ root, cwd: root, devRoot, appUrl, gatewayUrl: null, cap: 10 }, root)));
 
     let response = await fetch(`${boardUrl}/cards`, {
@@ -292,7 +290,7 @@ describe("Kanban pre-placement Loadout surface", () => {
     const root = mkdtempSync(path.join(tmpdir(), "kanban-personal-remote-"));
     roots.push(root);
     writeExecutionModel(root);
-    await saveBoard({ version: 3, lists: [{ id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual", validNext: [] }] }, root);
+    await saveBoard(seedBoard(), root);
     const boardUrl = await listen(http.createServer(makeRequestHandler({ root, cwd: root, devRoot, appUrl, gatewayUrl: null, cap: 10 }, root)));
     const response = await fetch(`${boardUrl}/cards`, {
       method: "POST",

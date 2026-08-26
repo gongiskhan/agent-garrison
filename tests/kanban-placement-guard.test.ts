@@ -1,15 +1,14 @@
-// Outpost Dispatch: the local engine must NEVER run a card placed on another
-// machine.
+// Card PLACEMENT — where a card is meant to run.
 //
-// This is the exact bug the OLDER `card.outpost` affinity has, which Phase 0
-// found and this guard exists not to repeat: engine.mjs resolves the outpost and
-// then, on success, FALLS THROUGH to the local dispatch path — so a card pinned
-// to a connected Mac silently ran on the host while the board claimed otherwise.
-//
-// The guard also has to sit BEFORE mintRunFields and the CAS acquire, or every
-// local tick (default every 2 minutes) would burn an iteration of the card's
-// convergence cap and mint a runDir on the wrong machine while the card just
-// sits there waiting to be claimed.
+// The Conversations cut deleted the local dispatch engine (processCard /
+// processBatch), so the guard this file was originally written for — "the local
+// engine must never run a card placed on another machine" — no longer has a
+// subject: there is no local engine run to guard. What survives is the DATA half
+// that the mesh claim route still reads (src/app/api/dispatch/claim/route.ts
+// selects on card.placement): normalisePlacement's host default, its trimming,
+// and its one-way migration of the legacy `outpost` affinity onto placement at
+// the createCard door. Those are the contracts kept below; the engine-guard
+// tests went with the engine.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
@@ -20,11 +19,7 @@ import { join } from "node:path";
 process.env.GARRISON_RUNS_DIR = mkdtempSync(join(tmpdir(), "runs-home-placement-"));
 
 // @ts-ignore — pure .mjs
-import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
-// @ts-ignore — pure .mjs
-import { createCard, loadCard, normalisePlacement } from "../fittings/seed/kanban-loop/lib/board.mjs";
-// @ts-ignore — pure .mjs
-import { processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { createCard, normalisePlacement } from "../fittings/seed/kanban-loop/lib/board.mjs";
 
 // The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
 // Boot one for this file and project its discovery env before anything reads a
@@ -39,14 +34,7 @@ afterAll(async () => {
 });
 
 
-const board = seedBoard();
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-placement-"));
-
-// A runFn that must never be reached. Returning a plausible value instead of
-// throwing would let the guard fail silently and the test still pass.
-const forbiddenRunFn = async () => {
-  throw new Error("LOCAL RUN ATTEMPTED for a remotely-placed card");
-};
 
 describe("normalisePlacement", () => {
   it("defaults to host for absent/malformed input", () => {
@@ -62,149 +50,29 @@ describe("normalisePlacement", () => {
       not_before: "2026-01-01T00:00:00Z"
     });
   });
+
+  it("migrates the legacy outpost affinity, and an explicit placement still wins", () => {
+    expect(normalisePlacement(null, "goncalos-mac-mini-1")).toEqual({ target: "goncalos-mac-mini-1" });
+    expect(normalisePlacement({ target: "host" }, "goncalos-mac-mini-1")).toEqual({ target: "goncalos-mac-mini-1" });
+    expect(normalisePlacement({ target: "studio" }, "goncalos-mac-mini-1")).toEqual({ target: "studio" });
+  });
 });
 
-describe("engine placement guard", () => {
-  it("refuses to run a card placed on another machine", async () => {
-    const root = tmp();
-    const card = await createCard(root, {
-      title: "remote work",
-      list: "implement",
-      placement: { target: "goncalos-mac-mini-1" }
-    });
-
-    const { card: after, outcome } = await processCard({
-      root,
-      board,
-      card,
-      runFn: forbiddenRunFn,
-      cwd: root
-    });
-
-    expect(outcome.status).toBe("skipped");
-    expect(outcome.reason).toContain("goncalos-mac-mini-1");
-    // Untouched: same list, no run minted, no iteration consumed. A local tick
-    // every 2 minutes must cost the card nothing.
-    expect(after.list).toBe("implement");
-    expect(after.runId ?? null).toBeNull();
-    expect(after.runDir ?? null).toBeNull();
-    expect(after.iterations).toBe(0);
-    expect(after.status).not.toBe("needs-attention");
-  });
-
-  it("reports the holder when the card is already claimed", async () => {
-    const root = tmp();
-    const created = await createCard(root, {
-      title: "claimed work",
-      list: "implement",
-      placement: { target: "goncalos-mac-mini-1" }
-    });
-    const card = {
-      ...created,
-      dispatch: {
-        machine: "goncalos-mac-mini-1",
-        workerId: "w1",
-        claimedAt: new Date().toISOString(),
-        heartbeatAt: new Date().toISOString(),
-        state: "running"
-      }
-    };
-
-    const { outcome } = await processCard({ root, board, card, runFn: forbiddenRunFn, cwd: root });
-    expect(outcome.status).toBe("skipped");
-    expect(outcome.reason).toContain("claimed by goncalos-mac-mini-1");
-  });
-
-  it("still runs a host-placed card locally", async () => {
-    // The guard must not break the default. Every pre-existing card has no
-    // placement at all, so this is the path virtually all cards take.
-    const root = tmp();
-    const card = await createCard(root, { title: "local work", list: "implement" });
+describe("createCard placement door", () => {
+  it("a card with no placement is host-placed", async () => {
+    const card = await createCard(tmp(), { title: "local work", list: "todo" });
     expect(card.placement).toEqual({ target: "host" });
-
-    let ran = false;
-    const runFn = async () => {
-      ran = true;
-      return { reply: "implement\n" };
-    };
-    await processCard({ root, board, card, runFn, cwd: root });
-    expect(ran).toBe(true);
+    expect(card.outpost ?? null).toBeNull();
   });
 
-  it("a card with NO placement field at all is treated as host", async () => {
-    // Cards written before this feature have no `placement` key. They must keep
-    // running locally, not become undispatchable.
-    const root = tmp();
-    const created = await createCard(root, { title: "legacy card", list: "implement" });
-    const legacy = { ...created };
-    delete (legacy as Record<string, unknown>).placement;
-
-    let ran = false;
-    const runFn = async () => {
-      ran = true;
-      return { reply: "implement\n" };
-    };
-    await processCard({ root, board, card: legacy, runFn, cwd: root });
-    expect(ran).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The OLDER `card.outpost` affinity, closing the exact hole this file's header
-// describes. Before this, `if (!disp.ok)` parked, and the resolved-and-CONNECTED
-// case simply fell out of the block into the local dispatch path — so a card
-// pinned to a live Mac ran on the Garrison host, against the host's checkout and
-// account, and reported success. It was invisible only because no Mac had ever
-// connected; it would have activated the moment one did.
-// ---------------------------------------------------------------------------
-describe("engine outpost affinity guard", () => {
-  async function withFakeDaemon<T>(outposts: unknown[], fn: () => Promise<T>): Promise<T> {
-    const { createServer } = await import("node:http");
-    const srv = createServer((_req, res) => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ outposts }));
-    });
-    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
-    const addr = srv.address();
-    const port = typeof addr === "object" && addr ? addr.port : 0;
-    const prev = process.env.GARRISON_OUTPOST_URL;
-    process.env.GARRISON_OUTPOST_URL = `http://127.0.0.1:${port}`;
-    try {
-      return await fn();
-    } finally {
-      if (prev === undefined) delete process.env.GARRISON_OUTPOST_URL;
-      else process.env.GARRISON_OUTPOST_URL = prev;
-      await new Promise<void>((r) => srv.close(() => r()));
-    }
-  }
-
-  it("migrates legacy outpost input to worker placement and never runs locally", async () => {
-    const root = tmp();
-    const card = await createCard(root, { title: "pinned work", list: "implement", outpost: "goncalos-mac-mini-1" });
+  it("migrates legacy outpost input onto placement and drops the field", async () => {
+    const card = await createCard(tmp(), { title: "pinned work", list: "todo", outpost: "goncalos-mac-mini-1" });
     expect(card.outpost).toBeNull();
     expect(card.placement.target).toBe("goncalos-mac-mini-1");
-
-    const { outcome } = await processCard({ root, board, card, runFn: forbiddenRunFn, cwd: root });
-    expect(outcome.status).toBe("skipped");
-    expect(outcome.reason).toMatch(/awaiting its worker/i);
   });
 
-  it("migrates an on-disk legacy affinity even when placement still says host", async () => {
-    const root = tmp();
-    const created = await createCard(root, { title: "legacy work", list: "implement" });
-    const legacy = { ...created, outpost: "goncalos-mac-mini-1", placement: { target: "host" } };
-    const { outcome } = await processCard({ root, board, card: legacy, runFn: forbiddenRunFn, cwd: root });
-    expect(outcome.status).toBe("skipped");
-    expect(outcome.reason).toMatch(/goncalos-mac-mini-1/);
-  });
-
-  it("leaves a card with NO affinity running locally", async () => {
-    const root = tmp();
-    const card = await createCard(root, { title: "local work", list: "implement" });
-    let ran = false;
-    await withFakeDaemon([{ name: "goncalos-mac-mini-1", connected: true }], async () => {
-      await processCard({ root, board, card, runFn: async () => { ran = true; return { reply: "implement\n" }; }, cwd: root });
-    });
-    expect(ran).toBe(true);
+  it("keeps an explicit machine placement", async () => {
+    const card = await createCard(tmp(), { title: "remote work", list: "todo", placement: { target: "goncalos-mac-mini-1" } });
+    expect(card.placement).toEqual({ target: "goncalos-mac-mini-1" });
   });
 });

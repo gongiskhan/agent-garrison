@@ -38,6 +38,13 @@ export {
   SUMMARY_MAX_BYTES,
   SUMMARY_MAX_LINES,
 } from "./conversation-store.mjs";
+export { ledgerToSessionEvents, conversationEventId, RENDERED_LEDGER_KINDS } from "./conversation-adapt.mjs";
+export {
+  handleConversationRequest,
+  gatewayMessageForwarder,
+  recordDig,
+  CONVERSATION_ID_RE,
+} from "./conversation-http.mjs";
 export {
   jsonlFileSize,
   readJsonlFrom,

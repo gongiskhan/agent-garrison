@@ -11,102 +11,49 @@
 // silently change their behaviour. `routing.project` is the pinned-intent channel the
 // gateway validates at the edge and resolves to a git repo under the dev root — and an
 // unresolvable name is REJECTED rather than silently run in the composition dir.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
+//
+// The Conversations cut removed gatewayRunFn and batchGatewayRunFn — the board no
+// longer streams turns of its own, so there is no dispatch body left to capture.
+// cardTurnRouting, the pure function that DECIDES the routing block, survives and
+// is tested directly here, as does the whole gateway-side half (the edge
+// validator, the cwd resolution, and the badges a refusal renders on the card).
+import { describe, it, expect } from "vitest";
 
 // @ts-ignore pure mjs
-import { cardTurnRouting, gatewayRunFn, routeFromDone, projectNameForRouting } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
+import { cardTurnRouting, routeFromDone, projectNameForRouting } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
 // @ts-ignore pure mjs
 import { PERSONAL_SCOPE_TOKEN } from "../fittings/seed/kanban-loop/lib/personal-workspace.mjs";
 // @ts-ignore pure mjs
 import { routeStamp } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 import { execBadges } from "../fittings/seed/kanban-loop/ui/exec-badges";
 // @ts-ignore pure mjs
-import { batchGatewayRunFn } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
-// @ts-ignore pure mjs
 import { sanitizeRouting } from "../fittings/seed/http-gateway/scripts/gateway-pty.mjs";
 // @ts-ignore pure mjs
 import { applyTurnOverride } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
-// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
-// Boot one for this file and project its discovery env before anything reads a
-// card; side files still live under the kanban root this file already pins.
-import { setupKanbanState } from "./kanban-state-env";
-let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
-beforeAll(async () => {
-  __kanbanState = await setupKanbanState();
-}, 30_000);
-afterAll(async () => {
-  await __kanbanState?.stop();
-});
+// Nothing here touches the card store — every subject is a pure function over a
+// card object — so this file boots no state service.
 
-
-// A gateway stub that captures ONE request body and returns a minimal SSE turn.
-async function captureBody(run: (url: string) => Promise<unknown>, response?: string): Promise<any> {
-  let captured: any = null;
-  const server = createServer((req, res) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (c) => chunks.push(c));
-    req.on("end", () => {
-      try { captured = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { captured = null; }
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(response ?? `event: done\ndata: ${JSON.stringify({ reply: "review" })}\n\n`);
-      res.end();
-    });
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
-  const port = (server.address() as AddressInfo).port;
-  try {
-    await run(`http://127.0.0.1:${port}`);
-  } finally {
-    server.close();
-  }
-  return captured;
-}
-
-describe("the kanban dispatch tells the gateway which project the turn runs in", () => {
-  it("sends the card's project as routing.project", async () => {
-    const body = await captureBody((url) =>
-      gatewayRunFn(url)({
-        prompt: "do the thing",
-        card: { id: "c1", project: "ekoa-code" },
-        duty: "code",
-        level: 2,
-        phase: "code",
-        list: {}
-      })
-    );
-    expect(body.routing).toEqual({ project: "ekoa-code" });
-    expect(body.cardIds).toEqual(["c1"]);
+describe("cardTurnRouting — which project a card's turn should run in", () => {
+  it("sends the card's project as routing.project", () => {
+    expect(cardTurnRouting({ id: "c1", project: "ekoa-code" })).toEqual({ project: "ekoa-code" });
   });
 
-  it("does NOT overload the top-level `project` field, which means something else on other channels", async () => {
-    const body = await captureBody((url) =>
-      gatewayRunFn(url)({ prompt: "x", card: { id: "c1", project: "ekoa-code" }, list: {} })
-    );
-    expect(body.project).toBeUndefined();
+  it("keeps the project INSIDE routing — `project` at the top level means the D19 card label", () => {
+    // The block is the whole answer: there is no sibling top-level field here to
+    // confuse with the card-creation label other channels send.
+    expect(Object.keys(cardTurnRouting({ id: "c1", project: "ekoa-code" }) ?? {})).toEqual(["project"]);
   });
 
-  it("omits routing entirely for a card with no project — never invents a cwd", async () => {
-    const body = await captureBody((url) =>
-      gatewayRunFn(url)({ prompt: "x", card: { id: "c1", project: null }, list: {} })
-    );
-    expect(body.routing ?? null).toBeNull();
-
-    const noCard = await captureBody((url) => gatewayRunFn(url)({ prompt: "x", list: {} }));
-    expect(noCard.routing ?? null).toBeNull();
+  it("returns nothing for a card with no project — never invents a cwd", () => {
+    expect(cardTurnRouting({ id: "c1", project: null })).toBeNull();
+    expect(cardTurnRouting(null)).toBeNull();
+    expect(cardTurnRouting({})).toBeNull();
   });
 
-  it("routes a personal card with no project to the reserved personal scope", async () => {
-    const body = await captureBody((url) =>
-      gatewayRunFn(url)({
-        prompt: "book the appointment",
-        card: { id: "c-personal", scope: "personal", project: null },
-        list: {}
-      })
-    );
-    expect(body.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true });
+  it("routes a personal card with no project to the reserved personal scope", () => {
+    expect(cardTurnRouting({ id: "c-personal", scope: "personal", project: null }))
+      .toEqual({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true });
   });
 
   it("keeps explicit routing and a real project ahead of the personal fallback", () => {
@@ -120,73 +67,12 @@ describe("the kanban dispatch tells the gateway which project the turn runs in",
     expect(cardTurnRouting({ scope: "personal", routing: { project: "../ekoa-code" } })).toBeNull();
   });
 
-  it("the BATCH lane sends it too — a batch is grouped by project, so the group shares a cwd", async () => {
-    const body = await captureBody((url) =>
-      batchGatewayRunFn(url)({
-        project: "ekoa-code",
-        cards: [{ id: "c1", list: "test", sequence: ["test"], duty: "test", level: 1 }],
-        list: { id: "test", executePrompt: "run tests", routerPrompt: "emit a verdict" },
-        duty: "test",
-        level: 1,
-        phase: "test"
-      })
-    );
-    expect(body.routing).toEqual({ project: "ekoa-code" });
-    expect(body.cardIds).toEqual(["c1"]);
-  });
-
-  it("the batch VERDICT NUDGE keeps the same cwd (it is the same session's follow-up)", async () => {
-    const body = await captureBody((url) =>
-      batchGatewayRunFn(url)({ project: "ekoa-code", cards: [], nudge: "just the verdict please", list: {} })
-    );
-    expect(body.routing).toEqual({ project: "ekoa-code" });
-  });
-
-  it.each([false, true])("forwards live text and journal callbacks through the batch lane (nudge=%s)", async (nudge) => {
-    const chunks: string[] = [];
-    const journals: any[] = [];
-    const response = [
-      `event: route\ndata: ${JSON.stringify({ session_id: "batch-session", transcript_path: "/runtime/batch-session.jsonl" })}\n\n`,
-      `event: chunk\ndata: ${JSON.stringify({ text: "streamed batch output" })}\n\n`,
-      `event: done\ndata: ${JSON.stringify({ reply: "streamed batch output" })}\n\n`
-    ].join("");
-    await captureBody((url) => batchGatewayRunFn(url)({
-      project: "ekoa-code",
-      cards: [{ id: "c1", list: "test" }],
-      list: { id: "test", validNext: ["done"] },
-      ...(nudge ? { nudge: "verdict only" } : {}),
-      onChunk: (full: string) => chunks.push(full),
-      onJournal: (identity: any) => journals.push(identity)
-    }), response);
-
-    expect(chunks).toEqual(["streamed batch output"]);
-    expect(journals).toEqual([{
-      sessionId: "batch-session",
-      transcriptPath: "/runtime/batch-session.jsonl"
-    }]);
-  });
-
-  it("the personal batch and its verdict nudge preserve the reserved scope", async () => {
-    const body = await captureBody((url) =>
-      batchGatewayRunFn(url)({
-        project: PERSONAL_SCOPE_TOKEN,
-        cards: [{ id: "c1", scope: "personal", list: "test", sequence: ["test"], duty: "test", level: 1 }],
-        list: { id: "test", executePrompt: "run tests", routerPrompt: "emit a verdict" }
-      })
-    );
-    expect(body.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true });
-
-    const nudge = await captureBody((url) =>
-      batchGatewayRunFn(url)({ project: PERSONAL_SCOPE_TOKEN, cards: [], nudge: "verdict", list: {} })
-    );
-    expect(nudge.routing).toEqual({ project: PERSONAL_SCOPE_TOKEN, projectDefaulted: true });
-  });
-
-  it("an ordinary no-project batch does not send a fake cwd pin", async () => {
-    const body = await captureBody((url) =>
-      batchGatewayRunFn(url)({ project: "(no-project)", cards: [], nudge: "verdict", list: {} })
-    );
-    expect(body.routing ?? null).toBeNull();
+  it("carries the card's other explicit routing pins alongside the project", () => {
+    expect(cardTurnRouting({ project: "ekoa-code", routing: { model: "opus", effort: "high" } }))
+      .toEqual({ model: "opus", effort: "high", project: "ekoa-code" });
+    // Empty/null pins are dropped rather than sent as a pin of nothing.
+    expect(cardTurnRouting({ project: "ekoa-code", routing: { model: "", effort: null } }))
+      .toEqual({ project: "ekoa-code" });
   });
 });
 
@@ -316,14 +202,8 @@ describe("projectNameForRouting — both stored shapes of card.project resolve",
     }
   });
 
-  it("a path-shaped card actually dispatches a resolvable name", async () => {
-    const body = await captureBody((url) =>
-      gatewayRunFn(url)({
-        prompt: "x",
-        card: { id: "c1", project: "/home/ggomes/dev/ekoa-code" },
-        list: {}
-      })
-    );
-    expect(body.routing).toEqual({ project: "ekoa-code" });
+  it("a path-shaped card resolves to a name the gateway will accept", () => {
+    expect(cardTurnRouting({ id: "c1", project: "/home/ggomes/dev/ekoa-code" }))
+      .toEqual({ project: "ekoa-code" });
   });
 });

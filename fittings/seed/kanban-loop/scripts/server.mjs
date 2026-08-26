@@ -39,7 +39,6 @@ import {
   withCardOrderLock,
   deleteCard,
   deriveMembership,
-  appendCardLog,
   latestCardLogNumber,
   cardBriefFile,
   cardBriefRel,
@@ -110,7 +109,12 @@ import { listProjects, readDevRoot, resolveProjectName, listSkills } from "../li
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { reconcilePersonalCompletionOutbox } from "../lib/personal-memory-outbox.mjs";
 import { reconcileMorningBriefDeliveries } from "../lib/morning-briefing.mjs";
-import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
+import {
+  claudeProjectDirForCwd,
+  claudeProjectsDir,
+  gatewayMessageForwarder,
+  handleConversationRequest,
+} from "@garrison/claude-pty";
 // WS2: the artifact-ref vocabulary lives in lib/links.mjs (shared with the handoff
 // packet generator). Re-exported below so existing importers (tests) keep working.
 import {
@@ -2124,13 +2128,15 @@ async function handleImportCards(req, res, opts) {
 
   const board = await loadBoard(root);
   const cards = await loadAllCards(root);
-  const targetList = typeof body.targetList === "string" && body.targetList ? body.targetList : "backlog";
+  const targetList = typeof body.targetList === "string" && body.targetList ? body.targetList : "todo";
   if (!isValidListId(targetList)) return jsonRes(res, 400, { error: "invalid target list id" });
   const target = getList(board, targetList);
   if (!target) return jsonRes(res, 400, { error: `unknown target list: ${targetList}` });
-  // Never import onto an agent list — creating/moving a card there auto-dispatches a run.
-  if (target.kind === "agent" || target.kind === "agent-interactive") {
-    return jsonRes(res, 400, { error: `cannot import onto the agent list "${targetList}" — pick a manual list (e.g. backlog)` });
+  // Never import onto Running (or a legacy agent list): cards enter Running only
+  // through the launcher — an imported card there would be a phantom "running"
+  // with no conversation behind it (coherentCardState would stamp the status).
+  if (targetList === "running" || target.kind === "system" || target.kind === "agent" || target.kind === "agent-interactive") {
+    return jsonRes(res, 400, { error: `cannot import onto "${targetList}" — pick a manual list (e.g. todo)` });
   }
 
   // Read ONLY the allow-listed fields from each incoming card (the SAME const the
@@ -2518,15 +2524,19 @@ function cleanupClosedCoordinationHold(root, board, card, priorCard = null) {
   });
 }
 
-// D16: cards on autonomous (agent-kind) lists are ENGINE-OWNED — the board API
-// rejects manual moves and edits on them. needs-attention is the one human
-// touchpoint on the autonomous side; interactive + manual lists stay editable.
+// D16, re-aimed by Conversations: a card is LAUNCHER-HELD while it is running —
+// `list` is the state, so the Running column IS the lock (the old agent-kind
+// check went inert with the five-state board, which has no agent list). The
+// board API rejects manual edits and deletes on a held card; the one human
+// affordance is the documented rescue move OFF Running (validNext:
+// needs-attention / todo), carved out at the PATCH door. Matches the UI's
+// launcherHeld gating (ui/main.tsx). Legacy agent-kind boards (pre-migration,
+// still stamped 9) keep the old lock.
 export function isEngineOwned(board, card) {
   // D19: a quick card is never engine-run — the gateway ran it inline and parked
-  // it on an agent list only transiently (Implement → Done). The locked-list rules
-  // apply ONLY to engine-owned cards mid-run, so a quick card stays operator-editable
-  // wherever it sits.
+  // it transiently. The lock applies only to cards a driver actually holds.
   if (card.quick === true) return false;
+  if (card.list === "running" || card.status === "running") return true;
   const list = getList(board, card.list);
   return Boolean(list && list.kind === "agent" && !isInteractive(list));
 }
@@ -2579,10 +2589,17 @@ async function handlePatchCard(req, res, opts, id) {
   // queued agent-list card is precisely the point of the schedule.
   const BENIGN_PATCH_KEYS = new Set(["rev", "schedule", "scheduledFor", "scheduleAction", "position", "checklist"]);
   const benignPatch = Object.keys(body).length > 0 && Object.keys(body).every((k) => BENIGN_PATCH_KEYS.has(k));
-  if (isEngineOwned(board, card) && !isEngineRequest(req) && !benignPatch) {
+  // The ONE human affordance on a launcher-held card: the documented rescue move
+  // OFF Running — a bare {list} PATCH to needs-attention / todo (Running's
+  // validNext). Content edits mid-stretch stay locked; the launcher's own writes
+  // carry the engine header.
+  const RESCUE_MOVE_KEYS = new Set(["rev", "list", "position"]);
+  const rescueMove = card.list === "running" && typeof body.list === "string" && body.list !== "running" &&
+    Object.keys(body).every((k) => RESCUE_MOVE_KEYS.has(k));
+  if (isEngineOwned(board, card) && !isEngineRequest(req) && !benignPatch && !rescueMove) {
     return jsonRes(res, 403, {
       error: "engine-owned",
-      message: `Card is on the autonomous list "${card.list}" — it is engine-owned (D16). Wait for the run, or resolve it from needs-attention if it parks.`
+      message: `Card is running — the launcher owns it while its conversation is in flight (D16). Move it off Running to rescue it, or wait for the stretch to finish.`
     });
   }
   if ((typeof body.project === "string" || body.scope !== undefined || changesExecutionProject) && card.runId && !isEngineRequest(req)) {
@@ -2594,6 +2611,15 @@ async function handlePatchCard(req, res, opts, id) {
   const next = { ...card };
   if (typeof body.list === "string") {
     if (!getList(board, body.list)) return jsonRes(res, 400, { error: `unknown list: ${body.list}` });
+    // Conversations: you cannot start a stretch by dragging. Running is entered
+    // only through the launcher (Start → /conversation/kick, the schedule sweep,
+    // or the materialization door) — same refusal as the CREATE door.
+    if (body.list === "running" && !isEngineRequest(req)) {
+      return jsonRes(res, 400, {
+        error: "list-locked",
+        message: "Cards cannot be moved into Running — Start the card instead."
+      });
+    }
     if ((body.list === "scheduled" || card.list === "scheduled") && !isEngineRequest(req)) {
       return jsonRes(res, 400, {
         error: "schedule-owned",
@@ -2786,7 +2812,7 @@ async function handlePatchCard(req, res, opts, id) {
     const clearing = body.schedule === null || body.scheduledFor === null || body.scheduledFor === "";
     if (clearing) {
       const release = card.schedule?.targetList;
-      if (card.list === "scheduled") next.list = release && getList(board, release) ? release : "backlog";
+      if (card.list === "scheduled") next.list = release && getList(board, release) ? release : "todo";
       next.schedule = null;
       next.scheduledFor = null;
       next.scheduleAction = null;
@@ -2796,7 +2822,7 @@ async function handlePatchCard(req, res, opts, id) {
         next.events = withEvent(next, { at: new Date().toISOString(), kind: "schedule-cleared", message: `Schedule cleared${card.list === "scheduled" ? `; returned to ${next.list}` : ""}` });
       }
     } else {
-      const releaseTarget = card.list === "scheduled" ? card.schedule?.targetList ?? "backlog" : card.list;
+      const releaseTarget = card.list === "scheduled" ? card.schedule?.targetList ?? "todo" : card.list;
       const rawSchedule = body.schedule !== undefined
         ? body.schedule
         : {
@@ -3066,13 +3092,13 @@ async function handleDeleteCard(req, res, opts, id) {
   try { card = await loadCard(opts.root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id
-  // D16: an engine-owned card (on an autonomous list) cannot be deleted
-  // mid-run — resolve it via needs-attention first.
+  // D16: a launcher-held card cannot be deleted mid-stretch — move it off
+  // Running (the rescue exit) or let the conversation finish first.
   const boardForLock = await loadBoard(opts.root);
   if (isEngineOwned(boardForLock, card) && !isEngineRequest(req)) {
     return jsonRes(res, 403, {
       error: "engine-owned",
-      message: `Card is on the autonomous list "${card.list}" — engine-owned (D16). Let the run finish or resolve it from needs-attention, then delete.`
+      message: `Card is running — the launcher owns it (D16). Move it off Running first, then delete.`
     });
   }
   const removed = [];
@@ -3456,7 +3482,7 @@ async function handleSnoozeCard(req, res, opts, id) {
     }
     if (!untilIso) return jsonRes(res, 400, { error: "pass minutes (a positive number) or until (a parseable ISO date-time)" });
     const action = normaliseScheduleAction(body.action ?? card.schedule?.action ?? card.scheduleAction);
-    const targetList = card.list === "scheduled" ? card.schedule?.targetList ?? "backlog" : card.list;
+    const targetList = card.list === "scheduled" ? card.schedule?.targetList ?? "todo" : card.list;
     const updated = await updateCard(root, id, (c) => ({
       ...c,
       list: "scheduled",
@@ -4527,7 +4553,7 @@ async function handleArtifactWrite(req, res, opts, cardId, ref) {
   if (isEngineOwned(boardForLock, card) && !isEngineRequest(req)) {
     return jsonRes(res, 403, {
       error: "engine-owned",
-      message: `Card is on the autonomous list "${card.list}" — its run inputs are engine-owned (D16). Edit from needs-attention if it parks.`
+      message: `Card is running — its inputs are the launcher's while the conversation is in flight (D16). Move it off Running to edit, or wait for the stretch.`
     });
   }
   const absPath = resolveArtifactRef(card, ref, { root: opts.root, cwd: opts.cwd });
@@ -5436,6 +5462,17 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "" && method === "GET") return await handleGetCard(req, res, opts, id);
         if (sub === "" && method === "PATCH") return await handlePatchCard(req, res, opts, id);
         if (sub === "" && method === "DELETE") return await handleDeleteCard(req, res, opts, id);
+      }
+
+      // The conversation router (Conversations plan, C1). Same module, same
+      // relative base as the web channel and the Next app: the card modal's
+      // conversation view is served same-origin from here, so identical client
+      // code works on every surface.
+      if (pathname.startsWith("/api/conversation")) {
+        return void (await handleConversationRequest(req, res, {
+          role: "kanban",
+          forwardMessage: gatewayMessageForwarder(opts.gatewayUrl),
+        }));
       }
 
       return serveStatic(req, res, distDir);
