@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — pure .mjs
 import { openConversation } from "../packages/claude-pty/src/conversation-store.mjs";
 // @ts-ignore — pure .mjs
-import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, recordUserMessage, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
+import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, recordUserMessage, makeStretchEventTee, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
 
 let tmp: string;
 let env: Record<string, string>;
@@ -398,5 +398,92 @@ describe("runConversation", () => {
     expect(store.tail(50, { kinds: ["escalation"] }).length).toBeGreaterThanOrEqual(1);
     const floor = store.parseSummary()!.escalationFloor;
     expect(floor.implement?.rung).toBe("top");
+  }, 20000);
+});
+
+// The transcript tee: without it the store — the single source of truth the UI
+// renders — carries only ledger boundaries, and a conversation reads as
+// "stretch started … handoff … stretch ended" with the assistant's prose
+// reachable nowhere (found live by the web-channel integration).
+describe("makeStretchEventTee — the stretch transcript reaches the store", () => {
+  it("throttles revisions per event id and flush()es the final state", () => {
+    const store = openConversation("tee-1", { role: "gateway", env });
+    store.init({ title: "tee" });
+    let t = 0;
+    const tee = makeStretchEventTee(store, { stretchId: "st_t1", duty: "implement", throttleMs: 1000, now: () => t });
+    const ev = (text: string) => ({ id: "blk-1", ts: "2026-08-27T00:00:00Z", role: "assistant", blocks: [{ type: "text", text }] });
+    tee.event(ev("hel"));
+    t = 200; tee.event(ev("hello"));
+    t = 400; tee.event(ev("hello wor"));
+    tee.flush();
+    const recs = store.tail(50, { kinds: ["session-event"] });
+    expect(recs).toHaveLength(2); // first append + the flushed final, never one per revision
+    expect(recs[0].payload.blocks[0].text).toBe("hel");
+    expect(recs[1].payload.blocks[0].text).toBe("hello wor");
+    expect(recs.every((r: any) => r.stretch === "st_t1")).toBe(true);
+  });
+
+  it("synthesizes ONE text event from exec-lane chunks, honouring replace", () => {
+    const store = openConversation("tee-2", { role: "gateway", env });
+    store.init({ title: "tee" });
+    let t = 0;
+    const tee = makeStretchEventTee(store, { stretchId: "st_t2", duty: "adversarial-review", syntheticFromChunks: true, throttleMs: 1000, now: () => t });
+    tee.chunk("part one", false);
+    t = 2000; tee.chunk(" and two", false);
+    t = 2100; tee.chunk("a fresh copy", true);
+    tee.flush();
+    const recs = store.tail(50, { kinds: ["session-event"] });
+    expect(recs.at(-1).payload.blocks[0].text).toBe("a fresh copy");
+    expect(new Set(recs.map((r: any) => r.payload.id)).size).toBe(1); // one synthetic event, revised
+  });
+
+  it("ignores chunks when real session events carry the prose (agent-sdk lane)", () => {
+    const store = openConversation("tee-3", { role: "gateway", env });
+    store.init({ title: "tee" });
+    const tee = makeStretchEventTee(store, { stretchId: "st_t3", duty: "implement", syntheticFromChunks: false, now: () => 0 });
+    tee.chunk("streamed text", false);
+    tee.flush();
+    expect(store.tail(50, { kinds: ["session-event"] })).toHaveLength(0);
+  });
+
+  it("caps oversized block text below the store's spill threshold — a spilled event is unrenderable", () => {
+    const store = openConversation("tee-4", { role: "gateway", env });
+    store.init({ title: "tee" });
+    const tee = makeStretchEventTee(store, { stretchId: "st_t4", duty: "implement", now: () => 0 });
+    tee.event({ id: "big", ts: "2026-08-27T00:00:00Z", role: "assistant", blocks: [{ type: "text", text: "x".repeat(100_000) }] });
+    const rec = store.tail(5, { kinds: ["session-event"] })[0];
+    expect(rec.payload.spilled).toBeUndefined();
+    expect(rec.payload.blocks[0].text.length).toBeLessThan(64_000);
+    expect(rec.payload.blocks[0].text).toContain("truncated for the ledger");
+  });
+});
+
+describe("message routing pin — the Turn Rail reaches the rung", () => {
+  it("a routing pin on the user message decides the responder's rung", async () => {
+    const settled = (summary: string) => ({
+      status: "complete",
+      summary,
+      evidenceRefs: [],
+      nextSteps: { next: "needs-input", why: "waiting on the user", items: [] },
+      blocker: { what: "user answer", needs: "a reply", who: "user" },
+      activeConstraints: [],
+      failedApproaches: [],
+      surprises: [],
+      forceEscalation: null,
+      synthesized: false,
+    });
+    const { gateway } = fakeGateway({
+      triage: () => settled("opened"),
+      responder: () => settled("answered with the pinned model"),
+    });
+    await runConversation(gateway as any, { conversationId: "conv-pin", task: "hello", env });
+    const store = openConversation("conv-pin", { role: "web", env });
+    recordUserMessage(store, { text: "answer harder", origin: "web", routing: { rung: "middle" }, context: "the card brief says: settings tab" });
+    await runConversation(gateway as any, { conversationId: "conv-pin", env });
+    const started = store.tail(50, { kinds: ["stretch-started"] });
+    const last = started.at(-1);
+    expect(last.duty).toBe("responder");
+    expect(last.payload.chosenBy).toBe("pin");
+    expect(last.payload.rung.id).toBe("middle");
   }, 20000);
 });

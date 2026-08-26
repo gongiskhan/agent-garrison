@@ -3362,6 +3362,12 @@ async function handleNotify(req, res, opts) {
         return void handleConversationRequest(req, res, {
           role: "web-channel",
           forwardMessage: gatewayMessageForwarder(liveOpts.gatewayUrl),
+          // Tighter than the router's default because THIS mount is the one a
+          // person types into: the composer's receipt is terminal on admission
+          // (a message has no generation to follow), so the stream's echo of
+          // their own message is the only thing that says it landed. The poll
+          // itself is a stat of one file and re-parses only when it grew.
+          pollMs: 300,
         }).catch((err) => jsonRes(res, 500, { error: String(err?.message ?? err) }));
       }
       if (pathname.startsWith("/api/")) {

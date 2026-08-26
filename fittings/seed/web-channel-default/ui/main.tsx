@@ -22,6 +22,7 @@ import { createRoot } from "react-dom/client";
 import { Marked } from "marked";
 import {
   ClaudeChat,
+  ConversationView,
   createHttpTransport,
   SessionStream,
   type ChatInputReceipt,
@@ -32,6 +33,11 @@ import {
   type TurnRouting,
 } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "./orchestrator-transport";
+import {
+  CONVERSATION_BASE,
+  createConversationTransport,
+  postConversationMessage,
+} from "./conversation-transport";
 import { VoiceConversation } from "./voice-conversation";
 import { RemoteShellWorkbench } from "./remote-shell-workbench";
 import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail";
@@ -175,6 +181,11 @@ export interface RemoteShellTransport {
 
 interface ThreadMeta {
   id: string;
+  /** The conversation this thread IS the channel surface of - the same id, for
+   *  every thread the store could give one to (see threads.mjs
+   *  conversationIdFor). Null only for a thread whose sanitised id cannot be a
+   *  conversation id; that thread keeps the pre-conversation chat surface. */
+  conversationId?: string | null;
   title: string;
   source: string;
   createdAt: string | null;
@@ -1032,6 +1043,12 @@ function ThreadedApp({ url }: { url: UrlState }) {
     () => (activeRshSpecJson ? (JSON.parse(activeRshSpecJson) as { transport: string }).transport : null),
     [activeRshSpecJson]
   );
+  // A thread IS a conversation's channel surface: the same id names both, the
+  // append-only conversation record is the transcript, and a typed message goes
+  // in through the conversation door. A remote-shell thread is the exception -
+  // its turns are delegated to an agent on ANOTHER machine rather than run as a
+  // stretch here, so it keeps the chat lane, its FIFO and its thread transcript.
+  const conversationId = activeRshTransport ? null : (activeThread?.conversationId ?? null);
 
   useEffect(() => {
     let alive = true;
@@ -1371,14 +1388,17 @@ function ThreadedApp({ url }: { url: UrlState }) {
     return () => window.clearInterval(timer);
   }, [activeId]);
 
+  // Exchange reduction survives for the CHAT lane only (remote-shell threads):
+  // a conversation replays from its own append-only record, so seeding it from a
+  // reduced thread transcript would paint the same turns twice.
   const history = useMemo(() => {
-    if (!activeThread) return [] as HistoryExchange[];
+    if (!activeThread || conversationId) return [] as HistoryExchange[];
     return toHistory(
       activeThread.messages,
       activeThread.sessionEvents,
       [...(activeThread.inputReceipts ?? []), ...(activeThread.pendingInputs ?? [])]
     );
-  }, [activeThread]);
+  }, [activeThread, conversationId]);
   // Show a prominent Back button for a host-opened Discuss (Kanban / Automations set a
   // returnLabel). Clicking it returns to the page the user came from via history.back().
   const backLabel = url.returnLabel && url.returnLabel.trim()
@@ -1525,6 +1545,28 @@ function ThreadedApp({ url }: { url: UrlState }) {
     return t;
   }, [activeId, activeThread?.runningSince, activeThread?.inputRevision, refreshAfterResume]);
 
+  // The conversation surface re-points ONE door - sendMessage - at the
+  // conversation router; the SSE connection, Stop, attachments and permission
+  // answers stay on the transport above, so the FIFO lane is untouched.
+  const conversationTransport = useMemo(
+    () => (conversationId ? createConversationTransport(transport, { conversationId }) : null),
+    [transport, conversationId]
+  );
+
+  // A host-opened Discuss carries an opening message the surface sends as if the
+  // user had typed it. ClaudeChat owns that for the chat lane (initialMessage);
+  // on the conversation lane it goes through the same door every other message
+  // uses, once per armed thread, so the record holds it exactly once. A failed
+  // post re-arms rather than swallowing the opening ask.
+  const kickoffSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!conversationId || !kickoff) return;
+    if (kickoffSentRef.current === conversationId) return;
+    kickoffSentRef.current = conversationId;
+    void postConversationMessage(conversationId, kickoff, { origin: "discuss" })
+      .catch(() => { kickoffSentRef.current = null; });
+  }, [conversationId, kickoff]);
+
   return (
     <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}${listOpen ? "" : " wc-shell--rail"}`}>
       <button
@@ -1629,6 +1671,30 @@ function ThreadedApp({ url }: { url: UrlState }) {
             : null;
           const chat = loading || !activeId ? (
           <div className="wc-loading">Loading…</div>
+        ) : conversationId && conversationTransport ? (
+          // The conversation IS the transcript: no seeded history, no
+          // Chat/Transcript toggle, and the record replays from the store on
+          // every open. Keyed on the conversation alone - a re-mount would tear
+          // the live stream, and there is no local history left to refresh.
+          <ConversationView
+            key={conversationId}
+            conversationId={conversationId}
+            base={CONVERSATION_BASE}
+            transport={conversationTransport}
+            title={activeThread?.title || "Conversation"}
+            placeholder={narrowComposer ? "Message…" : undefined}
+            composerAdornment={voiceAdornment}
+            draftKey={activeId ?? undefined}
+            // Same rail contract as the chat lane below: `voice` stays off (the
+            // streaming mic in the composer adornment supersedes it) and
+            // `musterUrl` is deliberately absent - Muster is a Garrison route on
+            // another origin.
+            features={{ routing: true }}
+            routing={pins}
+            routeOptions={routeOptions}
+            onPinChange={savePins}
+            onOpenRuntimeTranscript={openTranscript}
+          />
         ) : (
           <ClaudeChat
             key={`${activeId}:${historyRev}`}

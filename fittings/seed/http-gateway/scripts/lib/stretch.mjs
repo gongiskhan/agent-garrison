@@ -268,7 +268,14 @@ export function buildStretchBrief({
   if (task) parts.push("", "## Task", task);
   if (userMessages.length) {
     parts.push("", "## User messages since the last stretch");
-    for (const m of userMessages) parts.push(`- ${m}`);
+    for (const m of userMessages) {
+      if (typeof m === "string") {
+        parts.push(`- ${m}`);
+        continue;
+      }
+      parts.push(`- ${m.text}`);
+      if (m.context) parts.push(`  context: ${m.context}`);
+    }
   }
   if (steering.length) {
     parts.push("", "## Steering");
@@ -296,6 +303,84 @@ function routeFromRung(rung, { effort = null, duty, level }) {
     effort,
   };
   return { targetId: target.id, target, duty, level };
+}
+
+export const STRETCH_TEE_THROTTLE_MS = Number(process.env.GARRISON_STRETCH_TEE_MS) > 0
+  ? Number(process.env.GARRISON_STRETCH_TEE_MS)
+  : 1000;
+const TEE_TEXT_CAP = 48_000;
+
+// Cap text blocks so a tee record never crosses the store's 64KB spill
+// threshold — a spilled session-event is a pointer the transcript adapter
+// cannot render, which would un-fix the very bug the tee fixes. The full
+// reply stays durable at payloads/stretch-NNNN-reply.md.
+function capSessionEventBlocks(event) {
+  const blocks = event.blocks.map((b) =>
+    b && typeof b === "object" && typeof b.text === "string" && b.text.length > TEE_TEXT_CAP
+      ? { ...b, text: `${b.text.slice(0, TEE_TEXT_CAP)}\n… [truncated for the ledger — full text in the stretch reply payload]` }
+      : b
+  );
+  return { ...event, blocks };
+}
+
+/**
+ * Tee a stretch's transcript into the conversation store. Without this the
+ * store — the single source of truth the UI renders — carries only ledger
+ * boundaries, and a conversation reads as "stretch started … handoff row …
+ * stretch ended" with the assistant's actual prose reachable nowhere.
+ *
+ * Agent-sdk lanes hand us rich SessionEvents (text/thinking/tool blocks with
+ * stable ids and in-place revisions); exec lanes stream only reply chunks, so
+ * `syntheticFromChunks` folds those into ONE synthetic text event. Appends are
+ * throttled per event id: the serving layer's SSE polls the log at ~800ms, so
+ * sub-second revisions would be invisible anyway — the throttle keeps the
+ * append-only log bounded while the viewer still sees the text grow live.
+ * `flush()` after the turn makes the final state durable. A tee failure never
+ * kills the stretch.
+ */
+export function makeStretchEventTee(store, { stretchId, duty, syntheticFromChunks = false, throttleMs = STRETCH_TEE_THROTTLE_MS, now = Date.now } = {}) {
+  const state = new Map(); // event id -> { latest, dirty, lastAppendedAt }
+  let syntheticText = "";
+  const record = (event) => {
+    try {
+      store.append({ kind: "session-event", duty, stretch: stretchId, payload: capSessionEventBlocks(event) });
+    } catch {
+      /* the transcript tee must never kill the stretch */
+    }
+  };
+  const admit = (event) => {
+    if (!event || typeof event !== "object" || typeof event.id !== "string" || !event.id || !Array.isArray(event.blocks)) return;
+    // -Infinity so the FIRST snapshot of every event always lands immediately —
+    // only subsequent revisions ride the throttle.
+    const entry = state.get(event.id) ?? { latest: null, dirty: false, lastAppendedAt: -Infinity };
+    entry.latest = event;
+    entry.dirty = true;
+    const at = now();
+    if (at - entry.lastAppendedAt >= throttleMs) {
+      record(event);
+      entry.lastAppendedAt = at;
+      entry.dirty = false;
+    }
+    state.set(event.id, entry);
+  };
+  return {
+    event: admit,
+    chunk(text, replace) {
+      if (!syntheticFromChunks || typeof text !== "string") return;
+      syntheticText = replace ? text : syntheticText + text;
+      if (!syntheticText.trim()) return;
+      admit({ id: `${stretchId}:reply`, ts: new Date(now()).toISOString(), role: "assistant", blocks: [{ type: "text", text: syntheticText }] });
+    },
+    flush() {
+      for (const entry of state.values()) {
+        if (entry.dirty && entry.latest) {
+          record(entry.latest);
+          entry.dirty = false;
+          entry.lastAppendedAt = now();
+        }
+      }
+    },
+  };
 }
 
 /**
@@ -595,8 +680,34 @@ function unconsumedUserMessages(store) {
   const lastHandoffIdx = all.reduce((acc, e) => (e.kind === "handoff" ? e.index : acc), -1);
   return all
     .filter((e) => e.kind === "user-message" && e.index > lastHandoffIdx)
-    .map((e) => String(e.payload?.text ?? "").slice(0, 4000))
-    .filter(Boolean);
+    .map((e) => ({
+      text: String(e.payload?.text ?? "").slice(0, 4000),
+      context: typeof e.payload?.context === "string" ? e.payload.context.slice(0, 4000) : null,
+      routing: e.payload?.routing && typeof e.payload.routing === "object" && !Array.isArray(e.payload.routing) ? e.payload.routing : null,
+    }))
+    .filter((m) => m.text);
+}
+
+/** The newest unconsumed message that carries a routing pin decides the rung.
+ *  A pin naming something OFF this duty's ladder pins nothing — resolveRung's
+ *  normal precedence answers instead (an explicit-but-alien pin must not
+ *  silently pick the floor). */
+function pinnedRungFor(messages, ladder) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const routing = messages[i]?.routing;
+    if (!routing) continue;
+    if (typeof routing.rung === "string" && ladder.rungs.some((r) => r.id === routing.rung)) return routing.rung;
+    if (typeof routing.target === "string") {
+      const hit = ladder.rungs.find((r) => r.target === routing.target);
+      if (hit) return hit.id;
+    }
+    if (typeof routing.model === "string") {
+      const hit = ladder.rungs.find((r) => r.model === routing.model);
+      if (hit) return hit.id;
+    }
+    return null;
+  }
+  return null;
 }
 
 function nextDutyFor(store, selectedDuties) {
@@ -711,11 +822,13 @@ export async function runConversation(gateway, {
       const lastHandoff = store.tail(1, { kinds: ["handoff"] })[0]?.payload ?? null;
       const forced = lastHandoff?.forceEscalation ?? false;
       const wire = tripwires(store, { duty });
+      const pendingMessages = unconsumedUserMessages(store);
       const rungPick = resolveRung({
         ladder,
         floorRungId,
         forced,
         tripwire: wire.fires,
+        pinRungId: pinnedRungFor(pendingMessages, ladder),
       });
       if (!rungPick) {
         terminal = "needs-input";
@@ -804,7 +917,7 @@ export async function runConversation(gateway, {
         level,
         dutyDescription: model?.duties?.[duty]?.description ?? null,
         skill: route.skill ?? baseRoute?.skill ?? null,
-        userMessages: unconsumedUserMessages(store),
+        userMessages: pendingMessages,
         handoffPath,
         stretchId,
         attempt: startedPayload.attempt,
@@ -812,16 +925,28 @@ export async function runConversation(gateway, {
         selectedDuties,
       });
 
+      const tee = makeStretchEventTee(store, {
+        stretchId,
+        duty,
+        syntheticFromChunks: route.target.runtime !== "agent-sdk",
+      });
       const result = await runStretch(gateway, {
         route,
         brief,
         stretchId,
         cwd: scope.cwd,
         turnId: `${conversationId}#${ordinal}`,
-        onChunk: (text, replace) => onFrame("chunk", { type: "chunk", text, replace }),
-        onEvent: (event) => onFrame("session_event", event),
+        onChunk: (text, replace) => {
+          onFrame("chunk", { type: "chunk", text, replace });
+          tee.chunk(text, replace);
+        },
+        onEvent: (event) => {
+          onFrame("session_event", event);
+          tee.event(event);
+        },
         signal,
       });
+      tee.flush();
 
       // Exit gate — with an in-session re-ask only where the session is warm.
       const reAsk = route.target.runtime === "agent-sdk" && result.ok
@@ -936,7 +1061,7 @@ export async function runConversation(gateway, {
 /** Record a user message in the store; a running stretch picks it up at its
  *  next brief, and when nothing is running the caller kicks an advance so a
  *  responder stretch answers from L1. */
-export function recordUserMessage(store, { text, origin = "web", threadId = null }) {
+export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null }) {
   const running = store.currentStretch();
   return store.append({
     kind: "user-message",
@@ -946,6 +1071,11 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
       threadId,
       arrivedDuringStretch: running,
       disposition: running ? "queued" : "opened",
+      // Host-supplied grounding (a Discuss card's brief) and a Turn Rail pin
+      // ride the message: the next stretch's brief carries the context, and
+      // the pin decides its rung (resolveRung precedence: pin first).
+      ...(typeof context === "string" && context.trim() ? { context: context.slice(0, 8000) } : {}),
+      ...(routing && typeof routing === "object" && !Array.isArray(routing) ? { routing } : {}),
     },
   });
 }

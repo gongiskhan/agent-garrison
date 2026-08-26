@@ -1003,12 +1003,15 @@ body {
   background: var(--wc-stone-50);
 }
 
-/* `.wc-xscript` rides along because the session-transcript slide-over renders a
-   package component (SessionStream, all `.cc-session*`) OUTSIDE `.cc-root`: every
-   --cc-* token it reads is declared here, so without this it would paint with the
-   whole palette unresolved. Sharing the selector keeps the two from drifting. */
+/* `.wc-xscript` and `.cc-conversation` ride along because both render package
+   components OUTSIDE `.cc-root` - the transcript slide-over (all `.cc-session*`)
+   and the conversation wrapper (its header, search, jump bar and tail strip).
+   Every --cc-* token they read is declared here, so without this they would
+   paint with the whole palette unresolved. Sharing the selector keeps the three
+   from drifting. */
 .cc-root,
-.wc-xscript {
+.wc-xscript,
+.cc-conversation {
   --cc-bg: var(--wc-stone-50);
   --cc-bg-elev: var(--wc-stone-100);
   --cc-bg-sunk: var(--wc-stone-200);
@@ -1153,9 +1156,42 @@ body {
 
 .wc-backbar,
 .wc-brief-head,
-.wc-brief-foot {
+.wc-brief-foot,
+.cc-conv-head {
   background: #e4dac7;
   border-color: #c8baa0;
+}
+
+/* ── Conversation chrome ──
+   The conversation's own bar sits ABOVE the chat's status row: it carries the
+   record's name and the search over it, in the same dossier chrome as the back
+   bar, so the two read as one stack rather than two competing headers. */
+.cc-conv-head { min-height: 44px; padding: 8px 12px; }
+.cc-conv-title {
+  font: 650 15px/1.25 var(--wc-serif);
+  color: var(--wc-ink);
+}
+.cc-conv-searchinput,
+.cc-conv-hits,
+.cc-conv-jumped button {
+  border-radius: 2px;
+  font-family: var(--wc-sans);
+}
+.cc-conv-searchinput { background: #f8f4eb; border-color: #b7a98e; }
+.cc-conv-hits { box-shadow: 0 12px 34px rgba(20, 26, 21, .18); }
+.cc-conv-jumped,
+.cc-tailstrip {
+  background: #efe6d3;
+  border-color: #c8baa0;
+}
+.cc-conv-hitkind,
+.cc-conv-hitseq { font-family: var(--wc-mono); }
+
+@media (max-width: 899px) {
+  /* The floating sidebar toggle now overlaps the CONVERSATION bar, so the
+     clearance moves with it and the chat header below goes back to its gutter. */
+  .cc-conv-head { padding-left: 50px; }
+  .wc-main .cc-conversation .cc-header { padding-left: var(--cc-gutter); }
 }
 
 .wc-back,

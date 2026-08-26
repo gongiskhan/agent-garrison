@@ -87,23 +87,56 @@ const DETAIL_CAP = 4000;
  *   is per-batch, which is what a one-shot read wants.
  * @returns {Array<object>} SessionEvents, in record order.
  */
-export function ledgerToSessionEvents(events, { conversationId, stretchStarts = null } = {}) {
+export function ledgerToSessionEvents(events, { conversationId, stretchStarts = null, eventSlots = null } = {}) {
   const cid = String(conversationId ?? "");
   const starts = stretchStarts ?? new Map();
+  // Same continuity contract as stretchStarts, for teed session-events: a
+  // later revision of one adapter event must land in the SAME chronological
+  // slot with a bumped revision, or every throttle tick paints a new bubble.
+  const slots = eventSlots ?? new Map();
   const out = [];
   for (const record of events ?? []) {
     if (!record || typeof record !== "object") continue;
-    const adapted = adaptRecord(record, cid, starts);
+    const adapted = adaptRecord(record, cid, starts, slots);
     if (adapted) out.push(adapted);
   }
   return out;
 }
 
-function adaptRecord(record, cid, starts) {
+function adaptRecord(record, cid, starts, slots = new Map()) {
   const index = Number.isInteger(record.index) ? record.index : null;
   if (index === null) return null;
   const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
   const ts = recordTs(record);
+
+  // The stretch launcher's transcript tee (makeStretchEventTee): the adapter's
+  // own SessionEvent rides the record verbatim — text, thinking and tool blocks
+  // pass through so a conversation reads like the session it is. The event id
+  // is namespaced per stretch (adapter ids are session-scoped and two stretches
+  // may reuse them), revisions of one id share the FIRST record's slot, and the
+  // stretch id becomes the turnId so groupSessionTurns folds the prose into its
+  // stretch's turn. A spilled payload is a pointer, not an event — skipped.
+  if (record.kind === "session-event") {
+    if (payload.spilled) return null;
+    if (typeof payload.id !== "string" || !payload.id || !Array.isArray(payload.blocks)) return null;
+    const key = `ev:${typeof record.stretch === "string" ? record.stretch : ""}:${payload.id}`;
+    const slot = slots.get(key) ?? null;
+    const order = slot ? slot.order : index;
+    const revision = slot ? slot.revision + 1 : 0;
+    slots.set(key, { order, revision });
+    return {
+      ...payload,
+      id: `${cid}#${key}`,
+      // The channel sanitizer requires a NUMERIC ts (epoch ms) — an ISO string
+      // from the adapter would null the whole event out of the transcript.
+      ts: Number.isFinite(Date.parse(payload.ts)) ? Date.parse(payload.ts) : recordTs(record),
+      order,
+      revision,
+      role: typeof payload.role === "string" ? payload.role : "assistant",
+      ...(typeof record.stretch === "string" && record.stretch ? { turnId: record.stretch } : {}),
+    };
+  }
+
   const base = {
     id: conversationEventId(cid, index),
     ts,

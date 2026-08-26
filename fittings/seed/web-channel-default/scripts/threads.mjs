@@ -71,6 +71,31 @@ function threadPath(id) {
   return path.join(THREADS_DIR, `${id}.json`);
 }
 
+// The conversation-id vocabulary the conversation store and its HTTP router
+// enforce (packages/claude-pty conversation-http.mjs CONVERSATION_ID_RE). Kept
+// here as a literal rather than imported: threads.mjs is the durable store and
+// must not gain a runtime dependency to answer a question about a string.
+const CONVERSATION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * A thread IS a conversation's channel surface, so the two share ONE identity:
+ * the thread's id names the conversation whose record the view streams.
+ *
+ * DERIVED, never read back from the file. A stored value would buy nothing (it
+ * can only ever equal the id) and could go stale or - in a hand-edited file -
+ * name a DIFFERENT conversation, which would quietly show one thread another
+ * thread's record. `ensureThread` still stamps it on disk so the file states its
+ * own identity; this function is what every reader uses.
+ *
+ * Null only for a thread whose sanitised id cannot be a conversation id at all
+ * (a leading underscore). That thread keeps the pre-conversation chat surface
+ * rather than being renamed into an identity it never had.
+ */
+export function conversationIdFor(thread) {
+  const id = typeof thread?.id === "string" ? thread.id : "";
+  return CONVERSATION_ID_RE.test(id) ? id : null;
+}
+
 // A per-process counter so two writes to the SAME thread inside one millisecond
 // get distinct temp files. pid+Date.now() alone collided: a turn now writes the
 // transcript and the session id back-to-back, and the loser's rename landed on a
@@ -1179,6 +1204,7 @@ function toMeta(thread) {
   return {
     ...(remoteShell ? { remoteShell } : {}),
     id: thread.id,
+    conversationId: conversationIdFor(thread),
     title: deriveTitle(thread),
     source: thread.source ?? "chat",
     createdAt: thread.createdAt ?? null,
@@ -1199,6 +1225,7 @@ async function readThreadFile(id) {
     const obj = JSON.parse(raw);
     if (!obj || typeof obj !== "object") return null;
     obj.id = id; // pin to the on-disk filename, never a tampered inner id
+    obj.conversationId = conversationIdFor(obj);
     if (!Array.isArray(obj.messages)) obj.messages = [];
     // Canonical events are always rebuilt through the sanitizer on read. This also
     // heals duplicate ids in a hand-edited/legacy file with the same latest-revision,
@@ -1298,6 +1325,7 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
     }
     const thread = {
       id: safe,
+      conversationId: safe,
       title: title ? String(title).slice(0, 120) : "",
       source: source ? String(source) : "chat",
       mode: mode ? String(mode) : null,

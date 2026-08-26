@@ -268,6 +268,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
   // Carried across polls: an `ended` record arriving in a later batch must still
   // revise the `started` event the client already painted.
   const stretchStarts = new Map();
+  const eventSlots = new Map();
   const first = store.range({ fromIndex: from, limit: 2000 });
   let cursor = first.nextIndex;
   let size = logBytes(store);
@@ -278,7 +279,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
     type: "init",
     available: true,
     live: true,
-    events: ledgerToSessionEvents(first.events, { conversationId, stretchStarts }),
+    events: ledgerToSessionEvents(first.events, { conversationId, stretchStarts, eventSlots }),
   });
 
   let closed = false;
@@ -313,7 +314,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
       const page = store.range({ fromIndex: cursor, limit: 500 });
       if (!page.events.length) return;
       cursor = page.nextIndex;
-      emit({ type: "events", events: ledgerToSessionEvents(page.events, { conversationId, stretchStarts }) });
+      emit({ type: "events", events: ledgerToSessionEvents(page.events, { conversationId, stretchStarts, eventSlots }) });
     } catch {
       // A transient read miss is retried on the next tick; it must never turn a
       // live conversation into a dead pane.
@@ -347,7 +348,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     sendJson(res, err?.code === "BODY_TOO_LARGE" ? 413 : 400, { error: err?.message ?? "unreadable body" });
     return;
   }
-  const allowed = new Set(["message", "clientRequestId", "origin"]);
+  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing"]);
   const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key));
   if (unknown.length) {
     sendJson(res, 400, { error: `unknown fields: ${unknown.join(", ")}` });
@@ -360,10 +361,20 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
   }
   const clientRequestId = typeof body?.clientRequestId === "string" ? body.clientRequestId.slice(0, 200) : null;
   const origin = typeof body?.origin === "string" ? body.origin.slice(0, 80) : "web";
+  if (body?.context !== undefined && typeof body.context !== "string") {
+    sendJson(res, 400, { error: "context must be a string" });
+    return;
+  }
+  if (body?.routing !== undefined && (typeof body.routing !== "object" || body.routing === null || Array.isArray(body.routing))) {
+    sendJson(res, 400, { error: "routing must be an object" });
+    return;
+  }
+  const context = typeof body?.context === "string" ? body.context.slice(0, 8000) : null;
+  const routing = body?.routing ?? null;
 
   let forwarded;
   try {
-    forwarded = await forwardMessage({ conversationId, message, clientRequestId, origin });
+    forwarded = await forwardMessage({ conversationId, message, clientRequestId, origin, context, routing });
   } catch (err) {
     forwarded = { ok: false, error: err?.message ?? String(err) };
   }
@@ -408,13 +419,20 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
  * the message in the transcript twice.
  */
 export function gatewayMessageForwarder(gatewayUrl) {
-  return async ({ conversationId, message, origin }) => {
+  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null }) => {
     if (!gatewayUrl) return { ok: false, error: "this mount has no gateway URL" };
     try {
       const response = await fetch(new URL("/conversation/message", gatewayUrl), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId, message, origin }),
+        body: JSON.stringify({
+          conversationId,
+          message,
+          origin,
+          ...(clientRequestId ? { clientRequestId } : {}),
+          ...(context ? { context } : {}),
+          ...(routing ? { routing } : {}),
+        }),
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) return { ok: false, status: response.status, error: `gateway answered ${response.status}` };

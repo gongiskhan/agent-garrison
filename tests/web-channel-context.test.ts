@@ -103,8 +103,10 @@ describe("ClaudeChat — context remains available as UI metadata", () => {
       path.join(process.cwd(), "fittings/seed/web-channel-default/ui/main.tsx"),
       "utf8"
     );
-    expect(source).toContain('title="Shared session console"');
-    expect(source).toContain('title="Session"');
+    // The conversations rename (C6) moved both labels: the raw PTY surface is the
+    // shared CONVERSATION console, and a thread is a conversation, not a session.
+    expect(source).toContain('title="Shared conversation console"');
+    expect(source).toContain('title="Conversation"');
   });
 
   it("buildSendMeta returns undefined when both context and mode are absent", () => {

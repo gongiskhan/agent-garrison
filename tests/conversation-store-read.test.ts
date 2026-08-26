@@ -302,9 +302,43 @@ describe("conversation router - message", () => {
       message: "carry on",
       clientRequestId: "req-1",
       origin: "web",
+      context: null,
+      routing: null,
     });
     const messages = store.tail(50, { kinds: ["user-message"] });
     expect(messages.at(-1).payload.text).toBe("carry on");
+  });
+
+  it("forwards host context and a Turn Rail routing pin with the message", async () => {
+    seed("c-msg-ctx");
+    const { base, forwardMessage } = await mount();
+    const accepted = await fetch(`${base}/c-msg-ctx/message`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "go", context: "card brief: the settings tab", routing: { rung: "top" } }),
+    });
+    expect(accepted.status).toBe(202);
+    expect(forwardMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ context: "card brief: the settings tab", routing: { rung: "top" } })
+    );
+  });
+
+  it("refuses a non-object routing and a non-string context", async () => {
+    seed("c-msg-bad");
+    const { base, forwardMessage } = await mount();
+    const badRouting = await fetch(`${base}/c-msg-bad/message`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "go", routing: ["top"] }),
+    });
+    expect(badRouting.status).toBe(400);
+    const badContext = await fetch(`${base}/c-msg-bad/message`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "go", context: 42 }),
+    });
+    expect(badContext.status).toBe(400);
+    expect(forwardMessage).not.toHaveBeenCalled();
   });
 
   it("does not double-write when the responder already recorded the message", async () => {
@@ -495,6 +529,47 @@ describe("ledger -> SessionEvent adapter", () => {
     // Consumer: packages/claude-chat/src/ConversationView.tsx
     expect(conversationEventId("01J", 42)).toBe("01J#42");
     expect(conversationEventIdTsx("01J", 42)).toBe(conversationEventId("01J", 42));
+  });
+});
+
+describe("ledger -> SessionEvent adapter: teed session events", () => {
+  it("passes the stretch transcript through verbatim, stamped with the stretch turnId", () => {
+    const store = openConversation("c-tee", { role: "gateway", env });
+    store.init({ title: "tee" });
+    store.append({ kind: "user-message", payload: { text: "go" } });
+    store.append({
+      kind: "session-event",
+      stretch: "st_9",
+      duty: "implement",
+      payload: { id: "blk-1", ts: "2026-08-27T00:00:01Z", role: "assistant", blocks: [{ type: "text", text: "working on it" }] },
+    });
+    store.append({
+      kind: "session-event",
+      stretch: "st_9",
+      duty: "implement",
+      payload: { id: "blk-1", ts: "2026-08-27T00:00:02Z", role: "assistant", blocks: [{ type: "text", text: "working on it — done" }] },
+    });
+    const events = ledgerToSessionEvents(store.range({ fromIndex: 0, limit: 100 }).events, { conversationId: "c-tee" });
+    const teed = events.filter((e: any) => e.turnId === "st_9" && e.blocks[0]?.type === "text");
+    expect(teed).toHaveLength(2);
+    // One event, revised in place: same id, same slot, bumped revision — or the
+    // stream would paint a new bubble per throttle tick.
+    expect(teed[1].id).toBe(teed[0].id);
+    expect(teed[1].order).toBe(teed[0].order);
+    expect(teed[0].revision).toBe(0);
+    expect(teed[1].revision).toBe(1);
+    expect(teed[1].blocks[0].text).toBe("working on it — done");
+    // The channel sanitizer must keep it whole, or the prose vanishes again.
+    expect(sanitizeSessionEvent(teed[1])).not.toBeNull();
+  });
+
+  it("skips a spilled tee record and a malformed one, never inventing an event", () => {
+    const store = openConversation("c-tee-bad", { role: "gateway", env });
+    store.init({ title: "tee" });
+    store.append({ kind: "session-event", stretch: "st_9", payload: { spilled: true, bytes: 70000, sha256: "ab" } });
+    store.append({ kind: "session-event", stretch: "st_9", payload: { id: "", blocks: "nope" } });
+    const events = ledgerToSessionEvents(store.range({ fromIndex: 0, limit: 100 }).events, { conversationId: "c-tee-bad" });
+    expect(events.filter((e: any) => e.turnId === "st_9")).toHaveLength(0);
   });
 });
 

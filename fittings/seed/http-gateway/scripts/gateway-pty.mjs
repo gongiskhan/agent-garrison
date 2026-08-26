@@ -4785,6 +4785,8 @@ const server = http.createServer(async (request, response) => {
           text: message,
           origin: typeof body.origin === "string" ? body.origin : "web",
           threadId: typeof body.threadId === "string" ? body.threadId : null,
+          context: typeof body.context === "string" ? body.context : null,
+          routing: body.routing && typeof body.routing === "object" && !Array.isArray(body.routing) ? body.routing : null,
         });
         const running = store.currentStretch();
         const controllers = (globalThis.__conversationAborts ??= new Map());

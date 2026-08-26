@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ClaudeChat, type ChatFeatures } from "./ClaudeChat";
+import { ClaudeChat, type ChatFeatures, type ComposerAdornmentApi } from "./ClaudeChat";
 import { resolvedChatScheme, subscribeChatTheme } from "./chat-theme";
 import { PayloadModal } from "./PayloadModal";
 import { PayloadOpenerContext, type PayloadTarget } from "./payload-context";
@@ -54,7 +54,7 @@ export interface ConversationViewProps {
   routeOptions?: RailOptions | null;
   onPinChange?: (routing: TurnRouting) => void | Promise<void>;
   draftKey?: string;
-  composerAdornment?: React.ReactNode;
+  composerAdornment?: React.ReactNode | ((api: ComposerAdornmentApi) => React.ReactNode);
   /** Open the routed runtime's OWN session transcript from a turn's badge. */
   onOpenRuntimeTranscript?: (sessionId: string) => void;
   /** Land on a search hit: re-derives the stream URL with `?from=<seq-40>` and
