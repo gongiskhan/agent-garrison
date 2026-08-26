@@ -5,6 +5,9 @@
 // Usage:
 //   bridge.mjs --probe                # health check, prints "ok"
 //   echo '<task_spec_json>' | bridge.mjs delegate   # task spec via STDIN (never argv)
+//   ... [--conversation <id> [--stretch <id>] [--brief-ref <ref>]]
+//                                     # additionally record the delegation in
+//                                     # the conversation ledger (L3)
 //
 // The task spec is read from STDIN (or --spec-file <path>) — NEVER interpolated
 // into argv (shell-injection guard under bypassPermissions). Full output goes to
@@ -15,7 +18,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { delegate, parseTaskSpec } from "@garrison/claude-pty";
+import { delegate, parseTaskSpec, acquireCodexLock, releaseCodexLock, openConversation, CODEX_LOCK_FILE } from "@garrison/claude-pty";
 import { CodexAdapter } from "../lib/codex-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -58,80 +61,14 @@ async function logDecision(rec) {
 }
 
 // ── run-wide Codex serialization (GARRISON-UNIFY-V1 D14) ────────────────────
-// Codex's shared OAuth/API token is revoked by CONCURRENT `codex` processes,
-// so THIS FITTING owns the one-call-at-a-time constraint — callers (skills,
-// the checkpoint, per-slice passes) no longer serialize themselves. A
-// machine-wide O_EXCL lock file with owner pid + stale-breaking: acquire
-// before the delegate, release after; a dead owner's lock is broken; waiting
-// callers poll (bounded) rather than fail, so serialization is transparent.
-import { rmSync } from "node:fs";
-const LOCK_FILE = path.join(DATA_DIR, "codex.lock");
-// Tunables are read at ACQUIRE time (not module load) so a caller/test can vary
-// them per invocation. Defaults: poll every 2s; wait up to 30m (a real
-// checkpoint runs long); break an unparseable lock only after a 5s grace.
-const lockTunables = () => ({
-  pollMs: Number(process.env.CODEX_LOCK_POLL_MS || 2_000),
-  waitMaxMs: Number(process.env.CODEX_LOCK_WAIT_MAX_MS || 30 * 60_000),
-  corruptGraceMs: Number(process.env.CODEX_LOCK_CORRUPT_GRACE_MS || 5_000)
-});
-
-function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try { process.kill(pid, 0); return true; }
-  catch (e) { return e.code === "EPERM"; }
-}
-
-async function acquireCodexLock() {
-  mkdirSync(DATA_DIR, { recursive: true });
-  const { pollMs, waitMaxMs, corruptGraceMs } = lockTunables();
-  const deadline = Date.now() + waitMaxMs;
-  let corruptSince = null; // first time we saw an unparseable lock this attempt
-  for (;;) {
-    try {
-      writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), { flag: "wx" });
-      return;
-    } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      // Lock held: break it ONLY when the owner is provably gone.
-      let owner = null;
-      try {
-        owner = JSON.parse(readFileSync(LOCK_FILE, "utf8"));
-      } catch {
-        // Unparseable lock = almost always a LIVE owner mid-create. writeFileSync
-        // with flag "wx" creates the file (O_EXCL) and only THEN flushes the
-        // JSON, so a competitor reading in that window sees "" / a partial
-        // object. Breaking on the first empty read steals the lock from the live
-        // owner -> two concurrent codex processes -> the shared OAuth token gets
-        // revoked (the exact failure this lock prevents). So DON'T steal on
-        // sight: wait, and break only if it STAYS unparseable past the grace
-        // window (far longer than any tiny-JSON flush; genuine crash-garbage
-        // still clears quickly after).
-        if (corruptSince === null) corruptSince = Date.now();
-        if (Date.now() - corruptSince > corruptGraceMs) {
-          rmSync(LOCK_FILE, { force: true });
-          corruptSince = null;
-          continue;
-        }
-        if (Date.now() > deadline) throw new Error(`codex serialization lock unreadable past ${waitMaxMs}ms — refusing to run concurrently`);
-        await new Promise((r) => setTimeout(r, pollMs));
-        continue;
-      }
-      corruptSince = null; // parsed cleanly this round
-      if (!pidAlive(owner.pid)) { rmSync(LOCK_FILE, { force: true }); continue; }
-      if (Date.now() > deadline) throw new Error(`codex serialization lock held past ${waitMaxMs}ms (owner alive) — refusing to run concurrently`);
-      await new Promise((r) => setTimeout(r, pollMs));
-    }
-  }
-}
-
-function releaseCodexLock() {
-  try {
-    const owner = JSON.parse(readFileSync(LOCK_FILE, "utf8"));
-    if (owner.pid === process.pid) rmSync(LOCK_FILE, { force: true });
-  } catch {
-    /* best-effort */
-  }
-}
+// Codex's shared OAuth/API token is revoked by CONCURRENT `codex` processes, so
+// the one-call-at-a-time constraint is machine-wide — callers (skills, the
+// checkpoint, per-slice passes) no longer serialize themselves. The mutex now
+// lives in `@garrison/claude-pty` (codex-lock.mjs) rather than in this fitting,
+// because the GATEWAY's codex lane spawns `codex` too and has to take the SAME
+// lock; a bridge-only copy left that lane free to run a second codex process.
+// Semantics, path and tunables are unchanged — this bridge is still one of the
+// two callers, and re-exports the primitives for the regression suite.
 
 
 async function main() {
@@ -154,7 +91,18 @@ async function main() {
   }
   const spec = parseTaskSpec(raw);
   const adapter = new CodexAdapter();
-  // D14: the fitting owns the one-Codex-call-at-a-time constraint.
+  // A delegation that belongs to a conversation writes its dispatched/returned/
+  // failed events into that conversation's ledger and copies the raw output into
+  // its payloads dir (L3 stays one greppable directory). Absent the flag the
+  // bridge behaves exactly as before: no store is opened, no event is emitted.
+  const flag = (name) => {
+    const i = argv.indexOf(name);
+    return i >= 0 && argv[i + 1] ? argv[i + 1] : null;
+  };
+  const conversationId = flag("--conversation");
+  const store = conversationId ? openConversation(conversationId, { role: "codex-bridge" }) : null;
+  // D14: one Codex call at a time, machine-wide (the lock is shared with the
+  // gateway's codex lane — @garrison/claude-pty/codex-lock.mjs).
   await acquireCodexLock();
   try {
     const result = await delegate(spec, {
@@ -163,8 +111,19 @@ async function main() {
       writeArtifact,
       logDecision,
       secrets: process.env.OPENAI_API_KEY ? { OPENAI_API_KEY: process.env.OPENAI_API_KEY } : {},
-      now: () => new Date().toISOString()
-    }, { modelAllowlist: MODEL_ALLOWLIST });
+      now: () => new Date().toISOString(),
+      ...(store
+        ? {
+            recordEvent: (evt) => store.append(evt),
+            writePayloadCopy: (name, content) => store.writeNamedPayload(name, content)
+          }
+        : {})
+    }, {
+      modelAllowlist: MODEL_ALLOWLIST,
+      ...(conversationId ? { conversationId } : {}),
+      ...(flag("--stretch") ? { stretchId: flag("--stretch") } : {}),
+      ...(flag("--brief-ref") ? { briefRef: flag("--brief-ref") } : {})
+    });
     process.stdout.write(JSON.stringify(result) + "\n");
   } catch (err) {
     process.stdout.write(JSON.stringify({ error: err?.code || "error", message: err?.message }) + "\n");
@@ -174,9 +133,11 @@ async function main() {
   }
 }
 
-// Serialization primitives are exported for the regression suite; the CLI still
-// runs main() when invoked directly, not when imported.
-export { acquireCodexLock, releaseCodexLock, LOCK_FILE };
+// Serialization primitives are re-exported for the regression suite (they now
+// live in @garrison/claude-pty, shared with the gateway's codex lane); the CLI
+// still runs main() when invoked directly, not when imported.
+export { acquireCodexLock, releaseCodexLock };
+export { CODEX_LOCK_FILE as LOCK_FILE };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main();

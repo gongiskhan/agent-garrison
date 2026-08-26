@@ -26,7 +26,7 @@ import os from "node:os";
 import { spawn } from "node:child_process";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn, claudeProjectDirForCwd } from "@garrison/claude-pty";
+import { MultiRuntimePool, ClaudeCodeAdapter, oneShotTurn, claudeProjectDirForCwd, withCodexLock } from "@garrison/claude-pty";
 import * as cards from "./autonomous-cards.mjs";
 import { appendFeedback } from "./feedback-queue.mjs";
 import {
@@ -2326,6 +2326,23 @@ export class RoutedGateway {
     const model = route.target.model ?? defaults.model ?? null;
     const effort = route.target.effort ?? null;
     const adapter = await this.getSecondaryAdapter(rt);
+    // R2 (conversations): the codex lane spawns `codex`, and CONCURRENT codex
+    // processes revoke the shared OAuth token. The delegation bridge has taken a
+    // machine-wide lock for that since D14 — this lane never did, so a
+    // gateway-routed codex turn racing a bridge delegation could kill both. Take
+    // the SAME lock (packages/claude-pty/src/codex-lock.mjs, same file, same
+    // semantics) around the whole spawn->teardown section. codex only: no other
+    // runtime has a shared credential that concurrency revokes.
+    if (rt !== "codex") return await this._runSecondaryExec(route, message, opts, { adapter, rt, provider, model, effort });
+    return await withCodexLock(() => this._runSecondaryExec(route, message, opts, { adapter, rt, provider, model, effort }));
+  }
+
+  // The spawn->teardown section of one secondary turn. Split out of
+  // runSecondaryTurn so the codex lane can wrap exactly this in the D14 lock.
+  // Deliberately NOT a `#private` method: the suite builds gateways with
+  // `Object.create(RoutedGateway.prototype)` (no constructor, no private brand),
+  // and a private call on such an object throws "Receiver must be an instance of".
+  async _runSecondaryExec(route, message, opts, { adapter, rt, provider, model, effort }) {
     // cwd, most specific first: a PINNED PROJECT for this turn (§8), else the
     // shared BUILD WORKSPACE when set (so codex reads + gemini edits the REAL
     // project files), else a clean scratch cwd (default — keep the agentic CLI out

@@ -104,9 +104,31 @@ x-garrison:
     CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
     Probe: node scripts/bridge.mjs --probe   → prints "ok"
 
+    When to delegate. Delegate only when ALL THREE hold: the work is
+    token-heavy (a wide read, a long trace, a repo-scale sweep you would
+    otherwise pay for in your own context); it is fully specifiable in one
+    paragraph, because the secondary sees your brief and nothing else — no
+    conversation, no prior turns, no shared files you did not name; and the
+    result is cheaply verifiable, because you cannot watch the work happen.
+    Fails any one of those and doing it yourself is cheaper than repairing a
+    plausible wrong answer.
+
+    Pin the output shape in the brief — an `expectedSchema`, or one explicit
+    sentence naming the fields you want back. An unpinned brief returns prose
+    you then have to parse and re-ask about, which costs more than the
+    delegation saved.
+
+    What comes back is a SUMMARY plus artifact references, not a verdict.
+    Return evidence pointers — the file, the line, the command output that
+    shows it — so the claim can be checked against something. A bare
+    "looks fine" / "found 3 issues" is not a result; it is a claim with the
+    evidence stripped off.
+
     Context telemetry and compaction (degradation). Codex runs stateless — one
     `codex exec` per turn with the prompt on stdin — so no context accumulates across
     turns and compaction is structurally moot (there is no long-lived session to
-    compact). The `codex exec` text output carries no usage/token counters that this
-    adapter parses today, so a delegated Codex turn reports no context %, no peak
-    context, and no compactions.
+    compact). Token usage IS reported: the adapter runs `codex exec --json` and reads
+    the closing `turn.completed` event, so a delegated Codex turn reports
+    `usedTokens` (input + output). Context % and peak context stay unavailable —
+    there is no persistent session to measure them against — and compactions are
+    always zero.

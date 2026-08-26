@@ -81,5 +81,6 @@ export { PtySessionManager } from "./session-manager.mjs";
 export { WarmPtySessionPool, measureIdleCost } from "./warm-pool.mjs";
 export { ClaudeCodeAdapter, runAdapterConformance, ADAPTER_METHODS } from "./runtime-adapter.mjs";
 export { delegate, validateTaskSpec, parseTaskSpec, validateDelegationResult, DelegationError, EMPTY_OUTPUT_PLACEHOLDER } from "./runtime-bridge.mjs";
+export { acquireCodexLock, releaseCodexLock, withCodexLock, LOCK_FILE as CODEX_LOCK_FILE, CODEX_LOCK_DIR } from "./codex-lock.mjs";
 export { MultiRuntimePool } from "./multi-runtime-pool.mjs";
 export { claudeProjectDirForCwd, claudeProjectsDir, claudeGlobalConfigPath } from "./paths.mjs";

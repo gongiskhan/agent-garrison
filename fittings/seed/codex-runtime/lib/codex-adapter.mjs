@@ -45,9 +45,90 @@ export function buildExecArgs(config = {}) {
   // check; delegations run in throwaway/non-repo cwds, so always skip it (verified
   // live U4 — the bare invocation errors "Not inside a trusted directory").
   argv.push("--skip-git-repo-check");
+  // JSONL events on stdout instead of the human transcript. This is the ONLY way
+  // `codex exec` reports token usage (verified live against codex-cli 0.149.0:
+  // `--json` is documented as "Print events to stdout as JSONL", and the closing
+  // `turn.completed` event carries {input_tokens, cached_input_tokens,
+  // cache_write_input_tokens, output_tokens, reasoning_output_tokens}). The reply
+  // text then comes from the `agent_message` items rather than raw stdout —
+  // parseCodexJsonl does both, and falls back to raw stdout if a build ever stops
+  // emitting JSONL, so an unparseable stream degrades to the old behaviour rather
+  // than to an empty turn.
+  argv.push("--json");
   // read the prompt from stdin
   argv.push("-");
   return { bin: config.bin || "codex", argv, stdinFromPrompt: true };
+}
+
+// Sum a `turn.completed` usage object into ONE cumulative token count. Codex
+// follows the OpenAI convention where `cached_input_tokens` is a subset of
+// `input_tokens` and `reasoning_output_tokens` a subset of `output_tokens`, so
+// the total is input + output — adding the subsets would double-count.
+function totalTokens(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const input = Number(usage.input_tokens ?? usage.inputTokens);
+  const output = Number(usage.output_tokens ?? usage.outputTokens);
+  if (!Number.isFinite(input) && !Number.isFinite(output)) return null;
+  return (Number.isFinite(input) ? input : 0) + (Number.isFinite(output) ? output : 0);
+}
+
+/**
+ * Parse a `codex exec --json` stdout stream.
+ *
+ * Returns `{sawJson, text, usedTokens, usage, errorText}`. `sawJson` is false
+ * when nothing on stdout parsed as a JSON event — the caller then treats stdout
+ * as plain text (older codex builds, a stubbed exec in tests, `--json` dropped
+ * from a future CLI). `usedTokens` is null when the stream reported no usage:
+ * unknown usage is NEVER a fabricated zero.
+ */
+export function parseCodexJsonl(stdout) {
+  const messages = [];
+  const errors = [];
+  let usage = null;
+  let sawJson = false;
+  for (const line of String(stdout ?? "").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let evt;
+    try {
+      evt = JSON.parse(trimmed);
+    } catch {
+      continue; // a partial line (cancelled turn) is not a parse failure worth reporting
+    }
+    sawJson = true;
+    // codex 0.149 shape: {type, item?, usage?}. Older builds nest the same
+    // payloads under {id, msg:{type,...}} — read both so an adapter upgrade is
+    // not a silent text loss.
+    const type = evt.type ?? evt.msg?.type ?? null;
+    const item = evt.item ?? evt.msg ?? evt;
+    // ONLY the completed item (never `item.updated`, which repeats the same
+    // item id mid-stream and would duplicate the reply text).
+    if (type === "item.completed" || type === "agent_message") {
+      if ((item?.type ?? type) === "agent_message") {
+        const text = item?.text ?? item?.message ?? "";
+        if (String(text).trim()) messages.push(String(text));
+      }
+    }
+    if (type === "turn.completed" || type === "token_count") {
+      const u = evt.usage ?? evt.msg?.info?.total_token_usage ?? evt.msg ?? null;
+      const total = totalTokens(u);
+      if (total != null) {
+        usage = u;
+      }
+    }
+    if (type === "turn.failed" || type === "error") {
+      const msg = evt.error?.message ?? evt.msg?.message ?? item?.message ?? null;
+      if (msg) errors.push(String(msg));
+    }
+  }
+  return {
+    sawJson,
+    // A turn can emit more than one agent message; keep them all, in order.
+    text: messages.join("\n\n"),
+    usedTokens: totalTokens(usage),
+    usage,
+    errorText: errors.join("\n")
+  };
 }
 
 // A cancelled turn's child gets SIGTERM first so codex can unwind and flush; a
@@ -119,6 +200,11 @@ export class CodexAdapter {
       // the user's Stop intent. Declared here so the session shape is honest.
       proc: null,
       cancelRequested: false,
+      // Token usage of the LAST turn, filled by awaitResponse from the
+      // turn.completed event. null until a turn reports it - never 0, which
+      // would read as "this turn was free".
+      usedTokens: null,
+      usage: null,
     };
   }
 
@@ -190,20 +276,29 @@ export class CodexAdapter {
     this._pending.delete(session);
     const r = await p;
     session.proc = null;
+    // stdout is a JSONL event stream (`--json`): the reply is the agent_message
+    // items, the usage is the closing turn.completed. A stream that yielded no
+    // JSON at all (older CLI, stubbed exec) falls back to raw stdout, and usage
+    // stays UNKNOWN — reported as an absent field, never as zero.
+    const parsed = parseCodexJsonl(r.stdout);
+    const text = parsed.sawJson ? parsed.text : (r.stdout ?? "");
+    session.usedTokens = parsed.usedTokens;
+    session.usage = parsed.usage ?? null;
+    const usage = parsed.usedTokens == null ? {} : { usedTokens: parsed.usedTokens };
     // A cancelled turn's child was signalled, so it "fails" with only partial
     // output. That is not a runtime error to throw on: settle the turn with the
     // partial text and the explicit stop reason so the caller can badge it.
     if (session.cancelRequested) {
       session.cancelRequested = false;
-      return { text: r.stdout ?? "", artifacts: [], stoppedReason: "cancelled" };
+      return { text, artifacts: [], stoppedReason: "cancelled", ...usage };
     }
     // Report the TAIL of stderr, not the head. `codex exec` opens with a ~200-char
     // banner (workdir / model / provider / sandbox / effort) and puts the actual
     // failure on the LAST line, so a leading slice reliably truncates away the one
     // thing the reader needs — a real "You've hit your usage limit" turned into a
     // bare "codex exec exited 1" with the banner attached.
-    if (r.code !== 0) throw new Error(`codex exec exited ${r.code}: ${tailOf(r.stderr) || tailOf(r.stdout) || "(no output)"}`);
-    return { text: r.stdout ?? "", artifacts: [] };
+    if (r.code !== 0) throw new Error(`codex exec exited ${r.code}: ${tailOf(r.stderr) || tailOf(parsed.errorText) || tailOf(parsed.sawJson ? text : r.stdout) || "(no output)"}`);
+    return { text, artifacts: [], ...usage };
   }
 
   async setModel(session, model) {

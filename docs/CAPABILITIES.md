@@ -170,6 +170,15 @@ A Fitting that hosts the agent loop and exposes a uniform
 - **Interface (TBD — runtime SDK milestone):** must implement the
   RuntimeAdapter contract (see `src/lib/runtime-selection.ts`).
 
+**Micro-brief discipline lives in the provider, not here.** When to delegate
+(token-heavy AND one-paragraph-specifiable AND cheaply verifiable), how to pin
+the return shape, and why a result is summary-plus-evidence-pointers rather
+than a bare verdict are written once in `codex-runtime`'s
+`x-garrison.for_consumers` — the runner injects that text under the provider's
+line in the assembled Orchestrator prompt at `up()` (the locality principle,
+CLAUDE.md). Do not copy it into the Orchestrator prompt, a skill, or another
+Fitting: a second copy is a second thing to keep true.
+
 ## mcp-gateway
 
 A stdio MCP sidecar the primary gateway may spawn, exposing the
