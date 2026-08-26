@@ -10,6 +10,27 @@
 export { spawnClaudePty, getCursorPosition, getLastRows, getScreenRows } from "./pty.mjs";
 export { SessionLog, runLog, resetRunLog, listRuns, readEvents, capPayload, sessionLogPath, sessionLogDir, LOG_DOMAINS } from "./session-log.mjs";
 export {
+  ConversationStore,
+  openConversation,
+  listConversations,
+  conversationsDir,
+  conversationDir,
+  newConversationId,
+  safeConversationId,
+  parseSummary,
+  renderSummary,
+  parseEscalationFloor,
+  validateHandoff,
+  defaultResolveEvidence,
+  HANDOFF_STATUSES,
+  EVIDENCE_KINDS,
+  CONVERSATION_EVENT_KINDS,
+  PAYLOAD_INLINE_CAP_BYTES,
+  LOG_ROLL_BYTES,
+  SUMMARY_MAX_BYTES,
+  SUMMARY_MAX_LINES,
+} from "./conversation-store.mjs";
+export {
   jsonlFileSize,
   readJsonlFrom,
   parseTurn,
