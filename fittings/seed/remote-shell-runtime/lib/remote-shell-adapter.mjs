@@ -120,6 +120,11 @@ export class RemoteShellAdapter {
     const onChunk = typeof opts.onChunk === "function" ? opts.onChunk : null;
     let seenRev = 0;
     let streamed = "";
+    let saidDegraded = false;
+    // The server stops pretending when consecutive progress reads fail, so this
+    // no longer has to present a frozen transcript as if it were live. Said
+    // once: it is a state, not an event.
+    const degradedNote = "\n\n_The link to the remote went quiet - the transcript above may be stale._";
     for (;;) {
       const { turn } = await api(
         session.base, "GET",
@@ -133,6 +138,13 @@ export class RemoteShellAdapter {
           if (onChunk) {
             try { onChunk(remoteTranscript(output), true); } catch { /* a consumer must not break the turn */ }
           }
+        }
+      }
+      if (turn.degraded === true && !saidDegraded) {
+        saidDegraded = true;
+        if (onChunk) {
+          const body = streamed ? `${remoteTranscript(streamed)}${degradedNote}` : degradedNote.trim();
+          try { onChunk(body, true); } catch { /* a consumer must not break the turn */ }
         }
       }
       if (turn.state === "running") {

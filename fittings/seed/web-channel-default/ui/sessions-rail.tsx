@@ -49,7 +49,9 @@ export interface RailTransport {
   name: string;
   label?: string;
   via?: string;
-  routingTarget?: string;
+  // Nullable, not merely optional: the fitting sends null for a transport that
+  // pins no routing target, and a type that only allowed undefined rejected it.
+  routingTarget?: string | null;
 }
 
 interface SidebarState {

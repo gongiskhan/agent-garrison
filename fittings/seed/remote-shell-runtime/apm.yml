@@ -71,6 +71,45 @@ x-garrison:
       type: string
       default: ""
       description: Transport the bridge delegate lane uses when the task spec names none.
+    - key: tunnel_check_seconds
+      type: integer
+      default: 20
+      description: >-
+        How often the tunnel supervisor asks each devtunnel-backed transport's
+        ssh port for its banner. Matches host-tunnel.sh's own 20s loop, and for
+        the same reason: short enough that an outage is tens of seconds, long
+        enough not to interrogate the relay. A transport that carried real
+        traffic inside the last tick is skipped entirely, so a busy link is
+        never probed. Set to 0 to disable supervision completely — the escape
+        hatch if the loop ever misbehaves.
+    - key: tunnel_settle_seconds
+      type: integer
+      default: 45
+      description: >-
+        How long an off-the-request-path caller waits for a fresh `devtunnel
+        connect` to bring its forward up. 45s because a hand-run one was
+        observed silent for that long before it settled; the deadline extends
+        further (to 90s) while the client is still printing, so a slow relay is
+        not mistaken for a dead one.
+    - key: attach_output_budget_mb
+      type: integer
+      default: 8
+      description: >-
+        Bytes per 10s the terminal attach client may pull before it is detached
+        to protect the link (~800 KB/s sustained, an order of magnitude above
+        any human-plausible pane). Nothing is lost: the remote tmux is untouched
+        and a reattach replays. This is the only storm defence that needs no
+        remote round trip, so it is the one that still works when the link is
+        saturated.
+    - key: reap_strays
+      type: boolean
+      default: true
+      description: >-
+        Kill `devtunnel connect` processes for this tunnel that this instance
+        does not own, immediately before replacing a client. `children` starts
+        empty on every restart, so a client orphaned by a previous process is
+        otherwise invisible to every check and keeps holding the loopback port.
+        Only ever runs on the repair path — a healthy port is never touched.
   provides:
     - kind: runtime
       name: remote-shell
@@ -105,6 +144,18 @@ x-garrison:
 
     HTTP endpoints (loopback):
       GET  /health, /transports, /sessions
+      GET  /tunnels                             - per-tunnel health. Reports
+                                                  `carrying` (the forward
+                                                  answered as ssh), never a
+                                                  bare `alive`; process-table
+                                                  liveness survives nested
+                                                  under `child`, because it is
+                                                  what once said "healthy"
+                                                  through a total outage
+      POST /tunnels/:transport-or-tunnel/repair - force reap + retire + redial
+                                                  now, bypassing hysteresis and
+                                                  backoff (but not the
+                                                  one-repair-at-a-time lock)
       POST /sessions {transport, label?}        - start/attach (idempotent per
                                                   transport+tmux session)
       POST /sessions/:id/input {text}           - type a line + Enter
@@ -121,6 +172,14 @@ x-garrison:
                                                   is NEVER killed)
       WS   /io                                  - dev-env terminal protocol
                                                   (init/init_ack/resize/bytes)
+
+    Log footprint on the remote, so nobody debugs it a month from now: the
+    health probe opens one TCP connection per `tunnel_check_seconds` per
+    devtunnel-backed transport and writes an SSH-2.0-Garrison-Probe
+    identification string before disconnecting — so the remote's sshd logs an
+    ordinary protocol disconnect rather than the port-scanner line ("Did not
+    receive identification string"). Most of those connections never happen:
+    a transport that carried real ssh traffic inside the last tick is skipped.
 
     Setup on the REMOTE machine is one script:
     scripts/remote-shell/csg-bootstrap.sh in the Garrison repo (loopback sshd,
