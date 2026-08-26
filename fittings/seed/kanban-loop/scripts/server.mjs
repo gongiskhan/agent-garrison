@@ -53,7 +53,7 @@ import {
   cardAttachmentsDir,
   listCardAttachments,
   CARD_SCOPES,
-  cardScope, listProseLabel } from "../lib/board.mjs";
+  cardScope, listProseLabel, appendConversationEvent } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 // §7.1: it also poses an autonomy hold's question through the card's own origin.
 import { routeOriginEvent, createdMessage, routeNeedsInput } from "../lib/notify-origin.mjs";
@@ -1735,19 +1735,32 @@ async function handleCreateCard(req, res, opts) {
         at: body.scheduledFor,
         timezone: "Europe/Lisbon",
         enabled: true,
-        targetList: typeof body.targetList === "string" ? body.targetList.trim() : "backlog"
+        targetList: typeof body.targetList === "string" ? body.targetList.trim() : "todo"
       }
     : null);
   const scheduleError = scheduleValidationError(scheduleInput);
   if (scheduleError) return jsonRes(res, 400, { error: scheduleError });
   const targetListId = scheduleInput && typeof scheduleInput.targetList === "string"
     ? scheduleInput.targetList.trim()
-    : typeof body.targetList === "string" ? body.targetList.trim() : "backlog";
+    : typeof body.targetList === "string" ? body.targetList.trim() : "todo";
   if (!isValidListId(targetListId)) return jsonRes(res, 400, { error: "invalid target list id" });
   const board = await loadBoard(opts.root);
   const targetList = getList(board, targetListId);
   if (!targetList) return jsonRes(res, 400, { error: `unknown list: ${targetListId}` });
-  if (targetList.kind !== "manual" || targetList.terminal) {
+  // Conversations (materialization door): only the LAUNCHER may create a card
+  // directly in Running, and a Running card must name its conversation — a
+  // human creates on manual lists as before.
+  const conversationId = typeof body.conversationId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(body.conversationId)
+    ? body.conversationId
+    : null;
+  const engineRunningCreate = targetListId === "running" && isEngineRequest(req);
+  if (targetListId === "running" && !isEngineRequest(req)) {
+    return jsonRes(res, 400, { error: "only the launcher can create a card directly in Running" });
+  }
+  if (engineRunningCreate && !conversationId) {
+    return jsonRes(res, 400, { error: "a Running card must name its conversation" });
+  }
+  if (!engineRunningCreate && (targetList.kind !== "manual" || targetList.terminal)) {
     return jsonRes(res, 400, {
       error: `cards can only be created directly in an active manual list: ${targetListId}`
     });
@@ -1811,6 +1824,9 @@ async function handleCreateCard(req, res, opts) {
   const card = await withCardOrderLock(opts.root, async () => {
     const topPosition = await topOfListPosition(opts.root, storageListId);
     return createCard(opts.root, {
+    // Materialization: the card TAKES its conversation's id when given one.
+    id: conversationId,
+    conversationId,
     title,
     description,
     project: suppliedProject || explicitWorkspace,
@@ -1940,6 +1956,24 @@ async function handleCreateCard(req, res, opts) {
   if (typeof body.videoUrl === "string" && /^https?:\/\//i.test(body.videoUrl)) {
     const v = await updateCard(opts.root, card.id, (c) => ({ ...c, videoUrl: body.videoUrl }));
     if (v) Object.assign(card, v);
+  }
+  // Conversations: materialization is a ledger event, written by the SERVER at
+  // the one door — a card cannot exist without its materialization on the
+  // record. Only when the card names a conversation (a plain hand-made card
+  // creates no empty store).
+  if (conversationId) {
+    appendConversationEvent(card, {
+      kind: "card-materialized",
+      payload: {
+        cardId: card.id,
+        list: card.list,
+        title: card.title,
+        decidedBy: typeof body.materialization?.decidedBy === "string"
+          ? body.materialization.decidedBy
+          : isEngineRequest(req) ? "launcher" : "human",
+        reason: typeof body.materialization?.reason === "string" ? body.materialization.reason.slice(0, 280) : null
+      }
+    });
   }
   // S3a (D8): emit the `created` lifecycle event to the card's origin (ensures the
   // origin record + appends to its event log; web origins also get a thread ack).
@@ -2966,7 +3000,11 @@ async function handlePatchCard(req, res, opts, id) {
       // lifecycle lock; a concurrent reopen cannot slip between the two.
       afterWrite: landedTerminal
         ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)
-        : undefined
+        : undefined,
+      // Conversations: the card-state-changed ledger event's actor attribution
+      // comes from the door. Never defaulted to "human" — an "unknown" in the
+      // metrics is a real finding.
+      actor: isEngineRequest(req) ? "launcher" : "human"
     });
   };
   const needsOrderLock = needsImplicitMovePosition || (typeof body.position === "number" && Number.isFinite(body.position));

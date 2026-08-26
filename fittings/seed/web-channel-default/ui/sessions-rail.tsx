@@ -564,7 +564,7 @@ export function SessionsRail(props: {
           label: "Rename group…",
           onPick: () => setPrompt({ title: "Rename group", initial: g.name, onSubmit: (name) => renameGroup(g.id, name) })
         },
-        { label: "Delete group", danger: true, title: "Sessions return to Ungrouped", onPick: () => removeGroup(g.id) }
+        { label: "Delete group", danger: true, title: "Conversations return to Ungrouped", onPick: () => removeGroup(g.id) }
       ]
     });
   }, [renameGroup, removeGroup]);
@@ -712,15 +712,15 @@ export function SessionsRail(props: {
         <button
           className="wc-sidebar-collapse"
           aria-expanded={listOpen}
-          aria-label={listOpen ? "Collapse sessions" : "Expand sessions"}
-          title={listOpen ? "Collapse sessions" : "Expand sessions"}
+          aria-label={listOpen ? "Collapse conversations" : "Expand conversations"}
+          title={listOpen ? "Collapse conversations" : "Expand conversations"}
           onClick={onToggleList}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
             <path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </svg>
         </button>
-        <span className="wc-sidebar-title">Sessions</span>
+        <span className="wc-sidebar-title">Conversations</span>
         {onOpenShells && (
           <button
             type="button"

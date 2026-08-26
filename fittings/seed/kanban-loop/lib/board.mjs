@@ -599,8 +599,10 @@ export function cardScope(card) {
   return "unscoped";
 }
 
-export async function createCard(root, { title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
-  const id = ulid();
+export async function createCard(root, { id: explicitId = null, conversationId = null, title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+  // Conversations: a card materializing from a conversation TAKES the
+  // conversation's ULID as its id — one identity, one directory name.
+  const id = typeof explicitId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(explicitId) ? explicitId : ulid();
   // Personal is an independent label and may coexist with a project (for example,
   // a private task whose implementation still belongs to a real repository).
   // Every non-personal legacy/new shape derives project vs unscoped from the
@@ -633,12 +635,15 @@ export async function createCard(root, { title, description = "", project = null
   });
   const card = {
     id,
+    conversationId: typeof conversationId === "string" && conversationId ? conversationId : null,
     title: title ?? "(untitled)",
     description,
     project,
     scope,
     list,
-    status: "ok",
+    // list ⟷ status coherence holds from birth: a launcher-created Running
+    // card is status running, everything else starts ok.
+    status: list === "running" ? "running" : "ok",
     iterations: 0,
     rev: 0, // optimistic-concurrency revision (compare-and-swap on write)
     cost: null,
@@ -1149,8 +1154,9 @@ function doneEvidenceVerdict(card) {
 }
 
 // Best-effort conversation-ledger append from the board process. The ledger
-// must never fail a card write.
-function appendConversationEvent(card, evt) {
+// must never fail a card write. Exported: the server's materialization door
+// writes card-materialized through the same seam.
+export function appendConversationEvent(card, evt) {
   try {
     if (!card?.conversationId) return;
     openConversation(card.conversationId, { role: "board" }).append(evt);

@@ -13,7 +13,7 @@ export async function GET(
 ) {
   const baseUrl = getGatewayBaseUrl(params.id);
   if (!baseUrl) {
-    return new Response(JSON.stringify({ error: "Operative is not running" }), {
+    return new Response(JSON.stringify({ error: "No session is running" }), {
       status: 503,
       headers: { "content-type": "application/json" }
     });

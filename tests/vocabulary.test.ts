@@ -111,3 +111,309 @@ describe("vocabulary — 'Operative' left the user-facing surface", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Conversations rename (2026-08-26).
+//
+// The mesh rename retired "Operative" in favour of SESSION. The conversations
+// pivot narrows that further: what a user reads, writes into, and comes back to
+// is a CONVERSATION (a card's lifetime, the web-channel unit). A model never
+// holds it — each model invocation is a short-lived STRETCH, and the runtime
+// session it runs in is an implementation detail of that stretch. So on the
+// chat surfaces the user-facing noun is "conversation", and "session" survives
+// only where it names a real runtime/PTY/tmux session.
+//
+// NOT renamed, on purpose — none of these are copy:
+//   • identifiers: sessionId, SessionEvent, SessionStream, sessionEvents,
+//     claudeSessionId, and the wire fields that carry them;
+//   • SESSIONS_OPEN_KEY = "wc.sessions.open" — renaming the localStorage key
+//     silently resets every user's sidebar state;
+//   • filenames (sessions-rail.tsx) and every import specifier;
+//   • CSS class names (wc-sidebar, dr-session-tabs, kanban-session-host);
+//   • the state service `sessions` table and the session-log substrate;
+//   • tmux copy in remote-shell-workbench.tsx / shells-modal.tsx — a tmux
+//     session really is a session.
+//
+// The sweep below only ever looks at USER-VISIBLE STRINGS: string literals and
+// JSX text nodes, with comments and identifier-shaped literals dropped. That is
+// what keeps the rule from tripping over the identifiers listed above.
+
+/** The trees whose copy a user reads while working in a conversation. */
+const CONVERSATION_SURFACES = [
+  path.join(ROOT, "src"),
+  path.join(ROOT, "fittings/seed/web-channel-default/ui"),
+  path.join(ROOT, "fittings/seed/kanban-loop/ui")
+];
+
+// A token reads as code, not copy, when it is lowercase-initial and joined by
+// path/dot/kebab/snake/colon punctuation: "sessions", "wc.sessions.open",
+// "dr-session-tabs", "/api/session-stream?session=". A literal is dropped only
+// when EVERY token is code-shaped — "Session records (sessions/*.json)" is
+// prose that happens to contain a path, and stays in the corpus.
+const CODE_TOKEN = /^[./#@]?[a-z][a-zA-Z0-9]*([-_:./?=&][a-zA-Z0-9*]+)*$/;
+
+function isIdentifierish(value: string): boolean {
+  return value.split(/\s+/).every((token) => CODE_TOKEN.test(token));
+}
+
+/** Where a `'` starts a literal rather than punctuating prose. */
+const VALUE_POSITION = /[([{=,:?&|!+;<>]$/;
+
+/** Template-literal holes: the text around them is copy, the hole is not. */
+const INTERPOLATION = /\$\{[^}]*\}/g;
+
+/**
+ * Extract the user-visible strings from a .ts/.tsx source: every string literal
+ * (quoted or template, with interpolations blanked) plus every JSX text node.
+ *
+ * A hand-rolled scanner rather than a regex sweep because both cheap shortcuts
+ * are wrong here: stripping block comments with a regex mangles real copy that
+ * contains a path ("(sessions/*.json)"), and matching quotes without tracking
+ * comments turns every apostrophe in a comment into a fake "string". Comments
+ * are blanked in place, so reported line numbers stay honest.
+ */
+function userVisibleStrings(source: string): Array<{ line: number; value: string }> {
+  const found: Array<{ line: number; value: string }> = [];
+  // The source with comments and string bodies blanked out — JSX text nodes are
+  // read off this, so a ">" inside a literal can never open a fake node.
+  let skeleton = "";
+  let index = 0;
+  let line = 1;
+  const blank = (count: number) => { skeleton += " ".repeat(count); };
+  const lastCode = () => {
+    const trimmed = skeleton.trimEnd();
+    return trimmed.length > 0 ? trimmed[trimmed.length - 1] : "";
+  };
+
+  while (index < source.length) {
+    const ch = source[index];
+    const next = source[index + 1];
+    if (ch === "\n") { skeleton += "\n"; line++; index++; continue; }
+    if (ch === "/" && next === "/") {
+      while (index < source.length && source[index] !== "\n") { blank(1); index++; }
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      blank(2);
+      index += 2;
+      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
+        if (source[index] === "\n") { skeleton += "\n"; line++; } else blank(1);
+        index++;
+      }
+      blank(2);
+      index += 2;
+      continue;
+    }
+    // An apostrophe only opens a literal in value position; in JSX text
+    // ("card's runtime transcript") it is punctuation.
+    if (ch === '"' || ch === "`" || (ch === "'" && VALUE_POSITION.test(lastCode()))) {
+      const quote = ch;
+      const startLine = line;
+      let cursor = index + 1;
+      let value = "";
+      let closed = false;
+      while (cursor < source.length) {
+        const c = source[cursor];
+        if (c === "\\") { value += " "; cursor += 2; continue; }
+        if (c === quote) { closed = true; break; }
+        // A raw newline cannot appear in a quoted literal — so this was not one
+        // (a regex such as /['"]/, most often). Back out and read it as code.
+        if (c === "\n" && quote !== "`") break;
+        value += c;
+        cursor++;
+      }
+      if (!closed) { skeleton += ch; index++; continue; }
+      found.push({ line: startLine, value: value.replace(INTERPOLATION, " ").trim() });
+      for (let k = index; k <= cursor; k++) {
+        if (source[k] === "\n") { skeleton += "\n"; line++; } else blank(1);
+      }
+      index = cursor + 1;
+      continue;
+    }
+    skeleton += ch;
+    index++;
+  }
+
+  skeleton.split("\n").forEach((text, offset) => {
+    for (const match of text.matchAll(/>([^<>{}]+)</g)) {
+      const value = match[1].trim();
+      if (value) found.push({ line: offset + 1, value });
+    }
+  });
+
+  return found.filter(({ value }) => value.length > 0 && !isIdentifierish(value));
+}
+
+const SESSION_WORD = /\bsessions?\b/i;
+
+/**
+ * Files whose "session" is a real runtime/PTY/tmux session — the mesh word, not
+ * the conversation unit. These are decisions, not debts: the word is correct
+ * there and renaming it would make the copy lie.
+ */
+const SESSION_IS_THE_RUNTIME: ReadonlyArray<{ file: string; why: string }> = [
+  {
+    file: "src/app/mesh/session/[node]/[id]/page.tsx",
+    why: "the peer-node viewer for one runtime session on another machine — a mesh session row, never a conversation"
+  },
+  {
+    file: "src/components/compose/FacultyStation.tsx",
+    why: "Compose describes what the composition's runtime session may do (cwd, autonomy), which is the session the runner starts"
+  },
+  {
+    file: "src/components/compose/StationGrid.tsx",
+    why: "the tier blurb names the everyday runtime session a composition boots, not a conversation held in the store"
+  },
+  {
+    file: "src/components/coordination/CoordinationPanel.tsx",
+    why: "coordination counts live Claude Code sessions holding repo leases — a lease is held by a process, not by a conversation"
+  },
+  {
+    file: "src/components/garrison/GarrisonHome.tsx",
+    why: "the dashboard's Run/Restart copy is about up()/down() starting one runtime session on this node"
+  },
+  {
+    file: "src/components/garrison/SessionLogPanel.tsx",
+    why: "the session log is the append-only per-run substrate; its name is the file format, kept deliberately by the conversations plan"
+  },
+  {
+    file: "src/components/mesh/MeshPanel.tsx",
+    why: "the mesh table counts runtime sessions per peer node, the unit the state service's sessions table stores"
+  },
+  {
+    file: "src/components/muster/DecisionsPanel.tsx",
+    why: "a decision links back to the runtime session that recorded it, resolved by session id"
+  },
+  {
+    file: "src/components/quarters/ReadOnlyNotePanel.tsx",
+    why: "Quarters mirrors the real ~/.claude, where Claude Code's own Session Viewer records live under that name"
+  },
+  {
+    file: "src/components/quarters/ReadOnlyTailPanel.tsx",
+    why: "Quarters tails Claude Code's own on-disk session records under ~/.claude, named by their path"
+  },
+  {
+    file: "src/components/run/RunPanel.tsx",
+    why: "the runner panel narrates apm install + verify + relaunch of the runtime session, the same lifecycle as the dashboard"
+  },
+  {
+    file: "fittings/seed/web-channel-default/ui/remote-shell-workbench.tsx",
+    why: "remote-shell copy is about tmux sessions on the remote host, which really are sessions and outlive any conversation"
+  },
+  {
+    file: "fittings/seed/web-channel-default/ui/shells-modal.tsx",
+    why: "the shells picker lists tmux sessions per project on a remote host — the tmux vocabulary is the correct one"
+  }
+];
+
+/**
+ * Single literals that keep the word inside a file the sweep otherwise guards.
+ * Unlike the list above, an entry here IS a debt: it must say what would have
+ * to happen for the word to leave.
+ */
+const SESSION_LITERALS: ReadonlyArray<{ file: string; literal: string; why: string }> = [
+  {
+    file: "src/components/chrome/AppShell.tsx",
+    literal: "Session",
+    why: "the shell's + New row points at the Web Channel and should read Conversation; the menu is owned by the shell slice, so the word leaves there"
+  },
+  {
+    file: "fittings/seed/web-channel-default/ui/main.tsx",
+    literal: "the gateway is not answering - start the session to pin routing",
+    why: "routing options need the RUNTIME session up; the message is about the process being down, not about the conversation"
+  },
+  {
+    file: "fittings/seed/web-channel-default/ui/main.tsx",
+    literal: "could not start a session ( )",
+    why: "the remote-shell start path reports a failed tmux session on the remote host, mirroring remote-shell-workbench copy"
+  }
+];
+
+/**
+ * Board words the five-list board does not have. `duty:` was the chip that
+ * announced a card's next duty list, which the conversation flow replaced.
+ */
+const RETIRED_BOARD_WORDS = /\b(Backlog|Ice Box|Archived)\b|\bduty:\s/;
+
+const BOARD_LITERALS: ReadonlyArray<{ file: string; literal: string; why: string }> = [
+  {
+    file: "fittings/seed/kanban-loop/ui/main.tsx",
+    literal: "move this card to the Archived column",
+    why: "already unreachable — canArchive is a hardcoded false; the button and this title are deleted with the dispatch cut"
+  }
+];
+
+const sessionFileExcluded = new Set(SESSION_IS_THE_RUNTIME.map((entry) => entry.file));
+const literalKey = (file: string, literal: string) => `${file} ${literal}`;
+const sessionLiteralExcluded = new Set(SESSION_LITERALS.map((e) => literalKey(e.file, e.literal)));
+const boardLiteralExcluded = new Set(BOARD_LITERALS.map((e) => literalKey(e.file, e.literal)));
+
+function sweep(
+  roots: string[],
+  match: (name: string) => boolean,
+  banned: RegExp,
+  skip: (file: string, value: string) => boolean
+): { files: string[]; hits: string[] } {
+  const files = roots.flatMap((root) => walk(root, match));
+  const hits: string[] = [];
+  for (const file of files) {
+    const rel = path.relative(ROOT, file);
+    for (const { line, value } of userVisibleStrings(readFileSync(file, "utf8"))) {
+      if (!banned.test(value) || skip(rel, value)) continue;
+      hits.push(`${rel}:${line}  ${value}`);
+    }
+  }
+  return { files, hits };
+}
+
+describe("vocabulary — a conversation is not a session", () => {
+  it("no user-visible string on the conversation surfaces calls one a session", () => {
+    const { files, hits } = sweep(
+      CONVERSATION_SURFACES,
+      (name) => name.endsWith(".tsx"),
+      SESSION_WORD,
+      (file, value) => sessionFileExcluded.has(file) || sessionLiteralExcluded.has(literalKey(file, value))
+    );
+    expect(files.length).toBeGreaterThan(30);
+    expect(
+      hits,
+      `A user reads and returns to a CONVERSATION; "session" names the runtime a stretch runs in.\nRename the copy, or add the file/literal to SESSION_IS_THE_RUNTIME / SESSION_LITERALS with a reason.\n${hits.join("\n")}`
+    ).toEqual([]);
+  });
+
+  it("the Kanban UI does not name a column the board no longer has", () => {
+    const { files, hits } = sweep(
+      [path.join(ROOT, "fittings/seed/kanban-loop/ui")],
+      (name) => name.endsWith(".tsx"),
+      RETIRED_BOARD_WORDS,
+      (file, value) => boardLiteralExcluded.has(literalKey(file, value))
+    );
+    expect(files.length).toBeGreaterThan(0);
+    expect(
+      hits,
+      `The board is five lists — To do, Running, Needs input, Scheduled, Done. Backlog, Ice Box, Archived and the duty chip are gone.\n${hits.join("\n")}`
+    ).toEqual([]);
+  });
+
+  it("no API route answers with the retired 'Operative'", () => {
+    // The .tsx sweep at the top of this file cannot see these: the strings a
+    // fetch surfaces to the user live in .ts route handlers.
+    const { files, hits } = sweep(
+      [path.join(ROOT, "src/app/api")],
+      (name) => name.endsWith(".ts"),
+      BANNED,
+      () => false
+    );
+    expect(files.length).toBeGreaterThan(30);
+    expect(
+      hits,
+      `An API error string is user-visible copy — a session runs on a node, configured by a composition.\n${hits.join("\n")}`
+    ).toEqual([]);
+  });
+
+  it("every rename exception explains itself", () => {
+    for (const entry of [...SESSION_IS_THE_RUNTIME, ...SESSION_LITERALS, ...BOARD_LITERALS]) {
+      expect(entry.why.trim().length, `${entry.file} needs a reason`).toBeGreaterThan(20);
+    }
+  });
+});

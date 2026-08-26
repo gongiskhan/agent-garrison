@@ -1734,7 +1734,7 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
     : machines?.defaultRuntime ?? null;
 
   return (
-    <Sheet title="New card → Backlog" onClose={onClose}>
+    <Sheet title="New card" onClose={onClose}>
       <div className="field">
         <label htmlFor="nc-title">Title <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
         <input id="nc-title" type="text" value={title} autoFocus
@@ -3518,7 +3518,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       <div className="links">
         <LinkRow label="plan" refs={links.plan} onOpen={setOpenArt} />
         <LinkRow label="brief" refs={links.brief} onOpen={setOpenArt} />
-        <LinkRow label="sessions" refs={links.sessions} onOpen={setOpenArt} />
+        <LinkRow label="runtime transcripts" refs={links.sessions} onOpen={setOpenArt} />
         <LinkRow label="phase gates" refs={links.gates} onOpen={setOpenArt} />
         <LinkRow label="gate markers" refs={links.gateMarkers} onOpen={setOpenArt} />
         <LinkRow label="evidence index" refs={links.evidenceIndex} onOpen={setOpenArt} />
@@ -3676,12 +3676,12 @@ function SessionViewer({
     setSelected((cur) => (cur >= 0 && cur < count ? cur : Math.max(0, count - 1)));
   }, [count]);
   if (count === 0) {
-    return <div className="dr-empty">No session transcript yet for this card — use the Raw tab for its phase log.</div>;
+    return <div className="dr-empty">No runtime transcript yet for this card — use the Raw tab for its phase log.</div>;
   }
   return (
     <div className="dr-session-viewer">
       {count > 1 && (
-        <div className="dr-rowwrap dr-session-tabs" role="tablist" aria-label="Sessions">
+        <div className="dr-rowwrap dr-session-tabs" role="tablist" aria-label="Runtime transcripts">
           {entries.map((entry, index) => (
             <button
               key={entry.key}
@@ -3872,7 +3872,7 @@ function WatchSheet({
         <div className="wbar">
           <span className="wtabs">
             <button className={`wtab${tab === "session" ? " on" : ""}`} onClick={() => setTab("session")}
-              title="the operative's rich session transcript">Log</button>
+              title="this card's runtime transcript">Log</button>
             <button className={`wtab${tab === "raw" ? " on" : ""}`} onClick={() => setTab("raw")}
               title="this card's raw phase log">Raw</button>
           </span>

@@ -1529,15 +1529,15 @@ function ThreadedApp({ url }: { url: UrlState }) {
     <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}${listOpen ? "" : " wc-shell--rail"}`}>
       <button
         className="wc-sidebar-toggle"
-        aria-label={sidebarOpen ? "Hide sessions" : "Show sessions"}
+        aria-label={sidebarOpen ? "Hide conversations" : "Show conversations"}
         onClick={() => setSidebarOpen((v) => !v)}
-        title="Sessions"
+        title="Conversations"
       >
         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
           <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
         </svg>
       </button>
-      <aside className="wc-sidebar" aria-label="Sessions">
+      <aside className="wc-sidebar" aria-label="Conversations">
         <SessionsRail
           threads={threads}
           meshNodes={meshNodes}
@@ -1598,17 +1598,17 @@ function ThreadedApp({ url }: { url: UrlState }) {
         )}
         {briefOpen && briefPath && <BriefPanel key={`${briefPath}:${briefReloadKey}`} path={briefPath} onClose={() => setBriefOpen(false)} />}
         {transcriptSession && (
-          <div className="wc-xscript" role="dialog" aria-label="Session transcript">
+          <div className="wc-xscript" role="dialog" aria-label="Runtime transcript">
             <div className="wc-xscript-head">
               <span className="wc-xscript-title">
-                Session
+                Runtime transcript
                 <span className="wc-xscript-id" title={transcriptSession}>{transcriptSession}</span>
               </span>
               <button
                 type="button"
                 className="wc-xscript-close"
                 onClick={() => setTranscriptSession(null)}
-                aria-label="Close session transcript"
+                aria-label="Close runtime transcript"
               >
                 ×
               </button>
@@ -1634,7 +1634,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             key={`${activeId}:${historyRev}`}
             draftKey={activeId ?? undefined}
             transport={transport}
-            title="Session"
+            title="Conversation"
             /* The phone composer row also carries voice, mic and attach, leaving
                the field ~180px - the full hint truncates mid-word there. */
             placeholder={activeRshTransport ? "Send to the remote agent — it lands in the console" : narrowComposer ? "Message…" : undefined}
@@ -1946,7 +1946,7 @@ function App() {
     <>
       <ClaudeChat
         transport={createHttpTransport("/api", { uploads: true })}
-        title="Shared session console"
+        title="Shared conversation console"
         composerAdornment={voiceAdornment}
       />
       <PushEnroller />

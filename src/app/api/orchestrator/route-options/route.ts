@@ -47,6 +47,6 @@ export async function GET() {
     return NextResponse.json({ ...normalizeRouteOptions(body), available: true, reason: null });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return unavailable(`the gateway is not answering - start the operative to correct a route (${detail})`);
+    return unavailable(`the gateway is not answering - start the session to correct a route (${detail})`);
   }
 }
