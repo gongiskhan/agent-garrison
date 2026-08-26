@@ -1,4 +1,18 @@
 // S3a — origin records + the per-transport lifecycle event router (D8).
+//
+// The Conversations cut removed the local dispatch engine, so the blocks that
+// drove processCard to make the router emit are gone. The router itself is
+// untouched and fully live: server.mjs routes `created`, `steering` and
+// `needs-input` (server.mjs:1454/1981/1990) and board.mjs fires
+// routeTerminalTransition from the saveCardCAS choke point (board.mjs:1286).
+// That choke point is what the engine-driven blocks were really testing —
+// reaching it through a card WRITE rather than through a card RUN is both what
+// production does now and a shorter path to the same invariant.
+//
+// dutySummaryMessage is kept below with its callers noted: engine.mjs still
+// imports it, but the duty-summary emission went with the dispatch engine, so
+// the builder is currently unreached. See task "Re-wire routeAutonomyActed into
+// the conversation launcher" — same lane, same pending re-wire.
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,15 +37,13 @@ import { safeOriginId, deriveOriginId, parseOriginId, ensureOriginRecord, append
 // @ts-ignore
 import { routeOriginEvent, routeTerminalTransition, routeNeedsInput, createdMessage, dutySummaryMessage, needsInputMessage } from "../fittings/seed/kanban-loop/lib/notify-origin.mjs";
 // @ts-ignore
-import { parkFields, processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { parkFields } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore
-import { createCard, loadCard, saveBoard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { createCard, loadCard, saveBoard, saveCardCASWithHooks, updateCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore
 import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore
-import { seedBoard, phaseTemplatesFrom } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
-// @ts-ignore
-import { buildBoard } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
+import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 
 // The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
 // Boot one for this file and project its discovery env before anything reads a
@@ -46,12 +58,11 @@ afterAll(async () => {
 });
 // The card store is shared by every test in this file now, where a fresh tmp root
 // used to isolate them; wipe the cards between tests so one test's cards can never
-// show up in another's sweep, batch, or board read. The board layout this file
-// seeds once survives — reset() only clears cards.
+// show up in another's sweep or board read. The board layout this file seeds once
+// survives — reset() only clears cards.
 beforeEach(async () => {
   await __kanbanState?.reset();
 });
-
 
 const tmp = () => mkdtempSync(join(tmpdir(), "s3a-root-"));
 
@@ -138,9 +149,9 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
   let threadServer: http.Server;
   const received: any[] = [];
 
-  // Terminal routing is fire-and-forget, and its path now includes a state
-  // service round trip, so a fixed sleep is a race under a loaded suite. Poll
-  // for the delivery instead; the assertion that follows still owns the verdict.
+  // Delivery is fire-and-forget and its path includes a state service round
+  // trip, so a fixed sleep is a race under a loaded suite. Poll for it instead;
+  // the assertion that follows still owns the verdict.
   async function waitForDelivery(match: string, timeoutMs = 5_000) {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
@@ -198,37 +209,58 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
     expect(received.find((m) => m.url.includes("chat-quick"))).toBeUndefined();
   });
 
-  it("delivers one untruncated terminal answer while retaining both lifecycle records", async () => {
+  // The engine-driven version of this drove processCard and asserted the reply
+  // reached the thread untruncated. The card WRITE is the live seam now: the
+  // terminal edge fires from saveCardCAS (board.mjs:1286) and the authoritative
+  // text rides the `terminalSummary` hook, so it must be written through
+  // saveCardCASWithHooks — plain updateCardCAS carries no hooks and the thread
+  // then gets only the generic completion line.
+  it("delivers one untruncated terminal answer through the card-write choke point", async () => {
     const root = tmp();
     const threadId = "chat-terminal-full";
     const card = await createCard(root, {
-      list: "code",
+      list: "todo",
       title: "Product opinion",
       project: "demo",
-      duty: "code",
-      level: 2,
-      sequence: ["code"],
       originChannel: { channel: "web", threadId }
     });
-    const board: any = {
-      version: 4,
-      lists: [
-        { id: "code", title: "Code", kind: "agent", phase: "code", trigger: "immediate", validNext: ["done"] },
-        { id: "done", title: "Done", kind: "manual", trigger: "manual", terminal: true, validNext: [] }
-      ]
-    };
     const marker = "recommendation beyond the former card snippet boundary";
-    const reply = `${"Detailed product reasoning. ".repeat(20)}${marker}\ndone`;
-    const result = await processCard({ root, board, card, cwd: root, runFn: async () => ({ reply }) });
-    expect(result.outcome).toMatchObject({ status: "moved", to: "done" });
+    const summary = `${"Detailed product reasoning. ".repeat(20)}${marker}`;
+
+    const disk = await loadCard(root, card.id);
+    await saveCardCASWithHooks(
+      root,
+      { ...disk, id: card.id, list: "done", status: "ok" },
+      disk.rev,
+      new Date().toISOString(),
+      { terminalSummary: summary }
+    );
 
     await waitForDelivery(threadId);
     const hits = received.filter((m) => m.url.includes(threadId));
     expect(hits).toHaveLength(1);
+    // The full summary reaches the thread — no card-front truncation, and not
+    // the bare "Run complete" fallback.
     expect(hits[0].body.messages[0].text).toContain(marker);
-    expect(hits[0].body.messages[0].text).not.toContain("Code complete —");
-    const kinds = readOriginEvents(root, `web:${threadId}`).map((e: any) => e.kind);
-    expect(kinds).toEqual(expect.arrayContaining(["finished", "duty-summary"]));
+    expect(readOriginEvents(root, `web:${threadId}`).map((e: any) => e.kind)).toContain("finished");
+  });
+
+  it("falls back to the generic completion line when the write carries no summary", async () => {
+    const root = tmp();
+    const threadId = "chat-terminal-bare";
+    const card = await createCard(root, {
+      list: "todo",
+      title: "Bare finish",
+      project: "demo",
+      originChannel: { channel: "web", threadId }
+    });
+
+    await updateCardCAS(root, card.id, (c: any) => ({ ...c, list: "done", status: "ok" }));
+
+    await waitForDelivery(threadId);
+    const hits = received.filter((m) => m.url.includes(threadId));
+    expect(hits).toHaveLength(1);
+    expect(hits[0].body.messages[0].text).toContain("Bare finish");
   });
 });
 
@@ -236,26 +268,46 @@ describe("routeTerminalTransition — finished / blocked / failed", () => {
   it("maps the terminal edge to the right event kind", () => {
     const root = tmp();
     const done = { id: "CD", title: "d", list: "done", origin_id: "board" };
-    routeTerminalTransition(root, { list: "test" }, done);
+    routeTerminalTransition(root, { list: "todo" }, done);
     expect(readOriginEvents(root, "board").at(-1)).toMatchObject({ kind: "finished" });
 
     const blocked = { id: "CB", title: "b", list: "needs-attention", attentionKind: "blocked", origin_id: "board" };
-    routeTerminalTransition(root, { list: "review" }, blocked);
+    routeTerminalTransition(root, { list: "running" }, blocked);
     expect(readOriginEvents(root, "board").at(-1)).toMatchObject({ kind: "blocked" });
 
     const failed = { id: "CF", title: "f", list: "needs-attention", attentionKind: "failed", origin_id: "board" };
-    routeTerminalTransition(root, { list: "implement" }, failed);
+    routeTerminalTransition(root, { list: "running" }, failed);
     expect(readOriginEvents(root, "board").at(-1)).toMatchObject({ kind: "failed" });
 
     // no-op on a non-terminal move / repeated terminal save
     const before = readOriginEvents(root, "board").length;
-    routeTerminalTransition(root, { list: "plan" }, { id: "CX", list: "implement", origin_id: "board" });
+    routeTerminalTransition(root, { list: "todo" }, { id: "CX", list: "running", origin_id: "board" });
     routeTerminalTransition(root, { list: "done" }, { id: "CY", list: "done", origin_id: "board" });
     expect(readOriginEvents(root, "board").length).toBe(before);
   });
+
+  // The one caller is board.mjs:1286, inside saveCardCAS. Driving a real card
+  // write is what proves the edge fires exactly once per outcome — the property
+  // the choke point exists for.
+  it("fires exactly once per outcome from the saveCardCAS choke point", async () => {
+    const root = tmp();
+    const card = await createCard(root, { list: "todo", title: "real write", project: "demo" });
+
+    await updateCardCAS(root, card.id, (c: any) => ({ ...c, list: "done", status: "ok" }));
+    const afterFirst = readOriginEvents(root, "board").filter((e: any) => e.cardId === card.id);
+    expect(afterFirst.map((e: any) => e.kind)).toContain("finished");
+    const finishedCount = afterFirst.filter((e: any) => e.kind === "finished").length;
+    expect(finishedCount).toBe(1);
+
+    // A second write that does NOT change the terminal state must not re-fire.
+    await updateCardCAS(root, card.id, (c: any) => ({ ...c, title: "real write (edited)" }));
+    expect(
+      readOriginEvents(root, "board").filter((e: any) => e.cardId === card.id && e.kind === "finished")
+    ).toHaveLength(1);
+  });
 });
 
-describe("routeNeedsInput helper (defined, not yet emitted)", () => {
+describe("routeNeedsInput helper", () => {
   it("renders numbered questions + logs a needs-input event", () => {
     const root = tmp();
     routeNeedsInput(root, null, { id: "CN", title: "n", origin_id: "board" }, { questions: ["A?", { question: "B?" }] });
@@ -312,64 +364,16 @@ describe("created event on POST /cards (booted board server)", () => {
   });
 });
 
-// Engine-driven: a genuine advance emits a duty-summary event; a park emits blocked/failed.
-describe("engine emission — duty-summary on advance, blocked/failed on park", () => {
-  const model: any = {
-    version: 2,
-    compositionId: "t",
-    kanbanLists: ["implement", "review"],
-    sequences: { develop: { "2": ["implement", "review"] } },
-    cells: {},
-    holds: {}
-  };
-  const board = buildBoard(model, { templates: phaseTemplatesFrom(seedBoard()) });
-
-  it("advancing a card writes a duty-summary event to its (board) origin", async () => {
-    const root = tmp();
-    const card = await createCard(root, { list: "implement", title: "adv", project: "demo", duty: "develop", level: 2, sequence: ["implement", "review"] });
-    const runFn = async () => ({ reply: "review" });
-    const { outcome } = await processCard({ root, board, card, runFn, cap: 10, model, cwd: root });
-    expect(outcome.status).toBe("moved");
-    const evs = readOriginEvents(root, "board");
-    const ds = evs.find((e: any) => e.kind === "duty-summary");
-    expect(ds).toBeTruthy();
-    expect(ds.detail).toMatchObject({ phase: "implement", listTo: "review" });
-  });
-
-  it("a no-valid-next park routes a BLOCKED event and stamps attentionKind blocked", async () => {
-    const root = tmp();
-    const card = await createCard(root, { list: "implement", title: "stuck", project: "demo", duty: "develop", level: 2, sequence: ["implement", "review"] });
-    const runFn = async () => ({ reply: "this chooses nothing valid" });
-    await processCard({ root, board, card, runFn, cap: 10, model, cwd: root });
-    const parked = await loadCard(root, card.id);
-    expect(parked.list).toBe("needs-attention");
-    expect(parked.attentionKind).toBe("blocked");
-    expect(readOriginEvents(root, "board").some((e: any) => e.kind === "blocked")).toBe(true);
-  });
-
-  it("a dispatch error park routes a FAILED event and stamps attentionKind failed", async () => {
-    const root = tmp();
-    const card = await createCard(root, { list: "implement", title: "boom", project: "demo", duty: "develop", level: 2, sequence: ["implement", "review"] });
-    const runFn = async () => {
-      throw new Error("gateway blew up");
-    };
-    await processCard({ root, board, card, runFn, cap: 10, model, cwd: root });
-    const parked = await loadCard(root, card.id);
-    expect(parked.list).toBe("needs-attention");
-    expect(parked.attentionKind).toBe("failed");
-    expect(readOriginEvents(root, "board").some((e: any) => e.kind === "failed")).toBe(true);
-  });
-});
-
-// S3e - skill/terminal origin PARITY: a skill-origin card gets the same lifecycle
-// events a web thread does, PULLABLE via the board's /origins endpoints.
-describe("S3e - skill-origin parity + /origins endpoints (booted board)", () => {
-  const model: any = { version: 2, compositionId: "t", kanbanLists: ["implement"], sequences: { solo: { "1": ["implement"] } }, cells: {}, holds: {}, gates: {} };
-  const board = buildBoard(model, { templates: phaseTemplatesFrom(seedBoard()) });
+// S3e — skill/terminal origin PARITY: a skill-origin card gets the same durable
+// lifecycle log a web thread does, PULLABLE via the board's /origins endpoints.
+// The advance that used to produce the middle event came from the engine; the
+// created + finished edges are the two the live code still emits, and the pull
+// surface is unchanged.
+describe("S3e — skill-origin parity + /origins endpoints (booted board)", () => {
   let server: http.Server;
   let base = "";
   beforeAll(async () => {
-    await saveBoard(board, KANBAN_DIR);
+    await saveBoard(seedBoard(), KANBAN_DIR);
     server = http.createServer(makeRequestHandler({ root: KANBAN_DIR, cwd: KANBAN_DIR, gatewayUrl: "", cap: 10 }, join(FITTING, "dist")));
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     base = `http://127.0.0.1:${(server.address() as any).port}`;
@@ -378,40 +382,42 @@ describe("S3e - skill-origin parity + /origins endpoints (booted board)", () => 
     await new Promise<void>((r) => server.close(() => r()));
   });
 
-  it("a skill-origin card advanced to done yields created + duty-summary + finished, pollable via GET /origins/:id/events", async () => {
-    // 1. POST /cards with an explicit skill origin_id -> the `created` lifecycle event.
+  it("a skill-origin card carried to done yields created + finished, pollable via GET /origins/:id/events", async () => {
+    // 1. POST /cards with an explicit skill origin_id → the `created` event.
     const created = await fetch(`${base}/cards`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ description: "parity run", project: "p", origin: "garrison-doorway", origin_id: "skill:parity-test", duty: "solo", level: 1, sequence: ["implement"] })
+      body: JSON.stringify({ description: "parity run", project: "p", origin: "garrison-doorway", origin_id: "skill:parity-test" })
     });
     const { card } = (await created.json()) as any;
     expect(card.id).toBeTruthy();
     expect(card.origin_id).toBe("skill:parity-test");
-    // 2. drive a fake advance implement -> done (last in the single-phase sequence),
-    //    which emits the `duty-summary` (advance) + `finished` (terminal) events.
-    const loaded = { ...(await loadCard(KANBAN_DIR, card.id)), id: card.id, list: "implement" };
-    const runFn = async () => ({ reply: "done" });
-    const { outcome } = await processCard({ root: KANBAN_DIR, board, card: loaded, runFn, cap: 10, model, cwd: KANBAN_DIR });
-    expect(outcome.to).toBe("done");
-    // 3. the durable event log carries the SAME three lifecycle kinds a web thread gets.
+
+    // 2. carry it to done through the live write path → the `finished` event.
+    await updateCardCAS(KANBAN_DIR, card.id, (c: any) => ({ ...c, list: "done", status: "ok" }));
+    expect((await loadCard(KANBAN_DIR, card.id)).list).toBe("done");
+
+    // 3. the durable log carries the same lifecycle kinds a web thread gets.
     const kinds = readOriginEvents(KANBAN_DIR, "skill:parity-test").filter((e: any) => e.cardId === card.id).map((e: any) => e.kind);
     expect(kinds).toContain("created");
-    expect(kinds).toContain("duty-summary");
     expect(kinds).toContain("finished");
+
     // 4. the on-disk events file exists (the pull-delivery record).
     expect(existsSync(originEventsFile(KANBAN_DIR, "skill:parity-test"))).toBe(true);
-    // 5. readable via GET /origins/:id/events (the PULL delivery a skill/terminal polls).
+
+    // 5. readable via GET /origins/:id/events (the PULL delivery a skill polls).
     const polled = await fetch(`${base}/origins/${encodeURIComponent("skill:parity-test")}/events`);
     expect(polled.status).toBe(200);
     const doc = (await polled.json()) as any;
-    expect(doc.events.map((e: any) => e.kind)).toEqual(expect.arrayContaining(["created", "duty-summary", "finished"]));
+    expect(doc.events.map((e: any) => e.kind)).toEqual(expect.arrayContaining(["created", "finished"]));
     expect(doc.nextSince).toBe(String(doc.total));
+
     // 6. GET /origins/:id returns the record with the skill transport.
     const rec = await fetch(`${base}/origins/${encodeURIComponent("skill:parity-test")}`);
     expect(rec.status).toBe(200);
     expect((await rec.json()).origin).toMatchObject({ transport: "skill", address: "parity-test" });
-    // 7. since=<total> (line offset) returns only newer events (none) - incremental poll.
+
+    // 7. since=<total> (line offset) returns only newer events (none) — incremental poll.
     const since = await fetch(`${base}/origins/${encodeURIComponent("skill:parity-test")}/events?since=${doc.total}`);
     expect(((await since.json()) as any).events).toHaveLength(0);
     // and readOriginEventsSince honours a line offset directly.

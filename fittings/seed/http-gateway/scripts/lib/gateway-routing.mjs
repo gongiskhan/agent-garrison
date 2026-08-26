@@ -1080,10 +1080,11 @@ export function autonomyDecisionRecord(autonomy) {
 // would have started on had the band allowed it.
 export function autonomyHoldPlan(autonomy, { significant = false, sequence = null, targetList = null } = {}) {
   if (!autonomy || autonomy.ask !== true) return { hold: false, resumeList: null };
-  const first = Array.isArray(sequence) && sequence.length ? sequence[0] : null;
+  // Conversations: there is one place work waits — To do. The sequence names
+  // DUTIES now, not lists, so it can no longer supply a resume column.
   return {
     hold: true,
-    resumeList: significant ? targetList ?? first ?? "plan" : first ?? "implement"
+    resumeList: targetList ?? "todo"
   };
 }
 

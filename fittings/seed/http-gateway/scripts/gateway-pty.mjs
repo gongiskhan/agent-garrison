@@ -2330,6 +2330,33 @@ export function screenActivityEmitter(handle, onActivity, nowFn = Date.now) {
   };
 }
 
+// Start a card's conversation in the background — the same semantics as
+// POST /conversation/kick, callable in-process by the registration lanes.
+// Under the five-state board a freshly registered card sits on To do and
+// NOTHING else drives it (the tick only re-kicks Running recovery and due
+// schedule-runs), so the lane that registered it must kick it. Idempotent per
+// conversation: an already-advancing id is left alone.
+async function startCardConversation(routerObj, { cardId, task = null, title = null }) {
+  const conversationId = cardId;
+  const controllers = (globalThis.__conversationAborts ??= new Map());
+  if (controllers.has(conversationId)) return false;
+  const stretchLib = await import("./lib/stretch.mjs");
+  const { openConversation } = await import("@garrison/claude-pty");
+  const store = openConversation(conversationId, { role: "gateway" });
+  store.init({ title: title ? String(title).slice(0, 120) : "Conversation", cardId });
+  void stretchLib
+    .patchCardEngine({ id: cardId, patch: { conversationId, scheduleAction: null }, logFn: (e) => logEvent("stdout", e) })
+    .catch(() => {});
+  const controller = new AbortController();
+  controllers.set(conversationId, controller);
+  void stretchLib
+    .runConversation(routerObj, { conversationId, task, signal: controller.signal })
+    .then((r) => logEvent("stdout", { kind: "conversation-kick-done", conversationId, ...r }))
+    .catch((err) => logEvent("stderr", { kind: "conversation-kick-error", conversationId, error: err?.message }))
+    .finally(() => controllers.delete(conversationId));
+  return true;
+}
+
 async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   // Session log (Harness brief §1): the injection is written BEFORE the runtime
   // sees it, and the settled outcome after — every lane, one seam.
@@ -2597,9 +2624,9 @@ async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
           level: pre?.level ?? pre?.route?.level,
           sequence: pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence,
           dutyLevels: cardDutyLevels,
-          // A composite card starts on its first resolved leaf, not the legacy
-          // hardcoded Plan list (a valid workflow may begin at implement/research).
-          targetList: (pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence)?.[0] ?? undefined,
+          // Conversations: every registration lands on To do. The routed
+          // sequence names DUTIES (handoffs walk them), never board columns.
+          targetList: "todo",
           // Where the task came from, so the run engine can post the outcome
           // back to the originating channel thread when the card completes.
           originChannel: origin && sessionKey ? { channel: origin, threadId: sessionKey } : null,
@@ -2659,12 +2686,12 @@ async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
           const resumeList = holdPlan.resumeList;
           const card = await router.createAutonomousCard(message, cls, {
             ...cardOpts,
-            // A held card sits in the board's capture list, which is manual and
-            // never auto-dispatched. That is the hold: no flag has to win a race
-            // with a tick, because nothing dispatches from Backlog in the first
-            // place. The flag is what the guards, the board UI and the resume path
-            // read.
-            targetList: "backlog",
+            // A held card sits on To do, which nothing auto-drives (the tick
+            // only kicks schedule-runs and Running recovery, and it skips
+            // autonomyHeld besides). That is the hold: no flag has to win a
+            // race with a tick. The flag is what the guards, the board UI and
+            // the resume path read.
+            targetList: "todo",
             autonomyHeld: true,
             autonomyAsk: {
               question: autonomy.question,
@@ -2753,26 +2780,20 @@ async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
           if (autonomy.informational && autonomy.question) await router.recordAutonomyAsked();
         }
         if (significant) {
-          // S3d (D9b): judge whether the ask is specified enough to plan against. A
-          // needs-discuss verdict cards the run onto the interactive Discuss list
-          // (targetList) + stamps clarity, so the engine dispatches the discuss duty
-          // session (scope Q&A → brief → plan) before the build; a clear verdict runs
-          // straight to plan as before. Phrasing overrides both ways ("just do it" /
-          // "let's discuss first"). Never blocks - a judge failure defaults to clear.
-          const clarity = await router.judgeClarity(message);
-          const needsDiscuss = clarity?.clarity === "needs-discuss";
-          const createOpts = needsDiscuss
-            ? { ...cardOpts, targetList: "discuss", clarity: "needs-discuss" }
-            : cardOpts;
-          const card = await router.createAutonomousCard(message, cls, createOpts);
+          // The Discuss clarity lane (S3d) retired with the duty lists: TRIAGE is
+          // the first stretch of every conversation, and an under-specified ask
+          // ends there as a needs-input handoff with a blocker naming what is
+          // missing — the same scope question, asked by the thing that owns the
+          // work. judgeClarity has no caller now.
+          const card = await router.createAutonomousCard(message, cls, cardOpts);
           if (card) {
             router.rememberCard(sessionKey, { cardId: card.id, quick: false, taskType: cls.taskType });
-            const reply = needsDiscuss
-              ? `Registered as a run - discussing scope first.\nCard: ${card.url}`
-              : `Registered as a run - the board's run engine will drive it through the pipeline.\n` +
-                `Card: ${card.url}`;
+            // The lane that registered the card drives it: kick its conversation
+            // (fire-and-forget; the card page streams it live).
+            const kicked = await startCardConversation(router, { cardId: card.id, task: message, title: message });
+            const reply = `Registered - running it as a conversation.\nCard: ${card.url}`;
             broadcastRich("assistant", { text: reply });
-            logEvent("stdout", { kind: "run-card", id: card.id, url: card.url, clarity: needsDiscuss ? "needs-discuss" : "clear" });
+            logEvent("stdout", { kind: "run-card", id: card.id, url: card.url, kicked });
             // §6 site 2 of 3. cardUrl is the board's LOOPBACK url: the renderer
             // (which owns the client's host context) passes it through
             // rewriteHostUrl - the gateway cannot, it has no page host.
@@ -2791,7 +2812,9 @@ async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
           const card = await router.createAutonomousCard(message, cls, {
             ...cardOpts,
             quick: true,
-            targetList: pre?.sequence?.[0] ?? "implement"
+            // Transiently on To do while the inline turn runs; the caller moves
+            // it to Done (completeQuickCard) or Needs input (parkQuickCard).
+            targetList: "todo"
           });
           if (card) {
             quickCard = card;

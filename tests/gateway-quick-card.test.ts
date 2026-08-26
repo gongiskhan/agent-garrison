@@ -124,7 +124,7 @@ describe("createAutonomousCard — quick card lands in Implement with quick:true
     board.server.close();
   });
 
-  it("a significant card still lands in Plan and never carries quick", async () => {
+  it("a significant card lands on To do and never carries quick", async () => {
     const board = stubBoard();
     await new Promise<void>((r) => board.server.listen(0, "127.0.0.1", () => r()));
     const addr = board.server.address() as { port: number };
@@ -132,7 +132,7 @@ describe("createAutonomousCard — quick card lands in Implement with quick:true
     const out = await gw.createAutonomousCard("build a feature", { taskType: "code", tier: "T2-deep" }, {});
     expect(out).not.toBeNull();
     expect(board.posts[0].quick).toBeUndefined();
-    expect(board.state.list).toBe("plan");
+    expect(board.state.list).toBe("todo");
     board.server.close();
   });
 });
