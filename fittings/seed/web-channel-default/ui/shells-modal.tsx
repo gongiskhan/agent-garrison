@@ -1,12 +1,16 @@
-// The Shells picker: spawn (or reattach to) an interactive agent session in
-// any project folder on a remote transport, from one modal.
+// The Shells picker: spawn (or reattach to) interactive agent sessions in any
+// project folder on a remote transport, from one modal.
 //
 // The deliberate shape: NO standing UI surface. One button in the sidebar head
 // opens this; it lists the transport's ~/dev folders (asked live over ssh, so
-// what you see is what is actually there), marks the ones that already have a
-// session, takes a manual path for anything outside ~/dev, and offers Stop for
-// sessions whose work is done. Opening is idempotent - picking a project that
-// already has a session simply attaches to it.
+// what you see is what is actually there), shows EVERY session already running
+// in each, takes a manual path for anything outside ~/dev, and offers Stop for
+// sessions whose work is done. Opening is idempotent - picking a session that
+// already exists simply attaches to it - and "+" on a project starts ANOTHER
+// agent beside the ones it already has.
+//
+// Once open, a session is an ordinary row in the sessions rail (with its own
+// live Working badge), so this modal is the spawner, not the switcher.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -22,11 +26,12 @@ export interface ShellOpenSpec {
   label: string;
 }
 
-interface ProjectRow {
-  name: string;
-  path: string;
-  sessionId: string | null;
-  state: string | null;
+export interface ShellSpawnSpec {
+  transport: string;
+  /** The base tmux name; the fitting numbers the instance beside any it finds. */
+  base: string;
+  cwd: string;
+  label: string;
 }
 
 interface SessionRow {
@@ -36,15 +41,23 @@ interface SessionRow {
   tmuxSession: string;
   cwd: string | null;
   state: string;
+  standing?: boolean;
+}
+
+interface ProjectRow {
+  name: string;
+  path: string;
+  sessions: SessionRow[];
 }
 
 export function slugForProject(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "proj";
 }
 
-export function ShellsModal({ transports, onOpen, onClose }: {
+export function ShellsModal({ transports, onOpen, onSpawn, onClose }: {
   transports: ShellTransportOption[];
   onOpen: (spec: ShellOpenSpec) => void;
+  onSpawn: (spec: ShellSpawnSpec) => void;
   onClose: () => void;
 }) {
   const [transport, setTransport] = useState<string>(transports[0]?.name ?? "");
@@ -89,22 +102,36 @@ export function ShellsModal({ transports, onOpen, onClose }: {
     return () => document.removeEventListener("keydown", esc);
   }, [onClose]);
 
-  const openProject = useCallback((p: { name: string; path: string }) => {
-    if (!transport) return;
+  const attach = useCallback((s: SessionRow) => {
     onOpen({
-      transport,
-      tmuxSession: slugForProject(p.name),
-      cwd: p.path,
-      label: p.name
+      transport: s.transport,
+      tmuxSession: s.tmuxSession,
+      cwd: s.cwd ?? "~",
+      label: s.label
     });
-  }, [transport, onOpen]);
+  }, [onOpen]);
+
+  const spawn = useCallback((p: { name: string; path: string }) => {
+    if (!transport) return;
+    onSpawn({ transport, base: slugForProject(p.name), cwd: p.path, label: p.name });
+  }, [transport, onSpawn]);
+
+  // A project row opens what is there and starts one when nothing is: the
+  // common case is one agent per folder, and asking first would put a dialog in
+  // front of the only sensible answer.
+  const openProject = useCallback((p: ProjectRow) => {
+    if (p.sessions.length > 0) attach(p.sessions[0]);
+    else spawn(p);
+  }, [attach, spawn]);
 
   const openManual = useCallback(() => {
     const path = manualPath.trim().replace(/\/+$/, "");
     if (!path) return;
     const name = path.split("/").filter(Boolean).pop() ?? "shell";
-    openProject({ name, path });
-  }, [manualPath, openProject]);
+    const here = sessions.filter((s) => s.cwd === path);
+    if (here.length > 0) attach(here[0]);
+    else onSpawn({ transport, base: slugForProject(name), cwd: path, label: name });
+  }, [manualPath, sessions, transport, attach, onSpawn]);
 
   const stopSession = useCallback(async (id: string) => {
     setBusy(true);
@@ -118,8 +145,30 @@ export function ShellsModal({ transports, onOpen, onClose }: {
   // Sessions that exist but match no listed project (manual paths, the
   // transport's standing session) still deserve a row - they are exactly the
   // ones you cannot rediscover by clicking a folder.
-  const projectPaths = useMemo(() => new Set((projects ?? []).map((p) => p.path)), [projects]);
-  const extraSessions = sessions.filter((s) => !s.cwd || !projectPaths.has(s.cwd));
+  const projectSessionIds = useMemo(
+    () => new Set((projects ?? []).flatMap((p) => p.sessions.map((s) => s.id))),
+    [projects]
+  );
+  const extraSessions = sessions.filter((s) => !projectSessionIds.has(s.id));
+
+  const sessionRow = (s: SessionRow, sub: boolean) => (
+    <div key={s.id} className={`wc-shells-row${sub ? " wc-shells-row--sub" : ""}`}>
+      <span className={`wc-shells-dot wc-shells-dot--${s.state === "running" ? "running" : "idle"}`} aria-hidden />
+      <button type="button" className="wc-shells-open" onClick={() => attach(s)}>
+        <span className="wc-shells-name">{s.label}</span>
+        <span className="wc-shells-path">
+          {s.state === "running" ? "working" : "idle"}
+          {" · "}
+          {/* Under its project the folder is already on the row above; what
+              tells two agents apart there is the tmux session. */}
+          {sub ? s.tmuxSession : (s.cwd ?? s.tmuxSession)}
+        </span>
+      </button>
+      <button type="button" className="wc-shells-stop" disabled={busy} onClick={() => { void stopSession(s.id); }}>
+        Stop
+      </button>
+    </div>
+  );
 
   return (
     <div className="wc-prompt-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -137,30 +186,8 @@ export function ShellsModal({ transports, onOpen, onClose }: {
 
         {extraSessions.length > 0 && (
           <>
-            <div className="wc-shells-head">Open sessions</div>
-            <div className="wc-shells-list">
-              {extraSessions.map((s) => (
-                <div key={s.id} className="wc-shells-row">
-                  <span className={`wc-shells-dot wc-shells-dot--${s.state === "running" ? "running" : "idle"}`} aria-hidden />
-                  <button
-                    type="button"
-                    className="wc-shells-open"
-                    onClick={() => onOpen({
-                      transport: s.transport,
-                      tmuxSession: s.tmuxSession,
-                      cwd: s.cwd ?? "~",
-                      label: s.label
-                    })}
-                  >
-                    <span className="wc-shells-name">{s.label}</span>
-                    <span className="wc-shells-path">{s.cwd ?? s.tmuxSession}</span>
-                  </button>
-                  <button type="button" className="wc-shells-stop" disabled={busy} onClick={() => { void stopSession(s.id); }}>
-                    Stop
-                  </button>
-                </div>
-              ))}
-            </div>
+            <div className="wc-shells-head">Other sessions</div>
+            <div className="wc-shells-list">{extraSessions.map((s) => sessionRow(s, false))}</div>
           </>
         )}
 
@@ -170,26 +197,36 @@ export function ShellsModal({ transports, onOpen, onClose }: {
         {error && <div className="wc-shells-error">{error}</div>}
         {projects !== null && projects.length > 0 && (
           <div className="wc-shells-list wc-shells-list--projects">
-            {projects.map((p) => {
-              const live = sessions.find((s) => s.id === p.sessionId) ?? null;
-              return (
-                <div key={p.path} className="wc-shells-row">
+            {projects.map((p) => (
+              <div key={p.path} className="wc-shells-project">
+                <div className="wc-shells-row">
                   <span
-                    className={`wc-shells-dot${live ? ` wc-shells-dot--${live.state === "running" ? "running" : "idle"}` : ""}`}
+                    className={`wc-shells-dot${p.sessions.some((s) => s.state === "running")
+                      ? " wc-shells-dot--running"
+                      : p.sessions.length > 0 ? " wc-shells-dot--idle" : ""}`}
                     aria-hidden
                   />
                   <button type="button" className="wc-shells-open" onClick={() => openProject(p)}>
                     <span className="wc-shells-name">{p.name}</span>
-                    <span className="wc-shells-path">{live ? "session open - click to attach" : p.path}</span>
+                    <span className="wc-shells-path">
+                      {p.sessions.length === 0
+                        ? p.path
+                        : `${p.sessions.length} session${p.sessions.length > 1 ? "s" : ""} · ${p.path}`}
+                    </span>
                   </button>
-                  {live && (
-                    <button type="button" className="wc-shells-stop" disabled={busy} onClick={() => { void stopSession(live.id); }}>
-                      Stop
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="wc-shells-add"
+                    title={`Start another agent in ${p.name}`}
+                    aria-label={`Start another agent in ${p.name}`}
+                    onClick={() => spawn(p)}
+                  >
+                    +
+                  </button>
                 </div>
-              );
-            })}
+                {p.sessions.length > 1 && p.sessions.map((s) => sessionRow(s, true))}
+              </div>
+            ))}
           </div>
         )}
 

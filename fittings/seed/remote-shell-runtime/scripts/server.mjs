@@ -261,7 +261,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           // The multi-session spec: a named tmux session in a chosen project
           // folder. Absent, this is the transport's standing session as ever.
           tmuxSession: typeof body.tmuxSession === "string" && body.tmuxSession.trim() ? body.tmuxSession.trim() : null,
-          cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null
+          cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null,
+          // "another agent in this folder": the tmux name above is a BASE and
+          // the free instance beside it is chosen here (see start()).
+          allocate: body.allocate === true
         });
         return jsonRes(res, 200, { session: manager.summary(session) });
       }

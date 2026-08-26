@@ -69,6 +69,13 @@ function cleanRemoteCwd(raw) {
 // Events attribution across MULTIPLE sessions on one transport: the hook now
 // stamps the agent's cwd into every event, and ~-vs-absolute must not break
 // the match. "~/dev/x" and "/home/anyone/dev/x" both normalize to "/dev/x".
+/** The name a numbered instance wears in the UI: the second agent in
+ *  `csg-spec` is "csg-spec #2", not a second row also called "csg-spec". */
+function instanceLabel(label, sessName, instance) {
+  const base = label || sessName;
+  return instance > 1 ? `${base} #${instance}` : base;
+}
+
 function normCwd(raw) {
   return String(raw ?? "")
     .replace(/^~(?=\/|$)/, "")
@@ -172,7 +179,13 @@ export class SessionManager {
     this.attachBudgetBytes = (Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_ATTACH_BUDGET_MB) * 1024 * 1024;
     this.sessions = new Map(); // id -> record
     this.subscribers = new Map(); // id -> Set<ws-like {send}>
+    // `<transport>\u0000<tmuxSession>` names an allocation between choosing the
+    // instance and registering it. Two "another session here" clicks in the same
+    // second would otherwise both see the same free name.
+    this.#reserved = new Set();
   }
+
+  #reserved;
 
   // ── Remote lifecycle hook upkeep ─────────────────────────────────────────
 
@@ -217,16 +230,22 @@ export class SessionManager {
     if (r.code !== 0) {
       throw new HttpError(502, `cannot list projects on ${transport.name}: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
     }
-    const bySession = new Map(
-      [...this.sessions.values()]
-        .filter((x) => x.transport.name === transportName && x.cwd)
-        .map((x) => [normCwd(x.cwd), x])
-    );
+    // EVERY session in a folder, not one: a project can host several agents,
+    // and a picker that showed only the first would make the others
+    // unreachable from the one surface that spawns them.
+    const byCwd = new Map();
+    for (const x of this.sessions.values()) {
+      if (x.transport.name !== transportName || !x.cwd) continue;
+      const key = normCwd(x.cwd);
+      if (!byCwd.has(key)) byCwd.set(key, []);
+      byCwd.get(key).push(this.summary(x));
+    }
+    for (const list of byCwd.values()) list.sort((a, b) => a.tmuxSession.localeCompare(b.tmuxSession));
     return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean).map((abs) => {
       const name = abs.replace(/\/+$/, "").split("/").pop() ?? abs;
       const home = `~/dev/${name}`;
-      const live = bySession.get(normCwd(home));
-      return { name, path: home, sessionId: live?.id ?? null, state: live?.state ?? null };
+      const sessions = byCwd.get(normCwd(home)) ?? [];
+      return { name, path: home, sessions };
     }).sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -320,6 +339,10 @@ export class SessionManager {
       label: s.label,
       tmuxSession: s.tmuxSession,
       cwd: s.cwd ?? null,
+      // The transport's STANDING session (the one a binding with no tmux name
+      // means). Consumers match threads to sessions by name; without this they
+      // would have to know the transport's default, which is fitting config.
+      standing: s.tmuxSession === s.transport.tmuxSession,
       state: s.state,
       createdAt: s.createdAt,
       lastEventAt: s.lastEventAt,
@@ -366,24 +389,45 @@ export class SessionManager {
    * Start (or re-attach) the session for a transport. Idempotent per
    * (transport, tmuxSession): an existing record is revived in place.
    */
-  async start(transportName, { label, recycle = false, tmuxSession = null, cwd = null } = {}) {
+  async start(transportName, { label, recycle = false, tmuxSession = null, cwd = null, allocate = false } = {}) {
     const transport = this.transports.get(transportName);
     if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
 
     // A transport is a MACHINE, not a session: any project folder on it can
     // host its own tmux session + agent. The default (no spec) remains the
     // transport's standing session, so every existing thread keeps working.
-    const sessName = tmuxSession
+    const base = tmuxSession
       ? String(tmuxSession).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)
       : transport.tmuxSession;
-    if (!sessName) throw new HttpError(400, "empty tmux session name");
-    const sessCwd = cwd ? cleanRemoteCwd(cwd) : (sessName === transport.tmuxSession ? transport.cwd : null);
+    if (!base) throw new HttpError(400, "empty tmux session name");
+    const sessCwd = cwd ? cleanRemoteCwd(cwd) : (base === transport.tmuxSession ? transport.cwd : null);
     if (!sessCwd) throw new HttpError(400, "a custom session needs a cwd (the project folder on the remote)");
 
     const tunnel = await this.tunnels.ensure(transport);
     if (!tunnel.ok) throw new HttpError(502, tunnel.error);
 
     await this.#ensureRemoteHook(transport);
+
+    // `allocate` is the "another agent in this same folder" gesture: the name
+    // is a BASE and the free instance beside it is chosen here, on the machine
+    // that can see both sides. A client picking the number would have to
+    // enumerate first and would collide with itself on a double click.
+    let sessName = base;
+    let instance = 1;
+    if (allocate) {
+      // The remote's list is the only part that needs an await, so it is taken
+      // FIRST and the choose-and-reserve below runs to completion without one:
+      // two clicks in the same second would otherwise both read the same free
+      // name (each holding its own pre-reservation snapshot) and the second
+      // agent would silently attach to the first one's session.
+      const remoteTaken = await this.#remoteSessionNames(transport);
+      while (this.#nameTaken(transport, sessName, remoteTaken)) {
+        instance += 1;
+        sessName = `${base}-${instance}`.slice(0, 60);
+      }
+      this.#reserved.add(`${transport.name}\u0000${sessName}`);
+    }
+    try {
 
     // Reachability + remote tmux session (create if missing, in the work cwd).
     // The cwd is asserted first: `tmux new-session -c <missing>` silently falls
@@ -430,7 +474,8 @@ export class SessionManager {
         transport,
         tmuxSession: sessName,
         cwd: sessCwd,
-        label: label || (sessName === transport.tmuxSession ? transport.label : sessName),
+        label: instanceLabel(label, sessName, instance) ||
+          (sessName === transport.tmuxSession ? transport.label : sessName),
         createdAt: new Date().toISOString(),
         state: "idle",
         lastEventAt: null
@@ -460,6 +505,32 @@ export class SessionManager {
     this.#startPulse(session);
     await this.persist();
     return session;
+    } finally {
+      // The reservation only has to survive the awaits above; once the record
+      // is registered (or the start failed) the name is either really taken or
+      // really free, and findByTarget is the truth again.
+      this.#reserved.delete(`${transport.name}\u0000${sessName}`);
+    }
+  }
+
+  /** tmux sessions already on the remote. They outlive this fitting, so after a
+   *  restart they are the only record that a name is in use. */
+  async #remoteSessionNames(transport) {
+    const names = new Set();
+    const r = await this.#exec(transport, `tmux list-sessions -F '#{session_name}' 2>/dev/null || true`);
+    if (r.code !== 0) return names;
+    for (const line of r.stdout.split("\n")) {
+      const n = line.trim();
+      if (n) names.add(n);
+    }
+    return names;
+  }
+
+  /** Synchronous by design - see the allocation above. */
+  #nameTaken(transport, sessName, remoteTaken) {
+    if (remoteTaken.has(sessName)) return true;
+    if (this.#reserved.has(`${transport.name}\u0000${sessName}`)) return true;
+    return Boolean(this.findByTarget(transport.name, sessName));
   }
 
   /**

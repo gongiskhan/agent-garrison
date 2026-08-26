@@ -227,20 +227,41 @@ async function handleRemoteShellProxy(req, res, subpath, query) {
 // Short-TTL snapshot of the fitting's sessions so the thread list can mark a
 // remote-shell thread running from the HOOK-DRIVEN state (covers instructions
 // typed straight into the TUI, which never become web-channel inputs).
-let remoteShellSnapshot = { at: 0, byTransport: new Map() };
-async function remoteShellSessionsByTransport() {
-  if (Date.now() - remoteShellSnapshot.at < 3000) return remoteShellSnapshot.byTransport;
-  const byTransport = new Map();
+//
+// Keyed per SESSION, not per transport: one machine hosts an agent per project
+// folder now, and a transport-keyed map handed every shell on that box whichever
+// session happened to be last in the array - so a thread showed "Working"
+// because a different project's agent was busy.
+let remoteShellSnapshot = { at: 0, sessions: [] };
+async function remoteShellSessions() {
+  if (Date.now() - remoteShellSnapshot.at < 3000) return remoteShellSnapshot.sessions;
+  let sessions = [];
   const info = readRemoteShellInfo();
   if (info?.url) {
     try {
       const res = await fetch(`${info.url}/sessions`, { signal: AbortSignal.timeout(1500) });
       const data = await res.json();
-      for (const s of data?.sessions ?? []) byTransport.set(s.transport, s);
+      if (Array.isArray(data?.sessions)) sessions = data.sessions;
     } catch { /* fitting down — threads just lose the live badge */ }
   }
-  remoteShellSnapshot = { at: Date.now(), byTransport };
-  return byTransport;
+  remoteShellSnapshot = { at: Date.now(), sessions };
+  return sessions;
+}
+
+function laterOf(a, b) {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
+/** The session a thread's binding names: the one with that tmux name, or the
+ *  transport's STANDING session when the binding names none (every thread
+ *  written before multi-session). */
+export function matchRemoteShellSession(binding, sessions) {
+  if (!binding) return null;
+  const mine = sessions.filter((s) => s.transport === binding.transport);
+  if (binding.tmuxSession) return mine.find((s) => s.tmuxSession === binding.tmuxSession) ?? null;
+  return mine.find((s) => s.standing) ?? null;
 }
 
 // Voice availability. The web UI hides its mic / speaker
@@ -2224,14 +2245,30 @@ async function handleThreadsList(res) {
   // additionally spins on the fitting's HOOK-DRIVEN session state, so work
   // typed straight into the remote TUI still shows as live.
   const running = new Set(runningThreadIds());
-  const rsh = await remoteShellSessionsByTransport();
+  const rsh = await remoteShellSessions();
   const threads = (await listThreads()).map((t) => {
-    if (running.has(t.id)) return { ...t, runningSince: runningSince(t.id) };
-    const session = t.remoteShell ? rsh.get(t.remoteShell.transport) : null;
+    const session = matchRemoteShellSession(t.remoteShell, rsh);
+    // The agent's own lifecycle IS this thread's activity: a terminal-first
+    // shell never writes a message, so without this its row would sit at the
+    // bottom of the rail forever, however busy the agent is.
+    const meta = session
+      ? {
+          ...t,
+          remoteShell: {
+            ...t.remoteShell,
+            sessionId: session.id,
+            state: session.state ?? null,
+            lastEventAt: session.lastEventAt ?? null,
+            link: session.link ?? null
+          },
+          updatedAt: laterOf(t.updatedAt, session.lastEventAt)
+        }
+      : t;
+    if (running.has(t.id)) return { ...meta, runningSince: runningSince(t.id) };
     if (session?.state === "running") {
-      return { ...t, runningSince: session.lastEventAt ?? session.createdAt ?? new Date().toISOString() };
+      return { ...meta, runningSince: session.lastEventAt ?? session.createdAt ?? new Date().toISOString() };
     }
-    return t;
+    return meta;
   });
   jsonRes(res, 200, { threads });
 }

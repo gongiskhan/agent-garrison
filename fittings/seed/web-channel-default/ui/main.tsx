@@ -35,7 +35,7 @@ import { createOrchestratorTransport } from "./orchestrator-transport";
 import { VoiceConversation } from "./voice-conversation";
 import { RemoteShellWorkbench } from "./remote-shell-workbench";
 import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail";
-import { ShellsModal, slugForProject, type ShellOpenSpec } from "./shells-modal";
+import { ShellsModal, type ShellOpenSpec, type ShellSpawnSpec } from "./shells-modal";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -188,9 +188,22 @@ interface ThreadMeta {
   pendingInputCount?: number;
   inputRevision?: number;
   /** Sparse remote-shell binding (threads whose context carries one): which
-   *  transport the thread's terminal attaches, plus the routing target its
-   *  chat turns pin. Server-derived from the thread context. */
-  remoteShell?: { transport: string; target?: string } | null;
+   *  transport the thread's terminal attaches, WHICH SESSION on it, plus the
+   *  routing target its chat turns pin. Server-derived from the thread context,
+   *  and (state/lastEventAt) joined to the fitting's live session at list time -
+   *  a machine hosts one agent per project now, so the session name is what
+   *  tells two shells apart. */
+  remoteShell?: {
+    transport: string;
+    target?: string;
+    tmuxSession?: string;
+    cwd?: string;
+    label?: string;
+    sessionId?: string;
+    state?: string | null;
+    lastEventAt?: string | null;
+    link?: string | null;
+  } | null;
 }
 interface ThreadInput extends ChatInputReceipt {
   message?: string;
@@ -1197,18 +1210,68 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // target (once) so chat-lane turns delegate to the remote agent.
   const [shellsOpen, setShellsOpen] = useState(false);
 
-  // The Shells picker's open action: a stable thread per (transport, project),
-  // carrying the full session spec in its context. Deliberately NO routing
-  // target pin: the delegate lane routes to a transport's STANDING session, so
-  // a project shell is terminal-first - the pane is the interaction surface.
+  // The Shells picker's open action: a stable thread per SESSION, keyed by its
+  // tmux name (a folder can host several agents, so the project alone does not
+  // identify one), carrying the full session spec in its context. Deliberately
+  // NO routing target pin: the delegate lane routes to a transport's STANDING
+  // session, so a project shell is terminal-first - the pane is the interaction
+  // surface, and the thread is how you find it again.
   const openProjectShell = useCallback(async (spec: ShellOpenSpec) => {
     setShellsOpen(false);
-    const slug = slugForProject(spec.label || spec.tmuxSession);
     const ensured = await apiEnsureThread({
-      id: `remote-shell-${spec.transport}-${slug}`,
-      title: spec.label || slug,
+      id: `remote-shell-${spec.transport}-${spec.tmuxSession}`,
+      title: spec.label || spec.tmuxSession,
       source: "remote-shell",
       context: { remoteShell: { transport: spec.transport, tmuxSession: spec.tmuxSession, cwd: spec.cwd, label: spec.label } }
+    });
+    if (!ensured) return;
+    await openThread(ensured.id);
+    await refreshList();
+  }, [openThread, refreshList]);
+
+  // "Another agent in this folder". The instance name is allocated by the
+  // FITTING (it can see both its own sessions and the remote's tmux list), so
+  // the thread is created from what actually started rather than from a name
+  // this client guessed and might collide with on a double click.
+  const spawnProjectShell = useCallback(async (spec: ShellSpawnSpec) => {
+    setShellsOpen(false);
+    setRshError(null);
+    let session: { tmuxSession?: string; cwd?: string; label?: string } | null = null;
+    try {
+      const res = await fetch("/api/remote-shell/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          transport: spec.transport,
+          tmuxSession: spec.base,
+          cwd: spec.cwd,
+          label: spec.label,
+          allocate: true
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `could not start a session (${res.status})`);
+      session = data?.session ?? null;
+    } catch (err) {
+      setRshError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    if (!session?.tmuxSession) {
+      setRshError("the remote shell started no session");
+      return;
+    }
+    const ensured = await apiEnsureThread({
+      id: `remote-shell-${spec.transport}-${session.tmuxSession}`,
+      title: session.label || session.tmuxSession,
+      source: "remote-shell",
+      context: {
+        remoteShell: {
+          transport: spec.transport,
+          tmuxSession: session.tmuxSession,
+          cwd: session.cwd ?? spec.cwd,
+          label: session.label ?? spec.label
+        }
+      }
     });
     if (!ensured) return;
     await openThread(ensured.id);
@@ -1496,6 +1559,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
         <ShellsModal
           transports={rshTransports}
           onOpen={(spec) => { void openProjectShell(spec); }}
+          onSpawn={(spec) => { void spawnProjectShell(spec); }}
           onClose={() => setShellsOpen(false)}
         />
       )}

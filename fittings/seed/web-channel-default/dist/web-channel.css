@@ -4186,6 +4186,27 @@ body {
 }
 .wc-shells-stop:hover:not(:disabled) { background: rgba(150, 63, 53, 0.22); }
 .wc-shells-stop:disabled { color: #6a746b; cursor: default; }
+/* "Another agent in this folder". Same footprint as Stop so the two actions on
+   a project row read as a pair rather than a button and an afterthought. */
+.wc-shells-add {
+  flex: none;
+  width: 28px;
+  padding: 4px 0;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd6c9;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wc-shells-add:hover { background: #2b372c; color: #eef0e8; }
+/* A folder with several agents lists them under it, indented and quieter than
+   the project row that owns them. */
+.wc-shells-project + .wc-shells-project { margin-top: 2px; }
+.wc-shells-row--sub { padding-left: 16px; }
+.wc-shells-row--sub .wc-shells-name { font-size: 12px; font-weight: 500; color: #cfd6c9; }
 .wc-shells-empty { padding: 8px 0; color: #9fa69a; font-size: 12px; }
 .wc-shells-error { padding: 8px 0; color: #e08475; font-size: 12px; }
 .wc-shells-manual { display: flex; gap: 8px; margin-top: 12px; }

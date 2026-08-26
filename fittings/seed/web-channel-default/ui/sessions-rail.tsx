@@ -22,7 +22,15 @@ export interface RailThread {
   updatedAt: string | null;
   runningSince?: string | null;
   pendingInputCount?: number;
-  remoteShell?: { transport: string; target?: string } | null;
+  remoteShell?: {
+    transport: string;
+    target?: string;
+    /** Which session on that machine (absent = the transport's standing one). */
+    tmuxSession?: string;
+    /** Live, hook-driven: "running" while the remote agent works. */
+    state?: string | null;
+    lastEventAt?: string | null;
+  } | null;
 }
 
 export interface RailMeshThread {
@@ -76,8 +84,40 @@ interface Row {
   running: boolean;
   queued: number;
   source: string | null;
-  rshTransport: string | null;
   openUrl: string | null;
+}
+
+/**
+ * Rows within one section: UNPLACED rows first, by recency, then the manually
+ * ordered ones in the order the user dragged them into.
+ *
+ * Unplaced-first is the load-bearing half. A drop persists the section's WHOLE
+ * visible order, so after one drag every conversation that existed is "placed"
+ * - and a newly started session, which by definition is in nobody's manual
+ * order, would land under all of them. With eighty of them that is the bottom
+ * of a long scroll, which is exactly where a session you just opened must not
+ * be. Dragging a new row anywhere places it, and it keeps that place.
+ */
+export function orderSectionRows<T extends { key: string; activity: string | null }>(
+  members: T[],
+  orderedKeys: string[]
+): T[] {
+  const placed = new Set<string>();
+  const ordered: T[] = [];
+  for (const k of orderedKeys) {
+    // A key names a row AT MOST once: the store dedupes, but a row rendered
+    // twice would share a React key, and the list would misbehave in ways that
+    // look like a drag bug rather than a duplicate.
+    if (placed.has(k)) continue;
+    const row = members.find((r) => r.key === k);
+    if (!row) continue; // a deleted conversation leaves its key behind
+    placed.add(k);
+    ordered.push(row);
+  }
+  const rest = members
+    .filter((r) => !placed.has(r.key))
+    .sort((a, b) => Date.parse(b.activity ?? "0") - Date.parse(a.activity ?? "0"));
+  return [...rest, ...ordered];
 }
 
 const EMPTY_SIDEBAR: SidebarState = { groups: [], membership: {}, order: {}, read: {}, archived: [], baselineAt: null, ungroupedCollapsed: false };
@@ -334,8 +374,9 @@ export function SessionsRail(props: {
       activity: t.updatedAt,
       running: Boolean(t.runningSince),
       queued: t.pendingInputCount ?? 0,
-      source: t.source && t.source !== "chat" ? t.source : null,
-      rshTransport: t.remoteShell?.transport ?? null,
+      // A shell row's useful chip is the MACHINE it runs on: every one of them
+      // would otherwise read "remote-shell", which distinguishes nothing.
+      source: t.remoteShell?.transport ?? (t.source && t.source !== "chat" ? t.source : null),
       openUrl: null
     }));
     const remote = meshNodes.flatMap((n) =>
@@ -350,7 +391,6 @@ export function SessionsRail(props: {
         running: false,
         queued: 0,
         source: null,
-        rshTransport: null,
         openUrl: t.openUrl
       }))
     );
@@ -365,15 +405,10 @@ export function SessionsRail(props: {
     return gid && sidebar.groups.some((g) => g.id === gid) ? gid : UNGROUPED;
   }, [sidebar]);
 
-  // Rows per section: manual order first, the rest by recency.
-  const sectionRows = useCallback((section: string): Row[] => {
-    const members = rows.filter((r) => sectionOf(r.key) === section);
-    const ordered = (sidebar.order[section] ?? []).map((k) => members.find((r) => r.key === k)).filter(Boolean) as Row[];
-    const rest = members
-      .filter((r) => !ordered.includes(r))
-      .sort((a, b) => Date.parse(b.activity ?? "0") - Date.parse(a.activity ?? "0"));
-    return [...ordered, ...rest];
-  }, [rows, sidebar, sectionOf]);
+  const sectionRows = useCallback(
+    (section: string): Row[] => orderSectionRows(rows.filter((r) => sectionOf(r.key) === section), sidebar.order[section] ?? []),
+    [rows, sidebar, sectionOf]
+  );
 
   const unread = useCallback((r: Row): boolean => {
     if (!r.activity) return false;
@@ -589,6 +624,16 @@ export function SessionsRail(props: {
   }, [dragKey, moveTo]);
   const onDragEnd = useCallback(() => { setDragKey(null); setDropHint(null); }, []);
 
+  // What a COLLAPSED section still shows. Collapsing hides the quiet
+  // conversations, not the live ones: the open thread must never disappear from
+  // the rail under the user who just opened it, and a shell whose agent is
+  // working is the one row you collapsed the section to be able to find.
+  const peeking = useCallback(
+    (members: Row[]): Row[] =>
+      members.filter((r) => (r.kind === "local" && r.id === activeId) || r.running),
+    [activeId]
+  );
+
   // ── Row rendering ──
   const renderRow = (r: Row) => {
     const isUnread = unread(r);
@@ -757,7 +802,7 @@ export function SessionsRail(props: {
                 <span className="wc-group-name">{g.name}</span>
                 <span className="wc-group-count">{members.length}</span>
               </button>
-              {!g.collapsed && members.map(renderRow)}
+              {(g.collapsed ? peeking(members) : members).map(renderRow)}
             </div>
           );
         })}
@@ -777,7 +822,10 @@ export function SessionsRail(props: {
               <span className="wc-group-count">{ungroupedRows.length}</span>
             </button>
           )}
-          {(!hasGroups || !sidebar.ungroupedCollapsed) && ungroupedRows.map(renderRow)}
+          {(!hasGroups || !sidebar.ungroupedCollapsed
+            ? ungroupedRows
+            : peeking(ungroupedRows)
+          ).map(renderRow)}
         </div>
 
         {archivedRows.length > 0 && (

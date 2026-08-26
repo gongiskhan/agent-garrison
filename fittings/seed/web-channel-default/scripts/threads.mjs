@@ -1072,16 +1072,31 @@ function deriveTitle(thread) {
 }
 
 /** Sparse remote-shell binding carried in a thread's opaque context: which
- *  transport this thread's terminal is attached to, and (optionally) the
- *  routing-target id its chat turns pin. Strictly picked — the context is
- *  client-influenced, so nothing else rides through. */
+ *  transport this thread's terminal is attached to, WHICH SESSION on it, and
+ *  (optionally) the routing-target id its chat turns pin. Strictly picked — the
+ *  context is client-influenced, so nothing else rides through.
+ *
+ *  `tmuxSession` rides the meta because a machine hosts many sessions now: the
+ *  list has to match a thread to ITS session to show whether that agent is
+ *  working, and a transport-only match would hand every shell on the box the
+ *  same state. Absent = the transport's standing session. */
 export function remoteShellBinding(thread) {
   const b = thread?.context?.remoteShell;
   if (!b || typeof b !== "object" || Array.isArray(b)) return null;
-  const transport = typeof b.transport === "string" && b.transport.trim() ? b.transport.trim().slice(0, 80) : null;
+  const str = (v, max = 80) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  const transport = str(b.transport);
   if (!transport) return null;
-  const target = typeof b.target === "string" && b.target.trim() ? b.target.trim().slice(0, 80) : null;
-  return { transport, ...(target ? { target } : {}) };
+  const target = str(b.target);
+  const tmuxSession = str(b.tmuxSession);
+  const cwd = str(b.cwd, 400);
+  const label = str(b.label, 120);
+  return {
+    transport,
+    ...(tmuxSession ? { tmuxSession } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(label ? { label } : {}),
+    ...(target ? { target } : {})
+  };
 }
 
 function toMeta(thread) {
