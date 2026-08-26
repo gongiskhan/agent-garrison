@@ -1391,6 +1391,12 @@ export function SessionStream({
           const presentation = presentSessionTurn(turn, turnLive);
           const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
           const hasSettlementNotice = turn.assistantEvents.some((event) => event.blocks.some((block) =>
+            // A stretch boundary is a settlement, not interim chatter: it carries
+            // the rung, the chooser, the outcome and the cost — the routing
+            // visibility the Conversations instrumentation exists for. Once the
+            // transcript tee gives every stretch prose, leaving it off this list
+            // folds every boundary into a closed disclosure by default.
+            block.type === "stretch" ||
             block.type === "error" || block.type === "retry" || block.type === "route" || block.type === "turn_end" ||
             (block.type === "rate_limit" && (
               String(block.status ?? "").toLowerCase() !== "allowed" ||

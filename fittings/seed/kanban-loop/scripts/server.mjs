@@ -64,7 +64,6 @@ import { STEER_ACTIONS, appendSteeringMd, writeSteeringDirective, markSteeringAp
 import {
   getList,
   validNextFor,
-  processCard,
   recoverInterruptedRuns,
   triggerFor,
   isInteractive,
@@ -83,8 +82,6 @@ import {
   hasExecutionModel,
   resolveCardSequence,
   executionRouteFor,
-  isUserList,
-  insertUserLists
 } from "../lib/resolved-model.mjs";
 import { reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
@@ -5312,59 +5309,16 @@ export function makeRequestHandler(opts, distDir) {
         return await handlePatchList(req, res, opts, listId);
       }
 
-      // POST /lists { title } - create a new column = a HUMAN-MANAGED manual list
-      // (a plain parking column, no agent behaviour, no run-on-drop). It is NOT a
-      // composition duty: agent-managed lists are added by selecting a DUTY in
-      // Muster, which projects its list through the resolved model. A user list is
-      // marked `userCreated` so the duty reconcile preserves it, and is spliced in
-      // just before the fixed human tail. Persisted straight to the board.
+      // The Add-list affordance died with the duty lists (Conversations,
+      // 2026-08-26): the five-state board is FIXED — buildBoard creates no
+      // user lists and reconcileBoardLists removes anything outside the five.
+      // Both list-mutation endpoints answer 410 so a stale client gets an
+      // honest refusal instead of a silently ignored write.
       if (pathname === "/lists" && method === "POST") {
-        if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list create rejected" });
-        const body = (await readBody(req)) || {};
-        const title = typeof body.title === "string" ? body.title.trim() : "";
-        if (!title) return jsonRes(res, 400, { error: "give the list a name" });
-        if (title.length > 80) return jsonRes(res, 400, { error: "list name is too long (max 80 characters)" });
-        const board = await loadBoard(opts.root).catch(() => null);
-        if (!board) return jsonRes(res, 409, { error: "no board on disk" });
-        const id = deriveUniqueListId(title, board);
-        if (!id) return jsonRes(res, 400, { error: "could not derive a valid id from that name" });
-        const newList = { id, title, kind: "manual", trigger: "manual", userCreated: true, validNext: [] };
-        const next = { ...board, lists: insertUserLists(board.lists, [newList]) };
-        await saveBoard(next, opts.root);
-        return jsonRes(res, 200, { ok: true, list: newList });
+        return jsonRes(res, 410, { error: "the board's five lists are fixed — lists can no longer be created" });
       }
       if (listMatch && method === "DELETE") {
-        if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list delete rejected" });
-        const listId = decodeURIComponent(listMatch[1]);
-        if (!isValidListId(listId)) return jsonRes(res, 400, { error: "invalid list id" });
-        const board = await loadBoard(opts.root).catch(() => null);
-        if (!board) return jsonRes(res, 409, { error: "no board on disk" });
-        const target = getList(board, listId);
-        if (!target) return jsonRes(res, 404, { error: `no such list: ${listId}` });
-        // A human-managed (user-created) list is owned by the board: drop it and
-        // park any cards left on it (never lost). A duty-backed list is owned by
-        // the composition, so its removal is proxied to the shell (the single
-        // composition writer), which deselects the duty and reconciles the board.
-        if (isUserList(target)) {
-          const next = { ...board, lists: (board.lists || []).filter((l) => l.id !== listId) };
-          await saveBoard(next, opts.root);
-          const moved = await relocateStrandedCards(opts.root, next, [listId]);
-          return jsonRes(res, 200, { ok: true, removed: [listId], movedToAttention: moved });
-        }
-        const appUrl = (process.env.GARRISON_APP_URL || "").trim();
-        if (!appUrl) return jsonRes(res, 503, { error: "no GARRISON_APP_URL in this fitting's env - re-up the composition so the runner projects it" });
-        try {
-          const r = await fetch(`${appUrl}/api/muster/duty`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ action: "delete", dutyId: listId }),
-            signal: AbortSignal.timeout(20000)
-          });
-          const doc = await r.json().catch(() => ({}));
-          return jsonRes(res, r.status, doc);
-        } catch (e) {
-          return jsonRes(res, 502, { error: `shell unreachable for duty delete: ${e?.message || e}` });
-        }
+        return jsonRes(res, 410, { error: "the board's five lists are fixed — lists can no longer be deleted" });
       }
 
       // GET /origins/:originId[/events] (S3e) - the durable per-origin event log +
