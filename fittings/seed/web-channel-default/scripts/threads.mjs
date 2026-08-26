@@ -230,6 +230,27 @@ const SESSION_BLOCK_TYPES = new Set([
   "rate_limit",
   "turn_end",
   "permission_request",
+  // The conversation spine (Garrison Conversations): a stretch boundary and the
+  // append-only ledger rows that record what ran between messages.
+  //
+  // This set is the SERVER half of the block-type trap: a type the renderer
+  // speaks but this whitelist does not know is dropped here, taking the whole
+  // event with it. tests/session-block-parity.test.ts pins it against
+  // journal.ts's SESSION_BLOCK_TYPES in both directions.
+  "stretch",
+  "ledger",
+]);
+const STRETCH_PHASES = new Set(["started", "ended"]);
+// Closed, like the retry block's `kind`: journal.ts's SessionLedgerKind union is
+// the contract, and the parity test keeps the two lists in step.
+const SESSION_LEDGER_KINDS = new Set([
+  "handoff",
+  "delegation-dispatched",
+  "delegation-returned",
+  "delegation-failed",
+  "card-state-changed",
+  "escalation",
+  "policy-rewrite",
 ]);
 const FAILURE_KINDS = new Set([
   "authentication",
@@ -752,6 +773,59 @@ export function sanitizeSessionBlock(raw) {
     if (Object.hasOwn(raw, "requestedModel")) {
       if (raw.requestedModel === null) out.requestedModel = null;
       else if (!copyOptionalLabel(out, raw, "requestedModel", 200)) return null;
+    }
+    return out;
+  }
+
+  if (type === "stretch") {
+    const phase = cleanSessionLabel(raw.phase, 80);
+    const stretchId = cleanSessionId(raw.stretchId);
+    if (!phase || !STRETCH_PHASES.has(phase) || !stretchId) return null;
+    // Same attribution whitelist the route block uses: a stretch names where the
+    // duty ran, and two different shapes for the same fact would drift. Unlike
+    // route, an EMPTY bag is KEPT rather than refused - a stretch that ran on a
+    // lane reporting nothing is still a real boundary, and the rail's rule is
+    // that an unreported dimension simply gets no badge.
+    if (!raw.attribution || typeof raw.attribution !== "object" || Array.isArray(raw.attribution)) return null;
+    const out = { type, phase, stretchId, attribution: sanitizeRouteMeta(raw.attribution) ?? {} };
+    // The duty, the rung's chooser and the outcome vocabulary all belong to the
+    // launcher and the handoff validator in claude-pty. Kept as opaque labels
+    // here on purpose - a second copy of those lists in the channel would be a
+    // mirror that silently drifts. An explicit null reads as "not reported", the
+    // same as the route attribution's own optional ids, so it is omitted.
+    for (const key of ["duty", "chosenBy", "outcome"]) {
+      if (!Object.hasOwn(raw, key) || raw[key] === null) continue;
+      if (!copyOptionalLabel(out, raw, key, 200)) return null;
+    }
+    if (Object.hasOwn(raw, "usedTokens") && raw.usedTokens !== null) {
+      if (!copyOptionalNumber(out, raw, "usedTokens", { integer: true, min: 0 })) return null;
+    }
+    if (Object.hasOwn(raw, "durationMs") && raw.durationMs !== null) {
+      if (!copyOptionalNumber(out, raw, "durationMs", { min: 0 })) return null;
+    }
+    return out;
+  }
+
+  if (type === "ledger") {
+    const kind = cleanSessionLabel(raw.kind, 200);
+    if (!kind || !SESSION_LEDGER_KINDS.has(kind)) return null;
+    const title = capSessionText(raw.title);
+    if (title === null || !title.trim()) return null;
+    const out = { type, kind, title };
+    if (Object.hasOwn(raw, "detail") && raw.detail !== null) {
+      if (!copyOptionalText(out, raw, "detail")) return null;
+    }
+    if (Object.hasOwn(raw, "payloadRef") && raw.payloadRef !== null) {
+      // An opaque store reference, never a path, and capped like an id: two
+      // distinct refs must never collapse into one by truncation.
+      const payloadRef = cleanSessionId(raw.payloadRef);
+      if (!payloadRef) return null;
+      out.payloadRef = payloadRef;
+    }
+    // Optional: the store assigns a stable per-conversation sequence, but a row
+    // written before it has one is still a row.
+    if (Object.hasOwn(raw, "seq") && raw.seq !== null) {
+      if (!copyOptionalNumber(out, raw, "seq", { integer: true, min: 0 })) return null;
     }
     return out;
   }

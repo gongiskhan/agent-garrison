@@ -984,6 +984,96 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-state.error { color: var(--cc-danger-border); }
 .cc-session-toolbody { display: flex; flex-direction: column; gap: 8px; padding: 0 9px 9px; }
 .cc-session-section-label { display: block; margin: 0 0 4px 2px; color: var(--cc-fg-dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+/* ── Conversation spine (stretch rules + ledger rows) ────────────────────────
+   A stretch is STRUCTURAL, so it reads as a rule across the column rather than
+   as another notice card competing with the reply it separates. A started
+   stretch is accented; an ended one recedes to a dashed divider, because the
+   interesting one is always the stretch still running - and the two rows carry
+   the same badges, so the reader needs to tell them apart without reading the
+   kicker. Built from the theme's own tokens, so both follow the light/dark swap
+   on .cc-root without a second palette. */
+.cc-stretch {
+  display: flex; flex-direction: column; gap: 5px; min-width: 0;
+  margin: 6px 0; padding: 7px 0 0; border-top: 1px solid var(--cc-border-strong);
+}
+.cc-stretch-started { border-top-color: color-mix(in srgb, var(--cc-accent) 45%, transparent); }
+.cc-stretch-ended { border-top-style: dashed; }
+.cc-stretch-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.cc-stretch-kicker {
+  flex: 0 0 auto; color: var(--cc-fg-dim); font-size: 10px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase;
+}
+.cc-stretch-started .cc-stretch-kicker { color: var(--cc-accent); }
+.cc-stretch-id {
+  min-width: 0; max-width: 28ch; color: var(--cc-fg-faint);
+  font: 10px/1.35 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cc-stretch-chip {
+  flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
+  color: var(--cc-fg-dim); white-space: nowrap;
+  font: 10px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-stretch-outcome { color: var(--cc-fg); border-color: var(--cc-fg-faint); }
+/* The stretch's own badges. Deliberately NOT `.cc-rbadge`: that name is the Turn
+   Rail's, its rules are all scoped `.cc-root .cc-rail …` (so they would inherit
+   nothing in a host that renders a transcript outside .cc-root), and reusing it
+   would break the day the rail restyles. Same vocabulary (railBadges), separate
+   skin. The row WRAPS, unlike the rail's single scrolling line: a stretch
+   boundary is a record being read, not a control surface being scanned, and a
+   horizontal scroller mid-transcript hides half its badges. */
+.cc-stretch-badges { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.cc-stretch-badge {
+  flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--cc-border); border-radius: 4px;
+  color: var(--cc-fg-dim);
+  font: 10px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Tone names mirror railBadges' model exactly, so the two can never disagree. */
+.cc-stretch-badge-dim { color: var(--cc-rail-fg-dim, var(--cc-fg-faint)); }
+.cc-stretch-badge-warn { color: var(--cc-rail-warn, #e8a598); border-color: var(--cc-rail-warn, #e8a598); }
+.cc-stretch-badge-link { color: var(--cc-accent); border-color: color-mix(in srgb, var(--cc-accent) 60%, transparent); }
+
+/* Ledger rows sit at the weight of a tool row: they are the record of what ran,
+   scanned far more often than read. Same disclosure mechanics as a notice. */
+.cc-ledger {
+  min-width: 0; padding: 4px 9px; border-left: 2px solid var(--cc-border);
+  border-radius: 0 6px 6px 0; color: var(--cc-fg); font-size: 12px; line-height: 1.4;
+}
+.cc-ledger-warn {
+  border-left-color: var(--cc-rail-warn, #e8a598);
+  background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 10%, transparent);
+}
+.cc-ledger > summary {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; min-width: 0;
+  list-style: none; cursor: pointer;
+}
+.cc-ledger > summary::-webkit-details-marker { display: none; }
+.cc-ledger-label {
+  flex: 0 0 auto; color: var(--cc-fg-faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+}
+.cc-ledger-title {
+  min-width: 0; flex: 1 1 auto; color: var(--cc-fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Once open there is nothing left to reveal by clipping the title. */
+.cc-ledger[open] .cc-ledger-title { white-space: normal; overflow: visible; }
+.cc-ledger-seq {
+  flex: 0 0 auto; margin-left: auto; color: var(--cc-fg-faint);
+  font: 10px/1.35 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.cc-ledger-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 6px 0 2px 10px; }
+/* Inert on purpose: the payload viewer is a later slice, and a reference that
+   looks like a link but goes nowhere is worse than one that reads as a label. */
+.cc-ledger-ref {
+  align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 7px; border: 1px dashed var(--cc-border-strong); border-radius: 2px;
+  color: var(--cc-fg-faint);
+  font: 10px/1.4 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-ledger-empty { color: var(--cc-fg-faint); font-size: 12px; }
+
 /* Notices are one-line rows that open, not standing cards. Three stacked blocks
    of route/error/status used to shout louder than the answer they annotate; the
    weight now matches the tool rows they sit beside. */
@@ -1031,6 +1121,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-session-notice-reset { color: var(--cc-fg-dim); font-size: 12px; }
 .cc-session-notice-reset time { color: var(--cc-fg); font-variant-numeric: tabular-nums; }
+
 .cc-session-error {
   padding: 8px 10px; border-left: 2px solid var(--cc-danger-border);
   border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--cc-danger-border) 10%, transparent);

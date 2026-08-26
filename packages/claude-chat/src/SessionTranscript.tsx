@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Marked } from "marked";
 import { filePathMarkedExtension } from "./host-rewrite";
 import { installSafeMarkdownRenderer, loadHostMap } from "./markdown-safety";
+import { railBadges } from "./run-context";
+import type { RouteAttribution } from "./transport";
 import {
   collectRelatedTasks,
   groupSessionTurns,
@@ -695,6 +697,113 @@ function SessionNotice({
   );
 }
 
+/** A stretch boundary: one full-width rule across the timeline carrying the same
+ * badge vocabulary as the Turn Rail. The badges come from `railBadges` and
+ * nowhere else, so the honesty rule holds here too - a dimension the stretch's
+ * attribution could not report gets NO badge, never a placeholder. */
+function StretchRule({ block }: { block: SessionBlock }) {
+  const ended = block.phase === "ended";
+  // railBadges is defensive about every field it reads; the two attribution
+  // shapes are the same bag described by two modules (journal owns the durable
+  // one, transport the live one), so this is a spelling change, not a claim.
+  const badges = railBadges((block.attribution ?? {}) as RouteAttribution);
+  const stretchId = compactNoticeText(block.stretchId);
+  const duty = compactNoticeText(block.duty);
+  const chosenBy = compactNoticeText(block.chosenBy);
+  const outcome = compactNoticeText(block.outcome);
+  const tokens =
+    typeof block.usedTokens === "number" && Number.isFinite(block.usedTokens) && block.usedTokens >= 0
+      ? Math.round(block.usedTokens)
+      : null;
+  const duration = elapsedLabel(block.durationMs);
+  return (
+    <div className={`cc-stretch cc-stretch-${ended ? "ended" : "started"}`}>
+      <div className="cc-stretch-head">
+        <span className="cc-stretch-kicker">{ended ? "Stretch ended" : "Stretch started"}</span>
+        {stretchId && (
+          <span className="cc-stretch-id" title={`stretch ${stretchId}`}>{stretchId}</span>
+        )}
+        {duty && <span className="cc-stretch-chip" title={`duty ${duty}`}>duty {duty}</span>}
+        {chosenBy && (
+          <span className="cc-stretch-chip" title={`the rung was chosen by ${chosenBy}`}>via {chosenBy}</span>
+        )}
+        {ended && outcome && (
+          <span className="cc-stretch-chip cc-stretch-outcome" title={`outcome ${outcome}`}>{outcome}</span>
+        )}
+        {ended && tokens !== null && (
+          <span className="cc-stretch-chip" title="tokens this stretch used">{tokens.toLocaleString("en-US")} tok</span>
+        )}
+        {ended && duration && <span className="cc-stretch-chip" title="how long the stretch ran">{duration}</span>}
+      </div>
+      {badges.length > 0 && (
+        <div className="cc-stretch-badges">
+          {badges.map((badge) => (
+            <span
+              key={badge.key}
+              className={`cc-stretch-badge${badge.tone ? ` cc-stretch-badge-${badge.tone}` : ""}`}
+              title={badge.title}
+            >
+              {badge.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Human labels for the ledger vocabulary. An unknown kind still renders (the
+ * store keeps unknown kinds verbatim) - it just reads as a plain ledger row. */
+const LEDGER_LABELS: Record<string, string> = {
+  handoff: "Handoff",
+  "delegation-dispatched": "Delegation sent",
+  "delegation-returned": "Delegation returned",
+  "delegation-failed": "Delegation failed",
+  "card-state-changed": "Card state changed",
+  escalation: "Escalation",
+  "policy-rewrite": "Policy rewrite",
+};
+
+/** Kinds that report something going wrong, and earn the warning tone. */
+const LEDGER_WARN_KINDS = new Set(["delegation-failed", "escalation"]);
+
+/** One conversation-ledger row, using the same expand-in-place disclosure the
+ * tool rows use. `payloadRef` is an inert reference label for now: the payload
+ * viewer is a later slice, and a link that goes nowhere is worse than a label. */
+function LedgerRow({ block }: { block: SessionBlock }) {
+  const kind = compactNoticeText(block.kind);
+  const label = LEDGER_LABELS[kind] ?? "Ledger";
+  const title = compactNoticeText(block.title);
+  const detail = typeof block.detail === "string" ? block.detail : "";
+  const payloadRef = compactNoticeText(block.payloadRef);
+  const seq =
+    typeof block.seq === "number" && Number.isInteger(block.seq) && block.seq >= 0 ? block.seq : null;
+  const tone = LEDGER_WARN_KINDS.has(kind) ? " cc-ledger-warn" : "";
+  return (
+    <ActivityDetails
+      active={false}
+      className={`cc-ledger${tone}`}
+      summary={
+        <>
+          <span className="cc-ledger-label">{label}</span>
+          {title && <span className="cc-ledger-title">{title}</span>}
+          {seq !== null && <span className="cc-ledger-seq">#{seq}</span>}
+        </>
+      }
+    >
+      <div className="cc-ledger-body">
+        {detail.trim() ? <pre className="cc-session-pre">{detail}</pre> : null}
+        {payloadRef ? (
+          <span className="cc-ledger-ref" title={`payload ${payloadRef}`}>payload {payloadRef}</span>
+        ) : null}
+        {!detail.trim() && !payloadRef ? (
+          <div className="cc-ledger-empty">No further detail was recorded.</div>
+        ) : null}
+      </div>
+    </ActivityDetails>
+  );
+}
+
 /** Typed transport/admission failures use the same non-assertive visual language
  * as durable canonical error blocks. The surrounding chat owns announcements. */
 export function FailureNotice({ failure }: { failure: FailureInfo }) {
@@ -779,6 +888,17 @@ function ActivityTimeline({
                 renderTerminalResult={renderTerminalResult}
                 terminalResultDuplicated={terminalResultDuplicated}
               />
+            </div>
+          );
+        }
+        if (beat.type === "stretch" || beat.type === "ledger") {
+          return (
+            <div
+              key={key}
+              data-session-event-id={sourceEvent?.id ?? undefined}
+              data-session-block-index={beat.blockIndex}
+            >
+              {beat.type === "stretch" ? <StretchRule block={block} /> : <LedgerRow block={block} />}
             </div>
           );
         }
@@ -1178,6 +1298,10 @@ export function SessionStream({
             const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
             const activityCount = event.blocks.filter((block) =>
               block.type === "thinking" || block.type === "tool_use" || block.type === "error" || block.type === "permission_request" ||
+              // Counted for the same reason they are on hasVisibleSessionActivity's
+              // whitelist: a settled turn whose only blocks are conversation events
+              // would otherwise render as an empty assistant bubble.
+              block.type === "stretch" || block.type === "ledger" ||
               block.type === "retry" || block.type === "route" || block.type === "turn_end" ||
               (block.type === "rate_limit" && (
                 String(block.status ?? "").toLowerCase() !== "allowed" ||

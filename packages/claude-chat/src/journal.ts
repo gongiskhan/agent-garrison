@@ -149,6 +149,18 @@ export interface SessionBlock {
    * missing/false flag means the corresponding value must not be approved. */
   inputComplete?: boolean;
   suggestionsComplete?: boolean;
+  /** Conversation-ledger extension fields (block types `stretch` / `ledger`).
+   * A stretch is one short-lived runtime session inside a conversation; a ledger
+   * row is a conversation event (handoff, delegation, card state, escalation). */
+  phase?: string;
+  stretchId?: string;
+  duty?: string | null;
+  chosenBy?: string | null;
+  outcome?: string | null;
+  usedTokens?: number | null;
+  durationMs?: number | null;
+  payloadRef?: string | null;
+  seq?: number | null;
 }
 
 export interface SessionErrorBlock extends SessionBlock {
@@ -189,6 +201,49 @@ export interface SessionRouteBlock extends SessionBlock {
   requestedModel?: string;
 }
 
+/** One boundary of a stretch: a short-lived runtime session that boots from a
+ * brief, works, and dies. The pair (started/ended) brackets the work it did, and
+ * the `ended` row is normally a REVISION of the `started` event id rather than a
+ * second row, so the boundary settles in place. */
+export type StretchPhase = "started" | "ended";
+
+export interface SessionStretchBlock extends SessionBlock {
+  type: "stretch";
+  phase: StretchPhase;
+  stretchId: string;
+  /** What actually ran this stretch. Rendered with the Turn Rail's badge
+   * vocabulary, so a dimension the attribution cannot report gets NO badge. */
+  attribution: SessionRouteAttribution;
+  duty?: string | null;
+  /** Who picked the rung: a pin, the ceiling clamp, a tripwire, the duty default. */
+  chosenBy?: string | null;
+  /** `ended` only - the handoff status the exit gate recorded. */
+  outcome?: string | null;
+  usedTokens?: number | null;
+  durationMs?: number | null;
+}
+
+/** A conversation-ledger event rendered inline in the timeline. `title` is the
+ * one-line record; `detail` is the expandable body; `payloadRef` names a spilled
+ * payload in the conversation store (an opaque reference, not a path). */
+export type SessionLedgerKind =
+  | "handoff"
+  | "delegation-dispatched"
+  | "delegation-returned"
+  | "delegation-failed"
+  | "card-state-changed"
+  | "escalation"
+  | "policy-rewrite";
+
+export interface SessionLedgerBlock extends SessionBlock {
+  type: "ledger";
+  kind: SessionLedgerKind;
+  title: string;
+  detail?: string | null;
+  payloadRef?: string | null;
+  seq?: number | null;
+}
+
 export interface SessionTurnEndBlock extends SessionBlock {
   type: "turn_end";
   status: "completed" | "error" | "cancelled";
@@ -222,6 +277,35 @@ export interface PermissionRequestBlock extends SessionBlock {
   inputComplete: boolean;
   suggestionsComplete: boolean;
 }
+
+/**
+ * The canonical block vocabulary, in one machine-readable place.
+ *
+ * A new block type has to be added in SIX places: this list, the block
+ * interface above, {@link SessionActivityBeat}, {@link sessionActivityBeats},
+ * the {@link hasVisibleSessionActivity} whitelist, the SessionTranscript render
+ * switch - and the web channel's own `SESSION_BLOCK_TYPES` sanitizer whitelist
+ * in `scripts/threads.mjs`. Miss that last one and every event carrying the new
+ * block is dropped WHOLE on its way to disk, silently.
+ * `tests/session-block-parity.test.ts` mechanises the server half.
+ */
+export const SESSION_BLOCK_TYPES = [
+  "text",
+  "thinking",
+  "tool_use",
+  "tool_result",
+  "tool_progress",
+  "related_task",
+  "status",
+  "route",
+  "retry",
+  "error",
+  "rate_limit",
+  "turn_end",
+  "permission_request",
+  "stretch",
+  "ledger",
+] as const;
 
 export interface SessionEvent {
   id: string | null;
@@ -270,7 +354,8 @@ export type SessionActivityBeat =
   | { type: "text"; eventIndex: number; blockIndex: number; text: string }
   | { type: "error"; eventIndex: number; blockIndex: number; text: string; block: SessionBlock }
   | { type: "retry" | "rate_limit" | "route" | "turn_end" | "status"; eventIndex: number; blockIndex: number; block: SessionBlock }
-  | { type: "thinking" | "tool_use" | "permission_request"; eventIndex: number; blockIndex: number; block: SessionBlock };
+  | { type: "thinking" | "tool_use" | "permission_request"; eventIndex: number; blockIndex: number; block: SessionBlock }
+  | { type: "stretch" | "ledger"; eventIndex: number; blockIndex: number; block: SessionBlock };
 
 export interface RelatedTask {
   key: string;
@@ -387,6 +472,10 @@ export function sessionActivityBeats(events: SessionEvent[]): SessionActivityBea
         // typed retry block existed.
         beats.push({ type: "status", eventIndex, blockIndex, block });
       } else if (block.type === "thinking" || block.type === "tool_use" || block.type === "permission_request") {
+        beats.push({ type: block.type, eventIndex, blockIndex, block });
+      } else if (block.type === "stretch" || block.type === "ledger") {
+        // Conversation ledger rows are chronological facts about the work, not
+        // decoration: they interleave with the prose rather than being hoisted.
         beats.push({ type: block.type, eventIndex, blockIndex, block });
       }
     }
@@ -568,7 +657,11 @@ export function hasVisibleSessionActivity(events: SessionEvent[]): boolean {
           (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback")) ||
           block.type === "thinking" ||
           block.type === "tool_use" ||
-          block.type === "permission_request"
+          block.type === "permission_request" ||
+          // A conversation event may be the ONLY thing a turn carries (a stretch
+          // boundary, a handoff): without these two the turn renders as empty.
+          block.type === "stretch" ||
+          block.type === "ledger"
       )
   );
 }
