@@ -673,6 +673,15 @@ x-garrison:
         model: csg
         params:
           type: secondary
+      # The same machine's HEADLESS face: `transport:model` runs one
+      # `cursor-agent -p` turn on csg and returns a real result object (text,
+      # chat id, token usage) instead of a scraped pane. A bare transport
+      # (csg-work, above) stays the interactive tmux lane.
+      - id: csg-exec
+        runtime: remote-shell
+        model: csg:gpt-5.3-codex-low
+        params:
+          type: secondary
       - id: cc-opus
         runtime: agent-sdk
         model: opus

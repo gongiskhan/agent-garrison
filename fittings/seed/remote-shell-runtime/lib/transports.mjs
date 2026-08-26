@@ -171,11 +171,20 @@ export function sshArgv(transport, { pty = false } = {}) {
  * be delivered without ever appearing in argv, where every other user on either
  * box can read it out of `ps`.
  */
-export function sshExec(transport, remoteCommand, { timeoutMs = 15_000, input = null } = {}) {
+export function sshExec(
+  transport,
+  remoteCommand,
+  { timeoutMs = 15_000, input = null, onStdout = null, onSpawn = null } = {}
+) {
   return new Promise((resolve) => {
     const child = spawn("ssh", [...sshArgv(transport), remoteCommand], {
       stdio: [input === null ? "ignore" : "pipe", "pipe", "pipe"]
     });
+    // A long remote turn reports progress while it runs; the caller still gets
+    // the whole buffer at the end. `onSpawn` hands the child back so a turn can
+    // be CANCELLED - killing the local ssh drops the channel, and the remote
+    // command dies with its SIGHUP.
+    if (typeof onSpawn === "function") onSpawn(child);
     if (input !== null) {
       child.stdin.on("error", () => { /* remote closed early; the exit code tells the story */ });
       child.stdin.end(input);
@@ -189,7 +198,10 @@ export function sshExec(transport, remoteCommand, { timeoutMs = 15_000, input = 
       try { child.kill("SIGKILL"); } catch {}
       resolve({ code: null, stdout, stderr: stderr + "\n[timeout]" });
     }, timeoutMs);
-    child.stdout.on("data", (d) => { stdout += d; });
+    child.stdout.on("data", (d) => {
+      stdout += d;
+      if (onStdout) { try { onStdout(d.toString("utf8")); } catch { /* a consumer error must not kill the turn */ } }
+    });
     child.stderr.on("data", (d) => { stderr += d; });
     child.on("close", (code) => {
       if (settled) return;

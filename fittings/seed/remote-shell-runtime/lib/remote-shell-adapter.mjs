@@ -11,6 +11,21 @@
 // TRANSPORT (e.g. model: "csg"), the same way Cursor encodes effort inside the
 // model id — it is the one runtime-specific slot every routing whitelist and
 // UI already carries.
+//
+// TWO LANES, one machine, chosen by that same slot:
+//
+//   model: "csg"                    → the TUI lane (above): the standing
+//                                     interactive agent, driven by send-keys and
+//                                     settled by its stop hook.
+//   model: "csg:gpt-5.3-codex-low"  → the EXEC lane: one headless
+//   model: "csg:auto"                 `cursor-agent -p` turn on that machine,
+//                                     returning real turn boundaries, the chat
+//                                     id and token usage.
+//
+// The exec lane is why a remote machine can be an ordinary runtime target
+// instead of a screen we scrape: the terminal is a fine place to WATCH an agent
+// and a bad place to read a result from. Both lanes ride the one tunnel the
+// fitting already owns and supervises.
 
 import { readFileSync } from "node:fs";
 import os from "node:os";
@@ -58,9 +73,67 @@ async function api(base, method, pathname, body) {
   return data;
 }
 
+/** Split the target's model slot into transport and (optional) agent model.
+ *  A bare transport keeps the TUI lane; anything after the colon selects the
+ *  exec lane and names the model to run there. */
+export function parseRemoteTarget(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return { transport: "", model: null, lane: "tui" };
+  const at = value.indexOf(":");
+  if (at < 0) return { transport: value, model: null, lane: "tui" };
+  const transport = value.slice(0, at).trim();
+  const model = value.slice(at + 1).trim();
+  return { transport, model: model || null, lane: "exec" };
+}
+
+/** POST /agent-turns and read its NDJSON: {delta} lines while the agent works,
+ *  then one {result} or {error}. */
+async function streamTurn(base, body, onDelta, signal = null) {
+  const res = await fetch(`${base}/agent-turns`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    ...(signal ? { signal } : {})
+  });
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error || `remote-shell server ${res.status} on /agent-turns`);
+  }
+  const decoder = new TextDecoder();
+  let pending = "";
+  let result = null;
+  let failure = null;
+  const consume = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let evt;
+    try { evt = JSON.parse(trimmed); } catch { return; }
+    if (typeof evt.delta === "string") { onDelta?.(evt.delta); return; }
+    if (evt.result) result = evt.result;
+    if (evt.error) failure = evt.error;
+  };
+  for await (const chunk of res.body) {
+    pending += decoder.decode(chunk, { stream: true });
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    for (const line of lines) consume(line);
+  }
+  if (pending) consume(pending);
+  if (failure) throw new Error(failure);
+  // A stream that ended with neither is a dropped connection, not an empty
+  // answer - saying "the agent replied nothing" would be a lie.
+  if (!result) throw new Error("remote agent turn ended without a result (the link dropped)");
+  return result;
+}
+
 export class RemoteShellAdapter {
   constructor(opts = {}) {
     this._baseUrl = opts.baseUrl ?? null;
+    // Last Cursor chat id per (transport, cwd), so consecutive turns in one
+    // gateway process CONTINUE a conversation instead of each starting a fresh
+    // one. Process-local on purpose: it is a convenience, and a restart
+    // honestly forgets rather than resuming something it cannot verify.
+    this._lastChat = new Map();
   }
 
   #base() {
@@ -78,15 +151,33 @@ export class RemoteShellAdapter {
    *  the transport. */
   async spawn(config = {}) {
     const base = this.#base();
-    const transport = String(config.transport || config.model || "").trim();
+    const parsed = parseRemoteTarget(config.transport ?? config.model);
+    const transport = parsed.transport;
     if (!transport) {
       throw new Error(
-        'remote-shell target names no transport — set the routing target\'s model to the transport name (e.g. model: "csg")'
+        'remote-shell target names no transport — set the routing target\'s model to the transport name (e.g. model: "csg", or "csg:auto" for a headless turn)'
       );
+    }
+    if (parsed.lane === "exec") {
+      // Nothing to bring up: a headless turn is a subprocess on the far side,
+      // so there is no session to attach, no PTY, and nothing to tear down.
+      const cwd = typeof config.remoteCwd === "string" && config.remoteCwd.trim() ? config.remoteCwd.trim() : null;
+      return {
+        base,
+        lane: "exec",
+        transport,
+        model: parsed.model,
+        remoteCwd: cwd,
+        chatId: config.sessionId ?? this._lastChat.get(`${transport}\u0000${cwd ?? ""}`) ?? null,
+        pendingPrompt: null,
+        cancelRequested: false,
+        abort: null
+      };
     }
     const { session } = await api(base, "POST", "/sessions", { transport });
     return {
       base,
+      lane: "tui",
       sessionId: session.id,
       transport,
       pendingTurn: null,
@@ -95,10 +186,17 @@ export class RemoteShellAdapter {
   }
 
   async awaitReady(session) {
+    if (session.lane === "exec") return; // no standing process to wait for
     await api(session.base, "GET", `/sessions/${session.sessionId}`);
   }
 
   async sendTurn(session, text) {
+    if (session.lane === "exec") {
+      // The turn IS the request; it is issued in awaitResponse, where the
+      // stream can be read to completion.
+      session.pendingPrompt = String(text ?? "");
+      return;
+    }
     const { turn } = await api(session.base, "POST", `/sessions/${session.sessionId}/turn`, { text });
     session.pendingTurn = turn.id;
   }
@@ -114,6 +212,7 @@ export class RemoteShellAdapter {
    * rewrites its last lines in place, so only the whole text is ever correct.
    */
   async awaitResponse(session, opts = {}) {
+    if (session.lane === "exec") return this.#awaitExecResponse(session, opts);
     if (!session.pendingTurn) throw new Error("RemoteShellAdapter: awaitResponse without a pending sendTurn");
     const turnId = session.pendingTurn;
     session.pendingTurn = null;
@@ -173,8 +272,57 @@ export class RemoteShellAdapter {
 
   /** Cancel = Escape into the remote TUI (the agent's own interrupt), never a
    *  kill — the remote session must survive. */
+  /** The exec lane's turn: one streamed request, deltas forwarded as they land.
+   *  Cancel aborts the HTTP request, which drops the fitting's ssh channel and
+   *  takes the remote process with it. */
+  async #awaitExecResponse(session, opts = {}) {
+    const prompt = session.pendingPrompt;
+    session.pendingPrompt = null;
+    if (prompt == null) throw new Error("RemoteShellAdapter: awaitResponse without a pending sendTurn");
+    const onChunk = typeof opts.onChunk === "function" ? opts.onChunk : null;
+    let streamed = "";
+    // The handle cancel() pulls on. Aborting the request closes the fitting's
+    // response, which kills its ssh child, which HUPs the remote agent - the
+    // whole chain, from one Stop.
+    const controller = new AbortController();
+    session.abort = controller;
+    try {
+      const turn = await streamTurn(
+        session.base,
+        {
+          transport: session.transport,
+          prompt,
+          ...(session.model ? { model: session.model } : {}),
+          ...(session.remoteCwd ? { cwd: session.remoteCwd } : {}),
+          ...(session.chatId ? { resumeId: session.chatId } : {})
+        },
+        (delta) => {
+          streamed += delta;
+          // REPLACE, like the TUI lane: the channel shows the answer growing.
+          onChunk?.(streamed, true);
+        },
+        controller.signal
+      );
+      if (turn.sessionId) {
+        session.chatId = turn.sessionId;
+        this._lastChat.set(`${session.transport}\u0000${session.remoteCwd ?? ""}`, turn.sessionId);
+      }
+      session.usage = turn.usage ?? null;
+      return { text: turn.text ?? streamed, usage: turn.usage ?? null };
+    } catch (err) {
+      // A cancelled turn settles with what it had, and says so - the badge row
+      // reads stoppedByUser instead of presenting a truncated answer as whole.
+      if (session.cancelRequested) return { text: streamed, stoppedReason: "cancelled" };
+      throw err;
+    }
+  }
+
   async cancel(session) {
     session.cancelRequested = true;
+    if (session.lane === "exec") {
+      try { session.abort?.abort(); } catch {}
+      return;
+    }
     try {
       await api(session.base, "POST", `/sessions/${session.sessionId}/keys`, { keys: "Escape" });
     } catch {}

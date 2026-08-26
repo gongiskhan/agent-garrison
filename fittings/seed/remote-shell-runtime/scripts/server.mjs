@@ -269,6 +269,54 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         return jsonRes(res, 200, { session: manager.summary(session) });
       }
 
+      // ── the exec lane ──────────────────────────────────────────────────
+      // Loopback only, and deliberately ABSENT from the web channel's proxy
+      // allow-list: this runs a command on the remote machine, and the browser
+      // has no business reaching it. The tmux lane above is the interactive
+      // face of the same transport; this is the structured one.
+      if (req.method === "POST" && pathname === "/exec") {
+        const body = await readJsonBody(req);
+        const out = await manager.execArgv(String(body.transport || ""), {
+          argv: body.argv,
+          cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null,
+          stdin: typeof body.stdin === "string" ? body.stdin : null,
+          timeoutMs: Number(body.timeoutMs) > 0 ? Math.min(Number(body.timeoutMs), 900_000) : undefined,
+          login: body.login !== false
+        });
+        return jsonRes(res, 200, out);
+      }
+
+      // One headless agent turn, STREAMED as NDJSON: {delta} lines while the
+      // agent works, then one {result} or {error}. A turn runs for minutes, so a
+      // buffered response would show nothing until it ended - and the caller
+      // could not tell a slow turn from a dead one.
+      if (req.method === "POST" && pathname === "/agent-turns") {
+        const body = await readJsonBody(req);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/x-ndjson");
+        res.setHeader("Cache-Control", "no-store");
+        const send = (obj) => { try { res.write(`${JSON.stringify(obj)}\n`); } catch { /* client gone */ } };
+        let child = null;
+        // A client that hangs up mid-turn takes the remote command with it:
+        // killing the local ssh drops the channel and the far side gets a HUP.
+        req.on("aborted", () => { try { child?.kill("SIGTERM"); } catch {} });
+        try {
+          const turn = await manager.agentTurn(String(body.transport || ""), {
+            prompt: typeof body.prompt === "string" ? body.prompt : "",
+            model: typeof body.model === "string" && body.model.trim() ? body.model.trim() : null,
+            cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null,
+            resumeId: typeof body.resumeId === "string" && body.resumeId.trim() ? body.resumeId.trim() : null,
+            timeoutMs: Number(body.timeoutMs) > 0 ? Math.min(Number(body.timeoutMs), 3_600_000) : undefined,
+            onDelta: (delta) => send({ delta }),
+            onSpawn: (c) => { child = c; }
+          });
+          send({ result: turn });
+        } catch (err) {
+          send({ error: String(err?.message || err), status: err?.status ?? 500 });
+        }
+        return void res.end();
+      }
+
       // The spawn targets the Shells picker offers: folders under ~/dev on the
       // transport, annotated with any session already working there.
       if (req.method === "GET" && pathname === "/projects") {

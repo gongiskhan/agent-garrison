@@ -69,6 +69,20 @@ function cleanRemoteCwd(raw) {
 // Events attribution across MULTIPLE sessions on one transport: the hook now
 // stamps the agent's cwd into every event, and ~-vs-absolute must not break
 // the match. "~/dev/x" and "/home/anyone/dev/x" both normalize to "/dev/x".
+/** The assistant text carried by one stream-json event, if any. Cursor emits
+ *  deltas as assistant messages with a content array; anything else (tool
+ *  calls, system frames) contributes nothing to the reply. */
+function deltaText(evt) {
+  if (!evt || typeof evt !== "object") return "";
+  if (typeof evt.delta === "string") return evt.delta;
+  const message = evt.message ?? evt;
+  if (message?.role && message.role !== "assistant") return "";
+  const content = message?.content;
+  if (typeof content === "string") return evt.type === "assistant" ? content : "";
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => (typeof part?.text === "string" ? part.text : "")).join("");
+}
+
 /** The name a numbered instance wears in the UI: the second agent in
  *  `csg-spec` is "csg-spec #2", not a second row also called "csg-spec". */
 function instanceLabel(label, sessName, instance) {
@@ -214,6 +228,160 @@ export class SessionManager {
   }
 
   // ── Remote project listing ───────────────────────────────────────────────
+
+  // ── The exec lane ────────────────────────────────────────────────────────
+  //
+  // The tmux lane drives an INTERACTIVE agent and reads its screen; this one
+  // runs a HEADLESS turn and reads structured JSON. Same machine, same tunnel,
+  // same credential - the difference is only which face of the agent answers.
+  //
+  // It exists because the terminal is a bad runtime: a TUI has no turn
+  // boundaries, no token counts and no result object, so everything above it
+  // has to infer. `cursor-agent -p` hands all three over directly, which is what
+  // lets a remote machine be an ordinary Garrison runtime target rather than a
+  // screen we scrape.
+
+  /** Run argv on the transport and collect the result. `login: true` runs it
+   *  under a LOGIN shell: a non-interactive ssh command gets none of the user's
+   *  profile, and the agent CLIs live in ~/.local/bin - the difference between
+   *  this working and a bare "command not found". */
+  async execArgv(transportName, { argv, cwd = null, stdin = null, timeoutMs = 120_000, login = true } = {}) {
+    const transport = this.transports.get(transportName);
+    if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
+    if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== "string")) {
+      throw new HttpError(400, "argv must be a non-empty array of strings");
+    }
+    const tunnel = await this.tunnels.ensure(transport);
+    if (!tunnel.ok) throw new HttpError(502, tunnel.error);
+    const command = this.#remoteCommand(argv, { cwd, login });
+    const r = await this.#exec(transport, command, { timeoutMs, input: stdin ?? null });
+    return { code: r.code, stdout: r.stdout, stderr: r.stderr };
+  }
+
+  /** The command string that runs argv on the far side. Every element is
+   *  shell-quoted, so nothing in a prompt, a model id or a path can become
+   *  syntax - the prompt itself never travels here at all (it goes on STDIN). */
+  #remoteCommand(argv, { cwd = null, login = true } = {}) {
+    const inner = [
+      ...(cwd ? [`cd ${remotePath(cwd)} || exit 9;`] : []),
+      "exec",
+      ...argv.map(shellQuote)
+    ].join(" ");
+    return login ? `bash -lc ${shellQuote(inner)}` : inner;
+  }
+
+  /**
+   * One headless agent turn on the transport, streamed.
+   *
+   * Cursor's `--output-format stream-json` emits one JSON object per line and a
+   * final `{type:"result"}` carrying the assistant text, the chat id (for
+   * `--resume`) and token usage. Deltas are forwarded through `onDelta` as they
+   * land so a caller can show the work; the result object is the turn.
+   *
+   * Only the transport's OWN agent command is ever run, and only when this
+   * fitting knows how to speak its headless dialect - an unknown agent fails
+   * loudly rather than being handed flags it will reject in some other way.
+   */
+  async agentTurn(transportName, {
+    prompt,
+    model = null,
+    cwd = null,
+    resumeId = null,
+    timeoutMs = 900_000,
+    onDelta = null,
+    onSpawn = null
+  } = {}) {
+    const transport = this.transports.get(transportName);
+    if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
+    if (typeof prompt !== "string" || !prompt.trim()) throw new HttpError(400, "empty prompt");
+    const bin = transport.agentCommand?.trim();
+    if (!bin) throw new HttpError(400, `transport "${transportName}" declares no agentCommand`);
+    if (path.basename(bin.split(/\s+/)[0]) !== "cursor-agent") {
+      throw new HttpError(400, `the exec lane speaks cursor-agent; "${bin}" is not one`);
+    }
+    const turnCwd = cwd ? cleanRemoteCwd(cwd) : (transport.cwd ?? null);
+    const tunnel = await this.tunnels.ensure(transport);
+    if (!tunnel.ok) throw new HttpError(502, tunnel.error);
+
+    const argv = [
+      ...bin.split(/\s+/),
+      "-p",
+      "--output-format", "stream-json",
+      "--stream-partial-output",
+      // --trust: an untrusted workspace makes the CLI print a human notice and
+      // exit 0, which would read as an empty success. --force: there is no
+      // prompt surface on this lane, so an approval request is a hang.
+      "--trust",
+      "--force",
+      ...(model ? ["--model", model] : []),
+      ...(resumeId ? ["--resume", resumeId] : [])
+    ];
+    const command = this.#remoteCommand(argv, { cwd: turnCwd, login: true });
+
+    let pending = "";
+    let text = "";
+    let sessionId = resumeId ?? null;
+    let usage = null;
+    let result = null;
+    const consume = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      let evt;
+      try { evt = JSON.parse(trimmed); } catch { return; } // human notices are not events
+      if (evt.type === "result") {
+        result = evt;
+        if (typeof evt.result === "string") text = evt.result;
+        if (evt.session_id) sessionId = evt.session_id;
+        if (evt.usage) usage = evt.usage;
+        return;
+      }
+      if (evt.session_id && !sessionId) sessionId = evt.session_id;
+      const delta = deltaText(evt);
+      if (!delta) return;
+      // Cursor closes a streamed reply with a RECAP frame carrying the whole
+      // text again (live: three partials "RAW","-","OK" then one "RAW-OK";
+      // the partials carry timestamp_ms and the recap does not, but matching on
+      // a field's ABSENCE is a rule waiting to break). Emitting it would show
+      // the answer twice before the result settled it.
+      if (text && delta === text) return;
+      text += delta;
+      if (onDelta) { try { onDelta(delta); } catch { /* a consumer error must not kill the turn */ } }
+    };
+
+    const r = await this.#exec(transport, command, {
+      timeoutMs,
+      input: prompt,
+      onSpawn,
+      onStdout: (chunk) => {
+        pending += chunk;
+        const lines = pending.split("\n");
+        pending = lines.pop() ?? "";
+        for (const line of lines) consume(line);
+      }
+    });
+    if (pending) consume(pending);
+
+    if (r.code === 9) throw new HttpError(400, `no such folder on ${transport.name}: ${turnCwd}`);
+    // A turn that produced no result object did NOT succeed, whatever it exited
+    // with: the CLI prints its refusals (untrusted workspace, unknown model) as
+    // human prose on exit 0, and reporting that as an empty reply is the one
+    // failure a caller cannot see.
+    if (!result) {
+      const detail = (r.stderr || r.stdout || "").trim().slice(-500);
+      throw new HttpError(502, `remote agent turn produced no result${detail ? `: ${detail}` : ""}`);
+    }
+    if (result.is_error) {
+      throw new HttpError(502, `remote agent turn failed: ${String(result.result ?? result.subtype ?? "error").slice(0, 500)}`);
+    }
+    return {
+      text,
+      sessionId,
+      usage,
+      model: model ?? null,
+      cwd: turnCwd,
+      durationMs: Number(result.duration_ms) || null
+    };
+  }
 
   /** Folders under ~/dev on the transport - the spawn targets the picker
    *  offers. Ordinary exec, no cache: one ls per modal open is cheaper than
