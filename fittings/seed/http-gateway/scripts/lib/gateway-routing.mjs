@@ -2002,6 +2002,24 @@ export class RoutedGateway {
     });
   }
 
+  // Release every warm agent-sdk session belonging to one conversation
+  // sessionKey (the stretch launcher's "stretch:<id>" / "repair:<id>" keys).
+  // A stretch dies with its session — without this, the warm pool silently
+  // carries prior context into the next stretch and the Conversations
+  // concept's central claim ("boots from a brief, works, dies") is false in
+  // code. Public on purpose: stretch.mjs calls it from outside the class.
+  async releaseConversationSessions(sessionKey) {
+    const adapter = this._agentSdkAdapter;
+    if (!adapter || typeof sessionKey !== "string" || !sessionKey) return 0;
+    let released = 0;
+    for (const [key, session] of [...this._agentSdkSessions]) {
+      if (this._agentSdkSessionMeta?.get(key)?.sessionKey !== sessionKey) continue;
+      await this._releaseAgentSdkSession(adapter, key, session, "stretch-ended", { strict: true });
+      released += 1;
+    }
+    return released;
+  }
+
   // Cap the warm agent-sdk session map. Conversation-keyed sessions (§12) grow
   // with thread count against a Map that had no eviction at all. A standing Query
   // must be closed, not merely interrupted (interrupt intentionally preserves it

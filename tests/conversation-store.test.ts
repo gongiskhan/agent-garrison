@@ -5,14 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — pure .mjs
-import {
-  ConversationStore,
-  openConversation,
-  listConversations,
-  conversationDir,
-  newConversationId,
-  PAYLOAD_INLINE_CAP_BYTES,
-} from "../packages/claude-pty/src/conversation-store.mjs";
+import { ConversationStore, openConversation, listConversations, conversationDir, newConversationId, PAYLOAD_INLINE_CAP_BYTES } from "../packages/claude-pty/src/conversation-store.mjs";
 
 let tmp: string;
 let env: Record<string, string>;

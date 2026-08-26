@@ -4684,6 +4684,153 @@ const server = http.createServer(async (request, response) => {
     // decision about work the BOARD is driving, and it must not queue behind a
     // spawning operative. Every branch is answered by the router (which logs the
     // decision either way), so this handler only adapts it to HTTP.
+    // ── Conversations (the stretch launcher's doors) ─────────────────────────
+    // A conversation is driven in-process on its own lane, OFF the serialized
+    // operative turn chain. The board is a trigger (its tick re-POSTs advance
+    // for recovery); these routes are the only way work enters the launcher.
+    if (url.pathname.startsWith("/conversation")) {
+      if (!router) return sendJson(response, 409, { error: "routed operative is not ready" });
+      const stretchLib = await import("./lib/stretch.mjs");
+      const { openConversation, newConversationId } = await import("@garrison/claude-pty");
+
+      if (request.method === "POST" && url.pathname === "/conversation/open") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(body.conversationId)
+          ? body.conversationId
+          : newConversationId();
+        const store = openConversation(conversationId, { role: "gateway" });
+        store.init({
+          title: typeof body.title === "string" ? body.title.slice(0, 120) : "Conversation",
+          objective: typeof body.objective === "string" ? body.objective.slice(0, 2000) : "",
+          origin: typeof body.origin === "string" ? body.origin : null,
+          cardId: typeof body.cardId === "string" ? body.cardId : null,
+        });
+        if (typeof body.task === "string" && body.task.trim()) {
+          stretchLib.recordUserMessage(store, { text: body.task, origin: body.origin ?? "api" });
+        }
+        logEvent("stdout", { kind: "conversation-open", conversationId });
+        return sendJson(response, 201, { conversationId });
+      }
+
+      if (request.method === "POST" && url.pathname === "/conversation/advance") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
+        if (!conversationId) return sendJson(response, 400, { error: "conversationId is required" });
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        if (controllers.has(conversationId)) {
+          return sendJson(response, 409, { error: "conversation is already advancing", conversationId });
+        }
+        const controller = new AbortController();
+        controllers.set(conversationId, controller);
+        response.statusCode = 200;
+        response.setHeader("content-type", "text/event-stream");
+        response.setHeader("cache-control", "no-cache, no-transform");
+        response.setHeader("connection", "keep-alive");
+        response.setHeader("x-accel-buffering", "no");
+        response.flushHeaders?.();
+        sseWrite(response, "open", { ts: Date.now(), conversationId });
+        const heartbeat = setInterval(() => {
+          try {
+            response.write(": keepalive\n\n");
+          } catch {
+            /* client gone */
+          }
+        }, 15_000);
+        // Closing the SSE client does NOT cancel the conversation — process
+        // survives tab close; /conversation/cancel is the explicit stop.
+        try {
+          const result = await stretchLib.runConversation(router, {
+            conversationId,
+            task: typeof body.task === "string" && body.task.trim() ? body.task : null,
+            maxStretches: Number(body.maxStretches) > 0 ? Math.min(Number(body.maxStretches), 64) : undefined,
+            signal: controller.signal,
+            onFrame: (event, payload) => {
+              try {
+                sseWrite(response, event, payload);
+              } catch {
+                /* client gone; the loop keeps running */
+              }
+            },
+          });
+          logEvent("stdout", { kind: "conversation-advance-done", conversationId, ...result });
+        } catch (err) {
+          try {
+            sseWrite(response, "error", { error: err?.message ?? String(err) });
+          } catch {
+            /* client gone */
+          }
+          logEvent("stderr", { kind: "conversation-advance-error", conversationId, error: err?.message });
+        } finally {
+          clearInterval(heartbeat);
+          controllers.delete(conversationId);
+          try {
+            response.end();
+          } catch {
+            /* already closed */
+          }
+        }
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/conversation/message") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
+        const message = typeof body.message === "string" ? body.message : "";
+        if (!conversationId || !message.trim()) {
+          return sendJson(response, 400, { error: "conversationId and message are required" });
+        }
+        const store = openConversation(conversationId, { role: "gateway" });
+        store.init({});
+        const rec = stretchLib.recordUserMessage(store, {
+          text: message,
+          origin: typeof body.origin === "string" ? body.origin : "web",
+          threadId: typeof body.threadId === "string" ? body.threadId : null,
+        });
+        const running = store.currentStretch();
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        const advancing = controllers.has(conversationId);
+        // Nothing running → a responder stretch answers from L1. Fire and
+        // forget on the conversation lane; the caller watches the store/SSE.
+        if (!running && !advancing) {
+          const controller = new AbortController();
+          controllers.set(conversationId, controller);
+          void stretchLib
+            .runConversation(router, { conversationId, signal: controller.signal })
+            .catch((err) => logEvent("stderr", { kind: "conversation-responder-error", conversationId, error: err?.message }))
+            .finally(() => controllers.delete(conversationId));
+        }
+        return sendJson(response, 202, { accepted: true, seq: rec.seq, pickedUpBy: running ? "running-stretch" : advancing ? "advancing" : "responder" });
+      }
+
+      if (request.method === "POST" && url.pathname === "/conversation/cancel") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        const controller = controllers.get(conversationId);
+        if (!controller) return sendJson(response, 404, { error: "no advancing conversation", conversationId });
+        controller.abort();
+        logEvent("stdout", { kind: "conversation-cancel", conversationId });
+        return sendJson(response, 202, { cancelled: true, conversationId });
+      }
+
+      if (request.method === "GET" && /^\/conversation\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(url.pathname)) {
+        const conversationId = url.pathname.split("/")[2];
+        const store = openConversation(conversationId, { role: "gateway" });
+        const summary = store.readSummary();
+        if (summary == null) return sendJson(response, 404, { error: "no such conversation" });
+        return sendJson(response, 200, {
+          conversationId,
+          summary,
+          handoffs: store.lastHandoffs(10),
+          tail: store.tail(100),
+          currentStretch: store.currentStretch(),
+          advancing: (globalThis.__conversationAborts ?? new Map()).has(conversationId),
+        });
+      }
+
+      return sendJson(response, 404, { error: "not found", path: url.pathname });
+    }
+
     if (request.method === "POST" && url.pathname === "/escalate") {
       if (!router) return sendJson(response, 409, { error: "routed operative is not ready" });
       const body = await readJsonBody(request);

@@ -6,14 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — pure .mjs
-import {
-  openConversation,
-  parseSummary,
-  renderSummary,
-  parseEscalationFloor,
-  SUMMARY_MAX_BYTES,
-  SUMMARY_MAX_LINES,
-} from "../packages/claude-pty/src/conversation-store.mjs";
+import { openConversation, parseSummary, renderSummary, parseEscalationFloor, SUMMARY_MAX_BYTES, SUMMARY_MAX_LINES } from "../packages/claude-pty/src/conversation-store.mjs";
 
 let tmp: string;
 let env: Record<string, string>;
