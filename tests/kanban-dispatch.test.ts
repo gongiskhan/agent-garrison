@@ -138,15 +138,13 @@ describe("a move never dispatches", () => {
     expect((await loadCard(root, card.id)).status).not.toBe("running");
   });
 
-  // KNOWN FAILING — a real defect in server.mjs, reported rather than papered
-  // over. handlePatchCard validates only that the target list EXISTS; it never
-  // consults the source list's validNext and has no `running` guard, so a plain
-  // human PATCH (the drag the board's own UI performs) lands a card on Running.
-  // coherentCardState then stamps status:"running" at the write choke point, and
-  // the result is a card the board reports as RUNNING with no conversation, no
-  // gateway turn and nothing that will ever finish it. The CREATE door already
-  // refuses exactly this (`targetList === "running"` requires the engine header,
-  // server.mjs ~1757); the MOVE door needs the same refusal.
+  // Regression for a defect this suite caught: handlePatchCard used to validate
+  // only that the target list EXISTS, so a plain human PATCH — the drag the
+  // board's own UI performs — landed a card on Running, and coherentCardState
+  // stamped status:"running" at the write choke point. The result was a card the
+  // board reported as RUNNING with no conversation, no gateway turn and nothing
+  // that would ever finish it. Both doors onto Running now require the engine
+  // header: CREATE (server.mjs ~1757) and this one.
   it("a human cannot MOVE a card into Running — that door is the launcher's", async () => {
     const card = await newCard("drag to running");
     gatewayHits = [];
@@ -155,10 +153,10 @@ describe("a move never dispatches", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ list: "running", rev: card.rev })
     });
-    // No model turn was opened either way — the dispatch invariant itself holds.
+    // No model turn was opened — the dispatch invariant itself holds…
     expect(gatewayHits).toEqual([]);
-    // …but the move is accepted, and that is the bug: Running is a state the
-    // launcher owns, and a drag must not be able to claim it.
+    // …and the move is refused outright: Running is a state the launcher owns,
+    // and a drag must not be able to claim it.
     expect(moved.status).toBe(400);
     const after = await loadCard(root, card.id);
     expect(after.list).toBe("todo");
