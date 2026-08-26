@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // @ts-ignore — pure .mjs
-import { writeDutySummary, readGateSummary, appendSessionId, buildContinuationContext, buildCardPrompt } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { writeDutySummary, readGateSummary, appendSessionId, buildContinuationContext } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { composeHandoff, doneTransition } from "../fittings/seed/kanban-loop/lib/handoff.mjs";
 // @ts-ignore — pure .mjs
@@ -174,19 +174,19 @@ describe("WS2 — handoff packet composition", () => {
 describe("WS2 — continues field + continuation prompt injection", () => {
   it("createCard shape-validates continues and stamps origin 'continuation'", async () => {
     const root = tmp("ws2-cards-");
-    const cont = await createCard(root, { list: "backlog", title: "cont", continues: ULID_A });
+    const cont = await createCard(root, { list: "todo", title: "cont", continues: ULID_A });
     expect(cont.continues).toBe(ULID_A);
     expect(cont.origin).toBe("continuation");
     // Invalid continues -> null, no origin stamp.
-    const bad = await createCard(root, { list: "backlog", title: "bad", continues: "not-a-ulid" });
+    const bad = await createCard(root, { list: "todo", title: "bad", continues: "not-a-ulid" });
     expect(bad.continues).toBeNull();
     expect(bad.origin).toBeNull();
     // Explicit origin wins over the continuation default.
-    const keep = await createCard(root, { list: "backlog", title: "keep", continues: ULID_A, origin: "board" });
+    const keep = await createCard(root, { list: "todo", title: "keep", continues: ULID_A, origin: "board" });
     expect(keep.origin).toBe("board");
   });
 
-  it("buildContinuationContext reads the predecessor handoff, and buildCardPrompt injects it", () => {
+  it("buildContinuationContext reads the predecessor handoff into the successor's brief block", () => {
     const root = tmp("ws2-cont-");
     mkdirSync(join(root, "cards", ULID_A), { recursive: true });
     writeFileSync(
@@ -210,15 +210,12 @@ describe("WS2 — continues field + continuation prompt injection", () => {
     expect(block).toContain("plan: FLOW_PLAN.md - the plan duty output");
     expect(block).toContain(`fetch_evidence("${ULID_A}"`);
 
-    const prompt = buildCardPrompt({
-      list: { kind: "agent", title: "Plan", executePrompt: "Plan it." },
-      card: { id: ULID_B, title: "cont", continues: ULID_A },
-      validNext: ["implement"],
-      continuationContext: block,
-      phase: "plan"
-    });
-    expect(prompt).toContain("Continuing from 01JH000000000000000000000A");
-    expect(prompt).toContain("shipped JWT login");
+    // The consumer-side assertion (buildCardPrompt injecting the block into a
+    // duty-list dispatch prompt) went with the run engine — nothing composes a
+    // per-phase prompt any more. What is asserted here is the block's own
+    // contract: self-contained, quotable text a launcher brief can paste whole.
+    expect(block.trim().length).toBeGreaterThan(0);
+    expect(block).not.toContain("undefined");
 
     // No handoff yet -> null, and the prompt omits the block.
     expect(buildContinuationContext(root, { id: ULID_B, continues: "01JH00000000000000000000ZZ" })).toBeNull();
@@ -233,16 +230,16 @@ describe("continuation journey inheritance", () => {
     const root = tmp("inherit-");
     const a = await createCard(root, {
       title: "A",
-      list: "backlog",
+      list: "todo",
       duty: "code",
       level: 2,
       sequence: ["plan", "implement", "review", "test"],
     });
-    const b = await createCard(root, { title: "B", list: "backlog", continues: a.id });
+    const b = await createCard(root, { title: "B", list: "todo", continues: a.id });
     expect(b.duty).toBe("code");
     expect(b.level).toBe(2);
     expect(b.sequence).toEqual(["plan", "implement", "review", "test"]);
-    const c = await createCard(root, { title: "C", list: "backlog", continues: a.id, duty: "other", sequence: ["other"] });
+    const c = await createCard(root, { title: "C", list: "todo", continues: a.id, duty: "other", sequence: ["other"] });
     expect(c.duty).toBe("other"); // explicit choice wins
     expect(c.sequence).toEqual(["other"]);
   });

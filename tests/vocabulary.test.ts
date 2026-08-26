@@ -150,7 +150,7 @@ const CONVERSATION_SURFACES = [
 // "dr-session-tabs", "/api/session-stream?session=". A literal is dropped only
 // when EVERY token is code-shaped — "Session records (sessions/*.json)" is
 // prose that happens to contain a path, and stays in the corpus.
-const CODE_TOKEN = /^[./#@]?[a-z][a-zA-Z0-9]*([-_:./?=&][a-zA-Z0-9*]+)*$/;
+const CODE_TOKEN = /^[.#@]*\/?[a-z][a-zA-Z0-9]*(?:[-_:./?=&]+[a-zA-Z0-9*]*)*$/;
 
 function isIdentifierish(value: string): boolean {
   return value.split(/\s+/).every((token) => CODE_TOKEN.test(token));
@@ -158,6 +158,12 @@ function isIdentifierish(value: string): boolean {
 
 /** Where a `'` starts a literal rather than punctuating prose. */
 const VALUE_POSITION = /[([{=,:?&|!+;<>]$/;
+
+// Where a `/` starts a regex rather than dividing. `<` is deliberately absent:
+// in `</div>` the slash closes a JSX tag. Regexes must be recognised because
+// one of them holds a backtick (kanban-loop's link matcher) — read as code, it
+// would open a template literal and swallow the rest of the file.
+const REGEX_POSITION = /[([{=,:?&|!+;~^%]$/;
 
 /** Template-literal holes: the text around them is copy, the hole is not. */
 const INTERPOLATION = /\$\{[^}]*\}/g;
@@ -203,6 +209,21 @@ function userVisibleStrings(source: string): Array<{ line: number; value: string
       blank(2);
       index += 2;
       continue;
+    }
+    if (ch === "/" && (REGEX_POSITION.test(lastCode()) || lastCode() === "")) {
+      let cursor = index + 1;
+      let inClass = false;
+      let closed = false;
+      while (cursor < source.length) {
+        const c = source[cursor];
+        if (c === "\\") { cursor += 2; continue; }
+        if (c === "\n") break;            // a regex never spans lines
+        if (c === "[") inClass = true;
+        else if (c === "]") inClass = false;
+        else if (c === "/" && !inClass) { closed = true; break; }
+        cursor++;
+      }
+      if (closed) { blank(cursor - index + 1); index = cursor + 1; continue; }
     }
     // An apostrophe only opens a literal in value position; in JSX text
     // ("card's runtime transcript") it is punctuation.
@@ -312,11 +333,6 @@ const SESSION_IS_THE_RUNTIME: ReadonlyArray<{ file: string; why: string }> = [
  * to happen for the word to leave.
  */
 const SESSION_LITERALS: ReadonlyArray<{ file: string; literal: string; why: string }> = [
-  {
-    file: "src/components/chrome/AppShell.tsx",
-    literal: "Session",
-    why: "the shell's + New row points at the Web Channel and should read Conversation; the menu is owned by the shell slice, so the word leaves there"
-  },
   {
     file: "fittings/seed/web-channel-default/ui/main.tsx",
     literal: "the gateway is not answering - start the session to pin routing",

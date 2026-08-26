@@ -4,6 +4,14 @@
 // actually a routed agent step looks identical to a column he parks things in, and
 // that ambiguity is a large part of why the orchestration is hard to hold in your
 // head (ORCHESTRATOR_COHERENCE.md §2.4).
+//
+// Conversations (BOARD_VERSION 10) did NOT retire these migrations — a legacy
+// board still has to heal on read so its columns and card refs stay coherent
+// until scripts/migrate-conversations.mjs runs. What changed is the STAMP:
+// v9→v10 is a guard, not a transform, so migrateBoard heals a legacy board and
+// leaves it stamped AT MOST 9. Every case below therefore asserts LEGACY_CEILING,
+// and the guard itself is pinned at the bottom of this file: nothing but the
+// migration script may stamp a board BOARD_VERSION.
 
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 // @ts-expect-error — plain .mjs fitting module, no types
@@ -39,10 +47,15 @@ const v5Board = () => ({
 const byId = (b: { lists: { id: string }[] }, id: string) =>
   b.lists.find((l) => l.id === id) as Record<string, unknown> | undefined;
 
+// The highest version migrateBoard may stamp. The pre-v9 blocks still run; the
+// v10 guard returns the healed board at 9 so a half-migrated board (new columns,
+// old cards) can never be served.
+const LEGACY_CEILING = 9;
+
 describe("board v7 — duty: prefix + the retired code list", () => {
   it("prefixes every duty-backed list without touching its id", () => {
     const out = migrateBoard(v5Board());
-    expect(out.version).toBe(BOARD_VERSION);
+    expect(out.version).toBe(LEGACY_CEILING);
     expect(byId(out, "implement")?.title).toBe("duty: Implement");
     expect(byId(out, "implement")?.id).toBe("implement"); // ids are persisted card refs
   });
@@ -101,7 +114,7 @@ describe("board v7 — duty: prefix + the retired code list", () => {
     // nothing applied. Gating on <7 is what rescues them.
     const stranded = { ...v5Board(), version: 6 };
     const out = migrateBoard(stranded);
-    expect(out.version).toBe(BOARD_VERSION);
+    expect(out.version).toBe(LEGACY_CEILING);
     expect(byId(out, "code")).toBeUndefined();
     expect(byId(out, "ux-qa")?.title).toBe("duty: UX QA");
   });
@@ -134,7 +147,7 @@ describe("board v8 — ice-box converted to a human-managed manual list", () => 
 
   it("turns ice-box into a manual, user-created, unprefixed list without touching its id", () => {
     const out = migrateBoard(v7WithIceBox());
-    expect(out.version).toBe(BOARD_VERSION);
+    expect(out.version).toBe(LEGACY_CEILING);
     const ib = byId(out, "ice-box");
     expect(ib?.id).toBe("ice-box"); // cards reference it
     expect(ib?.title).toBe("Ice Box"); // no `duty:` prefix
@@ -157,5 +170,34 @@ describe("board v8 — ice-box converted to a human-managed manual list", () => 
   it("is idempotent", () => {
     const once = migrateBoard(v7WithIceBox());
     expect(migrateBoard(structuredClone(once))).toEqual(once);
+  });
+});
+
+// v9→v10 (Conversations) is a GUARD, not a transform. The board becomes five
+// state columns and the legacy cards freeze as history — a CARD migration, done
+// in one pass by scripts/migrate-conversations.mjs. Read-time migration must
+// therefore never stamp BOARD_VERSION: a board stamped 10 with v9 cards still on
+// retired lists would strand every one of them through relocateStrandedCards.
+describe("board v10 — the Conversations guard (stamp, never transform)", () => {
+  it("heals a legacy board but refuses to stamp it BOARD_VERSION", () => {
+    for (const legacy of [v5Board(), { ...v5Board(), version: 6 }, { ...v5Board(), version: 7 }]) {
+      const out = migrateBoard(legacy);
+      expect(out.version).toBe(LEGACY_CEILING);
+      expect(out.version).toBeLessThan(BOARD_VERSION);
+    }
+  });
+
+  it("leaves the layout alone — no five-column rewrite on read", () => {
+    const out = migrateBoard(v5Board());
+    // The healed board still carries its legacy duty columns; the five-state
+    // board arrives with the migration script, not with a page load.
+    expect(byId(out, "implement")).toBeDefined();
+    expect(byId(out, "running")).toBeUndefined();
+    expect(byId(out, "needs-attention")).toBeUndefined();
+  });
+
+  it("passes a board already at BOARD_VERSION through untouched (identity, not a copy)", () => {
+    const migrated = { version: BOARD_VERSION, lists: [{ id: "todo", title: "To do", kind: "manual" }] };
+    expect(migrateBoard(migrated)).toBe(migrated);
   });
 });

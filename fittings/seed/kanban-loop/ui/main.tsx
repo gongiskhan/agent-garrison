@@ -3663,7 +3663,7 @@ function SessionViewer({
     });
   }
   const entries = [
-    ...sessionIds.map((_sessionId, index) => ({ key: `history-${index}`, label: `Session ${index + 1}`, url: `/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`, live: false })),
+    ...sessionIds.map((_sessionId, index) => ({ key: `history-${index}`, label: `Transcript ${index + 1}`, url: `/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`, live: false })),
     ...remoteEntries,
     ...(!dispatch?.runId && live
       ? [{ key: "live", label: "Live", url: `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`, live: true }]

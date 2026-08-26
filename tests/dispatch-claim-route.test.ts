@@ -200,6 +200,42 @@ describe("dispatch claim readiness gate", () => {
     });
     expect(body.job.loadout).toBeUndefined();
     expect(body.job.envContent).toBeUndefined();
-    expect(await loadCard(board, card.id)).toMatchObject({ status: "running", dispatch: { machine: "studio", state: "claimed" } });
+    // The claim descriptor is what survives the Conversations cut. `status` is no
+    // longer the claimer's to set: coherentCardState at the write choke point
+    // mirrors status off the LIST (running <=> the running list), so the route's
+    // `status: "running"` PATCH lands as "ok" on a card that sits elsewhere.
+    expect(await loadCard(board, card.id)).toMatchObject({ status: "ok", dispatch: { machine: "studio", state: "claimed" } });
+  });
+});
+
+// The Conversations cut retired the outpost-era completion seam: phase
+// advancement died with the duty-list engine and remote work now rides the
+// remote-shell runtime inside a conversation stretch. The endpoint stays
+// mounted so an old worker gets a definitive answer rather than a 404.
+describe("retired remote-dispatch completion seam", () => {
+  it("answers POST /cards/:id/dispatch-complete with 410 instead of advancing a phase", async () => {
+    const board = process.env.GARRISON_KANBAN_DIR!;
+    await saveBoard({
+      version: 3,
+      lists: [
+        { id: "plan", title: "Plan", order: 0, kind: "agent", trigger: "immediate", validNext: ["done"] },
+        { id: "done", title: "Done", order: 1, kind: "manual", trigger: "manual", terminal: true, validNext: [] }
+      ]
+    }, board);
+    const card = await createCard(board, { title: "remote work", project: null, list: "plan" });
+    const server = http.createServer(makeRequestHandler({ root: board, cwd: board, gatewayUrl: null, cap: 10 }, board));
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+
+    const response = await fetch(`${base}/cards/${card.id}/dispatch-complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ machine: "studio", workerId: "worker-one", verdict: "done" })
+    });
+    expect(response.status).toBe(410);
+    expect((await response.json()).error).toMatch(/retired/i);
+    // and the card was not advanced by it
+    expect(await loadCard(board, card.id)).toMatchObject({ list: "plan" });
   });
 });

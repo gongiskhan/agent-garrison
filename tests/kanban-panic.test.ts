@@ -1,17 +1,21 @@
+// Panic — the ONE stop verb, after the Conversations cut.
+//
+// The engine-side half of this file (processCard / processBatch refusing to let
+// a partial verdict from an interrupted turn advance a card) went out with the
+// duty-list engine: there are no verdicts and no batch turns anymore. What
+// survives is the endpoint: POST /cards/:id/panic sends an exact card-bound
+// interrupt through interruptCardTurn and NEVER writes the card itself, and the
+// remote-claim branch still fails closed on an unacknowledged stop.
 import { afterEach, describe, expect, it, beforeAll, afterAll, beforeEach } from "vitest";
 import http from "node:http";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 // @ts-ignore fitting modules are plain ESM
-import { processBatch, processCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { loadCard, saveBoard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore fitting modules are plain ESM
-import { atomicWriteJSON, loadCard, saveBoard } from "../fittings/seed/kanban-loop/lib/board.mjs";
-// @ts-ignore fitting modules are plain ESM
-import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
-// @ts-ignore fitting modules are plain ESM
-import { liveSessionPointerFile } from "../fittings/seed/kanban-loop/lib/live-session.mjs";
+import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore fitting modules are plain ESM
 import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 
@@ -41,16 +45,9 @@ function tempRoot() {
   return root;
 }
 
+// The real five-state board — no hand-rolled duty columns to drift from it.
 function board() {
-  return {
-    version: 3,
-    lists: [
-      { id: "plan", title: "Plan", order: 0, kind: "agent", trigger: "immediate", phase: "plan", validNext: ["done"] },
-      { id: "test", title: "Test", order: 1, kind: "agent", trigger: "scheduler-beat", phase: "test", batched: true, validNext: ["done"] },
-      { id: "done", title: "Done", order: 2, kind: "manual", trigger: "manual", terminal: true, validNext: [] },
-      { id: "needs-attention", title: "Needs attention", order: 3, kind: "manual", trigger: "manual", validNext: ["plan", "test"] }
-    ]
-  };
+  return seedBoard();
 }
 
 async function putCard(root: string, id: string, overrides: Record<string, unknown> = {}) {
@@ -62,7 +59,10 @@ async function putCard(root: string, id: string, overrides: Record<string, unkno
     title: `panic ${id.slice(0, 4)}`,
     description: "stop safely",
     project: "demo",
-    list: "plan",
+    // Conversations: `list` IS the state and `status` mirrors it at the write
+    // choke point, so a running fixture must sit on the `running` list or the
+    // first CAS write coerces it back to "ok".
+    list: "todo",
     status: "ok",
     iterations: 0,
     rev: 0,
@@ -94,162 +94,6 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("Panic engine semantics", () => {
-  it("parks a single interrupted turn before a valid-looking partial verdict can advance", async () => {
-    const root = tempRoot();
-    process.env.GARRISON_POLICY_PATH = path.join(root, "no-policy.json");
-    resetPolicyCache();
-    const b = board();
-    await saveBoard(b, root);
-    const card = await putCard(root, "A".repeat(26));
-
-    const result = await processCard({
-      root,
-      board: b,
-      card,
-      cwd: root,
-      now: () => "2026-08-05T10:00:00.000Z",
-      runFn: async ({ onJournal }: { onJournal: (identity: unknown) => void }) => {
-        onJournal({ sessionId: "panic-session", transcriptPath: path.join(root, "panic-session.jsonl") });
-        return {
-          reply: "done",
-          stoppedByUser: true,
-          stoppedReason: "user-interrupt",
-          interruptedByCardId: card.id,
-          sessionId: "panic-session"
-        };
-      }
-    });
-
-    expect(result.outcome).toMatchObject({ status: "needs-attention", reason: "user-interrupt", interrupted: true });
-    const disk = await loadCard(root, card.id);
-    expect(disk).toMatchObject({
-      list: "needs-attention",
-      status: "needs-attention",
-      parkedFrom: "plan",
-      iterations: 0,
-      retryKeepsContext: true,
-      sessionIds: ["panic-session"]
-    });
-    expect(disk.attentionReason).toMatch(/partial output.*not treated as a verdict/i);
-    expect(disk.events.at(-1)).toMatchObject({ kind: "interrupted" });
-    expect(readFileSync(path.join(root, "cards", card.id, "log-1.md"), "utf8")).toMatch(/partial output ignored for routing/i);
-    expect(existsSync(liveSessionPointerFile(root, card.id, disk.runSeq)!)).toBe(false);
-  });
-
-  it("also treats Panic during the verdict follow-up as terminal", async () => {
-    const root = tempRoot();
-    process.env.GARRISON_POLICY_PATH = path.join(root, "no-policy.json");
-    resetPolicyCache();
-    const b = board();
-    await saveBoard(b, root);
-    const card = await putCard(root, "E".repeat(26));
-    let calls = 0;
-
-    const result = await processCard({
-      root,
-      board: b,
-      card,
-      cwd: root,
-      runFn: async () => {
-        calls += 1;
-        return calls === 1
-          ? { reply: "work finished; preparing the verdict" }
-          : { reply: "done", stoppedByUser: true, stoppedReason: "user-interrupt", interruptedByCardId: card.id };
-      }
-    });
-
-    expect(calls).toBe(2);
-    expect(result.outcome).toMatchObject({ status: "needs-attention", reason: "user-interrupt" });
-    expect(await loadCard(root, card.id)).toMatchObject({ list: "needs-attention", parkedFrom: "plan", iterations: 0 });
-  });
-
-  it("parks every member of an interrupted shared batch and never spends a verdict nudge", async () => {
-    const root = tempRoot();
-    process.env.GARRISON_POLICY_PATH = path.join(root, "no-policy.json");
-    resetPolicyCache();
-    const b = board();
-    await saveBoard(b, root);
-    const cards = await Promise.all([
-      putCard(root, "B".repeat(26), { list: "test" }),
-      putCard(root, "C".repeat(26), { list: "test" })
-    ]);
-    let calls = 0;
-
-    const result = await processBatch({
-      root,
-      board: b,
-      listId: "test",
-      cards,
-      cwd: root,
-      now: () => "2026-08-05T10:00:00.000Z",
-      batchRunFn: async ({ cards: running }: { cards: any[] }) => {
-        calls += 1;
-        return {
-          reply: running.map((c) => `${c.id} done`).join("\n"),
-          stoppedByUser: true,
-          stoppedReason: "user-interrupt",
-          interruptedByCardId: cards[1].id,
-          affectedCardIds: cards.map((c) => c.id)
-        };
-      }
-    });
-
-    expect(calls).toBe(1);
-    expect(result.outcomes).toHaveLength(2);
-    expect(result.outcomes.every((o: any) => o.reason === "user-interrupt")).toBe(true);
-    for (const card of cards) {
-      const disk = await loadCard(root, card.id);
-      expect(disk).toMatchObject({ list: "needs-attention", parkedFrom: "test", iterations: 0, retryKeepsContext: true });
-      expect(disk.attentionReason).toMatch(/shared Test batch.*every card/i);
-      expect(disk.events.at(-1)).toMatchObject({ kind: "interrupted" });
-      const log = readFileSync(path.join(root, "cards", card.id, "log-1.md"), "utf8");
-      expect(log).toContain(`# iteration 1 (batch:demo)`);
-      expect(log).toContain(`${card.id} done`);
-      expect(log).toMatch(/stopped by card Panic; every partial batch verdict was ignored/i);
-    }
-  });
-
-  it("parks the whole batch when Panic lands during its verdict follow-up", async () => {
-    const root = tempRoot();
-    process.env.GARRISON_POLICY_PATH = path.join(root, "no-policy.json");
-    resetPolicyCache();
-    const b = board();
-    await saveBoard(b, root);
-    const cards = await Promise.all([
-      putCard(root, "F".repeat(26), { list: "test" }),
-      putCard(root, "G".repeat(26), { list: "test" })
-    ]);
-    let calls = 0;
-
-    const result = await processBatch({
-      root,
-      board: b,
-      listId: "test",
-      cards,
-      cwd: root,
-      batchRunFn: async ({ cards: running }: { cards: any[] }) => {
-        calls += 1;
-        return calls === 1
-          ? { reply: "tests finished; verdicts next" }
-          : {
-              reply: running.map((c) => `${c.id} done`).join("\n"),
-              stoppedByUser: true,
-              stoppedReason: "user-interrupt",
-              interruptedByCardId: cards[0].id,
-              affectedCardIds: cards.map((c) => c.id)
-            };
-      }
-    });
-
-    expect(calls).toBe(2);
-    expect(result.outcomes.every((o: any) => o.reason === "user-interrupt")).toBe(true);
-    for (const card of cards) {
-      expect(await loadCard(root, card.id)).toMatchObject({ list: "needs-attention", parkedFrom: "test", iterations: 0 });
-    }
-  });
-});
-
 describe("POST /cards/:id/panic", () => {
   // Seeds a card holding a live remote claim plus one piece of partial evidence.
   async function remoteClaimCard(root: string, id: string) {
@@ -257,6 +101,7 @@ describe("POST /cards/:id/panic", () => {
     mkdirSync(path.dirname(evidence), { recursive: true });
     writeFileSync(evidence, "partial remote proof\n");
     await putCard(root, id, {
+      list: "running",
       status: "running",
       placement: { target: "studio" },
       dispatch: {
@@ -264,7 +109,7 @@ describe("POST /cards/:id/panic", () => {
         workerId: "worker-one",
         runId: "remote-run",
         routingToken: "route-one",
-        phase: "plan",
+        phase: "implement",
         logIndex: 1,
         claimRevision: 1,
         claimedAt: new Date().toISOString(),
@@ -321,7 +166,7 @@ describe("POST /cards/:id/panic", () => {
       expect(await loadCard(root, id)).toMatchObject({
         list: "needs-attention",
         status: "needs-attention",
-        parkedFrom: "plan",
+        parkedFrom: "implement",
         placement: { target: "studio" },
         dispatch: { machine: "studio", state: "failed", cancellation: { state: "acknowledged" } }
       });
@@ -377,7 +222,7 @@ describe("POST /cards/:id/panic", () => {
     const root = tempRoot();
     const b = board();
     await saveBoard(b, root);
-    const card = await putCard(root, "D".repeat(26), { status: "running", runSeq: 3, rev: 7 });
+    const card = await putCard(root, "D".repeat(26), { list: "running", status: "running", runSeq: 3, rev: 7 });
     let interruptBody: any = null;
     const gateway = http.createServer((req, res) => {
       if (req.url === "/chat/interrupt" && req.method === "POST") {
@@ -407,9 +252,9 @@ describe("POST /cards/:id/panic", () => {
         sharedBatch: false
       });
       expect(interruptBody).toEqual({ cardId: card.id });
-      // A separate endpoint write would bump rev and race processCard's terminal
-      // CAS. Panic only signals; the active engine turn owns the eventual park.
-      expect(await loadCard(root, card.id)).toMatchObject({ status: "running", list: "plan", rev: card.rev, runSeq: 3 });
+      // A separate endpoint write would bump rev and race the launcher's terminal
+      // write. Panic only signals; the owning turn parks the card.
+      expect(await loadCard(root, card.id)).toMatchObject({ status: "running", list: "running", rev: card.rev, runSeq: 3 });
     } finally {
       await close(server);
       await close(gateway);
