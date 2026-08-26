@@ -64,6 +64,10 @@ function parseCard(raw: unknown): ParsedCard | null {
   if (typeof card.id !== "string" || typeof card.title !== "string" || typeof card.list !== "string") {
     return null;
   }
+  // Frozen history (Conversations migration): the mirror still holds the file,
+  // but a frozen card counts toward nothing — the summary reports live work.
+  const frozen = card.frozen as Record<string, unknown> | undefined;
+  if (frozen && typeof frozen === "object" && typeof frozen.at === "string") return null;
   return {
     id: card.id,
     title: card.title,

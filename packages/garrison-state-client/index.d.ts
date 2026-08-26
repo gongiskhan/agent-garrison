@@ -155,7 +155,7 @@ export class StateClient {
 
   createCard(card: Record<string, unknown> & { id: string; list: string }): Promise<any>;
   getCard(id: string): Promise<any | null>;
-  listCards(params?: { list?: string; placement?: string; scheduledBefore?: string; system?: string; includeDeleted?: boolean }): Promise<any[]>;
+  listCards(params?: { list?: string; placement?: string; scheduledBefore?: string; system?: string; includeDeleted?: boolean; frozen?: "0" | "1" }): Promise<any[]>;
   patchCard(id: string, patch: Record<string, unknown>, precondition: { ifMatchRev: number; fence?: number }): Promise<any>;
   deleteCard(id: string, precondition: { ifMatchRev: number }): Promise<{ deleted: boolean }>;
   putCardDoc(cardId: string, name: string, body: string): Promise<{ cardId: string; name: string }>;

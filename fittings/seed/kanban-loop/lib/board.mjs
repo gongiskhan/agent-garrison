@@ -1299,7 +1299,11 @@ export async function listCardIds(root = kanbanRoot()) {
 }
 
 export async function loadAllCards(root = kanbanRoot()) {
-  return (await boardStateClient().listCards()).map((row) => cardFromStore(row, { compat: true }));
+  // frozen:"0" unconditionally: done/needs-attention are REUSED list ids and
+  // the frozen history (Conversations migration) must never reach the board,
+  // its ticks, coordination scans or the weekly review. History readers ask
+  // the state service for frozen:"1" explicitly.
+  return (await boardStateClient().listCards({ frozen: "0" })).map((row) => cardFromStore(row, { compat: true }));
 }
 
 // Derive list membership from the cards (pure) — never stored.
