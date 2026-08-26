@@ -10,6 +10,14 @@
 export { spawnClaudePty, getCursorPosition, getLastRows, getScreenRows } from "./pty.mjs";
 export { SessionLog, runLog, resetRunLog, listRuns, readEvents, capPayload, sessionLogPath, sessionLogDir, LOG_DOMAINS } from "./session-log.mjs";
 export {
+  MODEL_COSTS,
+  loadModelCosts,
+  priceStretch,
+  computeConversationMetrics,
+  conversationMetrics,
+  rollupMetrics,
+} from "./conversation-metrics.mjs";
+export {
   ConversationStore,
   openConversation,
   listConversations,
