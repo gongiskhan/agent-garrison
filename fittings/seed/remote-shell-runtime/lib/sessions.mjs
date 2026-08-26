@@ -364,9 +364,44 @@ export class SessionManager {
 
   // ── Input paths ──────────────────────────────────────────────────────────
 
-  /** Raw bytes from the terminal pane straight into the attach client. */
+  /** Raw bytes from the terminal pane straight into the attach client.
+   *
+   *  Behind a CIRCUIT BREAKER. A human types tens of messages a second at
+   *  most; a runaway feeder (a wheel/mouse loop, a stuck key, a buggy
+   *  bridge) delivers hundreds, and every one makes the inline agent TUI
+   *  re-render its transcript - the "pane scrolls frantically forever"
+   *  storm. Budget is a message-count token bucket with a byte allowance
+   *  per message so pastes pass; an empty bucket trips the breaker for 5s,
+   *  during which only interrupt bytes (Ctrl+C / Escape) pass, and the
+   *  event is logged with a rate so the feeder is attributable. */
   writeRaw(session, bytes) {
     this.ensureAttached(session);
+    const now = Date.now();
+    const b = session.inputBreaker ??= { tokens: 300, refillAt: now, trippedUntil: 0, dropped: 0, warnedAt: 0 };
+    b.tokens = Math.min(300, b.tokens + ((now - b.refillAt) / 1000) * 100);
+    b.refillAt = now;
+    const text = Buffer.isBuffer(bytes) ? bytes.toString("latin1") : String(bytes);
+    if (now < b.trippedUntil) {
+      if (text === "\x03" || text === "\x1b") { try { session.pty.write(bytes); } catch {} return; }
+      b.dropped++;
+      return;
+    }
+    // A paste is few LARGE chunks; a storm is thousands of tiny ones. Count
+    // messages, not bytes, but bill oversized chunks as several.
+    const cost = Math.max(1, Math.ceil(text.length / 512));
+    if (b.tokens < cost) {
+      b.trippedUntil = now + 5000;
+      b.dropped++;
+      if (now - b.warnedAt > 10_000) {
+        b.warnedAt = now;
+        console.warn(`[remote-shell] input storm on ${session.id} (${session.transport.name}): breaker tripped, dropping input for 5s (${b.dropped} dropped so far)`);
+      }
+      for (const ws of this.subscribers.get(session.id) ?? []) {
+        try { ws.send(JSON.stringify({ type: "error", message: "input storm suppressed for 5s (circuit breaker)" })); } catch {}
+      }
+      return;
+    }
+    b.tokens -= cost;
     try { session.pty.write(bytes); } catch {}
   }
 
