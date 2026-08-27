@@ -12,6 +12,40 @@ protocol ClipPlaying {
     func stop()
 }
 
+/// Makes sure something audible can actually come out.
+///
+/// The in-app mic path configures .playAndRecord and activates the session, so
+/// speech there has always been audible. The PENDANT path never touches
+/// AVAudioSession at all - its audio arrives over BLE - so a clip played during
+/// a pendant session went into an unconfigured, inactive session and was simply
+/// never heard. The server saw a fetched clip and a successful receipt; the
+/// wearer heard nothing, which is the worst combination available.
+///
+/// If a capture is already running the session is playAndRecord and ACTIVE, and
+/// this leaves it strictly alone - reconfiguring it mid-capture would interrupt
+/// the recording the clip is acknowledging. Otherwise it claims .playback
+/// (.spokenAudio, ducking others) for the duration, and hands it back after.
+enum SpeechAudioSession {
+    /// True when this call activated the session and must release it later.
+    static func activateIfNeeded() -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        // A live capture owns the session; never touch it.
+        if session.category == .playAndRecord || session.category == .playback { return false }
+        do {
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setActive(true)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    static func release(_ owned: Bool) {
+        guard owned else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+}
+
 /// Fetches the clip from capture-service and plays it.
 ///
 /// The path arrives RELATIVE and is resolved against the app's configured base
@@ -26,6 +60,7 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var completion: ((Bool) -> Void)?
     private var task: URLSessionDataTask?
+    private var ownsSession = false
 
     func play(path: String, volume: Float, completion: @escaping (Bool) -> Void) {
         guard let base = AppGroup.baseURL,
@@ -51,14 +86,16 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
 
     private func start(data: Data, volume: Float) {
         do {
+            ownsSession = SpeechAudioSession.activateIfNeeded()
             let player = try AVAudioPlayer(data: data)
             player.delegate = self
             player.volume = volume
             self.player = player
-            // The capture session already runs .playAndRecord/.voiceChat with
-            // hardware echo cancellation, so this plays while the mic stays
-            // hot. Nothing here reconfigures the session - doing so would
-            // interrupt the capture this clip is acknowledging.
+            // With the in-app mic running the session is already
+            // .playAndRecord/.voiceChat with hardware echo cancellation, so
+            // this plays while the mic stays hot and activateIfNeeded left it
+            // untouched. On the pendant lane there was no session at all, which
+            // is what activateIfNeeded has just claimed.
             guard player.play() else {
                 finish(false)
                 return
@@ -72,6 +109,8 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
         let done = completion
         completion = nil
         player = nil
+        SpeechAudioSession.release(ownsSession)
+        ownsSession = false
         done?(ok)
     }
 
@@ -83,6 +122,8 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
         // wrote a receipt for whatever it cancelled.
         completion = nil
         player = nil
+        SpeechAudioSession.release(ownsSession)
+        ownsSession = false
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {

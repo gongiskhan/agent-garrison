@@ -13,6 +13,7 @@ protocol Utterer {
 final class SpeechUtterer: NSObject, Utterer, AVSpeechSynthesizerDelegate {
     private let synthesizer = AVSpeechSynthesizer()
     private var completions: [ObjectIdentifier: (Bool) -> Void] = [:]
+    private var ownsSession = false
 
     override init() {
         super.init()
@@ -20,6 +21,10 @@ final class SpeechUtterer: NSObject, Utterer, AVSpeechSynthesizerDelegate {
     }
 
     func utter(_ text: String, rate: Float, volume: Float, voiceId: String?, completion: @escaping (Bool) -> Void) {
+        // Same reason as ClipPlayer: during a PENDANT session nothing has ever
+        // configured the audio session, so an utterance went nowhere audible
+        // while still reporting that it finished.
+        ownsSession = SpeechAudioSession.activateIfNeeded()
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = rate
         utterance.volume = volume
@@ -35,10 +40,14 @@ final class SpeechUtterer: NSObject, Utterer, AVSpeechSynthesizerDelegate {
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        SpeechAudioSession.release(ownsSession)
+        ownsSession = false
         completions.removeValue(forKey: ObjectIdentifier(utterance))?(true)
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        SpeechAudioSession.release(ownsSession)
+        ownsSession = false
         completions.removeValue(forKey: ObjectIdentifier(utterance))?(false)
     }
 }
