@@ -19,6 +19,9 @@ import { promises as fs, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
+// Function-level ESM cycle with coordination.mjs — safe: neither side calls
+// the other at module init, and the resolver is the ONE project→path door.
+import { repoPathForProject } from "./coordination.mjs";
 import { routeTerminalTransition } from "./notify-origin.mjs";
 import { generateHandoffIfDone } from "./handoff.mjs";
 import { deriveOriginId } from "./origins.mjs";
@@ -1139,13 +1142,24 @@ function doneEvidenceVerdict(card) {
     const last = store.lastHandoffs(1)[0]?.handoff ?? null;
     if (!last) return { ok: false, reason: "conversation has no handoff" };
     if (last.status !== "complete") return { ok: false, reason: `terminal handoff status is ${last.status}` };
+    // Relative refs are written from the STRETCH's cwd — the card's project
+    // repo — while this check runs in the board server's. Unanchored, every
+    // relative ref failed here after PASSING the launcher's exit gate, and the
+    // done transition 409'd forever with the conversation finished (found
+    // live: a card wedged on Running with a complete terminal handoff).
+    const repo = card.project ? repoPathForProject(card.project) : null;
     const resolvable = (last.evidenceRefs ?? []).some((ev) => {
       if (ev?.kind !== "gate" && ev?.kind !== "run" && ev?.kind !== "file") return false;
-      try {
-        return readFileSync(ev.ref).length > 0;
-      } catch {
-        return false;
-      }
+      const candidates = path.isAbsolute(String(ev.ref ?? ""))
+        ? [ev.ref]
+        : [repo && path.join(repo, ev.ref), ev.ref].filter(Boolean);
+      return candidates.some((candidate) => {
+        try {
+          return readFileSync(candidate).length > 0;
+        } catch {
+          return false;
+        }
+      });
     });
     return resolvable ? { ok: true } : { ok: false, reason: "no resolvable gate/run/file evidence in the terminal handoff" };
   } catch (err) {

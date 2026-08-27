@@ -169,7 +169,7 @@ export function tripwires(store, { duty, window = 12 } = {}) {
 }
 
 /** The two flow invariants. Returns {next, rewritten, reason}. */
-export function applyFlowPolicy(next, { store, duty, selectedDuties = [] } = {}) {
+export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = null } = {}) {
   if (next !== "done") return { next, rewritten: false, reason: null };
   // Triage never closes a conversation as done: its job is to open the work
   // and name the first working duty, and a capable floor model will happily do
@@ -192,8 +192,12 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [] } = {})
   const hasResolvable = handoffs.some((evt) =>
     (evt.payload?.evidenceRefs ?? []).some((ev) => {
       if (!CONVERSATION_FLOW.doneRequiresEvidence.kinds.includes(ev?.kind)) return false;
+      // Anchor relative refs where the stretches WORK — the same anchoring the
+      // exit gate's rule 10 uses. A bare statSync resolved against the gateway
+      // process cwd, which is nowhere the evidence lives.
+      const candidate = path.isAbsolute(String(ev?.ref ?? "")) || !cwd ? ev.ref : path.join(cwd, ev.ref);
       try {
-        const st = fs.statSync(ev.ref);
+        const st = fs.statSync(candidate);
         return st.isFile() && st.size > 0;
       } catch {
         return false;
@@ -225,7 +229,7 @@ keys are not:
   "duty": "<your duty>",
   "status": "complete" | "partial" | "blocked" | "failed",
   "summary": "<what happened, <=4000 chars>",
-  "evidenceRefs": [{"kind":"file|commit|run|gate|artifact|url|log","ref":"<path or id>","note":"..."}],
+  "evidenceRefs": [{"kind":"file|commit|run|gate|artifact|url|log","ref":"<ABSOLUTE path or id>","note":"..."}],
   "nextSteps": {"next":"<a selected duty, or done, or needs-input>","why":"...","items":["..."]},
   "blocker": null | {"what":"...","needs":"...","who":"..."},
   "activeConstraints": ["..."],
@@ -1087,7 +1091,7 @@ export async function runConversation(gateway, {
 
       // Persist the raw reply (L3) and the handoff event.
       const replyRef = store.writeNamedPayload(`stretch-${String(ordinal).padStart(4, "0")}-reply.md`, result.reply ?? "");
-      const policy = applyFlowPolicy(gate.handoff.nextSteps.next, { store, duty, selectedDuties });
+      const policy = applyFlowPolicy(gate.handoff.nextSteps.next, { store, duty, selectedDuties, cwd: scope.cwd ?? gateway.compositionDir });
       if (policy.rewritten) {
         store.append({ kind: "policy-rewrite", duty, stretch: stretchId, payload: { from: gate.handoff.nextSteps.next, to: policy.next, reason: policy.reason } });
         gate.handoff.nextSteps = { ...gate.handoff.nextSteps, next: policy.next, why: `${gate.handoff.nextSteps.why} [policy: ${policy.reason}]` };
@@ -1142,8 +1146,24 @@ export async function runConversation(gateway, {
     }
 
     if (terminal === null) terminal = "cap";
-    if (terminal === "done" || terminal === "needs-input") {
-      // The terminal card write already happened on the closing stretch.
+    if (terminal === "done") {
+      // The closing stretch already wrote the done transition — normally. A
+      // failed write (evidence guard, rev storm) leaves the card wedged on
+      // Running with a FINISHED conversation, and the tick's recovery kick
+      // lands right here: re-assert the terminal so the wedge self-heals.
+      const lastH = store.tail(1, { kinds: ["handoff"] })[0];
+      if (card?.id && lastH?.payload?.nextSteps?.next === "done") {
+        await writeCardTransition(gateway, {
+          cardId: card.id,
+          conversationId,
+          stretchId: lastH.stretch ?? null,
+          phase: "ended",
+          handoff: lastH.payload,
+          duty: lastH.duty ?? null,
+        });
+      }
+    } else if (terminal === "needs-input") {
+      // Written by the closing stretch.
     } else if (terminal === "cap" && card?.id) {
       await patchCardEngine({
         id: card.id,
