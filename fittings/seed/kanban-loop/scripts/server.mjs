@@ -2736,6 +2736,16 @@ async function handlePatchCard(req, res, opts, id) {
     }
     next.list = body.list;
     next.status = "ok"; // a manual Move clears a parked/needs-attention status
+    // The Done evidence-gate's human override. It must CROSS this door or the
+    // gate at the CAS choke point never sees it — the override was designed
+    // (board.mjs records card-completed-unproven from it) but no HTTP client
+    // could ever supply it, so a human finishing a card whose conversation
+    // ended without resolvable evidence had no path to Done at all.
+    if (body.list === "done"
+        && body.completionOverride && typeof body.completionOverride === "object"
+        && typeof body.completionOverride.reason === "string" && body.completionOverride.reason.trim()) {
+      next.completionOverride = { reason: body.completionOverride.reason.trim().slice(0, 600) };
+    }
     // Record the manual move on the timeline so the activity feed shows human moves
     // alongside the engine's dispatches (a complete "what happened" history).
     if (body.list !== card.list) {
