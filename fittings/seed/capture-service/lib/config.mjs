@@ -129,6 +129,12 @@ export function loadConfig(env = process.env) {
       const v = parseCsv(env.GARRISON_CAPTURESERVICE_STT_KEYTERMS);
       return v.length > 0 ? v : ["Zeca", "companion"];
     })(),
+    // Zombie-socket watchdog: reconnect the STT socket when we have been
+    // feeding it audio this recently and NOTHING has come back for this long.
+    // Generous on purpose - Deepgram is legitimately silent through a quiet
+    // room, and the KeepAlive we send when audio goes quiet means a healthy far
+    // end is never mute for minutes. 0 disables.
+    transcribeMuteTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_TRANSCRIBE_MUTE_TIMEOUT_MS, 120000),
     // Test hooks (omi's OMI_API_BASE_URL precedent): redirect the live STT
     // socket / the APNs gateway to local mocks so sandboxed E2E runs never
     // need real keys. Env-only, never in config_schema — production always

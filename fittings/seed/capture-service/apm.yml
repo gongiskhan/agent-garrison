@@ -117,6 +117,13 @@ x-garrison:
       type: integer
       default: 60000
       description: How much post-wake speech counts as THE COMMAND; later speech is trailing context for the classifier.
+    - key: transcribe_mute_timeout_ms
+      type: integer
+      default: 120000
+      description: >-
+        Reconnect the speech-to-text socket when audio is still being fed but
+        nothing at all has come back for this long - the far end accepting
+        audio and silently no longer processing it. 0 disables the watchdog.
     - key: wake_provisional_ttl_ms
       type: integer
       default: 8000

@@ -83,6 +83,8 @@ class SessionTranscription {
     this.ended = false;
     this.lastAudioAt = 0;
     this.lastResultAt = 0;
+    this.lastInboundAt = 0;
+    this.muteWatchdog = null;
     // One log line per message TYPE per session, not per frame.
     this.loggedMessageTypes = new Set();
     this.keepalive = null;
@@ -113,6 +115,8 @@ class SessionTranscription {
       this.open = true;
       counters.bump("transcribe_connects");
       for (const bytes of this.queue.splice(0)) ws.send(bytes);
+      this.lastInboundAt = Date.now();
+      this.armMuteWatchdog();
       this.keepalive = setInterval(() => {
         if (this.open && Date.now() - this.lastAudioAt > KEEPALIVE_MS) {
           try {
@@ -124,6 +128,9 @@ class SessionTranscription {
     });
     ws.on("message", (data, isBinary) => {
       if (isBinary) return;
+      // ANY inbound frame is proof the far end is still processing this
+      // stream - that is what the mute watchdog measures, not transcripts.
+      this.lastInboundAt = Date.now();
       let msg;
       try {
         msg = JSON.parse(data.toString());
@@ -185,6 +192,7 @@ class SessionTranscription {
     ws.on("close", (code, reason) => {
       this.open = false;
       if (this.keepalive) clearInterval(this.keepalive);
+      if (this.muteWatchdog) clearInterval(this.muteWatchdog);
       if (!this.ended) {
         // The code and reason are the only account Deepgram gives of WHY it
         // hung up; without them a drop is indistinguishable from a network
@@ -229,9 +237,55 @@ class SessionTranscription {
     }
   }
 
+  // The zombie-socket watchdog (2026-08-27).
+  //
+  // A live pendant session went deaf and STAYED deaf: audio streaming out at
+  // the full 50 packets/s into an ESTABLISHED socket with a draining send
+  // queue, and not one frame coming back - no transcript, no error, no close.
+  // Deepgram had stopped processing the stream without telling anyone, and
+  // nothing here could notice, because every liveness signal we had was
+  // outbound. Only restarting the process fixed it, and until someone noticed,
+  // the wearer's device simply did not work.
+  //
+  // The measure is deliberately ANY inbound frame, not transcripts: Deepgram
+  // legitimately sends nothing through a silent room, so "no words for N
+  // seconds" is not evidence of anything. Paired with the KeepAlive above -
+  // which we send whenever audio goes quiet - a far end that is alive and
+  // attending to this stream does not stay mute for minutes on end.
+  //
+  // The asymmetry is the whole argument for a generous threshold plus a bias
+  // toward acting: a false positive costs one reconnect and a ~1s gap, while a
+  // miss costs every word until a human notices the device is dead.
+  armMuteWatchdog() {
+    if (this.muteWatchdog) clearInterval(this.muteWatchdog);
+    const muteMs = this.lane.cfg.transcribeMuteTimeoutMs ?? 0;
+    if (muteMs <= 0) return;
+    this.muteWatchdog = setInterval(() => {
+      if (this.ended || !this.open) return;
+      const now = Date.now();
+      // Only judge a stream we are actually feeding. An idle session that has
+      // sent no audio has no right to expect an answer.
+      if (now - this.lastAudioAt > muteMs) return;
+      if (now - this.lastInboundAt < muteMs) return;
+      this.lane.counters.bump("transcribe_mute_reconnects");
+      this.lane.log.error(
+        `[capture-service] deepgram went mute: fed audio for ${Math.round((now - this.lastInboundAt) / 1000)}s ` +
+          `with nothing inbound - reconnecting (session ${this.sessionId})`
+      );
+      // terminate(), not close(): a wedged peer may never answer a close
+      // handshake, and the 'close' handler is what schedules the reconnect.
+      try {
+        this.ws?.terminate?.() ?? this.ws?.close?.();
+      } catch {}
+      this.open = false;
+    }, Math.max(1000, Math.floor(muteMs / 4)));
+    this.muteWatchdog.unref?.();
+  }
+
   async end() {
     this.ended = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.muteWatchdog) clearInterval(this.muteWatchdog);
     if (this.keepalive) clearInterval(this.keepalive);
     if (this.ws && this.open) {
       // CloseStream flushes pending finals; wait briefly for them to arrive.
