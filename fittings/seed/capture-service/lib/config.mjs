@@ -155,6 +155,13 @@ export function loadConfig(env = process.env) {
     wakeMaxCaptureMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_MAX_CAPTURE_MS, 20000),
     wakeMinCaptureMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_MIN_CAPTURE_MS, 0),
     wakeCommandWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_COMMAND_WINDOW_MS, 60000),
+    // How long a wake pulse fired off an unstable Deepgram INTERIM waits for
+    // the authoritative final to confirm it. Sized to one utterance, not to the
+    // capture window: measured interim-to-final gaps on live pendant finals run
+    // p90 ~5s, max ~6.8s. Deliberately NOT derived from wakeMaxCaptureMs - it
+    // used to be, and raising the capture window silently stretched the wearer's
+    // dedupe blackout to a minute.
+    wakeProvisionalTtlMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_PROVISIONAL_TTL_MS, 8000),
     wakeContextSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_MAX_AGE_MS, 120000),
     wakeCardDedupeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CARD_DEDUPE_MS, 600000),

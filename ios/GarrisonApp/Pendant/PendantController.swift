@@ -41,10 +41,23 @@ final class PendantController: ObservableObject {
     /// The device haptic vocabulary (ADR D4): patterns composed from the
     /// three fixed firmware levels. window_closed (double medium) and
     /// task_created (single long) stay clearly distinguishable.
+    ///
+    /// wake_lapsed is the retraction of a wake_detected. The wake pulse fires
+    /// off an unstable Deepgram interim so it can be fast, which means it can
+    /// also be wrong: when the authoritative final drops the name, no capture
+    /// window ever opens. Without this the wearer feels the promise, dictates a
+    /// whole task, and never learns it went nowhere. A double SHORT tick - the
+    /// wake tier repeated - reads as "that wake did not stick"; window_closed's
+    /// double MEDIUM is a different tier and stays distinct.
+    ///
+    /// segment_captured also stops being an identical single short. It is the
+    /// one buzz that fires while the wearer is mid-sentence, i.e. exactly when
+    /// they are most likely to misread it as a fresh wake.
     static func hapticPattern(for name: String) -> [(level: PendantHapticLevel, delayMs: Int)] {
         switch name {
         case "wake_detected": return [(.short, 0)]
-        case "segment_captured": return [(.short, 0)]
+        case "wake_lapsed": return [(.short, 0), (.short, 150)]
+        case "segment_captured": return [(.short, 0), (.short, 400)]
         case "window_closed": return [(.medium, 0), (.medium, 250)]
         case "task_created": return [(.long, 0)]
         case "task_failed": return [(.medium, 0), (.medium, 350), (.medium, 700)]

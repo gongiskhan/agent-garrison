@@ -137,6 +137,7 @@ struct PendantView: View {
     private func label(for name: String) -> String {
         switch name {
         case "wake_detected": return "Wake detected"
+        case "wake_lapsed": return "Wake not confirmed"
         case "segment_captured": return "Segment captured"
         case "window_closed": return "Window closed"
         case "task_created": return "Card created"
@@ -148,6 +149,7 @@ struct PendantView: View {
     private func icon(for name: String) -> String {
         switch name {
         case "wake_detected": return "ear"
+        case "wake_lapsed": return "ear.trianglebadge.exclamationmark"
         case "segment_captured": return "text.bubble"
         case "window_closed": return "checkmark.circle"
         case "task_created": return "rectangle.stack.badge.plus"

@@ -117,6 +117,14 @@ x-garrison:
       type: integer
       default: 60000
       description: How much post-wake speech counts as THE COMMAND; later speech is trailing context for the classifier.
+    - key: wake_provisional_ttl_ms
+      type: integer
+      default: 8000
+      description: >-
+        How long a wake pulse fired off an unstable Deepgram interim waits for
+        the authoritative final to confirm it. Sized to one utterance, not to
+        the capture window. On expiry the wearer gets a wake_lapsed signal, so a
+        pulse that promised a capture cannot silently promise nothing.
     - key: wake_context_segments
       type: integer
       default: 6

@@ -542,7 +542,11 @@ export async function startServer(cfg = loadConfig()) {
   // the companion bus and live here.
   const feedbackBus = new FeedbackBus({
     counters,
-    wakeWindowTtlMs: live.wakeMaxCaptureMs + live.wakeSilenceCloseMs
+    // A CONFIRMED wake legitimately lasts as long as its capture can run. A
+    // provisional one - opened by an interim guess - must not, or one bad
+    // interim mutes the wearer for the whole capture window.
+    wakeWindowTtlMs: live.wakeMaxCaptureMs + live.wakeSilenceCloseMs,
+    wakeProvisionalTtlMs: live.wakeProvisionalTtlMs
   });
   const pendantWakeBus = new WakeBus({
     cfg: live,
