@@ -910,8 +910,7 @@ async function upUnlocked(
           ...runtimeAccountEnv,
           ...(namedPrimaryAccount?.env ?? {}),
           ...primaryEnv,
-          ...(primaryProviderLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {}),
-          ...(orchestratorModeEnv(gateway, composition, promptPath) ?? {})
+          ...(primaryProviderLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {})
         }
       );
       launchedChild = child;
@@ -2067,65 +2066,6 @@ async function resolveGatewayFitting(
   }
 
   return null;
-}
-
-// Opt-in: when the gateway selection sets `orchestrator_mode: true`, build the
-// GARRISON_SOULS_CONFIG that flips the http-gateway from single-operative
-// (gateway-pty.mjs) into orchestrator mode — it boots the real Operative
-// (assembled prompt + MCP tools: talk_to/worktrees + persisted memory) and
-// multiplexes channels (voice, web, slack) into that one session. Returns
-// undefined when the flag is off or no orchestrator fitting is selected, so the
-// runner keeps spawning single mode for every other composition.
-function orchestratorModeEnv(
-  gateway: GatewayInfo,
-  composition: Awaited<ReturnType<typeof readCompositionWithDerivedTasks>>,
-  promptPath: string
-): Record<string, string> | undefined {
-  if (!gateway.config.orchestrator_mode) return undefined;
-  const orchestratorId = composition.selections.orchestrator?.[0]?.id;
-  if (!orchestratorId) return undefined;
-  // Haiku by default: the PTY screen-scraper races Sonnet/Opus TUIs and times
-  // out. Override per composition via the gateway's `model` config.
-  const model = String(gateway.config.model ?? "haiku");
-  // Fold the composition's soul definitions into the map the gateway expects
-  // (keyed by `soul-<id>`), resolving each soul's prompt + base_path to absolute
-  // paths. Without this the orchestrator's `talk_to` has no target and every
-  // delegation fails — this is what wires voice → orchestrator → specialist Souls.
-  const souls: Record<string, unknown> = {};
-  for (const soul of composition.souls ?? []) {
-    if (!soul?.id || !soul?.prompt) continue;
-    souls[`soul-${soul.id}`] = {
-      promptPath: path.resolve(composition.directory, soul.prompt),
-      resolvedBasePath: resolveSoulBasePath(soul.base_path, composition.directory),
-      model: soul.model ? String(soul.model) : model,
-      preset: "claude_code",
-      ...(soul.allowed_tools ? { allowed_tools: soul.allowed_tools } : {}),
-      ...(soul.disallowed_tools ? { disallowed_tools: soul.disallowed_tools } : {})
-    };
-  }
-  const soulsConfig = {
-    orchestratorFittingId: orchestratorId,
-    orchestrator: {
-      promptPath,
-      resolvedBasePath: composition.directory,
-      model
-    },
-    souls
-  };
-  return {
-    GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig),
-    GARRISON_ORCHESTRATOR_FITTING_ID: orchestratorId
-  };
-}
-
-// Resolve a soul's working directory: "~"-prefixed → home, relative → under the
-// composition dir, absolute → as-is. Defaults to the composition dir.
-function resolveSoulBasePath(basePath: string | undefined, compositionDir: string): string {
-  if (!basePath) return compositionDir;
-  if (basePath === "~" || basePath.startsWith("~/")) {
-    return path.join(os.homedir(), basePath.slice(1));
-  }
-  return path.resolve(compositionDir, basePath);
 }
 
 // Project the gateway fitting's compact-controller config (S1b) into its spawn
