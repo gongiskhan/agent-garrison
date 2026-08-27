@@ -164,6 +164,9 @@ export interface DispatchRunProvenance {
 
 export interface CardSummary {
   autonomous?: boolean;
+  /** The autonomy gate's standing ask: the conversation paused on To do and
+   *  wants a nod before the next duty runs. */
+  awaitingApproval?: { next: string; plan: string | null; items: string[]; at: string } | null;
   id: string;
   title: string;
   project: string | null;

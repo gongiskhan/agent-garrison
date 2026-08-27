@@ -562,6 +562,9 @@ export function cardSummary(card) {
     // The terminal handoff's summary — written by the launcher's done
     // transition; absent from this projection it read as never-written.
     terminalSummary: card.terminalSummary ?? null,
+    // The autonomy gate's standing ask (next duty, plan summary, first items)
+    // — what the card front's approve block renders.
+    awaitingApproval: card.awaitingApproval ?? null,
     lastEvent: lastEventOf(card),
     // Per-phase runtime/model attribution for the card front: the most recent routed
     // event's route stamp ({ targetId, runtime, provider, model, effort,
@@ -2736,6 +2739,9 @@ async function handlePatchCard(req, res, opts, id) {
     }
     next.list = body.list;
     next.status = "ok"; // a manual Move clears a parked/needs-attention status
+    // Moving the card by hand IS a decision about it — a standing approval ask
+    // must not follow the card to Done/Backlog and keep asking.
+    if (!isEngineRequest(req) && next.awaitingApproval) next.awaitingApproval = null;
     // The Done evidence-gate's human override. It must CROSS this door or the
     // gate at the CAS choke point never sees it — the override was designed
     // (board.mjs records card-completed-unproven from it) but no HTTP client
@@ -3037,6 +3043,23 @@ async function handlePatchCard(req, res, opts, id) {
   // dropped silently before, leaving every finished card summary-less.
   if (isEngineRequest(req) && typeof body.terminalSummary === "string") {
     next.terminalSummary = body.terminalSummary.slice(0, 600);
+  }
+  // The autonomy gate's standing ask. ENGINE-ONLY and shape-checked: the
+  // launcher stamps it when it pauses on To do, and clears it (null) when a
+  // stretch starts. The board renders the approve block from exactly this.
+  if (isEngineRequest(req) && body.awaitingApproval !== undefined) {
+    if (body.awaitingApproval === null) {
+      next.awaitingApproval = null;
+    } else if (typeof body.awaitingApproval === "object" && typeof body.awaitingApproval.next === "string") {
+      next.awaitingApproval = {
+        next: body.awaitingApproval.next.slice(0, 60),
+        plan: typeof body.awaitingApproval.plan === "string" ? body.awaitingApproval.plan.slice(0, 1200) : null,
+        items: Array.isArray(body.awaitingApproval.items)
+          ? body.awaitingApproval.items.slice(0, 6).map((item) => String(item).slice(0, 200))
+          : [],
+        at: typeof body.awaitingApproval.at === "string" ? body.awaitingApproval.at : new Date().toISOString()
+      };
+    }
   }
   if (isEngineRequest(req) && typeof body.lastReply === "string") {
     next.lastReply = body.lastReply.slice(0, 2000);

@@ -714,7 +714,9 @@ async function writeCardTransition(gateway, { cardId, conversationId, stretchId,
   if (duty === "responder") return;
   const logFn = (e) => gateway.logFn?.(e);
   if (phase === "started") {
-    await patchCardEngine({ id: cardId, patch: { list: "running", status: "running", runningSince: new Date().toISOString() }, logFn });
+    // A starting stretch consumes any standing approval ask — the approval
+    // arrived (or Autonomous was flipped), so the card must stop wearing it.
+    await patchCardEngine({ id: cardId, patch: { list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
     return;
   }
   const next = handoff?.nextSteps?.next;
@@ -905,12 +907,22 @@ export async function runConversation(gateway, {
             duty,
             payload: { next: duty, plan: lastHandoff?.summary ?? null, items: lastHandoff?.nextSteps?.items ?? [] },
           });
+          // The card STAYS on To do wearing the ask — awaiting approval is not
+          // a blocked state, it is work ready to go the moment the human nods.
+          // The field carries what the board needs to render a one-look
+          // decision: the next duty, the plan summary, and its first items.
           await patchCardEngine({
             id: card.id,
             patch: {
-              list: "needs-attention",
-              status: "needs-attention",
-              attentionReason: `Plan ready — next step is ${duty}. Reply in the conversation to approve and continue, or flip Autonomous on the card to skip this gate.`,
+              list: "todo",
+              status: "ok",
+              awaitingApproval: {
+                next: duty,
+                plan: typeof lastHandoff?.summary === "string" ? lastHandoff.summary.slice(0, 1200) : null,
+                items: (Array.isArray(lastHandoff?.nextSteps?.items) ? lastHandoff.nextSteps.items : [])
+                  .slice(0, 6).map((item) => String(item).slice(0, 200)),
+                at: new Date().toISOString(),
+              },
             },
             logFn: (e) => gateway.logFn?.(e),
           });

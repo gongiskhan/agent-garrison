@@ -91,7 +91,7 @@ import {
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
-import { CardConversation } from "./card-conversation";
+import { CardConversation, CONVERSATION_BASE } from "./card-conversation";
 import { HistoryView } from "./history-view";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
@@ -679,6 +679,7 @@ function cardActionFlags(card: CardSummary, list: ListView) {
 // bottom of the opened card, so the two can never offer different things.
 interface CardActionHandlers {
   onStart: (c: CardSummary) => void;
+  onApprove: (c: CardSummary) => void;
   onMove: (c: CardSummary) => void;
   onQuickMove: (c: CardSummary, listId: string) => void;
   onDelete: (c: CardSummary) => void;
@@ -842,6 +843,7 @@ function Card({
   onRenamed,
   onInfer,
   onDiscuss,
+  onApprove,
   onRevert,
   onContinue,
   onDrill,
@@ -853,6 +855,7 @@ function Card({
   card: CardSummary;
   list: ListView;
   onStart: (c: CardSummary) => void;
+  onApprove: (c: CardSummary) => void;
   onMove: (c: CardSummary) => void;
   // Direct one-click move to a named list (Mark done → done, Archive → archived,
   // Unarchive → todo). Distinct from onMove, which asks when there is a choice.
@@ -1145,6 +1148,35 @@ function Card({
         </div>
       )}
 
+      {/* THE APPROVAL ASK — the conversation planned, paused, and wants a nod.
+          Loud on purpose: this is the one moment the card needs a human, so it
+          reads at a glance (what runs next + the plan) and approves in ONE
+          click right here. The nod is a real conversation message, the same
+          thing typing "go ahead" into the composer does. */}
+      {card.awaitingApproval && !running && (
+        <div className="approval-ask">
+          <div className="aa-head">Waiting for your approval</div>
+          <div className="aa-next">next: {card.awaitingApproval.next}</div>
+          {card.awaitingApproval.plan && <p className="aa-plan">{card.awaitingApproval.plan}</p>}
+          {card.awaitingApproval.items.length > 0 && (
+            <ul className="aa-items">
+              {card.awaitingApproval.items.slice(0, 4).map((item, i) => <li key={i}>{item}</li>)}
+              {card.awaitingApproval.items.length > 4 && (
+                <li className="muted">+{card.awaitingApproval.items.length - 4} more</li>
+              )}
+            </ul>
+          )}
+          <div className="aa-actions">
+            <button className="btn primary" disabled={busy} title="approve the plan and let the conversation continue" onClick={() => onApprove(card)}>
+              <PlayIcon /> Approve &amp; continue
+            </button>
+            <button className="btn small" disabled={busy} title="open the conversation before deciding" onClick={() => onDiscuss(card)}>
+              Review first
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* LIVE run state: a running pill with a ticking elapsed timer + the live log
           tail, so the card shows the operative WORKING (not just a pulsing dot). */}
       {running && (
@@ -1224,7 +1256,7 @@ function Card({
         busy={busy}
         iconOnly
         handlers={{
-          onStart, onMove, onQuickMove, onDelete, onWatch, onTerminal,
+          onStart, onApprove, onMove, onQuickMove, onDelete, onWatch, onTerminal,
           onInfer, onDiscuss, onContinue, onDrill, onFeedback, onRunSchedule
         }}
       />
@@ -3076,6 +3108,34 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         <div className="state-callout frozen">
           Frozen history - a record from before the Conversations migration. It can be read and
           deleted, not edited, moved or run.
+        </div>
+      )}
+
+      {/* THE APPROVAL ASK, at full width — same block the card front wears,
+          uncapped: in here the whole plan is readable and the decision is one
+          click, with the conversation right below for anything deeper. */}
+      {card.awaitingApproval && card.status !== "running" && !readOnly && (
+        <div className="approval-ask detail-approval">
+          <div className="aa-head">Waiting for your approval</div>
+          <div className="aa-next">next: {card.awaitingApproval.next}</div>
+          {card.awaitingApproval.plan && <p className="aa-plan">{card.awaitingApproval.plan}</p>}
+          {card.awaitingApproval.items.length > 0 && (
+            <ul className="aa-items">
+              {card.awaitingApproval.items.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          )}
+          <div className="aa-actions">
+            <button
+              className="btn primary"
+              title="approve the plan and let the conversation continue"
+              onClick={() => actions?.onApprove?.(card)}
+            >
+              <PlayIcon /> Approve &amp; continue
+            </button>
+            <span className="muted" style={{ fontSize: 12 }}>
+              or write into the conversation below - any reply approves
+            </span>
+          </div>
         </div>
       )}
 
@@ -5000,6 +5060,35 @@ function App() {
     setOverlay({ kind: "conversation", cardId: card.id });
   }
 
+  // One click IS the approval: the nod lands in the conversation as a real
+  // user message (exactly what typing "go ahead" does), which un-arms the
+  // autonomy gate and kicks the next stretch.
+  async function onApprove(card: CardSummary) {
+    if (!card.conversationId) {
+      setNotice("This card has no conversation to approve.");
+      return;
+    }
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      const res = await fetch(`${CONVERSATION_BASE}/${encodeURIComponent(card.conversationId)}/message`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Approved - continue.", origin: "kanban" })
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error ?? `The approval could not be delivered (${res.status}).`);
+      }
+      setNotice("Approved - the conversation continues.");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      await load();
+      setBusyCard(null);
+    }
+  }
+
   // Apply a card's prepared revert (S2, Q7). A guarded, deliberate press: a native
   // confirm() first (the server ALSO requires an explicit confirm), then the board
   // reloads so the descriptor's new state (applied / conflict) shows either way.
@@ -5359,6 +5448,7 @@ function App() {
                               list={list}
                               busy={busyCard === card.id}
                               onStart={onStart}
+                              onApprove={onApprove}
                               onInfer={onInfer}
                               onDiscuss={onDiscuss}
                               onRevert={onRevert}
@@ -5450,6 +5540,7 @@ function App() {
           onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
           actions={{
             onStart,
+            onApprove,
             onMove: (c) => setOverlay({ kind: "move", card: c }),
             onQuickMove,
             // The sheet is showing the card that just went away, so close it.

@@ -4203,6 +4203,36 @@ button:active, .btn:active { transform: translateY(1px); }
    side carries the primary tone. */
 .seg { display: flex; gap: 6px; }
 
+/* ── the approval ask ───────────────────────────────────────────────────────
+   The autonomy gate's pause, worn ON the card. The one moment a conversation
+   needs a human, so it outshouts every other block: warm wash, heavy left
+   rail, a full-width approve button. */
+.approval-ask {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-left: 4px solid var(--warn);
+}
+.approval-ask .aa-head {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--warn-ink);
+}
+.approval-ask .aa-next {
+  font-family: var(--mono); font-size: 11px; color: var(--warn-ink); margin-top: 2px;
+}
+.approval-ask .aa-plan {
+  margin: 6px 0 0; font-size: 12px; line-height: 1.45; color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;
+}
+.approval-ask .aa-items { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--ink); }
+.approval-ask .aa-items li { margin: 2px 0; }
+.approval-ask .aa-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.approval-ask .aa-actions .btn.primary { flex: 1 1 auto; justify-content: center; min-height: 34px; }
+/* The detail sheet has room: the whole plan reads uncapped. */
+.detail-approval .aa-plan { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.detail-approval .aa-actions .btn.primary { flex: 0 1 auto; padding: 8px 22px; }
+
 /* Terminal host (copied from dev-env) + the Terminal modal shell. */
 .term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .term-host.hidden { display: none; }
