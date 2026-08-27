@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { GarrisonMark } from "./GarrisonMark";
-import { NodeBadge, useNodeChrome } from "./NodeBadge";
+import { NodeBadge, useBuildSha, useNodeChrome } from "./NodeBadge";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
@@ -59,6 +59,7 @@ export function Sidebar() {
   // read <html data-node-*>, so the subtitle degrades to "v1" for one frame
   // rather than flashing a wrong node name.
   const node = useNodeChrome();
+  const buildSha = useBuildSha();
 
   const stationedCount = countStationed(composition);
   const totalFaculties = faculties.length;
@@ -215,6 +216,10 @@ export function Sidebar() {
             {runnerState?.devMode ? "dev · " : ""}
             {runnerState?.pid ?? "-"}
           </b>
+        </div>
+        <div className="row">
+          <span>build</span>
+          <b>{buildSha ?? "-"}</b>
         </div>
       </div>
     </aside>

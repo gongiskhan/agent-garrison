@@ -4,6 +4,7 @@ import "./globals.css";
 import { AppShell } from "@/components/chrome/AppShell";
 import { ServiceWorkerRegistrar } from "@/components/chrome/ServiceWorkerRegistrar";
 import { readNodeIdentity } from "@/lib/node-identity";
+import { readBuildSha } from "@/lib/build-info";
 
 const barlow = Barlow({
   subsets: ["latin"],
@@ -85,6 +86,7 @@ export function generateViewport(): Viewport {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const node = readNodeIdentity();
+  const buildSha = readBuildSha();
   return (
     <html
       lang="en"
@@ -92,10 +94,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       // The node's colour reaches every stylesheet with no client round trip
       // and no FOUC; the data-* pair is how client components (NodeBadge, the
       // sidebar subtitle) learn the name without a fetch, since node-identity
-      // reads the filesystem and cannot be bundled for the browser.
+      // reads the filesystem and cannot be bundled for the browser. Same
+      // reasoning for data-build-sha: build-info.ts shells out to git, which
+      // is server-only.
       data-node-id={node.id}
       data-node-name={node.name}
       data-node-accent={node.accent}
+      data-build-sha={buildSha ?? undefined}
       style={
         {
           "--node-accent": node.accentHex,
