@@ -526,6 +526,43 @@ describe("wake pulse suppression is scoped to what actually opened it", () => {
   });
 });
 
+// Regression (2026-08-27): the speak lane was widened server-side to include
+// pendant sessions - the wearer of a pendant is exactly who wants to be
+// answered out loud - but the pendant controller never set `onSpeak`. The
+// message arrived at a nil handler: no speech, no receipt, and a silence
+// indistinguishable from a broken voice. The server counters showed it
+// perfectly (speaks_forwarded 7, speaks_confirmed 5, clips served 0) and the
+// app showed nothing at all.
+//
+// Both lanes are the same phone and the same speaker, so this pins the parity
+// rather than one lane's implementation: widening the server without wiring the
+// client is the mistake, and it is invisible from either side alone.
+describe("speak wiring parity between the capture lanes", () => {
+  const controller = (name: string) =>
+    readFileSync(path.join(__dirname, "..", "ios", "GarrisonApp", name), "utf8");
+
+  it("both the companion and the pendant controller handle {type:\"speak\"}", () => {
+    for (const file of ["CaptureController.swift", "Pendant/PendantController.swift"]) {
+      const src = controller(file);
+      expect(src, file).toMatch(/uploader\.onSpeak\s*=/);
+      // ...and answer, or the server cannot tell a silent sink from an off one.
+      expect(src, file).toMatch(/sendSpokenReceipt/);
+    }
+  });
+
+  it("the server treats exactly those two modes as speakable", () => {
+    const sink = readFileSync(
+      path.join(__dirname, "..", "fittings", "seed", "capture-service", "lib", "ack-sink.mjs"),
+      "utf8"
+    );
+    const speakable = sink.match(/const speakableMode = ([^;]+);/)?.[1] ?? "";
+    expect(speakable).toContain('"audio"');
+    expect(speakable).toContain('"pendant"');
+    // screen_audio never speaks in-session (ADR section 6).
+    expect(speakable).not.toContain("screen_audio");
+  });
+});
+
 describe("pendant triage identity (shared tick)", () => {
   it("triages a pendant ambient session event with pendant identity in one model call", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "pendant-triage-"));

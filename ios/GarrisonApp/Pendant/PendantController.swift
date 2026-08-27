@@ -36,6 +36,7 @@ final class PendantController: ObservableObject {
     private var transport: DeviceTransport
     private var uploader: CaptureUploader?
     private let phoneSink: PhoneFeedbackSink?
+    private let speechSink: SpeechSink
     private var codec: PendantCodec = .opusFS320
 
     /// The device haptic vocabulary (ADR D4): patterns composed from the
@@ -65,9 +66,14 @@ final class PendantController: ObservableObject {
         }
     }
 
-    init(transport: DeviceTransport? = nil, phoneSink: PhoneFeedbackSink? = PhoneFeedbackSink()) {
+    init(
+        transport: DeviceTransport? = nil,
+        phoneSink: PhoneFeedbackSink? = PhoneFeedbackSink(),
+        speechSink: SpeechSink = SpeechSink()
+    ) {
         self.transport = transport ?? PendantBLETransport(identifier: AppGroup.pendantIdentifier)
         self.phoneSink = phoneSink
+        self.speechSink = speechSink
         wireTransport()
     }
 
@@ -162,6 +168,32 @@ final class PendantController: ObservableObject {
         }
         uploader.onFeedback = { [weak self] event in
             Task { @MainActor in self?.handleFeedback(event) }
+        }
+        // The mouth. Until 2026-08-27 the server refused to speak to a pendant
+        // session at all, so this was never wired - and the moment the server
+        // started forwarding, the message arrived at a nil handler: no speech,
+        // no receipt, silence that looked exactly like a broken voice.
+        //
+        // The wearer of a pendant is precisely who wants to be answered out
+        // loud, and it is the same phone and the same speaker as the companion
+        // lane, so the sink and the receipt path are identical to
+        // CaptureController's.
+        uploader.onSpeak = { [weak self] ack in
+            Task { @MainActor in
+                guard let self else { return }
+                self.speechSink.onReceipt = { receipt in
+                    uploader.sendSpokenReceipt(ackId: receipt.ackId, ok: receipt.ok, reason: receipt.reason)
+                    AckLog.shared.append(AckLogEntry(
+                        id: receipt.ackId,
+                        at: Date(),
+                        kind: ack.kind,
+                        severity: ack.severity,
+                        text: ack.text,
+                        via: receipt.ok ? "spoken" : "dropped:\(receipt.reason ?? "unknown")"
+                    ))
+                }
+                self.speechSink.handle(ack)
+            }
         }
         self.uploader = uploader
         uploader.connect()
