@@ -11,7 +11,16 @@ declare module "*/kanban-loop/lib/ack.mjs" {
   export function wakeRegex(variants: string[]): RegExp | null;
   export function assertSpeakable(text: string, env?: Record<string, string | undefined>): string;
   export function validateTemplate(id: string, tpl: unknown): string[];
-  export function loadTemplates(opts?: { env?: Record<string, string | undefined>; log?: unknown }): Record<string, AckTemplate>;
+  export function loadTemplates(opts?: { env?: Record<string, string | undefined>; log?: unknown; lang?: string }): Record<string, AckTemplate>;
+  export function loadTemplateSets(opts?: { env?: Record<string, string | undefined>; log?: unknown }): Record<string, Record<string, AckTemplate>>;
+  export const PT_TEMPLATES: Record<string, AckTemplate>;
+  export const TEMPLATES_BY_LANG: Record<string, Record<string, AckTemplate>>;
+  export const ACK_LANGUAGES: string[];
+  export function ackLanguage(env?: Record<string, string | undefined>): string | null;
+  export function ackLanguageFor(
+    card: unknown,
+    opts?: { lang?: string | null; env?: Record<string, string | undefined>; defaultLang?: string | null }
+  ): string;
   export function renderAck(
     templateId: string,
     slots?: Record<string, unknown>,
@@ -22,7 +31,14 @@ declare module "*/kanban-loop/lib/ack.mjs" {
   export function ackFromOriginEvent(
     event: { kind: string; idempotencyKey?: string | null } | null,
     card: Record<string, unknown> | null,
-    opts?: { templates?: Record<string, AckTemplate>; env?: Record<string, string | undefined>; now?: () => Date }
+    opts?: {
+      templates?: Record<string, AckTemplate> | null;
+      templateSets?: Record<string, Record<string, AckTemplate>>;
+      lang?: string | null;
+      defaultLang?: string | null;
+      env?: Record<string, string | undefined>;
+      now?: () => Date;
+    }
   ): any;
 }
 

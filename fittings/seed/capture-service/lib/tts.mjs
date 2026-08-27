@@ -29,6 +29,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { atomicWrite } from "./store.mjs";
+import { detectLanguage } from "./lang.mjs";
 
 const API_BASE = "https://api.elevenlabs.io/v1";
 // Unspoken conditioning that holds the accent on short lines. Never rendered -
@@ -53,14 +54,21 @@ export function clipId({ text, voiceId, model }) {
   return createHash("sha256").update(`${model} ${voiceId} ${text}`).digest("hex").slice(0, 32);
 }
 
-// Heuristic, and deliberately cheap. It picks CONDITIONING, never words: the
-// anchors apply only to Portuguese, so guessing wrong costs a slightly
-// differently-conditioned clip, not a wrong language. The ack text arrives in
-// whatever language the user spoke; there is nothing authoritative to read.
+// Picks CONDITIONING, never words: the anchors apply only to Portuguese, so
+// guessing wrong costs a slightly differently-conditioned clip, not a wrong
+// language.
+//
+// Delegates to lang.mjs rather than carrying its own rule. The old local
+// heuristic returned true on the FIRST accent or Portuguese stopword, which
+// made "Buy a remote for the TV amanhã" Portuguese and "Comprar comando"
+// English. UNDETERMINED stays false here: with nothing to go on, the plain
+// request without anchors is the safe rendering.
+//
+// Deliberately NOT parameterised by a caller-supplied language: clipId hashes
+// {text, voiceId, model}, so if anything outside that triple could change the
+// audio, one id would serve two different renderings.
 export function looksPortuguese(text) {
-  const t = String(text ?? "").toLowerCase();
-  if (/[ãõáâàéêíóôúç]/.test(t)) return true;
-  return /(^|\s)(o|a|os|as|de|da|do|para|com|nao|sim|ja|esta|foi|criei|tarefa|cartao|amanha)(\s|$|[,.!?])/.test(t);
+  return detectLanguage(text) === "pt";
 }
 
 export class ZecaVoice {

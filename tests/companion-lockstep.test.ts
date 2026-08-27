@@ -16,6 +16,7 @@ import path from "node:path";
 
 const MIRRORED = [
   "wake.mjs",
+  "lang.mjs",
   "echo-guard.mjs",
   "board-client.mjs",
   "memory-writer.mjs",
@@ -23,14 +24,28 @@ const MIRRORED = [
   "tailnet-serve.mjs"
 ];
 
+// lang.mjs travels one hop further than the rest: the ack layer renders in
+// kanban-loop, in a different process from the one that heard the utterance, so
+// it needs the same detector. Same copy, same gate.
+const ALSO_IN_KANBAN = ["lang.mjs"];
+
 const omiLib = path.join(__dirname, "..", "fittings", "seed", "omi-channel", "lib");
 const captureLib = path.join(__dirname, "..", "fittings", "seed", "capture-service", "lib");
+const kanbanLib = path.join(__dirname, "..", "fittings", "seed", "kanban-loop", "lib");
 
 describe("companion lockstep mirrors", () => {
   for (const file of MIRRORED) {
     it(`${file} is byte-identical between omi-channel and capture-service`, () => {
       const original = readFileSync(path.join(omiLib, file), "utf8");
       const copy = readFileSync(path.join(captureLib, file), "utf8");
+      expect(copy).toBe(original);
+    });
+  }
+
+  for (const file of ALSO_IN_KANBAN) {
+    it(`${file} is byte-identical in kanban-loop too`, () => {
+      const original = readFileSync(path.join(omiLib, file), "utf8");
+      const copy = readFileSync(path.join(kanbanLib, file), "utf8");
       expect(copy).toBe(original);
     });
   }

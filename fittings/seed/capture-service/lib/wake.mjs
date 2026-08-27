@@ -13,6 +13,7 @@
 // memory writer, answer via notification).
 
 import { atomicWriteJSON, ulid } from "./store.mjs";
+import { detectLanguage, isLanguage, t } from "./lang.mjs";
 import path from "node:path";
 
 const SESSION_IDLE_GC_MS = 10 * 60 * 1000;
@@ -76,18 +77,26 @@ export function shortRef(id) {
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// The same mixing bug one layer down, and the easiest one to miss: these get
+// interpolated straight into "Snoozed ... until Sat 09:00", so an otherwise
+// Portuguese confirmation ended in an English weekday.
+const DAY_NAMES_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const MONTH_NAMES_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 // "Sat 09:00" within the coming week, "Thu 20 Aug 09:00" beyond it - a spoken
 // confirmation needs a glanceable local time, not an ISO string.
-export function humanTime(iso, now = new Date()) {
+// Defaults to English so every existing caller renders exactly as before.
+export function humanTime(iso, now = new Date(), lang = "en") {
   const d = iso instanceof Date ? iso : new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
   const pad = (n) => String(n).padStart(2, "0");
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   const withinWeek = Math.abs(d.getTime() - now.getTime()) < 7 * 24 * 60 * 60 * 1000;
+  const days = lang === "pt" ? DAY_NAMES_PT : DAY_NAMES;
+  const months = lang === "pt" ? MONTH_NAMES_PT : MONTH_NAMES;
   return withinWeek
-    ? `${DAY_NAMES[d.getDay()]} ${hm}`
-    : `${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${hm}`;
+    ? `${days[d.getDay()]} ${hm}`
+    : `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${hm}`;
 }
 
 // Local wall-clock time with the UTC offset, for the classifier prompt: the
@@ -443,7 +452,7 @@ export const OMI_WAKE_SOURCE = {
 };
 
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -454,6 +463,11 @@ export class WakeBus {
     // task_created; task_failed is reported from dispatch on a fallback
     // outcome. Never allowed to throw into the pipeline.
     this.onLifecycle = onLifecycle;
+    // Which language this channel confirms in. A string pins it; a function is
+    // asked per dispatch (the capture-service remembers per session). Null means
+    // "read it off what was said", which is what omi passes and what every
+    // default below preserves.
+    this.language = language;
     // Two lanes, deliberately distinct: `runFn` is the small pinned classifier
     // the wearer waits on; `operativeFn` is the full-toolset turn nobody waits
     // on. Collapsing them is what made every spoken command cost a Sonnet turn.
@@ -478,6 +492,27 @@ export class WakeBus {
     } catch (err) {
       this.log.error(`[${this.source.logPrefix}] lifecycle hook error: ${err?.message ?? err}`);
     }
+  }
+
+  // Which language to confirm in, decided ONCE per dispatch.
+  //
+  // The classifier's own output is preferred over the raw transcript: the model
+  // is instructed to keep the user's language and its output is well-formed,
+  // whereas the ASR text can be garbled in exactly the way that defeats a
+  // word-list. Falls through to the injected/configured language, then to
+  // whatever the user actually said, and only then to a default.
+  resolveLanguage(command, parsed = null) {
+    const spoken = [parsed?.title, parsed?.answer, parsed?.ack, parsed?.note_content, parsed?.description]
+      .filter((v) => typeof v === "string" && v.trim())
+      .join(" ");
+    const fromModel = spoken ? detectLanguage(spoken) : null;
+    if (isLanguage(fromModel)) return fromModel;
+    const injected = typeof this.language === "function" ? this.language() : this.language;
+    if (isLanguage(injected)) return injected;
+    const fromCommand = detectLanguage(command);
+    if (isLanguage(fromCommand)) return fromCommand;
+    const configured = this.cfg.wakeLanguage;
+    return isLanguage(configured) ? configured : "en";
   }
 
   // Remember a just-created card and evict anything past the dedupe window, so
@@ -551,7 +586,7 @@ export class WakeBus {
       .send({
         template: "wake_confirmation",
         params: {
-          text: parsed.note || `Updated: ${parsed.title || watch.title}`,
+          text: parsed.note || t("wake.updated", { title: parsed.title || watch.title }, this.resolveLanguage(watch.command ?? "", parsed)),
           cardUrl: await this.notifier.cardUrl(watch.cardId).catch(() => null)
         }
       })
@@ -774,6 +809,9 @@ export class WakeBus {
       triage_result_ref: null
     };
 
+    // Resolved before the handler runs, so the catch below can still confirm in
+    // the right language when handleCommand throws.
+    let lang = this.resolveLanguage(command);
     let outcome = null;
     // The wearer's felt latency is the sum of three very different things - the
     // capture window, the classifier, and the action plus its notification - and
@@ -782,12 +820,13 @@ export class WakeBus {
     const commandStartedAt = this.now();
     this.counters.observe("wake_capture_ms", commandStartedAt - wakeHitAt);
     try {
-      outcome = await this.handleCommand({ command, eventId, context, trailing, sessionId });
+      outcome = await this.handleCommand({ command, eventId, context, trailing, sessionId, onLanguage: (l) => { lang = l; } });
     } catch (err) {
       outcome = await this.fallbackNote({
         command,
         eventId,
-        confirmation: "Couldn't reach Zeca - saved your command as a note.",
+        key: "wake.unreachable",
+        lang,
         reason: `dispatch failed: ${err?.message ?? err}`
       });
     }
@@ -841,12 +880,16 @@ export class WakeBus {
     return { ...outcome, receipts, latencyMs };
   }
 
-  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null }) {
+  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, onLanguage = null }) {
+    // Nothing has been classified yet, so the only evidence is the transcript.
+    let lang = this.resolveLanguage(command);
+    onLanguage?.(lang);
     if (!this.cfg.gatewayUrl || !this.runFn) {
       return this.fallbackNote({
         command,
         eventId,
-        confirmation: "Zeca is offline - saved your command as a note.",
+        key: "wake.offline",
+        lang,
         reason: "no gateway"
       });
     }
@@ -861,10 +904,15 @@ export class WakeBus {
       return this.fallbackNote({
         command,
         eventId,
-        confirmation: "I couldn't parse that - saved it as a note.",
+        key: "wake.unparseable",
+        lang,
         reason: "unparseable wake reply"
       });
     }
+    // Re-resolved now that the classifier has spoken: its output is better
+    // evidence than the transcript alone.
+    lang = this.resolveLanguage(command, parsed);
+    onLanguage?.(lang);
 
     switch (parsed.intent) {
       case "create_task":
@@ -884,7 +932,7 @@ export class WakeBus {
         if (dedupeMs > 0 && dupeAt && this.now() - dupeAt < dedupeMs) {
           this.counters.bump("wake_duplicate_suppressed");
           return {
-            confirmation: `Already created: ${title}`,
+            confirmation: t("wake.already", { title }, lang),
             cardUrl: null,
             result: { intent: parsed.intent, cardId: null, title, suppressed: "duplicate" }
           };
@@ -898,7 +946,7 @@ export class WakeBus {
           const scheduledMs = Date.parse(parsed.scheduled_for);
           if (Number.isNaN(scheduledMs)) {
             this.counters.bump("wake_schedule_dropped");
-            scheduleNote = " (I couldn't make out the time, so it is not scheduled)";
+            scheduleNote = t("wake.time_dropped", {}, lang);
           } else {
             schedule = {
               scheduledFor: new Date(scheduledMs).toISOString(),
@@ -917,6 +965,9 @@ export class WakeBus {
               `Provenance: ${this.source.id} wake session, capture event ${eventId}`
             ].join("\n"),
             ...(parsed.project ? { project: parsed.project } : {}),
+            // Travels with the card so the ack layer - which renders in another
+            // process and never heard this - confirms in the same language.
+            lang,
             origin: this.source.originPrefix,
             origin_id: `${this.source.originPrefix}:wake:${eventId}`,
             originChannel: this.source.originChannel
@@ -942,10 +993,10 @@ export class WakeBus {
           if (schedule) this.counters.bump("wake_cards_scheduled");
           const cardUrl = await this.notifier.cardUrl(card?.id ?? null);
           const scheduledText = schedule
-            ? `, scheduled for ${humanTime(schedule.scheduledFor, new Date(this.now()))}`
+            ? t("wake.scheduled_for", { when: humanTime(schedule.scheduledFor, new Date(this.now()), lang) }, lang)
             : "";
           return {
-            confirmation: `${isEvent ? "Event card" : "Card"} created: ${title}${scheduledText}${scheduleNote}`,
+            confirmation: `${t(isEvent ? "wake.event_created" : "wake.card_created", { title }, lang)}${scheduledText}${scheduleNote}`,
             cardUrl,
             result: {
               intent: parsed.intent,
@@ -959,17 +1010,18 @@ export class WakeBus {
           return this.fallbackNote({
             command,
             eventId,
-            confirmation: "The board is unreachable - saved your command as a note.",
+            key: "wake.board_down",
+            lang,
             reason: `card create failed: ${err?.message ?? err}`
           });
         }
       }
       case "card_command":
-        return this.handleCardCommand({ parsed });
+        return this.handleCardCommand({ parsed, lang });
       case "delegate":
-        return this.handleDelegate({ parsed, command, eventId, sessionId });
+        return this.handleDelegate({ parsed, command, eventId, sessionId, lang });
       case "query": {
-        const answer = parsed.answer || "I don't have an answer for that right now.";
+        const answer = parsed.answer || t("wake.no_answer", {}, lang);
         this.counters.bump("wake_queries_answered");
         return {
           confirmation: answer.slice(0, 500),
@@ -985,7 +1037,9 @@ export class WakeBus {
         });
         this.counters.bump("wake_notes_saved");
         return {
-          confirmation: written.ok ? `Noted: ${parsed.title || command.slice(0, 60)}` : "Couldn't save the note (memory store unavailable).",
+          confirmation: written.ok
+            ? t("wake.noted", { title: parsed.title || command.slice(0, 60) }, lang)
+            : t("wake.note_failed", {}, lang),
           result: { intent: "note", saved: written.ok }
         };
       }
@@ -994,7 +1048,8 @@ export class WakeBus {
         return this.fallbackNote({
           command,
           eventId,
-          confirmation: "I wasn't sure what to do with that, so I saved it as a note.",
+          key: "wake.unknown_intent",
+          lang,
           reason: "unknown intent"
         });
     }
@@ -1006,19 +1061,22 @@ export class WakeBus {
   // Blocking the wearer on a turn that routinely runs a minute or more is what
   // made spoken requests feel broken, and a fast wrong answer from the
   // classifier's own head is worse than a slow right one.
-  async handleDelegate({ parsed, command, eventId, sessionId }) {
+  async handleDelegate({ parsed, command, eventId, sessionId, lang = "en" }) {
     const request = parsed.request || command;
     if (!this.cfg.delegateEnabled || !this.operativeFn) {
       this.counters.bump("wake_delegate_unavailable");
       return this.fallbackNote({
         command,
         eventId,
-        confirmation: "I can't reach Zeca for that right now - saved it as a note.",
+        key: "wake.no_delegate",
+        lang,
         reason: this.cfg.delegateEnabled ? "no operative lane" : "delegation disabled"
       });
     }
     this.counters.bump("wake_delegates");
-    const ack = parsed.ack || "On it - I'll come back to you.";
+    // The model's own ack already follows the user's language; the fallback is
+    // the only part that needs translating.
+    const ack = parsed.ack || t("wake.on_it", {}, lang);
 
     // Handed back as `after` rather than started here, so the work cannot begin
     // until the acknowledgement has actually been sent. Started here, a fast
@@ -1028,11 +1086,11 @@ export class WakeBus {
     return {
       confirmation: ack,
       result: { intent: "delegate", request, delivered: "pending" },
-      after: () => this.runDelegate({ request, eventId, sessionId })
+      after: () => this.runDelegate({ request, eventId, sessionId, lang })
     };
   }
 
-  async runDelegate({ request, eventId, sessionId }) {
+  async runDelegate({ request, eventId, sessionId, lang = "en" }) {
     const startedAt = this.now();
     let text = "";
     let ok = false;
@@ -1049,9 +1107,9 @@ export class WakeBus {
       text = String(reply ?? "").trim();
       ok = text.length > 0;
     } catch (err) {
-      text = `I couldn't finish that: ${err?.message ?? err}`;
+      text = t("wake.delegate_failed", { error: err?.message ?? err }, lang);
     }
-    if (!text) text = "I finished, but had nothing to report back.";
+    if (!text) text = t("wake.nothing_to_report", {}, lang);
     const elapsed = this.now() - startedAt;
     this.counters.observe("wake_delegate_ms", elapsed);
     this.counters.bump(ok ? "wake_delegates_answered" : "wake_delegates_failed");
@@ -1075,12 +1133,12 @@ export class WakeBus {
   // The board resolves the reference; ambiguity is read back as a short list
   // of candidates and NEVER guessed among. Failures here answer with an honest
   // notification, not a note fallback - a note cannot start or snooze a card.
-  async handleCardCommand({ parsed }) {
+  async handleCardCommand({ parsed, lang = "en" }) {
     this.counters.bump("wake_card_commands");
     const ref = parsed.card_ref;
     if (!parsed.action || !ref) {
       return {
-        confirmation: 'I couldn\'t tell which card or what to do with it - say e.g. "run card 7Q2M".',
+        confirmation: t("card.which", {}, lang),
         result: { intent: "card_command", ok: false, reason: "missing action or card_ref" }
       };
     }
@@ -1093,7 +1151,7 @@ export class WakeBus {
     if (resolved?.status === 404) {
       this.counters.bump("wake_card_command_no_match");
       return {
-        confirmation: `No card matches ${ref}.`,
+        confirmation: t("card.no_match", { ref }, lang),
         result: { intent: "card_command", action: parsed.action, ok: false, reason: "no-match", ref }
       };
     }
@@ -1104,7 +1162,7 @@ export class WakeBus {
         .map((c) => `${shortRef(c?.id)} "${c?.title ?? "(untitled)"}"${c?.list ? ` (${c.list})` : ""}`)
         .join(", ");
       return {
-        confirmation: `More than one card matches ${ref}: ${listed || "(candidates unavailable)"}. Say the 4-character ref of the one you mean.`,
+        confirmation: t("card.ambiguous", { ref, listed: listed || t("card.candidates_unavailable", {}, lang) }, lang),
         result: {
           intent: "card_command",
           action: parsed.action,
@@ -1117,7 +1175,7 @@ export class WakeBus {
     }
     if (resolved?.status !== 200 || !resolved.card) {
       return {
-        confirmation: `The board is unreachable right now - couldn't ${parsed.action} card ${ref}.`,
+        confirmation: t("card.board_down", { action: parsed.action, ref }, lang),
         result: {
           intent: "card_command",
           action: parsed.action,
@@ -1138,7 +1196,7 @@ export class WakeBus {
         await this.board.startCard(card.id);
       } catch (err) {
         return {
-          confirmation: `Couldn't start "${title}" (card ${refOut}) - the board refused.`,
+          confirmation: t("card.start_failed", { title, ref: refOut }, lang),
           cardUrl,
           result: {
             intent: "card_command",
@@ -1151,7 +1209,7 @@ export class WakeBus {
       }
       this.counters.bump("wake_card_commands_run");
       return {
-        confirmation: `Started "${title}" (card ${refOut})`,
+        confirmation: t("card.started", { title, ref: refOut }, lang),
         cardUrl,
         result: { intent: "card_command", action: "run", cardId: card.id ?? null, ok: true }
       };
@@ -1165,7 +1223,7 @@ export class WakeBus {
     const until = Number.isNaN(untilMs) ? null : new Date(untilMs).toISOString();
     if (!minutes && !until) {
       return {
-        confirmation: `I couldn't make out the snooze time for card ${refOut} - try "snooze card ${refOut} for 2 hours".`,
+        confirmation: t("card.snooze_time", { ref: refOut }, lang),
         cardUrl,
         result: {
           intent: "card_command",
@@ -1181,7 +1239,7 @@ export class WakeBus {
       snoozed = await this.board.snoozeCard(card.id, minutes ? { minutes } : { until });
     } catch (err) {
       return {
-        confirmation: `Couldn't snooze "${title}" (card ${refOut}) - the board refused.`,
+        confirmation: t("card.snooze_failed", { title, ref: refOut }, lang),
         cardUrl,
         result: {
           intent: "card_command",
@@ -1199,13 +1257,16 @@ export class WakeBus {
       until ||
       new Date(this.now() + minutes * 60_000).toISOString();
     return {
-      confirmation: `Snoozed "${title}" until ${humanTime(effectiveUntil, nowDate)} (card ${refOut})`,
+      confirmation: t("card.snoozed", { title, ref: refOut, when: humanTime(effectiveUntil, nowDate, lang) }, lang),
       cardUrl,
       result: { intent: "card_command", action: "snooze", cardId: card.id ?? null, ok: true, until: effectiveUntil }
     };
   }
 
-  fallbackNote({ command, eventId, confirmation, reason }) {
+  // Takes a message KEY, never a rendered sentence: every caller reaches here
+  // from a failure path, and translating an English string back afterwards is
+  // not a thing that works.
+  fallbackNote({ command, eventId, key, lang = "en", reason }) {
     // An empty capture that nothing could be made of is not a note - it is
     // nothing. The note here IS the command ("content: command"), so an empty
     // command wrote a zero-content file into the user's durable memory vault,
@@ -1239,7 +1300,9 @@ export class WakeBus {
     });
     this.counters.bump("wake_notes_saved");
     return {
-      confirmation: written.ok ? confirmation : `${confirmation} (memory store unavailable - not saved)`,
+      confirmation: written.ok
+        ? t(key, {}, lang)
+        : t("wake.not_saved", { text: t(key, {}, lang) }, lang),
       result: { intent: "note_fallback", saved: written.ok, reason }
     };
   }

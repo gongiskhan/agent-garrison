@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+import { detectLanguage, isLanguage, LANGUAGES } from "./lang.mjs";
 
 // ---- the wake-word guard ----------------------------------------------------
 
@@ -161,13 +162,103 @@ export const DEFAULT_TEMPLATES = {
   }
 };
 
+// The same registry in European Portuguese, informal (tu): Zeca speaks to one
+// person, who owns the machine.
+//
+// This exists because the ack was the one place the product spoke a sentence
+// the user had not written. The card TITLE is always the user's own words - the
+// classifier is told to keep their language - so an English frame around a
+// Portuguese title produced "Created a task, Comprar comando para a
+// televisão." Half a sentence in each language, out loud, is worse than either
+// language alone.
+//
+// Every frame still interpolates a slot, so the referent rule holds in both.
+export const PT_TEMPLATES = {
+  "card.created": {
+    kind: "created",
+    severity: "info",
+    slots: ["subject"],
+    text: "Criei uma tarefa: {subject}.",
+    short: "Criada: {subject}."
+  },
+  "card.created.scheduled": {
+    kind: "created",
+    severity: "info",
+    slots: ["subject", "when"],
+    text: "Criei um evento: {subject}, {when}.",
+    short: "Criado: {subject}, {when}."
+  },
+  "card.completed": {
+    kind: "completed",
+    severity: "info",
+    slots: ["subject"],
+    text: "Terminei {subject}.",
+    short: "Terminei {subject}."
+  },
+  "card.failed": {
+    kind: "failed",
+    severity: "error",
+    slots: ["subject"],
+    text: "Não consegui terminar {subject}.",
+    short: "Falhou: {subject}."
+  },
+  "card.blocked": {
+    kind: "failed",
+    severity: "error",
+    slots: ["subject"],
+    text: "Parei em {subject}, precisa de ti.",
+    short: "Bloqueado: {subject}."
+  },
+  "capture.noted": {
+    kind: "captured",
+    severity: "info",
+    slots: ["subject"],
+    text: "Apontei: {subject}.",
+    short: "Apontado: {subject}."
+  },
+  "run.started": {
+    kind: "started",
+    severity: "info",
+    slots: ["subject"],
+    text: "Comecei {subject}.",
+    short: "Comecei {subject}."
+  },
+  "integration.sent": {
+    kind: "completed",
+    severity: "info",
+    slots: ["target"],
+    text: "Enviei a mensagem para {target}.",
+    short: "Enviado para {target}."
+  },
+  "integration.failed": {
+    kind: "failed",
+    severity: "error",
+    slots: ["target"],
+    text: "Não consegui ligar a {target}.",
+    short: "{target} falhou."
+  }
+};
+
+// English stays the flat DEFAULT_TEMPLATES so `renderAck(id, slots)` and every
+// existing caller keep working unchanged; language selection happens strictly
+// ABOVE the flat registry, never inside it.
+export const TEMPLATES_BY_LANG = { en: DEFAULT_TEMPLATES, pt: PT_TEMPLATES };
+export const ACK_LANGUAGES = LANGUAGES;
+
+// `auto` (the shipped default) means "read the referent"; an explicit pt/en
+// pins it and detection is never consulted.
+export function ackLanguage(env = process.env) {
+  const raw = String(env.GARRISON_KANBANLOOP_ACK_LANGUAGE ?? "").trim().toLowerCase();
+  return isLanguage(raw) ? raw : null;
+}
+
 const ACK_KINDS = ["captured", "created", "started", "completed", "failed"];
 const SLOT_RE = /\{([a-z_][a-z0-9_]*)\}/gi;
 
 // A template that interpolates nothing renders the same sentence for every event,
 // which is the "Done" failure the referent rule exists to prevent. Enforced on
 // load so a bad edit is caught at startup rather than in the operator's ear.
-export function validateTemplate(id, tpl) {
+export function validateTemplate(id, tpl, env = process.env) {
   const problems = [];
   if (!tpl || typeof tpl !== "object") return [`${id}: not an object`];
   if (!ACK_KINDS.includes(tpl.kind)) problems.push(`${id}: kind must be one of ${ACK_KINDS.join("|")}`);
@@ -177,6 +268,17 @@ export function validateTemplate(id, tpl) {
   const used = [...String(tpl.text ?? "").matchAll(SLOT_RE)].map((m) => m[1]);
   if (used.length === 0) problems.push(`${id}: template names no referent (every ack must say what it is about)`);
   for (const u of used) if (!declared.includes(u)) problems.push(`${id}: text uses undeclared slot {${u}}`);
+  // A wake word in the FRAME is a different failure from one in a slot: a slot
+  // is the operator's own words and can only be caught at render time, but a
+  // template carrying the name would speak the pendant into a capture window on
+  // every single ack. Catch that at load, not in the operator's ear.
+  const frame = String(tpl?.text ?? "").replace(SLOT_RE, " ");
+  try {
+    assertSpeakable(frame, env);
+  } catch (err) {
+    if (err?.code === "ACK_WAKE_COLLISION") problems.push(`${id}: template text contains the wake word`);
+    else throw err;
+  }
   return problems;
 }
 
@@ -184,22 +286,56 @@ export function validateTemplate(id, tpl) {
 // edit at $GARRISON_HOME/kanban-loop/ack-templates.json. An invalid overlay is
 // REFUSED WHOLE rather than merged - half an edit is a registry nobody can reason
 // about, and the defaults are always a working fallback.
-export function loadTemplates({ env = process.env, log = console } = {}) {
+// An overlay is NESTED ({pt: {...}, en: {...}}) iff every top-level key is a
+// language code. That is safe to discriminate on because template ids are
+// dotted ("card.created") and can never be two letters.
+//
+// A FLAT overlay is the legacy shape, and it is applied to EVERY language on
+// purpose. It was written when there was only one registry, so it is an
+// explicit operator statement about what an ack should say; applying it to
+// English only would silently change their acks the day Portuguese starts being
+// picked, which is the one outcome nobody could debug.
+function readOverlay(env) {
   const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
   const file = path.join(home, "kanban-loop", "ack-templates.json");
-  let overlay = null;
   try {
-    overlay = JSON.parse(readFileSync(file, "utf8"));
+    const raw = JSON.parse(readFileSync(file, "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const keys = Object.keys(raw);
+    if (keys.length > 0 && keys.every((k) => ACK_LANGUAGES.includes(k))) return { shape: "nested", raw };
+    return { shape: "flat", raw };
   } catch {
-    return { ...DEFAULT_TEMPLATES };
+    return null;
   }
-  const merged = { ...DEFAULT_TEMPLATES, ...overlay };
-  const problems = Object.entries(merged).flatMap(([id, tpl]) => validateTemplate(id, tpl));
+}
+
+// -> { pt, en }. The all-or-nothing rule is unchanged and now spans every
+// language: half an edit is a registry nobody can reason about, and the
+// committed defaults are always a working fallback.
+export function loadTemplateSets({ env = process.env, log = console } = {}) {
+  const base = () => ({ en: { ...DEFAULT_TEMPLATES }, pt: { ...PT_TEMPLATES } });
+  const overlay = readOverlay(env);
+  if (!overlay) return base();
+  const merged = base();
+  for (const lang of ACK_LANGUAGES) {
+    const patch = overlay.shape === "nested" ? overlay.raw[lang] : overlay.raw;
+    if (patch && typeof patch === "object") merged[lang] = { ...merged[lang], ...patch };
+  }
+  const problems = ACK_LANGUAGES.flatMap((lang) =>
+    Object.entries(merged[lang]).flatMap(([id, tpl]) => validateTemplate(id, tpl, env).map((p) => `${lang}/${p}`))
+  );
   if (problems.length > 0) {
     log.warn?.(`[kanban-loop] ack-templates.json rejected (${problems.length} problem(s)): ${problems[0]}`);
-    return { ...DEFAULT_TEMPLATES };
+    return base();
   }
   return merged;
+}
+
+// Kept returning a FLAT registry so every existing caller and test is
+// unaffected; `lang` selects which one.
+export function loadTemplates({ env = process.env, log = console, lang = "en" } = {}) {
+  const sets = loadTemplateSets({ env, log });
+  return sets[isLanguage(lang) ? lang : "en"];
 }
 
 // ---- rendering --------------------------------------------------------------
@@ -261,17 +397,47 @@ export function isAckableEventKind(kind) {
 
 // -> ack object | null. Returns null (never throws) for anything not ackable, so
 // a caller can hand it every event without filtering first.
-export function ackFromOriginEvent(event, card, { templates = DEFAULT_TEMPLATES, env = process.env, now = () => new Date() } = {}) {
+// The language question, answered where the ack is built.
+//
+// This renders in kanban-loop, a different PROCESS from the capture-service
+// that heard the utterance, so there is no ambient "what language are we in".
+// Two routes, in order of authority:
+//
+//   1. card.lang - set by the wake bus, which decided from the whole spoken
+//      command plus the classifier's output. Much better evidence than a title.
+//   2. the card TITLE - which IS the user's own words, because the classifier
+//      is instructed to keep their language. Every card has one, including
+//      cards this pipeline never touched.
+//
+// A wrong answer can only ever pick the wrong FRAME; the referent is the user's
+// own words either way. So the worst case is exactly today's behaviour.
+export function ackLanguageFor(card, { lang = null, env = process.env, defaultLang = null } = {}) {
+  if (isLanguage(lang)) return lang;
+  if (isLanguage(card?.lang)) return card.lang;
+  const detected = detectLanguage(card?.title ?? "");
+  if (isLanguage(detected)) return detected;
+  return ackLanguage(env) ?? (isLanguage(defaultLang) ? defaultLang : "en");
+}
+
+export function ackFromOriginEvent(
+  event,
+  card,
+  { templates = null, templateSets = TEMPLATES_BY_LANG, lang = null, defaultLang = null, env = process.env, now = () => new Date() } = {}
+) {
   if (!event || !card || !isAckableEventKind(event.kind)) return null;
   const subject = String(card.title ?? "").trim();
   if (!subject) return null; // no referent, no ack - see the referent rule above
   const templateId = EVENT_KIND_TO_TEMPLATE[event.kind];
-  const tpl = templates[templateId];
+  // An explicitly-passed flat registry wins outright and skips selection: that
+  // is what a caller pinning one language (and every existing test) means.
+  const resolvedLang = templates ? null : ackLanguageFor(card, { lang, env, defaultLang });
+  const chosen = templates ?? templateSets[resolvedLang] ?? DEFAULT_TEMPLATES;
+  const tpl = chosen[templateId];
   if (!tpl) return null;
   const slots = { subject };
   let text;
   try {
-    text = renderAck(templateId, slots, { templates, env });
+    text = renderAck(templateId, slots, { templates: chosen, env });
   } catch (err) {
     // A wake-word collision or a missing slot must not take out the card write
     // that produced the event. Losing an ack is recoverable; losing the card is
@@ -281,6 +447,7 @@ export function ackFromOriginEvent(event, card, { templates = DEFAULT_TEMPLATES,
   return {
     id: `ack-${card.id}-${event.kind}`,
     kind: tpl.kind,
+    lang: resolvedLang ?? null,
     severity: tpl.severity,
     templateId,
     slots,

@@ -1945,6 +1945,9 @@ async function handleCreateCard(req, res, opts) {
     description,
     project: suppliedProject || explicitWorkspace,
     scope: requestedScope,
+    // Voice cards carry the language they were spoken in; createCard clamps it
+    // to pt|en and drops anything else.
+    lang: typeof body.lang === "string" ? body.lang : null,
     list: storageListId,
     goalMode: body.goalMode === true,
     autonomous: body.autonomous === true,

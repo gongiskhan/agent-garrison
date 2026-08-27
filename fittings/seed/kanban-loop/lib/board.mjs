@@ -630,7 +630,7 @@ export function cardScope(card) {
   return "unscoped";
 }
 
-export async function createCard(root, { id: explicitId = null, conversationId = null, title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+export async function createCard(root, { id: explicitId = null, conversationId = null, title, description = "", project = null, scope = null, lang = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   // Conversations: a card materializing from a conversation TAKES the
   // conversation's ULID as its id — one identity, one directory name.
   const id = typeof explicitId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(explicitId) ? explicitId : ulid();
@@ -641,6 +641,15 @@ export async function createCard(root, { id: explicitId = null, conversationId =
   // The HTTP boundary rejects malformed scope values; this lower-level constructor
   // remains tolerant for imports/tests and old callers.
   scope = cardScope({ scope, project });
+  // The language the card was SPOKEN in, when something knew. The ack layer
+  // renders in this process but the utterance was heard in another one, so
+  // without this the only evidence left is the title - good, but thinner than
+  // the whole command plus the classifier's output that the wake bus had.
+  //
+  // A closed vocabulary, not free text: this destructure is the board's schema
+  // (an unknown key is silently dropped here), and a field that reaches
+  // body_json unvalidated never gets validated later.
+  const cardLang = lang === "pt" || lang === "en" ? lang : null;
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
   const validContinues = typeof continues === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(continues) ? continues : null;
@@ -671,6 +680,7 @@ export async function createCard(root, { id: explicitId = null, conversationId =
     description,
     project,
     scope,
+    lang: cardLang,
     list,
     // list ⟷ status coherence holds from birth: a launcher-created Running
     // card is status running, everything else starts ok.

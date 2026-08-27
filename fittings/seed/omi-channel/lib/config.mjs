@@ -207,6 +207,12 @@ export function loadConfig(env = process.env) {
     // reaction - and the repeat is different transcript text, so nothing else
     // catches it. 0 disables.
     wakeCardDedupeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CARD_DEDUPE_MS, 600000),
+    // Which language the wake path confirms in. "auto" (the default) reads it
+    // off what the user actually said; an explicit pt/en pins it.
+    wakeLanguage: (() => {
+      const v = (env.GARRISON_OMICHANNEL_WAKE_LANGUAGE || "").trim().toLowerCase();
+      return v === "pt" || v === "en" ? v : null;
+    })(),
     wakeContextSegments: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_MAX_AGE_MS, 120000),
 

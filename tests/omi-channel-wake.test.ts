@@ -1213,7 +1213,46 @@ describe("wake delegation to the operative", () => {
       segments: [{ text: "Zeca, faz uma coisa qualquer.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
     });
     await wake.close("s1", "max-capture");
-    expect(notifications[0]).toContain("saved it as a note");
+    // The command was Portuguese, so the confirmation is too - the frame no
+    // longer arrives in English around Portuguese words.
+    expect(notifications[0]).toBe("Não consigo falar com o Zeca para isso agora - guardei como nota.");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("falls back in ENGLISH when the command was English", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-en-"));
+    const store = new OmiStore(home);
+    const notifications: string[] = [];
+    const wake = new WakeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: home }),
+        wakeEnabled: true,
+        delegateEnabled: false,
+        gatewayUrl: "http://127.0.0.1:1",
+        wakeSilenceCloseMs: 1000
+      },
+      store,
+      counters: new Counters(store.root, "test"),
+      runFn: async () => ({ reply: JSON.stringify({ intent: "delegate", request: "do a thing" }) }),
+      operativeFn: async () => ({ reply: "should never run" }),
+      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
+      memoryWriter: { write: () => ({ ok: true }) },
+      notifier: {
+        send: async ({ params }: any) => {
+          notifications.push(params.text);
+          return [];
+        },
+        cardUrl: async () => null
+      }
+    });
+    wake.handleSegments({
+      sessionId: "s1",
+      segments: [
+        { text: "Zeca, please send the invoice to the lawyer.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }
+      ]
+    });
+    await wake.close("s1", "max-capture");
+    expect(notifications[0]).toBe("I can't reach Zeca for that right now - saved it as a note.");
     rmSync(home, { recursive: true, force: true });
   });
 });

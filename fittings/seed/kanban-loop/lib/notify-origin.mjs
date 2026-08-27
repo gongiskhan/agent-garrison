@@ -18,7 +18,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { ackFromOriginEvent, isAckableEventKind, loadTemplates } from "./ack.mjs";
+import { ackFromOriginEvent, isAckableEventKind, loadTemplateSets } from "./ack.mjs";
 import os from "node:os";
 import { deriveOriginId, parseOriginId, ensureOriginRecord, appendOriginEvent } from "./origins.mjs";
 import { getTailnetServeMap, rehostTextToTailnet, rehostToTailnet } from "./tailnet-serve.mjs";
@@ -549,7 +549,10 @@ export function routeOriginEvent(root, disk, card, event) {
 function emitAckForEvent(card, event) {
   try {
     if (!isAckableEventKind(event.kind)) return;
-    const ack = ackFromOriginEvent(event, card, { templates: loadTemplates() });
+    // Both registries, not one: the language is chosen per ack from the card
+    // itself, because the card title is the user's own words and this process
+    // never heard them spoken.
+    const ack = ackFromOriginEvent(event, card, { templateSets: loadTemplateSets() });
     if (!ack) return;
     if (ack.skipped) {
       console.warn(`[kanban-loop] ack skipped (${ack.skipped}) for card ${card.id}: ${ack.reason}`);
