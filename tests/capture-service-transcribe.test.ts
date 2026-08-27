@@ -46,7 +46,7 @@ function results(text: string, isFinal: boolean, start = 0, duration = 2, speake
 
 // A mock Deepgram live endpoint: after 10 audio packets it emits an interim
 // then a final; on CloseStream it flushes one last final and closes.
-function startMockDeepgram() {
+function startMockDeepgram(opts: { errorFrame?: Record<string, unknown> } = {}) {
   const wss = new WebSocketServer({ port: 0 });
   const state = { connections: 0, binaryFrames: 0 };
   wss.on("connection", (ws) => {
@@ -55,6 +55,14 @@ function startMockDeepgram() {
     ws.on("message", (data, isBinary) => {
       if (isBinary) {
         state.binaryFrames += 1;
+        // A Deepgram that ACCEPTS the audio and refuses to transcribe it: the
+        // exact live failure of 2026-08-27, where frames climbed and the
+        // segment counters never moved.
+        if (opts.errorFrame && state.binaryFrames >= 2 && !sent) {
+          sent = true;
+          ws.send(JSON.stringify(opts.errorFrame));
+          return;
+        }
         if (state.binaryFrames >= 10 && !sent) {
           sent = true;
           ws.send(results(PT_INTERIM, false, 0, 1.2));
@@ -140,9 +148,12 @@ describe("capture-service transcription", () => {
     while (cleanups.length) cleanups.pop()!();
   });
 
-  async function boot(overrides: Record<string, unknown> = {}) {
+  async function boot(
+    overrides: Record<string, unknown> = {},
+    mockOpts: { errorFrame?: Record<string, unknown> } = {}
+  ) {
     const home = mkdtempSync(path.join(os.tmpdir(), "capture-dg-"));
-    const mock = startMockDeepgram();
+    const mock = startMockDeepgram(mockOpts);
     const captured: Array<{ url: string; auth: string | undefined }> = [];
     const cfg = loadConfig({ GARRISON_HOME: home, CAPTURE_TOKEN: TOKEN, DEEPGRAM_API_KEY: DG_KEY });
     const handle = await startServer({
@@ -171,6 +182,38 @@ describe("capture-service transcription", () => {
     expect(segmentFromResults(JSON.parse(results("", true)))).toBeNull();
     const own = segmentFromResults(JSON.parse(results("hello", false, 0, 1, null)));
     expect(own).toMatchObject({ is_user: true, speaker: null, final: false });
+  });
+
+  // Regression (2026-08-27): the wearer reported "it is not listening". Audio
+  // was flowing - audio_frames_in climbing at the full 50/s - and the segment
+  // counters were frozen, with NOTHING in the log and no counter to grep,
+  // because the message handler dropped every frame that was not "Results".
+  // Deepgram's own Error frames went into that same hole, so a stream Deepgram
+  // was actively refusing was indistinguishable from a room nobody spoke in.
+  it("surfaces a Deepgram error frame instead of silently dropping it", async () => {
+    const errorFrame = { type: "Error", description: "sample rate mismatch", message: "bad audio" };
+    // The lane logs through bare `console`, so that is what has to be watched.
+    const lines: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => void lines.push(args.map(String).join(" "));
+    try {
+      const { handle, base } = await boot({}, { errorFrame });
+      const { ws, next } = await streamSession(base, "01DGERRORFRAME01");
+      const deadline = Date.now() + 5000;
+      while ((handle.counters.read().transcribe_dg_error ?? 0) < 1 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(handle.counters.read().transcribe_dg_error).toBeGreaterThanOrEqual(1);
+      // ...and it says WHAT Deepgram objected to, or the counter alone still
+      // leaves you guessing which of a dozen causes it was.
+      const logged = lines.join(" ");
+      expect(logged).toMatch(/deepgram sent Error/);
+      expect(logged).toMatch(/sample rate mismatch/);
+      ws.send(JSON.stringify({ type: "session_end", reason: "user" }));
+      await next((m) => m.type === "session_ended");
+    } finally {
+      console.error = realError;
+    }
   });
 
   it("builds the verified URL and Token-scheme auth", async () => {

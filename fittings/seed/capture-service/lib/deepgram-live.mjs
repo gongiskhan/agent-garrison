@@ -82,6 +82,9 @@ class SessionTranscription {
     this.open = false;
     this.ended = false;
     this.lastAudioAt = 0;
+    this.lastResultAt = 0;
+    // One log line per message TYPE per session, not per frame.
+    this.loggedMessageTypes = new Set();
     this.keepalive = null;
     this.reconnectTimer = null;
     this.connect();
@@ -127,7 +130,35 @@ class SessionTranscription {
       } catch {
         return;
       }
-      if (msg.type !== "Results") return;
+      // Everything that is NOT a transcript used to be dropped on this line,
+      // silently. That includes Deepgram's own Error and Warning frames - so a
+      // stream Deepgram was actively refusing looked, from here, exactly like a
+      // stream nobody was talking into: audio_frames_in climbing, segment
+      // counters frozen, no log, no counter, nothing to grep. That is precisely
+      // the shape of the 2026-08-27 "it is not listening" report, and it cost
+      // hours that a single log line would have closed.
+      //
+      // Metadata is routine (one per connection) and stays quiet at info level;
+      // anything else is surfaced once per type per connection - enough to
+      // diagnose, never enough to flood a long session. Content is NOT logged
+      // (I5): a transcript never reaches here, and these frames carry status,
+      // not speech.
+      if (msg.type !== "Results") {
+        const type = String(msg.type ?? "unknown");
+        counters.bump(`transcribe_dg_${type.toLowerCase()}`);
+        if (type !== "Metadata" && !this.loggedMessageTypes.has(type)) {
+          this.loggedMessageTypes.add(type);
+          const detail = [msg.description, msg.message, msg.reason, msg.err_msg]
+            .filter((v) => typeof v === "string" && v.trim())
+            .join(" | ")
+            .slice(0, 300);
+          log.error(
+            `[capture-service] deepgram sent ${type}${detail ? `: ${detail}` : ""} (session ${this.sessionId})`
+          );
+        }
+        return;
+      }
+      this.lastResultAt = Date.now();
       const segment = segmentFromResults(msg);
       if (!segment) return;
       // Echo suppression sits HERE, at the single ingestion point: a
@@ -151,10 +182,17 @@ class SessionTranscription {
       }
       this.lane.onSegment?.(this.sessionId, segment);
     });
-    ws.on("close", () => {
+    ws.on("close", (code, reason) => {
       this.open = false;
       if (this.keepalive) clearInterval(this.keepalive);
       if (!this.ended) {
+        // The code and reason are the only account Deepgram gives of WHY it
+        // hung up; without them a drop is indistinguishable from a network
+        // blip and the reconnect loop hides the cause forever.
+        log.error(
+          `[capture-service] deepgram closed mid-session: ${code}` +
+            `${reason?.length ? ` ${String(reason).slice(0, 200)}` : ""} (session ${this.sessionId})`
+        );
         // Unexpected drop mid-session: one delayed reconnect per drop. The
         // gap is lost words, counted, never a crashed session.
         counters.bump("transcribe_disconnects");
