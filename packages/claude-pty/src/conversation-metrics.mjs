@@ -53,7 +53,16 @@ export function priceStretch({ model, usedTokens }, costs = MODEL_COSTS) {
   if (typeof usedTokens !== "number" || usedTokens <= 0) {
     return { usd: null, unpriced: true, reason: "no usage reported" };
   }
-  const rate = costs[model] ?? costs[String(model ?? "").toLowerCase()] ?? null;
+  // Providers report DATED ids (claude-haiku-4-5-20251001) while the table
+  // keys the family — exact first, then the date suffix stripped, then the
+  // longest table key that prefixes the id. Never a fuzzy guess beyond that:
+  // an unknown family stays unpriced rather than borrowing a neighbour's rate.
+  const id = String(model ?? "").toLowerCase();
+  const undated = id.replace(/-\d{8}$/, "");
+  const rate = costs[model] ?? costs[id] ?? costs[undated] ??
+    Object.entries(costs)
+      .filter(([k]) => id.startsWith(`${k}-`) || id === k)
+      .sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? null;
   if (!rate) return { usd: null, unpriced: true, reason: `no list rate for model ${model}` };
   const m = usedTokens / 1_000_000;
   return {

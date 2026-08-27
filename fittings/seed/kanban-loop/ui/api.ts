@@ -275,6 +275,10 @@ export interface CardSummary {
   checklistDone?: number;
   created?: string | null;
   updated: string | null;
+  // Set on a pre-Conversations record the migration froze. The state service
+  // refuses every write on it but DELETE, so the card modal renders read-only
+  // wherever it is opened from - the History view, a hash link, or a search hit.
+  frozen?: { at: string; reason: string | null; by: string | null } | null;
 }
 
 // One checklist item on a card. Whole-array replace on PATCH.
@@ -345,6 +349,42 @@ export interface BoardView {
   version: number;
   lists: ListView[];
   cards: CardSummary[];
+}
+
+/** One frozen pre-Conversations record. A thin projection on purpose: the
+ *  History front shows a title, a project and when the card stopped, and the
+ *  opened card refetches the full detail through GET /cards/:id. */
+export interface FrozenCardSummary {
+  id: string;
+  title: string;
+  project: string | null;
+  scope: CardScope;
+  /** The LEGACY list id the card was frozen on. */
+  list: string;
+  status: string;
+  duty: string | null;
+  created: string | null;
+  updated: string | null;
+  frozen: { at: string; reason: string | null; by: string | null } | null;
+}
+
+export interface HistoryListView {
+  id: string;
+  title: string;
+  kind: string;
+  /** True for a column the legacy layout does not name — reconstructed from the
+   *  cards themselves so no record is silently dropped. */
+  unlisted?: boolean;
+  cards: FrozenCardSummary[];
+}
+
+export interface HistoryView {
+  lists: HistoryListView[];
+  cards: FrozenCardSummary[];
+  total: number;
+  /** False when this instance has no `board.layout.legacy` document (the
+   *  Conversations migration never ran here) — not an error. */
+  legacyLayout: boolean;
 }
 
 export interface ArtifactRef {
@@ -584,6 +624,9 @@ export interface LoadoutReadiness {
 export const api = {
   board: () => jfetch<BoardView>("/board"),
   runtime: () => jfetch<BoardRuntime>("/board/runtime"),
+  // The frozen pre-Conversations records under the legacy layout. Read-only:
+  // there is no write counterpart on this route by design.
+  history: () => jfetch<HistoryView>("/history"),
   lists: () => jfetch<ListsView>("/lists"),
   patchList: (id: string, body: ListConfigPatch) =>
     jfetch<{ list: ListConfig; rev: number }>(`/lists/${encodeURIComponent(id)}`, {
@@ -646,13 +689,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ order, ...(Number.isInteger(rev) ? { rev } : {}) })
     }),
-  // Create a new column = a human-managed manual list, persisted straight to the
-  // board (agent-managed lists come from selecting a duty in Muster).
-  createList: (body: { title: string }) =>
-    jfetch<{ ok: boolean; list?: { id: string; title: string }; error?: string }>("/lists", {
-      method: "POST",
-      body: JSON.stringify(body)
-    }),
+  // (No list-creation call here: the Conversations board's five state columns
+  // are FIXED and POST /lists answers 410. The client that offered it was a
+  // control that could only ever fail.)
   // Remove a column. A user-created manual list is dropped from the board; a
   // duty-backed list deselects its duty via the shell. Cards on it are parked.
   deleteList: (id: string) =>

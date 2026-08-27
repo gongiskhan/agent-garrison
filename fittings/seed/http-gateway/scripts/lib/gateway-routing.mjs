@@ -1984,6 +1984,11 @@ export class RoutedGateway {
         resp?.sessionId ?? session.sessionId ?? null
       ),
       cost_usd: null,
+      // The adapter accounts the session's tokens (input+output per turn) —
+      // without passing it up, every stretch reports usedTokens null and the
+      // Conversations instrumentation prices nothing (found on the first
+      // metrics rollup: 11/11 stretches unpriced).
+      usedTokens: typeof resp?.usedTokens === "number" ? resp.usedTokens : null,
       route: route.targetId,
       runtime: "agent-sdk",
       provider: t.provider,

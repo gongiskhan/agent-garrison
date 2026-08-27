@@ -46,14 +46,15 @@ describe("kanbanBoardDir", () => {
 });
 
 describe("summarizeBoardCards", () => {
-  it("classifies a mixed board: pipeline lists run, terminals count, entry lists wait", () => {
+  it("classifies a five-state board: Running runs, terminals count, todo/scheduled wait", () => {
     const summary = summarizeBoardCards([
-      { id: "a", title: "Planning card", list: "plan", updated: "2026-07-14T10:00:00Z" },
-      { id: "b", title: "Implementing card", list: "implement", updated: "2026-07-14T11:00:00Z" },
+      { id: "a", title: "Running card", list: "running", updated: "2026-07-14T10:00:00Z" },
+      { id: "b", title: "Mid-kick card", list: "todo", runningSince: "2026-07-14T11:00:00Z", updated: "2026-07-14T11:00:00Z" },
       { id: "c", title: "Parked card", list: "needs-attention", attentionReason: "no valid verdict", updated: "2026-07-14T12:00:00Z" },
       { id: "d", title: "Done card", list: "done", updated: "2026-07-13T09:00:00Z" },
       { id: "e", title: "Another done", list: "done", updated: "2026-07-13T10:00:00Z" },
-      { id: "f", title: "Waiting card", list: "backlog", updated: "2026-07-14T08:00:00Z" }
+      { id: "f", title: "Waiting card", list: "todo", updated: "2026-07-14T08:00:00Z" },
+      { id: "g", title: "Template", list: "scheduled", updated: "2026-07-14T08:00:00Z" }
     ]);
     expect(summary.running).toBe(2);
     expect(summary.needsAttention).toBe(1);
@@ -84,7 +85,7 @@ describe("summarizeBoardCards", () => {
 
   it("is idle when only entry-list and done cards exist", () => {
     const summary = summarizeBoardCards([
-      { id: "a", title: "Backlog card", list: "backlog" },
+      { id: "a", title: "Waiting card", list: "todo" },
       { id: "b", title: "Todo card", list: "todo" },
       { id: "c", title: "Done card", list: "done" }
     ]);
@@ -104,11 +105,11 @@ describe("summarizeBoardCards", () => {
 
   it("skips cards missing required fields without throwing", () => {
     const summary = summarizeBoardCards([
-      { id: "a", list: "plan" }, // no title
-      { title: "No id", list: "implement" },
+      { id: "a", list: "running" }, // no title
+      { title: "No id", list: "running" },
       null,
       "not an object",
-      { id: "ok", title: "Valid card", list: "review" }
+      { id: "ok", title: "Valid card", list: "running" }
     ]);
     expect(summary.running).toBe(1);
   });
@@ -118,7 +119,7 @@ describe("readBoardSummary", () => {
   it("reads cards off disk, skipping malformed card.json files", async () => {
     const board = makeBoard();
     process.env.GARRISON_KANBAN_DIR = board;
-    writeCard(board, "01A", { id: "01A", title: "Running card", list: "implement", updated: "2026-07-14T10:00:00Z" });
+    writeCard(board, "01A", { id: "01A", title: "Running card", list: "running", updated: "2026-07-14T10:00:00Z" });
     writeCard(board, "01B", { id: "01B", title: "Parked card", list: "needs-attention", attentionReason: "stuck", updated: "2026-07-14T11:00:00Z" });
     writeCard(board, "01C", "{ not json at all");
     writeCard(board, "01D", { id: "01D", title: "Done card", list: "done" });
@@ -163,7 +164,7 @@ describe("readBoardSummary", () => {
   it("honors a GARRISON_KANBAN_DIR repoint to a different board", async () => {
     const first = makeBoard();
     process.env.GARRISON_KANBAN_DIR = first;
-    writeCard(first, "01A", { id: "01A", title: "First board card", list: "plan" });
+    writeCard(first, "01A", { id: "01A", title: "First board card", list: "running" });
     expect((await readBoardSummary()).running).toBe(1);
 
     const second = makeBoard();

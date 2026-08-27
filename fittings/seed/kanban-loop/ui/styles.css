@@ -2039,7 +2039,7 @@ button:active, .btn:active { transform: translateY(1px); }
 /* In the detail sheet the block is a section of its own, not a card footnote. */
 .drill-detail { margin-bottom: 16px; }
 
-/* ═══ Trello refit: drag-and-drop, checklists, schedule, add-list ═══ */
+/* ═══ Trello refit: drag-and-drop, checklists, schedule ═══ */
 
 /* Sortable card wrapper: the transform/transition ride the wrapper so the card
    itself keeps its hover styling. The in-flight source dims to read as the
@@ -2089,31 +2089,6 @@ button:active, .btn:active { transform: translateY(1px); }
 .list .lbody select { cursor: pointer; }
 .list .lbody.drop-over { outline: 1px dashed var(--sage-2); outline-offset: -4px; background: var(--sage-soft); }
 .list.drag-source { opacity: 0.45; }
-
-/* "+ Add list" ghost column */
-.list.add-list {
-  background: transparent;
-  border: 1px dashed var(--rule-2);
-  display: flex;
-  align-items: flex-start;
-  padding: 10px;
-}
-.add-list-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-2);
-  background: transparent;
-  border: none;
-  padding: 8px 10px;
-  cursor: pointer;
-  width: 100%;
-}
-.add-list-btn:hover { color: var(--ink); background: var(--paper-2); }
-.add-list-btn svg { width: 13px; height: 13px; }
 
 /* Checklist (DetailSheet) */
 .checklist .cl-items {
@@ -2331,4 +2306,88 @@ label.row { display: flex; align-items: center; gap: 8px; }
 @media (max-width: 480px) {
   .sheet .sh-body { padding: 12px 12px 16px; }
   .detail-actions .btn { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ── frozen History (Conversations migration, 2026-08-26) ─────────────────────
+   The pre-Conversations board, preserved read-only. It borrows the live board's
+   own column chrome (.board-scroll / .board / .list / .card) so the horizontal
+   scroll and the 84vw phone columns come from ONE place; everything below is
+   only the "this is a record, not work" treatment: no accent edge, muted ink,
+   and a hairline-dashed card frame. A frozen record is legible, never loud.
+
+   Contrast note: the dimming is carried by BORDER and by the meta line, not by
+   an opacity wash over the title - a 0.6-opacity title on cream drops under
+   4.5:1 and the point of an archive is that you can still read it. */
+.history {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.history-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+.history-bar .btn { flex: 0 0 auto; min-height: 34px; }
+.history-note {
+  flex: 1 1 260px;
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--mute);
+}
+.history-empty {
+  padding: 18px 4px;
+  font-size: 12.5px;
+}
+/* The column: no left accent (there is no list TYPE to encode any more - these
+   lists no longer run anything), a dashed frame instead. */
+.list.history-list {
+  border-left: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+}
+.list.history-list .lname-text { color: var(--mute); }
+.list.history-list .lkind {
+  color: var(--mute-2);
+  text-transform: uppercase;
+}
+/* The card front: a button, so the browser chrome has to be reset back to the
+   .card box it shares with the live board. */
+.card.history-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--paper);
+  border: 1px dashed var(--rule-2);
+  border-radius: 0;
+}
+.card.history-card:hover { border-color: var(--mute); border-style: solid; }
+.card.history-card:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+.card.history-card .cmeta { margin-top: 6px; }
+.card.history-card .hc-when {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--mute);
+}
+
+/* The opened frozen record says so before anything else in the sheet. Neutral
+   ink on paper-3: this is a statement of fact, not a warning. */
+.state-callout.frozen {
+  display: block;
+  background: var(--paper-3);
+  color: var(--ink);
+  border: 1px dashed var(--rule-2);
+}
+
+@media (max-width: 480px) {
+  .history-bar { padding: 10px 13px; gap: 9px; }
+  .history-bar .btn { min-height: 44px; }
 }

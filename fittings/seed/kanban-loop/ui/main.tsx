@@ -79,6 +79,7 @@ import {
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
 import { CardConversation } from "./card-conversation";
+import { HistoryView } from "./history-view";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
 import { deriveMoveTargets, isManualImportTarget } from "./move-targets";
@@ -2438,7 +2439,7 @@ function RuntimeTranscriptModal({
   );
 }
 
-function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions, focus, readOnly = false }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers; focus?: "conversation"; readOnly?: boolean }) {
+function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions, focus, readOnly: readOnlyProp = false }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers; focus?: "conversation"; readOnly?: boolean }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -2831,6 +2832,10 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   // text on the clipboard, or one aimed at an input/textarea, is left alone so
   // this can never eat a normal text paste.
   useEffect(() => {
+    // A frozen record takes no uploads: the state service refuses the write and
+    // the sheet offers no attach control, so the document-level shortcut must
+    // not be the one door left open.
+    if (readOnlyProp || detail?.card.frozen?.at) return;
     async function onPaste(e: ClipboardEvent) {
       const cd = e.clipboardData;
       if (!cd) return;
@@ -2845,7 +2850,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.card.id]);
+  }, [detail?.card.id, detail?.card.frozen?.at, readOnlyProp]);
 
   async function removeAttachment(name: string) {
     if (!detail) return;
@@ -2923,11 +2928,19 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const checklist = detail.checklist ?? [];
   const running = card.status === "running";
   const parked = card.status === "needs-attention";
+  // A frozen pre-Conversations record is READ-ONLY, and the state service is
+  // what enforces it: every write on a frozen card comes back 409 card-frozen
+  // except DELETE. Derived from the card itself and not only from the History
+  // view's prop, so the same refusal is honoured wherever the card is opened
+  // from - a #card= link or a search hit reaches this sheet too. Presented as
+  // an absent control rather than a button that errors on press.
+  const frozenAt = card.frozen?.at ?? null;
+  const readOnly = readOnlyProp || Boolean(frozenAt);
   // D16: title/description edits are refused on an engine-owned card (the
   // server enforces it; the UI says so instead of offering a doomed control).
   // Schedule / checklist / attachments are benign and stay editable.
   const cardList = board?.lists.find((l) => l.id === card.list) ?? null;
-  const lockedCard = Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
+  const lockedCard = readOnly || Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
   // A conversation-linked card shows its CONVERSATION here: the ledger carries
   // the evidence refs a stretch's handoff had to prove, so a second Evidence
   // block would be the same facts one layer thinner. A legacy card - one frozen
@@ -2982,7 +2995,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         {card.sliceId && <span className="chip">slice: {card.sliceId}</span>}
       </div>
 
-      {/* Header actions: open the rich Log (Watch) or an interactive Terminal. */}
+      {frozenAt && (
+        <div className="state-callout frozen">
+          Frozen history - a record from before the Conversations migration. It can be read and
+          deleted, not edited, moved or run.
+        </div>
+      )}
+
+      {/* Header actions: open the rich Log (Watch) or an interactive Terminal.
+          Every one of them acts on a live card, so a frozen record is offered
+          none of them. */}
+      {!readOnly && (
       <div className="detail-actions">
         {titleDraft === null && (
           <button
@@ -3023,6 +3046,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           </button>
         )}
       </div>
+      )}
       {card.drill && (
         <div className="drill-detail">
           <DrillBlock drill={card.drill} />
@@ -3046,7 +3070,10 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       )}
 
       {/* RUN CONFIGURATION — secondary, collapsed by default. A parked card opens
-          it so its routing/placement retry controls are reachable at a glance. */}
+          it so its routing/placement retry controls are reachable at a glance.
+          The whole section is scope/placement/routing/schedule EDITORS, so a
+          frozen record - which will never run again - is shown none of it. */}
+      {!readOnly && (
       <Section
         title="Run configuration"
         defaultOpen={parked}
@@ -3326,6 +3353,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         )}
       </div>
       </Section>
+      )}
 
       {/* CONTENT — description, checklist, attachments: the primary "what this
           card is" tier, always expanded. */}
@@ -3366,7 +3394,9 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       )}
 
       {/* CHECKLIST - human-first sub-items; open items are folded into the
-          operative's dispatch prompt. Benign patch, editable everywhere. */}
+          operative's dispatch prompt. Benign patch, editable everywhere except
+          on a frozen record, where an empty list is nothing but a stray header. */}
+      {(checklist.length > 0 || !readOnly) && (
       <div className="detail-desc checklist">
         <div className="dd-title">
           Checklist
@@ -3380,15 +3410,21 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           <ul className="cl-items">
             {checklist.map((item) => (
               <li key={item.id} className={item.done ? "done" : ""}>
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={item.done}
-                  className={`cl-box${item.done ? " checked" : ""}`}
-                  title={item.done ? "mark as not done" : "mark as done"}
-                  onClick={() => void saveChecklist(checklist.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
-                />
-                {checkDraft?.id === item.id ? (
+                {readOnly ? (
+                  <span className={`cl-box${item.done ? " checked" : ""}`} role="img" aria-label={item.done ? "done" : "not done"} />
+                ) : (
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={item.done}
+                    className={`cl-box${item.done ? " checked" : ""}`}
+                    title={item.done ? "mark as not done" : "mark as done"}
+                    onClick={() => void saveChecklist(checklist.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
+                  />
+                )}
+                {readOnly ? (
+                  <span className="cl-text">{item.text}</span>
+                ) : checkDraft?.id === item.id ? (
                   <div className="cl-editor">
                     <AutoTextarea
                       aria-label="Edit checklist item"
@@ -3412,7 +3448,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
                     {item.text}
                   </button>
                 )}
-                {checkDraft?.id !== item.id && (
+                {!readOnly && checkDraft?.id !== item.id && (
                   <button
                     type="button"
                     className="cl-edit"
@@ -3423,15 +3459,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
                     Edit
                   </button>
                 )}
-                <button
-                  type="button"
-                  className="cl-del"
-                  title="remove this item"
-                  aria-label={`remove "${item.text}"`}
-                  onClick={() => void saveChecklist(checklist.filter((i) => i.id !== item.id))}
-                >
-                  <CloseIcon />
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="cl-del"
+                    title="remove this item"
+                    aria-label={`remove "${item.text}"`}
+                    onClick={() => void saveChecklist(checklist.filter((i) => i.id !== item.id))}
+                  >
+                    <CloseIcon />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -3440,30 +3478,36 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             sits under it. Sharing a flex row with the button is what made it
             narrow, and a fixed 4 rows made it tall - the opposite of what a
             mostly-one-line field wants. */}
-        <div className="cl-add">
-          <AutoTextarea
-            aria-label="New checklist item"
-            value={checkText}
-            placeholder="Add an item. Enter adds it; Shift+Enter for a new line."
-            onChange={setCheckText}
-            onSubmit={addCheckItem}
-          />
-          <div className="row" style={{ gap: 8, marginTop: 6 }}>
-            <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
-              <PlusIcon /> Add
-            </button>
+        {!readOnly && (
+          <div className="cl-add">
+            <AutoTextarea
+              aria-label="New checklist item"
+              value={checkText}
+              placeholder="Add an item. Enter adds it; Shift+Enter for a new line."
+              onChange={setCheckText}
+              onSubmit={addCheckItem}
+            />
+            <div className="row" style={{ gap: 8, marginTop: 6 }}>
+              <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
+                <PlusIcon /> Add
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
+
+      )}
 
       {/* ATTACHMENTS - card-owned uploads (deletable, folded into the dispatch
           prompt as context) plus the legacy ClaudeChat description-block files.
-          Images render inline (click to enlarge); other files link out. */}
+          Images render inline (click to enlarge); other files link out. On a
+          frozen record the files are still readable; every way IN is closed. */}
+      {(attachments.length > 0 || !readOnly) && (
       <div
         className={`evidence${dragOver ? " drag-over" : ""}`}
-        onDragOver={(e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
+        onDragOver={readOnly ? undefined : (e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
+        onDragLeave={readOnly ? undefined : () => setDragOver(false)}
+        onDrop={readOnly ? undefined : (e) => {
           if (!e.dataTransfer?.files?.length) return;
           e.preventDefault();
           setDragOver(false);
@@ -3480,6 +3524,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
               is not working" looked like. Clicking the input directly always
               works. Drag-and-drop onto this panel and Cmd+V paste are the other
               two routes in, so a blocked picker is no longer a dead end. */}
+          {!readOnly && (
           <button
             type="button"
             className="btn tiny"
@@ -3489,6 +3534,8 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           >
             {uploading ? "uploading…" : "attach"}
           </button>
+          )}
+          {!readOnly && (
           <input
             ref={fileInputRef}
             type="file"
@@ -3503,6 +3550,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             disabled={uploading}
             onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void uploadFiles(files); }}
           />
+          )}
         </div>
         {attachments.length > 0 ? (
           <div className="ev-grid">
@@ -3522,7 +3570,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
                     <LinkIcon /> {a.name}
                   </a>
                 )}
-                {a.uploaded && (
+                {a.uploaded && !readOnly && (
                   <button type="button" className="ev-del" title={`remove ${a.name}`} aria-label={`remove ${a.name}`} onClick={() => void removeAttachment(a.name)}>
                     <CloseIcon />
                   </button>
@@ -3534,6 +3582,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>No attachments. Attached files are read by the operative as context for this card.</p>
         )}
       </div>
+      )}
 
       {card.lastReply && (
         <div className="detail-desc">
@@ -3657,7 +3706,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           brings the card's id with it (withId) for quoting into an agent prompt.
           `list` comes from the board; without it there is nothing to derive the
           available actions from, so the row is simply omitted. */}
-      {actions && cardList && (
+      {actions && cardList && !readOnly && (
         <div className="detail-actions detail-actions-footer">
           <CardActions card={card} list={cardList} busy={false} withId handlers={actions} />
         </div>
@@ -3668,7 +3717,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             the conflict-risk count, the state tag, and the guarded Confirm-revert
             button. Clustered here with Abandon/Delete so every recovery/destructive
             action lives in one place. */}
-        {card.preparedRevert && (
+        {card.preparedRevert && !readOnly && (
           <div className="prepared-revert">
             <div className="dd-title">Prepared revert</div>
             <div className="pr-head">
@@ -3705,7 +3754,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         {/* Abandon (S2, Q7): prepare a revert of the card's committed work + park it.
             Offered on a non-running card that hasn't already been abandoned; the
             confirm() guard and the separate revert step keep it deliberate. */}
-        {!running && !card.preparedRevert && (
+        {!running && !card.preparedRevert && !readOnly && (
           <button className="btn danger" disabled={abandoning} onClick={() => void doAbandon()}>
             {abandoning ? "Preparing…" : "Abandon & prepare revert"}
           </button>
@@ -4271,7 +4320,6 @@ type Overlay =
   | { kind: "terminal"; card: CardSummary }
   | { kind: "config"; listId: string }
   | { kind: "feedback"; card: CardSummary }
-  | { kind: "addlist" }
   | { kind: "import" }
   | null;
 
@@ -4283,48 +4331,6 @@ function initialOverlayFromLocation(): Overlay {
   if (query.get("new") !== "1") return null;
   const placement = (query.get("placement") || "").trim();
   return { kind: "new", ...(placement ? { placement } : {}) };
-}
-
-// ── add-list sheet ──────────────────────────────────────────────────────────
-// A new column is a HUMAN-MANAGED manual list: a plain parking column with no
-// agent behaviour and no run-on-drop. It is NOT a composition duty — agent-managed
-// lists are added by selecting a DUTY in Muster, which projects its list onto the
-// board. The board owns the manual list directly (no apm.yml write).
-function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  async function submit() {
-    if (!title.trim()) { setErr("give the list a name"); return; }
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await api.createList({ title: title.trim() });
-      onCreated();
-      onClose();
-      void res;
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
-  }
-  return (
-    <Sheet title="Add list" onClose={onClose}>
-      <div className="field">
-        <label htmlFor="al-name">Name</label>
-        <input id="al-name" autoFocus type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ideas" onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
-      </div>
-      <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
-        This creates a human-managed list - a place to park cards by hand. It does
-        not run anything. To add an agent-managed list, add a duty in Muster and its
-        column appears here automatically.
-      </div>
-      {err && <div className="banner">{err}</div>}
-      <button className="btn primary" disabled={busy || !title.trim()} onClick={() => void submit()}>
-        {busy ? "Creating…" : "Create list"}
-      </button>
-    </Sheet>
-  );
 }
 
 // ── card import sheet ───────────────────────────────────────────────────────
@@ -4561,6 +4567,15 @@ function App() {
   const [overlay, setOverlay] = useState<Overlay>(initialOverlayFromLocation);
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The board / frozen-History switch. Deliberately component state and not a
+  // route: History is a place you visit and leave, a reload landing back on the
+  // board is the right default, and a card link (?card= / #card=) still opens
+  // its modal over whichever of the two is showing.
+  const [view, setView] = useState<"board" | "history">("board");
+  // Bumped when an open card writes back, so History re-reads GET /history. A
+  // frozen record only ever changes one way - it is deleted - and that has to
+  // leave the column it was in, or the count above it starts lying.
+  const [historyRev, setHistoryRev] = useState(0);
   // ── drag state ────────────────────────────────────────────────────────────
   // During a drag the board renders from these overrides (membership order per
   // list / column order) so items shift live; the poll is paused (a reload
@@ -5034,6 +5049,9 @@ function App() {
       <TopBar
         onNew={() => setOverlay({ kind: "new" })}
         onImport={board ? () => setOverlay({ kind: "import" }) : undefined}
+        // History carries its own Back control, so the top-bar entry is offered
+        // only from the board - one way in, one way out, never two live toggles.
+        onHistory={view === "board" ? () => setView("history") : undefined}
         status={board ? `${board.cards.length} cards` : "loading…"}
       />
       {runtime?.noGateway && (
@@ -5042,151 +5060,152 @@ function App() {
         </div>
       )}
       {notice && <div className="banner info" onClick={() => setNotice(null)}>{notice}</div>}
-      <div className="board-scroll">
-        <DndContext
-          sensors={dndSensors}
-          collisionDetection={boardCollisions}
-          onDragStart={onDragStart}
-          onDragOver={onDragOver}
-          onDragEnd={(e) => void onDragEnd(e)}
-          onDragCancel={onDragCancel}
-        >
-          <div className="board">
-            <SortableContext items={displayLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
-              {displayLists.map((list) => (
-                <SortableColumn
-                  key={list.id}
-                  list={list}
-                  className={listClass(list)}
-                  header={
-                    <div className="lh">
-                      <div className="lname">
-                        <span className="lname-text">{list.title}</span>
-                        <span className="count">{list.cards.length}</span>
-                        {!list.system && (
-                          <button
-                            className="gear"
-                            title={`Configure ${list.title}`}
-                            aria-label={`Configure ${list.title}`}
-                            onClick={() => setOverlay({ kind: "config", listId: list.id })}
-                          >
-                            <GearIcon />
-                          </button>
-                        )}
-                      </div>
-                      <div className="lkind">
-                        {list.id === "scheduled" ? (
-                          "system · schedules"
-                        ) : list.id === "running" ? (
-                          "system · conversations"
-                        ) : (
-                          `${list.kind} · ${list.trigger}`
-                        )}
-                      </div>
-                    </div>
-                  }
-                >
-                  <ListBodyDroppable listId={list.id}>
-                    {/* Backlog and To Do lead with direct-create affordances. The
-                        server inserts into that list under the same top-order lock,
-                        so there is no transient Backlog card or create-then-move
-                        activity. These controls replace the bare empty state. */}
-                    {canAddCardDirectly(list.id) && (
-                      <ListAddCard
-                        listId={list.id}
-                        listTitle={list.title}
-                        onCreated={() => void load()}
-                      />
-                    )}
-                    {list.cards.length === 0 && !canAddCardDirectly(list.id) && (
-                      <div className="lempty">{list.id === "scheduled" ? "No scheduled tasks" : "empty"}</div>
-                    )}
-                    {(() => {
-                      const renderCard = (card: CardSummary, sortable = true) => {
-                        const inner = (
-                          <Card
-                            key={sortable ? undefined : card.id}
-                            card={card}
-                            list={list}
-                            busy={busyCard === card.id}
-                            onStart={onStart}
-                            onInfer={onInfer}
-                            onDiscuss={onDiscuss}
-                            onRevert={onRevert}
-                            onMove={(c) => {
-                              // Item 2: Move is the MANUAL gate — it ALWAYS opens the sheet, which
-                              // now offers every list (not just validNext). Advance is the separate
-                              // next-list-only control. No single-target short-circuit: even a
-                              // one-exit list shows the picker so a card can be moved anywhere.
-                              setOverlay({ kind: "move", card: c });
-                            }}
-                            onQuickMove={onQuickMove}
-                            onDelete={onDelete}
-                            onWatch={(c) => setOverlay({ kind: "watch", card: c })}
-                            onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
-                            onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
-                            onRenamed={load}
-                            onContinue={onContinue}
-                            onDrill={onDrill}
-                            onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
-                            onRunSchedule={onRunSchedule}
-                            dragJustEnded={dragJustEndedRef}
-                          />
-                        );
-                        return sortable ? (
-                          <SortableCardWrap key={card.id} card={card} listId={list.id}>
-                            {inner}
-                          </SortableCardWrap>
-                        ) : inner;
-                      };
-                      // D19: the Done column groups quick cards (trivial-plan inline tasks)
-                      // under a collapsed "quick tasks" strip so the real runs stay legible.
-                      // Quick cards are not drag-sortable (they are archive, not queue).
-                      const mainCards = list.id === "done" ? list.cards.filter((c) => !c.quick) : list.cards;
-                      const quickCards = list.id === "done" ? list.cards.filter((c) => c.quick) : [];
-                      return (
-                        <SortableContext items={mainCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-                          {mainCards.map((c) => renderCard(c))}
-                          {quickCards.length > 0 && (
-                            <details className="quick-strip">
-                              <summary className="quick-strip-head">
-                                <span className="quick-strip-title">quick tasks</span>
-                                <span className="count">{quickCards.length}</span>
-                              </summary>
-                              <div className="quick-strip-body">{quickCards.map((c) => renderCard(c, false))}</div>
-                            </details>
+      {view === "history" ? (
+        <HistoryView
+          refreshKey={historyRev}
+          onBack={() => setView("board")}
+          onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
+        />
+      ) : (
+        <div className="board-scroll">
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={boardCollisions}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDragEnd={(e) => void onDragEnd(e)}
+            onDragCancel={onDragCancel}
+          >
+            <div className="board">
+              <SortableContext items={displayLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
+                {displayLists.map((list) => (
+                  <SortableColumn
+                    key={list.id}
+                    list={list}
+                    className={listClass(list)}
+                    header={
+                      <div className="lh">
+                        <div className="lname">
+                          <span className="lname-text">{list.title}</span>
+                          <span className="count">{list.cards.length}</span>
+                          {!list.system && (
+                            <button
+                              className="gear"
+                              title={`Configure ${list.title}`}
+                              aria-label={`Configure ${list.title}`}
+                              onClick={() => setOverlay({ kind: "config", listId: list.id })}
+                            >
+                              <GearIcon />
+                            </button>
                           )}
-                        </SortableContext>
-                      );
-                    })()}
-                  </ListBodyDroppable>
-                </SortableColumn>
-              ))}
-            </SortableContext>
-            {/* Trello-style "+ Add list": a new column IS a new composition-local
-                duty; the sheet says so and the shell owns the write. */}
-            <section className="list add-list">
-              <button className="add-list-btn" onClick={() => setOverlay({ kind: "addlist" })}>
-                <PlusIcon /> Add list
-              </button>
-            </section>
-          </div>
-          <DragOverlay>
-            {activeDrag?.type === "card" ? (
-              <div className="card drag-ghost">
-                <div className="ct">
-                  <span className="title">{activeDrag.card.title}</span>
+                        </div>
+                        <div className="lkind">
+                          {list.id === "scheduled" ? (
+                            "system · schedules"
+                          ) : list.id === "running" ? (
+                            "system · conversations"
+                          ) : (
+                            `${list.kind} · ${list.trigger}`
+                          )}
+                        </div>
+                      </div>
+                    }
+                  >
+                    <ListBodyDroppable listId={list.id}>
+                      {/* Backlog and To Do lead with direct-create affordances. The
+                          server inserts into that list under the same top-order lock,
+                          so there is no transient Backlog card or create-then-move
+                          activity. These controls replace the bare empty state. */}
+                      {canAddCardDirectly(list.id) && (
+                        <ListAddCard
+                          listId={list.id}
+                          listTitle={list.title}
+                          onCreated={() => void load()}
+                        />
+                      )}
+                      {list.cards.length === 0 && !canAddCardDirectly(list.id) && (
+                        <div className="lempty">{list.id === "scheduled" ? "No scheduled tasks" : "empty"}</div>
+                      )}
+                      {(() => {
+                        const renderCard = (card: CardSummary, sortable = true) => {
+                          const inner = (
+                            <Card
+                              key={sortable ? undefined : card.id}
+                              card={card}
+                              list={list}
+                              busy={busyCard === card.id}
+                              onStart={onStart}
+                              onInfer={onInfer}
+                              onDiscuss={onDiscuss}
+                              onRevert={onRevert}
+                              onMove={(c) => {
+                                // Item 2: Move is the MANUAL gate — it ALWAYS opens the sheet, which
+                                // now offers every list (not just validNext). Advance is the separate
+                                // next-list-only control. No single-target short-circuit: even a
+                                // one-exit list shows the picker so a card can be moved anywhere.
+                                setOverlay({ kind: "move", card: c });
+                              }}
+                              onQuickMove={onQuickMove}
+                              onDelete={onDelete}
+                              onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+                              onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
+                              onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
+                              onRenamed={load}
+                              onContinue={onContinue}
+                              onDrill={onDrill}
+                              onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
+                              onRunSchedule={onRunSchedule}
+                              dragJustEnded={dragJustEndedRef}
+                            />
+                          );
+                          return sortable ? (
+                            <SortableCardWrap key={card.id} card={card} listId={list.id}>
+                              {inner}
+                            </SortableCardWrap>
+                          ) : inner;
+                        };
+                        // D19: the Done column groups quick cards (trivial-plan inline tasks)
+                        // under a collapsed "quick tasks" strip so the real runs stay legible.
+                        // Quick cards are not drag-sortable (they are archive, not queue).
+                        const mainCards = list.id === "done" ? list.cards.filter((c) => !c.quick) : list.cards;
+                        const quickCards = list.id === "done" ? list.cards.filter((c) => c.quick) : [];
+                        return (
+                          <SortableContext items={mainCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                            {mainCards.map((c) => renderCard(c))}
+                            {quickCards.length > 0 && (
+                              <details className="quick-strip">
+                                <summary className="quick-strip-head">
+                                  <span className="quick-strip-title">quick tasks</span>
+                                  <span className="count">{quickCards.length}</span>
+                                </summary>
+                                <div className="quick-strip-body">{quickCards.map((c) => renderCard(c, false))}</div>
+                              </details>
+                            )}
+                          </SortableContext>
+                        );
+                      })()}
+                    </ListBodyDroppable>
+                  </SortableColumn>
+                ))}
+              </SortableContext>
+            </div>
+            <DragOverlay>
+              {activeDrag?.type === "card" ? (
+                <div className="card drag-ghost">
+                  <div className="ct">
+                    <span className="title">{activeDrag.card.title}</span>
+                  </div>
+                  {activeDrag.card.project && <div className="cmeta"><span className="chip">{activeDrag.card.project}</span></div>}
                 </div>
-                {activeDrag.card.project && <div className="cmeta"><span className="chip">{activeDrag.card.project}</span></div>}
-              </div>
-            ) : activeDrag?.type === "column" ? (
-              <div className="list drag-ghost-col">
-                <div className="lh"><div className="lname"><span className="lname-text">{displayLists.find((l) => l.id === activeDrag.listId)?.title ?? activeDrag.listId}</span></div></div>
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      </div>
+              ) : activeDrag?.type === "column" ? (
+                <div className="list drag-ghost-col">
+                  <div className="lh"><div className="lname"><span className="lname-text">{displayLists.find((l) => l.id === activeDrag.listId)?.title ?? activeDrag.listId}</span></div></div>
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </div>
+      )}
 
       {overlay?.kind === "new" && (
         <NewCardSheet board={board} initialPlacement={overlay.placement} onClose={() => setOverlay(null)} onCreated={() => void load()} />
@@ -5201,7 +5220,7 @@ function App() {
           board={board}
           focus={overlay.focus}
           onClose={closeCardOverlay}
-          onChanged={() => void load()}
+          onChanged={() => { void load(); setHistoryRev((n) => n + 1); }}
           onWatch={(c) => setOverlay({ kind: "watch", card: c })}
           onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
           onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
@@ -5239,9 +5258,6 @@ function App() {
       {overlay?.kind === "feedback" && board && (
         <FeedbackSheet card={overlay.card} board={board} onClose={() => setOverlay(null)} onSent={() => void load()} />
       )}
-      {overlay?.kind === "addlist" && (
-        <AddListSheet onClose={() => setOverlay(null)} onCreated={() => void load()} />
-      )}
       {overlay?.kind === "import" && board && (
         <ImportSheet
           board={board}
@@ -5253,7 +5269,7 @@ function App() {
   );
 }
 
-function TopBar({ onNew, onImport, status }: { onNew: () => void; onImport?: () => void; status: string }) {
+function TopBar({ onNew, onImport, onHistory, status }: { onNew: () => void; onImport?: () => void; onHistory?: () => void; status: string }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -5265,6 +5281,7 @@ function TopBar({ onNew, onImport, status }: { onNew: () => void; onImport?: () 
       </div>
       <span className="status">{status}</span>
       <div className="spacer" />
+      {onHistory && <button className="btn" onClick={onHistory}>History</button>}
       <a className="btn" href={api.exportBoardUrl()} download>Export</a>
       {onImport && <button className="btn" onClick={onImport}>Import</button>}
       <button className="btn primary" onClick={onNew}><PlusIcon /> New card</button>

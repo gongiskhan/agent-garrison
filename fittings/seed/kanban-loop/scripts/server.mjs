@@ -52,7 +52,8 @@ import {
   cardAttachmentsDir,
   listCardAttachments,
   CARD_SCOPES,
-  cardScope, listProseLabel, appendConversationEvent } from "../lib/board.mjs";
+  cardScope, listProseLabel, appendConversationEvent,
+  boardStateClient, BOARD_SCOPE } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 // §7.1: it also poses an autonomy hold's question through the card's own origin.
 import { routeOriginEvent, createdMessage, routeNeedsInput } from "../lib/notify-origin.mjs";
@@ -594,7 +595,15 @@ export function cardSummary(card) {
     // `created` crosses so the drag layer can compute effective positions with
     // the EXACT value the server sorts by (cardPosition falls back to it).
     created: card.created ?? null,
-    updated: card.updated ?? null
+    updated: card.updated ?? null,
+    // The freeze marker (Conversations migration). It has to cross the
+    // projection: the state service refuses every write on a frozen card but
+    // DELETE, so the modal must be able to render read-only from the card
+    // itself rather than only when History happens to be the door it came
+    // through. Null for every live card.
+    frozen: card.frozen?.at
+      ? { at: card.frozen.at, reason: card.frozen.reason ?? null, by: card.frozen.by ?? null }
+      : null
   };
 }
 
@@ -1497,6 +1506,97 @@ async function handleBoard(req, res, opts) {
   for (const l of view.lists) l.cards.forEach(patch);
   view.cards.forEach(patch);
   jsonRes(res, 200, view);
+}
+
+// ── frozen history (Conversations migration, 2026-08-26) ────────────────────
+// The pre-Conversations board, preserved. The live board is five state columns
+// and loadAllCards asks the state service for frozen:"0", so the 200+ legacy
+// cards are invisible there BY DESIGN. This is the one door that reads them.
+//
+// The layout comes from the SEPARATE config doc the migration copied the old
+// board into (namespace `board.layout.legacy`), never from `board.layout` — so
+// nothing here can disturb the live board or its v10 guard.
+export const LEGACY_BOARD_NAMESPACE = "board.layout.legacy";
+
+// A history card front needs a title, a project, and when it stopped. It does
+// NOT need the full cardSummary projection: that carries the whole description
+// and recomputes an expected route per card, and this endpoint answers with
+// every frozen card at once. The opened card still fetches GET /cards/:id, so
+// nothing is lost - only not paid for 263 times.
+export function frozenCardSummary(card) {
+  return {
+    id: card.id,
+    title: card.title ?? "(untitled)",
+    project: card.project ?? null,
+    scope: cardScope(card),
+    // The LEGACY list id, exactly as frozen. Deliberately not run through
+    // relocateRetiredListCards: history is what it was, not what a later
+    // migration would have made of it.
+    list: card.list,
+    status: card.status ?? "ok",
+    duty: card.duty ?? null,
+    created: card.created ?? null,
+    updated: card.updated ?? null,
+    frozen: card.frozen?.at
+      ? { at: card.frozen.at, reason: card.frozen.reason ?? null, by: card.frozen.by ?? null }
+      : null
+  };
+}
+
+// Newest-finished first inside a column: a history column is an archive, and the
+// same rule the live board's terminal lists use ("my card disappeared", 2026-08-07).
+function frozenInstant(card) {
+  const t = Date.parse(card?.updated ?? card?.created ?? "");
+  return Number.isFinite(t) ? t : 0;
+}
+
+export function buildHistoryView(legacyBoard, frozenCards) {
+  const cards = frozenCards.map(frozenCardSummary);
+  const byList = new Map();
+  for (const card of cards) {
+    if (!byList.has(card.list)) byList.set(card.list, []);
+    byList.get(card.list).push(card);
+  }
+  const legacyLists = Array.isArray(legacyBoard?.lists) ? legacyBoard.lists : [];
+  const lists = legacyLists
+    .slice()
+    .sort((a, b) => (a.userOrder ?? a.order ?? 0) - (b.userOrder ?? b.order ?? 0))
+    .map((list) => ({
+      id: list.id,
+      title: list.title ?? list.id,
+      kind: list.kind || "manual",
+      cards: (byList.get(list.id) ?? []).slice().sort((a, b) => frozenInstant(b) - frozenInstant(a))
+    }));
+  // A frozen card whose list the legacy layout does not name still has to be
+  // reachable - dropping it would make the History view quietly lie about how
+  // many records there are. Each orphan list becomes its own trailing column.
+  const known = new Set(lists.map((l) => l.id));
+  for (const [listId, group] of byList) {
+    if (known.has(listId)) continue;
+    lists.push({
+      id: listId,
+      title: listId,
+      kind: "manual",
+      unlisted: true,
+      cards: group.slice().sort((a, b) => frozenInstant(b) - frozenInstant(a))
+    });
+  }
+  return { lists, cards, total: cards.length };
+}
+
+async function handleHistory(req, res, opts) {
+  void opts;
+  const client = boardStateClient();
+  const [legacyDoc, frozenCards] = await Promise.all([
+    client.getConfig(LEGACY_BOARD_NAMESPACE, BOARD_SCOPE).catch(() => null),
+    client.listCards({ frozen: "1" })
+  ]);
+  const legacyBoard = legacyDoc?.body ?? null;
+  const view = buildHistoryView(legacyBoard, frozenCards);
+  // `legacyLayout: false` is an honest answer, not an error: an instance whose
+  // migration never ran has no old board to lay the records out under, and the
+  // cards (if any) still come back under their own list ids.
+  jsonRes(res, 200, { ...view, legacyLayout: Boolean(legacyBoard) });
 }
 
 async function handleGetCard(req, res, opts, id) {
@@ -5220,6 +5320,10 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/health") return await handleHealth(req, res, opts);
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
       if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
+      // GET /history — the frozen pre-Conversations records under the legacy
+      // layout. Read-only by construction: it has no write counterpart, and the
+      // state service refuses every write on a frozen card but DELETE.
+      if (pathname === "/history" && method === "GET") return await handleHistory(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
       // GET /machines — the placement picker's vocabulary: this node plus every
       // other node in the mesh, with its live claim readiness. Same-origin proxy
@@ -5451,6 +5555,16 @@ export function makeRequestHandler(opts, distDir) {
     } catch (err) {
       if (err?.code === "BODY_TOO_LARGE") {
         return jsonRes(res, 413, { error: "request JSON exceeds the 16 MB limit" });
+      }
+      // The state service's frozen-history refusal is a CLIENT answer, not a
+      // server fault. The card modal withholds every write control on a frozen
+      // record, so nothing here should trip it - but a stale tab still open on
+      // the old build must be told "read-only" rather than handed a 500.
+      if (err?.status === 409 && err?.body?.error === "card-frozen") {
+        return jsonRes(res, 409, {
+          error: "card-frozen",
+          message: err.body.detail || "this card is frozen history - it is read-only"
+        });
       }
       jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }

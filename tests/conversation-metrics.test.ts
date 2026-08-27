@@ -24,6 +24,22 @@ function stretch(store: any, { id, duty, model, chosenBy = "default", outcome = 
   store.append({ kind: "stretch-ended", duty, stretch: id, payload: { stretchId: id, outcome, usedTokens, durationMs: 1000 } });
 }
 
+// @ts-ignore — pure .mjs
+import { priceStretch as __priceStretch } from "../packages/claude-pty/src/conversation-metrics.mjs";
+
+describe("priceStretch — dated provider ids match their family rate", () => {
+  it("prices claude-haiku-4-5-20251001 at the haiku family rate", () => {
+    const out: any = __priceStretch({ model: "claude-haiku-4-5-20251001", usedTokens: 1_000_000 });
+    expect(out.unpriced).toBe(false);
+    expect(out.usdLow).toBeCloseTo(1.0);
+    expect(out.usdHigh).toBeCloseTo(5.0);
+  });
+  it("an unknown family stays unpriced - never borrows a neighbour's rate", () => {
+    const out: any = __priceStretch({ model: "gpt-9-experimental", usedTokens: 1000 });
+    expect(out.unpriced).toBe(true);
+  });
+});
+
 describe("priceStretch", () => {
   it("prices known models as a low/high band at list rates", () => {
     const p = priceStretch({ model: "claude-haiku-4-5", usedTokens: 1_000_000 });

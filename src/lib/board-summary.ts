@@ -78,7 +78,6 @@ function parseCard(raw: unknown): ParsedCard | null {
   };
 }
 
-const ENTRY_LISTS = new Set(["backlog", "todo"]);
 
 // Pure classification over already-parsed card objects. Invalid shapes are
 // skipped so one bad card never takes the dashboard down.
@@ -96,10 +95,14 @@ export function summarizeBoardCards(
       done += 1;
     } else if (card.list === "needs-attention") {
       attention.push({ id: card.id, title: card.title, reason: card.reason, updated: card.updated });
-    } else if (ENTRY_LISTS.has(card.list)) {
-      if (card.runningSince) running += 1;
-    } else {
+    } else if (card.list === "running") {
       running += 1;
+    } else {
+      // Five-state board: todo and scheduled are WAITING, not in-flight — the
+      // legacy branch counted every non-entry list as running, which swept the
+      // Scheduled templates into the dashboard's running count. A card mid
+      // kick (runningSince stamped, list not yet moved) still counts.
+      if (card.runningSince) running += 1;
     }
   }
 
