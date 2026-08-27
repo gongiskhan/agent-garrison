@@ -2,7 +2,7 @@
 
 **Compose autonomous agents the way you want them, not the way someone else decided they should work.**
 
-Garrison is a local web app that composes and runs autonomous coding-agent setups. You pick the parts, wire them up, hit Run, and watch a long-running agent - an **Operative** - do its thing. Every layer is visible: the manifest, the assembled prompt, the secrets vault, the capability wiring, the logs.
+Garrison is a local web app that composes and runs autonomous coding-agent setups. You pick the parts, wire them up, hit Run, and watch a long-running agent - a **session** - do its thing. Every layer is visible: the manifest, the assembled prompt, the secrets vault, the capability wiring, the logs.
 
 **Platform, CLI, and model agnostic.** Claude Code is the default runtime, but it is one Fitting among several. Codex and Gemini CLI ship as runtime Fittings today, the Anthropic Agent SDK runtime too, and the Runtime Faculty's uniform adapter contract lets you add any other coding CLI (opencode, and others). The Orchestrator routes each task to whichever runtime, model, and effort you picked for it.
 
@@ -24,8 +24,8 @@ Open-source. Local-first. Single-user. No cloud, no auth, no telemetry. Talks on
    save to apm.yml                 assemble system prompt    embedded surfaces
                                    spawn primary runtime     own-port tools
                                             ↓
-                                       OPERATIVE
-                                       (long-running session on
+                                        SESSION
+                                       (long-running agent on
                                         Claude Code / Codex /
                                         Gemini / Agent SDK)
                                             ↓
@@ -47,8 +47,8 @@ Open-source. Local-first. Single-user. No cloud, no auth, no telemetry. Talks on
 | Word | Meaning |
 |---|---|
 | **Garrison** | The platform - this app. Composes, runs, observes, and manages Quarters. |
-| **Operative** | The running autonomous agent - a real, long-running coding-CLI session (Claude Code by default, or Codex / Gemini / the Agent SDK). |
-| **Faculty** | A role slot in a composition. 9 core roles (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`, `modes`), 7 optional capability faculties, and `connectors`. |
+| **Session** | The running autonomous agent - a real, long-running coding-CLI session (Claude Code by default, or Codex / Gemini / the Agent SDK). Pinned to the node that started it, watchable from any other. |
+| **Faculty** | A role slot in a composition. 8 core roles (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`), 7 optional capability faculties, and `connectors`. |
 | **Fitting** | The part you install into a slot. A git-backed APM package with an `x-garrison` block. It does not just "fill" a role: a Fitting is the actual capability - a runtime that hosts the agent loop, a channel that carries messages, a connector that calls a live API, a memory store, a scheduler, a browser, a routing policy. |
 | **Runtime** | The coding CLI that hosts the agent loop, provided by a Fitting under the `runtimes` role. One is primary; the rest are `delegate()` targets the Orchestrator routes work to. |
 | **APM** | [Microsoft Agent Package Manager](https://github.com/microsoft/apm). Owns manifest, install, audit, lockfile. Garrison adds `x-garrison`. |
@@ -64,11 +64,11 @@ Platforms like OpenClaw and Hermes make reasonable defaults for newcomers, but p
 
 ### Transparency that makes customisation practical
 
-Most of what an Operative does lives in natural language - skills, prompts, the Soul, the assembled system prompt. Garrison's outputs are readable and auditable end to end. Open `assembled-system-prompt.md` after every run and see exactly what the agent was told. Edit a Fitting's prompt, save, and the dev watcher restarts the Operative in seconds.
+Most of what a session does lives in natural language - skills, Fitting guidance, and the layered Orchestrator document. Garrison's outputs are readable and auditable end to end. Open `assembled-system-prompt.md` after every run and see exactly what the agent was told. Edit Orchestrator Identity or routing doctrine, save, and the next turn receives the updated prompt.
 
 ### Deployability for builders who need governance
 
-An agent you cannot explain to a business client is an agent you cannot sell to one. Because Garrison makes every layer visible and every behaviour traceable to the Fitting that produced it, Operatives built on it are governable. Automation gets layered in incrementally - only what you chose to automate gets automated, the way you chose.
+An agent you cannot explain to a business client is an agent you cannot sell to one. Because Garrison makes every layer visible and every behaviour traceable to the Fitting that produced it, the agents built on it are governable. Automation gets layered in incrementally - only what you chose to automate gets automated, the way you chose.
 
 ---
 
@@ -89,7 +89,7 @@ npm install
 npm start
 ```
 
-Open [http://localhost:27777](http://localhost:27777). The Compose tab is where you build an Operative; the Run tab is where you start one and watch it work. The Quarters section surfaces your real `~/.claude` configuration managed via APM.
+Open [http://localhost:27777](http://localhost:27777). The Compose tab is where you build a composition; the Run tab is where you start a session and watch it work. The Quarters section surfaces your real `~/.claude` configuration managed via APM.
 
 ### Common commands
 
@@ -107,7 +107,7 @@ tsx scripts/validate-fitting.ts fittings/seed/<id>   # four-check validation pip
 
 ## Reach it from your phone
 
-Garrison talks only to `localhost`, but a single-user local app is most useful when you can also reach your Operative from the couch or the road. The path is [Tailscale](https://tailscale.com) plus the **web-channel Fitting** - no ports opened to the public internet, everything stays on your own tailnet.
+Garrison talks only to `localhost`, but a single-user local app is most useful when you can also reach your session from the couch or the road. The path is [Tailscale](https://tailscale.com) plus the **web-channel Fitting** - no ports opened to the public internet, everything stays on your own tailnet.
 
 1. **Bind the app to the tailnet.** `npm run start:mobile` serves Garrison on `0.0.0.0:27777` so your tailnet can reach it (plain `npm start` stays `localhost`-only). Or front it with `tailscale serve --bg 27777` to get an HTTPS tailnet URL.
 2. **Expose the own-port views** (dev-env, monitor, and the web chat), which bind `127.0.0.1`, over HTTPS on the tailnet:
@@ -115,7 +115,7 @@ Garrison talks only to `localhost`, but a single-user local app is most useful w
    node scripts/tailnet-serve-views.mjs        # tailscale serve each view; --dry-run to preview
    ```
    Each view lands at a deterministic HTTPS tailnet port (`8400 + localPort % 1000`, e.g. dev-env `27086` → `8486`). TLS is terminated by Tailscale, so WebSocket/SSE (the dev-env terminal, live logs, chat stream) keep working with no mixed-content errors. Garrison detects the tailnet and hands the browser the HTTPS URL automatically.
-3. **Talk to the Operative from the phone.** The **`web-channel-default`** Fitting serves a mobile-first chat UI (default port `27083`) that round-trips through the gateway: you type on your phone, the Operative answers, replies can be read aloud, context usage and permission mode are visible. **`slack-channel`** gives you the same reach from Slack. Both are Channel Fittings - the Operative never spawns a CLI for them, it answers through the gateway it is already running behind.
+3. **Talk to the session from the phone.** The **`web-channel-default`** Fitting serves a mobile-first chat UI (default port `27083`) that round-trips through the gateway: you type on your phone, the session answers, replies can be read aloud, context usage and permission mode are visible. **`slack-channel`** gives you the same reach from Slack. Both are Channel Fittings - the session never spawns a CLI for them, it answers through the gateway it is already running behind.
 
 The whole surface is yours and on your own devices: no account, no third-party server, no inbound firewall holes.
 
@@ -125,11 +125,11 @@ The whole surface is yours and on your own devices: no account, no third-party s
 
 ### Faculties - roles, not primitives
 
-Post-2026-06-07 Quarters pivot, Faculties are **roles** a Fitting fills. The former flat 24-Faculty list collapsed into **9 core roles**:
+Post-2026-06-07 Quarters pivot, Faculties are **roles** a Fitting fills. The former flat 24-Faculty list collapsed into **8 core roles**:
 
 ```
    orchestrator   channels        gateway     runtimes   memory
-   observability  sessions        surfaces    modes
+   observability  sessions        surfaces
 ```
 
 plus **7 optional capability faculties** (2026-06-24 - homes for the promoted Claude Code primitives, named by what they are *for*): `knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`; plus the **`connectors`** faculty (2026-06-26) for authenticated, Vault-sealed connections to external services.
@@ -161,10 +161,8 @@ APM is the single writer for package-file surface. Garrison autosaves every chan
 
 A Fitting is not a config entry - it is a working part that *does something*. The seed set (registered in `data/library.json`, each a self-contained APM package under `fittings/seed/<id>/`) groups by what it does:
 
-**Orchestration & personas** - decide what runs where, and who the Operative is
-- `model-router` - the visible routing policy (Exceptions → Matrix → Continuations) that picks runtime, model, effort, and skill per task
-- `garrison-orchestrator` - a thin delegating Orchestrator that routes work to specialist Soul sub-sessions
-- `modes` - one Operative, three faces: Gary (personal assistant), Joe (dev, dispatches code to a native session), James (product/architect); shared voice, shared memory, name-based switching
+**Orchestration & identity** - decide what runs where, and who the agent is
+- `orchestrator` - the authoritative editable Identity and routing surface. Its pre-session inference selects duty/level/target; its layered document is the live runtime prompt.
 
 **Runtimes** - host the agent loop (the CLI-agnostic core)
 - `claude-code-runtime` - default primary; the node-pty engine driving the real interactive Claude Code CLI
@@ -176,7 +174,7 @@ A Fitting is not a config entry - it is a working part that *does something*. Th
 - `basic-memory` - Obsidian-native markdown vault indexed into a local SQLite knowledge graph, with write/search/read MCP tools shared across Claude, Codex, and Gemini
 - `vault-git-sync` - commits and pushes that vault to git on a schedule, so memory follows you across machines
 
-**Channels** - how you reach the Operative
+**Channels** - how you reach the session
 - `web-channel-default` - mobile-first browser chat UI (port 27083), text or voice, replies read aloud
 - `slack-channel` - receives Slack mentions and DMs, round-trips replies through the gateway
 
@@ -202,9 +200,8 @@ A Fitting is not a config entry - it is a working part that *does something*. Th
 - `dev-env` (27086) - one tab per session: a Claude PTY + shell PTY + the live browser pane, with PR / commit flows on the current branch
 - `monitor-default` (27077) - read-only visibility into every process Garrison spawns (PIDs, ports, logs)
 - `screen-share-default` (27079) - ~2fps JPEG screen viewer for phone / remote access
-- `browser-default` (27084) - a headless Chromium substrate the Operative can drive and see
+- `browser-default` (27084) - a headless Chromium substrate the session can drive and see
 - `file-browser` - a mobile-first file browser / viewer / editor (Monaco + Markdown) scoped to a workspace root
-- `outpost-tailscale-host` (27082) - a bridge to a Tailscale-connected remote Mac
 
 Pick what you want; the rest stays uninstalled. The long tail installs from the Armory (Fitting discovery on `/compose`).
 
@@ -212,7 +209,7 @@ Pick what you want; the rest stays uninstalled. The long tail installs from the 
 
 The grouping above splits along one axis worth naming:
 
-- **Agent-facing Fittings** give the **running Operative** new powers it invokes during its work: a runtime to run on, a memory to write to, a connector to call, a channel to answer, a scheduler to wake it, a routing policy to obey. This is most of the catalogue - the Operative is only as capable as the Fittings you stationed.
+- **Agent-facing Fittings** give the **running session** new powers it invokes during its work: a runtime to run on, a memory to write to, a connector to call, a channel to answer, a scheduler to wake it, a routing policy to obey. This is most of the catalogue - a session is only as capable as the Fittings you stationed.
 - **Tool-facing Fittings** serve a React UI on their own HTTP port for **you**, the human, in a browser tab (Garrison links them under sidebar Views). Example: `dev-env` (one tab per session with a Claude PTY, a shell PTY, and the live browser pane), `monitor-default`, `screen-share-default`, `file-browser`.
 
 Full breakdown: [`docs/GARRISON_EXPLAINED.md` §7](./docs/GARRISON_EXPLAINED.md#7-two-kinds-of-fitting-agent-facing-vs-tool-facing).
@@ -228,11 +225,10 @@ Full breakdown: [`docs/GARRISON_EXPLAINED.md` §7](./docs/GARRISON_EXPLAINED.md#
    3. setup hooks                  → side-effect prep (clone repos, uv sync, ...)
    4. verify hooks                 → read-only sanity check; no verify = no ship
    5. start own-port Fittings      → dev-env, monitor, browser, web-channel, etc.
-   6. assemble system prompt       → Orchestrator + active Mode (soul) +
-                                     {{capabilities}} (each provider's
-                                     for_consumers indented under its capability
-                                     line); handed to the gateway as the
-                                     Operative's system prompt
+   6. assemble system prompt       → layered Orchestrator Identity/doctrine +
+                                     generated capabilities, duties, and
+                                     readiness; handed to the gateway as the
+                                     session's single system prompt
    7. spawn the primary runtime    → the Runtime Fitting named by primary_runtime
                                      (default claude-code-runtime: node-pty +
                                      headless xterm driving the real CLI) via the
@@ -242,7 +238,7 @@ Full breakdown: [`docs/GARRISON_EXPLAINED.md` §7](./docs/GARRISON_EXPLAINED.md#
 
 Two principles baked into the runner:
 
-1. **Process survives tab close.** Closing the browser does not kill the Operative. Reopening shows a ring-buffer scrollback.
+1. **Process survives tab close.** Closing the browser does not kill the session. Reopening shows a ring-buffer scrollback.
 2. **Verify or don't ship.** Every Fitting declares a verify hook. The runner refuses to claim success without one.
 
 ---
@@ -265,7 +261,7 @@ consumes:
   - { kind: voice, cardinality: optional-one }
 ```
 
-The `cardinality: any` literal is how the Orchestrator **discovers installed Fittings without hardcoding** - declare `consumes: [{ kind: connector, cardinality: any }]` and every stationed connector shows up. Add a new Fitting → it appears in the Orchestrator's `{{capabilities}}` block automatically. No Garrison code change. The live kinds are `orchestrator`, `modes`, `memory-store`, `automation-runner`, `connector`, `runtime`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, and the derived `view`.
+The `cardinality: any` literal is how the Orchestrator **discovers installed Fittings without hardcoding** - declare `consumes: [{ kind: connector, cardinality: any }]` and every stationed connector shows up. Add a new Fitting → it appears in the generated capabilities block automatically. No Garrison code change. The live kinds are `orchestrator`, `identity`, `memory-store`, `automation-runner`, `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `duty`, and the derived `view`.
 
 Each provider Fitting can ship a `for_consumers` markdown block - usage guidance the runner injects under its line in the Orchestrator prompt at assembly time. Locality principle: the Fitting that ships a capability also ships the doc on how to use it.
 
@@ -319,7 +315,7 @@ Garrison is in active development. The live journal is [`docs/GARRISON_ROADMAP.m
 | **4 - Replace claude.ai discussions** | PM/Architect hat, document-during-conversation, chat UX for long-form | Substrate shipped (Documents + Artifact Store); behaviour missing |
 | **5 - Autonomous loop** | Tasks Faculty, heartbeat-driven pickup, plan-then-approve gate, evidence return | Depends on Stages 2–4 |
 
-The **Quarters pivot** (2026-06-07) also shipped: the flat 24-Faculty list collapsed into roles (now 9 core roles, plus the 7 optional capability faculties and `connectors` added since); a Quarters config surface over `~/.claude`; APM as single package writer via a symlink-confined global composition; and the **Runtime Faculty** (2026-06-14) that makes Claude Code one runtime among several behind a uniform adapter. The orchestrator rules-file projection (`~/.claude/rules/garrison-orchestrator.md`) is implemented but not yet wired into `up()`; at runtime the assembled prompt is handed to the gateway instead. RC4 (hosted-session launcher) is deferred; the runner still genuinely spawns a process (via the primary Runtime Fitting) until it lands.
+The **Quarters pivot** (2026-06-07) also shipped: the flat 24-Faculty list collapsed into roles (now 8 core roles, plus the 7 optional capability faculties and `connectors` added since); a Quarters config surface over `~/.claude`; APM as single package writer via a symlink-confined global composition; and the **Runtime Faculty** (2026-06-14) that makes Claude Code one runtime among several behind a uniform adapter. The orchestrator rules-file projection (`~/.claude/rules/garrison-orchestrator.md`) is implemented but not yet wired into `up()`; at runtime the assembled prompt is handed to the gateway instead. RC4 (hosted-session launcher) is deferred; the runner still genuinely spawns a process (via the primary Runtime Fitting) until it lands.
 
 Some things **not implemented yet**:
 

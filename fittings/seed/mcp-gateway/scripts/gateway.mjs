@@ -23,12 +23,6 @@ import {
   checkProbe,
   callClassifyTier,
   callRunTests,
-  isGarrisonControlEnabled,
-  callTalkTo,
-  callWaitFor,
-  callListActiveSessions,
-  callEndSession,
-  callListWorkdirs,
   automationsAvailable,
   callListAutomations,
   callRunAutomation,
@@ -36,7 +30,10 @@ import {
   kanbanAvailable,
   callFetchEvidence,
   callCreateContinuation,
-  callPollOriginEvents
+  callPollOriginEvents,
+  callScheduleCard,
+  callRunCard,
+  callListScheduledCards
 } from "./lib/tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
@@ -138,15 +135,59 @@ async function discoverTools() {
           },
           required: ["origin_id"]
         }
+      },
+      // Card scheduling (Omi reminder round-trip): the board's reminders say
+      // exactly "run card <REF>" / "snooze card <REF> for 2 hours" - these
+      // tools make those phrases executable from any session.
+      {
+        name: "schedule_card",
+        description:
+          "Schedule, snooze, or un-schedule a kanban card by spoken ref - the executable form of 'snooze card 7Q2M for 2 hours'. Resolves the ref (full ULID, ULID suffix >= 3 chars such as the 4-char short ref in a reminder, or a title fragment), then sets scheduledFor via until or in_minutes (exactly one) and re-arms the reminder; clear=true removes the schedule instead. An ambiguous ref returns the candidate list - relay it and ask the user, never guess.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card: { type: "string", description: "Card ref: full ULID, ULID suffix (>= 3 chars, e.g. the short ref '7Q2M' from a reminder), or a title fragment." },
+            until: { type: "string", description: "ISO date-time to schedule for (pass exactly one of until / in_minutes)." },
+            in_minutes: { type: "number", description: "Relative schedule: minutes from now (pass exactly one of until / in_minutes)." },
+            cron: { type: "string", description: "Five-field cron for a recurring Scheduled template (exclusive with until/in_minutes)." },
+            timezone: { type: "string", description: "IANA timezone for cron schedules (default Europe/Lisbon)." },
+            target_list: { type: "string", description: "List the one-shot or each recurring occurrence enters when due." },
+            action: { type: "string", enum: ["notify", "run"], description: "What happens at the scheduled instant: notify the user (default) or auto-run the card." },
+            clear: { type: "boolean", description: "true = clear the card's schedule instead of setting one." },
+            pause: { type: "boolean", description: "Pause an existing schedule without deleting it." },
+            resume: { type: "boolean", description: "Resume an existing schedule." }
+          },
+          required: ["card"]
+        }
+      },
+      {
+        name: "run_card",
+        description:
+          "Start or advance a kanban card NOW by spoken ref - the executable form of 'run card 7Q2M'. Resolves the ref, then starts the card (a manual-list card advances to its next list; an agent-list card dispatches through the engine); any schedule on the card is cleared by the start itself. An ambiguous ref returns the candidate list - relay it and ask the user, never guess.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card: { type: "string", description: "Card ref: full ULID, ULID suffix (>= 3 chars, e.g. the short ref '7Q2M' from a reminder), or a title fragment." }
+          },
+          required: ["card"]
+        }
+      },
+      {
+        name: "list_scheduled_cards",
+        description:
+          "List every kanban card holding a schedule as a compact table: short ref (last 4 of the id - the ref reminders speak), title, scheduled instant, action (notify|run), list. Use to answer 'what is scheduled?' before schedule_card / run_card.",
+        inputSchema: { type: "object", properties: {} }
       }
     );
   }
 
   // Improver Probe capture-fallback (GARRISON-FLOW-V2 S8, D26/E13). Always
-  // available: it writes directly to ~/.garrison/improver/feedback-queue.jsonl, so
-  // it does not depend on garrison-control (the http gateway). The PostToolUse
+  // available: it records straight into the state service's feedback queue, so it
+  // does not depend on garrison-control (the http gateway). The PostToolUse
   // AskUserQuestion capture is the primary path; this tool is the belt for surfaces
-  // that carry no PostToolUse hook.
+  // that carry no PostToolUse hook. It needs GARRISON_STATE_URL/_TOKEN (or a
+  // readable $GARRISON_HOME/state.json) in this process's env — an MCP server
+  // started by Claude Code inherits CLAUDE's env, not a fitting's.
   tools.push({
     name: "record_improver_feedback",
     description:
@@ -163,71 +204,6 @@ async function discoverTools() {
     }
   });
 
-  if (isGarrisonControlEnabled()) {
-    tools.push(
-      {
-        name: "talk_to",
-        description: "Delegate work to a Soul sub-session. Defaults spawn mode from the current turn's origin (ui-tab -> interactive; channel -> headless). Pass project (or an explicit cwd) to run the session at that repo root on its current branch; pass tier_hint from classify_tier so the Gateway respawns with the right model when the tier changes.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            soul: { type: "string", description: "engineer | architect | assistant | researcher | companion" },
-            message: { type: "string", description: "What the Soul should do." },
-            project: { type: "string", description: "Project label (e.g. 'agent-garrison') resolved to its repo root under the dev-root; the session runs there on the current branch." },
-            mode: { type: "string", enum: ["headless", "interactive"], description: "Override the origin-derived default." },
-            tier_hint: { type: "object", description: "Result of classify_tier — { model, effort, needs_testing, needs_agents_team }." },
-            task_title: { type: "string", description: "Short human-readable summary for UI display." },
-            channel: { type: "string", description: "Channel id (default 'main')." },
-            cwd: { type: "string", description: "Absolute working-directory override (wins over project)." }
-          },
-          required: ["soul", "message"]
-        }
-      },
-      {
-        name: "wait_for",
-        description: "Block until a sub-session's current turn completes. Times out (chunked) so you can call again on long work.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            session_id: { type: "string" },
-            timeout_seconds: { type: "number", description: "Max wait (default 30, max 300)." }
-          },
-          required: ["session_id"]
-        }
-      },
-      {
-        name: "list_active_sessions",
-        description: "Enumerate active Soul sub-sessions. Optional filters: parent, mode, soul.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            parent: { type: "string" },
-            mode: { type: "string" },
-            soul: { type: "string" }
-          }
-        }
-      },
-      {
-        name: "end_session",
-        description: "Kill the active sub-session for a Soul (SIGTERM).",
-        inputSchema: {
-          type: "object",
-          properties: { soul: { type: "string" } },
-          required: ["soul"]
-        }
-      },
-      {
-        name: "list_workdirs",
-        description: "List directories under a Soul's configured base_path. Use to pick a cwd before talk_to.",
-        inputSchema: {
-          type: "object",
-          properties: { soul: { type: "string" } },
-          required: ["soul"]
-        }
-      }
-    );
-  }
-
   return tools;
 }
 
@@ -241,11 +217,9 @@ async function dispatchTool(name, input) {
   if (name === "fetch_evidence") return callFetchEvidence(input);
   if (name === "create_continuation") return callCreateContinuation(input);
   if (name === "poll_origin_events") return callPollOriginEvents(input);
-  if (name === "talk_to") return callTalkTo(input);
-  if (name === "wait_for") return callWaitFor(input);
-  if (name === "list_active_sessions") return callListActiveSessions(input);
-  if (name === "end_session") return callEndSession(input);
-  if (name === "list_workdirs") return callListWorkdirs(input);
+  if (name === "schedule_card") return callScheduleCard(input);
+  if (name === "run_card") return callRunCard(input);
+  if (name === "list_scheduled_cards") return callListScheduledCards(input);
   throw new Error(`unknown tool: ${name}`);
 }
 

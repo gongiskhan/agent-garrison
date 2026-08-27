@@ -17,11 +17,19 @@ import { garrisonDir } from "./claude-home";
 import { ROOT_DIR } from "./paths";
 import {
   addAccount,
+  identityFromCredential,
   materializeAccountHome,
+  setAccountIdentity,
   setAccountNeedsRelogin,
   setAccountVerdict
 } from "./accounts";
-import { PLATFORM_SPECS, parseAuthFile, type AccountPlatform, type CredentialKind } from "./account-env";
+import {
+  PLATFORM_SPECS,
+  parseAuthFile,
+  isRotatingCredential,
+  type AccountPlatform,
+  type CredentialKind
+} from "./account-env";
 import { nativeCredentialPath } from "./machine-login";
 import { cacheUsage, probeAccountUsage, PaymasterProbeAuthError } from "./paymaster";
 
@@ -492,6 +500,11 @@ function runCli(
  * that always works: no browser, no device code - the credential this machine
  * already holds becomes an account you can pin, keep, and switch away from.
  * Copy, never move: the box's own login is left exactly as it was.
+ *
+ * Limited to STATIC credentials (an API key sitting in the native file). A
+ * rotating OAuth subscription login cannot be adopted this way and is refused -
+ * see the error below for why "copy, never move" is not the harmless act it
+ * reads as when the thing being copied rotates.
  */
 export async function importNativeLogin(options: {
   name: string;
@@ -513,6 +526,22 @@ export async function importNativeLogin(options: {
   }
   const parsed = parseAuthFile(options.platform, content);
   if (!parsed.ok) throw new Error(`${file}: ${parsed.error}`);
+  // The refusal that keeps this box logged in. An imported OAuth login is not a
+  // second account - it is a second HOLDER of one rotating refresh token, and
+  // the first refresh on either side revokes the other (the provider reads the
+  // superseded token as replay and kills the family). Garrison shipped this
+  // import on 2026-07-25 and it logged the host out of Codex repeatedly until
+  // 2026-08-16. There are two honest ways to get the same outcome, and the
+  // message names both rather than leaving the user to guess.
+  if (isRotatingCredential(parsed.value)) {
+    throw new Error(
+      `${file} is a rotating ${spec.label} login, which cannot be adopted as an account: the account home and ` +
+        `${file} would hold the same refresh token, and the first side to refresh revokes the other - logging ` +
+        `this box out. To RUN as this box's login, leave the runtime's account on "Machine login" (that is what ` +
+        `it means and it needs no account). To run as a SEPARATE identity, use Device login, which mints that ` +
+        `account its own credential.`
+    );
+  }
   const meta = await addAccount({
     name: options.name,
     token: content,
@@ -522,6 +551,13 @@ export async function importNativeLogin(options: {
   });
   const verify = await verifyAccountToken(meta.name, content, options.platform, fetch, "auth-file");
   await applyVerifyToRegistry(meta.name, verify);
+  // Name it after whoever it turns out to be. The credential we just stored may
+  // already say (Codex's auth.json carries an id_token with an email claim), and
+  // learning it here means the roster is right on the FIRST render rather than
+  // after a backfill pass. Best-effort: an account with no free identity keeps
+  // the name the user gave it.
+  const identity = await identityFromCredential(meta.name, options.platform).catch(() => null);
+  if (identity) await setAccountIdentity(meta.name, identity);
   return { name: meta.name, verify };
 }
 

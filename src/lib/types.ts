@@ -5,7 +5,7 @@ import type { TourDescriptor } from "./metadata";
 // Faculties are ROLES only (the Quarters pivot). Skills/Hooks/MCPs/Plugins/
 // Scripts/Settings are no longer faculties — they are platform primitives
 // surfaced in Quarters. The own-port runtime residue (dev-env, screen-share,
-// outposts, browser, monitor, web-channel, voice) folds under these roles
+// browser, monitor, web-channel, voice) folds under these roles
 // (sessions/channels/observability) and is detected via the `own_port`
 // metadata flag, not a dedicated faculty. Legacy faculty names are accepted
 // as deprecation aliases (see metadata.ts normalizeDeprecations).
@@ -18,18 +18,13 @@ export const facultyIds = [
   // runtimes + surfaces split out of the overloaded `sessions` role
   // (2026-06-18): runtimes = alternative execution engines (Agent SDK, Codex,
   // Gemini) behind the uniform runtime bridge; surfaces = the auxiliary
-  // own-port live viewers (screen share, standalone browser, remote Outpost).
+  // own-port live viewers (screen share, standalone browser).
   // `sessions` keeps the primary Dev Env surface + artifact store.
   "runtimes",
   "memory",
   "observability",
   "sessions",
   "surfaces",
-  // modes: the operative's identity/persona layer (Gary/Joe/James souls +
-  // shared voice + name-based mode switching) composed into the orchestrator's
-  // system prompt. A real Fitting (the `modes` fitting) needs this slot and none
-  // of the other roles fit it — the sanctioned trigger for a new faculty.
-  "modes",
   // Optional capability faculties (2026-06-24) — the homes the promoted Claude
   // Code primitives (skills/agent-tools/plugins, recorded only as an internal
   // `component_shape`) fill. Named by what the capability is FOR in plain terms,
@@ -51,6 +46,51 @@ export const facultyIds = [
 ] as const;
 
 export type FacultyId = (typeof facultyIds)[number];
+
+/**
+ * Fitting **categories** — the browsing axis for the Fittings views, kept
+ * deliberately separate from `faculty`.
+ *
+ * `faculty` is the CONTRACT: which role slot a Fitting fills, what it
+ * provides/consumes, and its cardinality. Sixteen slots
+ * make a precise type system and an unusable menu, so faculty is no longer the
+ * grouping axis — it survives as a per-Fitting label rendered on the card.
+ *
+ * `category` is presentation ONLY. Nothing in composition, routing, or the
+ * provides/consumes graph may branch on it. Each Fitting's default is derived
+ * from its faculty (CATEGORY_BY_FACULTY); a Fitting may override it in
+ * `x-garrison.category` when the derived home reads wrong to a human.
+ */
+export const fittingCategories = [
+  "Core",
+  "Interfaces",
+  "Building",
+  "Knowledge",
+  "Connections",
+  "Operations",
+] as const;
+
+export type FittingCategory = (typeof fittingCategories)[number];
+
+/** Default category per faculty. Presentation-only mapping. */
+export const CATEGORY_BY_FACULTY: Record<FacultyId, FittingCategory> = {
+  orchestrator: "Core",
+  gateway: "Core",
+  memory: "Core",
+  channels: "Interfaces",
+  surfaces: "Interfaces",
+  sessions: "Interfaces",
+  building: "Building",
+  "code-intelligence": "Building",
+  "browser-qa": "Building",
+  design: "Building",
+  knowledge: "Knowledge",
+  research: "Knowledge",
+  connectors: "Connections",
+  coordination: "Connections",
+  observability: "Operations",
+  runtimes: "Operations",
+};
 
 export type Cardinality = "single" | "multi";
 
@@ -83,17 +123,9 @@ export type FittingShape = (typeof fittingShapes)[number];
 // explicitly.
 export const capabilityKinds = [
   "orchestrator",
-  // modes: added 2026-06-22 — the identity/persona layer (souls + shared voice +
-  // per-mode routing bias + mode switching) the `modes` Fitting provided.
-  // SUPERSEDED 2026-07-13 (MARATHON-V3 D7) by `identity`: modes die (the bias/
-  // pin/sticky-switching/CRUD machinery is removed; James/Joe decompose into
-  // duties). Kept in the vocabulary for back-compat with any lingering manifest;
-  // no seed Fitting provides it after the modes fitting's retirement.
-  "modes",
-  // identity (2026-07-13, MARATHON-V3 D7): the persona + tone layer of the
-  // system prompt, provided by the single Identity Fitting (default persona:
-  // Gary). Replaces `modes` as the live persona slot — "Hey Gary" addresses the
-  // operative, full stop. A composition-readiness rule (D10) requires one.
+  // identity: the editable persona + tone section authored by Orchestrator.
+  // It replaces the retired persona/modes fitting path; "Hey Zeca" addresses
+  // the one routed Operative. A composition-readiness rule requires one.
   "identity",
   "memory-store",
   // data-source: dropped 2026-06-26 — superseded by `connector`, which is
@@ -109,10 +141,10 @@ export const capabilityKinds = [
   // runtime: added 2026-06-14 (BRIEF v4 Runtime faculty) — a runtime Fitting (Claude Code, Codex, Gemini-CLI) hosts the agent loop and exposes a uniform delegate() bridge. Multiple may coexist; the composition names one primary, others secondary. Same "add a kind when a real Fitting needs one" precedent (codex-runtime / gemini-runtime need it).
   "runtime",
   // mcp-gateway: re-added 2026-07-10 - the per-session stdio/HTTP MCP sidecar
-  // (talk_to, wait_for, ...) the http-gateway spawns for orchestrator/soul mode.
+  // that exposes installed Faculty tools to Operative sessions.
   // Dropped in the Quarters pivot, re-added on the automation-runner precedent
   // (add a kind only when a real Fitting needs one): the mcp-gateway Fitting
-  // provides it and `modes` cannot express the dependency without it.
+  // provides it and the runtime dependency cannot be expressed without it.
   "mcp-gateway",
   "channel",
   "vault",
@@ -127,7 +159,7 @@ export const capabilityKinds = [
   // duty (2026-07-13, MARATHON-V3 D2): a unit of work with a start and an end,
   // provided by a Fitting, owning a skill. Duties + per-duty Levels replace the
   // former task-type/tier/phase/mode vocabulary. Honesty-Test: real Fittings
-  // (the Dispatcher, the per-duty work Fittings) cannot be expressed without
+  // (Orchestrator routing inference and per-duty work Fittings) cannot be expressed without
   // it. Discovery is the derived-view pattern: consume kind:duty with
   // cardinality `any`. A Fitting provides ONE duty as the norm (multi allowed,
   // discouraged); the provision's `name` is the duty id and MUST match a
@@ -153,7 +185,6 @@ export interface CapabilityConsumption {
 
 export const singletonCapabilityKinds: readonly CapabilityKind[] = [
   "orchestrator",
-  "modes",
   "vault",
   "dev-env",
   "screen-share",
@@ -179,11 +210,10 @@ export interface FacultyDefinition {
   essential?: boolean;
   // Display tier (2026-06-24): which Compose header the faculty sits under —
   // "agent" (everyday base operative, always available) or "dev" (only relevant
-  // while doing development work, the kind of capability a dev mode activates).
+  // while doing development work).
   // ORTHOGONAL to `essential`: an optional faculty can be Agent; an essential
   // faculty can sit under either header. Purely presentational; does not affect
-  // capability resolution. Anchored on the modes config (the dev mode, Joe,
-  // activates the dev-tier faculties).
+  // capability resolution. Development duties consume the dev-tier faculties.
   tier?: "agent" | "dev";
 }
 
@@ -318,7 +348,7 @@ export interface DutySequenceEntry {
 // A duty level: leaf (cell) XOR composite (sequence) — exactly one is set,
 // enforced at parse time (metadata.ts dutyLevelSchema superRefine); both stay
 // optional here because zod's inferred output can't carry the union.
-// `description` is the one-line summary the Dispatcher reads
+// `description` is the one-line summary Orchestrator routing inference reads
 // ("level 1: quick fix, no plan").
 export interface DutyLevel {
   description: string;
@@ -348,7 +378,15 @@ export interface DutySpec {
 
 export interface GarrisonMetadata {
   faculty: FacultyId;
+  /** Presentation-only browsing axis; resolved from `faculty` when omitted. */
+  category?: FittingCategory;
   cardinality_hint: Cardinality;
+  /**
+   * Station this Fitting in every composition unless explicitly unfitted. Only
+   * for Fittings whose verify hook passes on a bare box — see the schema comment
+   * in metadata.ts for why membership is not free.
+   */
+  default_fit?: boolean;
   component_shape: FittingShape;
   platforms: PlatformId[];
   summary?: string;
@@ -430,6 +468,13 @@ export type ProviderMechanism =
       auth_env?: string;
       model_arg?: string;
       model_env?: string;
+      /**
+       * Per-provider-slot overrides of the env pair above, keyed by the provider
+       * id the fitting's own table uses. An engine fronting several endpoint
+       * families needs one pair per family, so a self-hosted endpoint's key never
+       * contends with the vendor cloud's.
+       */
+      provider_env?: Record<string, { base_url_env?: string; auth_env?: string }>;
       notes?: string;
     }
   | {
@@ -485,6 +530,13 @@ export interface LibraryEntry {
   id: string;
   name: string;
   faculty: FacultyId;
+  /**
+   * Presentation-only grouping for the Fittings views, hoisted from
+   * `metadata.category` and resolved from `faculty` when the manifest omits it.
+   * Optional on the type (test fixtures build entries by hand) but always
+   * populated by resolveLibraryEntry. Never branch contract logic on this.
+   */
+  category?: FittingCategory;
   repo: string;
   localPath?: string;
   summary: string;
@@ -575,6 +627,13 @@ export interface Composition {
   directory: string;
   manifestPath: string;
   selections: FittingSelectionMap;
+  /**
+   * Fittings the user has explicitly UNFITTED. Only meaningful for `default_fit`
+   * Fittings: membership is otherwise presence-based, so an absent id already
+   * means "not stationed". This list is what makes removing an auto-fitted
+   * Fitting stick across a read (which would otherwise union it straight back).
+   */
+  unfitted: string[];
   globalConfig: GlobalConfig;
   souls?: SoulDefinition[];
   derivedTasks?: DerivedTasks;
@@ -642,4 +701,14 @@ export interface RunnerState {
   startedAt?: string;
   lastError?: string;
   verifyResults: VerifyResult[];
+  /**
+   * The account each runtime fitting was LAUNCHED under, keyed by fitting id.
+   *
+   * An account pin is a spawn-time env projection (CODEX_HOME / GEMINI_CLI_HOME /
+   * the token rail), so editing it while the operative runs changes the manifest
+   * and nothing else. Without this, every surface can only show the CONFIGURED
+   * account, and a switch that has not taken effect is indistinguishable from one
+   * that has - which reads as "switching accounts does nothing".
+   */
+  launchedAccounts?: Record<string, string>;
 }

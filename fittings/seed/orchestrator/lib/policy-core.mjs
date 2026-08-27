@@ -3,7 +3,7 @@
 // GARRISON-UNIFY-V1 S1: the routing config grows into THE policy — task types
 // for every pipeline verb, a matrix that resolves taskType × tier straight to
 // a TARGET (the v1 role layer collapses; roles survive only as derived ladder
-// labels for logging/back-compat), phase plans, work kinds, and the
+// labels for logging/back-compat), phase plans, flows, and the
 // phase-skill registry. compilePolicy() flattens the active profile into the
 // single machine-readable consumption interface written to
 // ~/.garrison/orchestrator/policy.json (byte-stable ordering; the WRITER owns
@@ -22,6 +22,9 @@ export const PHASES = [
   "adversarial-review",
   "test",
   "adversarial-test",
+  // Was a legal phase name with no duty and no matrix row, so a plan could name
+  // it but nothing could route it (ORCHESTRATOR_COHERENCE.md S3).
+  "security-review",
   "ux-qa",
   "walkthrough",
   "validate",
@@ -29,7 +32,51 @@ export const PHASES = [
   "report"
 ];
 
-export const GENERAL_TASK_TYPES = ["code", "research", "writing", "image", "video", "ops", "other"];
+// `code` was retired 2026-08-09: it and `implement` named the same work, one as a
+// single-turn lane and one as a phase, which is the same duty routed differently.
+// `implement` won (it is what every phase plan already names). See DUTY_ALIASES.
+//
+// `discuss` and `drill` are the reverse case - both ran in practice and both had a
+// live board list, but neither was a duty, so neither could declare a runtime,
+// model or effort at any level (ORCHESTRATOR_COHERENCE.md S6).
+export const GENERAL_TASK_TYPES = ["research", "writing", "image", "video", "ops", "discuss", "drill", "other"];
+
+/** Retired duty -> the duty that absorbed it. Applied when reading persisted data
+ *  (cards, decisions, a v1 config) so 21 existing `code` cards keep resolving. */
+export const DUTY_ALIASES = Object.freeze({ code: "implement" });
+
+/** Resolve a duty name read from persisted data through the alias table. */
+export function adoptDuty(duty) {
+  if (typeof duty !== "string") return duty;
+  return DUTY_ALIASES[duty] ?? duty;
+}
+
+/** Retired flow -> the flow that absorbed it (2026-08-09 library rewrite).
+ *  The old set was 9 flows, two of which were byte-identical clones of a third
+ *  created by a UI duplicate action. Cards and decisions written before the
+ *  rewrite still name them. */
+export const FLOW_ALIASES = Object.freeze({
+  "full-feature": "feature",
+  "full-feature-copy": "feature",
+  "full-feature-copy-2": "feature",
+  "ui-change": "feature",
+  "api-change": "feature",
+  "docs-change": "docs",
+  "video-edit": "video",
+  // `channel` -> `personal`, NOT `task`. The two are similar in size and the
+  // obvious mapping is wrong: `task` is agentful (its level 1 really runs the
+  // `other` duty), while the retired `channel` flow was manual-only. Aliasing a
+  // legacy channel card onto `task` would make work that was never meant to
+  // dispatch suddenly dispatchable - an alias must preserve what a card MEANT,
+  // and the manual/agentful line matters more here than the subject matter does.
+  "channel": "personal"
+});
+
+/** Resolve a flow name read from persisted data through the alias table. */
+export function adoptFlow(flow) {
+  if (typeof flow !== "string") return flow;
+  return FLOW_ALIASES[flow] ?? flow;
+}
 
 // Full v2 vocabulary: pipeline verbs + general kinds ("review" counts once, as
 // a verb — D1 lists the general kinds WITHOUT review).
@@ -40,8 +87,7 @@ export const EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 export const EXECUTIONS = ["interactive", "autonomous"];
 
 // Ladder labels, cheap→expensive. A profile's computeLadder holds target ids
-// in this order; modes routingBias {floor, prefer} moves along it (the
-// behavior-preserving replacement for v1 role bias).
+// in this order.
 export const LADDER_LABELS = ["fast", "standard", "expert"];
 
 export function isV2(config) {
@@ -50,23 +96,47 @@ export function isV2(config) {
 
 // ── Providers as policy data (GARRISON-RUNTIMES-V1 P2/D2) ───────────────────
 // The provider registry is POLICY DATA, not code. Each entry names an
-// Anthropic-compatible endpoint: id, kind (anthropic-plan | local | cloud-oss),
-// baseUrl (null ONLY for the anthropic-plan Max-OAuth path), vaultKey for the
-// auth credential (or dummyToken for local endpoints that ignore auth), notes.
-// SEED_PROVIDERS reproduces the four historical hardcoded entries byte-for-byte
-// in behavior; migration seeds them so existing routing resolves identically.
+// endpoint: id, kind (anthropic-plan | local | cloud-oss | openai-compatible),
+// baseUrl (null for the plan path and configurable OpenAI-compatible slots),
+// vaultKey for the auth credential (or dummyToken for local endpoints that ignore
+// auth), notes. Migration seeds these so a runtime fitting's documented provider
+// ids used by shipped cloud targets are valid policy data even before a
+// composition authors its own registry. Local providers remain supported when
+// explicitly authored, but are not silently retained or seeded.
 export const SEED_PROVIDERS = [
   { id: "anthropic-plan", kind: "anthropic-plan", baseUrl: null, notes: "Max OAuth, no base URL, no key" },
   // The agent-sdk runtime's historical id for the same Max-OAuth endpoint —
   // live seed targets (agent-sdk-haiku-fast) reference it, so migration seeds
   // it too (brief said four; reality's target space needs this fifth id).
   { id: "anthropic", kind: "anthropic-plan", baseUrl: null, notes: "agent-sdk id for the Anthropic Max OAuth endpoint" },
-  { id: "ollama-local", kind: "local", baseUrl: "http://localhost:11434", dummyToken: "ollama", notes: "local Ollama Anthropic-compatible endpoint" },
   { id: "deepseek", kind: "cloud-oss", baseUrl: "https://api.deepseek.com/anthropic", vaultKey: "DEEPSEEK_API_KEY" },
-  { id: "zai-glm", kind: "cloud-oss", baseUrl: "https://api.z.ai/api/anthropic", vaultKey: "ZAI_API_KEY" }
+  { id: "zai-glm", kind: "cloud-oss", baseUrl: "https://api.z.ai/api/anthropic", vaultKey: "ZAI_API_KEY" },
+  { id: "openai", kind: "openai-compatible", baseUrl: "https://api.openai.com/v1", vaultKey: "OPENAI_API_KEY", notes: "OpenAI cloud endpoint for OpenAI-shaped runtimes" },
+  { id: "openai-compat", kind: "openai-compatible", baseUrl: null, vaultKey: "OPENAI_API_KEY", notes: "configurable OpenAI-compatible endpoint; the runtime fitting must supply baseUrl" },
+  // The first RUNTIME-MANAGED provider: the ChatGPT subscription behind the Codex
+  // Responses backend. Its credential is an OAuth auth-file the runtime reads (and
+  // re-persists on rotation) out of the pinned account's config home, so unlike
+  // every entry above there is no vault key to project and no base URL to override
+  // - the runtime owns both. The entry still exists as policy data because a target
+  // naming a provider that is not in this list is a routing error, and it is the
+  // one place an operator can see which endpoint the plan actually talks to.
+  {
+    id: "chatgpt-subscription",
+    kind: "runtime-managed",
+    baseUrl: "https://chatgpt.com/backend-api/codex",
+    notes: "ChatGPT plan via the Codex backend; credential is the account's auth.json, not a vault key"
+  }
 ];
 
-export const PROVIDER_KINDS = ["anthropic-plan", "local", "cloud-oss"];
+export const PROVIDER_KINDS = [
+  "anthropic-plan",
+  "local",
+  "cloud-oss",
+  "openai-compatible",
+  // The runtime resolves its own credential (an OAuth auth-file in the pinned
+  // account's home); the launcher projects neither a base URL nor a token.
+  "runtime-managed"
+];
 
 // ── Primary runtime selection (GARRISON-RUNTIMES-V1 P3/D4) ──────────────────
 // The policy file names WHICH composed runtime fitting hosts the orchestrator
@@ -110,8 +180,12 @@ export function validateProviders(providers) {
     if (p.baseUrl !== null && p.baseUrl !== undefined && typeof p.baseUrl !== "string") {
       errors.push(`provider ${p.id}: baseUrl must be a string or null`);
     }
-    if ((p.baseUrl === null || p.baseUrl === undefined) && p.kind !== "anthropic-plan") {
-      errors.push(`provider ${p.id}: baseUrl is required for kind "${p.kind ?? "(unset)"}" (only anthropic-plan runs without one)`);
+    if (
+      (p.baseUrl === null || p.baseUrl === undefined) &&
+      p.kind !== "anthropic-plan" &&
+      p.kind !== "openai-compatible"
+    ) {
+      errors.push(`provider ${p.id}: baseUrl is required for kind "${p.kind ?? "(unset)"}" (only anthropic-plan and openai-compatible run without a policy default)`);
     }
     if (p.vaultKey !== undefined && (typeof p.vaultKey !== "string" || !p.vaultKey.length)) {
       errors.push(`provider ${p.id}: vaultKey must be a non-empty string when present`);
@@ -193,8 +267,8 @@ export function migrateRoutingConfig(v1) {
     continuations: v1.continuations || [],
     phases: [...PHASES],
     phasePlans: {},
-    workKinds: {},
-    defaultWorkKind: null,
+    flows: {},
+    defaultFlow: null,
     phaseSkills: { bindings: {}, overrides: {} }
   });
   // v1 targets could carry informational provider ids (e.g. secondary targets
@@ -288,23 +362,6 @@ export function resolveRouteV2(config, profile, classification) {
   return { profile: name, role, ruleId, via, targetId: targetId || null, target, effort: target?.effort ?? cellEffort ?? null };
 }
 
-// ── Mode bias on the ladder (behavior-preserving v1 biasRole port) ──────────
-// `floor` raises a too-cheap target up; a "standard" resolution with a cheaper
-// `prefer` dials down. Targets off the ladder (image/video/secondary/etc.) are
-// never biased. Mirrors routing-core.biasRole exactly, on target ids.
-export function biasTarget(targetId, bias, computeLadder) {
-  const ladder = computeLadder || [];
-  const rank = ladder.indexOf(targetId);
-  if (rank === -1 || !bias) return targetId;
-  const rankOf = (label) => LADDER_LABELS.indexOf(label);
-  let r = rank;
-  const preferRank = rankOf(bias.prefer);
-  const floorRank = rankOf(bias.floor);
-  if (LADDER_LABELS[rank] === "standard" && preferRank >= 0 && preferRank < r) r = preferRank;
-  if (floorRank >= 0 && floorRank > r) r = floorRank;
-  return ladder[Math.min(r, ladder.length - 1)] ?? targetId;
-}
-
 // ── Discipline (unchanged semantics) ────────────────────────────────────────
 export const DISCIPLINE_FIELDS = ["review", "testing", "evidence", "distribution"];
 
@@ -318,30 +375,154 @@ export function resolveDisciplineV2(config, profile, tier) {
 }
 
 // ── Phase rails ──────────────────────────────────────────────────────────────
-// A work kind names a phase plan; a phase plan is an ORDERED SUBSET of the
+// A flow names a phase plan; a phase plan is an ORDERED SUBSET of the
 // pipeline phases (D2) — so the rail carries EVERY pipeline phase: the plan's
 // phases (plan order, on/off per plan), then the remaining pipeline phases
 // (policy order) rendered OFF with off_reason "phase-plan". A disabled phase
 // stays IN the rail, rendered off — honesty, never hidden. `cardToggles`
 // (D17) is an optional map {phase: false} merged over the plan.
-export function railFor(config, workKindName, cardToggles) {
-  const kindName = workKindName || config.defaultWorkKind;
-  const kind = (config.workKinds || {})[kindName];
-  if (!kind) throw new Error(`policy: unknown work kind "${kindName}"`);
-  const plan = (config.phasePlans || {})[kind.phasePlan];
-  if (!plan) throw new Error(`policy: work kind "${kindName}" names unknown phase plan "${kind.phasePlan}"`);
+// ── Flow levels ─────────────────────────────────────────────────────────────
+// The router turns ONE dial — the flow level — and the duties resolve from it
+// (see level-resolution.mjs, which owns the inherit -> pin -> escalate chain).
+// Here we only need the level's ordered duty list, shaped like a phase plan so
+// every existing rail consumer keeps working unchanged.
+
+export const FLOW_LEVELS = ["1", "2", "3"];
+
+/**
+ * The flow a routed duty belongs to, when nobody pinned one.
+ *
+ * This is the gap that kept the whole flow layer unused: the router picks a duty
+ * and a level, the card carries both, and `flow` stayed null forever because
+ * only an explicit client pin ever set it. 2 of 90 live cards had a flow and
+ * none ever ran a phased plan.
+ *
+ * The rule is deterministic and boring on purpose - no model call on the hot
+ * path. A duty belongs to the flow that runs it EARLIEST (a duty appearing at
+ * level 1 is more characteristic of that flow than one appearing only at level
+ * 3); among equals the `defaultFlow` wins, then the flow that runs it soonest in
+ * its sequence, then the name. So the same duty always resolves to the same flow.
+ *
+ * A flow marked `manual: true` is never derived onto a card. `personal` runs no
+ * agent duties by design, so inferring it would silently park work that was
+ * meant to run.
+ */
+export function defaultFlowForDuty(config, duty) {
+  if (!duty || !config || typeof config !== "object") return null;
+  const flows = config.flows || {};
+  let best = null;
+  for (const name of Object.keys(flows).sort()) {
+    const levels = flows[name]?.levels;
+    if (!levels || flows[name]?.manual === true) continue;
+    for (const lvl of FLOW_LEVELS) {
+      const duties = levels[lvl]?.duties;
+      if (!Array.isArray(duties)) continue;
+      const pos = duties.indexOf(duty);
+      if (pos === -1) continue;
+      const cand = { name, level: Number(lvl), pos, isDefault: name === config.defaultFlow };
+      if (
+        !best ||
+        cand.level < best.level ||
+        (cand.level === best.level && cand.isDefault && !best.isDefault) ||
+        (cand.level === best.level && cand.isDefault === best.isDefault && cand.pos < best.pos)
+      ) {
+        best = cand;
+      }
+      break; // earliest level for this flow decides it
+    }
+  }
+  return best ? best.name : null;
+}
+
+/** The level a flow runs at: what was asked, else the flow's default, else 1.
+ *  Never resolves UPWARD by default — spending more compute than asked for has
+ *  to be somebody's decision. */
+export function resolvedFlowLevel(flow, requested) {
+  const ok = (n) => (typeof n === "number" || (typeof n === "string" && String(n).trim() !== "")) &&
+    FLOW_LEVELS.includes(String(Math.trunc(Number(n))));
+  if (ok(requested)) return String(Math.trunc(Number(requested)));
+  if (ok(flow?.defaultLevel)) return String(Math.trunc(Number(flow.defaultLevel)));
+  return "1";
+}
+
+/** A level rendered as a phase plan ({phases, evidence}), or null for a flow
+ *  that has no levels (the legacy single-plan shape). */
+export function levelPlanFor(flow, requested) {
+  if (!flow || !flow.levels || typeof flow.levels !== "object") return null;
+  const lvl = flow.levels[resolvedFlowLevel(flow, requested)];
+  if (!lvl) return null;
+  const duties = Array.isArray(lvl.duties) ? lvl.duties.filter((d) => typeof d === "string" && d) : [];
+  return { phases: duties, evidence: lvl.evidence || "none" };
+}
+
+export function railFor(config, flowName, cardToggles, level) {
+  const flows = config.flows || {};
+  const requested = flowName || config.defaultFlow;
+  // A flow name reaching this function is usually READ OFF SOMETHING PERSISTED -
+  // a card written months ago, a decision record, a pin the user saved - and the
+  // 2026-08-09 library rewrite retired six of the nine names those documents
+  // carry. Without the alias every one of them throws `unknown flow` at the exact
+  // moment the card is dispatched, which is the loudest possible failure for the
+  // most ordinary case there is.
+  //
+  // The alias is a FALLBACK, never a rewrite: a config that still DEFINES the old
+  // name means it (a composition may keep its own `ui-change`), so adopting first
+  // would silently re-point a live flow at a different one.
+  // DECIDED ASYMMETRY (2026-08-13): this function THROWS on a name that resolves
+  // to nothing, while the board's railForCard (kanban-loop/lib/policy.mjs) falls
+  // back to a forgiving all-on rail. That is not a drift between two mirrors, it
+  // is two different jobs:
+  //
+  //   • Here the input is CONFIG being authored, compiled or previewed. A flow
+  //     name the library does not carry is an error in the thing being written,
+  //     and it must fail where it is written - loudly, once - rather than compile
+  //     into a policy that silently runs some other plan.
+  //   • There the input is a CARD read off disk, written by whatever the library
+  //     looked like when it was created. History cannot be re-authored, and a
+  //     board that throws while rendering is a board that cannot show the user
+  //     the card they need to fix.
+  //
+  // Both sides adopt the alias first, so the two agree on every name that HAS a
+  // successor; they differ only on names that have none.
+  const kindName = flows[requested] ? requested : adoptFlow(requested);
+  const kind = flows[kindName];
+  if (!kind) throw new Error(`policy: unknown flow "${requested}"`);
   const allPhases = Array.isArray(config.phases) ? config.phases : [...PHASES];
   const bindings = (config.phaseSkills || {}).bindings || {};
   const overrides = ((config.phaseSkills || {}).overrides || {})[kindName] || {};
-  const entry = (id, planOn) => {
+  const entry = (id, planOn, offReason = "phase-plan") => {
     const toggledOff = cardToggles && cardToggles[id] === false;
     return {
       id,
       on: planOn && !toggledOff,
-      ...(toggledOff ? { off_reason: "card-toggle" } : planOn ? {} : { off_reason: "phase-plan" }),
+      ...(toggledOff ? { off_reason: "card-toggle" } : planOn ? {} : { off_reason: offReason }),
       skill: overrides[id] || bindings[id] || null
     };
   };
+  // A MANUAL flow refuses to run, whatever its levels say: `personal` declares
+  // levels.1.duties = ["other"] to document the shape of the work, not to license
+  // dispatching it. Resolved before the plan so a manual flow needs no plan at
+  // all, and so the rendered rail (this is what compileRoutingV2 puts in front of
+  // the operative) can never advertise a phase that will never run.
+  if (kind.manual === true) {
+    return {
+      flow: kindName,
+      evidence: "none",
+      phases: allPhases.map((id) => entry(id, false, "manual-flow"))
+    };
+  }
+  // A LEVELLED flow (2026-08-09) carries its ordered duty list per level, so the
+  // rail is resolved from the level the router chose. A flow with no `levels` is
+  // the pre-levels shape and still resolves through its single phase plan - one
+  // flow, one plan, whatever the level.
+  const plan = levelPlanFor(kind, level) ?? (config.phasePlans || {})[kind.phasePlan];
+  if (!plan) {
+    throw new Error(
+      kind.levels
+        ? `policy: flow "${kindName}" has no level ${resolvedFlowLevel(kind, level)} and no phase plan`
+        : `policy: flow "${kindName}" names unknown phase plan "${kind.phasePlan}"`
+    );
+  }
   const inPlan = new Map(
     (plan.phases || []).map((ph) => {
       const id = typeof ph === "string" ? ph : ph.id;
@@ -350,7 +531,7 @@ export function railFor(config, workKindName, cardToggles) {
     })
   );
   return {
-    workKind: kindName,
+    flow: kindName,
     evidence: plan.evidence || "none",
     phases: [
       ...[...inPlan.entries()].map(([id, on]) => entry(id, on)),
@@ -479,20 +660,56 @@ export function validatePolicyConfig(config) {
       if (!phases.includes(id)) errors.push(`phase plan ${name}: unknown phase ${id}`);
     }
   }
-  for (const [kind, k] of Object.entries(config.workKinds || {})) {
-    if (!k.phasePlan || !planNames.has(k.phasePlan)) {
-      errors.push(`work kind ${kind}: unknown phase plan ${k.phasePlan}`);
+  for (const [kind, k] of Object.entries(config.flows || {})) {
+    const hasLevels = k && k.levels && typeof k.levels === "object" && Object.keys(k.levels).length > 0;
+    if (!hasLevels) {
+      // Legacy shape: one flow, one plan.
+      if (!k.phasePlan || !planNames.has(k.phasePlan)) {
+        errors.push(`flow ${kind}: unknown phase plan ${k.phasePlan}`);
+      }
+      continue;
+    }
+    // Levelled shape. Every level names duties that exist, in a level slot that
+    // exists, with pins that name a real duty at a real level — a pin to a
+    // nonexistent duty would silently never apply, which is worse than an error.
+    for (const [lvl, def] of Object.entries(k.levels)) {
+      if (!FLOW_LEVELS.includes(String(lvl))) {
+        errors.push(`flow ${kind}: level "${lvl}" is not one of ${FLOW_LEVELS.join("|")}`);
+        continue;
+      }
+      const duties = def && Array.isArray(def.duties) ? def.duties : null;
+      if (!duties || !duties.length) {
+        errors.push(`flow ${kind} level ${lvl}: needs a non-empty duties list`);
+        continue;
+      }
+      for (const d of duties) {
+        if (!taskTypes.includes(d)) errors.push(`flow ${kind} level ${lvl}: unknown duty ${d}`);
+      }
+      if (def.evidence && !EVIDENCE_KINDS.includes(def.evidence)) {
+        errors.push(`flow ${kind} level ${lvl}: evidence ${def.evidence} not in ${EVIDENCE_KINDS.join("|")}`);
+      }
+      for (const [pd, pl] of Object.entries(def.pins || {})) {
+        if (!duties.includes(pd)) errors.push(`flow ${kind} level ${lvl}: pin for duty ${pd}, which this level does not run`);
+        if (!FLOW_LEVELS.includes(String(pl))) errors.push(`flow ${kind} level ${lvl}: pin ${pd} -> ${pl} is not a level`);
+      }
+    }
+    if (k.defaultLevel !== undefined && !FLOW_LEVELS.includes(String(k.defaultLevel))) {
+      errors.push(`flow ${kind}: defaultLevel ${k.defaultLevel} is not one of ${FLOW_LEVELS.join("|")}`);
+    }
+    // Grounding: the brief requires every flow to point at real observed work.
+    if (!Array.isArray(k.examples) || !k.examples.length) {
+      errors.push(`flow ${kind}: needs at least one real example task (a flow nobody actually needs should not exist)`);
     }
   }
-  if (config.defaultWorkKind && !(config.workKinds || {})[config.defaultWorkKind]) {
-    errors.push(`defaultWorkKind ${config.defaultWorkKind} not in workKinds`);
+  if (config.defaultFlow && !(config.flows || {})[config.defaultFlow]) {
+    errors.push(`defaultFlow ${config.defaultFlow} not in flows`);
   }
   const bindings = (config.phaseSkills || {}).bindings || {};
   for (const [ph] of Object.entries(bindings)) {
     if (!phases.includes(ph)) errors.push(`phaseSkills binding for unknown phase ${ph}`);
   }
   for (const [kind, over] of Object.entries((config.phaseSkills || {}).overrides || {})) {
-    if (!(config.workKinds || {})[kind]) errors.push(`phaseSkills override for unknown work kind ${kind}`);
+    if (!(config.flows || {})[kind]) errors.push(`phaseSkills override for unknown flow ${kind}`);
     for (const [ph] of Object.entries(over || {})) {
       if (!phases.includes(ph)) errors.push(`phaseSkills override ${kind}: unknown phase ${ph}`);
     }
@@ -606,8 +823,8 @@ export function compilePolicy(config, profile) {
     continuations: cfg.continuations || [],
     phases: cfg.phases || [...PHASES],
     phasePlans: cfg.phasePlans || {},
-    workKinds: cfg.workKinds || {},
-    defaultWorkKind: cfg.defaultWorkKind || null,
+    flows: cfg.flows || {},
+    defaultFlow: cfg.defaultFlow || null,
     phaseSkills: cfg.phaseSkills || { bindings: {}, overrides: {} },
     projects: cfg.projects || {},
     uxQa: cfg.uxQa || { severityThreshold: "major" },
@@ -726,7 +943,7 @@ export function resolvePhaseTarget(policy, phase, tier) {
 // autonomous marker (the web-channel toggle, the garrison doorway) is
 // autonomous; a multi-step cross-app automation shape is autonomous; otherwise
 // THE CLASSIFIER decides (its reply now carries an `execution` field — see
-// buildClassifierPrompt), with Gary-mode conversation flooring to interactive.
+// buildClassifierPrompt).
 // NOTE (rev-s2 finding #2): there is deliberately NO task-type fallback here —
 // the live classifier vocabulary is the general kinds, so keying autonomy on
 // pipeline-verb task types was dead code with one false-positive ("review this
@@ -740,7 +957,7 @@ const BUILD_VERBS = new Set([
   "ux-qa", "walkthrough", "validate", "codex-checkpoint"
 ]);
 
-export function classifyExecution({ channel, explicitAutonomous, mode, message, classification } = {}) {
+export function classifyExecution({ channel, explicitAutonomous, message, classification } = {}) {
   if (explicitAutonomous === true) return "autonomous";
   if (channel && AUTONOMOUS_CHANNELS.has(String(channel).toLowerCase())) return "autonomous";
   if (
@@ -750,7 +967,6 @@ export function classifyExecution({ channel, explicitAutonomous, mode, message, 
   ) {
     return "autonomous";
   }
-  if (mode === "gary") return "interactive";
   // The classifier's own read (buildClassifierPrompt asks for it; an absent or
   // out-of-vocab value means interactive).
   if (classification?.execution === "autonomous") return "autonomous";
@@ -770,14 +986,14 @@ export function isSignificantAutonomous(classification) {
 
 // Build the board-API card payload for an autonomous run (D8 card creation).
 // Pure: the caller POSTs it to the board's /cards endpoint. `phases` is an
-// optional per-card toggle map merged over the work kind's plan (D17).
-export function buildAutonomousCardPayload({ brief, project, workKind, phases, taskType, tier, duty, level, sequence, originChannel, clarity } = {}) {
+// optional per-card toggle map merged over the flow's plan (D17).
+export function buildAutonomousCardPayload({ brief, project, flow, phases, taskType, tier, duty, level, sequence, dutyLevels, originChannel, clarity } = {}) {
   return {
     description: brief || "",
     project: project || null,
     list: "backlog",
     goalMode: true,
-    workKind: workKind || null,
+    flow: flow || null,
     phases: phases || null,
     origin: "orchestrator",
     // The originating channel thread ({channel, threadId}), when the surface
@@ -804,7 +1020,18 @@ export function buildAutonomousCardPayload({ brief, project, workKind, phases, t
       ? { duty, level, sequence }
       : Array.isArray(sequence) && sequence.length
         ? { sequence }
-        : {})
+        : {}),
+    // The level EACH duty in the sequence runs at, once the flow definition's pins
+    // are applied (level-resolution.mjs: inherit → pin → escalate). Absent for a
+    // card whose sequence came from the duty ladder rather than a levelled flow -
+    // and absence is the legacy behaviour, so every consumer reads
+    // `dutyLevels?.[phase] ?? level`. It is NOT gated on duty/level like the block
+    // above: a levelled plan is a complete resolution on its own, and dropping it
+    // when the duty cell failed to resolve would throw away the only record of
+    // which level each phase was meant to run at.
+    ...(dutyLevels && typeof dutyLevels === "object" && !Array.isArray(dutyLevels) && Object.keys(dutyLevels).length
+      ? { dutyLevels }
+      : {})
   };
 }
 
@@ -909,15 +1136,15 @@ export function compileRoutingV2(config, profile) {
     return `- WHEN this turn produced a **${c.when}** → ${seq}`;
   });
   sections.push(conts.length ? conts.join("\n") : "_(none)_");
-  const kinds = Object.keys(config.workKinds || {});
+  const kinds = Object.keys(config.flows || {});
   if (kinds.length) {
-    sections.push("### Work kinds → phase rails (autonomous runs)");
+    sections.push("### Flows → phase rails (autonomous runs)");
     sections.push(
       kinds
         .map((k) => {
           const rail = railFor(config, k);
           const chips = rail.phases.map((ph) => (ph.on ? ph.id : `~~${ph.id}~~`)).join(" → ");
-          return `- **${k}**${k === config.defaultWorkKind ? " (default)" : ""} — ${chips} (evidence: ${rail.evidence})`;
+          return `- **${k}**${k === config.defaultFlow ? " (default)" : ""} — ${chips} (evidence: ${rail.evidence})`;
         })
         .join("\n")
     );

@@ -55,11 +55,11 @@ export interface AppShellState {
     selections: FittingSelectionMap;
     globalConfig: GlobalConfig;
   }>) => Promise<void>;
-  runAction: (action: "up" | "down" | "verify" | "dev") => Promise<void>;
+  runAction: (action: "up" | "up-full" | "down" | "verify" | "dev") => Promise<void>;
   unlockVault: (passphrase?: string) => Promise<void>;
   setSecrets: (secrets: VaultSecretRow[]) => void;
   revealSecret: (key: string) => Promise<void>;
-  saveSecrets: () => Promise<void>;
+  saveSecrets: () => Promise<boolean>;
   setError: (err: string | null) => void;
   // sidebar
   sidebarCollapsed: boolean;
@@ -342,8 +342,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       setBusy(action);
       setError(null);
       try {
-        const res = await fetch(`/api/runner/${composition.id}/${action}`, {
-          method: "POST"
+        const endpoint = action === "up-full" ? "up" : action;
+        const res = await fetch(`/api/runner/${composition.id}/${endpoint}`, {
+          method: "POST",
+          ...(action === "up-full"
+            ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ full: true }) }
+            : {})
         });
         const data = await res.json();
         if (data.state) setRunnerState(data.state);
@@ -423,8 +427,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? res.statusText);
       setSecrets(data.secrets ?? []);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setBusy(null);
     }
@@ -839,7 +845,7 @@ function CompositionCreator({
             }}
             className="composition-dialog"
           >
-            <span className="composition-dialog-kicker">Clone operative</span>
+            <span className="composition-dialog-kicker">Clone composition</span>
             <h2 id="new-composition-title">
               New composition
             </h2>

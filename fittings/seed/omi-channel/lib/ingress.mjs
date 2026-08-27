@@ -21,17 +21,21 @@ export function secretMatches(presented, expected) {
 }
 
 export class Ingress {
-  constructor({ cfg, store, counters, wakeBus = null, log = console }) {
+  constructor({ cfg, store, counters, wakeBus = null, echoGuard = null, log = console }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
     this.wakeBus = wakeBus;
+    // Knows what Garrison just said out loud, so its own voice coming back
+    // through the pendant is dropped before it can reach the wake gate or be
+    // counted as conversation. See lib/echo-guard.mjs.
+    this.echoGuard = echoGuard;
     this.log = log;
     this.chain = Promise.resolve();
   }
 
   // -> { ok: true, uid } | { ok: false, status, reason }
-  authorize(query) {
+  authorize(query, pathname = "?") {
     if (!this.cfg.enabled) {
       this.counters.bump("rejected_disabled");
       return { ok: false, status: 403, reason: "ingress disabled" };
@@ -43,6 +47,31 @@ export class Ingress {
     }
     if (!secretMatches(query.key, expected)) {
       this.counters.bump("rejected_auth");
+      // A rejected key is otherwise invisible: the counter says "someone was
+      // turned away" but not whether the URL was truncated, double-encoded, or
+      // simply absent - and that is exactly the difference between a config typo
+      // and an attack. Shape only, never the value: length + first/last 2 chars
+      // of BOTH sides, so a mismatch is diagnosable without printing a secret.
+      const shape = (s) =>
+        typeof s !== "string" || s.length === 0
+          ? "<absent>"
+          : `len=${s.length} ${s.slice(0, 2)}..${s.slice(-2)}`;
+      // When the presented value merely has our secret plus a tail, the tail is
+      // the interesting part and is NOT itself a secret (it is whatever the
+      // sender glued on - a separator plus uid). Print it JSON-escaped so an
+      // invisible separator (newline, tab, %26 left encoded) is actually
+      // readable; inferring it from a length delta got the separator wrong once.
+      const presented = typeof query.key === "string" ? query.key : "";
+      const tail =
+        typeof expected === "string" && expected && presented.startsWith(expected)
+          ? ` trailing=${JSON.stringify(presented.slice(expected.length))}`
+          : "";
+      // The PATH is what makes this actionable: each Omi trigger is configured
+      // with its own URL, so "which endpoint" IS "which field the human must fix".
+      this.log.warn?.(
+        `[omi-channel] rejected bad key on ${pathname}: presented ${shape(query.key)}; ` +
+          `expected ${shape(expected)}; params=[${Object.keys(query).join(",")}]${tail}`
+      );
       return { ok: false, status: 401, reason: "bad key" };
     }
     const uid = typeof query.uid === "string" ? query.uid.trim() : "";
@@ -177,17 +206,63 @@ export class Ingress {
   acceptRealtime({ bodyText, sessionId = null }) {
     this.counters.bump("realtime_calls");
     try {
-      const segments = JSON.parse(bodyText);
-      if (Array.isArray(segments)) {
+      const payload = JSON.parse(bodyText);
+      // The docs promise a bare array of segments; live deliveries are not
+      // always one, so accept the known envelopes too. `transcript_segments` is
+      // the key the memory-creation payload uses, so Omi is not consistent
+      // across triggers and we should not assume this list is complete —
+      // anything unrecognised logs its SHAPE below (never its content, I5).
+      const segments = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.segments)
+          ? payload.segments
+          : Array.isArray(payload?.transcript_segments)
+            ? payload.transcript_segments
+            : Array.isArray(payload?.data?.segments)
+              ? payload.data.segments
+              : null;
+      // A session id can arrive on the query OR in the body; without one the
+      // wake gate is skipped entirely, so a mangled URL that drops session_id
+      // would silently disable the wake bus even once auth is repaired.
+      const session =
+        sessionId || payload?.session_id || payload?.sessionId || payload?.data?.session_id || null;
+      if (segments) {
         this.counters.bump("realtime_segments", segments.length);
-        if (this.cfg.wakeEnabled && this.wakeBus && sessionId) {
-          this.wakeBus.handleSegments({ sessionId, segments });
+        if (!Array.isArray(payload)) this.counters.bump("realtime_enveloped");
+        // Drop our own spoken acknowledgements BEFORE the wake gate sees them.
+        // Filtered here rather than inside the wake bus because a returning ack
+        // is not conversation either - it must not reach the pre-wake context
+        // ring, where it would become "evidence" for the next command the
+        // operator actually issues.
+        const heard = this.echoGuard
+          ? segments.filter((seg) => !this.echoGuard.shouldSuppress(seg?.text))
+          : segments;
+        if (heard.length === 0) return;
+        if (this.cfg.wakeEnabled && this.wakeBus && session) {
+          this.wakeBus.handleSegments({ sessionId: session, segments: heard });
+        } else if (this.cfg.wakeEnabled && this.wakeBus && !session) {
+          this.counters.bump("realtime_no_session_id");
         }
       } else {
         this.counters.bump("realtime_malformed");
+        // Structure only: top-level type and KEY NAMES. Key names describe the
+        // envelope, not the conversation, so this stays inside I5 while making
+        // an unknown payload shape diagnosable instead of just counted.
+        const shape =
+          payload === null
+            ? "null"
+            : Array.isArray(payload)
+              ? `array[${payload.length}]`
+              : typeof payload === "object"
+                ? `object keys=[${Object.keys(payload).join(",")}]`
+                : typeof payload;
+        this.log.warn?.(`[omi-channel] realtime payload not segments: ${shape}`);
       }
     } catch {
       this.counters.bump("realtime_malformed");
+      this.log.warn?.(
+        `[omi-channel] realtime payload unparseable as JSON (bytes=${bodyText?.length ?? 0})`
+      );
     }
   }
 }

@@ -14,7 +14,7 @@
 // Usage:  node scripts/tailnet-serve-views.mjs [--dry-run]
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -26,8 +26,34 @@ const TAILSCALE_CANDIDATES = [
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 ];
 
+// The candidate list exists to FIND the binary, so only "this path does not
+// exist" may advance it. Any other failure means we found tailscale and it
+// refused the command, and that error is the answer - continuing past it walks
+// on to paths that cannot exist on this OS and reports THEIR ENOENT instead.
+//
+// That is not hypothetical: publishing capture-service failed with
+// "spawnSync /Applications/Tailscale.app/Contents/MacOS/Tailscale ENOENT" on a
+// Linux box that has a perfectly good /usr/bin/tailscale. The real error was a
+// 401 from the first candidate, discarded three iterations earlier.
+// tailscale >=1.98 requires root (or a sudo-capable operator) for EVERY serve
+// config write - the operator flag alone stopped being enough (this is what
+// silently broke publishes when the daemon upgraded). Serve WRITES try plain
+// first, then `sudo -n` (the sudoers NOPASSWD entry for /usr/bin/tailscale);
+// reads never elevate.
+function tailscaleServeWrite(args) {
+  try {
+    return tailscale(args);
+  } catch (err) {
+    if (!String(err?.message ?? err).includes("401")) throw err;
+    try {
+      return execFileSync("sudo", ["-n", "tailscale", ...args], { encoding: "utf8", timeout: 8000 });
+    } catch (sudoErr) {
+      throw enrich(err, "tailscale");
+    }
+  }
+}
+
 function tailscale(args) {
-  let lastErr;
   for (const bin of TAILSCALE_CANDIDATES) {
     try {
       return execFileSync(bin, args, { encoding: "utf8", timeout: 8000 });
@@ -36,10 +62,32 @@ function tailscale(args) {
       // skew warning). Prefer captured stdout if it looks like JSON.
       const out = err?.stdout;
       if (typeof out === "string" && out.includes("{")) return out;
-      lastErr = err;
+      if (err?.code === "ENOENT") continue; // not installed here; try the next path
+      throw enrich(err, bin);
     }
   }
-  throw lastErr ?? new Error("tailscale CLI not found");
+  throw new Error(
+    `tailscale CLI not found (looked in: ${TAILSCALE_CANDIDATES.join(", ")})`
+  );
+}
+
+// `tailscale serve` is privileged. Without this the operator sees a bare 401 and
+// has to go and find out that the fix is a one-time operator grant, which is the
+// difference between a 30-second fix and an afternoon.
+function enrich(err, bin) {
+  const text = `${err?.stderr ?? ""}${err?.message ?? ""}`;
+  if (/must be root|operator|401 Unauthorized/i.test(text)) {
+    const e = new Error(
+      `${bin} refused the command: ${String(err?.stderr ?? err?.message ?? "").trim()}\n` +
+        `    -> \`tailscale serve\` is privileged. Grant it once with:\n` +
+        `         sudo tailscale set --operator=$USER\n` +
+        `       after which redeploys publish new views without sudo.`
+    );
+    e.actionable = true;
+    return e;
+  }
+  const e = new Error(`${bin} failed: ${String(err?.stderr ?? err?.message ?? err).trim()}`);
+  return e;
 }
 
 function serveStatus() {
@@ -93,11 +141,15 @@ function ownPortViews() {
     .sort((a, b) => a.port - b.port);
 }
 
-// Serve port = the local port itself. The user's rule: one number per thing,
-// identical on every machine — localhost:7777 on the Mac and mac-host:7777
-// off-box are the same service. Tailscale listens on the tailnet address, the
-// fitting on 127.0.0.1, so the identical numbers never collide; and dev (7xxx)
-// vs prod (8xxx) are distinct by the profile offset, so both publish safely.
+// Serve port = 8400 + (localPort mod 1000). This deliberately IGNORES the
+// profile offset — on the mesh that is an INVARIANT, not a hazard: every node
+// runs the committed map at offset 0, so the same fitting gets the same serve
+// port on every machine, and a peer's view URL is computable as
+// https://<peer-host>:<8400 + port%1000> without asking the peer
+// (tests/mesh-serve-ports.test.ts pins this). The old aliasing hazard died
+// with the offsets; the guard in main() now protects the other half: only the
+// NODE profile (offset 0, this machine's real Garrison) may publish — a
+// dev/codex sandbox on shifted ports must never own the always-on address.
 function pickServePort(localPort, used) {
   let p = localPort;
   while (used.has(p) || p === 8443 || p === 8444 || p === 8445 || p === 443) p += 1;
@@ -105,15 +157,27 @@ function pickServePort(localPort, used) {
 }
 
 function main() {
-  // HARD RULE: only the prod instance is exposed on the tailnet. Running this
-  // from a dev/codex shell would map THAT instance's ports onto the always-on
-  // address and silently hand tailnet users a dev server.
+  // HARD RULE: only the NODE profile is exposed on the tailnet. Running this
+  // from a dev/codex shell would map THAT sandbox's ports onto the always-on
+  // address and silently hand tailnet users a sandbox server. "prod" is the
+  // legacy alias for node.
   const profile = (process.env.GARRISON_INSTANCE_ID || "").trim();
-  if (profile && profile !== "prod" && profile !== "dev" && !process.argv.includes("--force")) {
+  if (profile && profile !== "node" && profile !== "prod" && !process.argv.includes("--force")) {
     console.error(
-      `Refusing to publish the '${profile}' instance to the tailnet — only prod is served.\n` +
-        `Run this from a prod shell:  bash scripts/garrison-instance.sh prod env\n` +
+      `Refusing to publish the '${profile}' instance to the tailnet — only the node profile is served.\n` +
+        `Run this from a node shell:  bash scripts/garrison-instance.sh node env\n` +
         `(override with --force only if you know why)`
+    );
+    process.exitCode = 2;
+    return;
+  }
+  // A machine that never ran the node installer has no mesh identity; publish
+  // is how its ports become the mesh's — identity first.
+  const nodeJsonPath = path.join(os.homedir(), ".garrison", "node.json");
+  if (!existsSync(nodeJsonPath) && !process.argv.includes("--force")) {
+    console.error(
+      `Refusing to publish: ${nodeJsonPath} does not exist — this machine has no node identity yet.\n` +
+        `Run scripts/install-node.sh first (or --force if you know why).`
     );
     process.exitCode = 2;
     return;
@@ -146,10 +210,12 @@ function main() {
       continue;
     }
     try {
-      tailscale(args);
+      tailscaleServeWrite(args);
       result.push({ ...v, servePort, action: "added" });
     } catch (err) {
-      result.push({ ...v, servePort, action: "FAILED: " + (err?.message ?? err) });
+      // Row stays one word so the table survives; the reason is printed in full
+      // below, where a multi-line remedy can actually be read.
+      result.push({ ...v, servePort, action: "FAILED", error: err });
     }
   }
 
@@ -168,9 +234,35 @@ function main() {
     const url = m ? m.url : (r.url ?? `https://${host}:${r.servePort}`);
     console.log(`${r.fittingId.padEnd(17)}  ${String(r.port).padEnd(6)}  ${url}   [${r.action}]`);
   }
-  console.log(
-    `\nDone.${DRY ? " (dry-run — no changes made)" : ""} Garrison will now link these views to their HTTPS tailnet URLs when reached over Tailscale.`
+  const failed = result.filter((r) => r.action === "FAILED");
+  if (failed.length === 0) {
+    console.log(
+      `\nDone.${DRY ? " (dry-run — no changes made)" : ""} Garrison will now link these views to their HTTPS tailnet URLs when reached over Tailscale.`
+    );
+    return;
+  }
+
+  // An unpublished own-port view is a blank pane for everyone not sitting at
+  // this machine, which is almost everyone (see the tailnet rule in CLAUDE.md).
+  // It is not a footnote in a table.
+  console.error(`\n!! ${failed.length} view(s) NOT published to the tailnet:\n`);
+  const seen = new Set();
+  for (const r of failed) {
+    const msg = String(r.error?.message ?? r.error ?? "unknown error");
+    console.error(`  ${r.fittingId} (local ${r.port} -> :${r.servePort})`);
+    if (!seen.has(msg)) {
+      console.error(`    ${msg.split("\n").join("\n    ")}`);
+      seen.add(msg);
+    } else {
+      console.error("    (same cause as above)");
+    }
+  }
+  console.error(
+    "\nThose views are reachable ON this box only. Over HTTPS they render as a\n" +
+      "blank pane (plain-HTTP frames are blocked as mixed content). Fix the cause\n" +
+      "above and re-run: npm run prod:redeploy  (or node scripts/tailnet-serve-views.mjs)"
   );
+  process.exitCode = 1;
 }
 
 main();

@@ -75,23 +75,23 @@ describe("claude-chat run context: railBadges omission discipline", () => {
   it("badges the phase plan from either half, and never invents one", () => {
     // A plain conversational turn walks no pipeline: no plan, no badge.
     expect(keys(railBadges({ runtime: "codex" }))).toEqual(["runtime"]);
-    // A named work kind with nothing turned off.
-    const named = railBadges({ workKind: "full-feature" }).find((b) => b.key === "workKind");
+    // A named flow with nothing turned off.
+    const named = railBadges({ flow: "full-feature" }).find((b) => b.key === "flow");
     expect(named?.label).toBe("full-feature");
     expect(named?.title).toContain("every phase in the plan runs");
     // The OFF count rides the label, because it is the part that changes what runs.
-    const trimmed = railBadges({ workKind: "full-feature", phasesOff: "review,walkthrough" }).find(
-      (b) => b.key === "workKind"
+    const trimmed = railBadges({ flow: "full-feature", phasesOff: "review,walkthrough" }).find(
+      (b) => b.key === "flow"
     );
     expect(trimmed?.label).toBe("full-feature -2");
     expect(trimmed?.title).toContain("phases off: review, walkthrough");
     expect(trimmed?.tone).toBe("warn");
-    // An orchestrator-inferred plan has NO work kind - it is not one of the named
+    // An orchestrator-inferred plan has NO flow - it is not one of the named
     // kinds. Requiring one would blank the badge on exactly the auto turns it
     // exists to explain, so the OFF count stands alone.
-    const inferred = railBadges({ phasesOff: "walkthrough" }).find((b) => b.key === "workKind");
+    const inferred = railBadges({ phasesOff: "walkthrough" }).find((b) => b.key === "flow");
     expect(inferred?.label).toBe("plan -1");
-    expect(inferred?.title).toContain("inferred from the tier");
+    expect(inferred?.title).toContain("flow derived by the router");
   });
 
   it("says so on the tier badge when no classifier ran", () => {
@@ -259,14 +259,32 @@ describe("claude-chat run context: stopped and overrides", () => {
         { field: "project", reason: "project-not-a-git-repo-under-dev-root" },
       ],
     });
+    // Rejections lead: the rail is one horizontally-scrolling row, so a warning
+    // appended after the informational badges is only findable by scrolling
+    // sideways (measured at x≈1492 in a 1280px viewport before this ordering).
     expect(keys(badges)).toEqual([
-      "override",
       "override-rejected:effort",
       "override-rejected:project",
+      "override",
     ]);
-    expect(badges[1].label).toBe("override rejected: provider-has-no-effort-control");
-    expect(badges[1].tone).toBe("warn");
-    expect(badges[2].title).toContain("your pinned project was refused");
+    expect(badges[0].label).toBe("override rejected: provider-has-no-effort-control");
+    expect(badges[0].tone).toBe("warn");
+    expect(badges[1].title).toContain("your pinned project was refused");
+  });
+
+  it("puts every warning ahead of the informational badges", () => {
+    const badges = railBadges({
+      duty: "plan",
+      level: 2,
+      runtime: "agent-sdk",
+      model: "claude-opus-5",
+      stoppedByUser: true,
+      overridesRejected: [{ field: "target", reason: "unknown-target" }],
+    });
+    const firstInfo = badges.findIndex((badge) => badge.tone !== "warn");
+    const lastWarn = badges.map((badge) => badge.tone).lastIndexOf("warn");
+    expect(lastWarn).toBeLessThan(firstInfo);
+    expect(keys(badges).slice(0, 2)).toEqual(["stopped", "override-rejected:target"]);
   });
 
   it("ignores empty override arrays", () => {

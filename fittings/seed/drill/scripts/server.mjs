@@ -11,13 +11,16 @@ import { access, mkdir, writeFile, unlink, readFile, stat, realpath } from "node
 import { getDrillBook, saveDrillBook, listPages, getPage, savePage, deletePage, drillTargetRoot } from "../lib/store.mjs";
 import { listProjects, selectProject, findRunSkill, projectInfo, activeProjectRoot, readDevRoot, canonicalRoot, isValidProjectRoot } from "../lib/projects.mjs";
 import { urlReachable, startApp, getJob, publicJob } from "../lib/app-runner.mjs";
-import { startPlan, getPlanJob, publicPlanJob, reapOrphanPlanAgents, cancelPlan, planProgress, logTail } from "../lib/planner.mjs";
+import {
+  startPlan, getPlanJob, publicPlanJob, reapOrphanPlanAgents, cancelPlan,
+  planProgress, logTail, findPlanTranscriptFile
+} from "../lib/planner.mjs";
 import {
   openTab, evalJs, observeTab, canvasUrl, fetchScreenshot, browserBaseUrl,
   navigateTab, tabAction, closeTab, tabInfo, readConsole
 } from "../lib/browser-fitting-client.mjs";
 import { buildPickScript, buildResolveScript, buildResolveManyScript, rectToPercent } from "../lib/picker.mjs";
-import { openExplore, actExplore, assertExplore, closeExplore, closeAllExplore } from "../lib/explore.mjs";
+import { openExplore, actExplore, observeExplore, assertExplore, closeExplore, closeAllExplore } from "../lib/explore.mjs";
 import { resolveViewport, viewportList } from "../lib/viewports.mjs";
 import {
   selectSteps, compileStepAutomation,
@@ -47,7 +50,7 @@ import {
   captureStart, captureStop, captureChunkStart, captureChunkStop, captureScreenshot,
   writeStepsManifest, manifestRow, checkKey, writeEvidenceIndex, spotterRequest,
   normalizeEvidenceRequest,
-  evidenceRunDir, evidenceRootRef, resolveEvidencePath, atomicWrite, captureCall,
+  evidenceRunDir, evidenceRootRef, resolveEvidencePath, atomicWrite, captureCall, readOptionalReel,
   classifyForRetention, pruneEvidence, removeRunEvidence
 } from "../lib/evidence.mjs";
 import { curateRunEvidence, curationConfig } from "../lib/curation.mjs";
@@ -316,6 +319,32 @@ function resolveStepOutcome(automationRun, stepId) {
 // classifier deliberately narrow: arbitrary prose containing "connection"
 // or "vision" can describe a real product defect and must not be hidden from
 // triage as infrastructure.
+// A mid-run login wall is detected from the verify verdict's own words - the
+// automation run record does not carry the tab's final URL. Conservative on
+// purpose: only phrases that name the login SURFACE itself count ("palavra-
+// passe" alone would false-positive every change-password check), and the
+// caller additionally excludes checks whose own page IS the login route and
+// re-probes before believing it, so a check that legitimately reports login
+// content keeps its verdict.
+const LOGIN_WALL_MARKERS = /\b(?:log[ -]?in (?:page|screen|form)|sign[ -]?in (?:page|screen|form)|iniciar sessão|página de (?:login|entrada)|formulário de (?:login|entrada)|redirected to \/login|logged[ -]?out|not (?:signed|logged) in|session (?:has )?expired)\b/i;
+export function looksLikeLoginWall(terminal) {
+  if (!terminal) return false;
+  if (terminal.kind !== "product-failure" && terminal.kind !== "unproven") return false;
+  return LOGIN_WALL_MARKERS.test(`${terminal.message ?? ""} ${terminal.reasoning ?? ""}`);
+}
+
+// The login page's own checks are expected to see the login form; only a
+// check that navigated somewhere ELSE can hit a wall.
+export function jobOffLoginPage(job, book) {
+  try {
+    const nav = job?.automation?.steps?.find((step) => step?.type === "navigate")?.url;
+    if (!nav) return true;
+    return new URL(nav).pathname !== new URL(resolveAuthUrl(book)).pathname;
+  } catch {
+    return true;
+  }
+}
+
 export function isInfrastructureFailure(text) {
   return legacyInfrastructureFailure(text) !== null;
 }
@@ -430,11 +459,48 @@ function selfBaseUrl() {
   return `http://${host}:${port}`;
 }
 
+// Refuse to start PLANNING when the app under test is not there.
+//
+// A plan agent pointed at a dead app still spends its whole session. It cannot
+// drive anything, so it falls back to reading source and authoring
+// plausible-looking checks nobody drove - which is how a false STANDING DEFECT
+// got written into a Book once already. Unlike a run, nothing stops it early:
+// the run path has the circuit breaker (one systemic infra outcome opens it and
+// skips the rest), but an authoring agent just keeps going.
+//
+// Fail closed and say precisely what to fix. `blocked: "app-unreachable"` is the
+// machine-readable form so a caller can offer Start app rather than parse prose.
+// An explicitly unconfigured URL is NOT blocked: /api/app/start exists to
+// discover one via the run skill's APP_URL sentinel, and blocking would make
+// that unreachable.
+async function appPreflight(root, { phase }) {
+  const book = await getDrillBook(root);
+  const appUrl = book?.app?.url || null;
+  if (!appUrl) return { ok: true };
+  if (await urlReachable(appUrl)) return { ok: true };
+  return {
+    ok: false,
+    status: 409,
+    body: {
+      blocked: "app-unreachable",
+      appUrl,
+      error:
+        `The app under test is not responding at ${appUrl}, so ${phase} cannot ` +
+        `exercise it. Start the app (Start app, or its run skill) and retry - ` +
+        `planning against a dead app produces checks that were never driven.`
+    }
+  };
+}
+
 // One batch card carrying the findings report (R10) - a normal `code` duty
 // fix card (findings need real code changes + the usual review/test gates),
 // distinct from the R14 testing-only card schema (Phase 7), which instead
 // enters the roster directly at drill.
-async function dispatchBatchFixCard(record, confirmed) {
+// startList: where the created card LANDS. A human-triggered dispatch parks in
+// "todo" so the user reviews and starts it (2026-08-07 ask); the autonomous
+// heartbeat sweep keeps "code" - a card waiting in a manual list would stall an
+// unattended flow. The card's sequence stays ["code"] either way.
+async function dispatchBatchFixCard(record, confirmed, { startList = "todo" } = {}) {
   const base = await kanbanBaseUrl();
   if (!base) throw new Error("kanban-loop fitting not running (no status file)");
   // Evidence travels as links through Drill's confined evidence routes
@@ -480,16 +546,18 @@ async function dispatchBatchFixCard(record, confirmed) {
   if (!card?.id) throw new Error("kanban-loop created a card without an id");
   const cardUrl = `${base}/#/cards/${card.id}`;
 
-  // POST /cards intentionally creates in Backlog. Drill is a reviewed,
-  // autonomous dispatch door, so position the card on the first resolved duty
-  // list and explicitly hand progression to Kanban. Retry CAS conflicts after
-  // re-reading the card. If the move still cannot complete, dispatch remains
-  // successful with the card visibly in Backlog and the board's Start action
-  // as the fallback.
+  // POST /cards intentionally creates in Backlog. Position the card on the
+  // requested landing list: "todo" for a reviewed human dispatch (the user
+  // starts it from the board), or the first resolved duty list for the
+  // autonomous sweep. Retry CAS conflicts after re-reading the card. If the
+  // move still cannot complete, dispatch remains successful with the card
+  // visibly in Backlog and the board's Start action as the fallback.
   const targetList =
-    Array.isArray(card.sequence) && card.sequence.length > 0
-      ? card.sequence[0]
-      : sequence[0];
+    startList === "todo"
+      ? "todo"
+      : Array.isArray(card.sequence) && card.sequence.length > 0
+        ? card.sequence[0]
+        : sequence[0];
   let latest = card;
   let entered = card.list === targetList;
   let rev = Number.isInteger(card.rev) ? card.rev : 0;
@@ -726,6 +794,11 @@ async function handle(req, res) {
         if (brief) return send(res, 409, { error: "a plan is already running for this project - wait for it to finish before planning an update", job: publicPlanJob(existing) });
         return send(res, 200, { started: false, job: publicPlanJob(existing) });
       }
+      // Checked AFTER the join/conflict guards so an in-flight plan still
+      // reports normally, and BEFORE spawning: an agent that cannot reach the
+      // app spends its whole session producing checks it never drove.
+      const planPre = await appPreflight(root, { phase: "planning" });
+      if (!planPre.ok) return send(res, planPre.status, planPre.body);
       // The agent explores through THIS server, so it needs this instance's
       // own base URL - never a baked default, which would point a dev plan at
       // prod's Drill (or a codex-profile port that nothing is serving).
@@ -759,6 +832,93 @@ async function handle(req, res) {
       if (!job) return send(res, 404, { error: "no plan job for this project" });
       return send(res, 200, await logTail(job.logFile, 16000), { "content-type": "text/plain; charset=utf-8" });
     }
+    // Rich live view of the planning Claude session. The same transcript
+    // parser used by run observability keeps assistant text, thinking, tool
+    // calls/results, and image results from Read — which are the screenshots
+    // the planner actually inspected. Nothing here exposes a host path: the
+    // current root selects the current job, and its pinned session id selects
+    // exactly one transcript server-side.
+    if (pathname === "/api/plan/session-stream" && req.method === "GET") {
+      const root = pinnedRoot(url.searchParams.get("root"));
+      const job = getPlanJob(root);
+      if (!job) return send(res, 404, { error: "no plan job for this project" });
+      const requestedSession = url.searchParams.get("session");
+      if (requestedSession && requestedSession !== job.sessionId) {
+        return send(res, 404, { error: "unknown session for this plan" });
+      }
+
+      res.writeHead(200, SSE_HEADERS);
+      let closed = false;
+      req.on("close", () => { closed = true; });
+      const emit = (payload) => {
+        if (closed) return;
+        try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { closed = true; }
+      };
+      const keepAlive = setInterval(() => {
+        if (closed) return;
+        try { res.write(": keep-alive\n\n"); } catch { closed = true; }
+      }, 15_000);
+      keepAlive.unref?.();
+
+      try {
+        let transcriptPath = await findPlanTranscriptFile(job.sessionId);
+        let offset = 0;
+        let initLines = [];
+        if (transcriptPath) {
+          try {
+            const read = await readJsonlLines(transcriptPath, 0);
+            initLines = read.lines;
+            offset = read.offset;
+          } catch { transcriptPath = null; }
+        }
+        const initial = parseTranscriptLines(initLines);
+        emit({
+          type: "init",
+          sessionId: job.sessionId,
+          title: initial.title,
+          events: initial.events,
+          live: job.status === "planning",
+          // A live session whose JSONL has not appeared yet is waiting, not
+          // unavailable. Claude creates it on the first journaled event.
+          available: job.status === "planning" || !!transcriptPath
+        });
+
+        // Tail complete JSONL lines until the authoritative plan job settles.
+        // After terminal state, take two quiet reads so the final assistant
+        // line cannot lose a race with the child-process exit notification.
+        let terminalQuietReads = 0;
+        while (!closed) {
+          await sleep(650);
+          if (!transcriptPath) transcriptPath = await findPlanTranscriptFile(job.sessionId);
+          let emitted = false;
+          if (transcriptPath) {
+            try {
+              const read = await readJsonlLines(transcriptPath, offset);
+              offset = read.offset;
+              if (read.lines.length) {
+                const chunk = parseTranscriptLines(read.lines);
+                if (chunk.events.length || chunk.title) {
+                  emit({ type: "events", sessionId: job.sessionId, title: chunk.title, events: chunk.events });
+                  emitted = true;
+                }
+              }
+            } catch { /* transient read failure — retry while the job lives */ }
+          }
+          if (job.status === "planning") {
+            terminalQuietReads = 0;
+          } else if (emitted) {
+            terminalQuietReads = 0;
+          } else if (++terminalQuietReads >= 2) {
+            break;
+          }
+        }
+        emit({ type: "end", sessionId: job.sessionId, status: job.status });
+      } finally {
+        clearInterval(keepAlive);
+        try { res.end(); } catch { /* already closed */ }
+      }
+      return;
+    }
 
     if (pathname === "/api/pages" && req.method === "GET") {
       const root = pinnedRoot(url.searchParams.get("root"));
@@ -787,7 +947,7 @@ async function handle(req, res) {
 
     // Authoring: open/reuse a tab for a page at a given viewport (B1/S19).
     // ── Plan-time exploration (the planning agent's eyes) ──────────────────
-    // Navigate, act, and validate a candidate assertion against the LIVE app.
+    // Navigate, observe, act, and validate a candidate assertion against the LIVE app.
     // The agent supplies its own vision: every response names a screenshot file
     // it reads directly. See lib/explore.mjs for why validation is delegated to
     // the automations engine rather than answered here.
@@ -828,6 +988,16 @@ async function handle(req, res) {
         return send(res, /browser 400|execute failed/.test(err.message) ? 400 : 502, { error: err.message });
       }
     }
+    if (pathname === "/api/explore/observe" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const resolved = resolveMutationRoot(body.root);
+      if (resolved.error) return send(res, 400, { error: resolved.error });
+      try {
+        return send(res, 200, await observeExplore({ root: resolved.root }));
+      } catch (err) {
+        return send(res, 502, { error: err.message });
+      }
+    }
     if (pathname === "/api/explore/assert" && req.method === "POST") {
       const body = await readJsonBody(req);
       const resolved = resolveMutationRoot(body.root);
@@ -846,7 +1016,7 @@ async function handle(req, res) {
       const resolved = resolveMutationRoot(body.root);
       if (resolved.error) return send(res, 400, { error: resolved.error });
       try {
-        return send(res, 200, await closeExplore({ root: resolved.root }));
+        return send(res, 200, await closeExplore({ root: resolved.root, retainEvidence: true }));
       } catch (err) {
         return send(res, 502, { error: err.message });
       }
@@ -1255,6 +1425,14 @@ async function handle(req, res) {
       }
       const book = await getDrillBook(root);
 
+      // No preflight here on purpose. A run already fails fast on a dead app:
+      // the first systemic infra outcome opens the circuit, which groups it as
+      // ONE incident and skips every remaining check (see openCircuit /
+      // terminalOpensCircuit below). That covers both "dead before we start" and
+      // the case a preflight cannot catch - the app dying mid-run. Adding a
+      // second gate here would only duplicate it, and would make the circuit's
+      // own behaviour unreachable.
+
       // Configurable autonomy gate (A5/R7/S22): "gated" pauses with a plan
       // preview before running; the caller re-POSTs the returned `resume`
       // object (with confirmed:true) to actually execute. "auto" proceeds
@@ -1483,6 +1661,10 @@ async function handle(req, res) {
       });
       const manifestRows = [];
       const checkArtifacts = [];
+      // One mid-run login-wall recovery per run: the first check answered by
+      // the app's login screen re-authenticates and continues; a second wall
+      // after that recovery is a real auth problem and stops the run.
+      let authWallHandled = false;
 
       for (const job of jobs) {
         // User-requested stop (POST /api/runs/:id/cancel). Deliberately NOT a
@@ -1611,6 +1793,54 @@ async function handle(req, res) {
         });
         live.current = null;
         await saveDrillRun(record);
+
+        // Mid-run login wall: the app answered an authenticated page's check
+        // with its login screen (session expired / stale token). The Book
+        // stores working credentials, so the first wall re-authenticates and
+        // continues instead of letting every remaining check be judged against
+        // the login form. The probe distinguishes a REAL wall from a check that
+        // legitimately reports login content (e.g. a redirect check): a live
+        // session (probe passes from cache) keeps the original verdict.
+        if (!authWallHandled && hasAuth(book) && looksLikeLoginWall(terminal) && jobOffLoginPage(job, book)) {
+          authWallHandled = true;
+          publishRunEvent(record.id, { type: "auth_started", runId: record.id, reason: "mid-run-login-wall", loginUrl: resolveAuthUrl(book) });
+          const again = await ensureAuthenticated(book, { contextTag, viewport: sessionViewport || job.viewport, root });
+          if (!again.ok) {
+            const askTerminal = {
+              kind: "blocked",
+              source: "auth",
+              code: "auth-session-lost",
+              component: "auth",
+              message: `The app answered "${job.step.id}" with its login screen mid-run and re-login did not restore a session: ${again.terminal?.message ?? "login failed"} — remaining checks skipped. Verify the credentials in the drills/drillbook.yml auth block still work on this stack.`
+            };
+            pr.terminal = askTerminal;
+            addSystemicIncident(job, askTerminal);
+            openCircuit(askTerminal, job);
+            await saveDrillRun(record);
+            publishRunEvent(record.id, { type: "circuit_opened", runId: record.id, ...record.circuit });
+            break;
+          }
+          publishRunEvent(record.id, { type: "auth_ok", runId: record.id, via: again.via });
+          if (again.via !== "cache") {
+            // The session really was dead: this check was answered by the
+            // login wall, not by its page. ONE grouped auth incident, no
+            // product finding, and the fresh session carries the rest.
+            const wallTerminal = {
+              kind: "unproven",
+              source: "auth",
+              code: "auth-session-expired",
+              component: "auth",
+              message: "The session expired mid-run and this check was answered by the login screen; re-login succeeded and the run continued. Re-run this check."
+            };
+            pr.terminal = wallTerminal;
+            terminal = wallTerminal;
+            addSystemicIncident(job, wallTerminal);
+            await saveDrillRun(record);
+            continue;
+          }
+          // Probe passed from cache: the session was alive all along, so the
+          // login sighting is the check's own honest result - fall through.
+        }
 
         if (terminal.kind === "product-failure") {
           const art = capture ? checkArtifacts.at(-1) : null;
@@ -2136,6 +2366,21 @@ async function handle(req, res) {
         return send(res, 200, { index, steps });
       } catch {
         return send(res, 404, { error: "no evidence index for this run" });
+      }
+    }
+    // Optional Debrief reel read. A run without curation (including every
+    // legacy run) is a successful `reel:null` lookup, so mounting Results does
+    // not manufacture a browser-console 404. The generic evidence-file route
+    // below deliberately retains its normal missing-artifact 404 contract.
+    const runReelGet = pathname.match(/^\/api\/runs\/([^/]+)\/reel$/);
+    if (runReelGet && req.method === "GET") {
+      const record = await getDrillRun(decodeURIComponent(runReelGet[1]));
+      if (!record) return send(res, 404, { error: "not found" });
+      try {
+        const reel = await readOptionalReel(record.id, record.project || drillTargetRoot());
+        return send(res, 200, { reel });
+      } catch (err) {
+        return send(res, 500, { error: `could not read reel: ${err.message}` });
       }
     }
     const runEvidenceFileGet = pathname.match(/^\/api\/runs\/([^/]+)\/evidence-file\/([^/]+)$/);
@@ -2666,7 +2911,9 @@ async function handle(req, res) {
         });
       }
       try {
-        const card = await dispatchBatchFixCard(record, confirmed);
+        // body.startIn: "code" opts back into the immediate-start behavior;
+        // anything else (or absent) parks the reviewed dispatch in To Do.
+        const card = await dispatchBatchFixCard(record, confirmed, { startList: body.startIn === "code" ? "code" : "todo" });
         // Re-load before stamping (same as the heartbeat sweep): the kanban
         // POST is a long await, and a concurrent triage/feedback write on
         // this run must not be clobbered by saving the pre-fetch snapshot.
@@ -2674,7 +2921,7 @@ async function handle(req, res) {
         markFindingsDispatched(fresh, confirmed.map((f) => f.id), card);
         fresh.dispatch = mode;
         fresh.dispatchedAt = new Date().toISOString();
-        fresh.dispatchedCard = { id: card.id, list: card.list ?? "code" };
+        fresh.dispatchedCard = { id: card.id, list: card.list ?? "todo" };
         await saveDrillRun(fresh);
         return send(res, 200, {
           dispatched: true,
@@ -2688,7 +2935,7 @@ async function handle(req, res) {
     }
     // On-demand heartbeat sweep (also run periodically - see startServer()).
     if (pathname === "/api/heartbeat/run-once" && req.method === "POST") {
-      const results = await runHeartbeatSweep(dispatchBatchFixCard);
+      const results = await runHeartbeatSweep((r, c) => dispatchBatchFixCard(r, c, { startList: "code" }));
       return send(res, 200, { results });
     }
 
@@ -2832,7 +3079,7 @@ export async function startServer() {
   // transient kanban-loop outage must never crash the Drill server.
   const heartbeatMs = Number(process.env.DRILL_HEARTBEAT_INTERVAL_MS || 60000);
   const heartbeatTimer = setInterval(() => {
-    runHeartbeatSweep(dispatchBatchFixCard).catch((err) => console.error(`[drill] heartbeat sweep failed: ${err.message}`));
+    runHeartbeatSweep((r, c) => dispatchBatchFixCard(r, c, { startList: "code" })).catch((err) => console.error(`[drill] heartbeat sweep failed: ${err.message}`));
   }, heartbeatMs);
   heartbeatTimer.unref?.();
   const shutdown = async () => {

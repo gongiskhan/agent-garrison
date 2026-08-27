@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
-import { platformForRuntime } from "@/components/accounts/shared";
+import { runtimeAccountContract } from "@/components/accounts/shared";
 import { FittingView } from "@/components/fitting-views/FittingView";
 import { FittingOverview } from "@/components/fitting-views/FittingOverview";
 import { matchView } from "@/lib/fitting-views";
@@ -724,6 +724,7 @@ function FittingConfigSection({
                 field={field}
                 fittingId={entry.id}
                 value={selection.config[field.key] ?? field.default ?? ""}
+                provider={String(selection.config.provider ?? "")}
                 onChange={(value) => updateConfig(entry, field.key, value)}
               />
             ))}
@@ -769,24 +770,44 @@ function ConfigInput({
   field,
   fittingId,
   value,
+  provider,
   onChange
 }: {
   field: ConfigSchemaField;
   fittingId: string;
   value: string | number | boolean;
+  /** The sibling `provider` config value, for engines that front several endpoint families. */
+  provider?: string;
   onChange: (value: string | number | boolean) => void;
 }) {
   // RUNTIME-ACCOUNTS-V1: the "account" key renders as the account selector +
   // guided login flow instead of a free-text input (options are the registry,
   // which is dynamic — a static config_schema select cannot express it).
   if (field.key === "account") {
+    const accountContract = runtimeAccountContract(fittingId, undefined, provider);
+    if (!accountContract) {
+      return (
+        <div className="field">
+          <label>{field.key}</label>
+          <div className="hint">
+            This provider is keyless or has no declared named-account mapping.
+          </div>
+          {String(value) ? (
+            <button type="button" className="btn small" onClick={() => onChange("")}>
+              Clear incompatible account “{String(value)}”
+            </button>
+          ) : null}
+          {field.description ? <div className="hint">{field.description}</div> : null}
+        </div>
+      );
+    }
     return (
       <div className="field">
         <label>{field.key}</label>
         <AccountField
           value={String(value)}
           onChange={(next) => onChange(next)}
-          platform={platformForRuntime(fittingId)}
+          contract={accountContract}
         />
         {field.description ? <div className="hint">{field.description}</div> : null}
       </div>
@@ -875,7 +896,7 @@ function OrchestratorGlobalConfig({
             }
             disabled={Boolean(busy)}
           />
-          <div className="hint">Where the Operative goes to work on projects.</div>
+          <div className="hint">Where the session goes to work on projects.</div>
         </div>
         <div className="field">
           <label>permissions_mode</label>
@@ -895,7 +916,7 @@ function OrchestratorGlobalConfig({
             <option value="allow-file-edits">allow-file-edits</option>
             <option value="conservative">conservative</option>
           </select>
-          <div className="hint">How aggressively the Operative is allowed to act.</div>
+          <div className="hint">How aggressively the session is allowed to act.</div>
         </div>
         <div className="field">
           <label>guardrails.max_tasks_per_tick</label>

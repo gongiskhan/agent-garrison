@@ -13,6 +13,7 @@ import {
   applyRouteFrame,
   buildSendMeta,
   compactRouting,
+  mergeRouteAttribution,
   type RouteFrameTurn,
 } from "../packages/claude-chat/src/ClaudeChat";
 import type { ChatTransport, RouteAttribution, TurnRouting } from "../packages/claude-chat/src/transport";
@@ -47,11 +48,11 @@ const OPTIONS: RailOptions = {
   accounts: [{ name: "work", platform: "anthropic" }],
   projects: ["garrison", "ekoa"],
   tiers: ["T0-trivial", "T1-standard", "T2-deep"],
-  workKinds: [
+  flows: [
     { id: "full-feature", description: "the full gated pipeline", phases: ["plan", "implement", "review", "adversarial-review", "walkthrough"] },
     { id: "docs-change", description: "prose only", phases: ["implement"] },
   ],
-  defaultWorkKind: "full-feature",
+  defaultFlow: "full-feature",
 };
 
 // ── railDisplayBadges: the pure model plus the interaction facts ──────────────
@@ -111,12 +112,12 @@ describe("railDisplayBadges", () => {
       "effort",
       "account",
       "project",
-      "workKind",
+      "flow",
       "phasesOff",
     ]);
     // A placeholder never invents a VALUE - its label is the dimension's HUMAN name
     // and its title says it is not pinned.
-    const humanName: Record<string, string> = { workKind: "work kind", phasesOff: "phases" };
+    const humanName: Record<string, string> = { flow: "flow", phasesOff: "phases" };
     for (const b of offered) {
       expect(b.placeholder).toBe(true);
       expect(b.label).toBe(humanName[b.key] ?? b.key);
@@ -170,7 +171,7 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
   it("offers every tier under an Automatic row, and says whether pinning one skips the classifier", () => {
     const alone = menuForField("tier", OPTIONS, {});
     expect(alone?.rows.map((r) => r.label)).toEqual([
-      "Automatic - the classifier decides",
+      "Automatic - routing inference decides",
       "T0-trivial",
       "T1-standard",
       "T2-deep",
@@ -183,24 +184,24 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
     expect(withDuty?.rows[1].detail).toContain("no classifier runs");
   });
 
-  it("labels the default work kind and clears a stale phase selection when the plan changes", () => {
-    const menu = menuForField("workKind", OPTIONS, { workKind: "docs-change", phasesOff: "walkthrough" });
+  it("labels the default flow and clears a stale phase selection when the plan changes", () => {
+    const menu = menuForField("flow", OPTIONS, { flow: "docs-change", phasesOff: "walkthrough" });
     // Source order is preserved: the gateway already sorts the catalogue, and a
     // second sort here would be a second opinion about ordering.
     expect(menu?.rows.map((r) => r.label)).toEqual([
-      "Automatic - the plan inferred from the tier",
+      "Automatic - the router picks the flow, its level picks the plan",
       "full-feature (default)",
       "docs-change",
     ]);
     const fullFeature = menu?.rows.find((r) => r.key === "full-feature");
     // Those OFF ids belong to the OLD plan; carrying them over would silently
     // disable phases in the new one that the user never looked at.
-    expect(fullFeature?.patch).toEqual({ workKind: "full-feature", phasesOff: null });
+    expect(fullFeature?.patch).toEqual({ flow: "full-feature", phasesOff: null });
     expect(menu?.rows.find((r) => r.key === "docs-change")?.selected).toBe(true);
   });
 
   it("turns the phases menu into per-phase toggles over the selected plan, in plan order", () => {
-    const menu = menuForField("phasesOff", OPTIONS, { workKind: "full-feature", phasesOff: "review" });
+    const menu = menuForField("phasesOff", OPTIONS, { flow: "full-feature", phasesOff: "review" });
     expect(menu?.label).toBe("Phases this run walks");
     expect(menu?.rows.map((r) => r.key)).toEqual([
       "auto",
@@ -220,10 +221,10 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
     expect(menu?.rows.find((r) => r.key === "plan")?.patch).toEqual({ phasesOff: "plan,review" });
     // "Automatic" is selected only when nothing is off.
     expect(menu?.rows[0].selected).toBe(false);
-    expect(menuForField("phasesOff", OPTIONS, { workKind: "full-feature" })?.rows[0].selected).toBe(true);
+    expect(menuForField("phasesOff", OPTIONS, { flow: "full-feature" })?.rows[0].selected).toBe(true);
   });
 
-  it("falls back to the DEFAULT work kind's phases when no kind is pinned", () => {
+  it("falls back to the DEFAULT flow's phases when no kind is pinned", () => {
     const menu = menuForField("phasesOff", OPTIONS, {});
     expect(menu?.rows.map((r) => r.key)).toContain("adversarial-review");
   });
@@ -232,16 +233,30 @@ describe("menuForField - the run-plan dimensions (RUN-SPEC-V1)", () => {
 describe("menuForField", () => {
   it("flattens duty x level into one list and marks the pinned pair", () => {
     const menu = menuForField("duty", OPTIONS, { duty: "plan", level: 2 });
+    // ONE question, "what is this work?": the phased FLOWS come first, then the
+    // single-turn duties flattened across their levels. This expectation went
+    // stale when the two sibling badges merged (e34b1246) and the flow rows
+    // started appearing here - it was asserting the pre-merge menu.
     expect(menu?.rows.map((r) => r.label)).toEqual([
-      "Automatic - the classifier decides",
+      "Automatic - routing inference decides",
+      "full-feature (default plan)",
+      "docs-change (plan)",
       "plan L1",
       "plan L2",
       "review",
     ]);
     expect(menu?.rows.find((r) => r.label === "plan L2")?.selected).toBe(true);
-    expect(menu?.rows.find((r) => r.label === "plan L2")?.patch).toEqual({ duty: "plan", level: 2 });
-    // The clear row must clear BOTH halves - a level without a duty is meaningless.
-    expect(menu?.rows[0].patch).toEqual({ duty: null, level: null });
+    // Picking a duty is the other direction of the same merge: it pins duty+level
+    // and RELEASES the flow pin, so the two can never read as a contradiction.
+    expect(menu?.rows.find((r) => r.label === "plan L2")?.patch).toEqual({
+      duty: "plan",
+      level: 2,
+      flow: null,
+      phasesOff: null
+    });
+    // The clear row must clear EVERY half - a level without a duty is meaningless,
+    // and since the merge it must release the flow pin (and its phase toggles) too.
+    expect(menu?.rows[0].patch).toEqual({ duty: null, level: null, flow: null, phasesOff: null });
     expect(menu?.rows[0].selected).toBe(false);
   });
 
@@ -264,6 +279,16 @@ describe("menuForField", () => {
     expect(menu?.freeText).toMatchObject({ field: "model" });
     // Every other dimension has a real catalog, so none of them gets free text.
     expect(menuForField("effort", OPTIONS, {})?.freeText).toBeUndefined();
+  });
+
+  it("states which pin changes start a new session and which apply only to the request", () => {
+    for (const field of ["target", "model", "account", "project"] as PinField[]) {
+      expect(menuForField(field, OPTIONS, {})?.effect).toBe("Starts a new session for your next message.");
+    }
+    expect(menuForField("effort", OPTIONS, {})?.effect).toBe(
+      "Applies to your next request without starting a new session."
+    );
+    expect(menuForField("duty", OPTIONS, {})?.effect).toBe("Applies to your next message.");
   });
 
   it("says which source is empty instead of rendering a menu that looks broken", () => {
@@ -311,6 +336,14 @@ describe("applyRouteFrame", () => {
     });
     // ...and `pending` is NOT sticky: the settled turn is not still pending.
     expect(done[0].route).not.toHaveProperty("pending");
+  });
+
+  it("uses the same non-sticky pending merge for exact generated route frames", () => {
+    const pre = mergeRouteAttribution(undefined, { pending: true, route: "cc-sonnet-med", sessionEpoch: 4 });
+    expect(pre).toMatchObject({ pending: true, route: "cc-sonnet-med", sessionEpoch: 4 });
+    const final = mergeRouteAttribution(pre, { model: "claude-sonnet-4-6", sessionDisposition: "warm" });
+    expect(final).toMatchObject({ route: "cc-sonnet-med", model: "claude-sonnet-4-6", sessionDisposition: "warm" });
+    expect(final).not.toHaveProperty("pending");
   });
 
   it("DROPS a frame from an already-superseded turn (the misattribution bug)", () => {
@@ -399,6 +432,8 @@ describe("AttributionRail markup", () => {
     expect(html).toContain('aria-label="Run context for this reply"');
     expect(html).toContain('class="cc-railscroll"');
     expect(html).toContain("cc-rbadge");
+    expect(html).toContain('<span class="cc-rbadge-automark">auto</span>');
+    expect(html).not.toContain('class="cc-rbadge-automark" aria-hidden="true"');
     // The slash-command chips own .cc-badge; reusing it would inherit their styles.
     expect(html).not.toMatch(/class="[^"]*\bcc-badge\b/);
   });
@@ -509,9 +544,11 @@ describe("ClaudeChat rail wiring", () => {
     expect(html).toContain("cc-rbadge-pinned");
   });
 
-  it("renders a settled rail for a restored turn OUTSIDE the text/streaming gate", () => {
-    // A tool-only or cancelled turn settles with NO prose. Today's double gate
-    // (`clean.text.trim() && !t.streaming`) is exactly why its routing was invisible.
+  it("keeps run context REACHABLE on a restored turn with no prose", () => {
+    // A tool-only or cancelled turn settles with NO prose, and its routing used
+    // to be invisible because the action bar was gated on the text. The rail is
+    // collapsed behind an icon now, so the icon is what must survive that gate -
+    // otherwise the same turn loses its routing again, just one level down.
     const html = render(
       h(ClaudeChat, {
         transport: stubTransport(),
@@ -526,9 +563,13 @@ describe("ClaudeChat rail wiring", () => {
         ],
       })
     );
-    expect(html).toContain("cc-rail cc-rail-settled");
-    expect(html).toContain("stopped: cancelled");
-    // The legacy chip is the FALLBACK, not a duplicate of the rail.
+    // The toggle is there, with the route named for a screen reader...
+    expect(html).toContain("cc-msgroute");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("Show run context");
+    // ...and the rail itself stays closed until it is asked for.
+    expect(html).not.toContain("cc-rail cc-rail-settled");
+    // The legacy chip is the FALLBACK, not a duplicate of the toggle.
     expect(html).not.toContain("cc-routechip");
   });
 

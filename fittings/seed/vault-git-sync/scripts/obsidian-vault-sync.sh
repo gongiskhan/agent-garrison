@@ -95,6 +95,20 @@ fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 
+# 0. Mirror Claude's native Garrison project memory into the vault (ported from
+#    the retired ~/.claude/tools copy, which the systemd timer used to run).
+#    FAIL CLOSED when the mirror exists: a vault commit must not silently omit
+#    a mirror update. A node WITHOUT the mirror script (the Macs — tools/ is
+#    not in the portable subset) still syncs; only dev-madrid mirrors.
+MEMORY_MIRROR="${CLAUDE_MEMORY_MIRROR:-$HOME/.claude/tools/claude-memory-to-obsidian.py}"
+if [ "$MODE" != "pull" ] && [ -x "$MEMORY_MIRROR" ]; then
+  if ! "$MEMORY_MIRROR" >>"$LOG" 2>&1; then
+    log "Claude memory mirror failed; vault sync deferred"
+    write_status error "Claude memory mirror failed; vault sync deferred"
+    exit 1
+  fi
+fi
+
 # 1. Commit local changes — skipped in pull mode, which must not publish
 #    whatever another agent happens to have mid-write.
 LOCAL_CHANGES=0

@@ -6,9 +6,10 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: surfaces
+  category: Interfaces
   cardinality_hint: single
   own_port: true
-  default_port: 7092
+  default_port: 8092
   component_shape: plugin
   platforms:
     - claude-code
@@ -27,7 +28,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7092
+      default: 8092
       description: HTTP port the Power server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

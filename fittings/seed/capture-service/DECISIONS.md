@@ -1,0 +1,68 @@
+# Deviations from the build spec
+
+One line per deviation, with the reason. Details in
+[`docs/adr-companion.md`](../../../docs/adr-companion.md).
+
+- `IOS_THING_PATH` was unset at preflight; the reference was located as
+  `gongiskhan/ios-thing` on GitHub and cloned to `~/Projects/ios-thing` —
+  recorded instead of stopping, since the checkout is byte-identical to what
+  the env var would have named.
+- The spec's wake phrase "Gary, …" is "Zeca, …" at runtime: the operative was
+  renamed mid-run (`b3a82ec3`, 2026-08-13). An address-position gate shipped
+  with the rename and was REMOVED the same day (`5d510fb4`, operator's call) —
+  the live gate is token-anywhere on word boundaries. Companion fixtures,
+  defaults and docs use Zeca and the token-anywhere semantics; the spec text
+  is left as history.
+- The wake module is consumed as a byte-identical copy with an injected
+  source-identity bag (`WakeBus source=`, `MemoryWriter prefix/label`), added
+  to omi-channel as behaviour-preserving parameters — hardcoded "omi"
+  identities would have violated I2 for companion events. Lockstep guarded by
+  `tests/companion-lockstep.test.ts`.
+- Spec §4 says video segments are "fragmented MP4 segments in the encoding iOS
+  thing already produces" — ios-thing produces NO fMP4 (recon-verified: JPEG
+  stills at ~1.5 fps under a proven extension-memory discipline; the
+  VideoToolbox import is unused). v1 ships the proven JPEG-frame path with the
+  same `{seq, ts, bytes}` framing; the stored frames ARE the spec's "keyframes
+  extracted", and no screen-content interpretation happens either way.
+- Spec §5 assumed a `match` repo named ios-certificates; ios-thing actually
+  stores match assets on its own `match-certs` branch. Garrison cannot copy
+  that arrangement because `agent-garrison` is PUBLIC — the M8 lane points
+  match at the private `gongiskhan/ios-certificates` repo instead.
+- Spec I1 asks to "preserve" triage's wait-for-context hold; no such hold
+  exists in today's triage (recon-verified — only batch-overflow carry and the
+  wake capture hold exist). M4 ADDS it: capture_events are emitted at session
+  end only, and the rule layer holds thin-fragment events below
+  `min_transcript_words` without consuming a model attempt.
+- Spec §4's "speech delivery over the same socket when a session is live"
+  holds for AUDIO-mode sessions only. In screen_audio mode the mic is captured
+  by the broadcast extension in a separate process with no AEC coupling to the
+  app's speaker, so speech falls through to APNs there (ADR §6).
+- The spec's `begin_planning`/`declare_intent` coordination tools are not
+  present in this session; the documented fallback discipline applies
+  (disjoint files, prompt commits, no whole-tree git operations).
+- `docs/adr-companion.md` lives in repo `docs/` as the spec names it, not in
+  the fitting's `docs/` as omi-channel's ADR does — the ADR spans `ios/`, this
+  fitting and the shared seams, so the repo level is the honest home.
+- The ADR's match-storage pick (ios-certificates) was superseded during M8:
+  match reuses ios-thing's `match-certs` branch, which already holds the
+  team's Apple Distribution certificate — no second cert slot burned, and
+  the MATCH_PASSWORD already exists as an ios-thing secret. ios-certificates
+  stays empty.
+- The TestFlight CI entrypoint lives in the PRIVATE ios-thing repo
+  (`garrison-ios.yml`, dispatch-only, checks out public agent-garrison):
+  agent-garrison is public and can hold neither signing secrets nor match
+  storage, and GitHub secrets cannot be copied out to be re-homed.
+- fastlane `produce` refuses App Store Connect API-key auth on EVERY half
+  ("No value found for 'username'"; no api_key option — verified across four
+  CI runs), and the public ASC API has no app-record creation endpoint. App
+  IDs + capabilities (PUSH_NOTIFICATIONS, APP_GROUPS) are registered in the
+  lane via Spaceship::ConnectAPI's public bundleIds endpoints instead; the
+  App Store Connect APP RECORD is the one irreducible 2-minute human step
+  (HUMAN_SETUP.md step 2).
+- fastlane pinned to 2.236.1 — the version the ios-thing lanes last ran
+  green with; unpinned CI picked 2.238.0 whose behaviour differed.
+- The spec's M6 acceptance "streams fixture microphone input to a locally
+  running capture-service" ran against a sandboxed capture-service on the
+  PROD HOST over the tailnet, not on the Mac — the Mac never runs this
+  repo's node (house rule); the simulator reached it exactly the way the
+  real phone will.

@@ -9,9 +9,9 @@ import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs routing layer
-import { RoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+import { RoutedGateway, buildProductionDispatcher, makeAdapterCallInvoker } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs dispatch core (the real module, wired as the gateway would wire it)
-import * as dispatchCore from "../fittings/seed/dispatcher/lib/dispatch-core.mjs";
+import * as dispatchCore from "../fittings/seed/orchestrator/lib/dispatch-core.mjs";
 
 function model() {
   return {
@@ -42,10 +42,114 @@ function model() {
 }
 
 describe("RoutedGateway dispatch hook (opt-in, default off)", () => {
+  it("builds dispatch-fast on a lean, no-tools Agent SDK subscription turn (never Ollama)", async () => {
+    const dispatchModel: any = {
+      ...model(),
+      duties: {
+        ...model().duties,
+        dispatch: { id: "dispatch", title: "Dispatch", description: "route", levels: [{ description: "once", cell: { target: "dispatch-fast", effort: "low" } }] }
+      },
+      selectedDuties: ["code", "other", "dispatch"]
+    };
+    let spawned: any = null;
+    const adapter = {
+      spawn: async (config: any) => ((spawned = config), {}),
+      awaitReady: async () => {},
+      sendTurn: async () => {},
+      awaitResponse: async () => ({ text: '{"duty":"code","level":1,"confidence":"high"}' }),
+      teardown: async () => {}
+    };
+    const resolvedLib = {
+      dispatcherModelFrom: () => dispatchModel,
+      loadResolvedModel: () => dispatchModel,
+      executionRouteFor: () => ({ target: { runtime: "agent-sdk", provider: "anthropic", model: "claude-haiku-4-5", authMode: "subscription", promptMode: "lean", maxTurns: 1, timeoutMs: 8000 } })
+    };
+    const dispatcher = await buildProductionDispatcher({
+      compositionDir: mkdtempSync(join(tmpdir(), "gw-prod-dispatch-")),
+      compositionId: "fixture",
+      executionModel: dispatchModel,
+      resolvedLib,
+      agentSdkAdapter: adapter
+    });
+    expect(dispatcher?.configuredCall).toBe("agent-sdk-adapter");
+    const out = await dispatcher!.core.dispatch(dispatchModel, "small task", {
+      call: dispatcher!.call,
+      ...dispatcher!.callOpts
+    });
+    expect(out.dispatchOk).toBe(true);
+    expect(out.provider).toBe("anthropic");
+    expect(out.model).toBe("claude-haiku-4-5");
+    expect(spawned).toMatchObject({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      authMode: "subscription",
+      promptMode: "lean",
+      maxTurns: 1,
+      allowedTools: [],
+      thinking: { type: "disabled" }
+    });
+    expect(JSON.stringify(spawned)).not.toMatch(/ollama/i);
+  });
+
+  it("does not warm or checkout a Stage-A classifier when Orchestrator dispatch is present", async () => {
+    const checkedOut: string[] = [];
+    const pool = {
+      start: async () => {},
+      checkout: async (id: string) => {
+        checkedOut.push(id);
+        return { id, session: { isAlive: () => true }, release: () => {} };
+      }
+    };
+    const gw = new RoutedGateway({
+      pool,
+      dispatcher: { core: dispatchCore, model: model(), call: async () => ({ ok: true, structured: { duty: "code", level: 1 } }) }
+    });
+    await gw.start();
+    expect(checkedOut).toEqual(["operative"]);
+    expect(gw.classifier).toBeNull();
+  });
+
+  it("cancels and tears down a session whose spawn resolves after the bounded timeout", async () => {
+    let releaseSpawn!: (session: any) => void;
+    const lateSession = { id: "late-dispatch" };
+    const calls: string[] = [];
+    const adapter = {
+      spawn: () => new Promise((resolve) => { releaseSpawn = resolve; }),
+      awaitReady: async () => { calls.push("ready"); },
+      sendTurn: async () => { calls.push("send"); },
+      awaitResponse: async () => ({ text: "too late" }),
+      cancel: async (session: any) => { expect(session).toBe(lateSession); calls.push("cancel"); },
+      teardown: async (session: any) => { expect(session).toBe(lateSession); calls.push("teardown"); }
+    };
+    const invoke = makeAdapterCallInvoker(adapter, {}, { timeoutMs: 5 });
+    await expect(invoke({ prompt: "route", timeoutMs: 5 })).resolves.toMatchObject({ code: "timeout" });
+    releaseSpawn(lateSession);
+    for (let i = 0; i < 4 && !calls.includes("teardown"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(calls).toEqual(["cancel", "teardown"]);
+  });
+
+  it("keeps the inference deadline bounded even when adapter cleanup never settles", async () => {
+    const calls: string[] = [];
+    const never = new Promise(() => {});
+    const adapter = {
+      spawn: async () => ({ id: "wedged-dispatch" }),
+      awaitReady: async () => {},
+      sendTurn: async () => {},
+      awaitResponse: async () => never,
+      cancel: async () => { calls.push("cancel"); return never; },
+      teardown: async () => { calls.push("teardown"); return never; }
+    };
+    const invoke = makeAdapterCallInvoker(adapter, {}, { timeoutMs: 5 });
+    await expect(invoke({ prompt: "route", timeoutMs: 5 })).resolves.toMatchObject({ code: "timeout" });
+    expect(calls).toEqual(["cancel", "teardown"]);
+  });
+
   it("a gateway with no dispatcher wired has an inert dispatchRoute (classifier stays the default)", async () => {
     const gw = new RoutedGateway({ config: { taskTypes: [], tiers: [] } });
     expect(gw._dispatcher).toBeNull();
-    await expect(gw.dispatchRoute("anything")).rejects.toThrow(/no Dispatcher wired/);
+    await expect(gw.dispatchRoute("anything")).rejects.toThrow(/no Orchestrator routing inference wired/);
   });
 
   it("routes a message through the real dispatch-core when a dispatcher is wired, and logs digest-only evidence", async () => {

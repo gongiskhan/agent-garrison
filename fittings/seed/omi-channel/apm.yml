@@ -1,15 +1,16 @@
 name: omi-channel
 version: 0.1.0
-description: Bidirectional Omi wearable channel — webhook ingress, heartbeat triage into Kanban cards and memories, wake-word command pipe, outbound Omi notifications, ask_gary chat tool, and a backfeed into Omi memories.
+description: Bidirectional Omi wearable channel — webhook ingress, heartbeat triage into Kanban cards and memories, wake-word command pipe, outbound Omi notifications, ask_zeca chat tool, and a backfeed into Omi memories.
 target: claude
 type: hybrid
 includes: auto
 x-garrison:
   faculty: channels
+  category: Interfaces
   cardinality_hint: multi
   component_shape: script
   own_port: true
-  default_port: 7094
+  default_port: 8094
   platforms:
     - claude-code
   summary: Makes Omi (always-on wearable capture) Garrison's ears and one of its mouths while Garrison remains the only brain. Four pipes plus a backfeed, each behind its own default-off flag.
@@ -18,7 +19,7 @@ x-garrison:
     Watch, pendant). Inbound conversations and day summaries are triaged into
     Kanban cards and memories by the fitting's heartbeat, NOT by you; treat Omi
     structured data as input evidence only and never surface Omi-generated
-    prose as your own output. Wake-word commands ("Gary, ...") arrive as
+    prose as your own output. Wake-word commands arrive as
     regular turns on channel "omi". Short confirmations and tips are delivered
     to the user's devices via Omi direct notifications; message text is always
     generated on our side. Do not write tasks into Omi or any Omi-connected
@@ -26,7 +27,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7094
+      default: 8094
       description: Local port the Omi channel server binds to (base family; per-instance offset applied by the runner).
     - key: bind_host
       type: string
@@ -51,7 +52,7 @@ x-garrison:
     - key: chat_enabled
       type: boolean
       default: false
-      description: The ask_gary chat tool endpoint plus its manifest, so Omi's chat UI can answer with Garrison's orchestrator on a bounded fast path.
+      description: The ask_zeca chat tool endpoint plus its manifest, so Omi's chat UI can answer with Garrison's orchestrator on a bounded fast path.
     - key: backfeed_enabled
       type: boolean
       default: false
@@ -72,6 +73,33 @@ x-garrison:
       type: integer
       default: 20
       description: Maximum pending events consumed per triage tick; overflow carries to the next tick.
+    - key: wake_settled_close_ms
+      type: integer
+      default: 5000
+      description: >-
+        Shorter capture close used only when the last segment ends a sentence ('.', '?' or '!').
+        The full silence window must assume a mid-utterance gap; a punctuated ending says there is
+        no more coming. 0 = always wait the full window. Ignored unless shorter than it.
+    - key: classify_target
+      type: string
+      default: cc-haiku-low
+      description: >-
+        Routing target every classification call is pinned to (wake intent, wake revision, batch
+        triage). Unpinned these land on the composition's other/L1 duty cell - a full Sonnet turn
+        carrying the session's whole toolset, measured at 82s for one classification, while the
+        wearer waits. Empty = no pin.
+    - key: delegate_enabled
+      type: boolean
+      default: true
+      description: >-
+        Allow a spoken command or an Omi chat question to be handed to the full session (its
+        tools and connected services) when the fast lane cannot do it. The answer arrives as a
+        follow-up notification. Off = spoken requests are limited to cards, notes and card
+        commands, and chat can only answer from general knowledge.
+    - key: delegate_timeout_ms
+      type: integer
+      default: 600000
+      description: Wall-clock budget for one delegated session turn. Nobody is blocked on this; it is a work budget, not a response budget.
     - key: allowed_categories
       type: string
       default: ''
@@ -86,8 +114,13 @@ x-garrison:
       description: Drop conversations Omi marked discarded at the rule layer.
     - key: wake_variants
       type: string
-      default: 'gary,garry,gerry,géri'
-      description: Comma-separated wake-word spellings matched case-insensitively on word boundaries (Portuguese and English transcripts both occur).
+      default: 'zeca,zeka,zecca,zéca,ze ca'
+      description: >-
+        Comma-separated spellings of the agent's name (Zeca), matched case-insensitively on word boundaries; a
+        space inside a spelling also matches a hyphen, for transcripts that split the name. Portuguese and English
+        transcripts both occur. Position is not considered: the name ANYWHERE in a segment opens a capture window,
+        mid-sentence included. A value left over from the retired name (gary, garry, gerry, géri) is ignored in
+        favour of this default.
     - key: wake_silence_close_ms
       type: integer
       default: 4000

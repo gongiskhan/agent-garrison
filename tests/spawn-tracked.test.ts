@@ -115,7 +115,10 @@ describe("spawnTracked", () => {
     dirsToClean.push(result.logsDir);
     await new Promise<void>((resolve) => result.child.on("close", () => resolve()));
 
-    expect(garrisonLogsRoot()).toBe(path.join(os.homedir(), ".garrison", "logs"));
+    // The home comes from GARRISON_HOME (pinned to a temp dir for the whole
+    // suite so no test can reach the real one) and falls back to ~/.garrison.
+    const expectedHome = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+    expect(garrisonLogsRoot()).toBe(path.join(expectedHome, "logs"));
     expect(result.logsDir).toBe(logsDirForPid(result.child.pid!));
     expect(result.logsDir.startsWith(garrisonLogsRoot())).toBe(true);
   });

@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
-import { platformForRuntime } from "@/components/accounts/shared";
+import { runtimeAccountContract } from "@/components/accounts/shared";
 import styles from "./Muster.module.css";
 
 type ConfigValue = string | number | boolean;
@@ -583,6 +583,7 @@ function FittingBlock({
                   fittingId={fitting.id}
                   field={field}
                   value={fitting.config[field.key] ?? field.default ?? ""}
+                  provider={String(fitting.config.provider ?? "")}
                   onChange={(value) => onConfig(field, value)}
                 />
               ))}
@@ -640,12 +641,15 @@ function ConfigField({
   fittingId,
   field,
   value,
+  provider,
   onChange
 }: {
   faculty: string;
   fittingId: string;
   field: ConfigSchemaField;
   value: ConfigValue;
+  /** The sibling `provider` config value, for engines that front several endpoint families. */
+  provider?: string;
   onChange: (value: ConfigValue) => void;
 }) {
   const testId = `standing-config-${faculty}-${fittingId}-${field.key}`;
@@ -659,13 +663,30 @@ function ConfigField({
   // RUNTIME-ACCOUNTS-V1: the "account" key renders as the account selector +
   // guided login flow (registry-driven options; mirrors Compose ConfigInput).
   if (field.key === "account") {
+    const accountContract = runtimeAccountContract(fittingId, undefined, provider);
+    if (!accountContract) {
+      return (
+        <div className={styles.cfgField} data-testid={testId}>
+          {label}
+          <span className={styles.cfgHint}>
+            This provider is keyless or has no declared named-account mapping.
+          </span>
+          {String(value) ? (
+            <button type="button" className="btn small" onClick={() => onChange("")}>
+              Clear incompatible account “{String(value)}”
+            </button>
+          ) : null}
+          {field.description ? <span className={styles.cfgHint}>{field.description}</span> : null}
+        </div>
+      );
+    }
     return (
       <div className={styles.cfgField} data-testid={testId}>
         {label}
         <AccountField
           value={String(value)}
           onChange={(next) => onChange(next)}
-          platform={platformForRuntime(fittingId)}
+          contract={accountContract}
         />
         {field.description ? <span className={styles.cfgHint}>{field.description}</span> : null}
       </div>
@@ -1060,7 +1081,7 @@ export function RuntimesPanel({ compositionId }: { compositionId: string }) {
     <div className={styles.rtPanel} data-testid="runtimes-panel">
       <div className={styles.rtPanelHead}>
         <p className={styles.stageLead}>
-          The execution engine for this operative. The primary runtime runs the orchestrator loop;
+          The execution engine for this composition. The primary runtime runs the orchestrator loop;
           secondary runtimes are available as delegate targets via the uniform runtime bridge.
         </p>
         <div className={styles.rtPanelActions}>
@@ -1283,6 +1304,7 @@ function RuntimeCard({
                   fittingId={fitting.id}
                   field={field}
                   value={fitting.config[field.key] ?? field.default ?? ""}
+                  provider={String(fitting.config.provider ?? "")}
                   onChange={(value) => onConfig(field, value)}
                 />
               ))}

@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: connectors
+  category: Connections
   cardinality_hint: multi
   component_shape: cli
   ui:
@@ -33,7 +34,7 @@ x-garrison:
           - cc
           - attachments
         mutates: true
-        description: Send an email (optionally with attachments) via Gmail.
+        description: Send an email (optionally with attachments) via Gmail. Sends immediately — this connector has no cancel window, so the send is irreversible and needs the user's explicit go-ahead first.
       - name: gmail.list
         args:
           - query
@@ -98,6 +99,11 @@ x-garrison:
       node .../connector.mjs call gmail.list '{"query":"is:unread","max":8}'
         -> { messages: [{ from, subject, date, unread, snippet }] } — metadata only, never bodies.
       node .../connector.mjs call gmail.send '{"to":"a@b.com","subject":"Report","body":"see attached","attachments":[{"filename":"report.pdf","mime_type":"application/pdf","path":"/abs/report.pdf"}]}'
+        -> SENDS IMMEDIATELY and cannot be taken back. Unlike Slack and
+           WhatsApp, this connector has no cancel window (no long-lived process
+           to hold one), so an email is irreversible the moment you call it.
+           Confirm the recipient and the text with the user FIRST; never send
+           one on your own judgement and report it afterwards.
       node .../connector.mjs call drive.list '{"query":"name contains '\''Q3'\''"}'
       node .../connector.mjs call calendar.create_event '{"summary":"Sync","start":"2026-07-01T09:00:00Z","end":"2026-07-01T09:30:00Z"}'
 

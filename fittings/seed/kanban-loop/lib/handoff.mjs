@@ -126,6 +126,11 @@ export function composeHandoff(card, { root, cwd, at } = {}) {
 
   return {
     cardId: card.id,
+    // Bind the closeout to this exact lifecycle generation. A card may be
+    // reopened and completed again; downstream source capture must never pair
+    // the earlier handoff with the later Done edge merely because cardId is the
+    // same.
+    coordinationSeq: Number.isSafeInteger(card.coordinationSeq) ? card.coordinationSeq : 0,
     title: card.title ?? null,
     at: at ?? new Date().toISOString(),
     completionSummary,

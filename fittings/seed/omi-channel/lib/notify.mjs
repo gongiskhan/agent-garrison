@@ -16,6 +16,7 @@ import { atomicWriteJSON, readJSON } from "./store.mjs";
 import { toTailnetUrl } from "./tailnet-serve.mjs";
 
 const OMI_THREAD_ID = "omi-reports";
+const FITTING_STATUS_ID = "omi-channel";
 
 // ---- templates: every notification renders to ONE plain-text message ----
 export function renderTemplate(template, params = {}) {
@@ -41,8 +42,19 @@ export function renderTemplate(template, params = {}) {
   }
 }
 
+// Same guard as kanban-loop's fan-out discovery (2026-08-18): a process that
+// never named a GARRISON_HOME must not inherit the real one and reach a LIVE
+// fitting through it. The relay notifiers below POST to capture-service
+// /notify (an APNs push to the phone) and omi's push endpoint, so a test that
+// forgot to isolate its home would buzz the user for real. Naming a home
+// explicitly still exercises this path honestly.
+function underTestRunner(env) {
+  return Boolean(env.VITEST || env.VITEST_WORKER_ID) || env.NODE_ENV === "test";
+}
+
 function statusFileUrl(fittingId, env = process.env) {
   try {
+    if (!env.GARRISON_HOME?.trim() && underTestRunner(env)) return null;
     const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
     const doc = JSON.parse(readFileSync(path.join(home, "ui-fittings", `${fittingId}.json`), "utf8"));
     return typeof doc.url === "string" && doc.url.length ? doc.url : null;
@@ -97,15 +109,20 @@ export class Notifier {
   }
 
   // -> receipts [{ means, ok, target? , skipped?, error? }]
-  async send({ template, params = {} }) {
+  async send({ template, params = {}, suppressWebFallback = false }) {
     const message = renderTemplate(template, params);
     if (!message) return [{ means: "none", ok: false, skipped: "empty message" }];
 
     const receipts = [];
-    const omi = await this.sendOmi(message);
-    receipts.push(omi);
-    if (!omi.ok) {
+    // Both run: the push alerts, the chat copy is what the operator can actually
+    // read after tapping it. Concurrent because the wearer waits on the push and
+    // must not pay the chat call's latency for it.
+    const [omi, chat] = await Promise.all([this.sendOmi(message), this.sendOmiChat(message)]);
+    receipts.push(omi, chat);
+    if (!omi.ok && !suppressWebFallback) {
       receipts.push(await this.sendWebChannelFallback(message));
+    } else if (!omi.ok && suppressWebFallback) {
+      receipts.push({ means: "web-channel", ok: false, skipped: "fallback suppressed by caller (Web delivery is independent)" });
     }
     const line = receipts
       .map((r) => `${r.means}:${r.ok ? "ok" : (r.skipped ?? r.error ?? "failed")}`)
@@ -132,6 +149,36 @@ export class Notifier {
     }
     this.counters.bump("notify_failed");
     return { means, ok: false, error: `${result.error}${result.attempts > 1 ? ` (after ${result.attempts} attempts)` : ""}` };
+  }
+
+  // The READABLE copy. The push is a truncated line whose tap target is the Omi
+  // chat, so anything longer than that line used to be unreadable AND
+  // unrecoverable - the chat it opened did not contain the message. This puts the
+  // full text exactly where the tap lands.
+  //
+  // Runs ALONGSIDE the push, not instead of it and not as a fallback: the push is
+  // the buzz, this is the content. Its failure never degrades the push, because a
+  // delivered alert with no readable body is still better than neither.
+  async sendOmiChat(message) {
+    const means = "omi-chat";
+    if (!this.cfg.notifyEnabled) return { means, ok: false, skipped: "notify disabled" };
+    if (!this.cfg.chatDeliveryEnabled) return { means, ok: false, skipped: "chat delivery off" };
+    // The relay subclass carries no API client at all, and a caller may construct
+    // a Notifier without one. Crashing here would take out the push too, since
+    // both means are awaited together.
+    if (!this.omiApi) return { means, ok: false, skipped: "no Omi API client" };
+    if (!this.omiApi.chatConfigured()) {
+      return { means, ok: false, skipped: "OMI_APP_ID/OMI_IMPORT_API_KEY not sealed" };
+    }
+    const uid = this.store.pinnedUid();
+    if (!uid) return { means, ok: false, skipped: "no pinned uid yet" };
+    const result = await this.omiApi.sendChatMessage({ uid, message });
+    if (result.ok) {
+      this.counters.bump("chat_messages_sent");
+      return { means, ok: true, target: `omi chat ${uid.slice(0, 4)}...` };
+    }
+    this.counters.bump(result.status === 429 ? "chat_messages_rate_limited" : "chat_messages_failed");
+    return { means, ok: false, error: result.error };
   }
 
   // The degrade path: a message into the web-channel PWA thread (the
@@ -188,5 +235,102 @@ export class Notifier {
       rmSync(file, { force: true });
     }
     return receiptsAll;
+  }
+}
+
+// The scheduler-spawned triage process carries NO Omi secrets - baking them
+// into the job command would print them in scheduler-jobs.json and every ps
+// listing - so its Omi pushes ride through the server process, which holds
+// them. Only the Omi means is relayed (POST /internal/omi-push on this
+// fitting's own server); the web-channel degrade path stays local, so a tick
+// that finds the server down still lands its message somewhere.
+export class RelayNotifier extends Notifier {
+  // The relay holds no credentials by design, so it cannot post to the chat
+  // itself - and must not try. The server's /internal/omi-push sends BOTH the
+  // push and the chat copy, so a relayed message still lands readable; this
+  // receipt just says who did it.
+  async sendOmiChat() {
+    return { means: "omi-chat", ok: false, skipped: "sent by the server via /internal/omi-push" };
+  }
+
+  async sendOmi(message) {
+    const means = "omi-push";
+    // Deliberately does NOT check cfg.notifyEnabled. This runs in the scheduler's
+    // triage process, whose env carries only the triage flags - the notify flag
+    // was never projected there, so the local copy reads false no matter how the
+    // composition is configured. Gating on it made every triage-created card
+    // report "omi-push: notify disabled" and silently degrade to the web thread
+    // nobody reads, which is the exact failure the relay exists to fix. The
+    // SERVER holds the authoritative flag, the daily cap and the ledger, and its
+    // receipt is what comes back below.
+    const base = statusFileUrl(FITTING_STATUS_ID, this.env);
+    if (!base) return { means, ok: false, skipped: "omi-channel server not running" };
+    try {
+      const res = await this.fetchImpl(`${base}/internal/omi-push`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+        signal: AbortSignal.timeout(10_000)
+      });
+      const receipt = await res.json().catch(() => null);
+      if (!res.ok || typeof receipt !== "object" || receipt === null) {
+        return { means, ok: false, error: `relay HTTP ${res.status}` };
+      }
+      // The server's Notifier produced a full receipt (cap, ledger and
+      // counters were applied THERE, against the live config).
+      return receipt;
+    } catch (err) {
+      return { means, ok: false, error: `relay: ${err?.message ?? err}` };
+    }
+  }
+}
+
+// Relay for COMPANION-sourced triage results: hands the notification to the
+// capture-service's /notify (the fan-out contract shape), which holds the
+// APNs flag, per-day cap and device registry — same authoritative-server rule
+// as RelayNotifier.sendOmi above, different owning fitting. A 404 means the
+// sink milestone has not landed there yet; absent status file means the
+// fitting is not running. Both are honest skips, never errors.
+export class CompanionRelayNotifier {
+  constructor({ counters = null, env = process.env, fetchImpl = fetch } = {}) {
+    this.counters = counters;
+    this.env = env;
+    this.fetchImpl = fetchImpl;
+  }
+
+  cardUrl(cardId) {
+    return boardCardUrl(cardId, this.env);
+  }
+
+  async send({ template, params = {} }) {
+    const means = "companion-push";
+    const title = params.title ?? "";
+    const text = renderTemplate(template, params);
+    const base = statusFileUrl("capture-service", this.env);
+    if (!base) {
+      this.counters?.bump("companion_notify_skipped_down");
+      return [{ means, ok: false, skipped: "capture-service not running" }];
+    }
+    try {
+      const res = await this.fetchImpl(`${base}/notify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title, text, link: params.cardUrl ?? null, tag: template }),
+        signal: AbortSignal.timeout(8_000)
+      });
+      if (res.status === 404) {
+        this.counters?.bump("companion_notify_skipped_no_sink");
+        return [{ means, ok: false, skipped: "capture-service /notify not implemented" }];
+      }
+      const receipt = await res.json().catch(() => null);
+      if (!res.ok || typeof receipt !== "object" || receipt === null) {
+        this.counters?.bump("companion_notify_failed");
+        return [{ means, ok: false, error: `relay HTTP ${res.status}` }];
+      }
+      return Array.isArray(receipt) ? receipt : [receipt];
+    } catch (err) {
+      this.counters?.bump("companion_notify_failed");
+      return [{ means, ok: false, error: `relay: ${err?.message ?? err}` }];
+    }
   }
 }

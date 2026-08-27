@@ -1,0 +1,102 @@
+{
+  "webOrigin": "https://dev-madrid.tail31efa.ts.net:8483",
+  "appOrigin": "https://dev-madrid.tail31efa.ts.net",
+  "threads": [
+    "chat-mswzvw8u-hcxfas",
+    "chat-mswzw9sq-u90n5i",
+    "chat-mswzwi33-yv2ive",
+    "chat-mswzwknt-neazq5"
+  ],
+  "passed": 7,
+  "failed": 0,
+  "results": [
+    {
+      "name": "embedded surface mounts inside the app shell over a client-reachable url",
+      "ok": true,
+      "detail": {
+        "src": "https://dev-madrid.tail31efa.ts.net:8483",
+        "clientReachable": true,
+        "chatVisible": true,
+        "consoleErrors": []
+      }
+    },
+    {
+      "name": "desktop streamed turn completes and persists",
+      "ok": true,
+      "detail": {
+        "terminals": [
+          "completed"
+        ],
+        "workingVisible": true,
+        "reply": "desktop turn ok",
+        "consoleErrors": []
+      }
+    },
+    {
+      "name": "pending permission survives reload and is answerable after it",
+      "ok": true,
+      "detail": {
+        "survived": true,
+        "answerable": true,
+        "answered": true,
+        "terminals": [
+          "completed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "name": "history backfills after a real fitting restart and the session continues",
+      "ok": true,
+      "detail": {
+        "restartOk": true,
+        "healthy": true,
+        "messagesBefore": 4,
+        "messagesAfter": 6,
+        "eventsBefore": 14,
+        "eventsAfter": 21,
+        "sessionsBefore": 1,
+        "sessionsAfter": 1,
+        "recalled": "You asked me to reply with exactly the phrase \"desktop turn ok\".\n\n[route: cc-haiku | rule: other-1 | profile: personal]\n",
+        "recalledTheFirstAsk": true
+      }
+    },
+    {
+      "name": "a second tab on the same thread converges on the turn",
+      "ok": true,
+      "detail": {
+        "seen": true
+      }
+    },
+    {
+      "name": "a refused pin is reported in the rail, on screen, and the composer still works",
+      "ok": true,
+      "detail": {
+        "rejectedShown": true,
+        "geometry": {
+          "x": 309,
+          "right": 514,
+          "viewport": 1280,
+          "inViewport": true
+        },
+        "composerBack": true,
+        "terminals": []
+      }
+    },
+    {
+      "name": "phone viewport: composer reachable, turn completes, no horizontal overflow",
+      "ok": true,
+      "detail": {
+        "hittable": {
+          "send": "self",
+          "input": "self",
+          "notice": true
+        },
+        "overflow": 0,
+        "terminals": [
+          "completed"
+        ]
+      }
+    }
+  ]
+}

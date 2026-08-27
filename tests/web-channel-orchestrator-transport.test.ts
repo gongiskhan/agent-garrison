@@ -10,9 +10,23 @@
 // new `activity` frame become ChatEvents; and `interrupt()` is a real POST.
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import type { ChatEvent } from "@garrison/claude-chat";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import type { ChatEvent, SessionEvent } from "@garrison/claude-chat";
 import { createHttpTransport } from "@garrison/claude-chat";
+import { ChatTransportError } from "@garrison/claude-chat/transport";
 import { createOrchestratorTransport } from "../fittings/seed/web-channel-default/ui/orchestrator-transport";
+// @ts-ignore — dependency-free fitting JavaScript intentionally has no .d.ts.
+import { normalizeAgentSdkMessages } from "../fittings/seed/agent-sdk-runtime/lib/session-events.mjs";
+
+const SDK_FIXTURE = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./fixtures/agent-sdk-web-parity-events.json", import.meta.url)), "utf8")
+);
+
+function canonicalFixtureEvents(turnId: string) {
+  let now = 1_786_880_000_000;
+  return normalizeAgentSdkMessages(SDK_FIXTURE.messages, { turnId, now: () => now++ });
+}
 
 const QUESTIONS = [
   {
@@ -123,6 +137,105 @@ describe("orchestrator transport: AskUserQuestion", () => {
     const t = createOrchestratorTransport("/api");
     await t.answerQuestion!({ toolUseId: "toolu_9", dismiss: true });
     expect(calls[0].body).toMatchObject({ tool_use_id: "toolu_9", dismiss: true });
+  });
+
+  it("answerQuestion surfaces HTTP refusals and network failures", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ error: "question is no longer active" }), {
+      status: 409,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+    const refused = createOrchestratorTransport("/api", "thread-1");
+    await expect(refused.answerQuestion!({ toolUseId: "toolu_old", label: "A" }))
+      .rejects.toThrow("question is no longer active");
+
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError("network unavailable");
+    }) as unknown as typeof fetch;
+    const offline = createOrchestratorTransport("/api", "thread-1");
+    await expect(offline.answerQuestion!({ toolUseId: "toolu_live", label: "B" }))
+      .rejects.toThrow("network unavailable");
+  });
+});
+
+describe("orchestrator transport: durable permissions", () => {
+  it("posts the encoded thread/request path with only generationId and decision", async () => {
+    const calls: { url: string; body: any }[] = [];
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), body: JSON.parse(init.body) });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const transport = createOrchestratorTransport("/api", "thread / one");
+    await transport.answerPermission!({
+      requestId: "request / one",
+      generationId: "generation-1",
+      decision: "allow_always",
+    });
+
+    expect(calls).toEqual([{
+      url: "/api/threads/thread%20%2F%20one/permissions/request%20%2F%20one",
+      body: { generationId: "generation-1", decision: "allow_always" },
+    }]);
+  });
+
+  it("throws on an unavailable resolver and when no thread is bound", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 409 })) as unknown as typeof fetch;
+    const transport = createOrchestratorTransport("/api", "thread-1");
+    await expect(transport.answerPermission!({ requestId: "request-1", generationId: "generation-old", decision: "deny" }))
+      .rejects.toThrow("permission 409");
+
+    const threadless = createOrchestratorTransport("/api");
+    await expect(threadless.answerPermission!({ requestId: "request-1", generationId: "generation-1", decision: "deny" }))
+      .rejects.toThrow("thread is required");
+  });
+});
+
+describe("orchestrator transport: canonical session events", () => {
+  it("forwards the authentic two-tool fixture without selecting or reshaping payload fields", async () => {
+    const canonical = canonicalFixtureEvents("fixture-turn");
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      if (String(raw) === "/host-map") {
+        return new Response(JSON.stringify({ map: {} }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return sseResponse([
+        ...canonical.map((event: any) => `event: session_event\ndata: ${JSON.stringify(event)}\n\n`),
+        `event: done\ndata: ${JSON.stringify({ reply: "WEB_PARITY_FIXTURE" })}\n\n`,
+      ]);
+    }) as unknown as typeof fetch;
+
+    const create = await freshTransport();
+    const transport = create("/api", "thread-events");
+    const events: ChatEvent[] = [];
+    transport.connect((event) => events.push(event));
+    await transport.sendMessage("run fixture");
+
+    const sessionFrames = events.filter((event: any) => event.type === "session_event") as any[];
+    expect(sessionFrames.map((frame) => frame.event)).toEqual(canonical);
+    expect(sessionFrames.every((frame) => Object.keys(frame).sort().join(",") === "event,type")).toBe(true);
+    expect(sessionFrames.map((frame) => frame.event.id)).toEqual(canonical.map((event: any) => event.id));
+    expect(sessionFrames.every((frame) => frame.event.turnId === "fixture-turn")).toBe(true);
+  });
+
+  it("ignores malformed JSON and malformed session-event shapes", async () => {
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      if (String(raw) === "/host-map") {
+        return new Response(JSON.stringify({ map: {} }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return sseResponse([
+        "event: session_event\ndata: {not-json\n\n",
+        `event: session_event\ndata: ${JSON.stringify({ id: "missing-blocks", role: "assistant", ts: 1 })}\n\n`,
+        `event: done\ndata: ${JSON.stringify({ reply: "safe fallback" })}\n\n`,
+      ]);
+    }) as unknown as typeof fetch;
+
+    const create = await freshTransport();
+    const transport = create("/api", "thread-malformed-events");
+    const events: ChatEvent[] = [];
+    transport.connect((event) => events.push(event));
+    await transport.sendMessage("ignore corrupt activity");
+
+    expect(events.filter((event) => event.type === "session_event")).toEqual([]);
+    expect(events.find((event) => event.type === "assistant")).toMatchObject({ text: "safe fallback" });
   });
 });
 
@@ -289,6 +402,9 @@ describe("orchestrator transport: widened route frames (contract §1, §4)", () 
         duty: "execute",
         level: 3,
         phase: "review",
+        flow: "full-feature",
+        phasesOff: "review",
+        classifierSkipped: true,
         skill: null,
         via: "turn-override",
         account: "work",
@@ -314,6 +430,9 @@ describe("orchestrator transport: widened route frames (contract §1, §4)", () 
       duty: "execute",
       level: 3,
       phase: "review",
+      flow: "full-feature",
+      phasesOff: "review",
+      classifierSkipped: true,
       skill: null,
       via: "turn-override",
       account: "work",
@@ -398,6 +517,62 @@ describe("orchestrator transport: activity frames (contract §12)", () => {
   });
 });
 
+describe("orchestrator transport: terminal EOF", () => {
+  it("surfaces and settles an SSE body that closes without done or error", async () => {
+    recordingFetch([]);
+    const t = createOrchestratorTransport("/api", "thread-truncated");
+    const events: ChatEvent[] = [];
+    t.connect((event) => events.push(event));
+
+    await t.sendMessage("go");
+
+    expect(events.filter((event) => event.type === "error")).toEqual([
+      {
+        type: "error",
+        message: "The response stream ended without a completion event.",
+        failure: {
+          source: "transport",
+          kind: "protocol",
+          code: "stream_ended_without_terminal",
+          text: "The response stream ended without a completion event.",
+          retryable: true,
+        },
+      },
+    ]);
+    expect(events.filter((event) => event.type === "turn")).toEqual([
+      { type: "turn", active: false },
+    ]);
+  });
+
+  it("does not add a second EOF failure after the server's terminal error frame", async () => {
+    recordingFetch([
+      `event: error\ndata: ${JSON.stringify({ error: "the gateway stream ended without a done event" })}\n\n`,
+    ]);
+    const t = createOrchestratorTransport("/api", "thread-server-eof");
+    const events: ChatEvent[] = [];
+    t.connect((event) => events.push(event));
+
+    await t.sendMessage("go");
+
+    expect(events.filter((event) => event.type === "error")).toEqual([
+      {
+        type: "error",
+        message: "the gateway stream ended without a done event",
+        failure: {
+          source: "transport",
+          kind: "transport",
+          code: "stream_error",
+          text: "the gateway stream ended without a done event",
+          retryable: false,
+        },
+      },
+    ]);
+    expect(events.filter((event) => event.type === "turn")).toEqual([
+      { type: "turn", active: false },
+    ]);
+  });
+});
+
 describe("orchestrator transport: card links are made reachable for THIS client", () => {
   const cardFrames = (cardUrl: string) => [
     `event: done\ndata: ${JSON.stringify({ reply: "carded", card: "c-7", cardUrl })}\n\n`,
@@ -440,18 +615,535 @@ describe("orchestrator transport: card links are made reachable for THIS client"
   });
 });
 
-describe("orchestrator transport: interrupt (contract §9)", () => {
-  it("POSTs the thread id to /api/chat/interrupt", async () => {
-    const calls = recordingFetch([]);
-    const t = createOrchestratorTransport("/api", "thread-stop");
-    await t.interrupt();
-    expect(calls).toEqual([{ url: "/api/chat/interrupt", method: "POST", body: { thread: "thread-stop" } }]);
+describe("orchestrator transport: replay/follow a running thread", () => {
+  it("resumes exact pending inputs, preserves replace, and keeps generated coordinates", async () => {
+    const inputId = "input-resume";
+    const generationId = "generation-resume";
+    const replayEvent = canonicalFixtureEvents("77").find((event: any) =>
+      event.blocks.some((block: any) => block.type === "tool_use" && block.name === "Write")
+    );
+    const stamp = (value: Record<string, unknown>) => ({ ...value, inputId, generationId });
+    const frames = [
+      `id: 1\nevent: input\ndata: ${JSON.stringify({ clientRequestId: "client-resume", inputId, generationId, state: "running" })}\n\n`,
+      `id: 2\nevent: route\ndata: ${JSON.stringify(stamp({ runtime: "agent-sdk", session_id: "sess-live", turnSeq: 77, pending: true }))}\n\n`,
+      `id: 3\nevent: session_event\ndata: ${JSON.stringify(stamp({ ...replayEvent, turnId: inputId }))}\n\n`,
+      `id: 4\nevent: chunk\ndata: ${JSON.stringify(stamp({ text: "draft " }))}\n\n`,
+      `id: 5\nevent: chunk\ndata: ${JSON.stringify(stamp({ text: "clean", replace: true }))}\n\n`,
+      `id: 6\nevent: chunk\ndata: ${JSON.stringify(stamp({ text: " answer" }))}\n\n`,
+      `id: 7\nevent: done\ndata: ${JSON.stringify(stamp({ reply: "clean answer", runtime: "agent-sdk", session_id: "sess-live", turnSeq: 77 }))}\n\n`,
+      `id: 8\nevent: input\ndata: ${JSON.stringify({ clientRequestId: "client-resume", inputId, generationId, state: "settled" })}\n\n`,
+    ];
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const u = String(raw);
+      calls.push(u);
+      if (u === "/host-map") {
+        return new Response(JSON.stringify({ map: {} }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (u === "/api/threads/thread-resume/inputs") {
+        return new Response(JSON.stringify({ inputs: [{ clientRequestId: "client-resume", inputId, generationId, state: "running" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (u === `/api/threads/thread-resume/inputs/${inputId}/live`) return sseResponse(frames);
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const events: ChatEvent[] = [];
+    const states: boolean[] = [];
+    const settlements: Array<{ recovery: boolean }> = [];
+    let settled!: () => void;
+    const finished = new Promise<void>((resolve) => { settled = resolve; });
+    const transport = create("/api", "thread-resume", {
+      resumeOnConnect: true,
+      onResumeState: (active: boolean) => states.push(active),
+      onResumeSettled: (result) => {
+        settlements.push(result);
+        settled();
+      },
+    });
+    transport.connect((event) => events.push(event));
+    await finished;
+
+    expect(calls).toContain("/api/threads/thread-resume/inputs");
+    expect(calls).toContain(`/api/threads/thread-resume/inputs/${inputId}/live`);
+    expect(states).toEqual([true, false]);
+    // No canonical turn_end was painted (the replay contained only a tool row),
+    // so the host must remount from the durable server snapshot after legacy done.
+    expect(settlements).toEqual([{ recovery: true }]);
+    expect(events.filter((event) => event.type === "turn")).toEqual([]);
+    expect(events.filter((event) => event.type === "assistant").map((event: any) => event.text)).toEqual([
+      "draft ",
+      "clean",
+      "clean answer",
+      "clean answer",
+    ]);
+    // The old turnSeq remains diagnostic only; generated identity is exact.
+    expect(events.filter((event) => event.type === "route").map((event: any) => event.turnSeq)).toEqual([0, 0]);
+    expect(events.filter((event) => event.type === "route").every((event: any) => event.inputId === inputId && event.generationId === generationId)).toBe(true);
+    const restored = events.find((event: any) => event.type === "session_event") as any;
+    expect(restored.event).toEqual({ ...replayEvent, turnId: inputId, inputId, generationId });
+    expect(restored.event.blocks).toEqual(replayEvent.blocks);
   });
 
-  it("treats a refusal as done - Stop must never throw at the UI", async () => {
+  it("does not remount after a generated follower paints its canonical terminal", async () => {
+    const input = {
+      clientRequestId: "client-canonical-terminal",
+      inputId: "input-canonical-terminal",
+      generationId: "generation-canonical-terminal",
+      state: "running" as const,
+    };
+    const terminal = {
+      id: `terminal:${JSON.stringify([input.generationId])}`,
+      role: "assistant",
+      ts: Date.now(),
+      turnId: input.inputId,
+      generationId: input.generationId,
+      order: 2,
+      revision: 1,
+      blocks: [{
+        type: "turn_end",
+        status: "completed",
+        subtype: "success",
+        reason: null,
+        stopReason: null,
+        terminalReason: "completed",
+        result: "done",
+      }],
+    };
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      if (requestUrl.endsWith("/inputs")) {
+        return new Response(JSON.stringify({ inputs: [input] }), { status: 200 });
+      }
+      return sseResponse([
+        `event: session_event\ndata: ${JSON.stringify(terminal)}\n\n`,
+        `event: done\ndata: ${JSON.stringify({ ...input, reply: "done", terminalStatus: "completed" })}\n\n`,
+        `event: input\ndata: ${JSON.stringify({ ...input, state: "settled" })}\n\n`,
+      ]);
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const settlements: Array<{ recovery: boolean }> = [];
+    const transport = create("/api", "thread-canonical-terminal", {
+      resumeOnConnect: true,
+      onResumeSettled: (result) => { settlements.push(result); },
+    });
+    transport.connect(() => {});
+    await vi.waitFor(() => expect(settlements).toEqual([{ recovery: false }]));
+  });
+
+  it("reconciles a FIFO handoff before following an input absent from the mounted snapshot", async () => {
+    const input = {
+      clientRequestId: "client-handoff-b",
+      inputId: "input-handoff-b",
+      generationId: "generation-handoff-b",
+      state: "running" as const,
+    };
+    const requests: string[] = [];
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      requests.push(requestUrl);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      if (requestUrl.endsWith("/inputs")) {
+        // A settled and B was claimed after the parent snapshot (revision 10)
+        // but before this list request, so only B remains at revision 12.
+        return new Response(JSON.stringify({ inputs: [input], inputRevision: 12 }), { status: 200 });
+      }
+      throw new Error(`unexpected pre-reconciliation follow: ${requestUrl}`);
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const settlements: Array<{ recovery: boolean }> = [];
+    const states: boolean[] = [];
+    const transport = create("/api", "thread-handoff", {
+      resumeOnConnect: true,
+      initialInputRevision: 10,
+      initialInputIds: ["input-handoff-a"],
+      onResumeState: (active: boolean) => { states.push(active); },
+      onResumeSettled: (result) => { settlements.push(result); },
+    });
+    transport.connect(() => {});
+    await vi.waitFor(() => expect(settlements).toEqual([{ recovery: true }]));
+    expect(states).toEqual([true, false]);
+    expect(requests.filter((requestUrl) => requestUrl.includes("/inputs/") && requestUrl.endsWith("/live")))
+      .toEqual([]);
+  });
+
+  it("refreshes immediately when the input settles between thread hydration and resume", async () => {
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      if (String(raw) === "/host-map") {
+        return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ inputs: [], inputRevision: 2 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const states: boolean[] = [];
+    const settlements: Array<{ recovery: boolean }> = [];
+    const transport = create("/api", "thread-settled-race", {
+      resumeOnConnect: true,
+      onResumeState: (active: boolean) => states.push(active),
+      onResumeSettled: (result) => { settlements.push(result); },
+    });
+    transport.connect(() => {});
+    await vi.waitFor(() => expect(settlements).toEqual([{ recovery: true }]));
+    expect(states).toEqual([true, false]);
+  });
+
+  it("retries a non-OK resume response while connected and recovers on 500 to 200", async () => {
+    let inputAttempts = 0;
+    const settlements: Array<{ recovery: boolean }> = [];
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      inputAttempts += 1;
+      if (inputAttempts === 1) {
+        return new Response(JSON.stringify({ error: "temporarily unavailable" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ inputs: [], inputRevision: 4 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const transport = create("/api", "thread-resume-retry", {
+      resumeOnConnect: true,
+      onResumeSettled: (result) => { settlements.push(result); },
+    });
+    transport.connect(() => {});
+
+    await vi.waitFor(() => expect(inputAttempts).toBe(2), { timeout: 2_000 });
+    await vi.waitFor(() => expect(settlements).toHaveLength(2));
+    expect(settlements).toEqual([{ recovery: true }, { recovery: true }]);
+  });
+
+  it("retries a malformed resume payload instead of permanently latching resume", async () => {
+    let inputAttempts = 0;
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      inputAttempts += 1;
+      return new Response(JSON.stringify(inputAttempts === 1
+        ? { inputs: "not-an-array" }
+        : { inputs: [], inputRevision: 5 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const transport = create("/api", "thread-malformed-resume", { resumeOnConnect: true });
+    transport.connect(() => {});
+
+    await vi.waitFor(() => expect(inputAttempts).toBe(2), { timeout: 2_000 });
+  });
+
+  it("cancels a scheduled resume retry when that connection disconnects", async () => {
+    let inputAttempts = 0;
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      inputAttempts += 1;
+      return new Response(JSON.stringify({ error: "temporarily unavailable" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const transport = create("/api", "thread-disconnect-resume", { resumeOnConnect: true });
+    const disconnect = transport.connect(() => {});
+    await vi.waitFor(() => expect(inputAttempts).toBe(1));
+    disconnect();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(inputAttempts).toBe(1);
+  });
+
+  it("reconnects after a transient reader failure and deduplicates replayed SSE ids", async () => {
+    const enc = new TextEncoder();
+    let liveAttempts = 0;
+    const input = { clientRequestId: "client-network", inputId: "input-network", state: "running" as const };
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      if (requestUrl.endsWith("/inputs")) return new Response(JSON.stringify({ inputs: [input] }), { status: 200 });
+      liveAttempts += 1;
+      if (liveAttempts === 1) {
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(enc.encode('id: 1\nevent: chunk\ndata: {"text":"hello"}\n\n'));
+            controller.error(new Error("mobile network changed"));
+          },
+        }), { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return sseResponse([
+        'id: 1\nevent: chunk\ndata: {"text":"hello"}\n\n',
+        'id: 2\nevent: chunk\ndata: {"text":" world"}\n\n',
+        'id: 3\nevent: done\ndata: {"reply":"hello world"}\n\n',
+        `id: 4\nevent: input\ndata: ${JSON.stringify({ ...input, state: "settled" })}\n\n`,
+      ]);
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const events: ChatEvent[] = [];
+    const settlements: Array<{ recovery: boolean }> = [];
+    const transport = create("/api", "thread-network", {
+      resumeOnConnect: true,
+      onResumeSettled: (result) => { settlements.push(result); },
+    });
+    transport.connect((event) => events.push(event));
+    await vi.waitFor(() => expect(settlements).toEqual([{ recovery: true }]), { timeout: 3_000 });
+    expect(liveAttempts).toBe(2);
+    expect(events.filter((event) => event.type === "assistant").map((event: any) => event.text)).toEqual([
+      "hello",
+      "hello world",
+      "hello world",
+    ]);
+  });
+});
+
+describe("orchestrator transport: durable input admission", () => {
+  it("returns the host receipt and follows only that exact input stream", async () => {
+    const calls: { url: string; body: any }[] = [];
+    const receipt = {
+      clientRequestId: "client-admit",
+      inputId: "input-admit",
+      state: "queued" as const,
+      position: 1,
+    };
+    const live = [
+      `id: 1\nevent: input\ndata: ${JSON.stringify(receipt)}\n\n`,
+      `id: 2\nevent: input\ndata: ${JSON.stringify({ ...receipt, state: "running", generationId: "generation-admit" })}\n\n`,
+      `id: 3\nevent: chunk\ndata: ${JSON.stringify({ text: "exact answer", inputId: receipt.inputId, generationId: "generation-admit" })}\n\n`,
+      `id: 4\nevent: done\ndata: ${JSON.stringify({ reply: "exact answer", inputId: receipt.inputId, generationId: "generation-admit" })}\n\n`,
+      `id: 5\nevent: input\ndata: ${JSON.stringify({ ...receipt, state: "settled", generationId: "generation-admit" })}\n\n`,
+    ];
+    globalThis.fetch = vi.fn(async (raw: any, init: any) => {
+      const url = String(raw);
+      calls.push({ url, body: init?.body ? JSON.parse(init.body) : undefined });
+      if (url === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      if (url === "/api/threads/thread-admit/inputs" && init?.method === "POST") {
+        return new Response(JSON.stringify({ input: receipt, duplicate: false }), { status: 202 });
+      }
+      if (url === "/api/threads/thread-admit/inputs/input-admit/live") return sseResponse(live);
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const transport = createOrchestratorTransport("/api", "thread-admit");
+    const events: ChatEvent[] = [];
+    transport.connect((event) => events.push(event));
+    const admitted = await transport.sendMessage("queue this", {
+      clientRequestId: receipt.clientRequestId,
+      context: { must: "not cross the admission contract" },
+      autonomous: true,
+      routing: { target: "sonnet-plan" },
+    });
+    expect(admitted).toEqual(receipt);
+    await vi.waitFor(() => {
+      expect(events.some((event: any) => event.type === "input" && event.state === "settled")).toBe(true);
+    });
+    const admission = calls.find((call) => call.url === "/api/threads/thread-admit/inputs")!;
+    expect(admission.body).toMatchObject({
+      message: "queue this",
+      clientRequestId: "client-admit",
+      autonomous: true,
+      routing: { target: "sonnet-plan" },
+      turnSeq: 1,
+    });
+    expect(admission.body).not.toHaveProperty("context");
+    expect(calls.some((call) => call.url === "/api/chat")).toBe(false);
+    expect(events.find((event: any) => event.type === "assistant")).toMatchObject({
+      text: "exact answer",
+      inputId: "input-admit",
+      generationId: "generation-admit",
+    });
+  });
+
+  it("retries a commit-then-drop with the same clientRequestId and follows one logical admission", async () => {
+    const receipt = {
+      clientRequestId: "client-commit-drop",
+      inputId: "input-commit-drop",
+      state: "running" as const,
+      generationId: "generation-commit-drop",
+    };
+    const admissionBodies: Array<Record<string, unknown>> = [];
+    const committed = new Map<string, typeof receipt>();
+    let liveAttempts = 0;
+    globalThis.fetch = vi.fn(async (raw: any, init: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      if (requestUrl === "/api/threads/thread-commit-drop/inputs" && init?.method === "POST") {
+        const body = JSON.parse(init.body) as Record<string, unknown>;
+        admissionBodies.push(body);
+        const clientRequestId = String(body.clientRequestId);
+        if (!committed.has(clientRequestId)) {
+          committed.set(clientRequestId, receipt);
+          throw new TypeError("response lost after durable commit");
+        }
+        return new Response(JSON.stringify({ input: committed.get(clientRequestId), duplicate: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (requestUrl === "/api/threads/thread-commit-drop/inputs/input-commit-drop/live") {
+        liveAttempts += 1;
+        return sseResponse([
+          `id: 1\nevent: done\ndata: ${JSON.stringify({ ...receipt, reply: "one answer" })}\n\n`,
+          `id: 2\nevent: input\ndata: ${JSON.stringify({ ...receipt, state: "settled" })}\n\n`,
+        ]);
+      }
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const events: ChatEvent[] = [];
+    const transport = create("/api", "thread-commit-drop");
+    transport.connect((event) => events.push(event));
+
+    await expect(transport.sendMessage("run once", { clientRequestId: receipt.clientRequestId }))
+      .resolves.toEqual(receipt);
+    await vi.waitFor(() => expect(liveAttempts).toBe(1));
+
+    expect(admissionBodies).toHaveLength(2);
+    expect(admissionBodies[0]).toEqual(admissionBodies[1]);
+    expect(admissionBodies.map((body) => body.clientRequestId)).toEqual([
+      "client-commit-drop",
+      "client-commit-drop",
+    ]);
+    expect(committed.size).toBe(1);
+    expect(new Set(events.filter((event: any) => event.type === "input").map((event: any) => event.inputId)))
+      .toEqual(new Set(["input-commit-drop"]));
+  });
+
+  it("releases host busy state after rejected admission without starting a follower", async () => {
+    let admissionAttempts = 0;
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      if (String(raw) === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      admissionAttempts += 1;
+      return new Response(JSON.stringify({
+        error: "This conversation queue is full.",
+        failure: {
+          source: "web",
+          kind: "limit",
+          code: "web_input_queue_full",
+          text: "This conversation queue is full.",
+          retryable: true,
+          httpStatus: 429,
+        },
+      }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const states: boolean[] = [];
+    const transport = create("/api", "thread-rejected", { onResumeState: (active: boolean) => states.push(active) });
+    transport.connect(() => {});
+    const rejection = transport.sendMessage("too many", { clientRequestId: "client-rejected" });
+    await expect(rejection).rejects.toThrow("This conversation queue is full.");
+    await expect(rejection).rejects.toMatchObject({
+      failure: {
+        source: "web",
+        kind: "limit",
+        code: "web_input_queue_full",
+        retryable: true,
+        httpStatus: 429,
+      },
+    });
+    expect(admissionAttempts).toBe(1);
+    expect(states).toEqual([true, false]);
+  });
+
+  it("preserves a typed not-found failure when the thread disappears before admission", async () => {
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      if (String(raw) === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      return new Response(JSON.stringify({
+        error: "This conversation no longer exists.",
+        failure: {
+          source: "web",
+          kind: "not_found",
+          code: "web_thread_not_found",
+          text: "This conversation no longer exists.",
+          retryable: false,
+          httpStatus: 404,
+        },
+      }), { status: 404, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const transport = create("/api", "thread-deleted");
+    transport.connect(() => {});
+    const rejection = transport.sendMessage("race deletion", { clientRequestId: "client-deleted" });
+    await expect(rejection).rejects.toMatchObject({
+      failure: {
+        source: "web",
+        kind: "not_found",
+        code: "web_thread_not_found",
+        retryable: false,
+        httpStatus: 404,
+      },
+    });
+  });
+
+  it("aborts admission on disconnect and never starts an orphan follower", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (raw: any, init: any) => {
+      const requestUrl = String(raw);
+      calls.push(requestUrl);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      return await new Promise<Response>((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const states: boolean[] = [];
+    const transport = create("/api", "thread-switch", { onResumeState: (active: boolean) => states.push(active) });
+    const disconnect = transport.connect(() => {});
+    const admission = transport.sendMessage("leave now", { clientRequestId: "client-switch" });
+    await vi.waitFor(() => expect(states).toEqual([true]));
+    disconnect();
+    await expect(admission).rejects.toThrow(/aborted|disconnected/i);
+    expect(states).toEqual([true, false]);
+    expect(calls.some((requestUrl) => requestUrl.endsWith("/live"))).toBe(false);
+  });
+
+  it("aborts an admission retry backoff on disconnect", async () => {
+    let admissionAttempts = 0;
+    let observedAttempt!: () => void;
+    const attempted = new Promise<void>((resolve) => { observedAttempt = resolve; });
+    globalThis.fetch = vi.fn(async (raw: any) => {
+      const requestUrl = String(raw);
+      if (requestUrl === "/host-map") return new Response(JSON.stringify({ map: {} }), { status: 200 });
+      admissionAttempts += 1;
+      observedAttempt();
+      throw new TypeError("ambiguous network loss");
+    }) as unknown as typeof fetch;
+    const create = await freshTransport();
+    const transport = create("/api", "thread-disconnect-backoff");
+    const disconnect = transport.connect(() => {});
+    const admission = transport.sendMessage("do not retry elsewhere", { clientRequestId: "client-disconnect-backoff" });
+    await attempted;
+    disconnect();
+
+    await expect(admission).rejects.toThrow(/aborted|disconnected/i);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(admissionAttempts).toBe(1);
+  });
+});
+
+describe("orchestrator transport: interrupt (contract §9)", () => {
+  it("POSTs the exact generation to the thread-bound interrupt endpoint", async () => {
+    const calls = recordingFetch([]);
+    const t = createOrchestratorTransport("/api", "thread-stop");
+    await t.interrupt({ generationId: "generation-stop" });
+    expect(calls).toEqual([{ url: "/api/threads/thread-stop/interrupt", method: "POST", body: { generationId: "generation-stop" } }]);
+  });
+
+  it("surfaces a stale/refused stop so the exact turn can offer retry", async () => {
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ ok: false, error: "no-active-turn" }), { status: 404 })) as unknown as typeof fetch;
     const t = createOrchestratorTransport("/api", "thread-stop2");
-    await expect(t.interrupt()).resolves.toBeUndefined();
+    await expect(t.interrupt({ generationId: "generation-stale" })).rejects.toThrow("no-active-turn");
   });
 });
 
@@ -469,5 +1161,110 @@ describe("createHttpTransport (rich path): answerQuestion", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("/api/claude/answer");
     expect(calls[0].body).toMatchObject({ tool_use_id: "toolu_2", label: "B" });
+  });
+
+  it("throws a structured ChatTransportError for a typed HTTP admission failure", async () => {
+    const failure = {
+      source: "web" as const,
+      kind: "rate_limit" as const,
+      code: "QUEUE_RATE_LIMITED",
+      text: "The message could not enter the queue yet.",
+      retryable: true,
+      httpStatus: 429,
+      retryAt: 1_787_000_000,
+    };
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ failure }), {
+      status: 429,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+    const transport = createHttpTransport("/api");
+    await expect(transport.sendMessage("queued request")).rejects.toMatchObject({
+      name: "ChatTransportError",
+      message: failure.text,
+      failure,
+    });
+    await transport.sendMessage("queued request").catch((error) => {
+      expect(error).toBeInstanceOf(ChatTransportError);
+    });
+  });
+});
+
+describe("createHttpTransport (rich path): canonical session events", () => {
+  it("forwards an exact canonical EventSource payload and ignores malformed frames", () => {
+    const originalEventSource = globalThis.EventSource;
+    const sources: FakeEventSource[] = [];
+
+    class FakeEventSource {
+      static readonly CLOSED = 2;
+      readonly url: string;
+      readyState = 1;
+      onerror: ((event: Event) => void) | null = null;
+      private readonly listeners = new Map<string, Array<(event: MessageEvent) => void>>();
+
+      constructor(url: string | URL) {
+        this.url = String(url);
+        sources.push(this);
+      }
+
+      addEventListener(name: string, listener: (event: MessageEvent) => void) {
+        const current = this.listeners.get(name) ?? [];
+        current.push(listener);
+        this.listeners.set(name, current);
+      }
+
+      emit(name: string, data: string) {
+        for (const listener of this.listeners.get(name) ?? []) listener({ data } as MessageEvent);
+      }
+
+      close() {}
+    }
+
+    const canonical: SessionEvent = {
+      id: "http-session-event",
+      role: "assistant",
+      ts: 1_786_880_000_000,
+      turnId: "7",
+      sessionId: "session-http",
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: "exact payload" }],
+    };
+
+    try {
+      (globalThis as any).EventSource = FakeEventSource;
+      const transport = createHttpTransport("/api");
+      const events: ChatEvent[] = [];
+      const disconnect = transport.connect((event) => events.push(event));
+      expect(sources).toHaveLength(1);
+      expect(sources[0].url).toBe("/api/claude/stream");
+
+      sources[0].emit("session_event", JSON.stringify(canonical));
+      sources[0].emit("session_event", "{not-json");
+      sources[0].emit("session_event", JSON.stringify({ id: "missing-blocks", role: "assistant", ts: 1 }));
+      const failure = {
+        source: "transport",
+        kind: "protocol",
+        code: "STREAM_PROTOCOL_ERROR",
+        text: "The stream returned an invalid frame.",
+        retryable: false,
+      };
+      sources[0].emit("error", JSON.stringify({ failure, inputId: "input-7", generationId: "generation-7" }));
+      sources[0].emit("error", JSON.stringify({ failure: { ...failure, kind: "made_up" } }));
+
+      expect(events.filter((event) => event.type === "session_event")).toEqual([
+        { type: "session_event", event: canonical },
+      ]);
+      expect(Object.keys(events.find((event) => event.type === "session_event") ?? {}).sort()).toEqual(["event", "type"]);
+      expect(events.filter((event) => event.type === "error")).toEqual([{
+        type: "error",
+        failure,
+        inputId: "input-7",
+        generationId: "generation-7",
+      }]);
+      disconnect();
+    } finally {
+      if (originalEventSource === undefined) delete (globalThis as any).EventSource;
+      else globalThis.EventSource = originalEventSource;
+    }
   });
 });

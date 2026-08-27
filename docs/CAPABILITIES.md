@@ -11,30 +11,25 @@ The set grew across phases, then **shrank with the 2026-06-07 Quarters pivot**
 Operative folded into the user's real Claude Code, so the spawn-machinery kinds
 were retired and Skills/automations became Quarters platform primitives rather
 than capabilities. The current full list, as enforced by `src/lib/metadata.ts`
-via the `capabilityKinds` array in `src/lib/types.ts` (**17 kinds**):
-`orchestrator`, `modes`, `identity`, `memory-store`, `automation-runner`,
+via the `capabilityKinds` array in `src/lib/types.ts` (**16 kinds**):
+`orchestrator`, `identity`, `memory-store`, `automation-runner`,
 `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`,
 `screen-share`, `outpost`, `monitor`, `voice`, `duty`, `view`.
-
-> **`modes` is SUPERSEDED (2026-07-13, MARATHON-V3 D7) by `identity`.** The
-> kind is still in the array so old manifests parse, but **no seed Fitting
-> provides it** — the persona Fitting is `identity-gary`, and per-duty
-> behaviour is carried by the `duty` kind. Treat the `## modes` section below
-> as history; read `## identity` and `## duty` for the live model.
 
 Dropped kinds, kept below under *Dropped kinds (historical)* for readers
 tracing old manifests (the resolver rejects them today):
 
 - Dropped in the Quarters pivot (2026-06-07): `soul`, `agent-skill`
-  (`mcp-gateway` was dropped alongside them and re-added 2026-07-10 for
-  soul-mode `talk_to` - the modes Fitting cannot express its dependency
-  without it; same precedent as `automation-runner`).
+  (`mcp-gateway` was dropped alongside them and later re-added for the
+  Garrison control tool sidecar; same precedent as `automation-runner`).
 - Dropped in the Dev Env consolidation (2026-06-11): `terminal-session`, `worktree`, `session-view`; their three Fittings collapsed into the single `dev-env` Fitting/kind (Workspaces was deleted outright).
 - `data-source` (dropped in the pivot, revived 2026-06-10 for
   trello-data-source, dropped again 2026-06-26): superseded by `connector`,
   which is strictly more general; Trello moved to the `trello` connector.
 - `artifact-store`: retired with the artifact-store Faculty; the file-browser
   Fitting is the artifact surface today (canonical root `~/.garrison/files`).
+- `modes`: retired when editable Identity moved into Orchestrator. Legacy
+  selections are removed by composition migration.
 
 `automation-runner` was likewise dropped in the pivot and re-added 2026-06-13
 (MR wave): the scheduler Fitting and the nightly Improver both need it, and its
@@ -104,21 +99,6 @@ exactly one orchestrator per composition.
   projected to `~/.claude/rules/garrison-orchestrator.md` (with
   `--append-system-prompt` as the higher-authority launch fallback), not a
   separately-spawned agent.
-
-## modes
-
-The operative's identity/persona layer (added 2026-06-22): the souls
-(Gary/Joe/James), the shared voice, the per-mode routing bias, and name-based
-mode switching, composed into the orchestrator's system prompt. One operative,
-three faces, one shared memory.
-
-- **Cardinality:** singleton (listed in `singletonCapabilityKinds`).
-- **Typically provides:** the `modes` Fitting (the `modes` faculty).
-- **Typically consumes:** nothing; the orchestrator consumes it at
-  `optional-one`.
-- **Interface (TBD — runtime SDK milestone):** the runner folds the active
-  mode's soul prompt into the assembled system prompt; mode switching is
-  name-based in the message text.
 
 ## memory-store
 
@@ -192,20 +172,14 @@ A Fitting that hosts the agent loop and exposes a uniform
 
 ## mcp-gateway
 
-A stdio MCP sidecar the primary gateway spawns per soul session, exposing
-the `garrison-control` tool set (`talk_to` and friends) that orchestrator/soul
-mode (Gary/Joe/James) requires.
+A stdio MCP sidecar the primary gateway may spawn, exposing the
+`garrison-control` tool set used by routed sessions and board integrations.
 
-> Re-added 2026-07-10: dropped in the 2026-06-07 pivot, restored when the
-> S2 brain merge made soul mode mainline and the modes Fitting could not
-> express its hard dependency without the kind (the `automation-runner`
-> precedent). It is a sidecar, never the primary gateway -
+> Re-added 2026-07-10 after the pivot. It is a sidecar, never the primary gateway -
 > `resolveGatewayFitting` skips it when picking the gateway that fronts
 > the operative.
 
-- **Cardinality:** `optional-one`; the modes Fitting consumes it softly, so
-  compositions without soul mode still compose (they run normal gateway mode
-  with a runtime downgrade warning).
+- **Cardinality:** `optional-one`; compositions without it still compose.
 - **Typically provides:** the mcp-gateway Fitting under the `gateway` faculty.
 - **Typically consumes:** `orchestrator` (`optional-one`).
 - **Interface:** spawned as a stdio MCP child via the shared
@@ -305,13 +279,11 @@ replies to audio. Singleton; the deepgram-voice Fitting provides it today
 
 ## identity
 
-The persona + tone layer of the operative's system prompt (MARATHON-V3 D7),
-provided by the single Identity Fitting (default persona: Gary). Replaces the
-retired `modes` kind as the live persona slot — "Hey Gary" addresses the
-operative, full stop. A composition-readiness rule (D10) requires one. The
-former per-mode routing bias / pin / sticky-switching / CRUD machinery is gone;
-register that belonged to specific work (the James/Joe faces) is mined into the
-relevant duty skills instead.
+The persona + tone layer of the operative's system prompt. It is provided by
+Orchestrator, not by a selectable persona Fitting. The editable Identity section
+owns Zeca and is assembled exactly once; edits invalidate warm sessions so the
+next turn receives them. The former per-mode routing bias, pinning, sticky
+switching, and named work faces are gone; work register belongs to duties.
 
 ## duty
 
@@ -346,13 +318,18 @@ capabilities block.
 The following kinds were retired (dates above). They are kept here only to help
 read old manifests; `src/lib/metadata.ts` rejects them today.
 
+## modes
+
+The Zeca/Joe/James soul engine, sticky mode switching, and per-mode routing
+bias are retired. The kind and Faculty are no longer accepted by the live
+metadata vocabulary; composition migration removes legacy selections.
+
 ## soul
 
-The persona prompt that gives the Operative its identity, voice,
-tone, and boundaries. The Orchestrator concatenates the Soul prompt
-with its own at assembly time so the Operative reads as one coherent
-character. Superseded by the `modes` kind (the souls live inside the
-modes Fitting today).
+The persona prompt once gave the Operative its identity, voice, tone, and
+boundaries and was concatenated during prompt assembly. It was superseded by
+`modes`; both mechanisms are now retired in favor of Orchestrator's authored
+Identity section.
 
 - **Cardinality:** singleton (the resolver enforces only one Soul
   per composition).

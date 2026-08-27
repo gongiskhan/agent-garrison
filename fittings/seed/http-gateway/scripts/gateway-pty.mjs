@@ -5,13 +5,15 @@
  * The operative is a single, persistent INTERACTIVE `claude` TUI driven via
  * @garrison/claude-pty (node-pty + @xterm/headless). This replaces the
  * in-process Agent SDK (gateway-legacy.mjs). Real Claude Code: slash
- * commands, skills, hooks, status line, modes — all available.
+ * commands, skills, hooks, and status line — all available.
  *
  * Endpoint surface is byte-compatible with gateway-legacy.mjs so the
  * web-channel and slack-channel relays work unchanged:
  *   POST /chat          { message }            → { reply, session_id, cost_usd }
- *   POST /chat/stream    { message }           → SSE open/chunk/tool/done/error
- *   POST /jobs           { kind, ... }         → { ack: true }
+ *   POST /chat/stream    { message }           → SSE open/session_event/chunk/tool/done/error
+ *   POST /chat/interrupt { threadId, generationId } | { sessionId?, cardId? }
+ *   POST /chat/permission { threadId, generationId, requestId, decision } → one live SDK resolver
+ *   POST /jobs           { kind, ... }         → { ack, deduped } or retryable 503
  *   POST /attachments    { filename, content_base64 } → { path, bytes }
  *   GET  /health                               → { ok, session_id, uptime_ms, engine, pty_status }
  *
@@ -24,8 +26,11 @@
  */
 
 import http from "node:http";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import { realpathSync, statSync } from "node:fs";
+import { realpathSync, statSync, readFileSync as readFileSyncFs, writeFileSync as writeFileSyncFs, mkdirSync as mkdirSyncFs } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -47,23 +52,72 @@ import {
   createRoutedGateway,
   resolveModelRouterDir,
   shouldUseEphemeralSession,
-  anthropicAccountEnv,
   listVaultAccounts,
-  resolveVaultAccount,
-  TURN_EFFORTS
+  autonomyHoldPlan,
+  heldCardRoute,
+  TURN_EFFORTS,
+  normalizeFailureInfo
 } from "./lib/gateway-routing.mjs";
-import { listProjectNames } from "./lib/project-source.mjs";
+import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
+import { SessionLog, runLog } from "@garrison/claude-pty";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
-import { isEmptyQuickReply, quickEmptyFailureReason, moveCardEngine } from "./lib/autonomous-cards.mjs";
+import {
+  isCardOriginatedChannel,
+  isEmptyQuickReply,
+  quickEmptyFailureReason,
+  moveCardEngine
+} from "./lib/autonomous-cards.mjs";
 import { resolveDiscussInterception } from "./lib/discuss-intercept.mjs";
 import { detectOverride, buildOverrideRecord, appendFeedback } from "./lib/feedback-queue.mjs";
 import { createAskQuestionWatcher, answerKeySequence, resolveOptionIndex } from "./lib/ask-question.mjs";
+import {
+  createJobIngressGuard,
+  forwardClaimWithRetry,
+  isPendingJobClaim,
+  jobDescription,
+  prepareClaimForAcknowledgement
+} from "./lib/job-ingress.mjs";
+import {
+  announceSession,
+  touchSession,
+  openGeneration as announceGenerationOpen,
+  closeGeneration as announceGenerationClose,
+  endSession
+} from "./lib/session-registry.mjs";
 
 const HOST = process.env.GARRISON_GATEWAY_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.GARRISON_GATEWAY_PORT ?? "4777");
 const SYSTEM_PROMPT_PATH = process.env.GARRISON_SYSTEM_PROMPT_PATH ?? "";
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 const COMPOSITION_ID = process.env.AGENT_GARRISON_COMPOSITION ?? path.basename(COMPOSITION_DIR);
+
+// ── Session log run identity (Harness brief §1) ─────────────────────────────
+// One append-only JSONL per Operative run; this process (and the in-process
+// runtime adapters, via the shared @garrison/claude-pty module instance) is the
+// single writer. The env var is how the adapters find the run.
+const SESSION_LOG_RUN = `${COMPOSITION_ID}@${new Date().toISOString().replace(/:/g, "-")}`;
+process.env.GARRISON_SESSION_LOG_RUN = SESSION_LOG_RUN;
+
+// ── Local-API token (Harness brief §7) ──────────────────────────────────────
+// Minted once per Garrison home, 0600. Server-to-server loopback callers may
+// send it as x-garrison-token; its real job is that BROWSER pages cannot read
+// it, so a browser-origin request without it is refused below.
+const GATEWAY_TOKEN = (() => {
+  try {
+    const home = process.env.GARRISON_HOME?.trim() || path.join(homedir(), ".garrison");
+    const file = path.join(home, "gateway-token");
+    try {
+      const existing = String(readFileSyncFs(file, "utf8")).trim();
+      if (existing) return existing;
+    } catch { /* mint below */ }
+    const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+    mkdirSyncFs(home, { recursive: true });
+    writeFileSyncFs(file, token + "\n", { mode: 0o600 });
+    return token;
+  } catch {
+    return randomUUID();
+  }
+})();
 const PERMISSION_MODE = process.env.GARRISON_PERMISSION_MODE ?? "bypassPermissions";
 const MODEL = process.env.GARRISON_MODEL ?? "opus";
 const CLAUDE_BINARY = process.env.GARRISON_CLAUDE_BINARY ?? "claude";
@@ -87,11 +141,188 @@ const SESSION_ID_FILE = path.join(COMPOSITION_DIR, ".garrison", "operative-sessi
 
 // ─────────────────────────────────────────────────────── module state
 let session = null;
-let lastMaterialized = null; // S3b: last web materialized turn (introspection evidence)
+// Backwards-compatible status field for the disposable Web Claude lane. M7
+// removed prompt materialization, so every new record reports assembledChars:0.
+let lastMaterialized = null;
 let ptyStatus = "spawning"; // spawning | ready | failed
 let ptyError = null;
-let inflight = null; // promise chain — turns serialize
-let router = null; // Stage-A live routing layer (BRIEF U1), null = legacy single-session
+// 2026-08-07: the PTY-era GLOBAL turn chain is gone. Turns now serialize per
+// execution lane: warm SDK sessions and cwd-keyed delegates queue inside
+// RoutedGateway (_onLane), exec secondaries and disposable one-shots are
+// independent by construction, and only work that touches the STANDING
+// operative session waits here. Three run-killing starvations in one week
+// (gemini flood, curation backlog, one 5-minute chat turn) all came from the
+// global chain making every lane wait on every other lane's turn.
+let operativeChain = null; // promise chain — STANDING-operative work only
+function enqueueOperative(fn) {
+  const previous = operativeChain ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(() => fn());
+  operativeChain = next.catch(() => {});
+  return next;
+}
+let router = null; // pre-session routing layer, null = legacy single-session
+const jobIngress = createJobIngressGuard();
+
+// Web Agent SDK permission control is deliberately process-local. Durable
+// permission_request events survive a restart in the thread journal, but their
+// resolver closures cannot; answering one of those restored prompts must return
+// 409 instead of pretending a decision reached a dead query.
+const PERMISSION_DECISIONS = new Set(["allow_once", "allow_always", "deny"]);
+
+function permissionControlError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function abortedPermissionError(reason = "permission request is no longer active") {
+  const error = permissionControlError(reason, "permission_request_aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function exactPermissionId(raw, max = 512) {
+  if (typeof raw !== "string" || !raw || raw !== raw.trim() || raw.length > max) return null;
+  return raw;
+}
+
+// Admission ids are generated by the trusted Web store and later used as an
+// exact recovery coordinate. Reject controls and truncation instead of allowing
+// two wire values to normalize onto one claimed generation.
+export function exactDurableInputId(raw) {
+  if (typeof raw !== "string" || !raw || raw !== raw.trim() || raw.length > 512) return null;
+  return /[\u0000-\u001f\u007f]/.test(raw) ? null : raw;
+}
+
+/**
+ * In-memory, generation-safe bridge from an HTTP decision to the exact SDK
+ * canUseTool callback waiting for it. The factory is exported for focused tests;
+ * production uses the singleton below.
+ */
+export function createPermissionControlPlane({ generateId = randomUUID } = {}) {
+  const generations = new Map();
+
+  const openGeneration = (threadId) => {
+    const thread = exactPermissionId(threadId);
+    if (!thread) throw permissionControlError("threadId is required", "invalid_permission_thread");
+    const generationId = exactPermissionId(generateId());
+    if (!generationId || generations.has(generationId)) {
+      throw permissionControlError("could not create a unique permission generation", "invalid_permission_generation");
+    }
+    generations.set(generationId, { threadId: thread, pending: new Map() });
+    return generationId;
+  };
+
+  const awaitDecision = (threadId, generationId, publicRequest, { signal } = {}) => {
+    const thread = exactPermissionId(threadId);
+    const generation = exactPermissionId(generationId);
+    const requestId = exactPermissionId(publicRequest?.requestId);
+    const requestGeneration = exactPermissionId(publicRequest?.generationId);
+    const scope = generation ? generations.get(generation) : null;
+    if (
+      !thread ||
+      !generation ||
+      !requestId ||
+      requestGeneration !== generation ||
+      !scope ||
+      scope.threadId !== thread
+    ) {
+      return Promise.reject(permissionControlError("permission generation is unavailable", "permission_generation_unavailable"));
+    }
+    if (scope.pending.has(requestId)) {
+      return Promise.reject(permissionControlError("permission request is already pending", "permission_request_conflict"));
+    }
+
+    return new Promise((resolve, reject) => {
+      const entry = {
+        resolve,
+        reject,
+        inputComplete: publicRequest?.inputComplete === true,
+        allowAlways:
+          publicRequest?.inputComplete === true &&
+          publicRequest?.suggestionsComplete === true &&
+          Array.isArray(publicRequest?.suggestions) &&
+          publicRequest.suggestions.length > 0,
+        detachAbort: null,
+      };
+      const removeExact = () => {
+        if (scope.pending.get(requestId) !== entry) return false;
+        scope.pending.delete(requestId);
+        entry.detachAbort?.();
+        return true;
+      };
+      const abort = () => {
+        if (removeExact()) reject(abortedPermissionError());
+      };
+      if (signal?.aborted) {
+        reject(abortedPermissionError());
+        return;
+      }
+      if (signal && typeof signal.addEventListener === "function") {
+        signal.addEventListener("abort", abort, { once: true });
+        entry.detachAbort = () => signal.removeEventListener?.("abort", abort);
+      }
+      scope.pending.set(requestId, entry);
+    });
+  };
+
+  const decide = (raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { status: 400, body: { error: "permission decision body must be an object" } };
+    }
+    const keys = Object.keys(raw).sort();
+    if (
+      keys.length !== 4 ||
+      keys[0] !== "decision" ||
+      keys[1] !== "generationId" ||
+      keys[2] !== "requestId" ||
+      keys[3] !== "threadId"
+    ) {
+      return { status: 400, body: { error: "only threadId, generationId, requestId, and decision are accepted" } };
+    }
+    const threadId = exactPermissionId(raw.threadId);
+    const generationId = exactPermissionId(raw.generationId);
+    const requestId = exactPermissionId(raw.requestId);
+    const decision = typeof raw.decision === "string" && PERMISSION_DECISIONS.has(raw.decision) ? raw.decision : null;
+    if (!threadId || !generationId || !requestId || !decision) {
+      return { status: 400, body: { error: "threadId, generationId, requestId, and a valid decision are required" } };
+    }
+    const scope = generations.get(generationId);
+    const entry = scope?.threadId === threadId ? scope.pending.get(requestId) : null;
+    if (!entry) {
+      return { status: 409, body: { error: "permission request is unavailable", code: "permission_request_unavailable" } };
+    }
+    if (decision === "allow_once" && !entry.inputComplete) {
+      return { status: 422, body: { error: "allow once requires complete tool input", code: "permission_input_incomplete" } };
+    }
+    if (decision === "allow_always" && !entry.allowAlways) {
+      return { status: 422, body: { error: "always allow is not available for this request", code: "allow_always_unavailable" } };
+    }
+
+    // Consume before resolving: two concurrent HTTP answers can never both win.
+    scope.pending.delete(requestId);
+    entry.detachAbort?.();
+    entry.resolve(decision);
+    return { status: 200, body: { ok: true, decision } };
+  };
+
+  const closeGeneration = (generationId, reason = "permission generation closed") => {
+    const generation = exactPermissionId(generationId);
+    const scope = generation ? generations.get(generation) : null;
+    if (!scope) return false;
+    generations.delete(generation);
+    for (const entry of scope.pending.values()) {
+      entry.detachAbort?.();
+      entry.reject(abortedPermissionError(reason));
+    }
+    scope.pending.clear();
+    return true;
+  };
+
+  return { openGeneration, awaitDecision, decide, closeGeneration };
+}
+
+const permissionControl = createPermissionControlPlane();
 let readyResolve;
 const readyPromise = new Promise((resolve) => {
   readyResolve = resolve;
@@ -129,6 +360,39 @@ function runtimeSessionAlive(sess = activeRuntimeSession()) {
   } catch {
     return false;
   }
+}
+
+// Runtime-neutral journal identity for any Claude-shaped session. PTY Claude
+// versions do not always create the file, but when a session id exists the
+// location is still deterministic and safe to advertise: the transcript SSE
+// endpoint performs its own existence/confinement checks. Other runtimes report
+// their identity directly through opts.onJournal instead of being forced into
+// this Claude path convention.
+function sessionJournalIdentity(sess, cwd = sess?.compositionDir ?? CANONICAL_COMPOSITION_DIR) {
+  const sessionId = runtimeSessionId(sess);
+  if (!sessionId) return null;
+  let canonical = cwd;
+  try {
+    canonical = realpathSync(cwd);
+  } catch {
+    // A disposable cwd may have gone away after spawn; use the launch value.
+  }
+  return {
+    session_id: sessionId,
+    transcript_path: path.join(claudeProjectDirForCwd(canonical), `${sessionId}.jsonl`)
+  };
+}
+
+function reportJournal(opts, identity, questionSession = null) {
+  if (!identity?.session_id) return identity;
+  bindQuestionJournal(identity, questionSession);
+  if (typeof opts?.onJournal !== "function") return identity;
+  try {
+    opts.onJournal(identity);
+  } catch {
+    /* observability must never break the turn */
+  }
+  return identity;
 }
 
 function richPtyAvailable(sess = activeRuntimeSession()) {
@@ -347,6 +611,12 @@ function focusContextFromHints(hints) {
 async function maybeCompactAtTurnBoundary(hints, result) {
   const sess = operativeSessionForTelemetry();
   if (!sess || !sess.isAlive?.()) return;
+  // Routed mode has many non-operative success shapes (cards, steering,
+  // delegates, one-shots, SDK and secondary lanes). Missing runtime metadata is
+  // not proof that the shared operative accumulated context. Only the standing
+  // branch marks that fact explicitly; router-null legacy mode keeps its former
+  // single-session default below.
+  if (router && result?.standingOperative !== true) return;
   // S3b: a web materialized turn ran one-shot on a disposable claude — it did NOT
   // accumulate context on the standing operative, so the compact controller must not
   // fire for it (the controller applies to real working sessions / duty dispatches).
@@ -393,37 +663,124 @@ function contextTelemetry() {
 // JSONL, emits ONE `tool` SSE event per tool_use id (buttons on the client), and
 // the answer POST drives the picker via keySequence. See lib/ask-question.mjs.
 const pendingQuestions = new Map(); // tool_use_id -> { questions, at, cardId } (for label->index + binding)
-const toolListeners = new Set(); // fn(payload) - sinks for the CURRENT /chat/stream turn
 let askWatcher = null;
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// S3d review R1: the cardId of the turn currently holding the operative session (parsed
-// from the engine's dutyKey "cardId:phase"). broadcastTool STAMPS it onto each pending
-// question so the HTTP-seam reply-as-answer can bind an answer to THIS card's live
-// discuss picker - never a stale entry from another card. Null for a non-dispatch turn
-// (web one-shot / plain chat), so those questions stay UNBOUND (conservative routing).
-let currentTurnCardId = null;
+/**
+ * Route watcher-originated AskUserQuestion payloads by their transcript, the
+ * durable coordinate the watcher actually observed. Multiple runtime lanes can
+ * finish in any order, so release is identity-checked: A finishing after B has
+ * claimed a reused transcript can never erase B's ownership.
+ */
+export function createQuestionTurnRegistry({
+  pending = new Map(),
+  broadcastRichFn = () => {},
+  nowFn = Date.now,
+} = {}) {
+  const ownersByTranscript = new Map();
+  const transcriptsByOwner = new WeakMap();
+  const transcriptKey = (value) =>
+    typeof value === "string" && value.trim() ? path.resolve(value) : null;
 
-// S3d review R1: drop pending questions bound to a turn that ENDED (answered elsewhere,
-// timed out, or parked) so a stale entry can never hijack a later thread's reply.
-function sweepPendingQuestions(cardId) {
-  if (!cardId) return;
-  for (const [id, entry] of pendingQuestions) {
-    if (entry?.cardId === cardId) pendingQuestions.delete(id);
-  }
-}
-
-function broadcastTool(payload) {
-  if (payload?.tool_use_id) pendingQuestions.set(payload.tool_use_id, { questions: payload.questions, at: Date.now(), cardId: currentTurnCardId });
-  broadcastRich("tool", payload); // rich /claude/stream observers
-  for (const fn of toolListeners) {
-    try {
-      fn(payload);
-    } catch {
-      /* listener gone */
+  const bind = (owner, identity, { actuator = null } = {}) => {
+    const transcript = transcriptKey(identity?.transcript_path);
+    if (!owner || typeof owner !== "object" || !transcript) return false;
+    const previous = ownersByTranscript.get(transcript);
+    ownersByTranscript.set(transcript, {
+      owner,
+      // reportJournal may bind once with the concrete PTY session and its
+      // observer may immediately bind the same identity again. Preserve the
+      // exact actuator across that additive observability callback.
+      actuator: actuator ?? (previous?.owner === owner ? previous.actuator ?? null : null),
+    });
+    let owned = transcriptsByOwner.get(owner);
+    if (!owned) {
+      owned = new Set();
+      transcriptsByOwner.set(owner, owned);
     }
-  }
+    owned.add(transcript);
+    return true;
+  };
+
+  const lookup = (source = {}) => {
+    const transcript = transcriptKey(source?.transcriptPath);
+    return transcript ? ownersByTranscript.get(transcript) ?? null : null;
+  };
+
+  const deliver = (payload, source = {}) => {
+    const binding = lookup(source);
+    const owner = binding?.owner ?? null;
+    if (payload?.tool_use_id) {
+      pending.set(payload.tool_use_id, {
+        questions: payload.questions,
+        at: nowFn(),
+        cardId: owner?.questionCardId ?? null,
+        threadId: owner?.questionThreadId ?? null,
+        actuator: binding?.actuator ?? null,
+        owner,
+      });
+    }
+    broadcastRichFn("tool", payload); // rich /claude/stream observers
+    if (typeof owner?.questionSink === "function") {
+      try {
+        owner.questionSink(payload);
+      } catch {
+        /* a disconnected stream must never break the owning turn */
+      }
+    }
+    return binding;
+  };
+
+  const release = (owner) => {
+    if (!owner || typeof owner !== "object") return;
+    for (const transcript of transcriptsByOwner.get(owner) ?? []) {
+      if (ownersByTranscript.get(transcript)?.owner === owner) ownersByTranscript.delete(transcript);
+    }
+    transcriptsByOwner.delete(owner);
+    // A question that outlived its exact turn (answered elsewhere, timed out, or
+    // parked) must not hijack a later message, even when two turns share a card.
+    for (const [id, entry] of pending) {
+      if (entry?.owner === owner) pending.delete(id);
+    }
+  };
+
+  return { ownersByTranscript, bind, lookup, deliver, release };
 }
+
+const questionTurns = createQuestionTurnRegistry({
+  pending: pendingQuestions,
+  broadcastRichFn: (type, payload) => broadcastRich(type, payload),
+});
+
+function questionActuatorForSession(questionSession) {
+  if (!questionSession || typeof questionSession.writeKeys !== "function") return null;
+  return {
+    sessionId: runtimeSessionId(questionSession),
+    available: () => richPtyAvailable(questionSession),
+    write: (bytes) => questionSession.writeKeys(bytes),
+  };
+}
+
+function bindQuestionJournal(identity, questionSession = null) {
+  return questionTurns.bind(turnContext.getStore(), identity, {
+    actuator: questionActuatorForSession(questionSession),
+  });
+}
+
+function registerQuestionSession(questionSession, identity = null) {
+  const owner = turnContext.getStore();
+  if (!owner) return false;
+  const resolvedIdentity = identity ?? sessionJournalIdentity(questionSession);
+  return questionTurns.bind(owner, resolvedIdentity, {
+    actuator: questionActuatorForSession(questionSession),
+  });
+}
+
+const richQuestionOwner = {
+  questionCardId: null,
+  questionThreadId: null,
+  questionSink: null,
+};
 
 // Start the JSONL AskUserQuestion watcher once the operative is ready. Idempotent.
 function startAskWatcher() {
@@ -438,9 +795,26 @@ function startAskWatcher() {
   }
   askWatcher = createAskQuestionWatcher({
     projectDir,
-    onQuestion: (payload) => {
+    onQuestion: (payload, source) => {
       logEvent("stdout", { kind: "ask-question", tool_use_id: payload.tool_use_id, questions: payload.questions?.length ?? 0 });
-      broadcastTool(payload);
+      // Raw /claude/* input does not pass through runTurn, but its question still
+      // has an exact transcript and PTY. Bind that session only when the watcher
+      // source equals the currently active operative transcript; never fall back
+      // from an unrelated one-shot/delegate transcript to the module-global PTY.
+      if (!questionTurns.lookup(source)) {
+        const active = activeRuntimeSession();
+        const activeIdentity = sessionJournalIdentity(active);
+        if (
+          activeIdentity?.transcript_path &&
+          path.resolve(activeIdentity.transcript_path) === path.resolve(String(source?.transcriptPath ?? ""))
+        ) {
+          questionTurns.release(richQuestionOwner);
+          questionTurns.bind(richQuestionOwner, activeIdentity, {
+            actuator: questionActuatorForSession(active),
+          });
+        }
+      }
+      questionTurns.deliver(payload, source);
     },
     logFn: (e) => logEvent("stderr", e),
   });
@@ -449,11 +823,11 @@ function startAskWatcher() {
 
 // Drive the live TUI picker with an ordered list of key names (down/enter/escape).
 // A short dwell between keys lets each keypress register in the picker.
-async function drivePicker(keyNames) {
+async function drivePicker(actuator, keyNames) {
   for (const name of keyNames) {
     const bytes = keySequence(name);
     if (!bytes) continue;
-    session.writeKeys(bytes);
+    await Promise.resolve(actuator.write(bytes));
     await sleepMs(140);
   }
 }
@@ -462,34 +836,98 @@ async function drivePicker(keyNames) {
 // text?, dismiss? }. A matching option label drives arrow-down×index + Enter; a
 // free-text ("Other...") answer types the text + Enter (best-effort - the picker
 // may reject free text); dismiss sends Escape. Returns {status, body}.
-async function handleAnswer(body) {
+export async function handleAnswer(body, {
+  pending = pendingQuestions,
+  trustedCardId = null,
+} = {}) {
   const toolUseId = typeof body?.tool_use_id === "string" ? body.tool_use_id.trim() : "";
   const label = typeof body?.label === "string" ? body.label : "";
   const text = typeof body?.text === "string" ? body.text : "";
   const dismiss = body?.dismiss === true;
-  if (!runtimeSessionAlive()) return { status: 503, body: { error: "operative not ready" } };
-  if (!richPtyAvailable()) return { status: 503, body: richUnavailable() };
+  if (!toolUseId) {
+    return { status: 400, body: { error: "tool_use_id is required", code: "question_id_required" } };
+  }
+  const entry = pending.get(toolUseId) ?? null;
+  if (!entry) {
+    // Preserve the runtime-neutral refusal used by non-PTY primaries, but never
+    // use the process-global operative as an actuator for a known question.
+    if (pending === pendingQuestions && !richPtyAvailable()) {
+      return { status: 503, body: richUnavailable() };
+    }
+    return { status: 404, body: { error: "unknown or expired question", tool_use_id: toolUseId } };
+  }
 
-  if (dismiss) {
-    await drivePicker(["escape"]);
-    if (toolUseId) pendingQuestions.delete(toolUseId);
-    return { status: 200, body: { ok: true, action: "dismiss" } };
+  const suppliedThreads = [body?.session_id, body?.thread_id, body?.threadId]
+    .filter((value) => typeof value === "string" && value.trim())
+    .map((value) => value.trim());
+  if (new Set(suppliedThreads).size > 1) {
+    return { status: 400, body: { error: "conflicting question owner coordinates", code: "question_owner_invalid" } };
   }
-  if (!label && text) {
-    session.writeKeys("\x15"); // Ctrl-U clear, in case the picker exposes a text field
-    session.writeKeys(text);
-    await sleepMs(140);
-    await drivePicker(["enter"]);
-    if (toolUseId) pendingQuestions.delete(toolUseId);
-    return { status: 200, body: { ok: true, action: "text" } };
+  const suppliedThread = suppliedThreads[0] ?? null;
+  if (entry.threadId) {
+    if (!suppliedThread) {
+      return { status: 400, body: { error: "session_id is required for this question", code: "question_owner_required" } };
+    }
+    if (suppliedThread !== entry.threadId) {
+      return { status: 409, body: { error: "question belongs to another thread", code: "question_owner_mismatch" } };
+    }
+  } else if (suppliedThread) {
+    // A Web thread may never actuate an unscoped rich/card question just because
+    // it learned a tool id from another surface.
+    return { status: 409, body: { error: "question does not belong to this thread", code: "question_owner_mismatch" } };
   }
-  const pending = toolUseId ? pendingQuestions.get(toolUseId) : null;
-  const question = pending?.questions?.[0] ?? null;
+  if (entry.cardId && trustedCardId && entry.cardId !== trustedCardId) {
+    return { status: 409, body: { error: "question belongs to another card", code: "question_owner_mismatch" } };
+  }
+
+  const actionCount = Number(dismiss) + Number(label.length > 0) + Number(text.length > 0);
+  if (actionCount !== 1) {
+    return { status: 400, body: { error: "exactly one of label, text, or dismiss is required", code: "question_action_invalid" } };
+  }
+  const question = entry.questions?.[0] ?? null;
   const index = question ? resolveOptionIndex(question, label) : -1;
-  if (index < 0) return { status: 404, body: { error: "unknown or expired question", tool_use_id: toolUseId } };
-  await drivePicker(answerKeySequence(index));
-  if (toolUseId) pendingQuestions.delete(toolUseId);
-  return { status: 200, body: { ok: true, action: "select", index, label } };
+  if (label && index < 0) {
+    return { status: 404, body: { error: "unknown option for question", tool_use_id: toolUseId } };
+  }
+  const actuator = entry.actuator;
+  let available = false;
+  try {
+    available = !!actuator && actuator.available() !== false;
+  } catch {
+    available = false;
+  }
+  if (!available || typeof actuator?.write !== "function") {
+    return { status: 409, body: { error: "question owner is no longer interactive", code: "question_owner_unavailable" } };
+  }
+  if (entry.answering) {
+    return { status: 409, body: { error: "question answer is already in progress", code: "question_answer_in_progress" } };
+  }
+
+  entry.answering = true;
+  try {
+    if (dismiss) {
+      await drivePicker(actuator, ["escape"]);
+    } else if (text) {
+      await Promise.resolve(actuator.write("\x15")); // Ctrl-U clear
+      await Promise.resolve(actuator.write(text));
+      await sleepMs(140);
+      await drivePicker(actuator, ["enter"]);
+    } else {
+      await drivePicker(actuator, answerKeySequence(index));
+    }
+  } catch (err) {
+    entry.answering = false;
+    return {
+      status: 500,
+      body: { error: "question actuation failed", code: "question_actuation_failed" }
+    };
+  }
+  if (pending.get(toolUseId) === entry) pending.delete(toolUseId);
+  return dismiss
+    ? { status: 200, body: { ok: true, action: "dismiss" } }
+    : text
+      ? { status: 200, body: { ok: true, action: "text" } }
+      : { status: 200, body: { ok: true, action: "select", index, label } };
 }
 
 // Routing is ON whenever the model-router fitting is resolvable, unless
@@ -514,103 +952,37 @@ async function loadStubSpawnFn() {
 // Build + start the routing layer. Returns true when the operative is served by
 // the routing pool; false when routing is unavailable (caller falls back to the
 // legacy single-session spawn).
-// Wire the Dispatcher (D6/D9b) for the CLARITY judgment and steering's model
-// path: { core, model, call, callOpts } for RoutedGateway opts.dispatcher.
-// judgeClarity is the ONLY dispatchRoute caller, so wiring this changes no
-// routing behavior beyond clarity + steer classification. Best-effort: any
-// missing piece (dispatcher/garrison-call fittings, the control model) logs
-// dispatcher-not-wired and returns null - short-circuits + default-clear
-// remain, exactly the pre-wire behavior.
-async function loadDispatcher() {
-  try {
-    const dispatcherDir = path.join(COMPOSITION_DIR, "apm_modules", "_local", "dispatcher");
-    const core = await import(pathToFileURL(path.join(dispatcherDir, "lib", "dispatch-core.mjs")).href);
-    const callScript = path.join(COMPOSITION_DIR, "apm_modules", "_local", "garrison-call", "scripts", "call.mjs");
-    await fs.access(callScript);
-    const { spawn } = await import("node:child_process");
-    // The same spawn-and-pipe invoker the dispatcher CLI uses; never throws.
-    const call = (spec) =>
-      new Promise((resolve) => {
-        let child;
-        try {
-          child = spawn(process.execPath, [callScript], { stdio: ["pipe", "pipe", "pipe"] });
-        } catch (err) {
-          resolve({ ok: false, error: `spawn garrison-call failed: ${err?.message || String(err)}` });
-          return;
-        }
-        let out = "";
-        let errOut = "";
-        child.stdout.on("data", (d) => (out += d.toString()));
-        child.stderr.on("data", (d) => (errOut += d.toString()));
-        child.on("error", (err) => resolve({ ok: false, error: `garrison-call error: ${err?.message || String(err)}` }));
-        child.on("close", () => {
-          try {
-            resolve(JSON.parse(out.trim()));
-          } catch {
-            resolve({ ok: false, error: `garrison-call returned non-JSON: ${(out || errOut).slice(0, 200)}` });
-          }
-        });
-        child.stdin.write(JSON.stringify(spec));
-        child.stdin.end();
-      });
-    // The DispatchModel (duties w/ descriptions + selection) from the runner's
-    // garrison-control read model - the same source Muster and the board trust.
-    const controlBase =
-      process.env.GARRISON_CONTROL_URL ??
-      process.env.GARRISON_BASE_URL ??
-      `http://127.0.0.1:${process.env.GARRISON_APP_PORT ?? "7777"}`;
-    const r = await fetch(`${controlBase}/api/garrison-control`, { signal: AbortSignal.timeout(3000) });
-    if (!r.ok) throw new Error(`garrison-control ${r.status}`);
-    const j = await r.json();
-    if (!j?.duties || !Array.isArray(j?.selectedDuties)) throw new Error("garrison-control returned no dispatch model");
-    const model = { duties: j.duties, selectedDuties: j.selectedDuties };
-    const callOpts = {
-      shape: process.env.GARRISON_DISPATCH_SHAPE ?? "ollama",
-      provider: process.env.GARRISON_DISPATCH_PROVIDER ?? "ollama-local",
-      model: process.env.GARRISON_DISPATCH_MODEL ?? "qwen2.5:3b",
-      maxTokens: Number(process.env.GARRISON_DISPATCH_MAX_TOKENS) || 256,
-      timeoutMs: Number(process.env.GARRISON_DISPATCH_TIMEOUT_MS) || 30000,
-      ...(process.env.GARRISON_DISPATCH_CLARITY_RUBRIC ? { clarityRubric: process.env.GARRISON_DISPATCH_CLARITY_RUBRIC } : {}),
-    };
-    logEvent("stdout", { kind: "dispatcher-wired", duties: Object.keys(model.duties).length, model: callOpts.model });
-    return { core, model, call, callOpts };
-  } catch (err) {
-    logEvent("stdout", { kind: "dispatcher-not-wired", reason: String(err?.message ?? err) });
-    return null;
-  }
-}
-
 // Write/refresh the shared stdio MCP config for spawned claude sessions (the
-// routed twin of the souls-mode writeSharedMcpConfig: same file, same contract).
-// Returns the claude extraArgs, or [] when the mcp-gateway fitting is absent.
+// routed gateway's shared MCP config: same file, same contract).
+// Returns the exact PTY argv plus the same process-local SDK server map. SDK
+// Queries use strictMcpConfig, so there is no hidden user/project MCP drift.
 async function writeRoutedMcpConfig() {
   const gatewayScriptPath = path.join(COMPOSITION_DIR, "apm_modules", "_local", "mcp-gateway", "scripts", "gateway.mjs");
   try {
     await fs.access(gatewayScriptPath);
   } catch {
     logEvent("stdout", { kind: "mcp-config-skipped", reason: "mcp-gateway fitting not installed" });
-    return [];
+    return { extraArgs: [], mcpServers: {} };
   }
   const filePath = path.join(COMPOSITION_DIR, ".garrison", "mcp.json");
-  const cfg = {
-    mcpServers: {
-      garrison: {
-        command: "node",
-        args: [gatewayScriptPath, "stdio"],
-        env: {
-          GARRISON_COMPOSITION_DIR: COMPOSITION_DIR,
-          GARRISON_HTTP_GATEWAY_BASE_URL: `http://${HOST}:${PORT}`,
-        },
+  const mcpServers = {
+    garrison: {
+      command: "node",
+      args: [gatewayScriptPath, "stdio"],
+      env: {
+        GARRISON_COMPOSITION_DIR: COMPOSITION_DIR,
+        GARRISON_HTTP_GATEWAY_BASE_URL: `http://${HOST}:${PORT}`,
       },
     },
   };
+  const cfg = { mcpServers };
   try {
     await fs.writeFile(filePath, JSON.stringify(cfg, null, 2), "utf8");
     logEvent("stdout", { kind: "mcp-config-written", path: filePath });
-    return ["--mcp-config", filePath, "--strict-mcp-config"];
+    return { extraArgs: ["--mcp-config", filePath, "--strict-mcp-config"], mcpServers };
   } catch (err) {
     logEvent("stderr", { kind: "mcp-config-write-failed", error: String(err?.message ?? err) });
-    return [];
+    return { extraArgs: [], mcpServers: {} };
   }
 }
 
@@ -621,23 +993,19 @@ async function initRouting() {
   }
   await fs.mkdir(path.join(COMPOSITION_DIR, ".garrison"), { recursive: true });
   // garrison-control MCP for the operative (WS5 prep): write/refresh the shared
-  // stdio mcp.json (same contract as the souls-mode gateway) and pass it at
+  // stdio mcp.json and pass it at
   // spawn so duty sessions can call fetch_evidence / create_continuation /
   // poll_origin_events. Graceful: no installed mcp-gateway -> no extra args.
-  const mcpExtraArgs = await writeRoutedMcpConfig();
-  const dispatcher = await loadDispatcher();
+  const routedMcp = await writeRoutedMcpConfig();
   const spawnFn = await loadStubSpawnFn();
   const continueSession = await hasPriorSession();
   router = await createRoutedGateway({
     compositionDir: COMPOSITION_DIR,
     compositionId: COMPOSITION_ID,
     appendSystemPromptFile: SYSTEM_PROMPT_PATH || undefined,
+    agentSdkMcpServers: routedMcp.mcpServers,
     permissionMode: PERMISSION_MODE,
     decisionsFile: path.join(COMPOSITION_DIR, ".garrison", "decisions.jsonl"),
-    // Prefer the projected v4 Dispatcher built by createRoutedGateway below.
-    // The control-plane loader remains a compatibility fallback when no
-    // projected execution model is available.
-    ...(dispatcher ? { fallbackDispatcher: dispatcher } : {}),
     spawnFn,
     // Production front door: load the runner-projected v4 execution manifest and
     // wire the Dispatcher. Pure routing tests leave this opt-in unset.
@@ -653,7 +1021,7 @@ async function initRouting() {
       // --mcp-config args (or []) so the operative carries the garrison MCP
       // tools; ClaudeCodeAdapter forwards this config verbatim to
       // OperativePtySession.spawn, which appends extraArgs to the claude argv.
-      extraArgs: mcpExtraArgs,
+      extraArgs: routedMcp.extraArgs,
       // Consumed only by the agent-sdk primary path (claude-code ignores it and
       // uses providerLaunch env). Makes an ollama-local / z.ai / … primary run
       // on its own provider spec instead of defaulting to "anthropic".
@@ -672,11 +1040,6 @@ async function initRouting() {
       claudeBinary: CLAUDE_BINARY,
     },
     initialTarget: { provider: PRIMARY_PROVIDER, model: MODEL, effort: null },
-    // Pin the ROUTING BRAIN (Stage-A classification + the Dispatcher's
-    // single-shot call) to the PRIMARY engine (gateway fitting config
-    // `routing_on_primary`). Unset = the historical cheap claude-code haiku
-    // classifier + garrison-call dispatch, byte-for-byte.
-    ...(process.env.GARRISON_ROUTING_ON_PRIMARY === "1" ? { routingOnPrimary: true } : {}),
     logFn: (e) => logEvent("stdout", { kind: "routing", ...e }),
   });
   await router.start();
@@ -795,6 +1158,7 @@ async function spawnOperative({ resume = true } = {}) {
   await markPriorSession();
   startAskWatcher();
   logEvent("stdout", { kind: "ready", session_id: session.getClaudeSessionId(), continued: continueSession });
+  void touchSession(SESSION_LOG_RUN, "idle", { runtime: primaryRuntime() });
   readyResolve();
 }
 
@@ -845,11 +1209,18 @@ function pinnedString(raw, field, rejected) {
 export function routingVocabulary(config = router?.config ?? null) {
   return {
     tiers: Array.isArray(config?.tiers) ? config.tiers.filter((t) => typeof t === "string") : [],
-    workKinds:
-      config?.workKinds && typeof config.workKinds === "object" && !Array.isArray(config.workKinds)
-        ? Object.keys(config.workKinds)
+    flows:
+      config?.flows && typeof config.flows === "object" && !Array.isArray(config.flows)
+        ? Object.keys(config.flows)
         : [],
-    phases: Array.isArray(config?.phases) ? config.phases.filter((p) => typeof p === "string") : []
+    phases: Array.isArray(config?.phases) ? config.phases.filter((p) => typeof p === "string") : [],
+    // Retired flow name -> the flow that absorbed it. Part of the VOCABULARY, not
+    // reached for inside the validator, for the same reason the lists above are:
+    // a hidden module-global would make a test pass while production behaved
+    // differently. The router publishes it once its level chain is loaded (see
+    // RoutedGateway.flowAliases); empty means "no aliasing", which is how this
+    // validator behaved before the flow library was rewritten.
+    flowAliases: router?.flowAliases && typeof router.flowAliases === "object" ? router.flowAliases : {}
   };
 }
 
@@ -883,6 +1254,13 @@ export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
     const value = pinnedString(raw[field], field, rejected);
     if (value !== null) out[field] = value;
   }
+  // Whether the project above was CHOSEN by the user or DEFAULTED by Garrison.
+  // It matters because an applied pin sets `via: "turn-override"`, which the
+  // improver reads as "Goncalo corrected the router". Every project-less card now
+  // carries the workspace scope, so without this marker every one of them would
+  // arrive looking like a manual override and flood the signal registry with
+  // evidence nobody produced.
+  if (raw.projectDefaulted === true) out.projectDefaulted = true;
   if (raw.effort !== undefined && raw.effort !== null) {
     const effort = typeof raw.effort === "string" ? raw.effort.trim() : "";
     if (TURN_EFFORTS.includes(effort)) out.effort = effort;
@@ -895,7 +1273,7 @@ export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
     if (Number.isInteger(level) && level >= 1 && level <= 9) out.level = level;
     else rejected.push({ field: "level", reason: "level-not-an-integer-1-9" });
   }
-  // The run-plan pins (RUN-SPEC-V1). `tier` and `workKind` are validated against the
+  // The run-plan pins (RUN-SPEC-V1). `tier` and `flow` are validated against the
   // COMPILED POLICY's own vocabulary rather than a hardcoded list here - the policy
   // is the thing that will actually be resolved against, so a value this edge
   // accepted but the matrix cannot key on would be a pin that dies silently later.
@@ -903,23 +1281,37 @@ export function sanitizeRouting(raw, vocabulary = routingVocabulary()) {
     const tier = pinnedString(raw.tier, "tier", rejected);
     if (tier !== null && inVocab(vocabulary.tiers, tier, "tier")) out.tier = tier;
   }
-  if (raw.workKind !== undefined && raw.workKind !== null) {
-    const kind = pinnedString(raw.workKind, "workKind", rejected);
-    if (kind !== null && inVocab(vocabulary.workKinds, kind, "workKind")) out.workKind = kind;
+  if (raw.flow !== undefined && raw.flow !== null) {
+    const pinned = pinnedString(raw.flow, "flow", rejected);
+    // ALIAS FIRST, THEN VALIDATE. A pin can arrive from a surface that saved it
+    // months ago, and the 2026-08-09 library rewrite retired six flow names.
+    // Validating first would refuse a pin that names a flow which still exists
+    // under another name - a rejection badge for a choice that is perfectly
+    // honourable. The alias is a fallback: a config that still defines the old
+    // name means it, so a live name never gets re-pointed.
+    const aliases = vocabulary.flowAliases && typeof vocabulary.flowAliases === "object" ? vocabulary.flowAliases : {};
+    const kind = pinned !== null && !vocabulary.flows.includes(pinned) ? aliases[pinned] ?? pinned : pinned;
+    if (kind !== null && inVocab(vocabulary.flows, kind, "flow")) out.flow = kind;
   }
-  if (raw.phasesOff !== undefined && raw.phasesOff !== null) {
-    const csv = pinnedString(raw.phasesOff, "phasesOff", rejected);
+  // The two phase-override pins share one validation shape: a CSV of ids from
+  // the policy's GLOBAL phase catalog. `phasesOff` skips plan phases;
+  // `phasesOn` (2026-08-22, the routing modal) ADDS phases the resolved flow's
+  // plan does not carry — which is exactly why both validate against the full
+  // catalog, not the plan.
+  for (const field of ["phasesOff", "phasesOn"]) {
+    if (raw[field] === undefined || raw[field] === null) continue;
+    const csv = pinnedString(raw[field], field, rejected);
     if (csv !== null) {
       const ids = csv.split(",").map((s) => s.trim()).filter(Boolean);
       if (!vocabulary.phases.length) {
-        rejected.push({ field: "phasesOff", reason: "policy-unavailable" });
+        rejected.push({ field, reason: "policy-unavailable" });
       } else {
         const unknown = ids.filter((id) => !vocabulary.phases.includes(id));
         // ALL-or-nothing. Silently keeping the recognised half would turn "skip
         // these three gates" into "skip two of them" with nothing on the badge to
         // say so - and a phase the user believes is off would run.
-        if (unknown.length) rejected.push({ field: "phasesOff", reason: `unknown-phase:${unknown[0]}` });
-        else if (ids.length) out.phasesOff = ids.join(",");
+        if (unknown.length) rejected.push({ field, reason: `unknown-phase:${unknown[0]}` });
+        else if (ids.length) out[field] = ids.join(",");
       }
     }
   }
@@ -963,12 +1355,15 @@ export function turnAttribution(pre, hints, extra = {}) {
     // resolves with no skill. Reported as null ("skill: none") rather than hidden.
     skill: pre?.skill ?? route?.skill ?? hints?.skill ?? null,
     via: route?.via ?? null,
-    // RUN-SPEC-V1 run plan. `workKind`/`phasesOff` are reported from the RESOLVED
+    // RUN-SPEC-V1 run plan. `flow`/`phasesOff` are reported from the RESOLVED
     // hints (the pin when the user set one, the gateway's inference otherwise) so
     // the badge shows an auto-chosen plan instead of leaving it invisible - which is
-    // the whole point of "if it was auto, say what it chose".
-    workKind: hints?.workKind ?? null,
+    // the whole point of "if it was auto, say what it chose". `pre.flow` is the
+    // third source and the newest: the flow the ROUTE resolved its sequence from
+    // when nobody pinned one, which is the flow the turn is actually running.
+    flow: hints?.flow ?? pre?.flow ?? null,
     phasesOff: phaseTogglesToCsv(hints?.phases),
+    phasesOn: phaseTogglesOnToCsv(hints?.phases),
     // Undefined (not false) when the router did not say: an older lane that never
     // reports it must not be badged "a classifier ran" on no evidence.
     classifierSkipped: typeof pre?.classifierSkipped === "boolean" ? pre.classifierSkipped : null,
@@ -983,6 +1378,7 @@ export function turnAttribution(pre, hints, extra = {}) {
     // Echoed on BOTH frames so the client can drop a frame belonging to an older
     // turn instead of writing it onto the newest bubble (§5).
     turnSeq: Number.isInteger(hints?.turnSeq) ? hints.turnSeq : null,
+    ...publicRouteSessionFields(pre?.routeSession),
     ...extra
   };
 }
@@ -1009,6 +1405,305 @@ export function routeFieldsFrom(pre) {
   };
 }
 
+const SPAWN_SIGNATURE_V1_KEYS = [
+  "target",
+  "runtime",
+  "provider",
+  "model",
+  "account",
+  "accountSource",
+  "projectPath",
+];
+const SPAWN_SIGNATURE_V2_KEYS = ["version", ...SPAWN_SIGNATURE_V1_KEYS, "assembly"];
+const ROUTE_SESSION_BOUNDARY_REASONS = new Set([
+  "initial",
+  "spawn-signature-changed",
+  "restart-recovery",
+  "resume-unavailable",
+  "stateless-runtime",
+]);
+// Mirror the execution-lane defaults used by RoutedGateway. A policy target may
+// omit an engine's conventional provider/model, but the durable signature must
+// name the resolved values that the lane will actually use.
+const ROUTE_SIGNATURE_RUNTIME_DEFAULTS = {
+  "agent-sdk": { provider: "anthropic", model: null },
+  "claude-code": { provider: PRIMARY_PROVIDER, model: MODEL },
+  codex: { provider: "openai", model: "gpt-5-codex" },
+  gemini: { provider: "google", model: "gemini-2.5-flash" },
+  opencode: { provider: "opencode", model: null },
+  cursor: { provider: "cursor", model: "auto" },
+  "openai-agents": { provider: "ollama-local", model: null },
+  "ollama-native": { provider: "ollama-local", model: null },
+  // The "provider" of a remote-shell turn is the remote machine's own agent —
+  // there is no vendor identity behind it, but the signature needs a resolved
+  // name (the target's `model` slot carries the TRANSPORT, so it is always set).
+  "remote-shell": { provider: "remote-shell", model: null },
+};
+
+function exactRouteSessionString(raw, max = 200) {
+  if (typeof raw !== "string" || !raw || raw !== raw.trim() || raw.length > max) return null;
+  return /[\u0000-\u001f\u007f]/.test(raw) ? null : raw;
+}
+
+/** Closed durable spawn identity. Effort is intentionally absent: it rotates a
+ * standing Query through native resume without changing the logical session. */
+export function sanitizeSpawnSignature(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const keys = Object.keys(raw).sort();
+  const v1 = keys.join("\0") === [...SPAWN_SIGNATURE_V1_KEYS].sort().join("\0");
+  const v2 = keys.join("\0") === [...SPAWN_SIGNATURE_V2_KEYS].sort().join("\0") && raw.version === 2;
+  if (!v1 && !v2) return null;
+  const target = exactRouteSessionString(raw.target);
+  const runtime = exactRouteSessionString(raw.runtime);
+  const provider = exactRouteSessionString(raw.provider);
+  const model = exactRouteSessionString(raw.model);
+  const nullable = (key, max = 200) => raw[key] === null ? null : exactRouteSessionString(raw[key], max);
+  const account = nullable("account");
+  const accountSource = nullable("accountSource");
+  const projectPath = nullable("projectPath", 4_000);
+  if (!target || !runtime || !provider || !model) return null;
+  if (raw.account !== null && !account) return null;
+  if (raw.accountSource !== null && !accountSource) return null;
+  if (raw.projectPath !== null && (!projectPath || !path.isAbsolute(projectPath))) return null;
+  const base = { target, runtime, provider, model, account, accountSource, projectPath };
+  if (v1) return base;
+  const assembly = typeof raw.assembly === "string" && /^a1:[a-f0-9]{64}$/.test(raw.assembly)
+    ? raw.assembly
+    : null;
+  return assembly ? { version: 2, ...base, assembly } : null;
+}
+
+/** Exact Web hint; unknown/partial fields cannot steer a live conversation. */
+export function sanitizeRouteSession(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (Object.keys(raw).sort().join("\0") !== ["epoch", "signature"].sort().join("\0")) return null;
+  const epoch = Number.isSafeInteger(raw.epoch) && raw.epoch >= 1 ? raw.epoch : null;
+  const signature = sanitizeSpawnSignature(raw.signature);
+  return epoch === null || !signature ? null : { epoch, signature };
+}
+
+export function resolvedSpawnSignature(pre, hints) {
+  const target = pre?.route?.target ?? null;
+  const attribution = turnAttribution(pre, hints);
+  // Workflow targets are declarative aliases executed by the Claude operative;
+  // unlike runtime-targets they intentionally carry no runtime/provider/model.
+  // Sign what actually spawns, not the sparse workflow record.
+  const workflow = target?.type === "workflow";
+  const nativeVisionTurn = Array.isArray(hints?.images) &&
+    hints.images.length > 0 &&
+    target?.provider === "ollama-local";
+  const defaults = ROUTE_SIGNATURE_RUNTIME_DEFAULTS[target?.runtime] ?? {};
+  const base = {
+    target: pre?.route?.targetId ?? null,
+    runtime: nativeVisionTurn
+      ? "ollama-native"
+      : target?.runtime ?? (workflow ? "claude-code" : null),
+    provider: target?.provider ?? (workflow ? PRIMARY_PROVIDER : defaults.provider ?? null),
+    model: target?.model ?? (workflow ? MODEL : defaults.model ?? null),
+    account: attribution.account ?? null,
+    accountSource: attribution.accountSource ?? null,
+    projectPath: pre?.projectPath ?? null,
+  };
+  const signature = sanitizeSpawnSignature(
+    target?.runtime === "agent-sdk" && !nativeVisionTurn
+      ? { version: 2, ...base, assembly: pre?.agentSdkAssembly?.digest ?? null }
+      : base
+  );
+  if (signature) return signature;
+  const error = new Error("resolved route does not provide a complete spawn signature");
+  error.code = "invalid_spawn_signature";
+  error.kind = "routing";
+  error.source = "gateway";
+  error.retryable = false;
+  throw error;
+}
+
+/** Compute the next durable logical-session epoch before a runtime is touched. */
+export function resolveRouteSession(pre, hints = {}) {
+  const signature = resolvedSpawnSignature(pre, hints);
+  const prior = sanitizeRouteSession(hints?.routeSession);
+  const changed = prior && JSON.stringify(prior.signature) !== JSON.stringify(signature);
+  const restart = hints?.agentSdkNewGeneration === true;
+  // Web continuity is provided only by the generation-owned standing Agent SDK
+  // Query. Claude one-shots, native vision, and secondary CLI turns are clean
+  // executions; calling them "warm" would claim context they do not possess.
+  const target = pre?.route?.target ?? null;
+  const nativeVisionTurn = Array.isArray(hints?.images) &&
+    hints.images.length > 0 &&
+    target?.provider === "ollama-local";
+  const statelessWebRuntime = hints?.channel === "web" &&
+    (target?.runtime !== "agent-sdk" || nativeVisionTurn);
+  const boundaryReason = !prior
+    ? "initial"
+    : restart
+      ? "restart-recovery"
+      : changed
+        ? "spawn-signature-changed"
+        : statelessWebRuntime
+          ? "stateless-runtime"
+          : null;
+  return {
+    epoch: prior ? prior.epoch + (boundaryReason ? 1 : 0) : 1,
+    signature,
+    boundaryReason,
+    disposition: boundaryReason ? "new" : "warm",
+    hadPrior: Boolean(prior),
+  };
+}
+
+function publicRouteSessionFields(routeSession) {
+  // A selected route is not yet a runtime session. Omit the coordinate entirely
+  // until admission activates it; explicit null keys are rejected by the Web
+  // proxy's exact route-session validator and would turn a valid pending badge
+  // into a protocol failure.
+  if (!routeSession) return {};
+  return {
+    sessionDisposition: routeSession?.disposition ?? null,
+    sessionBoundaryReason: routeSession?.boundaryReason ?? null,
+    sessionEpoch: Number.isSafeInteger(routeSession?.epoch) ? routeSession.epoch : null,
+    spawnSignature: routeSession?.signature ?? null,
+  };
+}
+
+const PUBLIC_ROUTE_SESSION_KEYS = [
+  "sessionDisposition",
+  "sessionBoundaryReason",
+  "sessionEpoch",
+  "spawnSignature",
+];
+
+function withoutPublicRouteSessionFields(attribution) {
+  const out = { ...(attribution ?? {}) };
+  for (const key of PUBLIC_ROUTE_SESSION_KEYS) delete out[key];
+  return out;
+}
+
+export function controlTurnAttribution(pre, hints, extra = {}) {
+  return withoutPublicRouteSessionFields(turnAttribution(pre, hints, extra));
+}
+
+/** One canonical route event per streamed generation. Revisions refine the same
+ * logical event and keep order 0, so runtime content/terminal always follows it. */
+export function createRouteSessionEventPublisher(pre, hints, opts = {}) {
+  if (typeof opts.onSessionEvent !== "function") return { observe() {}, activate() {} };
+  const generationId = exactPermissionId(opts.generationId);
+  if (!generationId) return { observe() {}, activate() {} };
+  const eventId = `route:${generationId}`;
+  const ts = Date.now();
+  const requestedModel = exactRouteSessionString(hints?.routing?.model);
+  let revision = 0;
+  let observed = {};
+  let lastSignature = null;
+  let routeSessionActive = opts.deferRouteSession !== true;
+  const emit = () => {
+    const baseAttribution = turnAttribution(pre, hints);
+    const attribution = {
+      ...(routeSessionActive
+        ? baseAttribution
+        : withoutPublicRouteSessionFields(baseAttribution)),
+      ...routeFieldsFrom(pre),
+      ...(routeSessionActive ? publicRouteSessionFields(pre?.routeSession) : {}),
+      ...observed,
+    };
+    const routeBlock = {
+      type: "route",
+      attribution,
+      ...(requestedModel ? { requestedModel } : {}),
+    };
+    const signature = JSON.stringify(routeBlock);
+    if (signature === lastSignature) return;
+    lastSignature = signature;
+    revision += 1;
+    try {
+      opts.onSessionEvent({
+        id: eventId,
+        role: "assistant",
+        ts,
+        ...(hints?.turnSeq == null ? {} : { turnId: String(hints.turnSeq) }),
+        order: 0,
+        revision,
+        generationId,
+        blocks: [routeBlock],
+      });
+    } catch {
+      /* a session-event transport sink must never break the turn */
+    }
+  };
+  const applyObservation = (value = {}) => {
+    if (!value || typeof value !== "object") return;
+    if (["new", "warm", "resumed"].includes(value.sessionDisposition)) {
+      pre.routeSession.disposition = value.sessionDisposition;
+    }
+    if (value.sessionBoundaryReason === null || ROUTE_SESSION_BOUNDARY_REASONS.has(value.sessionBoundaryReason)) {
+      pre.routeSession.boundaryReason = value.sessionBoundaryReason;
+    }
+    if (Number.isSafeInteger(value.sessionEpoch) && value.sessionEpoch >= 1) {
+      pre.routeSession.epoch = value.sessionEpoch;
+    }
+    const signature = sanitizeSpawnSignature(value.spawnSignature);
+    if (signature) pre.routeSession.signature = signature;
+    const model = exactRouteSessionString(value.model);
+    if (model) observed.model = model;
+    const sessionId = exactRouteSessionString(value.sessionId, 512);
+    if (sessionId) observed.sessionId = sessionId;
+  };
+  return {
+    observe(value = {}) {
+      applyObservation(value);
+      emit();
+    },
+    activate(value = {}) {
+      routeSessionActive = true;
+      applyObservation(value);
+      emit();
+    },
+  };
+}
+
+export function gatewayFailureSessionEvent({ generationId, turnId = null, order = 1, failure, ts = Date.now() }) {
+  const normalized = normalizeFailureInfo(failure, {
+    code: "gateway_turn_failed",
+    kind: "runtime",
+    source: "gateway",
+    retryable: false,
+  });
+  const generation = exactPermissionId(generationId) ?? "unscoped";
+  return {
+    id: `terminal:${JSON.stringify([generation])}`,
+    role: "assistant",
+    ts,
+    ...(turnId == null ? {} : { turnId: String(turnId) }),
+    order: Number.isSafeInteger(order) && order >= 1 ? order : 1,
+    revision: 1,
+    ...(generation !== "unscoped" ? { generationId: generation } : {}),
+    blocks: [
+      { type: "error", ...normalized },
+      {
+        type: "turn_end",
+        status: "error",
+        subtype: normalized.code,
+        reason: normalized.code,
+        stopReason: null,
+        terminalReason: "error",
+      },
+    ],
+  };
+}
+
+/** Additive pre-completion route frame. A runtime can refine it with journal
+ * identity after preRoute without waiting for the turn's authoritative `done`. */
+export function pendingRouteFrame(pre, hints, extra = {}) {
+  const base = pre
+    ? { ...turnAttribution(pre, hints), ...routeFieldsFrom(pre) }
+    : { turnSeq: Number.isInteger(hints?.turnSeq) ? hints.turnSeq : null };
+  return {
+    ...base,
+    ...extra,
+    pending: true,
+    turnSeq: Number.isInteger(hints?.turnSeq) ? hints.turnSeq : null
+  };
+}
+
 // ───────────────────────── cancel registry (§9)
 // One entry per IN-FLIGHT turn, keyed by the conversation the turn belongs to.
 // Turns are serialized on the inflight chain, so this holds at most one live
@@ -1016,27 +1711,414 @@ export function routeFieldsFrom(pre) {
 // stop somebody else's turn. `stop` is filled in by the LANE (the primitives
 // differ per runtime and are only knowable once the route resolved), so an
 // interrupt arriving before then reports the honest "no cancel primitive yet".
-const activeTurns = new Map(); // sessionId -> { lane, stop: fn|null, cancelled }
+const activeTurns = new Map(); // sessionId -> { lane, stop: fn|null, cancelled, dutyKey, cardIds }
 const INTERRUPT_FALLBACK_KEY = "operative";
-let currentTurnEntry = null;
+
+/**
+ * Exact-generation control for streamed Web turns. Unlike the legacy/card
+ * registry above, a thread can have only one claimed generation and cleanup is
+ * identity-checked so an older turn can never erase a newer claimant.
+ */
+export function createGenerationTurnControlPlane({ logFn = () => {} } = {}) {
+  const turnsByGeneration = new Map();
+  const currentGenerationByThread = new Map();
+
+  const isCurrent = (entry) =>
+    !!entry &&
+    turnsByGeneration.get(entry.generationId) === entry &&
+    currentGenerationByThread.get(entry.threadId) === entry.generationId;
+
+  const claim = (threadId, generationId, options = {}) => {
+    const lane = options?.lane ?? null;
+    const inputWasSupplied = Object.hasOwn(options ?? {}, "inputId");
+    const inputId = inputWasSupplied ? exactDurableInputId(options.inputId) : null;
+    const thread = exactPermissionId(threadId);
+    const generation = exactPermissionId(generationId);
+    if (!thread || !generation || (inputWasSupplied && !inputId)) {
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          error: "threadId, generationId, and any supplied inputId must be valid",
+          code: "invalid_turn_generation"
+        }
+      };
+    }
+    const currentGeneration = currentGenerationByThread.get(thread);
+    if (currentGeneration) {
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          error: "thread already has an active generation",
+          code: "thread_generation_conflict"
+        }
+      };
+    }
+    if (turnsByGeneration.has(generation)) {
+      return {
+        status: 409,
+        body: { ok: false, error: "generation is already active", code: "turn_generation_conflict" }
+      };
+    }
+    const entry = {
+      kind: "web-generation",
+      threadId: thread,
+      inputId,
+      generationId: generation,
+      lane,
+      stop: null,
+      stopPromise: null,
+      stopOutcome: null,
+      cancelRequested: false,
+      cancelled: false,
+      recoveryResetRequested: false,
+      recoveryReset: null,
+      releasePromise: null,
+      dutyKey: null,
+      cardIds: []
+    };
+    turnsByGeneration.set(generation, entry);
+    currentGenerationByThread.set(thread, generation);
+    return { status: 201, entry };
+  };
+
+  // A restarted Web process has only the durable admission id when it crashed
+  // after the gateway claim but before persisting `open.generationId`. This
+  // exact lookup lets it recover that otherwise-lost coordinate, interrupt the
+  // orphaned Query, and wait for release before promoting the FIFO successor.
+  const lookupInput = (raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { status: 400, body: { ok: false, error: "generation lookup body must be an object" } };
+    }
+    const keys = Object.keys(raw).sort();
+    if (keys.length !== 2 || keys[0] !== "inputId" || keys[1] !== "threadId") {
+      return {
+        status: 400,
+        body: { ok: false, error: "generation lookup accepts only threadId and inputId" }
+      };
+    }
+    const threadId = exactPermissionId(raw.threadId);
+    const inputId = exactDurableInputId(raw.inputId);
+    if (!threadId || !inputId) {
+      return {
+        status: 400,
+        body: { ok: false, error: "threadId and inputId are required", code: "invalid_input_generation" }
+      };
+    }
+    const generationId = currentGenerationByThread.get(threadId);
+    const entry = generationId ? turnsByGeneration.get(generationId) : null;
+    if (!entry || !isCurrent(entry)) {
+      return {
+        status: 404,
+        body: { ok: false, error: "input generation is unavailable", code: "input_generation_unavailable" }
+      };
+    }
+    if (entry.inputId !== inputId) {
+      // Do not reveal another input's generation, but also do not tell restart
+      // recovery that this thread is clear. This covers an in-flight legacy
+      // claim made before inputId was deployed: the successor stays parked until
+      // that claim naturally releases instead of receiving a destructive 409.
+      return {
+        status: 409,
+        body: { ok: false, error: "thread belongs to another input", code: "thread_input_generation_conflict" }
+      };
+    }
+    const state = entry.releasePromise
+      ? "releasing"
+      : entry.cancelRequested
+        ? "stopping"
+        : typeof entry.stop === "function"
+          ? "running"
+          : "starting";
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        threadId,
+        inputId,
+        generationId: entry.generationId,
+        lane: entry.lane ?? null,
+        state
+      }
+    };
+  };
+
+  const beginStop = (entry) => {
+    if (entry.stopPromise) return entry.stopPromise;
+    if (entry.stopOutcome) return Promise.resolve(entry.stopOutcome);
+    if (!isCurrent(entry) || typeof entry.stop !== "function") return null;
+
+    // Assign the shared promise before invoking user/runtime code. Concurrent
+    // duplicate interrupts therefore converge on exactly one primitive call.
+    // Invoke the primitive synchronously after that assignment: a latched stop
+    // registered immediately before runtime entry must take effect before the
+    // lane can advance to send/runTurn in the same JavaScript turn.
+    let settleStop;
+    const stopPromise = new Promise((resolve) => {
+      settleStop = resolve;
+    });
+    entry.stopPromise = stopPromise;
+    const settle = (outcome, { memoize = false } = {}) => {
+      // A successful stop is terminal for this generation, so later duplicate
+      // requests can reuse it without signalling the runtime again. A refused
+      // or failed attempt is not terminal: settle every waiter coalesced onto
+      // THIS attempt, then reopen the exact tuple so the UI's explicit Retry can
+      // reach a primitive that has since become usable.
+      entry.stopOutcome = memoize ? outcome : null;
+      if (entry.stopPromise === stopPromise) entry.stopPromise = null;
+      settleStop(outcome);
+    };
+    const succeeded = (value) => {
+      const didStop = value !== false;
+      if (!didStop) {
+        logFn("stderr", {
+          kind: "generation-interrupt-refused",
+          lane: entry.lane,
+          threadId: entry.threadId,
+          generationId: entry.generationId
+        });
+        settle({
+          status: 409,
+          body: { ok: false, error: "cancel-primitive-did-not-stop", lane: entry.lane }
+        });
+        return;
+      }
+      entry.cancelled = true;
+      logFn("stdout", {
+        kind: "generation-interrupt",
+        lane: entry.lane,
+        threadId: entry.threadId,
+        generationId: entry.generationId,
+        stopped: true
+      });
+      settle(
+        { status: 200, body: { ok: true, lane: entry.lane, stopped: true } },
+        { memoize: true }
+      );
+    };
+    const failed = (err) => {
+      logFn("stderr", {
+        kind: "generation-interrupt-failed",
+        lane: entry.lane,
+        threadId: entry.threadId,
+        generationId: entry.generationId,
+        error: String(err?.message ?? err)
+      });
+      settle({ status: 500, body: { ok: false, error: "cancel-failed", lane: entry.lane } });
+    };
+    try {
+      Promise.resolve(entry.stop()).then(succeeded, failed);
+    } catch (err) {
+      failed(err);
+    }
+    // Keep the attempt-local handle: a synchronously throwing primitive clears
+    // entry.stopPromise while settling, but this caller still needs its 500
+    // result rather than mistaking the cleared registry slot for a pre-stop
+    // latch and returning 202.
+    return stopPromise;
+  };
+
+  const registerStop = (entry, lane, stop) => {
+    if (!isCurrent(entry) || typeof stop !== "function") {
+      return { registered: false, cancelRequested: false };
+    }
+    entry.lane = lane;
+    // One generation owns one runtime primitive. A late duplicate registration
+    // cannot replace the primitive an in-flight interrupt is already calling.
+    if (typeof entry.stop !== "function") entry.stop = stop;
+    if (entry.cancelRequested) void beginStop(entry);
+    return { registered: true, cancelRequested: entry.cancelRequested };
+  };
+
+  const registerRecoveryReset = (entry, reset) => {
+    if (!isCurrent(entry) || typeof reset !== "function") return false;
+    if (typeof entry.recoveryReset !== "function") entry.recoveryReset = reset;
+    return true;
+  };
+
+  const interrupt = async (raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { status: 400, body: { ok: false, error: "interrupt body must be an object" } };
+    }
+    const keys = Object.keys(raw).sort();
+    if (keys.length !== 2 || keys[0] !== "generationId" || keys[1] !== "threadId") {
+      return {
+        status: 400,
+        body: { ok: false, error: "Web interrupt accepts only threadId and generationId" }
+      };
+    }
+    const threadId = exactPermissionId(raw.threadId);
+    const generationId = exactPermissionId(raw.generationId);
+    if (!threadId || !generationId) {
+      return {
+        status: 400,
+        body: { ok: false, error: "threadId and generationId are required", code: "invalid_turn_generation" }
+      };
+    }
+    const entry = turnsByGeneration.get(generationId);
+    if (!entry || entry.threadId !== threadId || !isCurrent(entry)) {
+      return {
+        status: 409,
+        body: { ok: false, error: "turn generation is unavailable", code: "turn_generation_unavailable" }
+      };
+    }
+
+    entry.cancelRequested = true;
+    const stop = beginStop(entry);
+    if (!stop) {
+      // The request is latched. Registration will call the primitive (at most
+      // once) and abort entry into the runtime before it can start useful work.
+      return { status: 202, body: { ok: true, state: "pending-stop" } };
+    }
+    return stop;
+  };
+
+  // Process-restart recovery is stronger than a user Stop. The old SDK Query
+  // and journal may contain an input/output the Web process never persisted, so
+  // the lane must be abandoned before this thread can claim a successor.
+  const recoverInput = async (raw) => {
+    const found = lookupInput(raw);
+    if (found.status !== 200) return found;
+    const entry = turnsByGeneration.get(found.body.generationId);
+    if (!entry || !isCurrent(entry)) {
+      return {
+        status: 404,
+        body: { ok: false, error: "input generation is unavailable", code: "input_generation_unavailable" }
+      };
+    }
+    entry.recoveryResetRequested = true;
+    entry.cancelRequested = true;
+    const stop = beginStop(entry);
+    if (!stop) {
+      return {
+        status: 202,
+        body: { ok: true, state: "pending-stop", generationId: entry.generationId }
+      };
+    }
+    const result = await stop;
+    return {
+      ...result,
+      body: { ...result.body, generationId: entry.generationId }
+    };
+  };
+
+  const release = (entry) => {
+    if (!isCurrent(entry)) return false;
+    const finish = () => {
+      if (!isCurrent(entry)) return;
+      turnsByGeneration.delete(entry.generationId);
+      currentGenerationByThread.delete(entry.threadId);
+    };
+    if (entry.recoveryResetRequested && typeof entry.recoveryReset === "function") {
+      if (!entry.releasePromise) {
+        entry.releasePromise = Promise.resolve()
+          .then(() => entry.recoveryReset())
+          .then(finish)
+          .catch((err) => {
+            logFn("stderr", {
+              kind: "generation-recovery-reset-failed",
+              threadId: entry.threadId,
+              generationId: entry.generationId,
+              error: String(err?.message ?? err)
+            });
+          });
+      }
+      return true;
+    }
+    finish();
+    return true;
+  };
+
+  return {
+    turnsByGeneration,
+    currentGenerationByThread,
+    claim,
+    lookupInput,
+    recoverInput,
+    interrupt,
+    registerStop,
+    registerRecoveryReset,
+    release,
+    isCurrent
+  };
+}
+
+const generationTurnControl = createGenerationTurnControlPlane({ logFn: logEvent });
+// Concurrent turns (2026-08-07) can no longer share one module-global "current
+// turn" cursor: each turn's registry entry rides its own async context, so a
+// lane registering its stop primitive always lands on ITS turn even while other
+// turns are mid-flight on other lanes.
+const turnContext = new AsyncLocalStorage();
 
 // Called by each lane once it owns something interruptible.
 function registerTurnStop(lane, stop) {
-  if (!currentTurnEntry) return;
-  currentTurnEntry.lane = lane;
-  currentTurnEntry.stop = stop;
+  const entry = turnContext.getStore();
+  if (!entry) return;
+  if (entry.kind === "web-generation") {
+    const registration = generationTurnControl.registerStop(entry, lane, stop);
+    if (registration.cancelRequested) {
+      const error = new Error("turn interrupted before runtime start");
+      error.code = "turn_interrupted_before_runtime";
+      throw error;
+    }
+    return;
+  }
+  entry.lane = lane;
+  entry.stop = stop;
 }
 
-/** POST /chat/interrupt {sessionId} → {ok, lane} | 404 | 409. */
-export async function handleInterrupt(body, turns = activeTurns) {
+function registerTurnRecoveryReset(reset) {
+  const entry = turnContext.getStore();
+  if (entry?.kind !== "web-generation") return false;
+  return generationTurnControl.registerRecoveryReset(entry, reset);
+}
+
+/** POST /chat/interrupt {sessionId?, cardId?} → {ok, lane} | 404 | 409.
+ *
+ * A card-bound interrupt fails closed unless the requested card belongs to the
+ * active turn. Kanban does not allocate a conversation session per card (its
+ * turns use the shared `operative` key), so sessionId alone cannot prevent a
+ * queued card from stopping whichever card happens to be running. Batched turns
+ * deliberately carry every member: panicking any one member stops the shared
+ * runtime turn and the batch engine parks all of them.
+ */
+export async function handleInterrupt(body, turns = activeTurns, webTurns = generationTurnControl) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { status: 400, body: { ok: false, error: "interrupt body must be an object" } };
+  }
+  // Presence of either generation coordinate commits the request to the strict
+  // Web union. A malformed/mixed request must never fall through to the legacy
+  // fallback key and stop a card or operative turn.
+  if (Object.hasOwn(body, "threadId") || Object.hasOwn(body, "generationId")) {
+    return webTurns.interrupt(body);
+  }
+  const keys = Object.keys(body);
+  if (keys.some((key) => key !== "sessionId" && key !== "cardId")) {
+    return { status: 400, body: { ok: false, error: "legacy interrupt accepts only sessionId and cardId" } };
+  }
   const sessionId =
     typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : INTERRUPT_FALLBACK_KEY;
   const entry = turns.get(sessionId);
   if (!entry) return { status: 404, body: { ok: false, error: "no-active-turn", sessionId } };
+  const cardId = typeof body?.cardId === "string" && body.cardId.trim() ? body.cardId.trim() : null;
+  const cardIds = Array.isArray(entry.cardIds)
+    ? entry.cardIds.filter((id) => typeof id === "string" && id)
+    : [];
+  if (cardId && !cardIds.includes(cardId)) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: "active-turn-belongs-to-another-card",
+        cardId,
+        activeCardIds: cardIds
+      }
+    };
+  }
   if (typeof entry.stop !== "function") {
     return { status: 409, body: { ok: false, error: "lane-has-no-cancel-primitive", lane: entry.lane } };
   }
-  entry.cancelled = true;
   let stopped = false;
   try {
     stopped = (await entry.stop()) !== false;
@@ -1044,31 +2126,47 @@ export async function handleInterrupt(body, turns = activeTurns) {
     logEvent("stderr", { kind: "interrupt-failed", lane: entry.lane, error: String(err?.message ?? err) });
     return { status: 500, body: { ok: false, error: "cancel-failed", lane: entry.lane } };
   }
-  logEvent("stdout", { kind: "interrupt", lane: entry.lane, sessionId, stopped });
+  if (!stopped) {
+    logEvent("stderr", { kind: "interrupt-refused", lane: entry.lane, sessionId, cardId, cardIds });
+    return {
+      status: 409,
+      body: { ok: false, error: "cancel-primitive-did-not-stop", lane: entry.lane, cardIds }
+    };
+  }
+  entry.interruptedByCardId = cardId;
+  entry.cancelled = true;
+  logEvent("stdout", { kind: "interrupt", lane: entry.lane, sessionId, cardId, cardIds, stopped });
   // The turn now settles normally with its partial reply; runTurn stamps
   // stoppedByUser onto the done frame.
-  return { status: 200, body: { ok: true, lane: entry.lane, stopped } };
+  return { status: 200, body: { ok: true, lane: entry.lane, stopped, cardIds } };
 }
 
-// ───────────────────────── account → real auth env (§6)
-// A pinned account is only real if the spawned process actually authenticates as
-// it. The one-shot lane is a Claude spawn, so the vehicle is the Anthropic env
-// block (mirror of src/lib/account-env.ts) built from the vault secret the runner
-// already sealed. Returns null when nothing needs overriding - the turn then
-// inherits the gateway env exactly as before.
-//
-// The claude-pty spawn keeps ANTHROPIC_AUTH_TOKEN (it only strips CLAUDECODE, an
-// inherited ANTHROPIC_API_KEY and - without providerLaunch - ANTHROPIC_BASE_URL),
-// so the token this returns survives to the CLI. Verified against
-// stripNestingMarkers in packages/claude-pty/src/session.mjs.
-function oneShotAccountEnv(account) {
-  if (!account || account === process.env.GARRISON_ACCOUNT) return null;
-  const resolved = resolveVaultAccount(COMPOSITION_DIR, account);
-  if (!resolved || resolved.platform !== "anthropic") {
-    logEvent("stderr", { kind: "account-env-unavailable", account, platform: resolved?.platform ?? null });
-    return null;
-  }
-  return { ...process.env, ...anthropicAccountEnv(resolved.name, resolved.token) };
+// ── levelled-flow preview, mirrored ─────────────────────────────────────────
+// The menu is built SYNCHRONOUSLY (GET /route/options is deliberately not behind
+// the readiness await), and `levelPlanFor` lives in policy-core, which the
+// gateway can only reach through an async dynamic import (routing-core does not
+// re-export it). So the two reads a preview needs are mirrored here, and
+// tests/level-chain.test.ts pins them to policy-core's originals.
+const FLOW_LEVEL_KEYS = ["1", "2", "3"];
+
+/** The level a flow runs at: what was asked, else its default, else 1. */
+export function flowLevelKey(flow, requested) {
+  const ok = (n) =>
+    (typeof n === "number" || (typeof n === "string" && String(n).trim() !== "")) &&
+    FLOW_LEVEL_KEYS.includes(String(Math.trunc(Number(n))));
+  if (ok(requested)) return String(Math.trunc(Number(requested)));
+  if (ok(flow?.defaultLevel)) return String(Math.trunc(Number(flow.defaultLevel)));
+  return "1";
+}
+
+/** A flow level rendered as a phase plan ({phases, evidence}), or null when the
+ *  flow carries no levels (the pre-2026-08-09 single-plan shape). */
+export function flowLevelPlan(flow, requested) {
+  if (!flow || !flow.levels || typeof flow.levels !== "object") return null;
+  const lvl = flow.levels[flowLevelKey(flow, requested)];
+  if (!lvl) return null;
+  const duties = Array.isArray(lvl.duties) ? lvl.duties.filter((d) => typeof d === "string" && d) : [];
+  return { phases: duties, evidence: lvl.evidence || "none" };
 }
 
 /**
@@ -1137,10 +2235,14 @@ export function buildRouteOptions() {
   // offering something that would then be refused.
   const vocab = routingVocabulary(config);
   const phasePlans = config?.phasePlans && typeof config.phasePlans === "object" ? config.phasePlans : {};
-  const workKinds = vocab.workKinds
+  const flows = vocab.flows
     .map((id) => {
-      const kind = config.workKinds[id] ?? {};
-      const plan = phasePlans[kind.phasePlan] ?? null;
+      const kind = config.flows[id] ?? {};
+      // A LEVELLED flow (2026-08-09) has no phase plan at all - its ordered duty
+      // list lives per level - so previewing only `phasePlans[kind.phasePlan]`
+      // showed an EMPTY plan for every flow in the current library. Preview the
+      // flow at its own default level, which is what an unpinned run gets.
+      const plan = flowLevelPlan(kind) ?? phasePlans[kind.phasePlan] ?? null;
       return {
         id,
         description: typeof kind.description === "string" ? kind.description : null,
@@ -1148,7 +2250,13 @@ export function buildRouteOptions() {
         // run will walk, so the order is load-bearing, not cosmetic.
         phases: Array.isArray(plan?.phases)
           ? plan.phases.map((p) => (typeof p === "string" ? p : p?.id)).filter((p) => typeof p === "string")
-          : []
+          : [],
+        // Which levels the flow defines, and the one an unpinned run resolves to,
+        // so the menu can offer them instead of implying every flow is flat. Both
+        // empty/null for the pre-levels shape, which genuinely has no levels to
+        // offer - claiming "level 1" there would invent a dial that does nothing.
+        levels: kind.levels && typeof kind.levels === "object" ? Object.keys(kind.levels).sort() : [],
+        defaultLevel: kind.levels && typeof kind.levels === "object" ? Number(flowLevelKey(kind, undefined)) : null
       };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -1162,8 +2270,16 @@ export function buildRouteOptions() {
     account: { name: processAccount, source: processAccount ? "process" : null },
     projects,
     tiers: vocab.tiers,
-    workKinds,
-    defaultWorkKind: typeof config?.defaultWorkKind === "string" ? config.defaultWorkKind : null,
+    // The tier prose from the policy (tierDefinitions), so a menu can say what
+    // T1-standard MEANS instead of offering three bare ids.
+    tierDefinitions:
+      config?.tierDefinitions && typeof config.tierDefinitions === "object" ? { ...config.tierDefinitions } : {},
+    flows,
+    // The policy's GLOBAL ordered phase catalog — the same list pins validate
+    // against, so the phases menu can offer out-of-plan phases (phasesOn)
+    // without a client-side copy of the vocabulary.
+    phaseCatalog: [...vocab.phases],
+    defaultFlow: typeof config?.defaultFlow === "string" ? config.defaultFlow : null,
     primaryRuntime: primaryRuntime(),
     activeProfile: config?.activeProfile ?? null,
     // Routing may be off entirely (no orchestrator fitting) - the rail then shows
@@ -1172,10 +2288,13 @@ export function buildRouteOptions() {
   };
 }
 
-/** Run one turn through Stage-A routing: classify → resolve → log → switch →
+/** Run one turn through pre-session routing: infer → resolve → log → switch →
  *  turn → honored check. The operative session is served by the routing pool.
  *  `opts.onPreRoute(pre)` fires the moment the route is known (the pre-turn
- *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity. */
+ *  `route` frame, §4); `opts.onActivity(payload)` carries tool activity;
+ *  `opts.onSessionEvent(payload)` carries the channel-neutral Agent SDK event;
+ *  `opts.onJournal({session_id,transcript_path})` fires as soon as a runtime's
+ *  structured journal can be tailed, before the turn settles. */
 // Liveness for the INTERACTIVE lane, which has no structured event stream: the
 // TUI draws thinking and tool use instead of emitting them, so a channel sees
 // nothing between "sent" and the final reply. Scrape the screen for the current
@@ -1212,6 +2331,45 @@ export function screenActivityEmitter(handle, onActivity, nowFn = Date.now) {
 }
 
 async function runRoutedTurn(message, onChunk, hints, opts = {}) {
+  // Session log (Harness brief §1): the injection is written BEFORE the runtime
+  // sees it, and the settled outcome after — every lane, one seam.
+  const slog = runLog();
+  const turnLogId = hints?.threadId && Number.isInteger(hints?.turnSeq)
+    ? `${hints.threadId}#${hints.turnSeq}`
+    : randomUUID();
+  slog?.append({
+    domain: "channel", kind: "inbound", turn: turnLogId,
+    payload: {
+      channel: hints?.channel ?? null,
+      message: typeof message === "string" ? message.slice(0, 4000) : null,
+      routing: hints?.routing ?? null,
+      cardIds: hints?.cardIds ?? null,
+      flow: hints?.flow ?? null,
+    },
+  });
+  try {
+    // Thread the turn identity into the runtime lane: the adapters stamp it on
+    // their session-log events (and the web lane's own id wins when present).
+    const out = await runRoutedTurnInner(message, onChunk, hints, { ...opts, turnId: opts.turnId ?? turnLogId });
+    slog?.append({
+      domain: "channel", kind: "outbound", turn: turnLogId,
+      runtimeSessionId: out?.session_id ?? null,
+      payload: {
+        route: out?.route ?? null,
+        runtime: out?.runtime ?? null,
+        model: out?.model ?? null,
+        replyChars: typeof out?.reply === "string" ? out.reply.length : 0,
+        stoppedReason: out?.stoppedReason ?? null,
+      },
+    });
+    return out;
+  } catch (err) {
+    slog?.append({ domain: "channel", kind: "turn-error", turn: turnLogId, payload: { error: String(err?.message ?? err).slice(0, 500) } });
+    throw err;
+  }
+}
+
+async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
   await router.ensureOperative();
   // NOTE (S3d review R1): the Discuss reply-as-answer / explicit-go interception is NOT
   // here - it runs at the HTTP entry points BEFORE enqueueTurn (dispatchDiscussIntercept),
@@ -1221,16 +2379,81 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   // so preRoute can honor §10 instead of re-classifying from scratch, plus the per-list
   // skill + suppressContinuations controls. Absent hints → classify as before.
   const pre = await router.preRoute(message, hints || {}); // classify/honor + resolve + LOG + switch
+  if (router.isAgentSdkTarget(pre.route)) {
+    const streamingInput = hints?.channel === "web" &&
+      exactPermissionId(hints?.sessionId) &&
+      exactPermissionId(opts?.generationId);
+    pre.agentSdkAssembly = router.resolveAgentSdkAssembly(pre.route, {
+      cwd: pre.projectPath ?? workspaceCwdFallback(),
+      permissionMode: opts.permissionMode === "default" ? "default" : "bypassPermissions",
+      streamingInput: Boolean(streamingInput),
+    });
+  }
+  // Resolve the effort-free spawn identity and next logical epoch before any
+  // runtime/provider lane is entered. This is the durable boundary the Web echoes
+  // on its next request; an identical signature stays on the same epoch.
+  pre.routeSession = resolveRouteSession(pre, hints || {});
+  const routeEvents = createRouteSessionEventPublisher(pre, hints || {}, {
+    ...opts,
+    deferRouteSession: true,
+  });
   // §4: emit the badge row NOW (pending), ~1s into the turn, instead of only at the
   // end. Everything the rail shows except the reply is already known here. The
   // client MERGES this frame with the one folded into `done`.
   if (typeof opts.onPreRoute === "function") {
     try {
-      opts.onPreRoute(pre);
+      opts.onPreRoute({ ...pre, routeSession: null });
     } catch {
       /* a frame observer must never break the turn */
     }
   }
+  routeEvents.observe();
+  // Web workflow/skill selection is control-plane state. Enforce the native
+  // control requirement before autonomous-card or runtime side effects; every
+  // lane must either use a real control seam or fail visibly without rewriting
+  // the admitted user message.
+  assertWebPromptControls(pre, hints, router);
+  const observeRouteSession = (observation = {}) => {
+    routeEvents.observe(observation);
+    try {
+      opts.onRouteSessionObservation?.(observation);
+    } catch {
+      /* a compatibility frame observer must never break the turn */
+    }
+  };
+  let routeSessionActivated = false;
+  const activateRouteSession = () => {
+    if (routeSessionActivated) return;
+    const turn = turnContext.getStore();
+    if (turn?.kind === "web-generation" && turn.cancelRequested) {
+      const error = new Error("turn interrupted before runtime start");
+      error.code = "turn_interrupted_before_runtime";
+      throw error;
+    }
+    routeSessionActivated = true;
+    const observation = publicRouteSessionFields(pre.routeSession);
+    routeEvents.activate(observation);
+    try {
+      opts.onRouteSessionObservation?.(observation);
+    } catch {
+      /* a compatibility frame observer must never break the turn */
+    }
+  };
+  const routedOpts = {
+    ...opts,
+    // A selected route is not a runtime session. Activate the durable logical
+    // session only after the chosen lane has registered its Stop primitive and
+    // is about to admit the exact user input. A latched pre-runtime Stop throws
+    // from registration first, so it cannot advance the epoch or claim warm/
+    // resumed continuity for a turn the runtime never received.
+    onRuntimeAdmission: activateRouteSession,
+    onRouteSessionObservation: observeRouteSession,
+    onJournal: (identity) => {
+      observeRouteSession({ sessionId: identity?.session_id ?? null });
+      opts.onJournal?.(identity);
+    },
+  };
+  assertExecutableRunScope(pre);
   // D19: EVERY task-shaped turn is a card. A trivial plan runs INLINE under a
   // `quick` card that auto-advances Implement→Done at completion; a multi-phase
   // (significant) plan is dispatched to the run engine (the reply carries the card
@@ -1247,7 +2470,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   {
     const cls = pre.classification || {};
     const origin = String(hints?.channel || "").toLowerCase();
-    const cardOriginated = origin === "kanban" || origin === "scheduler" || origin === "board" || origin === "garrison";
+    const cardOriginated = isCardOriginatedChannel(origin);
     const v4TaskShaped = !!pre?.duty && pre.duty !== "other" && pre.duty !== "dispatch";
     if (!cardOriginated && (v4TaskShaped || router.isTaskShaped(cls))) {
       let attached = sessionKey ? await router.attachedCard(sessionKey, cls) : null;
@@ -1295,7 +2518,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
             // §6 site 1 of 3: PREFIX-merge the attribution so the lane's own
             // fields (here: card + steering) always win.
             return {
-              ...turnAttribution(pre, hints, { card: card.id, cardUrl: card.url ?? null }),
+              ...controlTurnAttribution(pre, hints, { card: card.id, cardUrl: card.url ?? null }),
               reply,
               session_id: null,
               cost_usd: null,
@@ -1324,7 +2547,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
         // last phase into whatever list is declared next (seen live: Test → Image).
         let inferredPhases = hints?.phases ?? null;
         let pipelineSequence = null;
-        if (!inferredPhases && !hints?.workKind && cls.tier && router.core?.inferPhasePlan && router.core?.phaseTogglesFor) {
+        if (!inferredPhases && !hints?.flow && cls.tier && router.core?.inferPhasePlan && router.core?.phaseTogglesFor) {
           try {
             const inferredPlan = router.core.inferPhasePlan(router.config, router.config.activeProfile, cls.tier);
             inferredPhases = router.core.phaseTogglesFor(inferredPlan);
@@ -1343,13 +2566,37 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
         // per-turn object turnAttribution already reads, so this keeps one reporting
         // path instead of threading a second one through three lane returns.
         if (hints && inferredPhases && !hints.phases) hints.phases = inferredPhases;
+        // The FLOW a card runs. Only an explicit client pin ever set this, so it
+        // stayed null on every card the router created - which is why the flow
+        // layer was configured but unused (2 of 90 live cards carried one, and
+        // none ever ran a phased plan). With no pin, derive it deterministically
+        // from the routed duty so a card arrives knowing which plan it is on.
+        const routedDuty = pre?.duty ?? pre?.route?.duty ?? cls?.taskType ?? null;
+        let derivedFlow = null;
+        try {
+          derivedFlow = router.core?.defaultFlowForDuty?.(router.config, routedDuty) ?? null;
+        } catch {
+          derivedFlow = null; // never block a card on flow derivation
+        }
+        // `pre.flow` is the flow the ROUTE actually resolved its sequence from
+        // (resolvedFlowPlan). Prefer it over re-deriving: deriving twice is how a
+        // card and the run that produced it end up on two different plans. An
+        // explicit pin still wins, as it always did.
+        const cardFlow = hints?.flow ?? pre?.flow ?? derivedFlow;
+        // The per-duty levels only travel when they belong to the flow the card
+        // will actually carry - a pin that overrode the routed flow invalidates
+        // them, and a card is better off with none (every phase then runs at the
+        // card's own level, the pre-level-chain reading) than with levels resolved
+        // from a different flow.
+        const cardDutyLevels = pre?.flow && pre.flow === cardFlow ? (pre.dutyLevels ?? null) : null;
         const cardOpts = {
-          workKind: hints?.workKind ?? null,
+          flow: cardFlow,
           phases: inferredPhases,
           project: hints?.project ?? null,
           duty: pre?.duty ?? pre?.route?.duty,
           level: pre?.level ?? pre?.route?.level,
           sequence: pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence,
+          dutyLevels: cardDutyLevels,
           // A composite card starts on its first resolved leaf, not the legacy
           // hardcoded Plan list (a valid workflow may begin at implement/research).
           targetList: (pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence)?.[0] ?? undefined,
@@ -1375,7 +2622,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
             const resolution = (sig) => ({
               taskType: cls.taskType,
               tier: cls.tier,
-              workKind: hints?.workKind ?? null,
+              flow: hints?.flow ?? null,
               plan: sig ? "full" : "quick",
             });
             try {
@@ -1392,6 +2639,118 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
               logEvent("stderr", { kind: "override-feedback-failed", error: err.message });
             }
           }
+        }
+        // §7.1/§7.5: the autonomy band decides HOW this runs, not whether the
+        // router was right. Below the lower threshold the card is created but
+        // HELD - the work waits for a go rather than starting and apologising -
+        // and that applies identically to a quick (inline) turn, which is the case
+        // that matters most: a board-side hold cannot help a turn that never
+        // reaches the board, so the decision has to happen here, before the turn
+        // opens. Above the threshold nothing changes except that the card carries
+        // the band, so the board can say what it is doing (act-revert) or note it
+        // in passing (act-inform).
+        const autonomy = pre?.autonomy ?? null;
+        const holdPlan = autonomyHoldPlan(autonomy, {
+          significant,
+          sequence: pre?.sequence ?? null,
+          targetList: cardOpts.targetList ?? null
+        });
+        if (holdPlan.hold) {
+          const resumeList = holdPlan.resumeList;
+          const card = await router.createAutonomousCard(message, cls, {
+            ...cardOpts,
+            // A held card sits in the board's capture list, which is manual and
+            // never auto-dispatched. That is the hold: no flag has to win a race
+            // with a tick, because nothing dispatches from Backlog in the first
+            // place. The flag is what the guards, the board UI and the resume path
+            // read.
+            targetList: "backlog",
+            autonomyHeld: true,
+            autonomyAsk: {
+              question: autonomy.question,
+              reason: autonomy.reason ?? null,
+              band: autonomy.band,
+              bands: autonomy.decisions ?? null,
+              flow: pre?.flow ?? cardOpts.flow ?? null,
+              duty: pre?.duty ?? null,
+              level: pre?.level ?? null,
+              tier: cls.tier ?? null,
+              // The routing decision this question is ABOUT, so the answer can be
+              // attributed back to it in the Signals view instead of floating free.
+              decisionId: pre?.decision?.id ?? null,
+              resumeList,
+              at: new Date().toISOString()
+            }
+          });
+          if (card) {
+            // The budget counts questions POSED, and this one is about to be: the
+            // board asks it through the card's origin thread the moment the card
+            // exists (handleCreateCard), and the reply below carries it inline.
+            await router.recordAutonomyAsked();
+            router.rememberCard(sessionKey, { cardId: card.id, quick: false, taskType: cls.taskType });
+            const reply = `${autonomy.question}\nCard: ${card.url}`;
+            broadcastRich("assistant", { text: reply });
+            logEvent("stdout", {
+              kind: "autonomy-held",
+              id: card.id,
+              band: autonomy.band,
+              reason: autonomy.reason ?? null,
+              resumeList
+            });
+            return {
+              ...controlTurnAttribution(pre, hints, { card: card.id, cardUrl: card.url ?? null }),
+              reply,
+              session_id: null,
+              cost_usd: null,
+              route: pre.route?.targetId ?? null,
+              card: card.id,
+              cardUrl: card.url,
+              autonomy: { band: autonomy.band, held: true }
+            };
+          }
+          // Board unavailable. Every other card failure here falls through and
+          // runs inline; this one must NOT - running is exactly what the band
+          // forbids. So ask in the thread and run nothing. The loop still closes:
+          // the answer is an ordinary next message, and a pin ("as a fix at level
+          // 2") exempts the consult, so the user is never stuck with a question
+          // they cannot act on.
+          await router.recordAutonomyAsked();
+          logEvent("stderr", { kind: "autonomy-held-uncarded", band: autonomy.band, reason: autonomy.reason ?? null });
+          const reply = autonomy.question;
+          broadcastRich("assistant", { text: reply });
+          broadcastRich("turn", { active: false });
+          if (onChunk && reply) onChunk(reply, true);
+          return {
+            ...controlTurnAttribution(pre, hints, {}),
+            reply,
+            session_id: null,
+            cost_usd: null,
+            route: pre.route?.targetId ?? null,
+            autonomy: { band: autonomy.band, held: true, carded: false }
+          };
+        }
+        // An acting band travels ON the card so the board can announce the act at
+        // its first real dispatch (post-CAS, never optimistically). An
+        // INFORMATIONAL question - one the band did not require but the record is
+        // near a boundary - rides along on that notice rather than interrupting
+        // separately.
+        //
+        // Its budget is spent HERE, one step before delivery, because the counter
+        // lives beside the composition and the board does not. A card that is
+        // abandoned before its first dispatch therefore over-counts by one, and
+        // that is the right direction to be wrong in: over-counting asks FEWER
+        // questions, and an anti-fatigue budget that errs toward asking more is
+        // not a budget.
+        if (autonomy && (autonomy.band === "act-revert" || autonomy.band === "act-inform")) {
+          cardOpts.autonomy = {
+            band: autonomy.band,
+            shape: autonomy.shape ?? null,
+            flow: pre?.flow ?? cardOpts.flow ?? null,
+            duty: pre?.duty ?? null,
+            level: pre?.level ?? null,
+            ...(autonomy.informational && autonomy.question ? { question: autonomy.question } : {})
+          };
+          if (autonomy.informational && autonomy.question) await router.recordAutonomyAsked();
         }
         if (significant) {
           // S3d (D9b): judge whether the ask is specified enough to plan against. A
@@ -1418,7 +2777,7 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
             // (which owns the client's host context) passes it through
             // rewriteHostUrl - the gateway cannot, it has no page host.
             return {
-              ...turnAttribution(pre, hints, { card: card.id, cardUrl: card.url ?? null }),
+              ...controlTurnAttribution(pre, hints, { card: card.id, cardUrl: card.url ?? null }),
               reply,
               session_id: null,
               cost_usd: null,
@@ -1444,11 +2803,65 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
       }
     }
   }
-  const result = await execRoutedTurn(pre, message, onChunk, hints, opts);
+  let result;
+  try {
+    result = await execRoutedTurn(pre, message, onChunk, hints, routedOpts);
+  } catch (error) {
+    // Rejected runtime iterators can still carry the provider's final observed
+    // model/session. Refine the stable route event before the HTTP edge emits its
+    // canonical error terminal; absent values leave the pre-route attribution.
+    if (routeSessionActivated) {
+      observeRouteSession({
+        sessionDisposition: pre.routeSession.disposition,
+        sessionBoundaryReason: pre.routeSession.boundaryReason,
+        sessionEpoch: pre.routeSession.epoch,
+        spawnSignature: pre.routeSession.signature,
+        ...(typeof error?.model === "string" ? { model: error.model } : {}),
+        ...(typeof (error?.sessionId ?? error?.session_id) === "string"
+          ? { sessionId: error.sessionId ?? error.session_id }
+          : {}),
+      });
+    }
+    // A provider/runtime rejection is just as non-successful as an empty reply.
+    // Keep the board honest while preserving the rejection for the HTTP edge,
+    // which will publish the typed failure and canonical terminal event.
+    if (quickCard) {
+      const failure = normalizeFailureInfo(error?.failure ?? error, {
+        code: "quick_turn_failed",
+        kind: "execution",
+        source: "gateway",
+        retryable: false,
+      });
+      const reason = (
+        `This quick task failed before producing a verifiable result (${failure.code}): ${failure.text} ` +
+        "It was routed to needs-attention rather than advanced. Move it back to retry after addressing the failure."
+      ).slice(0, 1_500);
+      try {
+        await router.parkQuickCard(quickCard.id, reason);
+        logEvent("stdout", { kind: "quick-card-failure-parked", id: quickCard.id, code: failure.code });
+      } finally {
+        router.forgetCard(sessionKey);
+      }
+    }
+    throw error;
+  }
+  // Agent SDK selection/final attribution is published from inside its adapter
+  // path before a held terminal event. Other lanes have no canonical terminal
+  // stream, so refine their observed session/model here before legacy `done`.
+  if (!router.isAgentSdkTarget(pre.route)) {
+    observeRouteSession({
+      sessionDisposition: pre.routeSession.disposition,
+      sessionBoundaryReason: pre.routeSession.boundaryReason,
+      sessionEpoch: pre.routeSession.epoch,
+      spawnSignature: pre.routeSession.signature,
+      model: result?.model ?? pre.route?.target?.model ?? null,
+      sessionId: result?.session_id ?? null,
+    });
+  }
   // D19: a quick card runs inline; advance it Implement→Done now that the turn
   // finished — but ONLY if it finished honestly. An EMPTY reply is a FAILURE, not
   // a pass: route it to needs-attention with the failure contract instead of Done
-  // (parity with the souls-mode completeQuickTurnCard). Either way, release the
+  // Either way, release the
   // session slot so the next task starts a fresh card.
   if (quickCard) {
     if (isEmptyQuickReply(result?.reply)) {
@@ -1472,9 +2885,89 @@ async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   };
 }
 
+// Personal execution is fail-closed. A normal project pin may retain the
+// historical composition-dir fallback, but @personal is a promise to run in the
+// managed private workspace. If resolution rejected that scope, stop after the
+// observable pre-route frame and before card creation or any runtime lane.
+export function personalWorkspaceRejection(pre) {
+  const rejected = Array.isArray(pre?.overridesRejected) ? pre.overridesRejected : [];
+  return rejected.find(
+    (entry) => entry?.field === "project" && entry?.reason === "personal-workspace-unavailable"
+  ) ?? null;
+}
+
+export function assertExecutableRunScope(pre) {
+  if (!personalWorkspaceRejection(pre)) return;
+  const err = new Error(
+    "personal execution refused: the managed personal workspace is missing, invalid, or symlinked; " +
+      "run Kanban setup and verify GARRISON_HOME/personal"
+  );
+  err.code = "personal-workspace-unavailable";
+  throw err;
+}
+
 /** Execute the resolved turn on its runtime (agent-sdk / secondary / workflow /
  *  claude-code PTY) and return the channel-shaped result. Split out of
  *  runRoutedTurn so the D19 quick-card completion runs on every runtime path. */
+// The cwd a turn runs in when NOTHING resolved a project.
+//
+// `undefined` used to mean "inherit the gateway process cwd", which is the
+// composition directory - so a project-less turn asked to write a file wrote it
+// into compositions/default/. Verified live: a note-taking task landed
+// notes-comparison.md there.
+//
+// Falls back to Garrison's own workspace instead. Deliberately does NOT touch
+// `pre.projectPath`: that is what shouldUseScopedClaudeLane keys on, and setting
+// it would divert every project-less chat turn off the standing operative
+// session onto a cwd-keyed one. The lane choice stays exactly as it was; only
+// the directory the turn lands in changes.
+//
+// Null when the workspace cannot be resolved, which restores the old behaviour
+// rather than inventing a path.
+function workspaceCwdFallback() {
+  try {
+    return resolvePersonalScope() ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function shouldUseScopedClaudeLane(routing, route, projectPath) {
+  return Boolean(routing?.usesScopedClaudeSession?.(route, projectPath));
+}
+
+/** Model-facing text for Claude PTY lanes. Web user text is an exact authority
+ * boundary: routing/duty facts are already structured route state and may not be
+ * spliced into it. A Web workflow/skill that still requires a prompt instruction
+ * fails visibly until it has a native control-plane operation. Other internal
+ * channels retain their established orchestrator instruction contract. */
+export function assertWebPromptControls(pre, hints, routing = router) {
+  if (hints?.channel !== "web") return;
+  const workflow = pre?.route?.target?.type === "workflow" || routing?.isWorkflowTarget?.(pre?.route) === true;
+  const rawSkill = pre?.skill ?? pre?.route?.skill ?? hints?.skill;
+  const skill = typeof rawSkill === "string" && rawSkill.trim() ? rawSkill.trim() : null;
+  if (!workflow && !skill) return;
+  const error = new Error(
+    workflow
+      ? "The selected workflow requires a native Web execution control and was not injected into the user message."
+      : `The selected skill ${skill} requires a native Web execution control and was not injected into the user message.`
+  );
+  error.code = workflow ? "web_workflow_control_unavailable" : "web_skill_control_unavailable";
+  error.kind = "routing";
+  error.source = "gateway";
+  error.retryable = false;
+  throw error;
+}
+
+export function routedClaudeMessage(pre, message, hints, routing = router) {
+  assertWebPromptControls(pre, hints, routing);
+  if (hints?.channel === "web") return message;
+  const workflowPrefix = routing?.isWorkflowTarget?.(pre?.route)
+    ? routing.workflowTurnPrefix(pre.route)
+    : "";
+  return `${pre?.annotation ?? ""}\n${workflowPrefix}${message}`;
+}
+
 async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   // Local-vision lane (Evidence V2): an ollama-local target cannot Read image
   // files (its Anthropic-compat endpoint surfaces no tool_use), so a turn that
@@ -1484,6 +2977,13 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   if (typeof router.isOllamaVisionTurn === "function" && router.isOllamaVisionTurn(pre.route, hints?.images)) {
     broadcastRich("turn", { active: true });
     try {
+      // garrison-call owns a bounded child process, but its public invocation
+      // seam exposes no cancellation handle. Publish that fact as the lane's
+      // primitive before entering it: an already-latched stop still unwinds via
+      // registerTurnStop's pre-runtime sentinel, while a genuinely in-flight
+      // stop gets an honest 409 instead of remaining a misleading 202 forever.
+      registerTurnStop("ollama-native", () => false);
+      opts.onRuntimeAdmission?.();
       const r = await router.runOllamaVisionTurn(pre.route, message, hints.images);
       broadcastRich("assistant", { text: r.reply });
       logEvent("stdout", {
@@ -1518,19 +3018,67 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   // runs on the SDK adapter session, NOT the claude-code PTY operative.
   if (router.isAgentSdkTarget(pre.route)) {
     broadcastRich("turn", { active: true }); // rich UI shows "thinking"
-    const r = await router.runAgentSdkTurn(pre.route, message, onChunk, {
-      // §12: the warm SDK session is keyed by CONVERSATION as well as target, so
-      // two web threads never share one session_id (and one transcript badge).
-      sessionKey: hints?.sessionId ?? null,
-      // §8: a pinned project is a REAL execution scope on every lane, not just the
-      // web one-shot. The default composition routes web turns to agent-sdk
-      // targets, so wiring cwd only into runWebOneShot made the project badge lie:
-      // it reported /home/ggomes/dev/<repo> while the turn actually ran in the
-      // composition dir (caught by asking a live turn to print its own pwd).
-      cwd: pre.projectPath ?? undefined,
-      onActivity: opts.onActivity,
-      registerStop: (stop) => registerTurnStop("agent-sdk", stop)
-    });
+    const forceNewSession = pre?.routeSession?.boundaryReason === "initial" ||
+      hints?.agentSdkNewGeneration === true ||
+      pre?.routeSession?.boundaryReason === "spawn-signature-changed";
+    const resumeSessionId = forceNewSession
+      ? null
+      : compatibleAgentSdkResumeSessionId(hints?.agentSdkResume, pre, hints);
+    let r;
+    try {
+      r = await router.runAgentSdkTurn(pre.route, message, onChunk, {
+        assembly: pre.agentSdkAssembly,
+        // §12: the warm SDK session is keyed by CONVERSATION as well as target, so
+        // two web threads never share one session_id (and one transcript badge).
+        sessionKey: hints?.sessionId ?? null,
+        // A candidate reaches this point only when its persisted runtime, target,
+        // model, account source, and project scope exactly match this turn. Effort
+        // is Query configuration and rotates by native resume on the same journal.
+        // The router still rejects a resume id owned by another live cache entry.
+        resumeSessionId,
+        // A durable host-recovery barrier is stronger than an absent resume id: a
+        // just-finished orphan may still own the same-thread warm Query. Explicitly
+        // retire it so the next exact user message starts a clean journal generation.
+        forceNewSession,
+        // Internal form carries the pre-runtime epoch plus whether an identical
+        // durable hint existed. runAgentSdkTurn refines warm/resumed/new and may
+        // disclose a resume-unavailable boundary without changing this signature.
+        routeSession: pre.routeSession,
+        onRouteSession: opts.onRouteSessionObservation,
+        // Only a streamed Web turn owns both coordinates required by the standing
+        // Agent SDK input protocol. JSON chat, Kanban, and threadless probes retain
+        // the historical per-turn string Query path.
+        ...(hints?.channel === "web" &&
+          exactPermissionId(hints?.sessionId) &&
+          exactPermissionId(opts?.generationId)
+          ? { streamingInput: true }
+          : {}),
+        // Interactive permissions are confined to a real Web thread. Every other
+        // caller retains the historical bypass mode, including threadless Web
+        // probes: without a stable thread coordinate there is no safe answer path.
+        permissionMode: opts.permissionMode === "default" ? "default" : "bypassPermissions",
+        generationId: opts.generationId,
+        onPermissionRequest: opts.onPermissionRequest,
+        // §8: a pinned project is a REAL execution scope on every lane, not just the
+        // web one-shot. The default composition routes web turns to agent-sdk
+        // targets, so wiring cwd only into runWebOneShot made the project badge lie:
+        // it reported /home/ggomes/dev/<repo> while the turn actually ran in the
+        // composition dir (caught by asking a live turn to print its own pwd).
+        cwd: pre.projectPath ?? workspaceCwdFallback(),
+        // A web request already owns a monotonic turnSeq. Reuse its stable string
+        // form for event grouping; canonical block ids still come from the SDK.
+        onEvent: opts.onSessionEvent,
+        turnId: hints?.turnSeq == null ? null : String(hints.turnSeq),
+        onActivity: opts.onActivity,
+        onJournal: opts.onJournal,
+        onRuntimeAdmission: opts.onRuntimeAdmission,
+        registerRecoveryReset: registerTurnRecoveryReset,
+        registerStop: (stop) => registerTurnStop("agent-sdk", stop)
+      });
+    } catch (error) {
+      broadcastRich("turn", { active: false });
+      throw error;
+    }
     // Inject the off-screen agent-sdk reply + a status badge into rich clients so
     // the channel UI clearly shows the routed runtime/model (not the idle operative).
     broadcastRich("status", {
@@ -1568,6 +3116,12 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // Preserve it on the normal SSE `done` payload so the card engine can
       // require durable phase evidence before treating the phase as complete.
       stoppedReason: r.stoppedReason ?? null,
+      terminalStatus: r.terminalStatus ?? null,
+      failure: r.failure ?? null,
+      sessionDisposition: r.sessionDisposition,
+      sessionBoundaryReason: r.sessionBoundaryReason,
+      sessionEpoch: r.sessionEpoch,
+      spawnSignature: r.spawnSignature,
       // Routing attribution for channels/kanban (null-safe — a missing decision
       // must never throw): what the classifier decided and which rule matched.
       taskType: pre.decision?.taskType ?? null,
@@ -1582,8 +3136,13 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     broadcastRich("turn", { active: true });
     const r = await router.runSecondaryTurn(pre.route, message, {
       // §8: honor a pinned project here too, else the badge overstates the scope.
-      cwd: pre.projectPath ?? undefined,
-      registerStop: (stop) => registerTurnStop(pre.route.target.runtime, stop)
+      cwd: pre.projectPath ?? workspaceCwdFallback(),
+      registerStop: (stop) => registerTurnStop(pre.route.target.runtime, stop),
+      onRuntimeAdmission: opts.onRuntimeAdmission,
+      // Progress from an adapter that has any to report (remote-shell streams
+      // the remote pane while its agent works). The final onChunk below replaces
+      // whatever streamed with the settled reply.
+      onChunk,
     });
     broadcastRich("status", {
       rows: [`Garrison orchestrator → runtime: ${r.runtime} · provider: ${r.provider} · model: ${r.model}`],
@@ -1625,17 +3184,25 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     };
   }
   // A Claude-bound v4 cell under a non-Claude primary is an actual Claude Code
-  // delegate lane. Do not call runTurn on the Codex/Gemini operative and then
-  // mislabel it as Claude: the routing layer owns a real target-specific Claude
-  // session and reports the provider/model/effort it launched.
-  if (router.isClaudeDelegateTarget(pre.route)) {
+  // delegate lane. A cwd-scoped Claude turn uses this lane too, even under a
+  // Claude primary: the standing operative is rooted in the composition and
+  // must never accept a project/personal turn while attribution claims another
+  // cwd. The delegate pool is keyed by cwd, preserving follow-up continuity.
+  // A scoped delegate pool is keyed by cwd, not by Web thread. Reusing it from
+  // Web would share conversation state across threads. Web Claude turns stay on
+  // the isolated one-shot below; internal channels retain scoped continuity.
+  if (hints?.channel !== "web" && shouldUseScopedClaudeLane(router, pre.route, pre.projectPath)) {
+    const annotated = routedClaudeMessage(pre, message, hints, router);
     broadcastRich("turn", { active: true });
-    const annotated = `${pre.annotation}\n${message}`;
     const r = await router.runClaudeDelegateTurn(pre.route, annotated, {
       onChunk,
       timeoutMs: hints?.timeoutMs,
       // §8: honor a pinned project here too, else the badge overstates the scope.
-      cwd: pre.projectPath ?? undefined,
+      cwd: pre.projectPath ?? workspaceCwdFallback(),
+      onJournal: opts.onJournal,
+      onRuntimeAdmission: opts.onRuntimeAdmission,
+      registerQuestionSession: (questionSession, identity) =>
+        registerQuestionSession(questionSession, identity),
       registerStop: (stop) => registerTurnStop("claude-delegate", stop)
     });
     broadcastRich("status", {
@@ -1677,8 +3244,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   session = router.getOperativeSession();
   // A resolved `workflow` target runs the named Claude Code workflow ON the
   // operative (via its Workflow tool) — prepend the instruction; else a plain turn.
-  const wfPrefix = router.isWorkflowTarget(pre.route) ? router.workflowTurnPrefix(pre.route) : "";
-  const annotated = `${pre.annotation}\n${wfPrefix}${message}`;
+  const annotated = routedClaudeMessage(pre, message, hints, router);
   // S3b: a WEB conversational turn materializes as a one-shot. Internal
   // screenshot-grounded turns do too: they must not consume or overwrite a
   // human's draft in the standing operative input box. Other channels
@@ -1686,11 +3252,9 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
   const oneShotChannel = shouldUseEphemeralSession(hints?.channel);
   if (oneShotChannel) {
     const isInternal = hints?.channel === "garrison";
-    const ctxBlock = !isInternal && typeof hints?.context === "string" && hints.context.trim()
-      ? hints.context.trim()
-      : "";
-    const oneShotMsg = ctxBlock ? `${ctxBlock}\n\n---\n\n${annotated}` : annotated;
+    const oneShotMsg = annotated;
     const model = pre.route?.target?.model ?? MODEL;
+    const effort = pre.route?.target?.effort ?? null;
     let reply = "";
     let os1 = null;
     try {
@@ -1698,6 +3262,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       // the standing path below); the final onChunk(reply, true) after the turn
       // remains the authoritative replace.
       let osSession = null;
+      let osTurnStarted = false;
       let osEmitted = "";
       const osOnScreen =
         onChunk
@@ -1713,16 +3278,24 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
               }
             }
           : undefined;
+      // Provider choice is spawn-fixed for Claude Code. Resolve the target's
+      // policy-backed endpoint + vault/account auth for this disposable process,
+      // including the keep-provider flag that prevents claude-pty from scrubbing
+      // an explicitly selected non-plan base URL back to the Max-plan default.
+      const oneShotLaunch = router.resolveWebOneShotLaunch(pre.route?.target ?? {});
       os1 = await router.runWebOneShot({
         message: oneShotMsg,
         model,
+        effort,
+        providerLaunch: oneShotLaunch.providerLaunch,
         // §8: a pinned project IS this turn's cwd (a confined dev-root repo,
         // already resolved by applyTurnOverride). Absent → the composition dir,
         // exactly as before. An unresolvable project never reaches here: it was
         // rejected at resolution time rather than silently falling back.
-        cwd: pre.projectPath ?? undefined,
-        // §6: a pinned account is real auth env for this spawn, not a label.
-        env: oneShotAccountEnv(pre.route?.target?.account ?? null) ?? undefined,
+        cwd: pre.projectPath ?? workspaceCwdFallback(),
+        // §6: provider selection and any pinned account are real launch env,
+        // resolved by Stage B's provider policy rather than inherited labels.
+        env: oneShotLaunch.env,
         onScreen: osOnScreen,
         onSession: (s) => {
           osSession = s;
@@ -1730,20 +3303,41 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
           // primitive; waitForTurnComplete's liveness check then settles the turn
           // with its partial reply instead of hanging to the 5-minute timeout.
           registerTurnStop("web-one-shot", () => {
+            // A latched generation interrupt reaches this callback before the
+            // one-shot helper enters session.runTurn. Dispose in that narrow
+            // window because an ESC written before a turn starts cannot cancel
+            // the future input. During a live turn, preserve the ordinary ESC
+            // primitive so the partial reply can settle normally.
+            if (!osTurnStarted && typeof s?.dispose === "function") {
+              s.dispose();
+              return true;
+            }
             if (typeof s?.writeKeys !== "function") return false;
             s.writeKeys("\x1b");
             return true;
           });
+          opts.onRuntimeAdmission?.();
+          reportJournal(
+            opts,
+            sessionJournalIdentity(s, s?.compositionDir ?? pre.projectPath ?? COMPOSITION_DIR),
+            s
+          );
+          osTurnStarted = true;
         },
       });
       reply = os1.reply ?? "";
     } catch (err) {
       logEvent("stderr", { kind: "web-oneshot-failed", error: err?.message || String(err) });
+      if (!isInternal) broadcastRich("turn", { active: false });
+      // A disposable runtime failure is still a failed turn. Returning the empty
+      // accumulator here used to manufacture a successful `done` frame and could
+      // advance a quick card despite the provider never producing a result.
+      throw err;
     }
     if (!isInternal) {
-      lastMaterialized = { at: new Date().toISOString(), threadId: hints?.sessionId ?? null, assembledChars: ctxBlock.length, oneShot: true };
+      lastMaterialized = { at: new Date().toISOString(), threadId: hints?.sessionId ?? null, assembledChars: 0, oneShot: true };
       broadcastRich("status", {
-        rows: [`Garrison orchestrator → runtime: claude-code · web materialized (one-shot) · model: ${model}`],
+        rows: [`Garrison orchestrator → runtime: claude-code · web isolated (one-shot) · model: ${model}`],
         mode: "claude-code",
         contextPct: null,
         model: `${model} · claude-code`,
@@ -1776,12 +3370,18 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
       tier: pre.decision?.tier ?? null,
       ruleId: pre.decision?.ruleId ?? null,
       profile: pre.decision?.profile ?? null,
-      effort: pre.decision?.effort ?? pre.route?.target?.effort ?? null,
+      effort,
+      effortApplied: os1?.effortApplied ?? null,
       // Acceptance evidence: prove this turn ran one-shot (no standing session).
-      materialized: { oneShot: true, assembledChars: ctxBlock.length, internal: isInternal },
+      materialized: { oneShot: true, assembledChars: 0, internal: isInternal },
     };
   }
 
+  // Standing-operative execution: ONE conversation, so it queues on the
+  // operative lane (2026-08-07) while routed SDK/delegate/one-shot turns run
+  // concurrently on their own lanes.
+  return await enqueueOperative(async () => {
+  session = router.getOperativeSession();
   let lastEmitted = "";
   // Runs even when onChunk is absent: the activity hint is the ONLY feedback a
   // caller gets on this lane, so it must not be gated on text streaming.
@@ -1808,8 +3408,14 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     session.writeKeys("\x1b");
     return true;
   });
+  opts.onRuntimeAdmission?.();
+  const journal = reportJournal(
+    opts,
+    sessionJournalIdentity(session, session?.compositionDir ?? pre.projectPath ?? CANONICAL_COMPOSITION_DIR),
+    session
+  );
   const outcome = await session.runTurn({ message: annotated, onScreen, timeoutMs: hints?.timeoutMs });
-  const honored = await router.postTurn(pre.route, pre.decision, outcome.reply);
+  const honored = await router.postTurn(pre.route, pre.decision, outcome.reply, message);
   await markPriorSession();
   // Inject a consistent runtime/model status badge for the channel UI (the
   // secondary/agent-sdk branches do the same), so every routed turn shows which
@@ -1857,6 +3463,7 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     // reports a session (outcome.sessionId is null for the pooled PTY operative).
     reply: outcome.reply,
     session_id: outcome.sessionId ?? session.getClaudeSessionId?.() ?? null,
+    transcript_path: journal?.transcript_path ?? null,
     cost_usd: null,
     route: pre.route.targetId,
     honored: honored.honored,
@@ -1868,83 +3475,170 @@ async function execRoutedTurn(pre, message, onChunk, hints, opts = {}) {
     model: pre.route?.target?.model ?? null,
     effort,
     effortApplied,
+    standingOperative: true,
     taskType: pre.decision?.taskType ?? null,
     tier: pre.decision?.tier ?? null,
     ruleId: pre.decision?.ruleId ?? null,
     profile: pre.decision?.profile ?? null,
   };
+  });
+}
+
+function interruptedBeforeRuntimeResult(entry) {
+  return {
+    reply: "",
+    session_id: null,
+    cost_usd: null,
+    stoppedByUser: true,
+    runtimeStoppedReason: null,
+    stoppedReason: "user-interrupt",
+    interruptedByCardId: null,
+    affectedCardIds: Array.isArray(entry?.cardIds) ? entry.cardIds : []
+  };
+}
+
+export function shouldRejectGeneratedWebDispatch(hints, currentRouter = router, status = ptyStatus) {
+  return hints?.channel === "web" &&
+    hints?.directOperative !== true &&
+    (!currentRouter || status !== "ready");
 }
 
 /** Run one turn against the live operative. Spawns/respawns on demand.
  *  onChunk(text) streams the growing assistant reply (screen-derived).
- *  opts: { onPreRoute, onActivity } - the §4/§12 SSE frame sinks. */
+ *  opts: { onPreRoute, onActivity, onJournal, turnControlEntry } - the
+ *  §4/§12 SSE frame sinks plus an exact streamed-Web generation claim. */
 async function runTurn(message, onChunk, hints, opts = {}) {
-  // S3d review R1: bind AskUserQuestions raised during THIS turn to its card (the
-  // engine's dutyKey = "cardId:phase"), and sweep any that outlive the turn. Turns are
-  // serialized, so this module-level cursor is race-free.
+  // Bind AskUserQuestions raised during THIS turn to its card (the engine's
+  // dutyKey = "cardId:phase") and exact stream sink. Runtime lanes are
+  // concurrent, so this identity rides the AsyncLocalStorage entry rather than
+  // a module-global cursor whose save/restore order can corrupt another turn.
   const turnCardId = typeof hints?.dutyKey === "string" ? (hints.dutyKey.split(":")[0] || null) : null;
-  const prevTurnCardId = currentTurnCardId;
-  currentTurnCardId = turnCardId;
   // §9: publish this turn in the cancel registry for the whole of its life. The
   // lane fills in the actual `stop` as soon as it owns something interruptible; an
   // interrupt before that answers "no cancel primitive yet" rather than lying.
   const turnKey = hints?.sessionId || INTERRUPT_FALLBACK_KEY;
-  const entry = { lane: primaryRuntime(), stop: null, cancelled: false };
-  const prevTurnEntry = currentTurnEntry;
-  currentTurnEntry = entry;
-  activeTurns.set(turnKey, entry);
+  const hintedCardIds = Array.isArray(hints?.cardIds)
+    ? hints.cardIds.filter((id) => typeof id === "string" && id).slice(0, 100)
+    : [];
+  const cardIds = [...new Set([turnCardId, ...hintedCardIds].filter(Boolean))];
+  const generationEntry = opts?.turnControlEntry?.kind === "web-generation"
+    ? opts.turnControlEntry
+    : null;
+  const entry = generationEntry ?? {
+    lane: primaryRuntime(),
+    stop: null,
+    cancelled: false,
+    dutyKey: typeof hints?.dutyKey === "string" ? hints.dutyKey : null,
+    cardIds
+  };
+  entry.dutyKey = typeof hints?.dutyKey === "string" ? hints.dutyKey : null;
+  entry.cardIds = cardIds;
+  entry.questionCardId = turnCardId;
+  entry.questionThreadId = hints?.channel === "web"
+    ? exactPermissionId(hints?.sessionId)
+    : null;
+  entry.questionSink = typeof opts?.onQuestion === "function" ? opts.onQuestion : null;
+  if (!generationEntry) activeTurns.set(turnKey, entry);
   try {
-    if (router) {
-      const result = await runRoutedTurn(message, onChunk, hints, opts);
+    // An interrupt can arrive in the small but real window after `open` and
+    // before this function begins. Honor the latched generation without ever
+    // entering a runtime lane.
+    if (generationEntry?.cancelRequested) return interruptedBeforeRuntimeResult(entry);
+    // Re-check at the irreversible lane-selection boundary. The router may
+    // have been ready at HTTP ingress and then entered /control/reload-prompt
+    // while Discuss interception yielded. A generated Web turn must fail
+    // closed in both reload phases: `starting` with the old router still
+    // present, and null while it is replaced. It may never fall through to the
+    // composition-wide standing PTY. Explicit web-console/direct-operative
+    // traffic retains the legacy branch below.
+    if (shouldRejectGeneratedWebDispatch(hints)) {
+      throw webRouteUnavailableError();
+    }
+    if (router && hints?.directOperative !== true) {
+      const result = await turnContext.run(entry, () => runRoutedTurn(message, onChunk, hints, opts));
       // A cancelled turn settles NORMALLY with its partial reply - the stop is not
       // an error path - so the done frame is where the user learns it was stopped.
       return entry.cancelled
-        ? { ...result, stoppedByUser: true, stoppedReason: result?.stoppedReason ?? "user-interrupt" }
+        ? {
+            ...result,
+            stoppedByUser: true,
+            // The adapter may call its own primitive stop "cancelled". Preserve
+            // that low-level reason separately; the workflow needs the stable,
+            // user-authored cause so it never interprets a partial reply.
+            runtimeStoppedReason: result?.stoppedReason ?? null,
+            stoppedReason: "user-interrupt",
+            interruptedByCardId: entry.interruptedByCardId ?? null,
+            affectedCardIds: entry.cardIds
+          }
         : result;
     }
-    if (!session || session.isDisposed() || !session.isAlive()) {
-      logEvent("stdout", { kind: "respawn-before-turn" });
-      ptyStatus = "spawning";
-      await spawnOperative({ resume: true });
-    }
-    let lastEmitted = "";
-    const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
-    const onScreen = () => {
-      emitScreenActivity();
-      if (!onChunk) return;
-      const current = extractReply(session.handle, message);
-      if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
-        onChunk(current.slice(lastEmitted.length));
-        lastEmitted = current;
-      } else if (current && current !== lastEmitted) {
-        // Reflow / divergence - re-emit the whole thing as a correction.
-        onChunk(current, true);
-        lastEmitted = current;
+    // Legacy single-session path: the standing PTY is one conversation, so its
+    // turns queue on the operative lane (the routed path gates its own
+    // standing-session tail the same way inside execRoutedTurn).
+    return await turnContext.run(entry, () => enqueueOperative(async () => {
+      if (router?.getOperativeSession) session = router.getOperativeSession();
+      if (!session || session.isDisposed() || !session.isAlive()) {
+        logEvent("stdout", { kind: "respawn-before-turn" });
+        ptyStatus = "spawning";
+        await spawnOperative({ resume: true });
       }
-    };
-    // The legacy single-session path is a Claude PTY too, so ESC stops it.
-    registerTurnStop("standing-pty", () => {
-      if (typeof session?.writeKeys !== "function") return false;
-      session.writeKeys("\x1b");
-      return true;
-    });
-    const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
-    await markPriorSession();
-    return {
-      reply: outcome.reply,
-      session_id: outcome.sessionId,
-      cost_usd: null,
-      ...(entry.cancelled ? { stoppedByUser: true, stoppedReason: "user-interrupt" } : {})
-    };
+      let lastEmitted = "";
+      const emitScreenActivity = screenActivityEmitter(session.handle, opts?.onActivity);
+      const onScreen = () => {
+        emitScreenActivity();
+        if (!onChunk) return;
+        const current = extractReply(session.handle, message);
+        if (current && current.length > lastEmitted.length && current.startsWith(lastEmitted)) {
+          onChunk(current.slice(lastEmitted.length));
+          lastEmitted = current;
+        } else if (current && current !== lastEmitted) {
+          // Reflow / divergence - re-emit the whole thing as a correction.
+          onChunk(current, true);
+          lastEmitted = current;
+        }
+      };
+      // The legacy single-session path is a Claude PTY too, so ESC stops it.
+      registerTurnStop("standing-pty", () => {
+        if (typeof session?.writeKeys !== "function") return false;
+        session.writeKeys("\x1b");
+        return true;
+      });
+      const journal = reportJournal(opts, sessionJournalIdentity(session), session);
+      const outcome = await session.runTurn({ message, onScreen, timeoutMs: hints?.timeoutMs });
+      await markPriorSession();
+      return {
+        reply: outcome.reply,
+        session_id: outcome.sessionId ?? session.getClaudeSessionId?.() ?? null,
+        transcript_path: journal?.transcript_path ?? null,
+        cost_usd: null,
+        standingOperative: true,
+        ...(entry.cancelled
+          ? {
+              stoppedByUser: true,
+              stoppedReason: "user-interrupt",
+              interruptedByCardId: entry.interruptedByCardId ?? null,
+              affectedCardIds: entry.cardIds
+            }
+          : {})
+      };
+    }));
+  } catch (err) {
+    // Stop registration happens immediately before a lane starts its runtime.
+    // If the generation was interrupted while routing/queueing, registration
+    // invokes the primitive once and this sentinel unwinds before send/runTurn.
+    if (generationEntry?.cancelRequested && err?.code === "turn_interrupted_before_runtime") {
+      return interruptedBeforeRuntimeResult(entry);
+    }
+    throw err;
   } finally {
-    // The turn ended (returned, timed out, or threw) - an unanswered question it raised
-    // is now dead; drop it so it cannot answer a future thread's reply.
-    sweepPendingQuestions(turnCardId);
-    currentTurnCardId = prevTurnCardId;
+    // The turn ended (returned, timed out, or threw): release only transcript
+    // mappings and unanswered questions still owned by THIS entry. An older
+    // turn completing after a newer claimant cannot erase the newer owner.
+    questionTurns.release(entry);
     // Only clear the registry slot if it is still OURS (a later turn on the same
     // conversation key must not be un-cancellable because an older one finished).
-    if (activeTurns.get(turnKey) === entry) activeTurns.delete(turnKey);
-    currentTurnEntry = prevTurnEntry;
+    if (generationEntry) generationTurnControl.release(generationEntry);
+    else if (activeTurns.get(turnKey) === entry) activeTurns.delete(turnKey);
   }
 }
 
@@ -1965,6 +3659,18 @@ export function phaseTogglesFromCsv(csv) {
   return Object.fromEntries(ids.map((id) => [id, false]));
 }
 
+/** Both phase-override pins folded into ONE toggle map: `{id: false}` skips a
+ *  plan phase, `{id: true}` adds an out-of-plan phase (railForCard unions true
+ *  entries into the plan). OFF wins a conflict — the map is keyed, so a phase
+ *  in both CSVs resolves to the safer "does not run". Null when neither pin
+ *  carries anything, keeping unpinned turns byte-identical to before. */
+export function phaseTogglesFromRouting(routing) {
+  const off = phaseTogglesFromCsv(routing?.phasesOff);
+  const onIds = String(routing?.phasesOn ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!off && !onIds.length) return null;
+  return { ...Object.fromEntries(onIds.map((id) => [id, true])), ...(off ?? {}) };
+}
+
 /** The inverse, for reporting a resolved plan back on the badge row. Only `false`
  *  entries count: `railForCard` reads nothing else, so a stray `true` in a toggle
  *  map means "on", not "off", and must not appear in the OFF list. */
@@ -1972,6 +3678,142 @@ export function phaseTogglesToCsv(toggles) {
   if (!toggles || typeof toggles !== "object" || Array.isArray(toggles)) return null;
   const off = Object.entries(toggles).filter(([, on]) => on === false).map(([id]) => id);
   return off.length ? off.join(",") : null;
+}
+
+/** The ON half of the same report: phases explicitly ADDED beyond the plan. */
+export function phaseTogglesOnToCsv(toggles) {
+  if (!toggles || typeof toggles !== "object" || Array.isArray(toggles)) return null;
+  const on = Object.entries(toggles).filter(([, v]) => v === true).map(([id]) => id);
+  return on.length ? on.join(",") : null;
+}
+
+// Durable Web → gateway resume identity. The session id alone is not enough:
+// Claude session journals are conversation context, so resuming one under a
+// different route/model/account/project would cross an explicit generation
+// boundary. Require the complete prior Agent SDK attribution as an exact object;
+// legacy or partially-attributed threads safely start a disclosed clean boundary.
+const AGENT_SDK_RESUME_KEYS = [
+  "sessionId",
+  "route",
+  "runtime",
+  "provider",
+  "model",
+  "effort",
+  "account",
+  "accountSource",
+  "projectPath",
+  "spawnSignature",
+];
+const AGENT_SDK_RESUME_ACCOUNT_SOURCES = new Set(["target", "override", "process"]);
+
+function exactResumeString(raw, max = 200) {
+  if (typeof raw !== "string" || !raw || raw !== raw.trim() || raw.length > max || /[\u0000-\u001f\u007f]/.test(raw)) {
+    return null;
+  }
+  return raw;
+}
+
+export function sanitizeAgentSdkResume(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const keys = Object.keys(raw);
+  if (keys.length !== AGENT_SDK_RESUME_KEYS.length || keys.some((key) => !AGENT_SDK_RESUME_KEYS.includes(key))) {
+    return null;
+  }
+  if (AGENT_SDK_RESUME_KEYS.some((key) => !Object.hasOwn(raw, key))) return null;
+  const sessionId =
+    typeof raw.sessionId === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(raw.sessionId)
+      ? raw.sessionId
+      : null;
+  const route = exactResumeString(raw.route);
+  const runtime = raw.runtime === "agent-sdk" ? raw.runtime : null;
+  const provider = exactResumeString(raw.provider);
+  const model = exactResumeString(raw.model);
+  const effort = raw.effort === null || TURN_EFFORTS.includes(raw.effort) ? raw.effort : undefined;
+  const account = raw.account === null ? null : exactResumeString(raw.account);
+  const accountSource =
+    raw.accountSource === null || AGENT_SDK_RESUME_ACCOUNT_SOURCES.has(raw.accountSource)
+      ? raw.accountSource
+      : undefined;
+  const projectPath =
+    raw.projectPath === null
+      ? null
+      : exactResumeString(raw.projectPath, 4_000);
+  const spawnSignature = sanitizeSpawnSignature(raw.spawnSignature);
+  if (
+    !sessionId || !route || !runtime || !provider || !model || effort === undefined ||
+    (raw.account !== null && !account) || accountSource === undefined ||
+    (raw.projectPath !== null && (!projectPath || !path.isAbsolute(projectPath))) ||
+    spawnSignature?.version !== 2 || spawnSignature.runtime !== "agent-sdk"
+  ) {
+    return null;
+  }
+  const signedFields = {
+    target: route,
+    runtime,
+    provider,
+    model,
+    account,
+    accountSource,
+    projectPath,
+  };
+  for (const [field, value] of Object.entries(signedFields)) {
+    if (spawnSignature[field] !== value) return null;
+  }
+  return {
+    sessionId,
+    route,
+    runtime,
+    provider,
+    model,
+    effort,
+    account,
+    accountSource,
+    projectPath,
+    spawnSignature,
+  };
+}
+
+export function compatibleAgentSdkResumeSessionId(candidate, pre, hints) {
+  const resume = sanitizeAgentSdkResume(candidate);
+  const target = pre?.route?.target ?? null;
+  if (!resume || target?.runtime !== "agent-sdk") return null;
+  // Recompute from this turn's frozen Agent SDK assembly and require the internal
+  // routeSession to agree. Bind native resume to that complete v2 identity: a
+  // persisted session from assembly A must not resume merely because a later
+  // failed turn already advanced the durable thread routeSession to B.
+  let currentSignature = null;
+  try {
+    currentSignature = resolvedSpawnSignature(pre, hints);
+  } catch {
+    return null;
+  }
+  const preSignature = sanitizeSpawnSignature(pre?.routeSession?.signature);
+  if (
+    currentSignature?.version !== 2 ||
+    preSignature?.version !== 2 ||
+    JSON.stringify(preSignature) !== JSON.stringify(currentSignature) ||
+    JSON.stringify(resume.spawnSignature) !== JSON.stringify(currentSignature)
+  ) {
+    return null;
+  }
+  const attribution = turnAttribution(pre, hints);
+  const current = {
+    route: pre?.route?.targetId ?? null,
+    runtime: target.runtime,
+    provider: target.provider ?? null,
+    model: target.model ?? null,
+    // Effort is retained in the legacy resume payload for backwards-compatible
+    // validation, but it is not spawn identity: changing it rotates the standing
+    // Query and resumes this same journal.
+    effort: target.effort ?? null,
+    account: attribution.account ?? null,
+    accountSource: attribution.accountSource ?? null,
+    projectPath: pre?.projectPath ?? null,
+  };
+  for (const field of ["route", "runtime", "provider", "model", "account", "accountSource", "projectPath"]) {
+    if (resume[field] !== current[field]) return null;
+  }
+  return resume.sessionId;
 }
 
 export function routeHintsFromBody(body) {
@@ -2005,7 +3847,7 @@ export function routeHintsFromBody(body) {
     // are engine dispatches and run inline; every other channel's task-shaped turn
     // becomes a card), the per-conversation session id (so a multi-turn thread
     // attaches to one card, D19), the resolved mode, and optional card fields
-    // (workKind / per-card phase toggles / project) for the created card.
+    // (flow / per-card phase toggles / project) for the created card.
     channel: typeof body?.channel === "string" ? body.channel : null,
     // The web channel names this `thread` (its opaque per-conversation key);
     // other hosts send `sessionId`. Accept both so a decision can be traced back
@@ -2014,6 +3856,10 @@ export function routeHintsFromBody(body) {
       (typeof body?.sessionId === "string" && body.sessionId) ||
       (typeof body?.thread === "string" && body.thread) ||
       null,
+    // Trusted durable admission coordinate. Unlike turnSeq this is not display
+    // metadata: the generation registry binds it to the gateway claim so a Web
+    // restart can recover an `open` frame that was received but not persisted.
+    inputId: exactDurableInputId(body?.inputId),
     // Display label for that session, carried alongside the id so the Muster
     // Decisions feed can name the conversation a decision came from instead of
     // showing a bare uuid. Purely cosmetic and optional.
@@ -2024,22 +3870,34 @@ export function routeHintsFromBody(body) {
     // card+phase the turn ran, folded into the compact-log record.
     contextHold: body?.contextHold === true,
     dutyKey: typeof body?.dutyKey === "string" && body.dutyKey ? body.dutyKey : null,
-    // S3b: the web-channel's assembled materialized-turn context — prefixed onto a
-    // web one-shot so the standing operative session holds no web context.
-    context: typeof body?.context === "string" ? body.context : null,
+    // Kanban batch identity. Bounded and opaque: it is used only to prove that a
+    // card-level interrupt belongs to the active shared turn.
+    cardIds: Array.isArray(body?.cardIds)
+      ? [...new Set(body.cardIds.filter((id) => typeof id === "string" && id).slice(0, 100))]
+      : null,
+    // M5: server-derived only. A complete prior SDK attribution allows a cold
+    // gateway/cache to resume the exact journal. Malformed or legacy candidates
+    // become null and the lane starts an explicitly disclosed clean session.
+    agentSdkResume: sanitizeAgentSdkResume(body?.agentSdkResume),
+    // M6: durable logical route identity. Closed validation makes it an equality
+    // hint only; the gateway always recomputes the live signature after routing.
+    routeSession: sanitizeRouteSession(body?.routeSession),
+    // Server-owned restart boundary. `true` explicitly abandons any same-thread
+    // warm Query; false/absent retains the normal warm-or-resume behavior.
+    agentSdkNewGeneration: body?.agentSdkNewGeneration === true,
     // The phase plan for a turn that becomes a card. TWO wire spellings reach the
-    // same field: the board's long-standing top-level `workKind`/`phases`, and the
-    // RUN-SPEC-V1 pin (`routing.workKind` / `routing.phasesOff`) that every rail
+    // same field: the board's long-standing top-level `flow`/`phases`, and the
+    // RUN-SPEC-V1 pin (`routing.flow` / `routing.phasesOff`) that every rail
     // surface sends. The top-level form WINS - the board computes it from the card
     // it already owns, so it is a statement of fact, while the pin is an intent that
     // has to survive validation. The pin is only read after sanitizeRouting, so an
-    // out-of-vocabulary work kind never arrives here at all.
-    workKind:
-      typeof body?.workKind === "string" ? body.workKind : (routing?.workKind ?? null),
+    // out-of-vocabulary flow never arrives here at all.
+    flow:
+      typeof body?.flow === "string" ? body.flow : (routing?.flow ?? null),
     phases:
       body?.phases && typeof body.phases === "object"
         ? body.phases
-        : phaseTogglesFromCsv(routing?.phasesOff),
+        : phaseTogglesFromRouting(routing),
     // NOT the same thing as `routing.project`, and deliberately not folded into it:
     // this is the card's project LABEL, `routing.project` is the turn's cwd pin.
     // Collapsing them would silently change the cwd of every existing board caller.
@@ -2067,25 +3925,108 @@ export function routeHintsFromBody(body) {
   };
 }
 
+/** Agent SDK permission callbacks are reachable only for a stable Web thread. */
+/**
+ * Every lane runs unattended.
+ *
+ * The Web thread used to be the one surface that asked, because it is the one
+ * with somewhere to show a prompt. In practice that means work stops until
+ * someone is looking at that tab - from the board, from a schedule, from the
+ * phone - which is the opposite of what this machine is for. The durable
+ * permission-card path is still wired end to end (adapter callback, gateway
+ * resolver, durable revisions, answer endpoint, UI cards) and comes back whole
+ * with GARRISON_WEB_PERMISSION_PROMPTS=1; nothing was deleted to get here.
+ */
+export function permissionModeForHints(hints) {
+  if (process.env.GARRISON_WEB_PERMISSION_PROMPTS !== "1") return "bypassPermissions";
+  return hints?.channel === "web" && exactPermissionId(hints?.sessionId)
+    ? "default"
+    : "bypassPermissions";
+}
+
+function webThreadRequiredFailure() {
+  const failure = {
+    source: "gateway",
+    kind: "invalid_request",
+    code: "web_thread_required",
+    text: "Generated Web turns require a durable thread identity.",
+    retryable: false,
+    httpStatus: 400,
+  };
+  return { error: failure.text, failure };
+}
+
+function webStreamRequiredFailure() {
+  const failure = {
+    source: "gateway",
+    kind: "invalid_request",
+    code: "web_stream_required",
+    text: "Generated Web turns require the streamed durable input endpoint.",
+    retryable: false,
+    httpStatus: 400,
+  };
+  return { error: failure.text, failure };
+}
+
+function webInputRequiredFailure() {
+  const failure = {
+    source: "gateway",
+    kind: "invalid_request",
+    code: "web_input_required",
+    text: "Generated Web streams require a durable input identity.",
+    retryable: false,
+    httpStatus: 400,
+  };
+  return { error: failure.text, failure };
+}
+
+function webRouteUnavailableFailureInfo() {
+  return {
+    source: "gateway",
+    kind: "routing",
+    code: "gateway_route_unavailable",
+    text: "Generated Web turns require model routing, but the routed gateway is unavailable.",
+    retryable: true,
+    httpStatus: 503,
+  };
+}
+
+function webRouteUnavailableFailure() {
+  const failure = webRouteUnavailableFailureInfo();
+  return { error: failure.text, failure };
+}
+
+function webRouteUnavailableError() {
+  const failure = webRouteUnavailableFailureInfo();
+  const error = new Error(failure.text);
+  Object.assign(error, failure, { failure });
+  return error;
+}
+
 function enqueueTurn(message, onChunk, hints, opts = {}) {
-  const previous = inflight ?? Promise.resolve();
-  const runP = previous.catch(() => {}).then(() => runTurn(message, onChunk, hints, opts));
-  // Turn-boundary compaction check (S1b): chained AFTER the turn so the NEXT
-  // enqueued turn waits for any compaction, while the caller only awaits the turn
-  // result (runP). Never rejects the chain.
-  inflight = runP.then((result) => maybeCompactAtTurnBoundary(hints, result)).catch(() => {});
+  // No global chain (2026-08-07): the turn starts NOW and serializes only where
+  // its resolved lane demands it (see the per-lane queues in gateway-routing and
+  // the operative gate above).
+  const runP = runTurn(message, onChunk, hints, opts);
+  // Mesh session registry: every lane's turn passes through here, so this is the
+  // one place the run is honestly "busy". The registry counts overlapping turns,
+  // so the row only returns to idle when the LAST one settles.
+  void announceGenerationOpen(SESSION_LOG_RUN);
+  runP.then(() => announceGenerationClose(SESSION_LOG_RUN), () => announceGenerationClose(SESSION_LOG_RUN));
+  // Turn-boundary compaction check (S1b): only the standing claude-code
+  // operative accumulates context across turns (maybeCompact self-filters), so
+  // the check queues on the OPERATIVE lane - it must never overlap an operative
+  // turn, and it must not delay the caller (runP settles independently).
+  runP.then((result) => enqueueOperative(() => maybeCompactAtTurnBoundary(hints, result))).catch(() => {});
   return runP;
 }
 
 // Enqueue an arbitrary boundary action (e.g. a duty-boundary compact check) onto
-// the same serialized turn chain, so it can never overlap a turn. Returns the
-// action's promise; the chain swallows its rejection so one failure never wedges
-// the next turn.
+// the operative lane, so it can never overlap standing-operative work. Returns
+// the action's promise; the chain swallows its rejection so one failure never
+// wedges the next turn.
 function enqueue(fn) {
-  const previous = inflight ?? Promise.resolve();
-  const next = previous.catch(() => {}).then(() => fn());
-  inflight = next.catch(() => {});
-  return next;
+  return enqueueOperative(fn);
 }
 
 // S3d review R1/R3: at the HTTP entry point (BEFORE enqueueTurn), decide whether a web
@@ -2106,13 +4047,102 @@ async function dispatchDiscussIntercept(body) {
     });
     if (!decision) return null;
     if (decision.action === "answer") {
-      const r = await handleAnswer({ tool_use_id: decision.toolUseId, text: message });
+      const r = await handleAnswer(
+        { tool_use_id: decision.toolUseId, text: message },
+        { trustedCardId: decision.card.id }
+      );
       const reply =
         r?.status === 200
           ? "Got it - passing that to the discussion."
           : "Tried to pass that to the discussion, but the question may have already closed.";
       logEvent("stdout", { kind: "discuss-answer", card: decision.card.id, tool_use_id: decision.toolUseId, status: r?.status ?? null });
       return { reply, card: decision.card.id, action: "answer" };
+    }
+    if (decision.action === "autonomy-go") {
+      // §7.1: the go on a card the router HELD below its lower threshold. The
+      // move is the release - the board clears the hold inside the same CAS that
+      // moves the card and records the confirmation as evidence, so the tracks
+      // learn from this word (see handlePatchCard). The resume list is the one
+      // the router proposed when it asked; "plan" only when the card predates the
+      // field or lost it.
+      // The move carries no dispatch header (moveCardEngine's one shape); the
+      // board starts the card because CLEARING a hold is itself the authorisation
+      // to progress - see handlePatchCard, where the release overrides the
+      // engine-context suppression for exactly this reason.
+      //
+      // A card the user CORRECTED before saying go carries its corrected route on
+      // the run spec (heldCardRoute states that precedence). The go then confirms
+      // what the correction proposed, and resumes onto the list the corrected
+      // route actually starts at - not the list the rejected route named. An
+      // uncorrected card takes neither branch: `corrected` is false, so both the
+      // resume list and the confirmation are byte-identical to what they were.
+      const held = heldCardRoute(decision.card);
+      const targetList =
+        (held.corrected ? await router.resumeListFor(held) : null) ||
+        decision.card.autonomyAsk?.resumeList ||
+        "plan";
+      const moved = await moveCardEngine({
+        id: decision.card.id,
+        targetList,
+        logFn: (e) => logEvent("stdout", e)
+      });
+      // The go is EVIDENCE, and only when the release actually landed: recording a
+      // confirmation for work that never started would teach the router that a
+      // failed move was a job well done.
+      if (moved) {
+        await router.recordAutonomyGo({
+          cardId: decision.card.id,
+          flow: held.flow,
+          duty: held.duty,
+          level: held.level,
+          tier: held.tier,
+          decisionId: held.decisionId,
+          sessionId: typeof body?.sessionId === "string" ? body.sessionId : null
+        });
+      }
+      const reply = moved
+        ? `Going ahead - ${targetList}.`
+        : `Couldn't start the card just now - try again, or move it on the board.`;
+      logEvent("stdout", { kind: "autonomy-go", card: decision.card.id, targetList, moved });
+      return { reply, card: decision.card.id, action: "autonomy-go" };
+    }
+    if (decision.action === "autonomy-correct") {
+      // §7.1: the ask's OTHER answer. "Reply go to proceed, or correct me" invited
+      // a correction and, until 2026-08-13, had no branch to receive one - the
+      // correction was routed as a brand-new turn and answered without the thread.
+      // The correction is re-dispatched over the card's original brief, re-stamps
+      // the card, and the card STAYS HELD: re-routing is not authorisation.
+      const outcome = await router.correctHeldCard({
+        card: decision.card,
+        correction: decision.correction,
+        sessionId: typeof body?.sessionId === "string" ? body.sessionId : null
+      });
+      if (!outcome?.ok) {
+        // Honest failure. Falling through to an ordinary turn here is exactly the
+        // bug, so a correction that cannot be applied says so and leaves the hold.
+        const reply =
+          "I couldn't apply that correction just now - the card is still held. " +
+          "Try again in a moment, or set the route on the card and move it on the board.";
+        logEvent("stderr", { kind: "autonomy-correct-failed", card: decision.card.id, reason: outcome?.reason ?? "unknown" });
+        return { reply, card: decision.card.id, action: "autonomy-correct-failed" };
+      }
+      // The re-ask is a question POSED, so it counts against today's budget for the
+      // same reason the first one did (autonomy-consult §6: count delivery, not intent).
+      await router.recordAutonomyAsked();
+      const what = outcome.phrase || `duty ${outcome.applied.duty}, level ${outcome.applied.level}`;
+      const reply = outcome.unchanged
+        ? `Still ${what} - the correction did not change the call. Reply go to proceed, or correct me again.`
+        : `Re-routed as ${what} - reply go to proceed, or correct me again.`;
+      logEvent("stdout", {
+        kind: "autonomy-corrected",
+        card: decision.card.id,
+        from: outcome.original.duty ?? null,
+        to: outcome.applied.duty,
+        level: outcome.applied.level,
+        flow: outcome.applied.flow ?? null,
+        unchanged: outcome.unchanged === true
+      });
+      return { reply, card: decision.card.id, action: "autonomy-correct" };
     }
     if (decision.action === "go") {
       const moved = await moveCardEngine({ id: decision.card.id, targetList: "plan", logFn: (e) => logEvent("stdout", e) });
@@ -2195,6 +4225,27 @@ async function saveAttachment(filename, contentBase64) {
 
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
+  // Local-API hardening (Harness brief §7): localhost binding does not stop a
+  // malicious webpage in the user's browser from reaching this RPC surface —
+  // browsers attach an Origin header to cross-origin fetches, while loopback
+  // server-to-server Node clients send none. A browser-origin request is
+  // accepted only from this gateway's own origin, or with the minted token
+  // (which a foreign page cannot read).
+  {
+    const origin = request.headers.origin;
+    if (origin) {
+      let sameOrigin = false;
+      try {
+        const o = new URL(origin);
+        sameOrigin = (o.hostname === HOST || o.hostname === "localhost" || o.hostname === "127.0.0.1") &&
+          String(o.port || (o.protocol === "https:" ? "443" : "80")) === String(PORT);
+      } catch { /* malformed origin = not same-origin */ }
+      if (!sameOrigin && request.headers["x-garrison-token"] !== GATEWAY_TOKEN) {
+        sendJson(response, 403, { error: "browser cross-origin requests are not accepted by the local API" });
+        return;
+      }
+    }
+  }
   try {
     if (request.method === "GET" && url.pathname === "/health") {
       const operativeExited = ptyStatus === "ready" && !runtimeSessionAlive();
@@ -2219,13 +4270,83 @@ const server = http.createServer(async (request, response) => {
       return sendJson(response, 200, buildRouteOptions());
     }
 
+    // Authored Orchestrator changes take effect on the next turn. Queue a warm
+    // session rebuild on the same serialized boundary as turns so an in-flight
+    // response is never interrupted and no later turn can observe the old prompt.
+    if (request.method === "POST" && url.pathname === "/control/reload-prompt") {
+      if (!router) return sendJson(response, 409, { error: "routed operative is not ready" });
+      enqueue(async () => {
+        ptyStatus = "starting";
+        try {
+          await Promise.resolve(router?.shutdown?.());
+          router = null;
+          session = null;
+          await initRouting();
+          logEvent("stdout", { kind: "orchestrator-prompt-reloaded" });
+        } catch (err) {
+          ptyStatus = "failed";
+          ptyError = err?.message || String(err);
+          logEvent("stderr", { kind: "orchestrator-prompt-reload-failed", error: ptyError });
+        }
+      }).catch(() => {});
+      return sendJson(response, 202, { ok: true, status: "queued" });
+    }
+
     // §9: stop the in-flight turn for one conversation. The turn then settles
     // normally with its partial reply and stoppedByUser on the done frame - this
     // endpoint never ends the SSE stream itself.
     if (request.method === "POST" && url.pathname === "/chat/interrupt") {
-      const body = await readJsonBody(request);
+      let body;
+      try {
+        body = await readJsonBody(request);
+      } catch (err) {
+        return sendJson(response, 400, { ok: false, error: `invalid json: ${err.message}` });
+      }
       const r = await handleInterrupt(body);
       return sendJson(response, r.status, r.body);
+    }
+
+    // Recover the exact generation claimed for one durable Web admission. This
+    // is intentionally read-only and exact: no claim/released is 404; a live
+    // same-thread claim for another (or pre-upgrade) input is a fail-closed 409.
+    if (request.method === "POST" && url.pathname === "/chat/generation") {
+      let body;
+      try {
+        body = await readJsonBody(request);
+      } catch (err) {
+        return sendJson(response, 400, { ok: false, error: `invalid json: ${err.message}` });
+      }
+      const result = generationTurnControl.lookupInput(body);
+      return sendJson(response, result.status, result.body);
+    }
+
+    // Strong restart recovery for an admission whose SSE owner died. Exact
+    // input correlation prevents one process from abandoning another input's
+    // journal; the generation remains claimed until its runtime cache is reset.
+    if (request.method === "POST" && url.pathname === "/chat/recover") {
+      let body;
+      try {
+        body = await readJsonBody(request);
+      } catch (err) {
+        return sendJson(response, 400, { ok: false, error: `invalid json: ${err.message}` });
+      }
+      const result = await generationTurnControl.recoverInput(body);
+      return sendJson(response, result.status, result.body);
+    }
+
+    // Resolve one exact Agent SDK permission request. Resolver handles are
+    // intentionally not reconstructable: after a restart the durable prompt is
+    // still visible, but this endpoint returns 409 because no live SDK callback
+    // exists to receive the decision.
+    if (request.method === "POST" && url.pathname === "/chat/permission") {
+      let body;
+      try {
+        body = await readJsonBody(request);
+      } catch (err) {
+        return sendJson(response, 400, { error: `invalid json: ${err.message}` });
+      }
+      const result = permissionControl.decide(body);
+      return sendJson(response, result.status, result.body);
     }
 
     // Read-only rendered-screen surface: the operative session's live terminal
@@ -2263,8 +4384,15 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/chat") {
       const body = await readJsonBody(request);
-      const message = String(body.message ?? "").trim();
-      if (!message) return sendJson(response, 400, { error: "message is required" });
+      const message = typeof body.message === "string" ? body.message : "";
+      if (!message.trim()) return sendJson(response, 400, { error: "message is required" });
+      const hints = routeHintsFromBody(body);
+      if (hints.channel === "web") {
+        if (!exactPermissionId(hints.sessionId)) {
+          return sendJson(response, 400, webThreadRequiredFailure());
+        }
+        return sendJson(response, 400, webStreamRequiredFailure());
+      }
       await readyPromise;
       // S3d review R1: intercept a Discuss answer / explicit-go BEFORE enqueueTurn.
       const intercepted = await dispatchDiscussIntercept(body);
@@ -2274,7 +4402,7 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       logEvent("stdout", { kind: "chat-in", message: message.slice(0, 200) });
-      const result = await enqueueTurn(message, undefined, routeHintsFromBody(body));
+      const result = await enqueueTurn(message, undefined, hints);
       logEvent("stdout", { kind: "chat-out", reply: result.reply.slice(0, 200) });
       sendJson(response, 200, result);
       return;
@@ -2282,13 +4410,45 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/chat/stream") {
       const body = await readJsonBody(request);
-      const message = String(body.message ?? "").trim();
-      if (!message) return sendJson(response, 400, { error: "message is required" });
+      const message = typeof body.message === "string" ? body.message : "";
+      if (!message.trim()) return sendJson(response, 400, { error: "message is required" });
+      if (Object.hasOwn(body, "inputId") && !exactDurableInputId(body.inputId)) {
+        return sendJson(response, 400, {
+          error: "inputId must be a non-empty exact string of at most 512 characters",
+          code: "invalid_input_id"
+        });
+      }
+      // Only the streamed endpoint owns generations. A generation is opaque and
+      // new per request; it is exposed on `open` and stamped onto canonical
+      // permission events by the Agent SDK path.
+      const hints = routeHintsFromBody(body);
+      if (hints.channel === "web" && !exactPermissionId(hints.sessionId)) {
+        return sendJson(response, 400, webThreadRequiredFailure());
+      }
+      if (hints.channel === "web" && !hints.inputId) {
+        return sendJson(response, 400, webInputRequiredFailure());
+      }
+      // Generated Web threads are isolated routed conversations. They must
+      // never inherit the composition-wide standing PTY merely because routing
+      // was disabled for this process. Reject before readiness, interception,
+      // generation ownership, or any user bytes can enter the operative lane.
+      if (hints.channel === "web" && !ROUTING_ENABLED) {
+        return sendJson(response, 503, webRouteUnavailableFailure());
+      }
+      const permissionMode = permissionModeForHints(hints);
+      const permissionEnabled = permissionMode === "default";
+      const interceptedGenerationId = randomUUID();
 
       // S3d review R1: intercept a Discuss answer / explicit-go BEFORE opening the stream
       // and BEFORE enqueueTurn - out-of-band, so it drives the live picker held by the
       // blocked discuss turn instead of queuing behind it. Emit a minimal open/done SSE.
       await readyPromise;
+      // Routing may be enabled yet unavailable (for example, the model-router
+      // fitting is absent and startup fell back to the legacy PTY). Keep the
+      // same fail-closed boundary once startup has resolved that state.
+      if (hints.channel === "web" && (!router || ptyStatus !== "ready")) {
+        return sendJson(response, 503, webRouteUnavailableFailure());
+      }
       const intercepted = await dispatchDiscussIntercept(body);
       if (intercepted) {
         response.statusCode = 200;
@@ -2297,66 +4457,129 @@ const server = http.createServer(async (request, response) => {
         response.setHeader("connection", "keep-alive");
         response.setHeader("x-accel-buffering", "no");
         response.flushHeaders?.();
-        sseWrite(response, "open", { ts: Date.now() });
-        sseWrite(response, "done", { reply: intercepted.reply, session_id: null, cost_usd: null, card: intercepted.card, [intercepted.action]: true });
+        sseWrite(response, "open", { ts: Date.now(), generationId: interceptedGenerationId });
+        sseWrite(response, "done", {
+          reply: intercepted.reply,
+          session_id: null,
+          cost_usd: null,
+          card: intercepted.card,
+          [intercepted.action]: true,
+          generationId: interceptedGenerationId
+        });
         logEvent("stdout", { kind: "chat-stream-intercept", action: intercepted.action, card: intercepted.card });
         response.end();
         return;
       }
 
-      response.statusCode = 200;
-      response.setHeader("content-type", "text/event-stream");
-      response.setHeader("cache-control", "no-cache, no-transform");
-      response.setHeader("connection", "keep-alive");
-      response.setHeader("x-accel-buffering", "no");
-      response.flushHeaders?.();
-      sseWrite(response, "open", { ts: Date.now() });
-      const heartbeat = setInterval(() => {
+      // Open the live resolver scope only after readiness/interception. Anything
+      // that fails before here has no handle to leak.
+      const permissionGenerationId = permissionEnabled ? permissionControl.openGeneration(hints.sessionId) : null;
+      const generationId = permissionGenerationId ?? interceptedGenerationId;
+      const webThreadId = hints.channel === "web" ? exactPermissionId(hints.sessionId) : null;
+      const turnClaim = webThreadId
+        ? generationTurnControl.claim(webThreadId, generationId, {
+            lane: primaryRuntime(),
+            ...(hints.inputId ? { inputId: hints.inputId } : {})
+          })
+        : null;
+      if (turnClaim && turnClaim.status !== 201) {
+        if (permissionGenerationId) permissionControl.closeGeneration(permissionGenerationId);
+        return sendJson(response, turnClaim.status, turnClaim.body);
+      }
+      const turnControlEntry = turnClaim?.entry ?? null;
+      const withGeneration = (payload) =>
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? { ...payload, generationId }
+          : { value: payload, generationId };
+      const writeStreamEvent = (event, payload) => sseWrite(response, event, withGeneration(payload));
+      let heartbeat = null;
+      let pendingPre = null;
+      let canonicalMaxOrder = 0;
+      let canonicalTerminalObserved = false;
+      let canonicalFailure = null;
+      // The watcher delivers only questions observed in this turn's transcript
+      // to this sink. It is stored on the exact AsyncLocalStorage turn entry;
+      // there is deliberately no process-global listener fanout.
+      const onQuestion = (payload) => {
         try {
-          response.write(": keepalive\n\n");
-        } catch {
-          /* ignore */
-        }
-      }, 15_000);
-
-      // Forward AskUserQuestion tool events on THIS stream while the turn runs, so
-      // the client renders tappable option buttons (answered via POST /chat/answer).
-      const onTool = (payload) => {
-        try {
-          sseWrite(response, "tool", payload);
-        } catch {
-          /* client gone */
-        }
-      };
-      toolListeners.add(onTool);
-
-      const hints = routeHintsFromBody(body);
-      // §4: the FIRST `route` frame, emitted the moment preRoute resolves, so the
-      // badge row appears ~1s into the turn instead of after the reply. `pending`
-      // marks it as refinable; the client merges the done frame over it and drops
-      // any frame from an older turnSeq (§5).
-      const onPreRoute = (pre) => {
-        try {
-          sseWrite(response, "route", {
-            ...turnAttribution(pre, hints),
-            ...routeFieldsFrom(pre),
-            pending: true,
-            turnSeq: hints.turnSeq
-          });
-        } catch {
-          /* client gone */
-        }
-      };
-      // §12: tool activity from a routed runtime, for the working-hint slot.
-      const onActivity = (payload) => {
-        try {
-          sseWrite(response, "activity", payload);
+          writeStreamEvent("tool", payload);
         } catch {
           /* client gone */
         }
       };
 
       try {
+        response.statusCode = 200;
+        response.setHeader("content-type", "text/event-stream");
+        response.setHeader("cache-control", "no-cache, no-transform");
+        response.setHeader("connection", "keep-alive");
+        response.setHeader("x-accel-buffering", "no");
+        response.flushHeaders?.();
+        writeStreamEvent("open", { ts: Date.now() });
+        heartbeat = setInterval(() => {
+          try {
+            response.write(": keepalive\n\n");
+          } catch {
+            /* ignore */
+          }
+        }, 15_000);
+
+        // §4: the FIRST `route` frame, emitted the moment preRoute resolves, so the
+        // badge row appears ~1s into the turn instead of after the reply. `pending`
+        // marks it as refinable; the client merges the done frame over it and drops
+        // any frame from an older turnSeq (§5).
+        const emitPendingRoute = (extra = {}) => {
+          try {
+            writeStreamEvent("route", pendingRouteFrame(pendingPre, hints, extra));
+          } catch {
+            /* client gone */
+          }
+        };
+        const onPreRoute = (pre) => {
+          pendingPre = pre;
+          emitPendingRoute();
+        };
+        // Follow-up `route` frame once the selected runtime has a journal. It
+        // merges into the same pending attribution client-side, giving the host a
+        // session id early enough to open SessionStream during the turn.
+        const onJournal = (identity) => {
+          bindQuestionJournal(identity);
+          emitPendingRoute(identity);
+        };
+        const onRouteSessionObservation = (observation = {}) => {
+          emitPendingRoute({
+            ...(observation && typeof observation === "object" ? observation : {}),
+            ...(typeof observation?.sessionId === "string" ? { session_id: observation.sessionId } : {}),
+          });
+        };
+        // §12: tool activity from a routed runtime, for the working-hint slot.
+        const onActivity = (payload) => {
+          try {
+            writeStreamEvent("activity", payload);
+          } catch {
+            /* client gone */
+          }
+        };
+        // Structured session events are already in the runtime-neutral vocabulary.
+        // Forward each payload immediately, adding only the gateway-owned generation
+        // coordinate; legacy activity/chunk/done frames remain alongside it.
+        const onSessionEvent = (payload) => {
+          if (Number.isSafeInteger(payload?.order) && payload.order >= 0) {
+            canonicalMaxOrder = Math.max(canonicalMaxOrder, payload.order);
+          }
+          for (const block of Array.isArray(payload?.blocks) ? payload.blocks : []) {
+            if (block?.type === "error") {
+              canonicalFailure = normalizeFailureInfo(block, { source: "runtime", kind: "runtime" });
+            }
+            if (block?.type === "turn_end") canonicalTerminalObserved = true;
+          }
+          try {
+            writeStreamEvent("session_event", payload);
+          } catch {
+            /* client gone */
+          }
+        };
+
         await readyPromise;
         const result = await enqueueTurn(message, (text, replace) => {
           try {
@@ -2365,26 +4588,119 @@ const server = http.createServer(async (request, response) => {
             // REPLACES its accumulator instead of appending (the duplication bug that
             // turned a short reply into kilobytes of repeated text). Additive field:
             // older clients that ignore it are unaffected.
-            sseWrite(response, "chunk", { type: "chunk", text, replace: replace === true });
+            writeStreamEvent("chunk", { type: "chunk", text, replace: replace === true });
           } catch {
             /* client gone */
           }
-        }, hints, { onPreRoute, onActivity });
+        }, hints, {
+          onPreRoute,
+          onActivity,
+          onJournal,
+          onRouteSessionObservation,
+          onQuestion,
+          onSessionEvent,
+          generationId,
+          permissionMode,
+          turnControlEntry,
+          ...(permissionGenerationId
+            ? {
+                onPermissionRequest: (publicRequest, context = {}) =>
+                  permissionControl.awaitDecision(
+                    hints.sessionId,
+                    permissionGenerationId,
+                    publicRequest,
+                    { signal: context?.signal }
+                  )
+              }
+            : {})
+        });
+        if (result?.terminalStatus === "error" && !canonicalTerminalObserved) {
+          canonicalFailure = normalizeFailureInfo(result?.failure, {
+            code: "runtime_turn_failed",
+            kind: "runtime",
+            source: "runtime",
+            retryable: false,
+          });
+          onSessionEvent(gatewayFailureSessionEvent({
+            generationId,
+            turnId: hints?.turnSeq,
+            order: canonicalMaxOrder + 1,
+            failure: canonicalFailure,
+          }));
+        }
         // Additive context telemetry (D5b): the turn's live/peak context % + any
         // compactions, read off the operative session that just ran. A nested
         // `context` object so consumers (the kanban engine) opt in without any
         // change to the existing result shape.
-        sseWrite(response, "done", { ...result, context: contextTelemetry() });
+        writeStreamEvent("done", { ...result, context: contextTelemetry() });
         logEvent("stdout", { kind: "chat-stream-out", reply: result.reply.slice(0, 200) });
       } catch (err) {
-        sseWrite(response, "error", { error: err.message });
-        logEvent("stderr", { kind: "chat-stream-failed", error: err.message });
+        const failure = normalizeFailureInfo(err?.failure ?? err, {
+          code: err?.code ?? "gateway_turn_failed",
+          kind: err?.kind ?? "runtime",
+          source: err?.failure?.source ?? err?.source ?? "gateway",
+          retryable: err?.retryable === true,
+        });
+        canonicalFailure = canonicalFailure ?? failure;
+        if (!canonicalTerminalObserved) {
+          const terminal = gatewayFailureSessionEvent({
+            generationId,
+            turnId: hints?.turnSeq,
+            order: canonicalMaxOrder + 1,
+            failure: canonicalFailure,
+          });
+          try {
+            writeStreamEvent("session_event", terminal);
+            canonicalTerminalObserved = true;
+          } catch {
+            /* client gone */
+          }
+        }
+        try {
+          // Compatibility-only lifecycle signal. The canonical error/turn_end
+          // above owns durable content; these bounded flat fields let legacy
+          // transports reject with the same typed failure.
+          writeStreamEvent("error", { error: failure.text, ...failure, failure });
+        } catch {
+          /* client gone */
+        }
+        logEvent("stderr", { kind: "chat-stream-failed", code: failure.code, error: failure.text });
       } finally {
-        toolListeners.delete(onTool);
-        clearInterval(heartbeat);
+        if (permissionGenerationId) permissionControl.closeGeneration(permissionGenerationId);
+        if (turnControlEntry) generationTurnControl.release(turnControlEntry);
+        if (heartbeat) clearInterval(heartbeat);
         response.end();
       }
       return;
+    }
+
+    // Raise ONE duty on ONE card for THIS card only (level-resolution.mjs step 3).
+    // Body: { cardId, duty, toLevel, reason }. The reason is mandatory - an
+    // escalation with no reason cannot become an improver signal and cannot be
+    // judged in the decisions log, so a reasonless one is refused rather than
+    // logged as noise.
+    //
+    // Deliberately NOT behind `await readyPromise`: escalating a card is a routing
+    // decision about work the BOARD is driving, and it must not queue behind a
+    // spawning operative. Every branch is answered by the router (which logs the
+    // decision either way), so this handler only adapts it to HTTP.
+    if (request.method === "POST" && url.pathname === "/escalate") {
+      if (!router) return sendJson(response, 409, { error: "routed operative is not ready" });
+      const body = await readJsonBody(request);
+      const r = await router.escalateCardDuty({
+        cardId: body?.cardId,
+        duty: body?.duty,
+        toLevel: body?.toLevel,
+        reason: body?.reason
+      });
+      logEvent("stdout", {
+        kind: "escalate",
+        card: body?.cardId ?? null,
+        duty: body?.duty ?? null,
+        applied: r.body?.applied ?? false,
+        status: r.status
+      });
+      return sendJson(response, r.status, r.body);
     }
 
     // Answer an AskUserQuestion picker the operative raised (tappable buttons on the
@@ -2413,12 +4729,97 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/jobs") {
       const body = await readJsonBody(request);
-      const description = typeof body.kind === "string" ? `Heartbeat job: ${body.kind}` : "Heartbeat tick";
-      const jobMessage = `${description}\n\nPayload:\n${JSON.stringify(body)}`;
-      readyPromise
-        .then(() => enqueueTurn(jobMessage))
-        .catch((err) => logEvent("stderr", { kind: "job-turn-failed", error: err.message }));
-      sendJson(response, 202, { ack: true });
+      const claim = await jobIngress.claim(body);
+      if (!claim.accepted) {
+        if (claim.source === "invalid") {
+          sendJson(response, 400, { ack: false, retryable: false, error: claim.error });
+          return;
+        }
+        if (claim.source === "storage-error") {
+          logEvent("stderr", { kind: "job-storage-unavailable", error: claim.error });
+          sendJson(response, 503, { ack: false, retryable: true, error: claim.error });
+          return;
+        }
+        if (claim.source === "backpressure") {
+          logEvent("stderr", { kind: "job-backpressure", job: claim.key.split(":", 1)[0] });
+          sendJson(response, 503, { ack: false, retryable: true, error: "job ingress is at capacity" });
+          return;
+        }
+        if (isPendingJobClaim(claim)) {
+          logEvent("stdout", { kind: "job-dispatch-pending", job: claim.key.split(":", 1)[0] });
+          sendJson(response, 503, {
+            ack: false,
+            retryable: true,
+            error: "job dispatch reservation is still being prepared"
+          });
+          return;
+        }
+        logEvent("stdout", {
+          kind: "job-deduped",
+          source: claim.source,
+          card: claim.cardId ?? null,
+          job: claim.key.split(":", 1)[0]
+        });
+        sendJson(response, 202, { ack: true, deduped: true, card: claim.cardId ?? null });
+        return;
+      }
+      const jobMessage = jobDescription(body);
+      try {
+        await prepareClaimForAcknowledgement({ guard: jobIngress, claim });
+      } catch (error) {
+        logEvent("stderr", {
+          kind: "job-dispatch-fence-failed",
+          error: error?.message || String(error)
+        });
+        sendJson(response, 503, {
+          ack: false,
+          retryable: true,
+          error: "job dispatch could not be durably reserved"
+        });
+        return;
+      }
+      let resolveAdmission;
+      let rejectAdmission;
+      const admitted = new Promise((resolve, reject) => {
+        resolveAdmission = resolve;
+        rejectAdmission = reject;
+      });
+      const forwarding = forwardClaimWithRetry({
+        guard: jobIngress,
+        claim,
+        dispatchPrepared: true,
+        forward: async () => {
+          await readyPromise;
+          // `/jobs` is a server-owned system-beat surface. Never trust a payload
+          // `channel` field, but preserve the gateway's own heartbeat identity so
+          // runRoutedTurn executes it inline instead of registering it as a task.
+          return { completion: enqueueTurn(jobMessage, undefined, { channel: "heartbeat" }) };
+        },
+        onAdmitted: () => resolveAdmission(),
+        onFailure: (err, attempt, attempts) => {
+          logEvent("stderr", {
+            kind: "job-turn-attempt-failed",
+            attempt,
+            attempts,
+            error: err?.message || String(err)
+          });
+        }
+      });
+      void forwarding.catch((err) => {
+        rejectAdmission(err);
+        logEvent("stderr", { kind: "job-turn-failed", error: err.message });
+      });
+      try {
+        await admitted;
+      } catch {
+        sendJson(response, 503, {
+          ack: false,
+          retryable: true,
+          error: "job turn could not be admitted to the operative queue"
+        });
+        return;
+      }
+      sendJson(response, 202, { ack: true, deduped: false });
       return;
     }
 
@@ -2438,9 +4839,11 @@ const server = http.createServer(async (request, response) => {
         original: body.original ?? null,
         applied: body.applied ?? null,
       });
-      const file = await appendFeedback(record);
+      // The queue is the state service now, so what comes back is the row's
+      // {id, seq}, not a path — reported as such rather than dressed up as one.
+      const { id, seq } = await appendFeedback(record);
       logEvent("stdout", { kind: "override-feedback", via: "endpoint", session_id: record.session_id ?? null });
-      sendJson(response, 200, { ok: true, recorded: true, path: file });
+      sendJson(response, 200, { ok: true, recorded: true, id, seq });
       return;
     }
 
@@ -2522,10 +4925,18 @@ const server = http.createServer(async (request, response) => {
       }
       if (request.method === "POST" && url.pathname === "/claude/message") {
         const body = await readJsonBody(request);
-        const text = String(body.text ?? body.message ?? "").trim();
-        if (!text) return sendJson(response, 400, { error: "text is required" });
+        const text = typeof body.text === "string"
+          ? body.text
+          : typeof body.message === "string"
+            ? body.message
+            : "";
+        if (!text.trim()) return sendJson(response, 400, { error: "text is required" });
         // Non-blocking: enqueue the turn; the SSE reflects progress.
-        enqueueTurn(text).catch((err) => logEvent("stderr", { kind: "claude-message-failed", error: err.message }));
+        // The explicit console is a view onto the shared operative, not a
+        // generated Web conversation. Bypass routing so its exact bytes reach
+        // that existing session without route/duty/carryover prompt prefixes.
+        enqueueTurn(text, undefined, { channel: "web-console", directOperative: true })
+          .catch((err) => logEvent("stderr", { kind: "claude-message-failed", error: err.message }));
         return sendJson(response, 202, { ack: true });
       }
       if (request.method === "POST" && url.pathname === "/claude/keys") {
@@ -2554,12 +4965,38 @@ const server = http.createServer(async (request, response) => {
 
     sendJson(response, 404, { error: "not found", path: url.pathname });
   } catch (err) {
-    logEvent("stderr", { kind: "request-failed", method: request.method, path: url.pathname, error: err.message });
-    sendJson(response, 500, { error: err.message });
+    const failure = normalizeFailureInfo(err?.failure ?? err, {
+      code: err?.code ?? "gateway_request_failed",
+      kind: err?.kind ?? "runtime",
+      source: err?.failure?.source ?? err?.source ?? "gateway",
+      retryable: err?.retryable === true,
+    });
+    logEvent("stderr", {
+      kind: "request-failed",
+      method: request.method,
+      path: url.pathname,
+      code: failure.code,
+      error: failure.text,
+    });
+    const status = failure.httpStatus && failure.httpStatus >= 400 ? failure.httpStatus : 500;
+    sendJson(response, status, { error: failure.text, ...failure, failure });
   }
 });
 
 async function main() {
+  // Session-log proxy (Harness brief §2), opt-in via the fitting's
+  // `session_log_proxy` config. Started before the operative spawns so the
+  // spawn env can carry the proxy URL.
+  if (/^(1|true|yes)$/i.test(String(process.env.GARRISON_HTTPGATEWAY_SESSION_LOG_PROXY ?? ""))) {
+    try {
+      const { startAnthropicLogProxy } = await import("./lib/anthropic-log-proxy.mjs");
+      const proxy = await startAnthropicLogProxy();
+      process.env.GARRISON_ANTHROPIC_PROXY_URL = proxy.url;
+      logEvent("stdout", { kind: "session-log-proxy", url: proxy.url });
+    } catch (err) {
+      logEvent("stderr", { kind: "session-log-proxy-failed", error: String(err?.message ?? err) });
+    }
+  }
   // Node's http.Server defaults requestTimeout to 5 min — that would abort a long
   // /chat turn (a real Kanban garrison-* turn runs longer) at the socket layer,
   // regardless of the per-turn timeout, surfacing to the caller as a dropped
@@ -2572,6 +5009,20 @@ async function main() {
   // Listen FIRST so /health answers while the PTY spins up (the runner's
   // health-poll deadline is short; PTY readiness can take several seconds).
   server.listen(PORT, HOST, () => {
+    runLog()?.append({
+      domain: "lifecycle", kind: "run-start",
+      payload: { composition: COMPOSITION_ID, port: PORT, model: MODEL, engine: "pty" },
+    });
+    // Mesh session registry (metadata only): this run becomes visible to peers
+    // the moment it is listening, not once the operative is warm.
+    void announceSession({
+      id: SESSION_LOG_RUN,
+      compositionId: COMPOSITION_ID,
+      runtime: primaryRuntime(),
+      model: MODEL,
+      cwd: COMPOSITION_DIR,
+      status: "starting",
+    });
     logEvent("stdout", {
       kind: "listening",
       host: HOST,
@@ -2584,6 +5035,7 @@ async function main() {
     (async () => {
       const attempt = async () => {
         if (ROUTING_ENABLED && (await initRouting())) {
+          void touchSession(SESSION_LOG_RUN, "idle", { runtime: primaryRuntime() });
           readyResolve();
           return;
         }
@@ -2616,6 +5068,7 @@ async function main() {
         ptyStatus = "failed";
         ptyError = finalErr.message;
         logEvent("stderr", { kind: "spawn-failed", error: finalErr.message });
+        void touchSession(SESSION_LOG_RUN, "failed");
         // Unblock waiters so pending /chat calls fail fast instead of hanging.
         readyResolve();
       }
@@ -2625,6 +5078,11 @@ async function main() {
 
 async function shutdown(signal) {
   logEvent("stdout", { kind: "shutdown", signal });
+  // Close the registry row. Started FIRST so it overlaps the seconds spent
+  // letting claude persist its conversation, and awaited below so the write
+  // actually lands before the process exits — a run left reading "running"
+  // forever is exactly the lie the nightly convergence check would trip over.
+  const registryClosed = endSession(SESSION_LOG_RUN, "ended");
   // Give claude a chance to persist the conversation (so a restart can
   // --continue with context): double Ctrl-C exits the TUI cleanly. Then kill.
   try {
@@ -2652,6 +5110,7 @@ async function shutdown(signal) {
   } catch {
     /* ignore */
   }
+  await registryClosed; // never rejects; bounded by the client's own timeout
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 5000).unref();
 }

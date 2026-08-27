@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // model call — the live classifier runs at the gateway for real turns.
 
 export async function POST(request: NextRequest) {
-  let body: { composition?: string; prompt?: string; workKind?: string; project?: string | null };
+  let body: { composition?: string; prompt?: string; flow?: string; project?: string | null };
   try {
     body = await request.json();
   } catch {
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const composition = await readComposition(id);
     const outcome = await simulateTryIt(composition.directory, {
       prompt: body.prompt,
-      workKind: body.workKind ?? null,
+      flow: body.flow ?? null,
       project: body.project ?? null
     });
     if (outcome.status === "unknown-profile") {

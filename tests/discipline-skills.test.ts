@@ -3,15 +3,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs core typed by routing-core.d.mts
 import { compileRouting } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+import { AUTHORED_SECTION_DEFAULTS } from "@/lib/orchestrator-authored-defaults";
 
 const ROOT = join(__dirname, "..");
 const SEED = JSON.parse(
   readFileSync(join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json"), "utf8")
 );
-const PROMPT = readFileSync(
-  join(ROOT, "fittings/seed/orchestrator/.apm/prompts/orchestrator.prompt.md"),
-  "utf8"
-);
+const PROMPT = AUTHORED_SECTION_DEFAULTS["execution-policy"].content;
 
 describe("discipline → verb-skill mapping (s4 / deliverable #1)", () => {
   it("the compiled discipline names the Garrison verb-skills at the right tiers (per-tier, not just present)", () => {

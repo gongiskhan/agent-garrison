@@ -1,4 +1,4 @@
-// Omi channel M5 — ask_gary chat tool acceptance (build spec): mocked calls
+// Omi channel M5 — ask_zeca chat tool acceptance (build spec): mocked calls
 // return within budget; overruns abort into a friendly partial answer; the
 // manifest validates against the documented ChatTools format; auth covers app
 // id + uid (+ the URL shared secret, since Omi sends no credential on tool
@@ -38,10 +38,10 @@ function makeTool(home: string, opts: { runFn?: unknown; deadlineMs?: number; cf
 }
 
 function body(overrides: Record<string, unknown> = {}) {
-  return { uid: UID, app_id: "app_123", tool_name: "ask_gary", query: "how is the board?", ...overrides };
+  return { uid: UID, app_id: "app_123", tool_name: "ask_zeca", query: "how is the board?", ...overrides };
 }
 
-describe("ask_gary manifest", () => {
+describe("ask_zeca manifest", () => {
   it("validates against the documented ChatTools format", () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-chat-man-"));
     try {
@@ -50,7 +50,7 @@ describe("ask_gary manifest", () => {
       expect(Array.isArray(manifest.tools)).toBe(true);
       expect(manifest.tools).toHaveLength(1);
       const tool = manifest.tools[0];
-      expect(tool.name).toBe("ask_gary");
+      expect(tool.name).toBe("ask_zeca");
       expect(tool.method).toBe("POST");
       expect(tool.description.length).toBeGreaterThan(80);
       expect(tool.parameters).toEqual({
@@ -88,7 +88,7 @@ describe("ask_gary manifest", () => {
   });
 });
 
-describe("ask_gary handler", () => {
+describe("ask_zeca handler", () => {
   it("answers within budget with the orchestrator's reply", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-chat-ok-"));
     try {
@@ -183,7 +183,7 @@ describe("ask_gary handler", () => {
   });
 });
 
-describe("ask_gary through the live server route", () => {
+describe("ask_zeca through the live server route", () => {
   it("serves the tool and manifest end-to-end (offline gateway = friendly answer)", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-chat-e2e-"));
     const prevHome = process.env.GARRISON_HOME;
@@ -206,7 +206,7 @@ describe("ask_gary through the live server route", () => {
       const manifest = await fetch(`${base}/omi/tools-manifest?key=${SECRET}`);
       expect(manifest.status).toBe(200);
       const parsed = await manifest.json();
-      expect(parsed.tools[0].name).toBe("ask_gary");
+      expect(parsed.tools[0].name).toBe("ask_zeca");
 
       const answer = await fetch(`${base}/omi/chat?key=${SECRET}`, {
         method: "POST",

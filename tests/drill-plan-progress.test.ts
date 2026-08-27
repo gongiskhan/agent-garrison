@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { chromium } from "playwright";
 
 // Progress, cancel, and retry for the agent-driven Book planning job (the
 // dogfood bug: an 11-minute plan and a hang were indistinguishable behind a
@@ -45,6 +46,19 @@ async function postJson(p: string, body: unknown) {
   return { status: r.status, body: await r.json() };
 }
 
+function parseSse(text: string): any[] {
+  const payloads: any[] = [];
+  for (const frame of text.split(/\r?\n\r?\n/)) {
+    const data = frame.split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) continue;
+    try { payloads.push(JSON.parse(data)); } catch { /* ignore keep-alives/malformed frames */ }
+  }
+  return payloads;
+}
+
 async function waitPlanSettled(ms: number) {
   const end = Date.now() + ms;
   for (;;) {
@@ -52,6 +66,20 @@ async function waitPlanSettled(ms: number) {
     if (body.job && body.job.status !== "planning") return body;
     if (Date.now() > end) throw new Error(`plan did not settle within ${ms}ms: ${JSON.stringify(body.job)}`);
     await new Promise((r) => setTimeout(r, 400));
+  }
+}
+
+async function waitPlanProgress(predicate: (progress: any) => boolean, ms: number) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const response = await getJson("/api/plan/status");
+    const progress = response.body.job?.progress;
+    if (progress && predicate(progress)) return response;
+    if (response.body.job && response.body.job.status !== "planning") {
+      throw new Error(`plan settled before expected progress: ${JSON.stringify(response.body.job)}`);
+    }
+    if (Date.now() > end) throw new Error(`expected plan progress within ${ms}ms: ${JSON.stringify(progress)}`);
+    await new Promise((r) => setTimeout(r, 150));
   }
 }
 
@@ -86,6 +114,9 @@ beforeAll(async () => {
   //   chatty-hang  - same event stream, on an interval that never stops -
   //                  the cancel target; only a kill (via /api/plan/cancel)
   //                  ends it.
+  //   streaming    - creates the transcript only after a stream can attach,
+  //                  then emits text, a Read call, its screenshot result,
+  //                  and terminal text on separate ticks.
   const stub = path.join(ghome, "plan-stub.mjs");
   writeFileSync(stub, [
     "#!/usr/bin/env node",
@@ -108,8 +139,11 @@ beforeAll(async () => {
     "  return path.join(dir, `${sessionId}.jsonl`);",
     "}",
     "function emitToolUse(n) {",
-    "  const evt = { message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: `drills/pages/step-${n}.yml` } }] } };",
+    "  const evt = { type: 'assistant', uuid: `tool-${n}`, timestamp: new Date().toISOString(), message: { content: [{ type: 'tool_use', id: `write-${n}`, name: 'Write', input: { file_path: `drills/pages/step-${n}.yml` } }] } };",
     "  appendFileSync(transcriptFile(), JSON.stringify(evt) + '\\n');",
+    "}",
+    "function emitEntry(entry) {",
+    "  appendFileSync(transcriptFile(), JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + '\\n');",
     "}",
     'if (mode === "ok") {',
     "  writeBook();",
@@ -128,6 +162,15 @@ beforeAll(async () => {
     '} else if (mode === "chatty-hang") {',
     "  let n = 0;",
     "  setInterval(() => { n++; emitToolUse(n); }, 300);",
+    '} else if (mode === "streaming") {',
+    "  setTimeout(() => emitEntry({ type: 'assistant', uuid: 'intro', message: { content: [{ type: 'text', text: 'Opening the app and mapping its routes.' }] } }), 250);",
+    "  setTimeout(() => emitEntry({ type: 'assistant', uuid: 'read-call', message: { content: [{ type: 'tool_use', id: 'read-shot', name: 'Read', input: { file_path: '/tmp/plan-shot.png' } }] } }), 500);",
+    "  setTimeout(() => emitEntry({ type: 'user', uuid: 'read-result', message: { content: [{ type: 'tool_result', tool_use_id: 'read-shot', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8vAAAAABJRU5ErkJggg==' } }] }] } }), 750);",
+    "  setTimeout(() => {",
+    "    emitEntry({ type: 'assistant', uuid: 'final', message: { content: [{ type: 'text', text: 'The inspected page is covered.' }] } });",
+    "    writeBook();",
+    '    console.log("DRILL_PLAN_OK=1");',
+    "  }, 1000);",
     "}",
     ""
   ].join("\n"));
@@ -169,10 +212,9 @@ describe("plan progress", () => {
     expect(typeof kick.body.job.deadlineAt).toBe("string");
     expect(Date.parse(kick.body.job.deadlineAt)).toBeGreaterThan(Date.now());
 
-    // First read: should already see at least one transcript event once the
-    // stub's first 300ms tick fires.
-    await new Promise((r) => setTimeout(r, 500));
-    const first = await getJson("/api/plan/status");
+    // Wait on the evidence, not a fixed 500ms wall-clock: under the full
+    // suite the event loop can be CPU-starved even though the child is fine.
+    const first = await waitPlanProgress((progress) => progress.transcriptEvents > 0, 5000);
     expect(first.body.job.status).toBe("planning");
     const p1 = first.body.job.progress;
     expect(p1.transcriptBytes).toBeGreaterThan(0);
@@ -180,10 +222,12 @@ describe("plan progress", () => {
     expect(p1.lastActivity).toContain("Write");
     expect(Date.parse(p1.lastActivityAt)).toBeGreaterThan(0);
 
-    // A second read after another tick sees MORE transcript than the first -
+    // A later evidence-bearing read sees MORE transcript than the first -
     // proof this is live progress, not a static snapshot from kick time.
-    await new Promise((r) => setTimeout(r, 700));
-    const second = await getJson("/api/plan/status");
+    const second = await waitPlanProgress(
+      (progress) => progress.transcriptBytes > p1.transcriptBytes && progress.transcriptEvents > p1.transcriptEvents,
+      5000
+    );
     const p2 = second.body.job.progress;
     expect(p2.transcriptBytes).toBeGreaterThan(p1.transcriptBytes);
     expect(p2.transcriptEvents).toBeGreaterThan(p1.transcriptEvents);
@@ -204,6 +248,83 @@ describe("plan progress", () => {
     expect(st.job.progress.lastActivityAt).toBeNull();
     expect(st.job.progress.lastActivity).toBeNull();
   }, 20000);
+});
+
+describe("plan session stream", () => {
+  it("streams the planning transcript and the screenshots the agent actually inspected, then replays it", async () => {
+    stubMode(proj, "streaming");
+    const kick = await postJson("/api/plan/start", {});
+    expect(kick.status).toBe(200);
+    const sessionId = kick.body.job.sessionId as string;
+
+    // A caller cannot use the route to probe an arbitrary Claude session.
+    const wrong = await fetch(`${DRILL_BASE}/api/plan/session-stream?session=not-this-plan`);
+    expect(wrong.status).toBe(404);
+
+    // Connect before the stub creates its JSONL. The route must wait for the
+    // pinned transcript instead of permanently declaring it unavailable.
+    const response = await fetch(`${DRILL_BASE}/api/plan/session-stream?session=${encodeURIComponent(sessionId)}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const raw = await response.text();
+    const frames = parseSse(raw);
+    const init = frames.find((frame) => frame.type === "init");
+    expect(init).toMatchObject({ sessionId, live: true, available: true });
+    expect(frames.filter((frame) => frame.type === "events").length).toBeGreaterThanOrEqual(2);
+    expect(frames.at(-1)).toMatchObject({ type: "end", sessionId, status: "done" });
+
+    const events = frames.flatMap((frame) => frame.events ?? []);
+    const blocks = events.flatMap((event) => event.blocks ?? []);
+    expect(blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "text", text: "Opening the app and mapping its routes." }),
+      expect.objectContaining({ type: "tool_use", toolUseId: "read-shot", name: "Read" })
+    ]));
+    const screenshotResult = blocks.find((block) => block.type === "tool_result" && block.toolUseId === "read-shot");
+    expect(screenshotResult?.images).toEqual([
+      expect.objectContaining({ mediaType: "image/png", data: expect.stringMatching(/^iVBOR/) })
+    ]);
+    expect(raw).not.toContain(transcriptDir);
+    expect((await waitPlanSettled(12000)).job.status).toBe("done");
+
+    // The terminal job remains reviewable for the life of this Drill server:
+    // reconnect gets one complete init snapshot (including the image), then end.
+    const replay = await fetch(`${DRILL_BASE}/api/plan/session-stream?session=${encodeURIComponent(sessionId)}`);
+    const replayFrames = parseSse(await replay.text());
+    expect(replayFrames[0]).toMatchObject({ type: "init", sessionId, live: false, available: true });
+    const replayBlocks = (replayFrames[0].events ?? []).flatMap((event: any) => event.blocks ?? []);
+    expect(replayBlocks.find((block: any) => block.type === "tool_result")?.images?.[0]?.data).toMatch(/^iVBOR/);
+    expect(replayFrames.at(-1)).toMatchObject({ type: "end", sessionId, status: "done" });
+  }, 25000);
+
+  it("renders live plan text, tool calls, and the inspected screenshot, and keeps them after completion", async () => {
+    stubMode(proj, "streaming");
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ viewport: { width: 1360, height: 1000 } });
+    try {
+      await page.goto(DRILL_BASE);
+      await page.getByRole("button", { name: "Plan book" }).click();
+      await page.getByRole("button", { name: "Plan the whole app" }).click();
+
+      const panel = page.locator("details.dr-plan-session");
+      await panel.waitFor({ state: "visible", timeout: 10_000 });
+      await page.getByText("Opening the app and mapping its routes.").waitFor({ state: "visible", timeout: 10_000 });
+      await panel.locator(".dr-session-tool summary").filter({ hasText: "Read" }).waitFor({ state: "visible", timeout: 10_000 });
+      const image = panel.locator("img.dr-session-img").first();
+      await image.waitFor({ state: "visible", timeout: 10_000 });
+      expect(await image.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
+
+      await expect.poll(
+        () => panel.locator(":scope > summary .chip").textContent(),
+        { timeout: 12_000 }
+      ).toBe("done");
+      expect(await panel.getAttribute("open")).not.toBeNull();
+      expect(await page.getByText(/timed out waiting for planning/i).count()).toBe(0);
+      expect(await image.isVisible()).toBe(true);
+    } finally {
+      await page.close();
+      await browser.close();
+    }
+  }, 30000);
 });
 
 describe("plan cancel", () => {

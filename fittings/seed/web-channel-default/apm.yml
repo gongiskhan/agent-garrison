@@ -6,17 +6,18 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: channels
+  category: Interfaces
   cardinality_hint: single
   own_port: true
-  default_port: 7083
+  default_port: 8083
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Serves a React chat UI on its own port (default 7083). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Talks to the Operative through the gateway; never spawns Claude itself.
+  summary: Serves a React chat UI on its own port (default 27083). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Talks to the session through the gateway; never spawns Claude itself.
   config_schema:
     - key: port
       type: integer
-      default: 7083
+      default: 8083
       description: HTTP port the web-channel server binds to. The server refuses to start (exit 1) when the port is taken - no auto-shift.
     - key: bind_host
       type: string
@@ -40,6 +41,18 @@ x-garrison:
   consumes:
     - kind: voice
       cardinality: optional-one
+    # Required for the VAPID keys below to be delivered at all: vaultEnvForEntry
+    # gates secret delivery on a declared vault consumption, so a secret_scope
+    # without this is silently ignored (it logs "consumes vault but declares no
+    # secret_scope"'s inverse - no warning at all, just no secrets).
+    - kind: vault
+      cardinality: one
+  # Web Push identity. The PUBLIC key is baked into every browser
+  # subscription, so rotating it invalidates all of them - treat as durable.
+  secret_scope:
+    - VAPID_PUBLIC_KEY
+    - VAPID_PRIVATE_KEY
+    - VAPID_SUBJECT
   setup:
     command: node ui/build.mjs
     idempotent: true
@@ -49,7 +62,7 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    The web-channel Fitting is the Operative's mobile surface — now a rich
+    The web-channel Fitting is the session's mobile surface — now a rich
     Claude Code chat (markdown replies, real status line, mode switcher,
     slash/skill autocomplete, collapsible raw terminal). The UI is the shared
     @garrison/claude-chat component talking to the http-gateway's PTY-backed

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -24,7 +24,22 @@ import { parseNextList, buildCardPrompt, classificationFor, processCard, process
 // @ts-ignore — pure .mjs
 import { routeFromDone } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
 // @ts-ignore — pure .mjs
+import { PERSONAL_SCOPE_TOKEN } from "../fittings/seed/kanban-loop/lib/personal-workspace.mjs";
+// @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const board = {
   version: 2,
@@ -265,6 +280,31 @@ describe("kanban engine — triggers + runId minting", () => {
     expect(mintRunFields({ runId: "X", runDir: "docs/autothing/runs/X" })).toBeNull();
   });
 
+  it("mints personal evidence under runs/personal while a real project still wins", () => {
+    const personal = mintRunFields({ scope: "personal", project: null, runId: null, runDir: null }, () => 1235);
+    expect(personal.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "personal", personal.runId));
+
+    const project = mintRunFields({ scope: "personal", project: "garrison", runId: null, runDir: null }, () => 1236);
+    expect(project.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "garrison", project.runId));
+
+    const routedProject = mintRunFields({
+      scope: "personal",
+      project: null,
+      routing: { project: "ekoa-code" },
+      runId: null,
+      runDir: null
+    }, () => 1237);
+    expect(routedProject.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "ekoa-code", routedProject.runId));
+
+    const refusedProject = mintRunFields({
+      scope: "personal",
+      project: "/",
+      runId: null,
+      runDir: null
+    }, () => 1238);
+    expect(refusedProject.runDir).toBe(join(process.env.GARRISON_RUNS_DIR!, "no-project", refusedProject.runId));
+  });
+
   it("processCard mints runId + runDir on the card's FIRST agent-list entry and threads runDir into the prompt", async () => {
     const root = tmp();
     const card = await createCard(root, { title: "T", list: "implement" });
@@ -442,12 +482,18 @@ describe("kanban engine — Test batching (FINDING 7)", () => {
       { id: "a", list: "test", project: "p1", status: "ok" },
       { id: "b", list: "test", project: "p1", status: "ok" },
       { id: "c", list: "test", project: "p2", status: "ok" },
+      { id: "personal", list: "test", project: null, scope: "personal", status: "ok" },
+      { id: "personal-routed", list: "test", project: null, scope: "personal", routing: { project: "p2" }, status: "ok" },
+      { id: "personal-invalid", list: "test", project: "/", scope: "personal", status: "ok" },
+      { id: "unscoped", list: "test", project: null, scope: "unscoped", status: "ok" },
       { id: "d", list: "test", project: "p1", status: "running" }, // skipped
       { id: "e", list: "review", project: "p1", status: "ok" }     // wrong list
     ];
     const g = groupCardsByProject(cards, "test");
     expect(g.p1.map((c: any) => c.id)).toEqual(["a", "b"]);
-    expect(g.p2.map((c: any) => c.id)).toEqual(["c"]);
+    expect(g.p2.map((c: any) => c.id)).toEqual(["c", "personal-routed"]);
+    expect(g[PERSONAL_SCOPE_TOKEN].map((c: any) => c.id)).toEqual(["personal"]);
+    expect(g["(no-project)"].map((c: any) => c.id)).toEqual(["personal-invalid", "unscoped"]);
   });
 
   it("parseBatchVerdicts exact-matches each card's verdict against THAT card's validNext", () => {
@@ -568,9 +614,21 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
 
   it("has the full pipeline in order with the exact list ids", () => {
     expect(seeded.lists.map((l: any) => l.id)).toEqual([
-      "backlog", "todo", "discuss", "plan", "implement", "review", "adversarial-review",
-      "test", "adversarial-test", "walkthrough", "validate", "done", "needs-attention"
+      "scheduled", "backlog", "todo", "discuss", "plan", "implement", "review", "adversarial-review",
+      "test", "adversarial-test", "walkthrough", "validate", "done", "needs-attention", "archived"
     ]);
+  });
+
+  it("keeps Scheduled as the fixed system column at the far left", () => {
+    expect(seeded.lists[0]).toMatchObject({
+      id: "scheduled",
+      order: -1,
+      userOrder: -1,
+      kind: "scheduled",
+      trigger: "scheduler-beat",
+      system: true,
+      validNext: []
+    });
   });
 
   it("every list carries a trigger (immediate | manual | scheduler-beat)", () => {
@@ -613,6 +671,12 @@ describe("kanban seed board (FINDING 2 — full pipeline)", () => {
     expect(byId.discuss.validNext).toEqual(["plan"]);
     expect(byId.done.terminal).toBe(true);
     expect(byId.done.validNext).toEqual([]);
+    expect(byId.archived).toMatchObject({
+      kind: "manual",
+      terminal: true,
+      archived: true,
+      validNext: []
+    });
     expect(byId["needs-attention"].notifyOnEntry).toBe(true);
     expect(byId["needs-attention"].validNext).toEqual(["todo", "plan", "implement"]);
   });

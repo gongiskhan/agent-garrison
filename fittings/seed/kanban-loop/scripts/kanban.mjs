@@ -3,7 +3,8 @@
 //   --setup            seed the board + register the Test scheduler beat
 //   --probe            verify the engine + board are loadable
 //   --tick             process due IMMEDIATE agent-list cards (skips scheduler-beat,
-//                      manual, and interactive lists)
+//                      manual, and interactive lists), and run the gateway-free
+//                      sweeps, including the Discuss inactivity auto-archive
 //   --tick-list <id>   process ONE list. For the Test list this is the BATCHED path
 //                      (one session per project); the Test scheduler beat calls it.
 //   --review           weekly board review: bucket cards into moving / stalled /
@@ -13,15 +14,22 @@ import { existsSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { kanbanRoot, atomicWriteJSON, loadBoard, loadAllCards, updateCardCAS } from "../lib/board.mjs";
-import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims } from "../lib/engine.mjs";
+import { kanbanRoot, atomicWriteJSON, loadBoard, saveBoard, loadAllCards, createCard, updateCardCAS } from "../lib/board.mjs";
+import { normaliseCardSchedule } from "../lib/schedules.mjs";
+import { processCard, processBatch, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../lib/engine.mjs";
 import { gatewayRunFn, compactBoundaryFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
 import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
 import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
 import { deliverBoardNotice } from "../lib/notify-origin.mjs";
+import { MORNING_BRIEF_SYSTEM_KEY, reconcileMorningBriefDeliveries } from "../lib/morning-briefing.mjs";
 import { loadPolicy } from "../lib/policy.mjs";
 import { loadResolvedModel, buildBoard, reconcileBoardLists, validNextForCard } from "../lib/resolved-model.mjs";
+import {
+  PERSONAL_SCOPE_TOKEN,
+  ensurePersonalWorkspace,
+  resolvePersonalWorkspace
+} from "../lib/personal-workspace.mjs";
 import {
   reevaluateWaiting,
   coordinationConfig,
@@ -77,8 +85,12 @@ export { migrateBoard } from "../lib/board.mjs";
 
 export function seedBoard() {
   return {
-    version: 3,
+    version: 5,
     lists: [
+      {
+        id: "scheduled", title: "Scheduled", order: -1, userOrder: -1,
+        kind: "scheduled", trigger: "scheduler-beat", system: true, validNext: []
+      },
       {
         id: "backlog", title: "Backlog", order: 0, kind: "manual", trigger: "manual",
         // On entry: infer the title eagerly; apply the project only at >=70% confidence,
@@ -117,22 +129,30 @@ export function seedBoard() {
       },
       {
         id: "review", title: "Review", order: 5, kind: "agent", trigger: "immediate", phase: "review",
-        executePrompt: "Review the slice diff for correctness then quality; write the review phase's gate-status entry with the verdict.",
-        routerPrompt: "If the review is clean OR the slice is already complete (no real issues), end with `adversarial-review`. Only if real issues remain, end with `implement`. End with the bare token on its own final line.",
+        // Rail-relative, never a hardcoded phase name: a levelled flow's rail may be a
+        // SUBSET of the pipeline (fix L2 is implement -> test -> review -> done), and a
+        // gate record naming a phase the card does not run is refused by the engine and
+        // parks the card (F11 - a passing codex review did exactly that). The Test
+        // batch's equivalent instruction demonstrably keeps the same model on-rail.
+        executePrompt: "Review the slice diff for correctness then quality; write the review phase's gate-status entry with the verdict. Before emitting it, inspect the entry you wrote and replace any stale or invalid `next_phase` so it exactly matches one of THIS card's listed next-options.",
+        routerPrompt: "If the review is clean OR the slice is already complete (no real issues), end with this card's FORWARD next-option. Only if real issues remain, end with `implement`. Both come from the card's listed next-options; end with the bare token on its own final line.",
         validNext: ["adversarial-review", "implement"]
       },
       {
         id: "adversarial-review", title: "Adversarial Review", order: 6, kind: "agent", trigger: "immediate", phase: "adversarial-review",
-        executePrompt: "Run the adversarial review phase: a fresh-context pass that tries to break the diff; iterate to approve; write the phase's gate-status entry.",
-        routerPrompt: "If the adversarial review approves — or there is nothing left to review (already complete/clean) — end with `test`. Only if it found real issues, end with `implement`. End with the bare token on its own final line.",
+        executePrompt: "Run the adversarial review phase: a fresh-context pass that tries to break the diff; iterate to approve; write the phase's gate-status entry. Before emitting it, inspect the entry you wrote and replace any stale or invalid `next_phase` so it exactly matches one of THIS card's listed next-options.",
+        routerPrompt: "If the adversarial review approves — or there is nothing left to review (already complete/clean) — end with this card's FORWARD next-option. Only if it found real issues, end with `implement`. Both come from the card's listed next-options; end with the bare token on its own final line.",
         validNext: ["test", "implement"]
       },
       {
         id: "test", title: "Test", order: 7, kind: "agent", trigger: "scheduler-beat", phase: "test",
-        // Runs on its OWN scheduler beat (default every 5h, editable as a cron), not
+        // Runs on its OWN scheduler beat (default every 2h, editable as a cron), not
         // the global heartbeat, and is BATCHED per project: one session per project
         // against one test plan, one verdict per card (list MECHANICS, preserved — D9).
-        beatCron: "0 */5 * * *",
+        // 2026-08-13: tightened from 5h — the fix flow's modal card finished implement
+        // in nine minutes and then waited hours for its test batch, which is exactly
+        // the latency that sends small work back to a raw session (F8).
+        beatCron: "0 */2 * * *",
         batched: true,
         // A resolved workflow may end at Test (for example develop level 2 is
         // plan -> implement -> review -> test -> done) and therefore never visit
@@ -185,10 +205,193 @@ export function seedBoard() {
         // touchpoint on the autonomous side (D16): edit, resolve, re-enter the pipeline.
         notifyOnEntry: true,
         validNext: ["todo", "plan", "implement"]
-      }
+      },
+      // A terminal parking column for finished/abandoned cards, so the Done column
+      // stays legible. No forward edges — a card leaves it only by a human Move/Unarchive.
+      { id: "archived", title: "Archived", order: 13, kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] }
     ],
     projects: {}
   };
+}
+
+// Move the legacy scheduledFor/scheduleAction shape into the v5 Scheduled
+// column. The aliases remain on every card for older clients, but the schedule
+// object becomes authoritative. Already-delivered reminders are converted to a
+// completed one-shot and never sent again.
+export async function migrateLegacyCardSchedules(root, board) {
+  const cards = await loadAllCards(root);
+  const migrated = [];
+  for (const card of cards) {
+    if (card.schedule || !card.scheduledFor) continue;
+    const schedule = normaliseCardSchedule(null, {
+      scheduledFor: card.scheduledFor,
+      scheduleAction: card.scheduleAction,
+      targetList: card.list,
+      now: card.created ?? new Date().toISOString()
+    });
+    if (!schedule) continue;
+    const reminderAlreadySent = Boolean(card.scheduleNotifiedAt);
+    const updated = await updateCardCAS(root, card.id, (current) => {
+      if (current.schedule || current.scheduledFor !== card.scheduledFor) return null;
+      if (reminderAlreadySent) {
+        return {
+          ...current,
+          schedule: { ...schedule, enabled: false, lastAt: schedule.nextAt, nextAt: null },
+          scheduledFor: null,
+          scheduleAction: null
+        };
+      }
+      return {
+        ...current,
+        list: getList(board, "scheduled") ? "scheduled" : current.list,
+        schedule,
+        scheduledFor: schedule.nextAt,
+        scheduleAction: schedule.action
+      };
+    });
+    if (updated) migrated.push(card.id);
+  }
+  return migrated;
+}
+
+async function legacyMorningBriefJob(root) {
+  const file = process.env.GARRISON_SCHEDULER_JOBS || path.join(path.dirname(root), "scheduler-jobs.json");
+  try {
+    const jobs = JSON.parse(await fs.readFile(file, "utf8"));
+    if (!Array.isArray(jobs)) {
+      return { state: "unreadable", file, error: "scheduler jobs registry is not an array" };
+    }
+    const job = jobs.find((entry) => entry?.id === "morning-briefing") ?? null;
+    return job ? { state: "present", file, job } : { state: "absent", file, job: null };
+  } catch (error) {
+    // Match the scheduler daemon's own contract: a registry that has never
+    // existed is an empty registry, not a read failure. The daemon reloads the
+    // file on every tick, so there is no in-memory legacy job hiding behind
+    // ENOENT. Other I/O and parse failures remain uncertain and fail closed.
+    if (error?.code === "ENOENT") return { state: "absent", file, job: null };
+    // Apart from the scheduler-defined ENOENT-as-empty case above, absence is a
+    // positive cutover signal only when the registry itself was read and parsed
+    // successfully. Corrupt JSON and permission/I/O failures are operational
+    // uncertainty: treating them as "job removed" can run the old raw job and
+    // the new Scheduled template at the same time.
+    return {
+      state: "unreadable",
+      file,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+// Seed the replacement while the legacy job is still live, but PAUSED. This lets
+// the operator inspect it and exercise Run now before cutover without creating a
+// second regular delivery. The first setup after the raw job is removed enables
+// it according to the legacy job's recorded enabled state.
+export async function ensureMorningBriefTemplate(root, board, { force = false, now = new Date().toISOString() } = {}) {
+  const cards = await loadAllCards(root);
+  const existing = cards.find((card) => card.systemKey === MORNING_BRIEF_SYSTEM_KEY);
+  const legacyState = await legacyMorningBriefJob(root);
+  const legacy = legacyState.state === "present" ? legacyState.job : null;
+  if (existing) {
+    if (legacyState.state === "absent" && existing.schedule?.cutoverPending) {
+      const desiredEnabled = existing.schedule.desiredEnabled !== false;
+      const verification = existing.schedule.runNowVerification;
+      const verifiedOccurrence = verification && cards.find((card) =>
+        card.id === verification.occurrenceId &&
+        card.scheduleTemplateId === existing.id &&
+        (!verification.occurrenceKey || card.occurrenceKey === verification.occurrenceKey)
+      );
+      // Removing the legacy job is not itself proof that the replacement
+      // works. An enabled cadence stays paused until Run now has successfully
+      // materialised an occurrence and persisted a receipt on this template.
+      if (desiredEnabled && !verifiedOccurrence) {
+        return {
+          card: existing,
+          created: false,
+          cutoverPending: true,
+          cutoverBlocked: true,
+          skippedLegacy: false,
+          error: "Legacy Morning briefing job is absent, but activation is blocked until Run now creates a verified occurrence."
+        };
+      }
+      const schedule = normaliseCardSchedule({
+        ...existing.schedule,
+        enabled: desiredEnabled,
+        nextAt: desiredEnabled ? null : existing.schedule.nextAt,
+        cutoverPending: false,
+        desiredEnabled: undefined
+      }, { targetList: existing.schedule.targetList, now });
+      const updated = await updateCardCAS(root, existing.id, (current) => ({
+        ...current,
+        schedule,
+        scheduledFor: schedule?.enabled ? schedule.nextAt : null,
+        scheduleAction: schedule?.action ?? null,
+        events: withEvent(current, {
+          at: now,
+          kind: "schedule-cutover",
+          message: desiredEnabled
+            ? `Legacy morning-briefing job removed; recurring template enabled for ${schedule?.nextAt}`
+            : "Legacy morning-briefing job removed; template preserved paused"
+        })
+      }));
+      return { card: updated ?? existing, created: false, cutover: true, skippedLegacy: false };
+    }
+    return {
+      card: existing,
+      created: false,
+      cutoverPending: Boolean(existing.schedule?.cutoverPending),
+      skippedLegacy: false,
+      ...(legacyState.state === "unreadable"
+        ? { cutoverBlocked: true, error: `Cannot verify legacy Morning briefing job state: ${legacyState.error}` }
+        : {})
+    };
+  }
+  if (legacyState.state === "unreadable" && !force) {
+    throw new Error(
+      `Cannot safely seed Morning briefing: scheduler registry ${legacyState.file} could not be read and parsed (${legacyState.error})`
+    );
+  }
+  const other = getList(board, "other");
+  const fallback = (board.lists || []).find((list) => list.kind === "agent" && !isInteractive(list));
+  const executionList = other?.id ?? fallback?.id ?? null;
+  const pendingCutover = Boolean(legacy && !force);
+  const desiredEnabled = legacy ? legacy.enabled !== false : true;
+  const legacyCron = typeof legacy?.cron === "string" && normaliseCardSchedule({
+    kind: "cron", action: "run", cron: legacy.cron, timezone: "Europe/Lisbon",
+    enabled: false, targetList: "todo"
+  }, { now })
+    ? legacy.cron
+    : "0 8 * * 1-5";
+  const card = await createCard(root, {
+    title: "Morning briefing",
+    description:
+      "Prepare today's morning briefing. Read today's Google Calendar events when the connector is available; " +
+      "summarise active and due Kanban work, blocked cards, and Needs attention; then recommend a concise focus for the day. " +
+      "After the actual Google connector call, write its machine-readable receipt to <runDir>/morning-briefing-evidence.json " +
+      "as {\"calendar\":{\"connector\":\"google\",\"action\":\"calendar.list_events\",\"ok\":true|false," +
+      "\"checkedAt\":\"ISO timestamp\",\"eventCount\":0,\"reason\":\"failure reason when not ok\"}}; prose is not evidence. " +
+      "Deliver the completed briefing to the stable Garrison Web thread and directly to Omi when it is available. " +
+      "Record a missing Calendar or Omi connection as a visibly degraded section/delivery result; never invent unavailable data, " +
+      "and do not duplicate the Web delivery through Omi's fallback.",
+    scope: "personal",
+    list: "scheduled",
+    origin: "scheduler",
+    origin_id: "schedule:morning-briefing",
+    duty: other ? "other" : null,
+    level: other ? 1 : null,
+    sequence: executionList ? [executionList] : null,
+    systemKey: MORNING_BRIEF_SYSTEM_KEY,
+    schedule: {
+      kind: "cron",
+      action: "run",
+      cron: legacyCron,
+      timezone: "Europe/Lisbon",
+      enabled: pendingCutover ? false : desiredEnabled,
+      ...(pendingCutover ? { cutoverPending: true, desiredEnabled } : {}),
+      targetList: "todo"
+    },
+    at: now
+  });
+  return { card, created: true, cutoverPending: pendingCutover, skippedLegacy: false, legacyEnabled: legacy?.enabled !== false };
 }
 
 // The canonical per-phase list configs (prompts, trigger, gate flags), indexed
@@ -272,7 +475,7 @@ function schedulerCli() {
 // Register a scheduler beat for EVERY scheduler-beat list, each on its own `beatCron`
 // (the Test list seeds one; the user can add/edit a beat per list in the list config).
 // Delegates to the shared lib so --setup and PATCH /lists register beats identically.
-async function registerSchedulerBeats() {
+export async function registerSchedulerBeats() {
   const board = await loadBoard().catch(() => seedBoard());
   await syncAllBeats(board);
 }
@@ -382,12 +585,17 @@ async function review() {
 }
 
 async function setup() {
+  const personalWorkspace = await ensurePersonalWorkspace();
+  console.log("kanban-loop: personal workspace ready at", personalWorkspace);
   const root = kanbanRoot();
   await fs.mkdir(path.join(root, "cards"), { recursive: true });
-  const boardFile = path.join(root, "board.json");
-  if (!existsSync(boardFile)) {
-    await atomicWriteJSON(boardFile, resolveSeedBoard(root));
-    console.log("kanban-loop: seeded board at", boardFile);
+  // The board layout is a shared document in the state service now, so its
+  // presence is a read, not an existsSync. Seed-or-migrate-never-clobber is
+  // unchanged: an existing layout is reconciled, never overwritten.
+  const seeded = await loadBoard(root).catch(() => null);
+  if (!seeded) {
+    await saveBoard(resolveSeedBoard(root), root);
+    console.log("kanban-loop: seeded board layout");
   } else {
     // RECONCILE an existing board's phase-list definitions to the current resolved
     // model (D15): add/drop selected duties and refresh engine-owned mechanics even
@@ -396,23 +604,29 @@ async function setup() {
     // (membership is derived from card files); any card stranded on a removed list
     // is relocated to needs-attention. No model on disk → leave the board untouched.
     const model = loadResolvedModel(root);
-    const existing = model ? await loadBoard(root).catch(() => null) : null;
+    const existing = model ? seeded : null;
     if (model && existing) {
       const { board, removed, added, updated } = reconcileExistingBoard(existing, model);
       if (removed.length || added.length || updated.length) {
-        await atomicWriteJSON(boardFile, board);
+        await saveBoard(board, root);
         const moved = await relocateStrandedCards(root, board, removed);
         console.log(
-          `kanban-loop: reconciled board (+[${added.join(", ")}] -[${removed.join(", ")}] ~[${updated.join(", ")}]${moved.length ? `, moved ${moved.length} stranded card(s) to needs-attention` : ""}) at`,
-          boardFile
+          `kanban-loop: reconciled board layout (+[${added.join(", ")}] -[${removed.join(", ")}] ~[${updated.join(", ")}]${moved.length ? `, moved ${moved.length} stranded card(s) to needs-attention` : ""})`
         );
       } else {
-        console.log("kanban-loop: board up to date with the resolved model at", boardFile);
+        console.log("kanban-loop: board layout up to date with the resolved model");
       }
     } else {
-      console.log("kanban-loop: board exists at", boardFile);
+      console.log("kanban-loop: board layout exists");
     }
   }
+  const board = await loadBoard(root);
+  const legacySchedules = await migrateLegacyCardSchedules(root, board);
+  if (legacySchedules.length) console.log(`kanban-loop: migrated ${legacySchedules.length} one-shot schedule(s) into Scheduled`);
+  const morning = await ensureMorningBriefTemplate(root, board);
+  if (morning.created && morning.cutoverPending) console.log(`kanban-loop: seeded PAUSED Morning briefing template ${morning.card.id}; verify with Run now, remove the legacy job, then rerun setup to enable it`);
+  else if (morning.created) console.log(`kanban-loop: seeded recurring Morning briefing card ${morning.card.id}`);
+  else if (morning.cutover) console.log(`kanban-loop: completed Morning briefing cutover (${morning.card.id})`);
   await registerTick();
   await registerSchedulerBeats();
   await registerWeeklyReview();
@@ -428,7 +642,19 @@ async function probe() {
     console.error("KANBAN-FAIL: engine not loadable");
     process.exit(1);
   }
+  const personalWorkspace = await resolvePersonalWorkspace();
+  if (!personalWorkspace) {
+    console.error("KANBAN-FAIL: personal workspace missing, invalid, or symlinked; run --setup");
+    process.exit(1);
+  }
   console.log("KANBAN-OK");
+}
+
+async function seedMorningBrief() {
+  const root = kanbanRoot();
+  const board = await loadBoard(root);
+  const result = await ensureMorningBriefTemplate(root, board);
+  console.log(`kanban-loop: Morning briefing ${result.created ? `created (${result.card.id})` : result.cutover ? `cut over (${result.card.id})` : `already exists (${result.card.id})`}${result.cutoverPending ? " — paused pending legacy-job removal" : ""}`);
 }
 
 // Dispatch goes through the shared, transport-aware gateway client (lib/gateway-client.mjs,
@@ -449,6 +675,12 @@ export function batchGatewayRunFn(gatewayUrl) {
   // default) and died at the HTTP client's ~5-min headersTimeout — either way
   // a legitimate long batch parked its whole project group.
   const streamRunFn = gatewayRunFn(gatewayUrl);
+  const batchCard = (project) => {
+    if (project === PERSONAL_SCOPE_TOKEN) return { scope: "personal" };
+    if (project && project !== "(no-project)") return { project };
+    return null;
+  };
+  const batchLabel = (project) => project === PERSONAL_SCOPE_TOKEN ? "personal" : project;
   return async ({
     project,
     cards,
@@ -461,7 +693,9 @@ export function batchGatewayRunFn(gatewayUrl) {
     level,
     phase: routedPhase,
     stepIndex,
-    sequence
+    sequence,
+    onChunk,
+    onJournal
   }) => {
     const routeContext = { duty, level, phase: routedPhase, stepIndex, sequence };
     // A verdict NUDGE (engine backstop) replaces the roster prompt: same
@@ -472,10 +706,13 @@ export function batchGatewayRunFn(gatewayUrl) {
         // A batch runs one session per PROJECT, so the whole group shares a cwd —
         // the same routing.project the per-card path sends. Without it the batch
         // (the Test list) ran in the composition dir too.
-        card: project ? { project } : null,
+        card: batchCard(project),
         classification,
         skill,
         suppressContinuations: suppressContinuations ?? true,
+        cardIds: cards.map((c) => c.id).filter(Boolean),
+        onChunk,
+        onJournal,
         ...routeContext
       });
     }
@@ -496,7 +733,7 @@ export function batchGatewayRunFn(gatewayUrl) {
     const mode = (list?.mode || "").trim();
     const prompt = [
       ...(mode ? [`${mode}, take on the following batched test run.`, ""] : []),
-      `Batched test run for project "${project}". Test ALL of these cards' slices in ONE session against one test plan:`,
+      `Batched test run for scope "${batchLabel(project)}". Test ALL of these cards' slices in ONE session against one test plan:`,
       roster,
       "",
       list.executePrompt || "",
@@ -507,10 +744,13 @@ export function batchGatewayRunFn(gatewayUrl) {
     return streamRunFn({
       prompt,
       // The batch is grouped BY project, so every card in it shares this cwd.
-      card: project ? { project } : null,
+      card: batchCard(project),
       classification,
       skill,
       suppressContinuations: suppressContinuations ?? true,
+      cardIds: cards.map((c) => c.id).filter(Boolean),
+      onChunk,
+      onJournal,
       ...routeContext
     });
   };
@@ -532,18 +772,144 @@ async function gatewayReachable(url) {
   }
 }
 
+// ── Discuss inactivity auto-archive ─────────────────────────────────────────
+// A Discuss card is a resumable conversation, which is exactly why it never leaves
+// on its own: the list is interactive, the engine never dispatches it, and a
+// discussion nobody comes back to sits on the board forever. So a Discuss card that
+// has gone quiet for the idle window moves to the terminal `archived` column with an
+// event naming the reason. A HELD card archives on the same terms - being parked on
+// a question nobody answered for a week IS inactivity.
+//
+// Archiving is reversible (a human Move brings the card back), needs no gateway, and
+// is the least destructive way to say "this conversation is over".
+const DEFAULT_DISCUSS_IDLE_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// The idle window in ms. GARRISON_KANBAN_DISCUSS_IDLE_DAYS overrides the default (the
+// same env-knob shape as GARRISON_KANBAN_ITERATION_CAP); an explicit 0 turns the
+// sweep OFF. A non-numeric or negative value falls back to the default rather than
+// silently disabling a sweep the operator thought they had configured.
+export function discussIdleWindowMs(env = process.env) {
+  const raw = String(env.GARRISON_KANBAN_DISCUSS_IDLE_DAYS ?? "").trim();
+  if (!raw) return DEFAULT_DISCUSS_IDLE_DAYS * DAY_MS;
+  const days = Number(raw);
+  if (!Number.isFinite(days) || days < 0) return DEFAULT_DISCUSS_IDLE_DAYS * DAY_MS;
+  return Math.round(days * DAY_MS);
+}
+
+// The freshest timestamp the CARD ITSELF carries: its created/updated stamps, the
+// last of its events, and a live run's start. Deliberately NOT the web channel's
+// thread file - the board owns cards, the channel owns threads, and reaching across
+// that line to age a card would make the board depend on a surface it does not
+// install. Every card write stamps `updated`, so a reply that touches the card (a
+// brief link, a hold, a move) counts as activity. Null when a card carries no
+// parseable timestamp at all; such a card is never archived, because we cannot prove
+// it is idle.
+export function lastCardActivityAt(card) {
+  let newest = null;
+  const consider = (value) => {
+    const t = Date.parse(value ?? "");
+    if (Number.isFinite(t) && (newest === null || t > newest)) newest = t;
+  };
+  consider(card?.created);
+  consider(card?.updated);
+  consider(card?.runningSince);
+  for (const event of Array.isArray(card?.events) ? card.events : []) consider(event?.at);
+  return newest;
+}
+
+export async function sweepIdleDiscussCards(
+  root,
+  board,
+  { now = () => Date.now(), windowMs = discussIdleWindowMs() } = {}
+) {
+  if (!(windowMs > 0)) return [];
+  const lists = Array.isArray(board?.lists) ? board.lists : [];
+  // Without the terminal column there is nowhere to archive TO, and moving a card to
+  // a list the board does not have would make it invisible.
+  if (!lists.some((l) => l?.id === "archived")) return [];
+  const discussLists = new Set(lists.filter((l) => phaseForList(l) === "discuss").map((l) => l.id));
+  if (!discussLists.size) return [];
+  const cards = await loadAllCards(root);
+  const archived = [];
+  for (const card of cards) {
+    if (!discussLists.has(card.list)) continue;
+    // A live run is not idle. A run that DIED mid-turn is released by
+    // sweepOrphanedRuns earlier in this same tick, so it becomes eligible next tick.
+    if (card.status === "running") continue;
+    const last = lastCardActivityAt(card);
+    if (last === null) continue;
+    if (now() - last < windowMs) continue;
+    const res = await updateCardCAS(root, card.id, (c) => {
+      // Re-check against the card the CAS loop just read: a reply may have landed
+      // between our scan and this write, and a reply un-idles the conversation.
+      if (!discussLists.has(c.list) || c.status === "running") return null;
+      const fresh = lastCardActivityAt(c);
+      if (fresh === null || now() - fresh < windowMs) return null;
+      const idleDays = Math.floor((now() - fresh) / DAY_MS);
+      return {
+        ...c,
+        list: "archived",
+        status: "ok",
+        runningSince: null,
+        events: withEvent(c, {
+          at: new Date(now()).toISOString(),
+          kind: "archived",
+          message: `Archived from Discuss: discuss-inactivity (${idleDays}d quiet)`,
+          detail:
+            `Nothing touched this Discuss card for ${idleDays} day(s), past the ${Math.round(windowMs / DAY_MS)}-day ` +
+            `inactivity window (GARRISON_KANBAN_DISCUSS_IDLE_DAYS). The conversation is kept - move the card back ` +
+            `to Discuss to pick it up again.`
+        })
+      };
+    });
+    // updateCardCAS returns the UNCHANGED card when the mutate opts out, so a
+    // declined re-check is truthy. Only a card that actually landed on `archived`
+    // is reported (and logged) as archived.
+    if (res?.list === "archived") archived.push(card.id);
+  }
+  return archived;
+}
+
 // Process due IMMEDIATE agent-list cards. Skips scheduler-beat (Test runs on its own
 // beat), manual, and interactive lists.
 async function tick() {
+  const root = kanbanRoot();
   const gatewayUrl = resolveGatewayUrl();
   // Release lost runs FIRST, and do it whether or not a gateway is reachable: an
   // orphaned card is wedged regardless, and the sweep needs no operative.
-  const orphans = await sweepOrphanedRuns(kanbanRoot()).catch(() => []);
+  const orphans = await sweepOrphanedRuns(root).catch(() => []);
   for (const id of orphans) console.log(`kanban-loop: released a lost run on card ${id} (retryable)`);
   // Same beat, the cross-machine case: a dispatched card whose worker stopped
   // heartbeating. Needs no gateway either — reclaiming is local bookkeeping.
-  const reclaimed = await sweepExpiredDispatchClaims(kanbanRoot()).catch(() => []);
+  const reclaimed = await sweepExpiredDispatchClaims(root).catch(() => []);
   for (const id of reclaimed) console.log(`kanban-loop: reclaimed card ${id} from a silent outpost`);
+  // Scheduling is clock work, not model work. Create due occurrences and send
+  // reminders even while the operative is down; auto-run occurrences simply wait
+  // on their agent list until a later tick can reach the gateway.
+  const board = await loadBoard(root);
+  const due = await sweepDueSchedules(root, board).catch((error) => {
+    console.log(`kanban-loop: schedule sweep failed: ${error?.message || error}`);
+    return [];
+  });
+  for (const d of due) console.log(`kanban-loop: scheduled card ${d.id} came due → ${d.action}${d.occurrenceId ? ` (${d.occurrenceId})` : ""}`);
+  const morning = await reconcileMorningBriefDeliveries(root).catch((error) => ({
+    checked: 0,
+    completed: 0,
+    skipped: 0,
+    errors: [{ cardId: "unknown", error: String(error?.message ?? error) }]
+  }));
+  if (morning.completed) console.log(`kanban-loop: repaired ${morning.completed} Morning briefing delivery receipt(s)`);
+  for (const failure of morning.errors) {
+    console.log(`kanban-loop: Morning briefing reconciliation failed for ${failure.cardId}: ${failure.error}`);
+  }
+  // Retire conversations nobody came back to. Local bookkeeping like the sweeps
+  // above, so it runs whether or not a gateway is reachable.
+  const staleDiscuss = await sweepIdleDiscussCards(root, board).catch((error) => {
+    console.log(`kanban-loop: discuss inactivity sweep failed: ${error?.message || error}`);
+    return [];
+  });
+  for (const id of staleDiscuss) console.log(`kanban-loop: archived idle Discuss card ${id} (discuss-inactivity)`);
   if (!gatewayUrl) {
     // Distinct from "the gateway is down": this instance never told the tick WHICH
     // gateway is its own, so dispatching would be a guess. Silently logging
@@ -559,8 +925,6 @@ async function tick() {
     console.log(`kanban-loop: gateway not reachable at ${gatewayUrl} — nothing to dispatch (immediate cards wait for an operative).`);
     return;
   }
-  const root = kanbanRoot();
-  const board = await loadBoard(root);
   const cap = Number(process.env.GARRISON_KANBAN_ITERATION_CAP || 10);
   // Coordination (GARRISON-FLOW-V2 S1): release any waiting cards whose blocker
   // reached its release point BEFORE dispatching, then reload so released cards
@@ -581,6 +945,13 @@ async function tick() {
     // list-kind/trigger/interactive guards so the tick self-heals it like any agent
     // list; a card held-for-go is left alone (processCard's discuss-held guard skips it,
     // and !discussHeld gates it here too).
+    // §7.1: a card the router held below its autonomy threshold is waiting for a
+    // go and the tick must not answer on the human's behalf. A held card sits in
+    // the capture list, which the list-kind guard below already skips, so this is
+    // belt-and-suspenders in the same spirit as the discuss-held skip - and it is
+    // checked BEFORE the gated-discuss exemption, which is the one path that
+    // deliberately walks past those guards.
+    if (card.autonomyHeld === true) continue;
     const gatedDiscuss = isGatedDiscuss(card, list) && card.discussHeld !== true;
     if (!gatedDiscuss) {
       if (list.kind !== "agent") continue;                // manual / agent-interactive skip
@@ -684,5 +1055,6 @@ if (invokedDirectly) {
   else if (arg === "--tick") await tick();
   else if (arg === "--tick-list") await tickList(process.argv[3]);
   else if (arg === "--review") await review();
-  else console.log("usage: kanban.mjs --setup | --probe | --tick | --tick-list <id> | --review");
+  else if (arg === "--seed-morning-brief") await seedMorningBrief();
+  else console.log("usage: kanban.mjs --setup | --probe | --tick | --tick-list <id> | --review | --seed-morning-brief");
 }

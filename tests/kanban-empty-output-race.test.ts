@@ -13,7 +13,7 @@
 // failure contract (never claims success; carries a log-tail excerpt; marks the
 // card for a context-keeping retry). These tests reproduce BOTH outcomes with an
 // injected sleep so the race is deterministic and the suite never actually waits.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -35,6 +35,24 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 import { atomicWriteJSON, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore pure mjs
 import { compilePolicy, stableStringify } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState, seedCard } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// Fixed-ULID fixtures are reused across tests in this file; a per-test wipe gives
+// each one the fresh board its own tmp root used to give it.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const ROOT = path.resolve(__dirname, "..");
 const SEED_CONFIG = path.join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
@@ -58,7 +76,20 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
     status: "ok",
     iterations: 0,
     rev: 0,
-    workKind: "full-feature",
+    // Deliberately a RETIRED flow name (the 2026-08-09 library rewrite folded
+    // `full-feature` into `feature`). Every card already on a real board carries a
+    // pre-rewrite name, so this fixture doubles as the alias path's coverage: the
+    // rail must resolve through FLOW_ALIASES to the levelled `feature` plan instead
+    // of failing to find the flow at all and rendering every phase on.
+    //
+    // The level is now load-bearing and therefore explicit: a levelled flow's rail
+    // IS its duty list at the card's level, and these cases advance implement ->
+    // review and test -> adversarial-test, which only level 3 runs. At a lower
+    // level the rail would skip the gate's declared next phase and the D9
+    // concordance check would refuse the advance - correctly, but that is a
+    // different test than the empty-output race.
+    flow: "full-feature",
+    level: 3,
     goalMode: false,
     acceptance: null,
     events: [],
@@ -70,7 +101,7 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
   };
   mkdirSync(path.join(root, "cards", card.id), { recursive: true });
   mkdirSync(card.runDir as string, { recursive: true });
-  await atomicWriteJSON(path.join(root, "cards", card.id, "card.json"), card);
+  await seedCard(card);
   return card;
 }
 
@@ -275,12 +306,25 @@ describe("un-park honors retryKeepsContext (S1b review finding — flag now read
     expect(patch.retryKeepsContext).toBe(false); // consumed
     expect(patch.iterations).toBe(0); // counter still resets (re-cap avoidance)
     expect(patch.attentionReason).toBeNull();
+    expect(patch).not.toHaveProperty("coordinationRecoveryPending");
   });
 
   it("a normal un-park (no flag) does not touch runDir/retryKeepsContext", () => {
     const patch = unparkRecoveryFields({ iterations: 3 });
     expect(patch).not.toHaveProperty("runDir");
     expect(patch).not.toHaveProperty("retryKeepsContext");
+    expect(patch).not.toHaveProperty("coordinationRecoveryPending");
     expect(patch.iterations).toBe(0);
+  });
+
+  it("keeps PATCH/Start/manual-list recovery marker-free under the fail-closed contract", () => {
+    const patch = unparkRecoveryFields({
+      list: "needs-attention",
+      status: "needs-attention",
+      parkedFrom: "implement",
+      iterations: 2
+    });
+    expect(patch).not.toHaveProperty("coordinationRecoveryPending");
+    expect(patch).toMatchObject({ attentionReason: null, parkedFrom: null, iterations: 0 });
   });
 })

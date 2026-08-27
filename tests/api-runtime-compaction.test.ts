@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 // @ts-ignore — pure .mjs
 import { AgentSdkAdapter } from "../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs";
 // @ts-ignore — pure .mjs
-import { OpenAiAgentsAdapter } from "../fittings/seed/openai-agents-runtime/lib/openai-adapter.mjs";
+import { OpenAiAgentsAdapter } from "../fittings/seed/openai-agents-runtime/lib/openai-agents-adapter.mjs";
 
 // S1b (D3/D6) — the API-loop runtimes' summarize-and-rebuild compaction: OFF by
 // default, and when enabled it summarizes at the loop boundary, resets its own

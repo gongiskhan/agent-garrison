@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: observability
+  category: Operations
   cardinality_hint: single
   component_shape: script
   own_port: true
@@ -22,7 +23,7 @@ x-garrison:
     resolutions, and relative→absolute date fixes — review-queued under rule
     `memory-dream`, gated to one `memory_primary` machine so a shared vault is
     not triple-consolidated; and the SKILLS rule — a two-phase self-improvement
-    loop over the Operative's skills:
+    loop over the session's skills:
     (1) deterministic maintenance (stale/archive of owned, unpinned skills,
     reversible) and (2) ONE capped, evidence-cited PTY model pass
     (@garrison/claude-pty#oneShotTurn — never the Agent SDK, never the warm pool)
@@ -41,7 +42,7 @@ x-garrison:
       description: Nightly run schedule (registered via the scheduler CLI in setup.sh).
     - key: port
       type: integer
-      default: 7093
+      default: 8093
       description: HTTP port the review-queue view + apply API binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string
@@ -83,6 +84,10 @@ x-garrison:
       type: string
       default: haiku
       description: Model the capped PTY dream/consolidation pass runs with (via @garrison/claude-pty#oneShotTurn). Memory rule.
+    - key: escalation_threshold
+      type: integer
+      default: 3
+      description: How many times the router must escalate the SAME (flow, flow level, duty, target level) before the escalation rule proposes promoting it into a flow-definition pin. Lower = more proposals from thinner evidence. Escalation rule.
   provides:
     - kind: automation-runner
       name: improver
@@ -102,6 +107,27 @@ x-garrison:
     review UI) applies via the hosted authoring APIs (POST /api/quarters file.*,
     PUT /api/claude-md with baselineSha, PUT /api/settings, the router's PUT
     /routing) and runs reconcile. Run manually: scheduler.mjs run-now improver-nightly.
+
+    The SIGNALS tab shows the raw evidence behind every proposal: each record on
+    the shared feedback queue (verdicts, gateway overrides, probe answers) with
+    what it currently feeds, plus the probe questions still waiting for an answer
+    and the probe-skip tail. Deleting a record appends a TOMBSTONE — the line
+    stays on disk and nothing counts it again, which also removes it from the
+    router's autonomy bands. The queue is never rewritten: three producers hold
+    it open in O_APPEND.
+
+    The ESCALATION rule reads the composition's decisions.jsonl. When the router
+    escalates the same (flow, flow level, duty, target level) `escalation_threshold`
+    times, it proposes promoting that escalation into a flow-definition pin —
+    applied through the shell's PUT /api/orchestrator/policy (baselineSha-guarded),
+    not by appending markdown. It also emits the alternative reading (this work
+    shape may belong at a different flow level) as a MANUAL-only proposal: real
+    evidence, no mechanical edit, no Approve button.
+
+    The PROBE now asks twice over: the Stop-hook relay as before, and a push to
+    every running channel Fitting whose options link back to
+    POST /api/probe/:id/answer. A question that reached a channel is not swept as
+    "dismissed" after 90 seconds — it lives until answered or a week old.
 
     The SKILLS rule (v1) only acts on OWNED, UNPINNED skills (provenance from the
     composition apm.lock; pins via pinned.json / IMPROVER_PINNED). It runs ONE

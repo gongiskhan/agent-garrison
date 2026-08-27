@@ -127,8 +127,39 @@ export function runImprover({ decisions = [], memoryEntries = [], vaultLocked = 
 }
 
 // Upsert a proposal into the review-queue index (idempotent by proposal id).
+//
+// The CONTENT is refreshed from the newest run (a claim naming "3 escalations"
+// should say 7 once it has seen 7), but the LIFECYCLE is not: a proposal that was
+// already applied or rejected keeps that status and its evidence. Resetting it to
+// `pending` would offer an Approve button for an edit that has already landed —
+// and for the apply paths that write through an API rather than an idempotent
+// marked block, approving twice writes twice.
+//
+// `pinEdit` / `appliable` ride along for the same reason review-queue.enqueue
+// carries them: they are the machine-readable half of a proposal whose apply path
+// is an API call, and dropping them here would make a nightly-produced proposal
+// silently unappliable.
 export function upsertQueue(queue, proposal) {
+  const existing = (queue || []).find((p) => p.id === proposal.id) || null;
   const next = (queue || []).filter((p) => p.id !== proposal.id);
-  next.push({ id: proposal.id, rule: proposal.rule, targetClass: proposal.targetClass, claim: proposal.claim, status: "pending", at: proposal.at });
+  next.push({
+    id: proposal.id,
+    rule: proposal.rule,
+    targetClass: proposal.targetClass,
+    claim: proposal.claim,
+    ...(proposal.diff !== undefined ? { diff: proposal.diff } : {}),
+    ...(proposal.decision !== undefined ? { decision: proposal.decision } : {}),
+    ...(proposal.applyVia !== undefined ? { applyVia: proposal.applyVia } : {}),
+    ...(proposal.confidence !== undefined ? { confidence: proposal.confidence } : {}),
+    ...(proposal.citations !== undefined ? { citations: proposal.citations } : {}),
+    ...(proposal.pinEdit !== undefined ? { pinEdit: proposal.pinEdit } : {}),
+    ...(proposal.appliable !== undefined ? { appliable: proposal.appliable } : {}),
+    status: existing?.status ?? "pending",
+    ...(existing?.evidence !== undefined ? { evidence: existing.evidence } : {}),
+    ...(existing?.appliedAt !== undefined ? { appliedAt: existing.appliedAt } : {}),
+    ...(existing?.rejectedAt !== undefined ? { rejectedAt: existing.rejectedAt } : {}),
+    ...(existing?.rejectionReason !== undefined ? { rejectionReason: existing.rejectionReason } : {}),
+    at: proposal.at
+  });
   return next;
 }

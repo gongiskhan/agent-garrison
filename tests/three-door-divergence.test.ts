@@ -4,7 +4,7 @@
 // garrison-control read tool) consult the SAME resolved model with divergence
 // zero." Before S4b the doors diverged: web-channel classified via the gateway,
 // the board treated the list as the task type, and the garrison skill used
-// policy.defaultWorkKind. This test drives EACH door's OWN "what sequence does
+// policy.defaultFlow. This test drives EACH door's OWN "what sequence does
 // this (duty, level) card VISIT" code path and asserts the three answers are
 // identical — the resolved sequence, not the entry point (a legitimate per-door
 // difference the acceptance explicitly allows).
@@ -27,7 +27,7 @@ const KANBAN_DIR = mkdtempSync(join(tmpdir(), "three-door-kanban-"));
 mkdirSync(KANBAN_DIR, { recursive: true });
 process.env.GARRISON_KANBAN_DIR = KANBAN_DIR;
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, afterAll } from "vitest";
 
 import { writeKanbanResolvedModel } from "@/lib/kanban-model";
 import { buildControlModel, resolvedSequenceFrom } from "@/lib/garrison-control";
@@ -37,7 +37,20 @@ import { loadResolvedModel, resolveCardSequence } from "../fittings/seed/kanban-
 // @ts-ignore — pure .mjs gateway routing layer (door 1)
 import { RoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs dispatch core (door 1's real dispatch path)
-import * as dispatchCore from "../fittings/seed/dispatcher/lib/dispatch-core.mjs";
+import * as dispatchCore from "../fittings/seed/orchestrator/lib/dispatch-core.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // The develop composite (level 2 = the full inner pipeline) + its leaf steps.
 const leaf = (id: string): DutySpec => ({

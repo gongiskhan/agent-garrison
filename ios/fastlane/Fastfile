@@ -1,0 +1,151 @@
+# Garrison companion — iOS build + TestFlight automation, ported from the
+# proven ios-thing arrangement (API-key cloud signing + fastlane match).
+# Runs locally on a Mac with Xcode, or on a macOS CI runner — the lane is the
+# same either way.
+#
+# Required environment (CI sets these from repo secrets; local runs export
+# them or use scripts/ios-testflight.sh):
+#   ASC_KEY_ID       App Store Connect API key id
+#   ASC_ISSUER_ID    App Store Connect API issuer id
+#   ASC_KEY_P8       contents of the .p8 key (raw PEM or base64)
+#   APPLE_TEAM_ID    10-character Apple Developer Team id
+#   BUNDLE_ID        app bundle id (default com.gomes.garrison)
+#   MATCH_PASSWORD   passphrase encrypting the stored signing assets
+#   MATCH_GIT_URL    match storage repo. Default: the PRIVATE ios-thing repo's
+#                    match-certs branch, which already holds the team's Apple
+#                    Distribution certificate — match adds profiles for the
+#                    garrison bundle ids next to it instead of burning another
+#                    cert slot. (agent-garrison itself is PUBLIC, so signing
+#                    assets never live on a branch of it.)
+
+default_platform(:ios)
+
+BUNDLE_ID = ENV["BUNDLE_ID"] || "com.gomes.garrison"
+TEAM_ID   = ENV["APPLE_TEAM_ID"]
+SCHEME    = "GarrisonApp"
+PROJECT   = "Garrison.xcodeproj"
+MATCH_URL = ENV["MATCH_GIT_URL"] || "https://github.com/gongiskhan/ios-thing.git"
+
+def api_key
+  p8 = (ENV["ASC_KEY_P8"] || "").strip
+  # Accept the .p8 pasted raw (PEM, with the BEGIN/END lines) or base64-encoded.
+  is_base64 = !p8.include?("BEGIN PRIVATE KEY")
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_content: p8,
+    is_key_content_base64: is_base64,
+    in_house: false,
+    # Make spaceship-based actions (e.g. produce) authenticate with this key.
+    set_spaceship_token: true
+  )
+end
+
+def generate_project
+  # XcodeGen reads APPLE_TEAM_ID from the environment (see project.yml).
+  sh("cd .. && xcodegen generate")
+end
+
+platform :ios do
+  # There is deliberately NO bootstrap lane. The App Store Connect APP RECORD
+  # cannot be created with API-key auth: produce's record half only speaks
+  # legacy session auth (verified on runs 31665298898/31665467224/31665557720
+  # - "No value found for 'username'", and no api_key option exists), and the
+  # public ASC API has no app-creation endpoint. Creating the record is a
+  # one-time 2-minute browser step (HUMAN_SETUP.md): App Store Connect ->
+  # My Apps -> "+" -> New App -> bundle id com.gomes.garrison, name Garrison.
+  # Everything else here - App IDs, push capability, certificates, profiles,
+  # build, upload - is fully API-key automated.
+
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    setup_ci if ENV["CI"]
+    key = api_key
+    generate_project
+
+    build_number = ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")
+    ext_id = "#{BUNDLE_ID}.broadcast"
+
+    # Code signing via fastlane match: the Apple Distribution certificate +
+    # App Store profiles live encrypted (MATCH_PASSWORD) in the private
+    # ios-certificates repo and the SAME private key is re-imported on every
+    # run — the fix for "private key not installed" on ephemeral runners, and
+    # equally deterministic for local Macs. Profiles are named
+    # "match AppStore <bundle id>" and pinned per target in project.yml.
+    require "base64"
+    token = ENV["GH_TOKEN_FOR_MATCH"].to_s
+    unless token.empty?
+      ENV["MATCH_GIT_BASIC_AUTHORIZATION"] = Base64.strict_encode64("x-access-token:#{token}")
+    end
+
+    # Register the App IDs and their capabilities through the PUBLIC App
+    # Store Connect API (Spaceship::ConnectAPI — token auth works here;
+    # produce refuses token auth on every half, verified across runs
+    # 31665298898/31665467224/31665557720/31665656111). Idempotent. The host
+    # app carries Push Notifications (aps-environment) and App Groups (the
+    # app<->extension spool); the extension carries App Groups.
+    require "spaceship"
+    {
+      BUNDLE_ID => { name: "Garrison", push: true },
+      ext_id => { name: "Garrison Broadcast", push: false }
+    }.each do |identifier, spec|
+      bundle = Spaceship::ConnectAPI::BundleId.all(filter: { identifier: identifier })
+        .find { |b| b.identifier == identifier }
+      bundle ||= begin
+        UI.message("Registering App ID #{identifier}")
+        Spaceship::ConnectAPI::BundleId.create(name: spec[:name], identifier: identifier, platform: "IOS")
+      end
+      existing = bundle.get_capabilities.map(&:capability_type)
+      wanted = ["APP_GROUPS"]
+      wanted << "PUSH_NOTIFICATIONS" if spec[:push]
+      (wanted - existing).each do |capability|
+        UI.message("Enabling #{capability} on #{identifier}")
+        bundle.create_capability(capability)
+      end
+    end
+    # What the API-key surface CANNOT do (run 31665927532 returned the full
+    # capabilityType enum — no time-sensitive value — and appGroups is not a
+    # public resource): registering the App Group group.com.gomes.garrison,
+    # assigning it to both App IDs, and enabling Time Sensitive Notifications
+    # are one-time portal steps (HUMAN_SETUP.md step 2). Until they are done,
+    # gym halts here with "Provisioning profile ... doesn't include/support"
+    # — that halt is precise and intended, never worked around.
+
+    match(
+      type: "appstore",
+      app_identifier: [BUNDLE_ID, ext_id],
+      api_key: key,
+      storage_mode: "git",
+      git_url: MATCH_URL,
+      git_branch: ENV["MATCH_GIT_BRANCH"] || "match-certs",
+      readonly: false,
+      force: ENV["MATCH_FORCE"] == "1"
+    )
+
+    build_app(
+      project: PROJECT,
+      scheme: SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: "build",
+      output_name: "Garrison.ipa",
+      xcargs: "DEVELOPMENT_TEAM=#{TEAM_ID} CURRENT_PROJECT_VERSION=#{build_number}",
+      export_options: {
+        provisioningProfiles: {
+          BUNDLE_ID => "match AppStore #{BUNDLE_ID}",
+          ext_id => "match AppStore #{ext_id}"
+        }
+      }
+    )
+
+    upload_to_testflight(
+      api_key: key,
+      app_identifier: BUNDLE_ID,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+      notify_external_testers: false
+    )
+
+    UI.success("Uploaded build #{build_number} to TestFlight. Open the TestFlight app on the iPhone to install once processing finishes (a few minutes).")
+  end
+end

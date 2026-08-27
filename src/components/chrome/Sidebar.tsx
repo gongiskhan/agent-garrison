@@ -13,6 +13,7 @@ import {
   KeyRound,
   Component,
   Drill,
+  Milestone,
   ExternalLink,
   LayoutGrid,
   Globe,
@@ -24,6 +25,7 @@ import {
   MessagesSquare,
   Archive,
   Radio,
+  Boxes,
   Brain,
   Cpu,
   Network,
@@ -35,15 +37,30 @@ import {
 import { useAppShell } from "./AppShell";
 import { GarrisonMark } from "./GarrisonMark";
 import { JARVIS_FITTING_ID, JARVIS_EMBED_PATH } from "./JarvisPersistentFrame";
+import { NodeBadge, useNodeChrome } from "./NodeBadge";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
+import { fittingCategories, CATEGORY_BY_FACULTY } from "@/lib/types";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 import type {
   CapabilityKind,
   Composition,
   FacultyId,
+  FittingCategory,
   LibraryEntry
 } from "@/lib/types";
+
+// The Fittings menu groups by CATEGORY, not faculty. Seventeen faculties make a
+// precise type system and an unusable menu (src/lib/types.ts): faculty stays the
+// composition/routing axis and survives as a per-Fitting label, while these six
+// presentation buckets are what a human scans. resolveLibraryEntry always
+// populates `category`, but the field is optional on the type (hand-built test
+// fixtures omit it), so fall back the same way it does rather than dropping such
+// an entry into "Other" — a fitting must never lose its home to a missing
+// presentation hint.
+function categoryOf(entry: LibraryEntry): FittingCategory | null {
+  return entry.category ?? CATEGORY_BY_FACULTY[entry.faculty] ?? null;
+}
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
@@ -59,6 +76,10 @@ export function Sidebar() {
     jarvisActive
   } = useAppShell();
   const { entries: viewStatuses } = useFittingViewStatus();
+  // Which machine in the mesh this window is. Null until the mount effect has
+  // read <html data-node-*>, so the subtitle degrades to "v1" for one frame
+  // rather than flashing a wrong node name.
+  const node = useNodeChrome();
 
   const stationedCount = countStationed(composition);
   const totalFaculties = faculties.length;
@@ -76,7 +97,7 @@ export function Sidebar() {
     pathname === "/compose" ||
     pathname.startsWith("/compose/");
 
-  // Live-ticking uptime while the operative is up. Recomputed each second so
+  // Live-ticking uptime while the composition is up. Recomputed each second so
   // the footer reads like a running clock rather than a stale snapshot.
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
@@ -176,7 +197,7 @@ export function Sidebar() {
           </span>
           <span className="brand-text">
             <span className="name">Agent Garrison</span>
-            <span className="sub">v1 · localhost</span>
+            <span className="sub">{node ? `v1 · ${node.name}` : "v1 · localhost"}</span>
             {commit ? <span className="rev">{commit}</span> : null}
           </span>
         </Link>
@@ -190,6 +211,8 @@ export function Sidebar() {
           <ChevronLeft size={14} aria-hidden />
         </button>
       </div>
+
+      <NodeBadge />
 
       <nav className="tabs" aria-label="Garrison">
         <div className="nav-section-label">Command</div>
@@ -230,6 +253,13 @@ export function Sidebar() {
           icon={<Network aria-hidden />}
           label="Coordination"
           active={pathname === "/coordination" || pathname.startsWith("/coordination")}
+        />
+        <NavLink
+          href="/mesh"
+          pathname={pathname}
+          icon={<Boxes aria-hidden />}
+          label="Mesh"
+          active={pathname === "/mesh" || pathname.startsWith("/mesh/")}
         />
 
         <FittingViewsLinks
@@ -372,7 +402,7 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
   "deepgram-voice": Mic,
   "web-channel-default": MessagesSquare,
   "slack-channel": MessagesSquare,
-  "outpost-tailscale-host": Radio
+  roadmaps: Milestone
 };
 
 const VIEW_ICON_BY_KIND: Partial<Record<CapabilityKind, LucideIcon>> = {
@@ -412,13 +442,31 @@ function viewIcon(entry: LibraryEntry, ownPort: boolean): LucideIcon {
   return ownPort ? ExternalLink : Component;
 }
 
-// The Fittings menu: every equipped fitting, grouped by faculty area with the
+// The Fittings menu: every equipped fitting, grouped by category with the
+/**
+ * Should navigating to a fitting auto-expand its category group?
+ *
+ * Yes by default: navigation context should never be hidden. NOT when the fitting
+ * is PINNED - it is already on screen in the Pinned group, so expanding its
+ * category group reveals nothing and just reorganises the menu under a user who
+ * only wanted to open a page. And never before the pin list has loaded, because
+ * an empty list means "not known yet", and firing on it would expand the very
+ * group a pin was meant to skip.
+ */
+export function shouldAutoExpandGroup(args: {
+  activeGroupId: string | null;
+  pinsLoaded: boolean;
+  activeIsPinned: boolean;
+}): boolean {
+  return !!args.activeGroupId && args.pinsLoaded && !args.activeIsPinned;
+}
+
 // groups collapsed by default (expansion is per-device UI state), plus an
 // always-visible Pinned group on top. Pins are dragged in (drop on the group
 // to append, on a pinned row to insert before it) and dragged out anywhere to
 // unpin; they persist server-side in ~/.garrison/sidebar-pins.json so every
 // browser sees the same list. A pinned fitting renders in BOTH the Pinned
-// group and its own faculty group (with a pin marker there).
+// group and its own category group (with a pin marker there).
 const EXPANDED_GROUPS_KEY = "garrison.sidebar.fittingGroups.v1";
 
 type MenuRow =
@@ -440,6 +488,10 @@ function FittingViewsLinks({
 }) {
   const isMobile = useIsMobileViewport();
   const [pinned, setPinned] = useState<string[]>([]);
+  // Pins arrive from the server, so an empty list means "not known yet", not
+  // "nothing pinned". The auto-expand below has to tell those apart or it fires
+  // once on the pre-load state and expands a group it should have skipped.
+  const [pinsLoaded, setPinsLoaded] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragging, setDragging] = useState<{ id: string; origin: "pinned" | "group" } | null>(
     null
@@ -489,6 +541,7 @@ function FittingViewsLinks({
           if (Array.isArray(list)) {
             setPinned(list.filter((x): x is string => typeof x === "string"));
           }
+          setPinsLoaded(true);
         })
         .catch(() => {
           // pins render as-is until the next successful load
@@ -517,20 +570,19 @@ function FittingViewsLinks({
   const activeEntry = activeFittingId
     ? library.find((entry) => entry.id === activeFittingId)
     : undefined;
-  const activeGroupId = activeEntry
-    ? faculties.some((f) => f.id === activeEntry.faculty)
-      ? activeEntry.faculty
-      : "other"
-    : null;
+  // Must resolve on the SAME axis the groups are keyed by, or navigating to a
+  // fitting expands a group id that no longer exists and the row stays hidden.
+  const activeGroupId = activeEntry ? (categoryOf(activeEntry) ?? "other") : null;
+  const activeIsPinned = !!activeFittingId && pinned.includes(activeFittingId);
   useEffect(() => {
-    if (!activeGroupId) return;
+    if (!shouldAutoExpandGroup({ activeGroupId, pinsLoaded, activeIsPinned })) return;
     setExpanded((prev) => {
-      if (prev.has(activeGroupId)) return prev;
+      if (prev.has(activeGroupId!)) return prev;
       const next = new Set(prev);
-      next.add(activeGroupId);
+      next.add(activeGroupId!);
       return next;
     });
-  }, [activeGroupId]);
+  }, [activeGroupId, activeIsPinned, pinsLoaded]);
 
   if (!composition) return null;
 
@@ -561,13 +613,16 @@ function FittingViewsLinks({
 
   const groups: Array<{ id: string; name: string; rows: MenuRow[] }> = [];
   const grouped = new Set<string>();
-  for (const faculty of faculties) {
+  // Declared vocabulary order (Core → Interfaces → Building → …), not
+  // alphabetical: the order encodes how central a bucket is, and alphabetising
+  // it would bury Core under Building.
+  for (const category of fittingCategories) {
     const rows = [...rowById.values()]
-      .filter((row) => row.entry.faculty === faculty.id)
+      .filter((row) => categoryOf(row.entry) === category)
       .sort((a, b) => a.entry.name.localeCompare(b.entry.name));
     if (rows.length === 0) continue;
     for (const row of rows) grouped.add(row.entry.id);
-    groups.push({ id: faculty.id, name: faculty.name, rows });
+    groups.push({ id: category, name: category, rows });
   }
   const leftover = [...rowById.values()]
     .filter((row) => !grouped.has(row.entry.id))
@@ -838,7 +893,7 @@ function FittingViewsLinks({
           if (!dragging) return;
           event.preventDefault();
           droppedOnPinned.current = true;
-          // Re-dropping an already-pinned fitting from its faculty group is a
+          // Re-dropping an already-pinned fitting from its category group is a
           // no-op (it is already there); anything else appends.
           if (dragging.origin === "pinned" || !pinned.includes(dragging.id)) {
             pinBefore(dragging.id, null);
@@ -925,7 +980,7 @@ function CompositionSwitcher() {
   if (compositions.length === 0 && !activePointer) {
     return (
       <div className="row">
-        <span>operative</span>
+        <span>composition</span>
         <b>{composition?.name ?? "-"}</b>
       </div>
     );
@@ -939,7 +994,7 @@ function CompositionSwitcher() {
   return (
     <div className="composition-switcher">
       <div className="row">
-        <label htmlFor="composition-switcher">operative</label>
+        <label htmlFor="composition-switcher">composition</label>
         {switching ? <span role="status">switching...</span> : null}
       </div>
       <select
@@ -957,9 +1012,9 @@ function CompositionSwitcher() {
         ) : null}
         {compositions.map((entry) => (
           <option key={entry.id} value={entry.id}>
-            {/* Several compositions ship the same display name (three are
-                "Dogfood Operative"), so the name alone cannot identify what
-                this switches the running operative to. Matches MusterView. */}
+            {/* Several compositions ship the same display name, so the name
+                alone cannot identify what this switches the running session
+                to. Matches MusterView. */}
             {`${entry.name} (${entry.id})`}
           </option>
         ))}

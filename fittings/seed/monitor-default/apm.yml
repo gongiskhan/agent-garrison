@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: observability
+  category: Operations
   cardinality_hint: single
   own_port: true
   component_shape: plugin
@@ -15,7 +16,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7077
+      default: 8077
       description: HTTP port the Monitor server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

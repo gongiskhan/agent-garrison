@@ -20,7 +20,7 @@ elsewhere.
 |---|---|---|---|
 | **Interactive turn path** — mid-session model/effort change | full: slash-inject `/model` + `/effort` into the live PTY | advisory: the change is applied through `adapter.setModel`/`setEffort` at the *turn boundary* (the `adapter-moves` path), not mid-stream; a primary whose adapter lacks those methods logs `route-switch-skipped` and stays launch-fixed | Stage-B slash-inject writes keystrokes into a Claude PTY (`writeKeys`); non-PTY primaries have no keystroke channel, so an in-flight turn can't be redirected. Full non-PTY turn wiring is the P8 follow-up. |
 | **Resume** | `--continue` + a context-carryover preamble | adapter-native resume: `codex exec resume`, opencode `-s <sessionId>`, cursor `--resume <chatId>`, agent-sdk SDK `sessionId` | Claude's PTY resume is `--continue`; each other runtime re-attaches by its own session id — equivalent intent, different mechanism. |
-| **Classifier session** | cheapest claude-code haiku warm session | claude-code haiku *when resolvable* (default, byte-identical); only a box with claude-code genuinely absent falls back to the primary adapter, logging `classifier-fallback` | Classification is pinned to the cheapest available model. When claude-code is installed (the norm) the classifier stays there regardless of primary; the fallback only fires when it truly can't. |
+| **Pre-session routing inference** | deterministic bypasses first; ambiguous human requests use the composition's explicit `dispatch` target | same; the default target is a bounded, tool-free Anthropic Agent SDK call to Claude Haiku 4.5 and is independent of the primary runtime | Orchestrator routing runs before the Operative because it selects duty, level, and target. Authentication, timeout, or parse failure falls back deterministically and records degraded reason, latency, and fallback count; schema-v4 does not start the former Stage-A classifier. |
 | **Enforcement hooks** (PostToolUse, gate hooks that assume Claude Code hook events) | enforced by the runtime | advisory: the same policy is guidance in the assembled prompt, not a hard event-driven gate | Claude Code's hook mechanism (PostToolUse etc.) is Claude-specific; on other primaries the policy is delivered as prompt guidance, not enforced by a hook the runtime fires. |
 
 ## Environment degradations (this box; not code defects)
@@ -29,13 +29,10 @@ elsewhere.
   (`bridge --probe` = ok) but no Gemini credentials are configured, so a real
   authenticated delegate turn cannot run on any primary. A credentialed box
   resolves it.
-- **Small-local-model quality (`opencode-runtime` delegate over ollama
-  `qwen2.5:3b`).** The bill-free local default trades instruction-following
-  precision for cost; under concurrent ollama load it can emit only lifecycle
-  events with no text, and the adapter **fails loud** (never fabricates). It
-  passes isolated and in the un-contended `codex` column — a load/quality
-  artifact, not an adapter bug. A larger local model or a keyed provider
-  restores precision.
+- **`opencode-runtime` provider readiness.** Garrison does not seed an OpenCode
+  provider or model. A delegated turn uses the provider selected in OpenCode's
+  native configuration, or an explicit `provider/model` override. Missing login
+  or provider configuration fails loud; it never silently starts a local model.
 
 ## UI surfacing
 

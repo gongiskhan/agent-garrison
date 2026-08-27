@@ -102,6 +102,27 @@ body {
 }
 .dr-modal .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 
+/* ── media lightbox ── evidence images/videos open here, full-screen and
+   closeable (backdrop tap, the × button, or Escape), never in a new tab. */
+.dr-media-scrim {
+  position: fixed; inset: 0; z-index: 200; background: rgba(12, 16, 14, 0.86);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.dr-media-frame {
+  max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center;
+}
+.dr-media-el {
+  max-width: 100%; max-height: calc(100vh - 48px); object-fit: contain; display: block;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); background: var(--ink);
+}
+.dr-media-close {
+  position: fixed; top: 14px; right: 16px; z-index: 201;
+  width: 40px; height: 40px; border-radius: 999px; border: 0; cursor: pointer;
+  background: rgba(255, 255, 255, 0.14); color: #fff; font-size: 24px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.dr-media-close:hover { background: rgba(255, 255, 255, 0.26); }
+
 /* ── tabs ── */
 .dr-tabs {
   display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--rule);
@@ -488,6 +509,8 @@ body {
 .dr-evidence-link {
   display: block; width: min(100%, 520px); margin-top: 9px; color: var(--sage);
   font-size: 10px; text-decoration: none;
+  /* rendered as a <button> now (opens the lightbox, not a new tab) */
+  background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font-family: inherit;
 }
 .dr-evidence-link.compact { width: min(100%, 240px); }
 .dr-evidence-image {
@@ -806,6 +829,19 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
   cursor: pointer; font-family: var(--sans); color: var(--ink-2); padding: 8px 11px; font-size: 12px;
 }
 .dr-db-scope-row.all { font-weight: 600; border-bottom: 1px solid var(--rule); }
+/* Page jump for the scope rail — the rail itself is a long scroll on a real
+   book, so this is the "just show me that page" control above it. */
+.dr-db-scope-select {
+  width: 100%;
+  margin: 6px 0 8px;
+  padding: 5px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
 .dr-db-scope-row:hover { background: var(--paper-3); }
 .dr-db-scope-row.active { background: var(--sage-soft); color: var(--sage); font-weight: 600; box-shadow: inset 3px 0 0 var(--sage-2); }
 .dr-db-scope-group { border-bottom: 1px solid var(--rule); }
@@ -1067,12 +1103,19 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 .dr-live-check-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-live-check-name .mono { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
 .dr-live-check-ms { flex: none; font-family: var(--mono); font-size: 10px; color: var(--mute); }
-.dr-live-check-shot { flex: none; display: block; line-height: 0; }
+.dr-live-check-shot { flex: none; display: block; line-height: 0; background: none; border: 0; padding: 0; cursor: pointer; }
 .dr-live-check-shot img {
   height: 34px; width: 56px; object-fit: cover; object-position: top;
   border: 1px solid var(--rule-2); display: block; background: var(--paper-2);
 }
 .dr-live-session-wrap .dr-lbl { margin-bottom: 6px; }
+
+.dr-plan-session > summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  color: var(--ink); font-size: 12px; font-weight: 700; list-style-position: inside;
+}
+.dr-plan-session[open] > summary { margin-bottom: 8px; }
+.dr-plan-session > summary .dr-help-inline { margin-left: auto; font-weight: 400; }
 
 .dr-session-viewer { min-width: 0; }
 .dr-session-tabs { margin-bottom: 8px; }
@@ -1137,6 +1180,15 @@ button:active, .btn:active, .dr-tab:active { transform: translateY(1px); }
 @media (max-width: 760px) {
   .dr-session-scroll { max-height: 55vh; }
   .dr-live-check-name { white-space: normal; }
+  /* Measured at 390px: chips 106x25 and page links 245x19 - readable, but not
+     reliably tappable. Raised on phones only; the desktop density is deliberate. */
+  .chip.click,
+  .dr-page-link {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .dr-page-link { padding-block: 6px; }
 }
 
 /* Re-run affordances on the results page (S7). Looking at a result and wanting

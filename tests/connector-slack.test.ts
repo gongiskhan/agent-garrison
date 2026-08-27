@@ -4,7 +4,11 @@ import { CATALOG, runAction } from "../fittings/seed/slack-channel/scripts/conne
 // C4 — Slack dual connector (also a Channel). The connector half does outbound
 // Slack Web API actions with a scoped bot token.
 
-const ENV = { SLACK_BOT_TOKEN: "xoxb-1" };
+// GARRISON_SEND_CONTEXT marks these as HUMAN sends, which is what still posts
+// immediately: an agent-triggered send_message is parked in the adapter's
+// outbox for a cancel window first (fittings/seed/slack-channel/lib/outbox.js,
+// covered in tests/outbox-wiring.test.ts).
+const ENV = { SLACK_BOT_TOKEN: "xoxb-1", GARRISON_SEND_CONTEXT: "human" };
 
 function mockFetch(cap: { url?: string; opts?: any }, body: unknown) {
   return async (url: string, opts?: any) => {

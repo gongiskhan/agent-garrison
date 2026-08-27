@@ -17,13 +17,14 @@ import {
   // @ts-ignore
 } from "../fittings/seed/openai-agents-runtime/lib/providers.mjs";
 // @ts-ignore
-import { OpenAiAgentsAdapter } from "../fittings/seed/openai-agents-runtime/lib/openai-adapter.mjs";
+import { OpenAiAgentsAdapter } from "../fittings/seed/openai-agents-runtime/lib/openai-agents-adapter.mjs";
 // @ts-ignore
 import { openAiPoolKey, openAiPoolEntries } from "../fittings/seed/openai-agents-runtime/lib/pool.mjs";
 // @ts-ignore
 import { delegate, validateDelegationResult, runAdapterConformance, MultiRuntimePool } from "../packages/claude-pty/src/index.mjs";
 import { parseGarrisonMetadata } from "@/lib/metadata";
 import { readYamlFile } from "@/lib/yaml";
+import { runtimeBindings } from "@/components/accounts/AccountsManager";
 
 const REPO = path.resolve(__dirname, "..");
 const FIT = path.join(REPO, "fittings/seed/openai-agents-runtime");
@@ -37,8 +38,51 @@ function adapterReturning(envelope: any) {
 
 // ── Providers + endpoint resolution (openai-providers-ok) ────────────────────
 describe("Providers - OpenAI-compatible endpoints + by-name Vault key (openai-providers-ok)", () => {
-  it("the three OpenAI-compatible providers are present", () => {
-    expect(Object.keys(OPENAI_PROVIDERS).sort()).toEqual(["ollama-local", "openai", "openai-compat"]);
+  it("the OpenAI-compatible provider slots are present", () => {
+    expect(Object.keys(OPENAI_PROVIDERS).sort()).toEqual([
+      "chatgpt-subscription",
+      "glm",
+      "ollama-local",
+      "openai",
+      "openai-compat"
+    ]);
+  });
+
+  it("glm is a SEPARATE env pair from openai-compat, so the two keys never contend", () => {
+    // The whole reason `glm` exists as its own slot: a composition may hold both a
+    // real OpenAI key and a self-hosted endpoint. Sharing OPENAI_API_KEY would mean
+    // whichever key is present gets sent to whichever endpoint is configured.
+    expect(OPENAI_PROVIDERS.glm.apiKeyEnv).toBe("GLM_API_KEY");
+    expect(OPENAI_PROVIDERS.glm.baseUrlEnv).toBe("GLM_BASE_URL");
+    expect(OPENAI_PROVIDERS["openai-compat"].apiKeyEnv).toBe("OPENAI_API_KEY");
+    expect(OPENAI_PROVIDERS["openai-compat"].baseUrlEnv).toBeUndefined(); // → the OPENAI_BASE_URL default
+    expect(OPENAI_PROVIDERS.glm.configurable).toBe(true);
+    expect(OPENAI_PROVIDERS.glm.needsKey).toBe(true);
+    // Plain chat_completions carries no reasoning-effort parameter.
+    expect(OPENAI_PROVIDERS.glm.effort).toBe(false);
+  });
+
+  it("glm resolves its base URL from GLM_BASE_URL, never OPENAI_BASE_URL", () => {
+    expect(resolveBaseUrl({ provider: "glm" }, { env: { GLM_BASE_URL: "http://box:33532/v1" } })).toBe(
+      "http://box:33532/v1"
+    );
+    // An OPENAI_BASE_URL in the env must not satisfy a glm target - that would be
+    // the cross-provider bleed this slot exists to prevent.
+    expect(() => resolveBaseUrl({ provider: "glm" }, { env: { OPENAI_BASE_URL: "http://other/v1" } })).toThrow(
+      /requires an explicit target\.baseUrl \(or GLM_BASE_URL/
+    );
+  });
+
+  it("glm accepts the trusted base URL from the materialized vault as well as the env", () => {
+    // resolveBaseUrl and the resolveEndpoint fence must agree on the fallback
+    // order, or a vault-only setup resolves a URL and then silently loses its key.
+    const ep = resolveEndpoint(
+      { provider: "glm" },
+      { secrets: { GLM_BASE_URL: "http://box:33532/v1", GLM_API_KEY: "k-live" }, env: {} }
+    );
+    expect(ep.baseUrl).toBe("http://box:33532/v1");
+    expect(ep.apiKey).toBe("k-live");
+    expect(ep.apiKeyEnv).toBe("GLM_API_KEY");
   });
 
   it("ollama-local resolves the fixed local /v1 endpoint keyless (dummy token, no vault)", () => {
@@ -355,8 +399,8 @@ describe("openai-agents-runtime seed manifest (openai-manifest-ok)", () => {
     expect(metadata.component_shape).toBe("cli-skill");
     expect(metadata.provides).toContainEqual({ kind: "runtime", name: "openai-agents" });
     expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "optional-one" });
-    // by-name Vault key, key server-side only
-    expect(metadata.secret_scope).toEqual(["OPENAI_API_KEY"]);
+    // by-name Vault keys, keys server-side only - one per endpoint family
+    expect(metadata.secret_scope).toEqual(["OPENAI_API_KEY", "GLM_API_KEY"]);
     // the primary-path env contract the gateway wiring (S2c) consumes
     expect(metadata.provider_mechanism).toMatchObject({
       type: "env",
@@ -364,16 +408,70 @@ describe("openai-agents-runtime seed manifest (openai-manifest-ok)", () => {
       auth_env: "OPENAI_API_KEY",
       model_env: "GARRISON_MODEL"
     });
+    // Per-provider env pair: what lets the runner project the fitting's baseUrl
+    // config into the SELECTED provider's env var instead of a single shared one.
+    // Must agree with lib/providers.mjs or the projected URL never matches the
+    // trusted one and the key is silently withheld.
+    expect(metadata.provider_mechanism).toMatchObject({
+      provider_env: { glm: { base_url_env: "GLM_BASE_URL", auth_env: "GLM_API_KEY" } }
+    });
     // primary-capable framing is present in the consumer-facing docs
     expect((metadata.summary ?? "").toUpperCase()).toContain("PRIMARY-CAPABLE");
     expect((metadata.for_consumers ?? "").toUpperCase()).toContain("PRIMARY");
   });
 
-  it("declares config keys provider / model / baseUrl / promptMode / maxTurns", async () => {
+  it("declares config keys provider / model / baseUrl / promptMode / maxTurns / account", async () => {
     const manifest = await readYamlFile<{ "x-garrison"?: unknown }>(path.join(FIT, "apm.yml"));
     const metadata = parseGarrisonMetadata(manifest!["x-garrison"]);
     const keys = (metadata.config_schema ?? []).map((c: any) => c.key);
-    expect(keys).toEqual(expect.arrayContaining(["provider", "model", "baseUrl", "promptMode", "maxTurns"]));
+    expect(keys).toEqual(expect.arrayContaining(["provider", "model", "baseUrl", "promptMode", "maxTurns", "account"]));
+  });
+
+  it("binds keyed providers and preserves stale keyless selections for correction", () => {
+    const standing = (provider: string, account = "provider-account") => ({
+      slots: [
+        {
+          faculty: "runtimes",
+          fittings: [
+            {
+              id: "openai-agents-runtime",
+              name: "OpenAI Agents Runtime",
+              providesRuntime: true,
+              isPrimaryRuntime: true,
+              configSchema: [{ key: "account" }],
+              config: { provider, account }
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(runtimeBindings(standing("glm"))[0].contract).toMatchObject({
+      platform: "glm",
+      allowAuthFile: false,
+      emptyMode: "default-key"
+    });
+    expect(runtimeBindings(standing("openai"))[0].contract).toMatchObject({
+      platform: "openai",
+      allowAuthFile: false,
+      emptyMode: "default-key"
+    });
+    expect(runtimeBindings(standing("openai-compat"))[0].contract).toMatchObject({
+      platform: "openai",
+      allowAuthFile: false,
+      emptyMode: "default-key"
+    });
+    expect(runtimeBindings(standing("ollama-local", ""))).toEqual([]);
+    expect(runtimeBindings(standing("unknown-provider", ""))).toEqual([]);
+
+    expect(runtimeBindings(standing("ollama-local"))[0]).toMatchObject({
+      account: "provider-account",
+      contract: null
+    });
+    expect(runtimeBindings(standing("unknown-provider"))[0]).toMatchObject({
+      account: "provider-account",
+      contract: null
+    });
   });
 });
 
@@ -423,5 +521,35 @@ describe("codex checkpoint — resolveEndpoint drops key on untrusted baseUrl (d
       { secrets: { OPENAI_API_KEY: "sk-live" }, env: { OPENAI_BASE_URL: "https://trusted.local/v1" } }
     );
     expect(ep.apiKey).toBe("sk-live");
+  });
+
+  it("the fence follows the provider's OWN base-URL env var, not the default one", () => {
+    // A glm target must be fenced against GLM_BASE_URL. If the fence still read
+    // OPENAI_BASE_URL, a box with only GLM_BASE_URL set would find no trusted base
+    // and drop every glm call to keyless - a silent 401 rather than a loud error.
+    const denied = providers.resolveEndpoint(
+      { provider: "glm", baseUrl: "https://attacker.example/v1" },
+      { secrets: { GLM_API_KEY: "k-live" }, env: { GLM_BASE_URL: "http://box:33532/v1" } }
+    );
+    expect(denied.apiKey).not.toBe("k-live");
+    expect(denied.apiKeyEnv).toBeNull();
+
+    const allowed = providers.resolveEndpoint(
+      { provider: "glm", baseUrl: "http://box:33532/v1" },
+      { secrets: { GLM_API_KEY: "k-live" }, env: { GLM_BASE_URL: "http://box:33532/v1" } }
+    );
+    expect(allowed.apiKey).toBe("k-live");
+    expect(allowed.apiKeyEnv).toBe("GLM_API_KEY");
+  });
+
+  it("an OPENAI_BASE_URL in the env cannot make a glm target trusted", () => {
+    // Cross-provider bleed: the default slot's trusted URL must not vouch for
+    // another provider's endpoint.
+    const ep = providers.resolveEndpoint(
+      { provider: "glm", baseUrl: "http://box:33532/v1" },
+      { secrets: { GLM_API_KEY: "k-live" }, env: { OPENAI_BASE_URL: "http://box:33532/v1" } }
+    );
+    expect(ep.apiKey).not.toBe("k-live");
+    expect(ep.apiKeyEnv).toBeNull();
   });
 })

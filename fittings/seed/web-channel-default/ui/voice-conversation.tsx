@@ -16,11 +16,13 @@ import { LatencyTracker, type BudgetVerdict } from "./voice-latency";
 
 export interface VoiceConversationProps {
   /** Submit a transcribed utterance as a real chat turn (renders + streams). */
-  send: (text: string) => void;
+  send: (text: string) => string | null;
   /** True while a chat turn is in flight (mirrors ClaudeChat busy). */
   busy: boolean;
+  /** Prevent a new voice turn while generated text work is active or queued. */
+  queueLocked: boolean;
   /** Latest SETTLED assistant reply; changes id once per completed turn. */
-  lastReply: { id: string; text: string } | null;
+  lastReply: { id: string; text: string; clientRequestId?: string } | null;
   // ── test overrides ──
   streamUrl?: string;
   ttsUrl?: string;
@@ -35,6 +37,73 @@ interface VoiceHealth { available: boolean; keyConfigured?: boolean }
 // state machine rather than deadlock in `sending` (codex S6b finding).
 const SENDING_TIMEOUT_MS = 30000;
 
+/** How long the mic must be held before it becomes push-to-talk. Below this a
+ *  press is a TAP and opens the voice sheet instead. Comfortably shorter than
+ *  any deliberate hold, long enough that a tap never trips the capture. */
+const HOLD_MS = 220;
+
+/** The voice modes, on demand. Mirrors the shared chat's route sheet: one group
+ *  of controls, opened by the control it belongs to, instead of a second button
+ *  parked in the composer forever. */
+function VoiceSheet({
+  conversationOn,
+  disabled,
+  reason,
+  onToggleConversation,
+  onClose,
+}: {
+  conversationOn: boolean;
+  disabled: boolean;
+  reason: string;
+  onToggleConversation: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement | null>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    const onCancel = (event: Event) => { event.preventDefault(); onClose(); };
+    dialog.addEventListener("cancel", onCancel);
+    return () => dialog.removeEventListener("cancel", onCancel);
+  }, [onClose]);
+  return (
+    <dialog
+      ref={ref}
+      className="cc-sheet"
+      aria-label="Voice"
+      data-testid="wcv-sheet"
+      onClick={(event) => { if (event.target === ref.current) onClose(); }}
+    >
+      <div className="cc-sheet-card">
+        <div className="cc-sheet-head">
+          <h2 className="cc-sheet-title">Voice</h2>
+          <button type="button" className="cc-sheet-close" onClick={onClose} aria-label="Close voice sheet">×</button>
+        </div>
+        <p className="cc-sheet-sub">Hold the mic to talk once. Or hand the conversation over:</p>
+        <div className="cc-sheet-body">
+          <button
+            type="button"
+            className={`wcv-convo${conversationOn ? " wcv-on" : ""}`}
+            data-testid="wcv-convo"
+            aria-pressed={conversationOn}
+            disabled={disabled}
+            title={reason || (conversationOn ? "Stop conversation" : "Hands-free conversation: talk, pause to send, reply is read aloud")}
+            onClick={onToggleConversation}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 3h10v7H6l-3 2.5z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path d="M6 6h4M6 8h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <span className="wcv-convo-label">{conversationOn ? "Stop hands-free conversation" : "Start hands-free conversation"}</span>
+          </button>
+          {reason && <p className="cc-sheet-sub">{reason}</p>}
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
 export function VoiceConversation(props: VoiceConversationProps) {
   const supported = useMemo(() => isCaptureSupported(), []);
   const [ctx, setCtx] = useState<VoiceCtx>(() => initialCtx());
@@ -42,21 +111,42 @@ export function VoiceConversation(props: VoiceConversationProps) {
   const [level, setLevel] = useState(0);
   const [latency, setLatency] = useState<BudgetVerdict | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Hands-free is reached by TAPPING the mic; holding it is push-to-talk. */
+  const [voiceSheetOpen, setVoiceSheetOpen] = useState(false);
+  const holdTimer = useRef<number | null>(null);
 
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
+  const queueLockedRef = useRef(props.queueLocked);
+  queueLockedRef.current = props.queueLocked;
   const captureRef = useRef<CaptureHandle | null>(null);
   const ttsRef = useRef<TtsHandle | null>(null);
   const latencyRef = useRef(new LatencyTracker());
   const playbackCtxRef = useRef<AudioContext | null>(null);
-  const awaitingReplyRef = useRef(false);
+  const awaitingReplyRef = useRef<string | true | null>(null);
   const sendTimeoutRef = useRef<number | null>(null);
   const consumedReplyIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const runEffectRef = useRef<(eff: VoiceEffect) => void>(() => {});
 
   const dispatch = useCallback((ev: VoiceEvent) => {
-    const { ctx: next, effects } = voiceReduce(ctxRef.current, ev);
+    const current = ctxRef.current;
+    let { ctx: next, effects } = voiceReduce(current, ev);
+    // A voice reply may finish while a typed turn is already running behind it.
+    // Conversation mode normally re-arms the microphone after TTS (or an empty
+    // reply), but that would create a second identity-free voice turn and let the
+    // typed reply be mistaken for its answer. Finish the current read/await cycle,
+    // then close capture until the durable text queue is empty.
+    if (
+      queueLockedRef.current &&
+      current.mode === "conversation" &&
+      current.state !== "listening" &&
+      next.state === "listening"
+    ) {
+      const stopped = voiceReduce(next, { type: "STOP" });
+      next = stopped.ctx;
+      effects = [...effects, ...stopped.effects];
+    }
     ctxRef.current = next;
     setCtx(next);
     for (const eff of effects) runEffectRef.current(eff);
@@ -159,9 +249,8 @@ export function VoiceConversation(props: VoiceConversationProps) {
         break;
       case "send":
         latencyRef.current.mark("send");
-        awaitingReplyRef.current = true;
         setError(null);
-        props.send(eff.text);
+        awaitingReplyRef.current = props.send(eff.text) ?? true;
         // Deadlock guard (codex S6b finding): the chat only feeds a NEW settled
         // lastReply for non-empty assistant text, so a voice turn whose reply is
         // empty/missing would leave the machine stuck in `sending` forever. Arm a
@@ -170,8 +259,8 @@ export function VoiceConversation(props: VoiceConversationProps) {
         // when a real reply lands or the machine leaves `sending`.
         if (sendTimeoutRef.current) window.clearTimeout(sendTimeoutRef.current);
         sendTimeoutRef.current = window.setTimeout(() => {
-          if (awaitingReplyRef.current && ctxRef.current.state === "sending") {
-            awaitingReplyRef.current = false;
+          if (awaitingReplyRef.current !== null && ctxRef.current.state === "sending") {
+            awaitingReplyRef.current = null;
             dispatchRef.current({ type: "REPLY_READY", text: "" });
           }
         }, SENDING_TIMEOUT_MS);
@@ -193,9 +282,14 @@ export function VoiceConversation(props: VoiceConversationProps) {
     const r = props.lastReply;
     if (!r) return;
     if (r.id === consumedReplyIdRef.current) return;
+    const awaiting = awaitingReplyRef.current;
+    if (awaiting === null) {
+      consumedReplyIdRef.current = r.id;
+      return;
+    }
+    if (typeof awaiting === "string" && r.clientRequestId !== awaiting) return;
     consumedReplyIdRef.current = r.id;
-    if (!awaitingReplyRef.current) return;
-    awaitingReplyRef.current = false;
+    awaitingReplyRef.current = null;
     if (sendTimeoutRef.current) { window.clearTimeout(sendTimeoutRef.current); sendTimeoutRef.current = null; }
     latencyRef.current.mark("reply_ready");
     dispatchRef.current({ type: "REPLY_READY", text: r.text });
@@ -211,8 +305,8 @@ export function VoiceConversation(props: VoiceConversationProps) {
   useEffect(() => {
     const settled = prevBusyRef.current && !props.busy;
     prevBusyRef.current = props.busy;
-    if (settled && awaitingReplyRef.current && ctxRef.current.state === "sending") {
-      awaitingReplyRef.current = false;
+    if (settled && awaitingReplyRef.current !== null && ctxRef.current.state === "sending") {
+      awaitingReplyRef.current = null;
       if (sendTimeoutRef.current) { window.clearTimeout(sendTimeoutRef.current); sendTimeoutRef.current = null; }
       dispatchRef.current({ type: "REPLY_READY", text: "" });
     }
@@ -225,12 +319,22 @@ export function VoiceConversation(props: VoiceConversationProps) {
   useEffect(() => {
     if (ctx.state !== "idle") return;
     if (sendTimeoutRef.current) { window.clearTimeout(sendTimeoutRef.current); sendTimeoutRef.current = null; }
-    awaitingReplyRef.current = false;
+    awaitingReplyRef.current = null;
     if (playbackCtxRef.current) {
       try { void playbackCtxRef.current.close(); } catch {}
       playbackCtxRef.current = null;
     }
   }, [ctx.state]);
+
+  // If text work is admitted while hands-free capture is merely listening,
+  // close it immediately. Sending/speaking states are deliberately allowed to
+  // finish so the already-submitted voice turn can still be awaited and read.
+  useEffect(() => {
+    if (!props.queueLocked) return;
+    if (ctxRef.current.mode === "conversation" && ctxRef.current.state === "listening") {
+      dispatch({ type: "STOP" });
+    }
+  }, [props.queueLocked, ctx.state, ctx.mode, dispatch]);
 
   // Teardown on unmount.
   useEffect(() => {
@@ -250,23 +354,24 @@ export function VoiceConversation(props: VoiceConversationProps) {
     : !available
       ? "Voice fitting not running"
       : "";
+  const queueLockedReason = "Wait for pending messages to finish before starting voice";
 
   const onToggleConversation = useCallback(() => {
     if (!usable) return;
     if (ctxRef.current.mode === "conversation") {
       dispatch({ type: "STOP" });
-    } else if (ctxRef.current.state === "idle") {
+    } else if (!props.queueLocked && ctxRef.current.state === "idle") {
       setError(null);
       setLatency(null);
       latencyRef.current.reset();
       dispatch({ type: "START_CONVERSATION" });
     }
-  }, [usable, dispatch]);
+  }, [usable, props.queueLocked, dispatch]);
 
   const onPttDown = useCallback(() => {
-    if (!usable) return;
+    if (!usable || props.queueLocked) return;
     if (ctxRef.current.state === "idle") { setError(null); dispatch({ type: "START_PTT" }); }
-  }, [usable, dispatch]);
+  }, [usable, props.queueLocked, dispatch]);
   const onPttUp = useCallback(() => {
     if (ctxRef.current.mode === "ptt") dispatch({ type: "RELEASE_PTT" });
   }, [dispatch]);
@@ -283,32 +388,69 @@ export function VoiceConversation(props: VoiceConversationProps) {
 
   return (
     <span className="wcv" data-testid="wcv">
-      <button
-        type="button"
-        className={`wcv-convo${conversationOn ? " wcv-on" : ""}`}
-        data-testid="wcv-convo"
-        aria-pressed={conversationOn}
-        disabled={!usable}
-        title={usable ? (conversationOn ? "Stop conversation" : "Hands-free conversation: talk, pause to send, reply is read aloud") : disabledReason}
-        onClick={onToggleConversation}
-      >
-        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M3 3h10v7H6l-3 2.5z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-          <path d="M6 6h4M6 8h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-        </svg>
-        <span className="wcv-convo-label">Talk</span>
-      </button>
+      {/* Hands-free lives in a sheet the mic opens on a TAP; the standing Talk
+          button was a second permanent control for a mode that is entered
+          occasionally. Holding the mic is still push-to-talk. */}
+      {voiceSheetOpen && (
+        <VoiceSheet
+          conversationOn={conversationOn}
+          disabled={!usable || (props.queueLocked && !conversationOn)}
+          reason={usable ? (props.queueLocked ? queueLockedReason : "") : disabledReason}
+          onToggleConversation={() => { setVoiceSheetOpen(false); onToggleConversation(); }}
+          onClose={() => setVoiceSheetOpen(false)}
+        />
+      )}
       <button
         type="button"
         className={`wcv-mic${pttActive ? " wcv-mic-rec" : ""}`}
         data-testid="wcv-mic"
         aria-pressed={pttActive}
+        aria-label={pttActive ? "Release push-to-talk" : "Hold to talk"}
+        // Stays tappable while the queue is locked: the mic is now the ONLY way
+        // into the voice sheet, and a disabled button would strand the user with
+        // no way to read why. Push-to-talk itself still refuses (onPttDown).
         disabled={!usable || conversationOn}
-        title={usable ? (conversationOn ? "Conversation active" : "Hold to talk (push-to-talk)") : disabledReason}
-        onPointerDown={(e) => { e.preventDefault(); onPttDown(); }}
-        onPointerUp={(e) => { e.preventDefault(); onPttUp(); }}
-        onPointerLeave={onPttUp}
-        onPointerCancel={onPttUp}
+        title={usable
+          ? conversationOn
+            ? "Conversation active"
+            : props.queueLocked && !pttActive
+              ? queueLockedReason
+              : "Hold to talk (push-to-talk)"
+          : disabledReason}
+        // HOLD is push-to-talk, TAP opens the voice sheet. The capture only starts
+        // once the hold passes the threshold, so a tap never opens the mic for a
+        // few milliseconds and never posts an empty utterance.
+        onPointerDown={(e) => {
+          e.preventDefault();
+          if (holdTimer.current) window.clearTimeout(holdTimer.current);
+          holdTimer.current = window.setTimeout(() => { holdTimer.current = null; onPttDown(); }, HOLD_MS);
+        }}
+        onPointerUp={(e) => {
+          e.preventDefault();
+          const tapped = holdTimer.current !== null;
+          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+          if (tapped) { if (!conversationOn) setVoiceSheetOpen(true); return; }
+          onPttUp();
+        }}
+        onPointerLeave={() => {
+          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; return; }
+          onPttUp();
+        }}
+        onPointerCancel={() => {
+          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; return; }
+          onPttUp();
+        }}
+        onKeyDown={(e) => {
+          if ((e.key !== " " && e.key !== "Enter") || e.repeat) return;
+          e.preventDefault();
+          onPttDown();
+        }}
+        onKeyUp={(e) => {
+          if (e.key !== " " && e.key !== "Enter") return;
+          e.preventDefault();
+          onPttUp();
+        }}
+        onBlur={onPttUp}
       >
         {pttActive ? (
           <span className="wcv-mic-dot" aria-hidden="true" />
@@ -321,7 +463,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
       </button>
 
       {showPanel && (
-        <div className={`wcv-panel wcv-panel-${ctx.state}`} data-testid="wcv-panel" role="status" aria-live="polite">
+        <div className={`wcv-panel wcv-panel-${ctx.state}`} data-testid="wcv-panel" role="group" aria-label="Voice conversation">
           <div className="wcv-panel-head">
             <span className={`wcv-dot wcv-dot-${ctx.state}`} aria-hidden="true" />
             <span className="wcv-state" data-testid="wcv-state" data-state={ctx.state}>{stateLabel}</span>

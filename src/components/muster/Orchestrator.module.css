@@ -390,7 +390,8 @@
   text-transform: uppercase;
   color: var(--mute);
 }
-.correctionField input {
+.correctionField input,
+.correctionField select {
   width: 100%;
   min-width: 0;
   padding: 4px 6px;
@@ -399,7 +400,16 @@
   color: var(--ink);
   font-size: 12px;
 }
-.correctionField input:focus {
+/* The menu is the normal case now (the gateway's live vocabulary); the input is
+   the fallback for a gateway that is not answering. They must not look like two
+   different kinds of control. */
+.correctionField select {
+  /* 24px tap floor - a native select renders shorter than the input beside it. */
+  min-height: 26px;
+  font-family: inherit;
+}
+.correctionField input:focus,
+.correctionField select:focus {
   outline: none;
   border-color: var(--ink);
 }

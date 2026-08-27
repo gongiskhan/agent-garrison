@@ -46,6 +46,16 @@ export function enqueue(queue, proposal) {
       // Optional for backward compatibility (legacy proposals carry neither).
       ...(proposal.citations !== undefined ? { citations: proposal.citations } : {}),
       ...(proposal.confidence !== undefined ? { confidence: proposal.confidence } : {}),
+      // The MACHINE-READABLE form of the edit, for proposals whose apply path is
+      // an API call rather than a markdown append (targetClass
+      // "orchestrator/flow"). It has to survive enqueue or the apply dispatcher
+      // would have to re-parse the claim text to find out what to write — which
+      // is exactly the kind of guessing the diff/claim split exists to avoid.
+      ...(proposal.pinEdit !== undefined ? { pinEdit: proposal.pinEdit } : {}),
+      // `false` marks a proposal the system must NOT apply for you (the split
+      // variant of an escalation finding: real evidence, no mechanical edit).
+      // Absent means appliable, so every existing rule is unaffected.
+      ...(proposal.appliable !== undefined ? { appliable: proposal.appliable } : {}),
     },
   ];
 }

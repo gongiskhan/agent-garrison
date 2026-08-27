@@ -1,0 +1,129 @@
+name: remote-shell-runtime
+version: 0.1.0
+description: General remote-shell runtime (Runtimes Faculty) — attaches to a live tmux session on a remote machine over ssh (optionally through a Microsoft Dev Tunnel), streams the terminal two-way into Garrison, and drives running/idle lifecycle from the remote agent's own stop hook via an events file read over the same ssh channel. First transport config; the CSG VM over the existing VS Code Dev Tunnel.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: runtimes
+  category: Operations
+  cardinality_hint: multi
+  component_shape: cli-skill
+  own_port: true
+  default_port: 8098
+  platforms:
+    - all
+  summary: >-
+    One general attach-and-stream runtime, many transports. A transport names a
+    reachable remote (ssh target + optional devtunnel to ride through) and a
+    tmux session there; the fitting's own-port server keeps the devtunnel
+    client alive, attaches `ssh -tt ... tmux attach` under node-pty, streams
+    the real TUI over the dev-env /io WebSocket protocol (xterm.js pane), and
+    follows the remote's ~/.garrison/events.jsonl over ssh for hook-driven
+    running/idle state, turn settlement, and channel notifications. The
+    RuntimeAdapter face makes any transport a routable delegate target: a
+    turn = inject the instruction into the remote agent's TUI, complete on the
+    stop-hook event. Connections are strictly outbound-from-Garrison; the
+    remote never dials us.
+  config_schema:
+    - key: port
+      type: integer
+      default: 8098
+      description: HTTP/WS port the remote-shell server binds to. Bound exactly; exits 1 on EADDRINUSE.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose beyond loopback.
+    - key: transports
+      type: string
+      default: ""
+      description: >-
+        JSON object of named transports, e.g.
+        {"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes",
+        "identity":"~/.ssh/garrison-remote-shell"},
+        "via":{"devtunnel":{"tunnel":"azr-imvwya5cqhr","port":2222}},
+        "tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo",
+        "eventsFile":"~/.garrison/events.jsonl",
+        "agentCommand":"cursor-agent","label":"CSG work"}}.
+        Merged over $GARRISON_HOME/remote-shell/transports.json.
+    - key: notify_fittings
+      type: string
+      default: ""
+      description: >-
+        Comma-separated fitting ids to restrict agent-stop completion
+        notifications to. Empty (default) = discovery fan-out: every running
+        fitting's POST /notify, with HTTP 404 meaning "not a channel".
+    - key: devtunnel_bin
+      type: string
+      default: ""
+      description: Path to the Microsoft devtunnel CLI. Empty = ~/.local/bin/devtunnel, then PATH.
+    - key: token_refresh_minutes
+      type: integer
+      default: 60
+      description: >-
+        How often to mint a fresh 24h devtunnel host token and push it to each
+        devtunnel-backed remote over the live ssh channel, so that machine never
+        needs an interactive `devtunnel user login` of its own. Far under the
+        token's lifetime on purpose: the remote keeps working through roughly a
+        day of Garrison being down. Env override:
+        GARRISON_REMOTESHELLRUNTIME_TOKEN_REFRESH_MIN.
+    - key: default_transport
+      type: string
+      default: ""
+      description: Transport the bridge delegate lane uses when the task spec names none.
+  provides:
+    - kind: runtime
+      name: remote-shell
+  consumes: []
+  setup:
+    # link-devtunnel-home: the instance XDG redirect hides the box's devtunnel
+    # login (same trap as Cursor's auth under XDG_CONFIG_HOME) — link the real
+    # token store in before anything needs the tunnel.
+    command: node scripts/link-devtunnel-home.mjs && node ui/build.mjs
+    idempotent: true
+    timeout_ms: 120000
+  verify:
+    command: node apm_modules/_local/remote-shell-runtime/scripts/probe.mjs
+    expect: ok
+    timeout_ms: 15000
+  for_consumers: |
+    Remote-shell-as-secondary. A routing target with runtime `remote-shell`
+    delegates the turn to a REMOTE agent living in tmux on another machine.
+    The target's `model` slot names the TRANSPORT (e.g. model: "csg") — the
+    same one-slot convention Cursor uses for effort-in-model-id. A turn types
+    the instruction into the remote agent's TUI (tmux send-keys) and completes
+    when the remote agent's own stop hook appends to the remote events file —
+    terminal text is never scraped for state. While the turn runs, whatever the
+    remote pane prints is read back on a timer and streamed to the caller
+    through the adapter's onChunk seam, so a channel shows the work as it
+    happens; the settled reply is that same transcript plus the stop timestamp.
+    The live TUI itself streams in the fitting's terminal view and in
+    web-channel's terminal pane.
+
+    Discovery: ~/.garrison/ui-fittings/remote-shell-runtime.json
+    ({fittingId, port, url, pid, startedAt}), then GET <url>/health.
+
+    HTTP endpoints (loopback):
+      GET  /health, /transports, /sessions
+      POST /sessions {transport, label?}        - start/attach (idempotent per
+                                                  transport+tmux session)
+      POST /sessions/:id/input {text}           - type a line + Enter
+      POST /sessions/:id/keys {keys}            - named key (Escape, C-c, ...)
+      POST /sessions/:id/turn {text}            - start a tracked turn
+      GET  /sessions/:id/turns/:turnId?waitMs=N&sinceRev=R
+                                                - long-poll settlement; returns
+                                                  early with {output, outputRev}
+                                                  whenever the remote pane has
+                                                  printed something past R
+      GET  /sessions/:id/screen?lines=N         - ANSI-free pane capture
+      POST /sessions/:id/detach                 - drop the local attach client
+      DELETE /sessions/:id                      - forget locally (remote tmux
+                                                  is NEVER killed)
+      WS   /io                                  - dev-env terminal protocol
+                                                  (init/init_ack/resize/bytes)
+
+    Setup on the REMOTE machine is one script:
+    scripts/remote-shell/csg-bootstrap.sh in the Garrison repo (loopback sshd,
+    tmux session, agent start/stop hooks appending to ~/.garrison/events.jsonl
+    there). The remote opens no connection to Garrison, ever: the events file
+    is followed over the same inbound ssh transport.

@@ -5,11 +5,11 @@
 //   GENERATED + LOCKED - derived from the resolved model, regenerated on every
 //   composition change, NEVER hand-edited (constraint 12). Three blocks:
 //     - capabilities:       the installed Faculties + their for_consumers guidance
-//     - duties-and-levels:  the duty table the Dispatcher + operative read
+//     - duties-and-levels:  the duty table routing inference + operative read
 //     - readiness:          the D10 validation state (which rules are met/unmet)
 //
 //   AUTHORED + EDITABLE - the orchestration doctrine (routing philosophy,
-//   escalation policy, when-to-ask-vs-proceed, identity hand-off), each shipping
+//   execution policy, escalation policy, when-to-ask-vs-proceed, identity), each shipping
 //   predefined default text (orchestrator-authored-defaults.ts).
 //
 // Locked sections carry a machine-readable marker (`locked: true` +
@@ -63,16 +63,17 @@ const LOCKED_SECTION_TITLES: Record<LockedSectionId, string> = {
 
 // Canonical section order: authored framing first, then the generated inventory
 // (capabilities -> duties -> readiness), then the behavior policies, with the
-// identity hand-off last. assembleLayeredPrompt emits sections in the order it
+// identity last. assembleLayeredPrompt emits sections in the order it
 // receives them; buildLayeredSections produces this order.
 const SECTION_ORDER: string[] = [
   "routing-philosophy",
+  "execution-policy",
   "capabilities",
   "duties-and-levels",
   "readiness",
   "escalation-policy",
   "when-to-ask-vs-proceed",
-  "identity-handoff"
+  "identity"
 ];
 
 export interface LayeredPromptInput {
@@ -158,7 +159,7 @@ function renderableDutyIds(model: ResolvedModel): string[] {
 // The duties-and-levels block: one sub-section per duty (id, title, verb
 // description) with a table of its levels - each level's one-line description
 // and what it resolves to (a leaf cell's skill/target/effort, or a composite's
-// resolved sequence). This is what the Dispatcher and the operative read to know
+// resolved sequence). This is what routing inference and the operative read to know
 // the system's duties.
 export function renderDutiesAndLevels(model: ResolvedModel): string {
   const ids = renderableDutyIds(model);
@@ -167,7 +168,7 @@ export function renderDutiesAndLevels(model: ResolvedModel): string {
   }
   const intro = [
     "The work this Operative can perform, as duties. Each duty has one or more",
-    "levels; the Dispatcher selects a (duty, level) for each request, and the",
+    "levels; Orchestrator routing inference selects a (duty, level) for each request, and the",
     "card then visits exactly that level's resolved sequence.",
     ""
   ];

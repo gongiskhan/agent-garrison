@@ -43,6 +43,19 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore
 import { saveBoard, createCard, loadCard, updateCardCAS } from "../fittings/seed/kanban-loop/lib/board.mjs";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 // A stub gateway: GET anything → 200 (so gatewayReachable() is true); POST /chat/stream →
 // one SSE `done` with a benign verdict (so a background dispatch completes without noise).
 let gateway: http.Server;
@@ -90,6 +103,15 @@ async function jsend(method: string, path: string, body?: unknown) {
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   return { status: r.status, body: await r.json() as any };
+}
+
+async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for accepted dispatch state");
 }
 
 describe("(a) cardSummary carries the coordination fields", () => {
@@ -159,9 +181,9 @@ describe("(c) manual Start on a waiting card overrides the wait and dispatches",
     expect(res.body.card.lastEvent.kind).toBe("coordination");
     expect(res.body.card.lastEvent.message).toMatch(/overridden manually/i);
 
-    // On disk the wait stays cleared (the override write landed before dispatch).
-    const disk = await loadCard(KANBAN_DIR, card.id);
-    expect(disk.waitingOn ?? null).toBeNull();
+    // The response is an accepted-dispatch projection. The durable override lands
+    // only in the engine's acquire CAS, so an acquire refusal cannot erase the hold.
+    await waitFor(async () => (await loadCard(KANBAN_DIR, card.id)).waitingOn == null);
   });
 });
 

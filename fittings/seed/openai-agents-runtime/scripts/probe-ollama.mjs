@@ -7,7 +7,7 @@
 import os from "node:os";
 import path from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { OpenAiAgentsAdapter } from "../lib/openai-adapter.mjs";
+import { OpenAiAgentsAdapter } from "../lib/openai-agents-adapter.mjs";
 
 const dir = mkdtempSync(path.join(os.tmpdir(), "openai-agents-probe-"));
 // A distinctive numeric marker: small local models reproduce a digit string more

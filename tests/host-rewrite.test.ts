@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { rewriteHostUrl, isImagePath, filePathHtml, fileHref } from "../src/lib/host-rewrite";
+import { rewriteRouteForHost } from "../packages/claude-chat/src/ClaudeChat";
 import { pickServePort } from "../src/lib/tailnet-publish";
 
 const TAILNET = { hostname: "dev-madrid.tail31efa.ts.net", protocol: "https:" };
@@ -47,6 +48,21 @@ describe("rewriteHostUrl", () => {
       const out = rewriteHostUrl(`http://${host}:8089/p`, { ...TAILNET, serveMap: SERVE_MAP });
       expect(out).toBe("https://dev-madrid.tail31efa.ts.net:8489/p");
     }
+  });
+});
+
+describe("persisted Web Channel route links", () => {
+  it("rewrites a stored loopback cardUrl at the final render boundary", () => {
+    const stored: any = { card: "c-7", cardUrl: "http://127.0.0.1:8089/#/cards/c-7" };
+    expect(rewriteRouteForHost(stored, { ...TAILNET, serveMap: SERVE_MAP })).toMatchObject({
+      card: "c-7",
+      cardUrl: "https://dev-madrid.tail31efa.ts.net:8489/#/cards/c-7"
+    });
+  });
+
+  it("removes the href when a remote HTTPS client has no safe mapping", () => {
+    const stored: any = { card: "c-7", cardUrl: "http://127.0.0.1:9999/#/cards/c-7" };
+    expect(rewriteRouteForHost(stored, { ...TAILNET, serveMap: {} })?.cardUrl).toBe("");
   });
 });
 

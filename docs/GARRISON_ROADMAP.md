@@ -22,6 +22,16 @@ to other machines and to personal-assistant use cases.
 > session view" / "start a session". Dated "we shipped worktrees" entries in
 > the history and decision-log sections are kept verbatim as history.
 
+> **Implementation status update 2026-08-03:** later work has overtaken several
+> of this roadmap's sequencing labels. Omi, scheduling/Trello, Slack heartbeat,
+> morning briefing, Outpost dispatch, and related Personal Assistant substrate
+> are implemented to varying degrees even where older sections below still say
+> “deferred.” Treat those sections as planning history, not a current feature
+> inventory. Current continuation and verification gaps are recorded in
+> [`INSTANCES.md`](./INSTANCES.md) and
+> [`CODEX_MEMORY_WORKFLOW.md`](./CODEX_MEMORY_WORKFLOW.md); repository and live
+> node state remain authoritative.
+
 -----
 
 ## North star
@@ -113,12 +123,79 @@ work.
   gateway uses `@anthropic-ai/claude-agent-sdk` in-process and
   resumes the same session by id. Auth is the Max account; no API
   key billing.
-- **Orchestrator + Soul concatenation already works.** The runner
-  reads both prompt files and writes `assembled-system-prompt.md`,
-  passed to the SDK as `append`.
-- **Permission mode is `bypassPermissions` for now.** Anything
-  stricter hangs because the UI has no permission-prompt surface
-  yet.
+- **The layered Orchestrator document is the one runtime prompt source.** Its
+  editable Identity section owns Zeca; routing doctrine plus generated duties,
+  capabilities, and readiness are assembled into
+  `assembled-system-prompt.md`. Legacy `soul.md` is not injected.
+- **Permission mode is interactive only for streamed Web Agent SDK turns with
+  a durable thread.** Those turns use `default` and surface blocking,
+  generation-bound tool requests in the Web thread; Deny and Allow once are
+  explicit, while Always allow is offered only for complete SDK suggestions.
+  JSON/headless, Kanban, scheduler, Slack, dispatch, and PTY lanes remain
+  `bypassPermissions` so they never wait on a browser-only control surface.
+- **Streamed Web input ownership is a durable per-thread FIFO (implemented in
+  the 2026-08-16 Web-parity continuation; not deployed yet).** The browser
+  retries an opaque `clientRequestId`; the Web server admits it exactly once as
+  an `inputId`; and the gateway binds its own `generationId` in the first `open`
+  frame. Stop, live replay, tool questions, permission decisions, persistence,
+  and UI lifecycle updates all require those exact coordinates. One input runs
+  per thread while different threads remain concurrent. Warm Agent SDK Queries
+  are reused per compatible conversation, with active-lane-safe LRU eviction.
+  Every turn sends exactly its admitted visible text. A cold gateway uses native
+  SDK resume only with exact signed assembly identity; otherwise it starts a
+  visibly disclosed clean session and never reconstructs history as hidden user
+  prompt material.
+- **Process-restart reconciliation for active Web inputs is explicit and never
+  replays uncertain work (implemented in the 2026-08-16 Web-parity
+  continuation; not deployed yet).** On startup, persisted
+  `starting`/`running`/`stopping` inputs atomically become visible failed turns,
+  pending controls are cancelled, and queued successors remain gated by a
+  durable recovery marker. The Web process probes exact gateway
+  `{threadId,inputId}` ownership, abandons/tombstones any contaminated standing
+  SDK Query, and clears the gate only after authoritative release; unavailable
+  ownership retries for the server lifetime with bounded backoff. A durable
+  restart barrier forces the next SDK turn into a clean journal generation.
+  An ordinary cold gateway resumes the latest exactly compatible SDK session
+  id; incompatible, unsigned, or malformed attribution starts a disclosed clean
+  session, while a provider failure after resume begins is surfaced rather than
+  silently duplicating the turn.
+- **Web transcript recovery joins the full append-only SDK session chain.** The
+  durable canonical event store remains authoritative for typed terminal and
+  control state; every unambiguous local JSONL named by `sessionIds` may fill a
+  missing row or complete a strict partial snapshot. Recovered rows are rebound
+  to durable Web input intervals as whole turns, raw human prompts stay out of
+  assistant activity, and the thread stream sends authoritative ordered
+  snapshots so reload and live views converge.
+- **Web route and failure state is typed and session-bound (implemented in the
+  2026-08-16 Web-parity continuation; not deployed yet).** Each thread owns an
+  effort-free resolved spawn signature and logical session epoch. A changed
+  target, runtime, provider, model, account, or project creates an explicit new
+  session boundary; effort rotates the standing Query by native resume within
+  the same logical session. Stable generation-owned route and terminal events,
+  typed failures, retries, and rate-limit notices are durable before lifecycle
+  settlement, and malformed or contradictory terminal projections fail closed.
+  Provider model fallback may refine the observed model for one request without
+  rewriting the spawn signature. Shared route controls report save failures and
+  distinguish new-session choices from next-request effort.
+- **Web user text is an exact authority boundary (implemented in the 2026-08-16
+  Web-parity continuation; not deployed yet).** The browser-visible text, durable
+  input, gateway ingress, and runtime user envelope are byte-identical; routing,
+  effort, history, board state, and workflow instructions are never prepended.
+  Effort is typed metadata applied through the runtime's native control. Generated
+  Web execution requires a durable thread, while the explicit `/api/claude`
+  console remains a separately labelled view onto the shared operative. Web
+  workflows or skills without a native control seam fail visibly instead of
+  mutating the prompt. Stateless non-Agent Web lanes disclose a new boundary on
+  every request. The direct gateway native-vision lane is also stateless; durable
+  Web attachments remain visible path text rather than an implicit image-coordinate
+  transport.
+- **Agent SDK assembly is signed and frozen per logical route epoch.** The capsule
+  covers the exact effective system prompt, explicit allow/deny tool policy, MCP
+  servers, strict mode, cwd, permission mode, and empty setting sources; its
+  nonsecret digest is part of the v2 spawn signature, while request effort is not.
+  The adapter deep-clones/freezes that capsule and a standing Web turn submits one
+  ordinary exact user envelope. Context seeds, streaming compaction, synthetic
+  recovery messages, and unsigned native resume are rejected.
 - **No multi-host compositions in v1.** One composition per host.
 - **Workbench-as-shell-area is gone.** The 2026-05-17 dissolution
   decision made `terminal`, `worktrees`, `session-view`,
@@ -285,8 +362,8 @@ Two flavors:
 
 - **Option (a) — advisory/validation.** Composition stays
   deterministic. An assembler agent runs at apply time, reads the
-  selected Fittings + their `for_consumers` + soul + orchestrator
-  + capability graph, and produces warnings, recommendations, and
+  authored Orchestrator document, selected Fittings and their
+  `for_consumers`, duties, readiness, and capability graph, then produces warnings, recommendations, and
   friction reports. The human accepts or rejects.
 - **Option (b) — synthesis.** The runner asks an LLM to *write* the
   assembled system prompt. Risks: non-reproducibility, cost,
@@ -692,11 +769,10 @@ for long-form discussion.
 
 ### Scope
 
-1. **PM/Architect hat in Soul + Orchestrator.** Soul declares the
-   hat exists and what it sounds like. Orchestrator detects when
-   to engage it (project mentioned, code in message, dev-flavored
-   verbs). The detection logic lives in the orchestrator, not the
-   soul — already decided 2026-05-05.
+1. **Product/architecture register in the Discuss duty.** Orchestrator routing
+   detects discussion language before the Operative turn and selects Discuss;
+   the duty owns the work-specific register. Zeca remains the single authored
+   Identity rather than switching to a second persona.
 1. **Document-during-conversation discipline.** Operative
    proactively writes documents into the Documents Fitting when a
    discussion has converged on something worth capturing. The
@@ -860,6 +936,16 @@ Skills evolution direction) feeds detailed planning.
 -----
 
 ## Decision log (live)
+
+- **2026-08-05** — Orchestrator became the single routing and identity surface.
+  Pre-session routing uses deterministic bypasses and a bounded explicit
+  `dispatch` target for ambiguous human requests; schema-v4 no longer starts
+  Stage-A. Zeca lives once in editable Orchestrator Identity; modes, selectable
+  persona Fittings, and unconditional Soul injection are retired. User
+  schedules live in Kanban's fixed Scheduled column, with Morning briefing
+  migrating from its raw job to a recurring template and receipt-backed
+  Web/Omi delivery. Older hat/Soul/classifier entries below are historical and
+  superseded by this decision.
 
 Append-only. Each decision dated and short.
 

@@ -8,7 +8,7 @@
 //      so account/duty/level/project could never reach the card,
 //   2. nothing computed the EXPECTED route for a card that had not run yet, even
 //      though the runner-projected model.json already knows it for (duty, level).
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +24,19 @@ import { expectedRouteFor } from "../fittings/seed/kanban-loop/scripts/server.mj
 // @ts-ignore pure mjs
 import { loadResolvedModel } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 import { execBadges } from "../fittings/seed/kanban-loop/ui/exec-badges";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 describe("routeFromDone — the gateway's turnAttribution block reaches the card", () => {
   it("passes through duty, level, skill, via, account, accountSource and project", () => {
@@ -204,6 +217,44 @@ describe("gatewayRunFn — client-side turn deadlines", () => {
       expect(err).toBeTruthy();
       expect(err.transport).toBe(true); // retriable — the card reverts, never parks
       expect(String(err.message)).toMatch(/abandoned|no output/i);
+    } finally {
+      server.close();
+      delete process.env.KANBAN_TURN_IDLE_MS;
+    }
+  }, 20000);
+
+  it("counts tool work as output: activity + session_event keep a silent turn alive", async () => {
+    // A phase that reads twenty files before it says anything emits no prose for
+    // minutes. Its progress arrives as `activity` (tool/thinking) and
+    // `session_event` (canonical events) - and while those did not re-arm the
+    // deadline, a WORKING turn was abandoned as "no output" and its card bounced
+    // back to Implement, repeatedly. Raising the per-target turn budget made the
+    // silent stretches long enough to hit it every time.
+    process.env.KANBAN_TURN_IDLE_MS = "300";
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write("event: open\ndata: {}\n\n");
+      let n = 0;
+      const t = setInterval(() => {
+        n += 1;
+        // Alternate the two frames a tool-only stretch actually produces. No
+        // `chunk`, no `route`, no prose - just work.
+        res.write(n % 2
+          ? `event: activity\ndata: ${JSON.stringify({ kind: "tool", name: "Read" })}\n\n`
+          : `event: session_event\ndata: ${JSON.stringify({ id: `e${n}`, role: "assistant", ts: n, order: n, revision: 1, blocks: [{ type: "tool_use", name: "Read", toolUseId: `t${n}`, input: "{}" }] })}\n\n`);
+        if (n >= 6) { // twice the idle window with never a word of prose
+          clearInterval(t);
+          res.write(`event: done\ndata: ${JSON.stringify({ reply: "read them all\nreview" })}\n\n`);
+          res.end();
+        }
+      }, 100);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const out: any = await gatewayRunFn(`http://127.0.0.1:${port}`)({ prompt: "x", list: {} });
+      expect(out.reply).toMatch(/review/);
     } finally {
       server.close();
       delete process.env.KANBAN_TURN_IDLE_MS;

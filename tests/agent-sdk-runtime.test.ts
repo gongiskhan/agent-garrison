@@ -6,7 +6,7 @@ import { buildHarness, defaultPromptModeForRole, LEAN_SYSTEM_PROMPT } from "../f
 // @ts-ignore
 import { SDK_PROVIDERS, buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, assertSupportsBlocks, assertLitellmVersionAllowed, authModeFor } from "../fittings/seed/agent-sdk-runtime/lib/providers.mjs";
 // @ts-ignore
-import { AgentSdkAdapter } from "../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs";
+import { AgentSdkAdapter, resolveRoutedAgentSdkAssembly } from "../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs";
 // @ts-ignore
 import { delegate, validateDelegationResult, runAdapterConformance, MultiRuntimePool } from "../packages/claude-pty/src/index.mjs";
 // @ts-ignore
@@ -130,6 +130,15 @@ describe("THE HARNESS — per-target promptMode (harness-ok)", () => {
     expect(h.preset).toBe(null);
     expect(h.claudeMdLoaded).toBe(false);
     expect(h.skillsMounted).toBe(false);
+  });
+
+  it("lean includes the assembled append in its spawn-time system prompt", () => {
+    expect(buildHarness("lean", {
+      leanPrompt: "lean base",
+      append: "assembled garrison prompt",
+    }).systemPrompt).toBe("lean base\n\nassembled garrison prompt");
+    expect(buildHarness("lean", { append: "assembled garrison prompt" }).systemPrompt)
+      .toBe(`${LEAN_SYSTEM_PROMPT}\n\nassembled garrison prompt`);
   });
 
   it("never loads 'user' settings in full/lean (defence-in-depth for #217)", () => {
@@ -284,6 +293,79 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(s.sessionId).toBe("sess-1");
   });
 
+  it("keeps assistant envelopes in one growing reply with readable paragraph boundaries", async () => {
+    const adapter = adapterYielding([
+      {
+        type: "assistant",
+        // Multiple text blocks in ONE envelope are fragments of one message.
+        message: { content: [{ type: "text", text: "I'll inspect" }, { type: "text", text: " the files." }] }
+      },
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "read-1", name: "Read", input: {} }] } },
+      { type: "assistant", message: { content: [{ type: "text", text: "Now I'll check the web." }] } },
+      { type: "assistant", message: { content: [{ type: "thinking", thinking: "Comparing the results" }] } },
+      { type: "assistant", message: { content: [{ type: "text", text: "Done — both worked." }] } },
+      { type: "result", subtype: "success", result: "Done — both worked.", usage: { output_tokens: 8 } }
+    ]);
+    const session = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });
+    const growing: string[] = [];
+    await adapter.sendTurn(session, "inspect things", { onText: (text: string) => growing.push(text) });
+
+    await expect(adapter.awaitResponse(session)).resolves.toMatchObject({
+      text: "Done — both worked."
+    });
+    expect(growing).toEqual([
+      "I'll inspect the files.",
+      "I'll inspect the files.\n\nNow I'll check the web.",
+      "I'll inspect the files.\n\nNow I'll check the web.\n\nDone — both worked."
+    ]);
+  });
+
+  it("announces a fresh validated session on the SDK system frame, before later activity", async () => {
+    const adapter = adapterYielding([
+      { type: "system", session_id: "../not-a-session" },
+      { type: "system", session_id: "sess-live_1" },
+      { type: "assistant", message: { content: [{ type: "text", text: "working" }] } },
+      { type: "result", subtype: "success", session_id: "../../also-not-a-session", usage: { output_tokens: 1 } }
+    ]);
+    const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });
+    const events: any[] = [];
+    await adapter.sendTurn(s, "start", {
+      onSession: (sessionId: string) => events.push({ kind: "session", sessionId, current: s.sessionId }),
+      onText: () => events.push({ kind: "text" })
+    });
+    await adapter.awaitResponse(s);
+    expect(events).toEqual([
+      { kind: "session", sessionId: "sess-live_1", current: "sess-live_1" },
+      { kind: "text" }
+    ]);
+    expect(s.sessionId).toBe("sess-live_1");
+  });
+
+  it("preserves resume semantics and isolates a throwing session observer", async () => {
+    const adapter = adapterYielding([
+      { type: "system", session_id: "sess-resumed" },
+      { type: "assistant", message: { content: [{ type: "text", text: "continued" }] } },
+      { type: "result", subtype: "success", usage: { output_tokens: 1 } }
+    ]);
+    const s = await adapter.spawn({
+      provider: "ollama-local",
+      model: "qwen3:8b",
+      compositionDir: "/tmp",
+      sessionId: "sess-resumed"
+    });
+    expect(adapter.buildQueryOptions(s).resume).toBe("sess-resumed");
+    let announcements = 0;
+    await adapter.sendTurn(s, "continue", {
+      onSession: () => {
+        announcements += 1;
+        throw new Error("broken observability sink");
+      }
+    });
+    await expect(adapter.awaitResponse(s)).resolves.toMatchObject({ text: "continued" });
+    expect(announcements).toBe(1);
+    expect(s.sessionId).toBe("sess-resumed");
+  });
+
   it("buildQueryOptions wires the harness (preset/settingSources/maxTurns) + the launch env", async () => {
     const adapter = adapterYielding([]);
     const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/work", maxTurns: 5 });
@@ -295,6 +377,167 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(opts.env.ANTHROPIC_BASE_URL).toBe("http://localhost:11434");
     expect(opts.env.ANTHROPIC_API_KEY).toBe("");
     expect(s.capabilities.provider).toBe("ollama-local");
+  });
+
+  it("freezes prompt/tool/MCP/query assembly at spawn and returns a fresh SDK options clone", async () => {
+    const adapter = adapterYielding([]);
+    const config: any = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work/original",
+      appendSystemPrompt: "frozen garrison prompt",
+      maxTurns: 5,
+      permissionMode: "default",
+      thinking: { type: "disabled" },
+      tools: ["Read", "Grep"],
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+      mcpServers: {
+        garrison: {
+          command: "node",
+          args: ["/srv/garrison.mjs", "stdio"],
+          env: { GARRISON_SCOPE: "original" },
+        },
+      },
+      strictMcpConfig: true,
+      effort: "high",
+    };
+    const session = await adapter.spawn(config);
+
+    config.compositionDir = "/work/mutated";
+    config.appendSystemPrompt = "mutated prompt";
+    config.maxTurns = 99;
+    config.permissionMode = "bypassPermissions";
+    config.thinking.type = "enabled";
+    config.tools.push("Write");
+    config.allowedTools.push("Write");
+    config.disallowedTools[0] = "Read";
+    config.mcpServers.garrison.command = "mutated-command";
+    config.mcpServers.garrison.args.push("mutated-arg");
+    config.mcpServers.garrison.env.GARRISON_SCOPE = "mutated";
+    config.strictMcpConfig = false;
+
+    const first = adapter.buildQueryOptions(session);
+    expect(first).toMatchObject({
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: "frozen garrison prompt",
+      },
+      settingSources: ["project"],
+      cwd: "/work/original",
+      maxTurns: 5,
+      permissionMode: "default",
+      thinking: { type: "disabled" },
+      tools: ["Read", "Grep"],
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+      mcpServers: {
+        garrison: {
+          command: "node",
+          args: ["/srv/garrison.mjs", "stdio"],
+          env: { GARRISON_SCOPE: "original" },
+        },
+      },
+      strictMcpConfig: true,
+      model: "claude-sonnet-4-6",
+      effort: "high",
+    });
+    expect(Object.isFrozen(session.queryAssembly)).toBe(true);
+    expect(Object.isFrozen(session.queryAssembly.systemPrompt)).toBe(true);
+    expect(Object.isFrozen(session.queryAssembly.tools)).toBe(true);
+    expect(Object.isFrozen(session.queryAssembly.mcpServers.garrison.args)).toBe(true);
+
+    // The SDK receives a mutable clone; normalizing one Query cannot alter the
+    // frozen assembly used by a later effort rotation.
+    first.systemPrompt.append = "sdk-mutated";
+    first.tools.push("Write");
+    first.mcpServers.garrison.args.push("sdk-mutated");
+    await adapter.setEffort(session, "max");
+    expect(adapter.buildQueryOptions(session)).toMatchObject({
+      systemPrompt: { append: "frozen garrison prompt" },
+      tools: ["Read", "Grep"],
+      mcpServers: { garrison: { args: ["/srv/garrison.mjs", "stdio"] } },
+      strictMcpConfig: true,
+      effort: "max",
+    });
+  });
+
+  it("consumes the signed routed assembly verbatim across effort rotation without setting-source rereads", async () => {
+    const adapter = adapterYielding([]);
+    const fixedAssembly = resolveRoutedAgentSdkAssembly({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work/routed",
+      promptMode: "full",
+      appendSystemPrompt: "layered routed sentinel",
+      tools: ["Read"],
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+      mcpServers: { garrison: { command: "node", args: ["/srv/garrison.mjs"] } },
+      strictMcpConfig: true,
+      streamingInput: true,
+    });
+    const session = await adapter.spawn({
+      fixedAssembly,
+      effort: "high",
+      env: {},
+    });
+
+    expect(adapter.buildQueryOptions(session)).toMatchObject({
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: "layered routed sentinel",
+      },
+      settingSources: [],
+      cwd: "/work/routed",
+      tools: ["Read"],
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+      mcpServers: { garrison: { args: ["/srv/garrison.mjs"] } },
+      strictMcpConfig: true,
+      effort: "high",
+    });
+    await adapter.setEffort(session, "max");
+    const rotated = adapter.buildQueryOptions(session);
+    expect(rotated.settingSources).toEqual([]);
+    expect(rotated.systemPrompt).toEqual(fixedAssembly.systemPrompt);
+    expect(rotated.disallowedTools).toEqual(fixedAssembly.disallowedTools);
+    expect(rotated.effort).toBe("max");
+  });
+
+  it("rejects summary compaction for standing streaming input", async () => {
+    const adapter = adapterYielding([]);
+    await expect(adapter.spawn({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work",
+      streamingInput: true,
+      compactEnabled: true,
+    })).rejects.toMatchObject({
+      code: "agent_sdk_streaming_compaction_unsupported",
+    });
+
+    await expect(adapter.spawn({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      compositionDir: "/work",
+      compactEnabled: true,
+    })).resolves.toMatchObject({ compactEnabled: true, streamingInput: false });
+  });
+
+  it("defaults permissions to bypass and honors an explicit trusted SDK mode", async () => {
+    const adapter = adapterYielding([]);
+    const bypass = await adapter.spawn({ provider: "anthropic", model: "sonnet", compositionDir: "/work" });
+    const interactive = await adapter.spawn({
+      provider: "anthropic",
+      model: "sonnet",
+      compositionDir: "/work",
+      permissionMode: "default",
+    });
+    expect(adapter.buildQueryOptions(bypass).permissionMode).toBe("bypassPermissions");
+    expect(adapter.buildQueryOptions(interactive).permissionMode).toBe("default");
   });
 
   it("spawns an Anthropic-endpoint agent-sdk session (first-class, D29) with no base URL", async () => {
@@ -356,6 +599,25 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(unsupported).toMatchObject({ effort: "high", effortApplied: false });
   });
 
+  it("forwards only the explicit disabled-thinking option", async () => {
+    const adapter = adapterYielding([]);
+    const dispatch = await adapter.spawn({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      compositionDir: "/work",
+      thinking: { type: "disabled" }
+    });
+    expect(adapter.buildQueryOptions(dispatch).thinking).toEqual({ type: "disabled" });
+
+    const arbitrary = await adapter.spawn({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      compositionDir: "/work",
+      thinking: { type: "enabled", budgetTokens: 4096 }
+    });
+    expect(adapter.buildQueryOptions(arbitrary).thinking).toBeUndefined();
+  });
+
   it("setModel updates the model within the endpoint family; setEffort records unsupported", async () => {
     const adapter = adapterYielding([]);
     const s = await adapter.spawn({ provider: "ollama-local", model: "qwen3:8b", compositionDir: "/tmp" });
@@ -376,6 +638,17 @@ describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
     await adapter.sendTurn(s, "loop forever");
     const r = await adapter.awaitResponse(s);
     expect(r.stoppedReason).toBe("max_turns");
+    expect(r).toMatchObject({
+      terminalStatus: "error",
+      failure: {
+        source: "result",
+        kind: "limit",
+        code: "error_max_turns",
+        retryable: false,
+      },
+      sessionId: null,
+      model: "m",
+    });
   });
 
   it("normalizes the SDK's post-result max-turn rejection and preserves accumulated output", async () => {
@@ -405,7 +678,11 @@ describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
     await expect(adapter.awaitResponse(s)).resolves.toMatchObject({
       text: "Plan and durable gate were written.",
       toolUses: [{ id: "write-gate", name: "Write" }],
-      stoppedReason: "max_turns"
+      stoppedReason: "max_turns",
+      terminalStatus: "error",
+      failure: expect.objectContaining({ code: "error_max_turns" }),
+      sessionId: "sdk-max-turn-session",
+      model: "m",
     });
     expect(s.sessionId).toBe("sdk-max-turn-session");
     expect(s.usedTokens).toBe(15);
@@ -444,6 +721,15 @@ describe("Budget guard — stop and report, never loop (sdk-budget-ok)", () => {
     const r = await adapter.awaitResponse(s);
     expect(r.stoppedReason).toBe("budget_exceeded");
     expect(s.usedTokens).toBeGreaterThanOrEqual(100);
+    expect(r).toMatchObject({
+      terminalStatus: "error",
+      failure: {
+        source: "system",
+        kind: "limit",
+        code: "budget_exceeded",
+        retryable: false,
+      },
+    });
   });
 });
 

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "generatedFrom": "ORCHESTRATOR_COHERENCE.md Phase 0 mining, 2026-07-14..2026-08-09 (90 live cards + 873 commits across garrison and ekoa-code), transcribed 2026-08-13",
+  "note": "Counts are the mined task volumes per flow shape. The expander caps what it feeds per (category, shape) so inferred history can buy act-revert at most, never act-inform - see autonomy-seed.mjs. A shape absent here starts cold (ask-first) on purpose: video had no distinct mined task, and low-volume shapes stay below the lower threshold by arithmetic, which is the intended cold-start posture.",
+  "cap": 50,
+  "shapes": {
+    "fix": 290,
+    "feature": 220,
+    "docs": 134,
+    "chore": 94,
+    "task": 18,
+    "personal": 12,
+    "qa-sweep": 8,
+    "discussion": 5,
+    "automation": 3,
+    "research": 2,
+    "ops": 1,
+    "image": 1
+  }
+}

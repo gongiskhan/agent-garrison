@@ -90,6 +90,8 @@ export function credentialLabel(account: AccountInfo): string {
 export interface AccountInfo {
   name: string;
   label?: string;
+  /** Provider-reported identity (email/username), captured at login where free. */
+  identity?: string;
   created_at: string;
   needs_relogin?: boolean;
   status: "ready" | "missing-token" | "vault-locked";
@@ -141,6 +143,12 @@ export const PLATFORM_SECTIONS: {
     label: "Hugging Face",
     blurb:
       "Open-weight models through Hugging Face's Inference Providers router (OpenAI-compatible). Pin an account to the Hugging Face runtime and pick a model there. Injected as HF_TOKEN + HUGGING_FACE_HUB_TOKEN."
+  },
+  {
+    id: "glm",
+    label: "GLM (self-hosted)",
+    blurb:
+      "A GLM deployment behind your own OpenAI-compatible server (vLLM / SGLang). Pin an account to the OpenAI Agents runtime with provider `glm`, and set the endpoint as that runtime's baseUrl. Injected as GLM_API_KEY, and only ever sent to the configured URL. No balance API - a self-hosted box does not report one."
   },
   {
     id: "custom",
@@ -334,6 +342,7 @@ const NATIVE_LOGIN_CMD: Record<AccountPlatform, string> = {
   // Key-only providers have no CLI login to run.
   openrouter: "",
   huggingface: "",
+  glm: "",
   custom: ""
 };
 
@@ -406,9 +415,19 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/**
+ * The account's human handle: the provider-reported identity (email/username)
+ * when we captured one, otherwise the name the user gave it. This is what makes
+ * two accounts on the same provider tell each other apart at a glance.
+ */
+export function accountIdentityLabel(account: AccountInfo): string {
+  return account.identity?.trim() || account.name;
+}
+
 export function accountOptionLabel(account: AccountInfo): string {
-  const bits = [account.name];
-  if (account.label) bits.push(account.label);
+  // Lead with the provider so a picker mixing platforms is unambiguous, then the
+  // account's own identity (email/username, or its name).
+  const bits = [PLATFORM_SPECS[account.platform].label, accountIdentityLabel(account)];
   // Which plan an engine runs on is the first thing you want to see in a picker.
   if (account.platform !== "anthropic") bits.push(credentialLabel(account));
   else if (account.ageDays !== null) bits.push(`${account.ageDays}d old`);
@@ -447,17 +466,196 @@ export function eligibleRotationCount(accounts: AccountInfo[]): number {
   return accounts.filter((a) => a.enabled && a.status === "ready" && !a.needs_relogin).length;
 }
 
+export type RuntimeAccountEmptyMode = "machine-login" | "default-key";
+
 /**
- * Which account platform a runtime fitting authenticates with — so the compact
- * picker filters the pin list and hides Auto for non-Anthropic engines. Derived
- * from the runtime's provided name (falling back to the fitting id): the seed
- * runtimes are claude-code/agent-sdk (anthropic), codex (openai), gemini (google).
+ * The complete UI-side credential contract for one runtime/provider pairing.
+ * Platform alone is insufficient: Codex and OpenAI Agents both use the OpenAI
+ * rail, but only Codex can consume a ChatGPT auth file / machine login.
+ *
+ * Keep this table aligned with runner.primaryAccountRoute. Null means the
+ * provider is keyless or has no declared named-account contract; callers must
+ * surface any stale selection rather than guessing a vendor.
  */
-export function platformForRuntime(fittingId: string, runtimeName?: string): AccountPlatform {
+export interface RuntimeAccountContract {
+  platform: AccountPlatform;
+  allowAuthFile: boolean;
+  emptyMode: RuntimeAccountEmptyMode;
+}
+
+export function runtimeAccountContract(
+  fittingId: string,
+  runtimeName?: string,
+  /**
+   * The runtime's selected PROVIDER, when it has one. Some engines are an endpoint
+   * FAMILY rather than a vendor — openai-agents fronts OpenAI cloud, a local
+   * Ollama and a self-hosted GLM box — so the fitting id alone cannot say which
+   * credential authenticates it, and guessing would offer a pin that injects a key
+   * the endpoint rejects.
+   */
+  provider?: string
+): RuntimeAccountContract | null {
   const s = `${runtimeName ?? ""} ${fittingId}`.toLowerCase();
-  if (s.includes("codex")) return "openai";
-  if (s.includes("gemini")) return "google";
-  if (s.includes("openrouter")) return "openrouter";
-  if (s.includes("huggingface") || s.includes("hugging-face")) return "huggingface";
-  return "anthropic";
+  const p = (provider ?? "").trim().toLowerCase();
+  if (s.includes("openai-agents")) {
+    if (p === "glm") {
+      return { platform: "glm", allowAuthFile: false, emptyMode: "default-key" };
+    }
+    if (p === "openai" || p === "openai-compat") {
+      return { platform: "openai", allowAuthFile: false, emptyMode: "default-key" };
+    }
+    // The ChatGPT subscription is the one openai-agents provider authenticated by
+    // a credential FILE rather than a key, so it is the only one that accepts an
+    // auth-file account - the same subscription credential the Codex runtime uses,
+    // which is why both offer the identical contract. Blank means the box's own
+    // ~/.codex login (the resolver's fallback), hence machine-login, not
+    // default-key: there is no key to fall back to.
+    if (p === "chatgpt-subscription") {
+      return { platform: "openai", allowAuthFile: true, emptyMode: "machine-login" };
+    }
+    // ollama-local (including the fitting's blank/default value) is keyless;
+    // an unknown provider has no declared account contract. Never guess OpenAI.
+    return null;
+  }
+  if (s.includes("agent-sdk")) {
+    return p === "anthropic" || p === "anthropic-plan"
+      ? { platform: "anthropic", allowAuthFile: false, emptyMode: "machine-login" }
+      : null;
+  }
+  if (s.includes("claude-code")) {
+    return !p || p === "anthropic-plan"
+      ? { platform: "anthropic", allowAuthFile: false, emptyMode: "machine-login" }
+      : null;
+  }
+  if (s.includes("codex")) {
+    return { platform: "openai", allowAuthFile: true, emptyMode: "machine-login" };
+  }
+  if (s.includes("gemini")) {
+    return { platform: "google", allowAuthFile: true, emptyMode: "machine-login" };
+  }
+  if (s.includes("openrouter")) {
+    return { platform: "openrouter", allowAuthFile: false, emptyMode: "default-key" };
+  }
+  if (s.includes("huggingface") || s.includes("hugging-face")) {
+    return { platform: "huggingface", allowAuthFile: false, emptyMode: "default-key" };
+  }
+  return null;
+}
+
+/**
+ * Runtimes whose account pins cannot coexist, keyed by fitting id.
+ *
+ * An account is delivered as PROCESS-WIDE env (CODEX_HOME / GEMINI_CLI_HOME / the
+ * token rail), so two runtimes on one platform can only run under one identity.
+ * The runner enforces this and aborts the launch; without a matching check here
+ * the picker cheerfully accepts a combination that makes the composition
+ * unlaunchable, and the only evidence is a line in the runner log.
+ *
+ * Only DISTINCT named pins collide. Empty (machine login / default key) and
+ * "auto" follow whatever the primary resolves, so they never conflict.
+ */
+export function runtimeAccountRailConflicts(
+  bindings: { id: string; contract: { platform: AccountPlatform } | null; account: string }[]
+): Map<string, string> {
+  const byPlatform = new Map<AccountPlatform, { id: string; account: string }[]>();
+  for (const binding of bindings) {
+    const account = binding.account.trim();
+    if (!binding.contract || !account || account === "auto") continue;
+    const list = byPlatform.get(binding.contract.platform) ?? [];
+    list.push({ id: binding.id, account });
+    byPlatform.set(binding.contract.platform, list);
+  }
+  const conflicts = new Map<string, string>();
+  for (const [platform, list] of byPlatform) {
+    const names = [...new Set(list.map((entry) => entry.account))];
+    if (names.length < 2) continue;
+    for (const entry of list) {
+      const others = list.filter((other) => other.account !== entry.account);
+      conflicts.set(
+        entry.id,
+        `${PLATFORM_SPECS[platform].label} accounts are delivered process-wide, so these cannot run together: ` +
+          `${others.map((other) => `${other.id} is on "${other.account}"`).join(", ")}. ` +
+          `Use one account for all ${PLATFORM_SPECS[platform].label} runtimes, or leave the others un-pinned to follow the primary.`
+      );
+    }
+  }
+  return conflicts;
+}
+
+/** Named accounts that this runtime can actually consume. */
+export function compatibleRuntimeAccounts(
+  accounts: AccountInfo[],
+  contract: RuntimeAccountContract
+): AccountInfo[] {
+  return accounts.filter(
+    (account) =>
+      account.platform === contract.platform &&
+      (contract.allowAuthFile || account.credential_kind !== "auth-file")
+  );
+}
+
+export type RuntimeAccountSelectionIssueKind =
+  | "provider-has-no-account-contract"
+  | "auto-not-supported"
+  | "missing-account"
+  | "wrong-platform"
+  | "auth-file-not-supported";
+
+export interface RuntimeAccountSelectionIssue {
+  kind: RuntimeAccountSelectionIssueKind;
+  message: string;
+  optionLabel: string;
+}
+
+/**
+ * Explain a persisted selection that the current runtime/provider cannot use.
+ * This is deliberately pure so every picker can preserve and expose stale
+ * values instead of letting a controlled <select> visually snap to its default.
+ */
+export function runtimeAccountSelectionIssue(
+  value: string,
+  contract: RuntimeAccountContract | null,
+  accounts: AccountInfo[]
+): RuntimeAccountSelectionIssue | null {
+  const selectedName = value.trim();
+  if (!selectedName) return null;
+  if (!contract) {
+    return {
+      kind: "provider-has-no-account-contract",
+      message: `Account "${selectedName}" is incompatible because this provider is keyless or has no named-account contract.`,
+      optionLabel: `${selectedName} (incompatible provider)`
+    };
+  }
+  if (selectedName === "auto") {
+    return contract.platform === "anthropic"
+      ? null
+      : {
+          kind: "auto-not-supported",
+          message: "Auto rotation is available only to Anthropic runtimes. Clear it or pin a compatible account.",
+          optionLabel: "auto (not supported)"
+        };
+  }
+  const selected = accounts.find((account) => account.name === selectedName);
+  if (!selected) {
+    return {
+      kind: "missing-account",
+      message: `Account "${selectedName}" is no longer in the registry. Clear it or choose another account.`,
+      optionLabel: `${selectedName} (missing)`
+    };
+  }
+  if (selected.platform !== contract.platform) {
+    return {
+      kind: "wrong-platform",
+      message: `Account "${selectedName}" belongs to ${PLATFORM_SPECS[selected.platform].label}, but this runtime requires ${PLATFORM_SPECS[contract.platform].label}.`,
+      optionLabel: `${selectedName} (wrong platform)`
+    };
+  }
+  if (selected.credential_kind === "auth-file" && !contract.allowAuthFile) {
+    return {
+      kind: "auth-file-not-supported",
+      message: `Account "${selectedName}" is a subscription login, but this runtime requires an API-token account.`,
+      optionLabel: `${selectedName} (API token required)`
+    };
+  }
+  return null;
 }

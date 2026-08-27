@@ -44,10 +44,10 @@ declare module "*/automations/lib/fingerprint.mjs" {
   export function shapeSketchFromCounts(counts: Record<string, number>): string;
 }
 declare module "*/automations/lib/cache.mjs" {
-  export function lookupActionCache(automationId: string, stepId: string, fingerprint: any): Promise<any | null>;
+  export function lookupActionCache(automationId: string, stepId: string, fingerprint: any, instruction?: string): Promise<any | null>;
   export function writeActionCache(input: any): Promise<any>;
-  export function evictAction(automationId: string, stepId: string, fingerprint: any): Promise<boolean>;
-  export function lookupAssertionCache(automationId: string, stepId: string, fingerprint: any): Promise<any | null>;
+  export function evictAction(automationId: string, stepId: string, fingerprint: any, instruction?: string): Promise<boolean>;
+  export function lookupAssertionCache(automationId: string, stepId: string, fingerprint: any, instruction?: string): Promise<any | null>;
   export function writeAssertionCache(input: any): Promise<any>;
 }
 declare module "*/automations/lib/browser-orchestrator.mjs" {
@@ -60,7 +60,15 @@ declare module "*/automations/lib/discuss.mjs" {
   export function automationBriefPath(slug: string): string;
   export function buildAutomationKickoff(opts?: any): string;
   export function buildAutomationDiscussUrl(opts?: any): string;
-  export function buildDiscussParams(opts?: any): { mode: string; context: string; kickoff: string; thread: string; title?: string };
+  export function buildDiscussParams(opts?: any): {
+    source: "discuss";
+    context: string;
+    kickoff: string;
+    thread: string;
+    returnUrl: string;
+    returnLabel: string;
+    title?: string;
+  };
 }
 declare module "*/automations/lib/command-shape.mjs" {
   export function computeCommandShape(argv: string[]): string;
@@ -92,6 +100,10 @@ declare module "*/mcp-gateway/scripts/lib/tools.mjs" {
   export function automationsAvailable(): boolean;
   export function callListAutomations(): Promise<any[]>;
   export function callRunAutomation(input: { id: string; inputs?: Record<string, unknown> }): Promise<any>;
+  export function kanbanAvailable(): boolean;
+  export function callScheduleCard(input: { card: string; until?: string; in_minutes?: number; action?: string; clear?: boolean }): Promise<any>;
+  export function callRunCard(input: { card: string }): Promise<any>;
+  export function callListScheduledCards(input?: Record<string, unknown>): Promise<any>;
 }
 declare module "*/automations/lib/planner.mjs" {
   export function planFromBrief(opts: any): Promise<any>;

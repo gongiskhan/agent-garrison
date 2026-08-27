@@ -119,10 +119,10 @@ verifying each:
    wait one triage tick (default 5 min): a card appears in the Kanban
    backlog with `origin: omi` and a `card_created` push arrives.
 4. `wake_enabled` — the spoken smoke test below.
-5. `chat_enabled` — in Omi chat, type: "ask Gary how my board looks".
-   Omi should call `ask_gary` and answer with Garrison's reply within
+5. `chat_enabled` — in Omi chat, type: "ask Zeca how my board looks".
+   Omi should call `ask_zeca` and answer with Garrison's reply within
    ~10s. If Omi's model doesn't pick the tool, re-save the app (manifest
-   refresh) and phrase with "Gary".
+   refresh) and phrase with "Zeca".
 6. `backfeed_enabled` (+ optionally add `daily_digest` to
    `backfeed_kinds`) — complete a card, wait <=30 min (or run
    `node scripts/backfeed.mjs --run`), then in the Omi app check
@@ -133,7 +133,7 @@ verifying each:
 
 Wearing/near the mic, say:
 
-> "Gary, create a test task called hello garrison."
+> "Zeca, create a test task called hello garrison."
 
 Expected, in order:
 
@@ -147,8 +147,21 @@ Expected, in order:
    context.
 3. `/health`: `wake_hits: 1`, `wake_dispatches: 1`.
 
-Negative check: say "the garrison deploy is fine" — no push, no card;
-`wake_segments_dropped` increments only.
+Negative checks - none of these may push or card, and each should only
+increment `wake_segments_dropped`:
+
+- "the garrison deploy is fine" - no wake token at all.
+- "a roupa ainda está seca" / "fui à biblioteca com a Rebeca" - words that
+  carry the name's sound or its letters. These are the ONLY class of
+  non-hit, which is why `seca` and `sega` are excluded from the variants.
+
+**Position does not matter.** The name ANYWHERE in a segment wakes the
+operative, mid-sentence included: "manda ao Zeca a factura" opens a capture
+window exactly like "Zeca, manda a factura". An address-position rule was
+built and removed on 2026-08-13 - the name essentially never comes up in
+ambient speech here, so the missed wakes cost more than the false ones. If
+that ever stops being true, the symptom is spurious cards with `origin: omi`
+after conversations ABOUT someone of that name.
 
 ## 8. Day summary caveat
 
@@ -162,6 +175,46 @@ timezone = no delivery (that is "no recap", not a failure).
 
 Record real numbers for: realtime webhook latency/variance
 (`wake_hit_to_notification_ms_*`), direct-notification rate limits and
-Watch delivery behavior, whether Omi's model calls `ask_gary` reliably or
+Watch delivery behavior, whether Omi's model calls `ask_zeca` reliably or
 paraphrases its results, whether notification replies are read aloud, and
 the actual free-tier burn rate under always-on.
+
+## 10. REQUIRED after the Gary -> Zeca rename (2026-08-13)
+
+The operative was renamed. Everything in this repo already says Zeca, but the
+chat tool's NAME also lives in a manifest **cached on Omi's servers**, and only
+the phone can refresh it.
+
+**This is not an outage.** `/omi/chat` authorizes on key + app_id + uid and
+reads only `query`; it never inspects `tool_name`. So a stale cached manifest
+still reaches the right endpoint and still gets a real answer. What is actually
+stale is what Omi's own model SEES:
+
+- the tool is still called `ask_gary`, described as "Ask Gary - the user's
+  personal AI chief of staff ...", so the model picks it when you say **"ask
+  Gary"** and may not when you say "ask Zeca";
+- the spinner still reads "Asking Gary...".
+
+To fix both:
+
+1. **Re-save the private Omi app** (Explore -> your app -> Save), with no field
+   edited. That is what re-fetches the Chat Tools Manifest - the same cache that
+   once made a rotated key 401 every call for a day.
+2. **Then re-phrase your chat probe.** "ask Zeca how my board looks" should call
+   `ask_zeca`. If the model still does not pick it, wait a minute and try again;
+   the refresh is not instant.
+
+Nothing else on the Omi side changes: App ID, App Secret, Import key, the
+manifest URL and all four Developer-Mode webhook URLs are untouched, because
+no route or secret was renamed.
+
+The **wake word is not affected by any of this** - it is matched entirely on
+this box, so "Zeca, ..." works as soon as the fitting restarts.
+
+Then re-run the §7 spoken smoke test with the new wake word:
+
+> "Zeca, create a test task called hello garrison."
+
+If the wake word does not fire, check `/health` -> the fitting logs a line at
+startup when it finds a `wake_variants` config left over from the old name and
+ignores it. You do not need to edit that key; clearing it just silences the log.

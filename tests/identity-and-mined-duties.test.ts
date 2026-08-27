@@ -19,26 +19,23 @@ async function loadFitting(id: string): Promise<GarrisonMetadata> {
   return parseGarrisonMetadata(manifest!["x-garrison"]);
 }
 
-// S3f2a: the Identity Fitting (Gary) + the two mined-persona duty Fittings
-// (discuss from James, develop from Joe). develop is COMPOSITE — its levels
-// sequence the S3f1 leaf duties (plan/implement/review/test).
+// Identity is authored inside Orchestrator; Discuss and Develop remain normal
+// duties. Develop is composite and sequences the leaf work duties.
 describe("identity + mined-persona duties (S3f2a)", () => {
-  it("identity-gary parses as a modes/system-prompt fitting providing kind:identity (gary)", async () => {
-    const meta = await loadFitting("identity-gary");
-    expect(meta.faculty).toBe("modes");
+  it("orchestrator provides the authored identity and dispatch duty", async () => {
+    const meta = await loadFitting("orchestrator");
+    expect(meta.faculty).toBe("orchestrator");
     expect(meta.component_shape).toBe("system-prompt");
-    expect(meta.provides).toEqual([{ kind: "identity", name: "gary" }]);
+    expect(meta.provides).toEqual(expect.arrayContaining([
+      { kind: "identity", name: "authored" },
+      { kind: "duty", name: "dispatch" }
+    ]));
   });
 
-  it("identity-gary's persona names Gary as the operative and resolves 'Hey Gary'", () => {
-    const persona = readFileSync(
-      path.join(SEED_DIR, "identity-gary", "payload", "persona.md"),
-      "utf8"
-    );
-    expect(persona).toMatch(/Hey Gary/);
-    // Gary IS the operative at rest, not a separate assistant it delegates to.
-    expect(persona).toMatch(/You are Gary/);
-    expect(persona.toLowerCase()).toContain("operative");
+  it("the authored Identity default names Zeca once and has no old faces", async () => {
+    const source = readFileSync(path.resolve(__dirname, "..", "src/lib/orchestrator-authored-defaults.ts"), "utf8");
+    expect(source).toMatch(/You are Zeca/);
+    expect(source).not.toMatch(/\b(?:Verity|Joe|James)\b/);
   });
 
   const dutyCases = [
@@ -115,7 +112,7 @@ describe("identity + mined-persona duties (S3f2a)", () => {
     ]);
   });
 
-  it.each([{ id: "identity-gary" }, { id: "duty-discuss" }, { id: "duty-develop" }])(
+  it.each([{ id: "orchestrator" }, { id: "duty-discuss" }, { id: "duty-develop" }])(
     "$id passes the validate-fitting pipeline",
     async ({ id }) => {
       const report = await validateFitting(path.join(SEED_DIR, id));

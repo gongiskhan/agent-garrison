@@ -32,6 +32,7 @@ export type AccountPlatform =
   | "google"
   | "openrouter"
   | "huggingface"
+  | "glm"
   | "custom";
 
 export const ACCOUNT_PLATFORMS: AccountPlatform[] = [
@@ -40,6 +41,7 @@ export const ACCOUNT_PLATFORMS: AccountPlatform[] = [
   "google",
   "openrouter",
   "huggingface",
+  "glm",
   "custom"
 ];
 
@@ -177,7 +179,7 @@ export const PLATFORM_SPECS: Record<AccountPlatform, PlatformSpec> = {
   openai: {
     id: "openai",
     label: "Codex / OpenAI",
-    runtimes: "the Codex runtime (codex exec)",
+    runtimes: "the Codex runtime (codex exec) and the OpenAI Agents runtime",
     envKeys: ["OPENAI_API_KEY"],
     clearKeys: [],
     nativeLoginPath: "~/.codex/auth.json",
@@ -199,6 +201,9 @@ export const PLATFORM_SPECS: Record<AccountPlatform, PlatformSpec> = {
       nativeRelPath: ".codex/auth.json",
       label: "ChatGPT subscription",
       loginHint: "codex login"
+      // One credential, two consumers: `codex exec` reads this home directly, and
+      // the OpenAI Agents runtime's `chatgpt-subscription` provider reads the same
+      // auth.json out of it to authenticate the Codex Responses backend.
     },
     // Verified live against codex-cli 0.144.5: prints
     // https://auth.openai.com/codex/device + a one-time code, then polls.
@@ -291,6 +296,31 @@ export const PLATFORM_SPECS: Record<AccountPlatform, PlatformSpec> = {
       note: "Inference Providers usage bills to your Hugging Face account; free accounts get a small monthly allowance."
     }
   },
+  glm: {
+    id: "glm",
+    label: "GLM (self-hosted)",
+    runtimes: "the OpenAI Agents runtime pointed at a self-hosted GLM endpoint",
+    // A dedicated name, NOT OPENAI_API_KEY: a composition may hold both a real
+    // OpenAI key and a self-hosted endpoint, and one shared name means whichever
+    // key is present is sent to whichever endpoint is configured.
+    envKeys: ["GLM_API_KEY"],
+    clearKeys: [],
+    // Self-hosted: no vendor CLI, so no machine login and no auth file.
+    nativeLoginPath: null,
+    tokenHint: "the bearer token your endpoint accepts",
+    apiKeyGuide: {
+      // There is no vendor console to link to — the endpoint is somebody's box —
+      // so point at the upstream project that most commonly serves this shape.
+      url: "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+      urlLabel: "vLLM - OpenAI-compatible server (--api-key)",
+      steps: [
+        "Get the bearer token from whoever runs the endpoint (for vLLM/SGLang it is the value passed to --api-key).",
+        "Paste it below, then set the endpoint URL on the OpenAI Agents runtime's config as baseUrl (ending in /v1).",
+        "Garrison injects the token as GLM_API_KEY and only ever sends it to that configured URL."
+      ],
+      note: "A self-hosted endpoint has no balance or usage API, so no credit is shown here. If the endpoint is plain http:// on a public address, the token and every prompt travel unencrypted - prefer a tailnet address or a TLS terminator."
+    }
+  },
   custom: {
     id: "custom",
     label: "Custom",
@@ -357,6 +387,27 @@ export function parseAuthFile(
     return { ok: false, error: `no refresh token in the file — is this really ${spec.relPath}?` };
   }
   return { ok: true, value };
+}
+
+/**
+ * Does this credential carry a ROTATING refresh token — one the CLI trades in
+ * for a new one and thereby invalidates?
+ *
+ * This is the line between a credential that may be copied and one that may
+ * only be linked. An OAuth subscription login rotates: the moment a second
+ * holder refreshes, the first holder's token is dead, and presenting a
+ * superseded token reads as replay, which revokes the whole family. A bare API
+ * key rotates never — copying one is inert.
+ *
+ * Garrison learned this the hard way: seeding a copy of `~/.codex/auth.json`
+ * into an isolated CODEX_HOME logged the box out of Codex repeatedly between
+ * 2026-07-22 and 2026-08-16.
+ */
+export function isRotatingCredential(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.refresh_token === "string" ||
+    typeof (value.tokens as Record<string, unknown> | undefined)?.refresh_token === "string"
+  );
 }
 
 /** Normalize a possibly-absent platform to a concrete one (legacy rows = anthropic). */
@@ -456,5 +507,14 @@ export function accountHomeEnv(
 ): Record<string, string> {
   const spec = PLATFORM_SPECS[platform].authFile;
   if (!spec) return { GARRISON_ACCOUNT: name };
-  return { GARRISON_ACCOUNT: name, [spec.homeEnvKey]: homeDir };
+  const env: Record<string, string> = {
+    GARRISON_ACCOUNT: name,
+    [spec.homeEnvKey]: homeDir
+  };
+  // An auth-file selection is an exclusive credential source. Explicitly empty
+  // every token rail for the platform so a launcher/global API key cannot take
+  // precedence over the materialized subscription login.
+  for (const key of PLATFORM_SPECS[platform].envKeys) env[key] = "";
+  for (const key of PLATFORM_SPECS[platform].clearKeys) env[key] = "";
+  return env;
 }

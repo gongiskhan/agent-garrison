@@ -131,7 +131,7 @@ describe("tier orchestration (F2)", () => {
 
   it("a stale cached action recovers via vision (tier recovered)", async () => {
     const fp = fingerprintFromParts(obsFor());
-    await writeActionCache({ automationId: "auto3", stepId: "s1", fingerprint: fp, action: { kind: "click", name: "Stale" } });
+    await writeActionCache({ automationId: "auto3", stepId: "s1", fingerprint: fp, action: { kind: "click", name: "Stale" }, instruction: "click" });
     let executeCalls = 0;
     const deps = {
       observe: async () => obsFor(),
@@ -142,7 +142,38 @@ describe("tier orchestration (F2)", () => {
     expect(r.tier).toBe("recovered");
     expect(r.action).toMatchObject({ name: "Fresh" });
     // the stale entry was replaced
-    expect((await lookupActionCache("auto3", "s1", fp)).action).toMatchObject({ name: "Fresh" });
+    expect((await lookupActionCache("auto3", "s1", fp, "click")).action).toMatchObject({ name: "Fresh" });
+  });
+
+  // Live-fire 2026-08-07: a defused password-changing check replayed its OLD
+  // cached fills (the real credentials) because the cache key carried only the
+  // step id and the PAGE fingerprint - the rewritten instruction was never
+  // consulted, and the run rotated the admin password again. An entry written
+  // under one instruction must never serve a step whose wording changed.
+  it("an edited instruction misses the old cache entry and re-resolves via vision", async () => {
+    const fp = fingerprintFromParts(obsFor());
+    await writeActionCache({
+      automationId: "auto3b",
+      stepId: "s1",
+      fingerprint: fp,
+      action: { kind: "fill", name: "Palavra-passe Atual", value: "the-real-password" },
+      instruction: 'fill the "Palavra-passe Atual" field with "the-real-password"'
+    });
+    let visionCalls = 0;
+    const executed: unknown[] = [];
+    const deps = {
+      observe: async () => obsFor(),
+      executeAction: async (a: unknown) => { executed.push(a); },
+      resolveViaVision: async () => { visionCalls++; return { kind: "fill", name: "Palavra-passe Atual", value: "deliberately-wrong" }; }
+    };
+    const r = await runBrowserStep({
+      automationId: "auto3b",
+      step: { id: "s1", type: "browser", description: 'fill the "Palavra-passe Atual" field with "deliberately-wrong"' },
+      deps
+    });
+    expect(visionCalls).toBe(1);
+    expect(r.tier).toBe("vision");
+    expect(executed).toEqual([{ kind: "fill", name: "Palavra-passe Atual", value: "deliberately-wrong" }]);
   });
 
   // A pinned action (step.cachedAction) is the action-side twin of

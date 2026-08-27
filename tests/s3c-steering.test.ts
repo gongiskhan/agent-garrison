@@ -19,7 +19,7 @@ process.env.GARRISON_RUNS_DIR = RUNS_DIR;
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 
 // @ts-ignore
-import { classifySteering, parseSteering, steeringShortCircuit, steeringEvidence } from "../fittings/seed/dispatcher/lib/steer-core.mjs";
+import { classifySteering, parseSteering, steeringShortCircuit, steeringEvidence } from "../fittings/seed/orchestrator/lib/steer-core.mjs";
 // @ts-ignore
 import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore
@@ -31,11 +31,24 @@ import { buildBoard } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs"
 // @ts-ignore
 import { processCard, buildCardPrompt } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore
-import { readSteeringDirective, writeSteeringDirective, readSteeringMd } from "../fittings/seed/kanban-loop/lib/steering.mjs";
+import { readSteeringDirective, writeSteeringDirective, readSteeringMd, isEarlierPhase } from "../fittings/seed/kanban-loop/lib/steering.mjs";
 // @ts-ignore
 import { readOriginEvents } from "../fittings/seed/kanban-loop/lib/origins.mjs";
 // @ts-ignore
 import { RoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const CARD = (over: any = {}) => ({ title: "Add login", list: "implement", sequence: ["plan", "implement", "review", "test"], ...over });
 const model: any = { version: 2, compositionId: "t", kanbanLists: ["plan", "implement", "review", "test"], sequences: { develop: { "2": ["plan", "implement", "review", "test"] } }, cells: {}, holds: {} };
@@ -84,6 +97,25 @@ describe("steer-core classification", () => {
     expect(unknown).toMatchObject({ action: "acknowledge", reason: "unclassifiable" });
     const revisit = await classifySteering({ message: "x", card: CARD(), call: async () => ({ ok: true, structured: { action: "revisit", revisit_duty: "plan" } }) });
     expect(revisit).toMatchObject({ action: "revisit", revisitDuty: "plan" });
+  });
+
+  it("uses the bounded Orchestrator Haiku target by default, never Ollama", async () => {
+    let seen: any = null;
+    await classifySteering({
+      message: "please account for the new constraint",
+      card: CARD(),
+      call: async (spec: any) => {
+        seen = spec;
+        return { ok: true, structured: { action: "absorb", confidence: "high" } };
+      }
+    });
+    expect(seen).toMatchObject({
+      shape: "anthropic",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      timeoutMs: 8000
+    });
+    expect(JSON.stringify(seen)).not.toMatch(/ollama|qwen/i);
   });
 
   it("routing evidence carries the digest, never the raw message", () => {
@@ -221,6 +253,50 @@ describe("hardening", () => {
     expect(next.list).not.toBe("test"); // never marched forward
     expect(readSteeringDirective(KANBAN_DIR, c.id)).toBeNull(); // cleared (not-earlier)
     expect(ran).toBe(true); // proceeded to dispatch the current phase
+  });
+
+  // Board Feedback surface: a card that reached the end (done) or stopped
+  // (needs-attention) can be sent BACK through the pipeline with the same context.
+  it("isEarlierPhase: a terminal/off-sequence card may revisit any in-sequence phase", () => {
+    const done = CARD({ list: "done" }); // "done" is not in the sequence
+    expect(isEarlierPhase(done, "plan")).toBe(true);
+    expect(isEarlierPhase(done, "test")).toBe(true); // re-entry: every phase is "earlier" than done
+    expect(isEarlierPhase(done, "nope")).toBe(false); // must still name a real phase
+    // on a live phase the strict go-back invariant still holds
+    expect(isEarlierPhase(CARD({ list: "review" }), "test")).toBe(false); // forward
+    expect(isEarlierPhase(CARD({ list: "review" }), "plan")).toBe(true); // back
+  });
+
+  it("Feedback on a DONE card re-stages it back and RESETS the iteration counter", async () => {
+    const c = await createCard(KANBAN_DIR, CARD({ list: "done", project: "p" }));
+    // A finished card carries its accumulated iteration count — a re-run must not trip
+    // the cap on the first tick, so the re-stage resets it (fresh, human-approved pass).
+    await saveCard(KANBAN_DIR, { ...(await loadCard(KANBAN_DIR, c.id)), id: c.id, iterations: 9 });
+    const res = await post(`/cards/${c.id}/steer`, { message: "you forgot the export button", action: "revisit", revisitDuty: "plan" });
+    expect(res.body).toMatchObject({ action: "revisit", applied: true });
+    const got = await loadCard(KANBAN_DIR, c.id);
+    expect(got.list).toBe("plan"); // sent back to the start of the queue
+    expect(got.iterations).toBe(0); // counter reset
+    expect(readSteeringMd(KANBAN_DIR, c.id)).toContain("you forgot the export button"); // same-context guidance folded in
+  });
+
+  it("Feedback on a needs-attention (parked) card re-stages it and clears the park reason", async () => {
+    const c = await createCard(KANBAN_DIR, CARD({ list: "needs-attention", project: "p" }));
+    await saveCard(KANBAN_DIR, {
+      ...(await loadCard(KANBAN_DIR, c.id)),
+      id: c.id,
+      status: "needs-attention",
+      iterations: 10,
+      attentionReason: "hit the iteration cap",
+      parkedFrom: "implement"
+    });
+    const res = await post(`/cards/${c.id}/steer`, { message: "try a smaller change", action: "revisit", revisitDuty: "implement" });
+    expect(res.body).toMatchObject({ action: "revisit", applied: true });
+    const got = await loadCard(KANBAN_DIR, c.id);
+    expect(got.list).toBe("implement");
+    expect(got.status).toBe("ok");
+    expect(got.iterations).toBe(0);
+    expect(got.attentionReason).toBeNull(); // un-parked
   });
 
   it("fix3: a terminal transition clears a stranded pending directive", async () => {

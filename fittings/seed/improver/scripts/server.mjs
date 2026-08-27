@@ -6,6 +6,13 @@
 //                                        auto-apply any whose rule is `auto`
 //   GET  /api/queue                    → {queue, autonomy, promotionThreshold}
 //   GET  /api/ecosystem-status         → {ecosystemUpdate, reapplySweep} last-run summaries
+//   GET  /api/signals                  → the RAW evidence: every feedback-queue
+//                                        record + pending probe questions + the
+//                                        probe-skip tail
+//   DELETE /api/signals/:key           → append a tombstone (delete = append)
+//   POST /api/probe/deliver            → push a pending probe question out of band
+//   POST /api/probe/:id/answer         → record an out-of-band answer (GET form
+//                                        for notification action buttons)
 //   POST /api/proposals/:id/apply      → applyWithRetry → reconcile → applied(+evidence)
 //   POST /api/proposals/:id/reject     → mark rejected; targets untouched
 //   GET  /api/autonomy                 → per-rule autonomy state
@@ -13,10 +20,12 @@
 //   POST /api/autonomy/promote         → {rule} approve a streak-gated promotion
 // Self-registers at ~/.garrison/ui-fittings/improver.json on listen.
 //
-// Apply uses the never-clobber baselineSha contract (apply-core), then runs
-// reconcile("post-authoring") via an injected reconcileFn (the real reconcile,
-// scoped, when wired; a recorded marker otherwise). The core never writes owned
-// surfaces directly — only this approved path does.
+// Apply is DISPATCHED BY targetClass. The default is the never-clobber
+// baselineSha contract over a markdown target (apply-core), then
+// reconcile("post-authoring") via an injected reconcileFn. `orchestrator/flow`
+// proposals instead go through the shell's PUT /api/orchestrator/policy, because
+// appending a note about a flow definition changes nothing the router reads. The
+// core never writes owned surfaces directly — only these approved paths do.
 
 import http from "node:http";
 import os from "node:os";
@@ -32,6 +41,11 @@ import { recordRejection, reconcile as reconcileQueue, vetProposals, suppressRej
 import { readReapplySweepLog } from "../lib/reapply-sweep.mjs";
 import { runEcosystemPhases } from "../lib/ecosystem-phases.mjs";
 import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
+import { runEscalationRule } from "../lib/escalation-rule.mjs";
+import { applyFlowProposal } from "../lib/flow-apply.mjs";
+import { collectSignals, tombstoneSignal } from "../lib/signals-view.mjs";
+import { deliverProbeQuestion } from "../lib/probe-notify.mjs";
+import { findPendingById, updatePendingDelivery, recordProbeAnswer } from "../lib/probe-store.mjs";
 import { resolveCompositionDir } from "../lib/composition-dir.mjs";
 import {
   loadQueue,
@@ -131,10 +145,20 @@ async function doRunNow() {
       const policyRule = runOrchestratorPolicyRule({ now: at });
       for (const p of policyRule.proposals) queue = enqueue(queue, p);
       policyProposals = policyRule.proposals.length;
-      await saveQueue(QUEUE_FILE, queue);
     } catch (err) {
       console.error("orchestrator-policy rule failed (skipped):", err?.message || err);
     }
+    // The escalation rule's inputs are the composition's decision log — as
+    // independent of memory as the policy rule's are, so a skipped memory run
+    // must not silence it either.
+    try {
+      const escalationRule = runEscalationRule({ now: at, compositionDir: resolveCompositionDir() });
+      for (const p of escalationRule.proposals) queue = enqueue(queue, p);
+      policyProposals += escalationRule.proposals.length;
+    } catch (err) {
+      console.error("escalation rule failed (skipped):", err?.message || err);
+    }
+    await saveQueue(QUEUE_FILE, queue);
     return { skipped: result.skipped, proposals: policyProposals, queue: queue.length };
   }
 
@@ -180,6 +204,18 @@ async function doRunNow() {
   } catch (err) {
     console.error("orchestrator-policy rule failed (skipped):", err?.message || err);
   }
+  // escalation rule (§2.3): recurring runtime escalations → a proposal to promote
+  // the escalation into a flow-definition pin. Same discipline as the policy rule
+  // — review-queued, never auto-applied, and its own failure never fails the run.
+  let escalationProposals = 0;
+  try {
+    const escalationRule = runEscalationRule({ now: at, compositionDir: resolveCompositionDir() });
+    for (const p of escalationRule.proposals) queue = enqueue(queue, p);
+    escalationProposals = escalationRule.proposals.length;
+  } catch (err) {
+    console.error("escalation rule failed (skipped):", err?.message || err);
+  }
+  policyProposals += escalationProposals;
   await saveQueue(QUEUE_FILE, queue);
   await saveAutonomy(AUTONOMY_FILE, autonomy);
   return { proposals: result.proposals.length + policyProposals, queue: queue.length, autoApplied, dream: dream.housekeeping };
@@ -196,12 +232,56 @@ async function doEcosystemStatus() {
   };
 }
 
+// The composition this Fitting is installed into, by directory name — the id the
+// shell's policy API keys on. Passed explicitly rather than letting the shell
+// resolve its "active composition": the Improver knows which composition it runs
+// inside, and an apply landing in a different one would be silent corruption.
+function compositionId() {
+  return path.basename(resolveCompositionDir());
+}
+
+// targetClass dispatcher. A proposal that names a flow definition cannot be
+// applied by appending markdown to a notes file, so it goes through the shell's
+// policy API instead. Everything else keeps the markdown-append default.
+//
+// Returns the same {code, body} envelope doApply returns, or null when this
+// proposal is not one of the dispatched classes.
+async function applyByTargetClass(proposal) {
+  if (proposal.targetClass !== "orchestrator/flow") return null;
+  const res = await applyFlowProposal({ proposal, compositionId: compositionId() });
+  if (res.ok) return { code: 200, body: res };
+  // 422 is terminal: the edit is invalid, so retrying it is a loop. Mark the
+  // proposal rejected with the validator's reason.
+  //
+  // Deliberately NOT recorded in the rejection ledger and NOT counted against the
+  // rule's autonomy: the ledger suppresses a FINDING a human turned down, and the
+  // finding here (a recurring escalation) is real — only this edit was not valid.
+  // Burying it would hide the signal and demote a rule for a reason unrelated to
+  // its quality.
+  if (res.terminal) {
+    const q = markRejected(await loadQueue(QUEUE_FILE), proposal.id, new Date().toISOString(), res.reason);
+    await saveQueue(QUEUE_FILE, q);
+    return { code: 422, body: { ...res, rejected: true } };
+  }
+  const code = res.code === "conflict" ? 409 : res.code === "no-app-url" ? 503 : 400;
+  return { code, body: res };
+}
+
 async function doApply(id) {
   let queue = await loadQueue(QUEUE_FILE);
   let autonomy = await loadAutonomy(AUTONOMY_FILE);
   const proposal = findProposal(queue, id);
   if (!proposal) return { code: 404, body: { error: "proposal not found", id } };
   if (proposal.status === "applied") return { code: 200, body: { ok: true, alreadyApplied: true, evidence: proposal.evidence } };
+  const dispatched = await applyByTargetClass(proposal);
+  if (dispatched) {
+    if (!dispatched.body?.ok) return dispatched;
+    queue = markApplied(queue, id, dispatched.body.evidence, new Date().toISOString());
+    const out = applyOutcome(autonomy, proposal.rule, "accept");
+    await saveQueue(QUEUE_FILE, queue);
+    await saveAutonomy(AUTONOMY_FILE, out.autonomy);
+    return { code: 200, body: { ...dispatched.body, autonomyEvent: out.event } };
+  }
   const res = await applyWithRetry({ proposal, targetFile: targetFileFor(), reconcileFn });
   if (!res.ok) return { code: 409, body: { ok: false, code: res.code, expected: res.expected } };
   queue = markApplied(queue, id, res.evidence, new Date().toISOString());
@@ -246,6 +326,31 @@ async function doReject(id, reason) {
   }
   await saveQueue(QUEUE_FILE, queue);
   return { code: 200, body: { ok: true, status: "rejected", reason: reason ?? null, autonomyEvent } };
+}
+
+// Push a pending probe question to every running channel Fitting, and record on
+// the pending WHICH surfaces took it — the sweep reads that to decide whether the
+// question lives 90 seconds (relay only) or a week (out of band).
+//
+// The Stop hook calls this instead of fanning out itself: discovery, the
+// `tailscale serve` lookup and the fan-out all belong in a long-lived process
+// with a cache, not on a hook the operator waits behind on every turn.
+async function doProbeDeliver(body) {
+  const pendingId = typeof body?.pendingId === "string" ? body.pendingId : "";
+  if (!pendingId) return [400, { ok: false, error: "need {pendingId}" }];
+  const pending = findPendingById(pendingId);
+  if (!pending) return [404, { ok: false, error: "no such pending", pendingId }];
+  const delivery = await deliverProbeQuestion(pending);
+  const deliveredVia = {
+    relay: true,
+    channels: delivery.channels,
+    answerBase: delivery.answerBase,
+    reachable: delivery.reachable,
+    ...(delivery.reason ? { reason: delivery.reason } : {}),
+    at: new Date().toISOString(),
+  };
+  updatePendingDelivery(pending.session_id, deliveredVia);
+  return [200, { ok: true, pendingId, deliveredVia, results: delivery.results }];
 }
 
 // shadcn/improve pattern 4 — reconcile the queue against reality: verify applied
@@ -315,6 +420,57 @@ export async function startServer(opts = {}) {
       }
       if (pathname === "/api/ecosystem-status" && req.method === "GET") {
         return json(res, 200, await doEcosystemStatus());
+      }
+      // ── Signals: the raw evidence, and the one way to delete a wrong one ──
+      if (pathname === "/api/signals" && req.method === "GET") {
+        return json(res, 200, await collectSignals({ dir: DATA_DIR }));
+      }
+      const del = pathname.match(/^\/api\/signals\/(.+)$/);
+      if (del && req.method === "DELETE") {
+        const body = await readBody(req).catch(() => ({}));
+        const r = await tombstoneSignal(decodeURIComponent(del[1]), {
+          reason: typeof body?.reason === "string" ? body.reason : undefined,
+        });
+        return json(res, r.ok ? 200 : r.code === "not-found" ? 404 : 400, r);
+      }
+      // ── Probe: out-of-band delivery + the answer that comes back ──────────
+      if (pathname === "/api/probe/deliver" && req.method === "POST") {
+        const body = await readBody(req);
+        return json(res, ...(await doProbeDeliver(body)));
+      }
+      // The answer route accepts GET as well as POST, and that is deliberate: a
+      // notification action button can only NAVIGATE, so the one-tap answer the
+      // whole out-of-band path exists for has to arrive as a GET. It is
+      // idempotent in the way that matters — the question is removed from the
+      // pending on the first answer, so a re-tap or a link preview fetch finds
+      // nothing to answer and records nothing.
+      const answer = pathname.match(/^\/api\/probe\/([^/]+)\/answer$/);
+      if (answer && (req.method === "POST" || req.method === "GET")) {
+        const body = req.method === "POST" ? await readBody(req).catch(() => ({})) : {};
+        const q = parsed.query || {};
+        const r = await recordProbeAnswer({
+          pendingId: decodeURIComponent(answer[1]),
+          questionIndex: body.question ?? q.question ?? 0,
+          answer: body.answer ?? q.answer,
+          deliveredVia: body.deliveredVia ?? "out-of-band",
+        });
+        if (req.method === "GET") {
+          // Answered from a phone: reply with something a human can read, not a
+          // JSON blob. No markup beyond a sentence — this page exists to close
+          // the loop, not to be an interface.
+          const msg = r.ok
+            ? `Recorded${r.remaining ? ` — ${r.remaining} question(s) still open.` : ". Thanks."}`
+            : r.code === "not-found"
+              ? "That question has already been answered or expired."
+              : `Could not record that answer (${r.code}).`;
+          const html = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Garrison</title><body style="font:16px/1.5 system-ui;padding:2rem;max-width:32rem"><p>${msg}</p></body>`;
+          res.writeHead(r.ok ? 200 : r.code === "not-found" ? 404 : 400, {
+            "content-type": "text/html; charset=utf-8",
+            "content-length": Buffer.byteLength(html),
+          });
+          return res.end(html);
+        }
+        return json(res, r.ok ? 200 : r.code === "not-found" ? 404 : 400, r);
       }
       const apply = pathname.match(/^\/api\/proposals\/([^/]+)\/apply$/);
       if (apply && req.method === "POST") {

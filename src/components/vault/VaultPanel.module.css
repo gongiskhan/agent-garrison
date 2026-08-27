@@ -195,6 +195,7 @@
 }
 
 .secretRow {
+  display: grid;
   grid-template-columns: minmax(9.5rem, 0.72fr) minmax(12rem, 1fr) auto auto;
   grid-template-areas:
     "key value reveal remove"
@@ -202,11 +203,34 @@
   gap: 0.65rem 0.75rem;
   padding: 1rem 0;
   background: transparent;
+  border-bottom: 1px solid var(--rule);
+}
+
+.secretRow:last-child {
+  border-bottom: 0;
+}
+
+/* Pin the buttons to their named areas — auto-placement happens to land them
+   there today, but only while the area maps keep exactly these empty cells. */
+.secretRow :global(.secret-reveal) {
+  grid-area: reveal;
+}
+
+.secretRow :global(.secret-remove) {
+  grid-area: remove;
 }
 
 .secretField {
   display: grid;
   gap: 0.28rem;
+  /* Let the fr columns actually shrink on narrow rows — an input's intrinsic
+     min-width otherwise squeezes the auto columns until "reveal" clips. */
+  min-width: 0;
+}
+
+.secretField input {
+  width: 100%;
+  min-width: 0;
 }
 
 .secretField > span {
@@ -323,6 +347,29 @@
   max-width: 100%;
   overflow-x: auto;
   border-top: 3px solid var(--ink);
+}
+
+.unsavedBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-top: 1px solid var(--rule);
+  background: var(--surface, #f8f4eb);
+  box-shadow: 0 -0.6rem 1.4rem rgba(34, 44, 36, 0.08);
+}
+
+.unsavedBar span {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass);
 }
 
 @media (max-width: 900px) {

@@ -1,45 +1,51 @@
 // Instance profiles — the single source of truth for which ports this Garrison
 // process and its Fittings bind.
 //
-// HARD RULE: prod and dev never share a port. The committed compositions carry
-// ONE port map (the 7xxx family: app 7777, gateway 4777, outpost 3702, fittings
-// 70xx). Every other instance is that same map shifted by a fixed per-profile
-// offset. There is no second hand-maintained port table to drift.
+// MESH RE-AXIS (2026-08-24). Two axes, two variables — conflating them is how
+// a codex sandbox registers itself as a mesh node:
+//   GARRISON_INSTANCE_ID — which SANDBOX on this box: node | dev | codex
+//   GARRISON_NODE_NAME   — which MACHINE in the mesh (node.json / state.json)
 //
-//   profile  offset   app     gateway  outpost  fittings  scheduler
-//   dev          0    7777     4777     3702     70xx      7099
-//   prod     +1000    8777     5777     4702     80xx      8099
-//   codex   +20000   27777    24777    23702    270xx     27099
+// The committed compositions carry ONE port map, now the 8xxx family — the
+// values the always-on instance has served on this tailnet since the prod
+// profile existed. The `node` profile is offset 0: NOTHING running anywhere
+// changed ports in this re-axis; only the sandboxes moved. "prod" survives as
+// a spelled-out alias for `node` for one release (units and muscle memory).
 //
-// The codex family was ALREADY exactly +20000 from the committed values before
-// this module existed — the offset model describes reality, it does not impose
-// a new scheme on it.
+//   profile  offset   app     gateway  fittings  scheduler
+//   node         0    8777     5777     80xx      8099
+//   dev     +10000   18777    15777    180xx     18099
+//   codex   +20000   28777    25777    280xx     28099
 //
-// Only PROD is ever fronted by `tailscale serve`. The tailnet address is the
-// always-on surface and must never resolve to a dev server: a dev crash or a
-// half-finished edit would take the tailnet down. See scripts/tailnet-serve-views.mjs.
+// HARD RULE unchanged: never hardcode a port; two profiles never share one.
+// Every node in the mesh runs the same map at offset 0 — same fitting, same
+// port, same serve port on every machine, which is what makes peer view URLs
+// computable without asking the peer (see scripts/tailnet-serve-views.mjs).
 
-export type InstanceProfileId = "prod" | "dev" | "codex";
+export type InstanceProfileId = "node" | "dev" | "codex";
 
-export const INSTANCE_PROFILE_IDS: readonly InstanceProfileId[] = ["prod", "dev", "codex"];
+export const INSTANCE_PROFILE_IDS: readonly InstanceProfileId[] = ["node", "dev", "codex"];
 
-// Added to every port the composition declares. dev is 0 so the committed
-// values ARE the dev values — an unset/unknown profile therefore behaves
-// exactly as this repo did before profiles existed.
 export const PROFILE_PORT_OFFSET: Record<InstanceProfileId, number> = {
-  dev: 0,
-  prod: 1000,
+  node: 0,
+  dev: 10000,
   codex: 20000
 };
 
 // Base ports for the process-level listeners the compositions do NOT declare
-// (the Next app itself, the outpost host, and the scheduler's health port when
-// no composition config supplies one). Fitting and gateway ports come from the
-// composition, offset by the profile.
-export const BASE_APP_PORT = 7777;
-export const BASE_OUTPOST_PORT = 3702;
-export const BASE_GATEWAY_PORT = 4777;
-export const BASE_SCHEDULER_HEALTH_PORT = 7099;
+// (the Next app itself and the scheduler's health port when no composition
+// config supplies one). Fitting and gateway ports come from the composition,
+// offset by the profile.
+export const BASE_APP_PORT = 8777;
+/**
+ * @deprecated The outpost WS bridge daemon this addressed was retired with the
+ * mesh (2026-08-24). Kept for one release alongside the launcher's
+ * GARRISON_OUTPOST_PORT export so a stale process reads a per-instance value
+ * rather than colliding on 4702. Nothing in the mesh binds it.
+ */
+export const BASE_OUTPOST_PORT = 4702;
+export const BASE_GATEWAY_PORT = 5777;
+export const BASE_SCHEDULER_HEALTH_PORT = 8099;
 
 export function isInstanceProfileId(value: unknown): value is InstanceProfileId {
   return typeof value === "string" && (INSTANCE_PROFILE_IDS as readonly string[]).includes(value);
@@ -47,10 +53,11 @@ export function isInstanceProfileId(value: unknown): value is InstanceProfileId 
 
 // The profile this process is running as. The launcher
 // (scripts/garrison-instance.sh) exports GARRISON_INSTANCE_ID; an unset value
-// means "dev" so a bare `next dev` keeps the committed 7xxx behaviour rather
-// than silently landing on prod's ports.
+// means "dev" so a bare `next dev` lands in the sandbox range rather than on
+// the node's live ports. "prod" is accepted as a legacy alias for "node".
 export function currentProfile(): InstanceProfileId {
   const raw = process.env.GARRISON_INSTANCE_ID?.trim();
+  if (raw === "prod") return "node";
   return isInstanceProfileId(raw) ? raw : "dev";
 }
 
@@ -71,6 +78,7 @@ export function appPort(profile: InstanceProfileId = currentProfile()): number {
   return profilePort(BASE_APP_PORT, profile);
 }
 
+/** @deprecated See {@link BASE_OUTPOST_PORT}. */
 export function outpostPort(profile: InstanceProfileId = currentProfile()): number {
   return profilePort(BASE_OUTPOST_PORT, profile);
 }

@@ -67,7 +67,17 @@ function stripOwnGroups(settings) {
   for (const [event, list] of Object.entries(settings.hooks)) {
     if (!Array.isArray(list)) continue;
     const before = list.length;
-    settings.hooks[event] = list.filter((g) => !(g && (STRIP_OWNERS.has(g._garrison) || g._garrison === true)));
+    settings.hooks[event] = list.filter((g) => {
+      if (!g) return true;
+      if (STRIP_OWNERS.has(g._garrison) || g._garrison === true) return false;
+      // Pre-tag residue: an UNTAGGED group whose command is unmistakably ours
+      // (the /_hook curl this writer bakes) — repeated installs before the
+      // owner tag existed stacked these five deep. Match by signature so a
+      // reinstall can finally reap them.
+      const cmds = Array.isArray(g.hooks) ? g.hooks.map((h) => String(h?.command ?? "")) : [];
+      if (g._garrison === undefined && cmds.some((c) => c.includes("/_hook?event="))) return false;
+      return true;
+    });
     if (settings.hooks[event].length !== before) removedAny = true;
   }
   return removedAny;

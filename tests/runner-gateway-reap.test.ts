@@ -1,9 +1,15 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { reapRecordedGateway } from "@/lib/runner";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  reapRecordedGateway,
+  stopChild,
+  withRunnerOperation,
+  writeGatewayPidRecord
+} from "@/lib/runner";
 
 // The gateway child outlives the Garrison server process (a dead server takes
 // the in-memory RunnerRecord with it, not the child). The on-disk pid record
@@ -71,6 +77,124 @@ afterEach(() => {
 });
 
 describe("recorded-gateway reap", () => {
+  it("serializes lifecycle mutations for the same composition", async () => {
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const first = withRunnerOperation("gw-serialized", async () => {
+      order.push("first:start");
+      markFirstStarted();
+      await firstGate;
+      order.push("first:end");
+    });
+    await firstStarted;
+    const second = withRunnerOperation("gw-serialized", async () => {
+      order.push("second:start");
+      order.push("second:end");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(order).toEqual(["first:start"]);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(order).toEqual([
+      "first:start",
+      "first:end",
+      "second:start",
+      "second:end"
+    ]);
+  });
+
+  it("publishes one immutable PID owner and refuses a racing overwrite", async () => {
+    await writeGatewayPidRecord("gw-publish", {
+      pid: 111,
+      host: "127.0.0.1",
+      port: 4999,
+      startedAt: new Date().toISOString(),
+      fittingId: "http-gateway"
+    });
+
+    await expect(
+      writeGatewayPidRecord("gw-publish", {
+        pid: 222,
+        host: "127.0.0.1",
+        port: 4999,
+        startedAt: new Date().toISOString(),
+        fittingId: "http-gateway"
+      })
+    ).rejects.toMatchObject({ code: "EEXIST" });
+
+    expect(JSON.parse(readFileSync(recordPath("gw-publish", 4999), "utf8")).pid).toBe(111);
+  });
+
+  it("recovers abandoned lock artifacts without letting racing publishers overlap", async () => {
+    const lockRoot = path.join(ghome, "gateway-pids");
+    const ticketDir = path.join(lockRoot, "gw-lock-recovery-4999.lock.d");
+    mkdirSync(ticketDir, { recursive: true });
+    // The old shared-file implementation could crash after O_EXCL creation but
+    // before valid owner JSON was durable. Its abandoned file must no longer
+    // wedge the new ticket lock.
+    writeFileSync(path.join(lockRoot, "gw-lock-recovery-4999.lock"), "", "utf8");
+    // A fully-published ticket from a dead process is independently reclaimable;
+    // unique ticket paths mean two contenders can never unlink a successor.
+    writeFileSync(
+      path.join(ticketDir, "2147483647-abandoned.json"),
+      JSON.stringify({
+        pid: 2147483647,
+        token: "abandoned",
+        choosing: false,
+        ticket: 1,
+        createdAt: Date.now()
+      }),
+      "utf8"
+    );
+
+    const records = [333, 444].map((pid) => ({
+      pid,
+      host: "127.0.0.1",
+      port: 4999,
+      startedAt: new Date().toISOString(),
+      fittingId: "http-gateway"
+    }));
+    const outcomes = await Promise.allSettled(
+      records.map((record) => writeGatewayPidRecord("gw-lock-recovery", record))
+    );
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+    expect([333, 444]).toContain(
+      JSON.parse(readFileSync(recordPath("gw-lock-recovery", 4999), "utf8")).pid
+    );
+  });
+
+  it("does not report an unconfirmed child termination as success", async () => {
+    const fake = new EventEmitter() as EventEmitter & {
+      pid: number;
+      exitCode: number | null;
+      signalCode: NodeJS.Signals | null;
+      kill: ReturnType<typeof vi.fn>;
+    };
+    fake.pid = 987654;
+    fake.exitCode = null;
+    fake.signalCode = null;
+    fake.kill = vi.fn(() => true);
+
+    await expect(
+      stopChild(fake as unknown as ChildProcessWithoutNullStreams, {
+        forceAfterMs: 5,
+        timeoutMs: 25
+      })
+    ).rejects.toThrow(/did not confirm exit/);
+    expect(fake.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+    expect(fake.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+  });
+
   it("kills a live recorded gateway and clears the record", async () => {
     const pid = spawnDummy();
     writeRecord("gwreap-live", {

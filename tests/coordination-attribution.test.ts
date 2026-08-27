@@ -3,7 +3,7 @@
 // gate fails because a FOREIGN card's commit touched its claims does NOT loop to
 // implement — it waits for the offender's fix fence, its iteration is refunded,
 // and the offender is notified in BOTH runDirs. Also the batched (D7) red path.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,6 +26,19 @@ import { createCard, loadCard, saveCard } from "../fittings/seed/kanban-loop/lib
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
 import { resetCoordinationCache } from "../fittings/seed/kanban-loop/lib/coordination.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 function git(repo: string, ...args: string[]) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" });

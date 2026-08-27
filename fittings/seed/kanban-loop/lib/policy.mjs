@@ -3,7 +3,7 @@
 //
 // The compiled policy at ~/.garrison/orchestrator/policy.json is the ONE
 // consumption interface: which skill executes a phase, which {taskType, tier}
-// classification a phase dispatch carries, and which phases a card's work kind
+// classification a phase dispatch carries, and which phases a card's flow
 // actually runs (the rail, with per-card toggles merged over it — D17). No
 // HTTP in the hot path — a plain file read, cached briefly.
 //
@@ -12,6 +12,64 @@ import path from "node:path";
 import os from "node:os";
 import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
+
+// ── flow compat (2026-08-09 workKind -> flow rename) ────────────────────────
+// Third and last mirror of `src/lib/flow-compat.ts`. The Kanban Loop reads the
+// COMPILED policy at $GARRISON_HOME/orchestrator/policy.json, which is a different
+// file from the composition's routing.json/policy.json and can lag the rename by
+// however long it is until the next accepted policy write — at rename time both
+// the prod and dev copies still carried `workKinds`. A fitting cannot import from
+// `src/`, so this is a deliberate mirror; `tests/flow-compat-lockstep.test.ts`
+// pins all three copies to the same retired-key map so they cannot drift.
+// Read either spelling, write only the new one.
+export const RETIRED_FLOW_KEYS = Object.freeze({
+  workKinds: "flows",
+  defaultWorkKind: "defaultFlow",
+  workKind: "flow"
+});
+
+export function adoptFlowKeys(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  let out = null;
+  for (const [retired, current] of Object.entries(RETIRED_FLOW_KEYS)) {
+    if (!Object.prototype.hasOwnProperty.call(input, retired)) continue;
+    if (!out) out = { ...input };
+    if (out[current] === undefined || out[current] === null) out[current] = input[retired];
+    delete out[retired];
+  }
+  return out ?? input;
+}
+
+// ── flow VALUE compat (2026-08-09 library rewrite) ──────────────────────────
+// The keys above renamed the CONTAINER; this renames the flows themselves. The
+// rewrite replaced nine flows with thirteen levelled ones, retiring six, but
+// every card already on a board still carries whichever name it was created
+// with - and a board card outlives any config edit. Without this the first thing
+// such a card meets on dispatch is `policy: unknown flow`.
+//
+// Mirror of policy-core.mjs's FLOW_ALIASES for the same reason adoptFlowKeys is
+// a mirror: the board is a separately installed package that cannot import the
+// orchestrator fitting's lib. `tests/flow-compat-lockstep.test.ts` pins the two
+// byte-equal.
+export const FLOW_ALIASES = Object.freeze({
+  "full-feature": "feature",
+  "full-feature-copy": "feature",
+  "full-feature-copy-2": "feature",
+  "ui-change": "feature",
+  "api-change": "feature",
+  "docs-change": "docs",
+  "video-edit": "video",
+  // `channel` -> `personal`, NOT `task`: the retired channel flow was manual-only
+  // and `task` is agentful, so the obvious mapping would make a legacy channel
+  // card dispatchable. See policy-core's FLOW_ALIASES for the full reasoning.
+  "channel": "personal"
+});
+
+/** Resolve a flow NAME read from a card through the alias table. */
+export function adoptFlowValue(flow) {
+  if (typeof flow !== "string") return flow;
+  return FLOW_ALIASES[flow] ?? flow;
+}
 
 export function policyPath() {
   if (process.env.GARRISON_POLICY_PATH) return process.env.GARRISON_POLICY_PATH;
@@ -27,7 +85,7 @@ export function loadPolicy() {
   try {
     const st = statSync(p);
     if (_cache.path === p && _cache.mtimeMs === st.mtimeMs && _cache.policy) return _cache.policy;
-    const policy = JSON.parse(readFileSync(p, "utf8"));
+    const policy = adoptFlowKeys(JSON.parse(readFileSync(p, "utf8")));
     _cache = { path: p, mtimeMs: st.mtimeMs, policy };
     return policy;
   } catch {
@@ -80,62 +138,175 @@ export function phaseTogglesFromCsv(csv) {
   return Object.fromEntries(ids.map((id) => [id, false]));
 }
 
-// The skill bound to a phase: per-work-kind override wins over the global
+// The skill bound to a phase: per-flow override wins over the global
 // binding (D3). Null when the policy has no binding (the dispatch prompt then
 // omits the skill line; the phase skill contract still applies downstream).
-export function skillForPhase(policy, phase, workKind) {
+export function skillForPhase(policy, phase, flow) {
   if (!policy || !phase) return null;
-  const overrides = ((policy.phaseSkills || {}).overrides || {})[workKind] || {};
+  const overrides = ((policy.phaseSkills || {}).overrides || {})[flow] || {};
   const bindings = (policy.phaseSkills || {}).bindings || {};
   return overrides[phase] || bindings[phase] || null;
 }
 
+// The tier a LEVEL means, by the policy's own tier order (cheapest first). Tier
+// is the schema-v3 vocabulary and level is the v4 one; they are the same dial
+// with two names, which is why the gateway's v4 lane derives its compatibility
+// tier from the level in exactly this way. Deriving it from the ORDER rather
+// than a hardcoded L1=T0-trivial map means a composition that renames or
+// lengthens its tier list stays consistent instead of silently mapping to a tier
+// it does not have. Out-of-range levels clamp to the ends; a non-integer level or
+// an empty tier list returns null (the caller then keeps the card's own tier).
+export function tierForLevel(policy, level) {
+  const tiers = Array.isArray(policy?.tiers) ? policy.tiers.filter((t) => typeof t === "string") : [];
+  if (!tiers.length) return null;
+  const n = typeof level === "number" ? Math.trunc(level) : null;
+  if (!Number.isInteger(n)) return null;
+  return tiers[Math.min(tiers.length - 1, Math.max(0, n - 1))] ?? null;
+}
+
 // The explicit classification a phase dispatch carries: the phase IS the task
-// type (D1); the tier rides on the card (defaulting T1-standard). Both are
-// validated against the policy vocabulary — an out-of-vocab value returns
-// null and the caller falls back to classifier routing (never misroutes).
+// type (D1); the tier comes from the LEVEL THIS PHASE runs at (D15 + the level
+// chain), falling back to the card's own tier for a card that carries neither
+// per-duty levels nor a level. Both are validated against the policy vocabulary
+// - an out-of-vocab value returns null and the caller falls back to classifier
+// routing (never misroutes).
+//
+// The per-phase level matters because a levelled flow can pin ONE duty higher
+// than the rest ("at flow level 2, review runs at 3"): reading the card's flow
+// level here would send that phase out at the flow's tier and quietly undo the
+// pin the flow definition exists to express.
 export function classificationForPhase(policy, phase, card) {
   if (!policy || !phase) return null;
   const taskTypes = Array.isArray(policy.taskTypes) ? policy.taskTypes : [];
   const tiers = Array.isArray(policy.tiers) ? policy.tiers : [];
-  const tier = card?.tier && tiers.includes(card.tier) ? card.tier : "T1-standard";
+  const phaseLevel = levelForPhase(card, phase);
+  const derived = phaseLevel != null ? tierForLevel(policy, phaseLevel) : null;
+  const tier = derived && tiers.includes(derived)
+    ? derived
+    : card?.tier && tiers.includes(card.tier)
+      ? card.tier
+      : "T1-standard";
   if (!taskTypes.includes(phase) || !tiers.includes(tier)) return null;
   return { taskType: phase, tier };
 }
 
-// The card's rail: the work kind's phase plan with per-card toggles merged
+// The level ONE phase of a card runs at: its per-duty resolved level when the
+// card carries one (a levelled flow with pins applied), else the card's own
+// level, else null. The `?? card.level` fallback is what keeps every card
+// written before dutyLevels existed behaving exactly as it did.
+export function levelForPhase(card, phase) {
+  const perDuty = card?.dutyLevels;
+  const pinned =
+    perDuty && typeof perDuty === "object" && !Array.isArray(perDuty) && typeof phase === "string"
+      ? perDuty[phase]
+      : undefined;
+  if (Number.isInteger(pinned)) return pinned;
+  return Number.isInteger(card?.level) ? card.level : null;
+}
+
+// The card's rail: the flow's phase plan with per-card toggles merged
 // over it (D2/D17). A phase plan is an ORDERED SUBSET of the pipeline phases —
 // a pipeline phase NOT in the plan is OFF (off_reason "phase-plan"), and it
 // STAYS IN THE RAIL rendered off (honesty, never hidden). Rail order: the
 // plan's phases in plan order, then the remaining pipeline phases (policy
 // order), all off. Falls back to every policy phase (all on) when the policy
-// carries no work kinds.
+// carries no flows.
+// ── levelled flows, mirrored (2026-08-09) ───────────────────────────────────
+// A flow now carries its ordered duty list PER LEVEL instead of naming one
+// phase plan, and the rail must resolve from the level the router chose or the
+// board renders a plan the run is not on. These two functions are the same read
+// policy-core.mjs's `resolvedFlowLevel` / `levelPlanFor` perform, mirrored here
+// for the same containment reason as adoptFlowKeys, and pinned to them by
+// tests/level-chain.test.ts.
+export const FLOW_LEVELS = ["1", "2", "3"];
+
+/** The level a flow runs at: what was asked, else the flow's default, else 1.
+ *  Never resolves UPWARD by default. */
+export function resolvedFlowLevel(flow, requested) {
+  const ok = (n) =>
+    (typeof n === "number" || (typeof n === "string" && String(n).trim() !== "")) &&
+    FLOW_LEVELS.includes(String(Math.trunc(Number(n))));
+  if (ok(requested)) return String(Math.trunc(Number(requested)));
+  if (ok(flow?.defaultLevel)) return String(Math.trunc(Number(flow.defaultLevel)));
+  return "1";
+}
+
+/** A flow level rendered as a phase plan ({phases, evidence}), or null for a
+ *  flow with no levels (the legacy single-plan shape). */
+export function levelPlanFor(flow, requested) {
+  if (!flow || !flow.levels || typeof flow.levels !== "object") return null;
+  const lvl = flow.levels[resolvedFlowLevel(flow, requested)];
+  if (!lvl) return null;
+  const duties = Array.isArray(lvl.duties) ? lvl.duties.filter((d) => typeof d === "string" && d) : [];
+  return { phases: duties, evidence: lvl.evidence || "none" };
+}
+
 export function railForCard(policy, card) {
   if (!policy) return null;
   const allPhases = Array.isArray(policy.phases) ? policy.phases : null;
   if (!allPhases) return null;
-  const kindName = card?.workKind || policy.defaultWorkKind;
-  const kind = (policy.workKinds || {})[kindName];
-  const plan = kind ? (policy.phasePlans || {})[kind.phasePlan] : null;
-  // A work kind may declare `evidence: false` — an evidence-free rail whose
+  const flows = policy.flows || {};
+  // The card's flow name is PERSISTED data - it can name a flow the library
+  // retired. Alias as a FALLBACK only: a policy that still defines the old name
+  // means it (see adoptFlowValue).
+  // An unresolvable name stays as WRITTEN, so the rail reports what the card
+  // actually says rather than an alias that resolved to nothing either.
+  const requestedName = card?.flow || policy.defaultFlow;
+  const aliasName = adoptFlowValue(requestedName);
+  const kindName = flows[requestedName] ? requestedName : flows[aliasName] ? aliasName : requestedName;
+  const kind = flows[kindName];
+  // A MANUAL flow never dispatches, whatever its levels say. `personal` carries
+  // levels.1.duties = ["other"] because a level definition documents the SHAPE of
+  // the work; it is not a licence to run it. Before the library was levelled the
+  // same flow read {phasePlan: "manual-only", evidence: false} and produced an
+  // all-off rail, so a levels-aware read WITHOUT this turns every personal card
+  // agent-dispatchable (railIsManualOnly goes false, consumed by the board's
+  // Start guard) and starts demanding evidence from a card whose whole journey is
+  // the manual head and tail.
+  const manual = kind?.manual === true;
+  // A LEVELLED flow resolves its plan from the level the card runs at; a flow
+  // with no levels still resolves through its single phase plan. Both fall
+  // through to the all-on branch below when neither exists, which is what keeps
+  // an unknown flow forgiving on the board (unlike policy-core's railFor, which
+  // throws - the board renders whatever is on disk and must never refuse to).
+  const plan = kind && !manual ? (levelPlanFor(kind, card?.level) ?? (policy.phasePlans || {})[kind.phasePlan]) : null;
+  // A flow may declare `evidence: false` - an evidence-free rail whose
   // transitions owe no evidence files and no durable gate records. Absent or
   // any other value means evidence is required (every dev kind is untouched).
-  const evidenceRequired = kind ? kind.evidence !== false : true;
+  // A manual flow owes none either: nothing on it ever runs to produce any.
+  const evidenceRequired = kind ? !manual && kind.evidence !== false : true;
   const toggles = card?.phases && typeof card.phases === "object" ? card.phases : {};
   const bindings = (policy.phaseSkills || {}).bindings || {};
   const overrides = ((policy.phaseSkills || {}).overrides || {})[kindName] || {};
   const entry = (id, planOn, offReason) => {
     const toggledOff = toggles[id] === false;
+    // A `true` toggle ADDS a phase the plan does not carry (`phasesOn`, the
+    // routing modal's out-of-plan override). OFF still wins a conflict.
+    const toggledOn = toggles[id] === true;
+    const on = (planOn || toggledOn) && !toggledOff;
     return {
       id,
-      on: planOn && !toggledOff,
-      ...(toggledOff ? { off_reason: "card-toggle" } : planOn ? {} : { off_reason: offReason }),
+      on,
+      ...(toggledOff ? { off_reason: "card-toggle" } : on || planOn ? {} : { off_reason: offReason }),
       skill: overrides[id] || bindings[id] || null
     };
   };
+  // Manual first: an all-OFF rail, so railIsManualOnly reports true and the
+  // card's whole journey stays the manual head/tail. It is not the all-on
+  // fallback below wearing a different name - that branch is for a flow the
+  // policy does not carry, this one is for a flow that carries an explicit
+  // refusal to run.
+  if (manual) {
+    return {
+      flow: kindName || null,
+      evidence: "none",
+      evidenceRequired: false,
+      phases: allPhases.map((id) => entry(id, false, "manual-flow"))
+    };
+  }
   if (!plan) {
     return {
-      workKind: kindName || null,
+      flow: kindName || null,
       evidence: "none",
       evidenceRequired,
       phases: allPhases.map((id) => entry(id, true, null))
@@ -152,7 +323,7 @@ export function railForCard(policy, card) {
     ...[...inPlan.entries()].map(([id, on]) => entry(id, on, "phase-plan")),
     ...allPhases.filter((id) => !inPlan.has(id)).map((id) => entry(id, false, "phase-plan"))
   ];
-  return { workKind: kindName || null, evidence: plan.evidence || "none", evidenceRequired, phases };
+  return { flow: kindName || null, evidence: plan.evidence || "none", evidenceRequired, phases };
 }
 
 // A rail with no ON phases — an empty phase plan (the personal/channel manual

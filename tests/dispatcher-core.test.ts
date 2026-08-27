@@ -12,13 +12,15 @@ import {
   dispatchSchema,
   parseDispatch,
   fallbackDispatch,
+  deterministicFallbackDispatch,
+  discussionDutyShortCircuit,
   parseLevelOverride,
   applyOverride,
   messageDigest,
   routingEvidence,
   appendEvidence,
   dispatch
-} from "../fittings/seed/dispatcher/lib/dispatch-core.mjs";
+} from "../fittings/seed/orchestrator/lib/dispatch-core.mjs";
 
 // A small synthetic resolved model: two leaf duties, three levels each.
 function model() {
@@ -72,6 +74,51 @@ describe("dispatch prompt (mirrors buildClassifierPrompt)", () => {
     expect(s.properties.duty.type).toBe("string");
     expect(s.properties.duty.enum).toBeUndefined();
     expect(s.properties.level.type).toBe("integer");
+  });
+});
+
+describe("explicit discussion intent", () => {
+  const discussionModel = () => ({
+    duties: {
+      ...model().duties,
+      discuss: {
+        id: "discuss",
+        title: "Discuss",
+        description: "talk a problem through",
+        levels: [
+          { description: "quick", cell: { target: "fable", effort: "medium" } },
+          { description: "involved", cell: { target: "fable", effort: "high" } }
+        ]
+      }
+    },
+    selectedDuties: ["code", "other", "discuss"]
+  });
+
+  const incident =
+    "queria falar sobre a feature do assistente do ekoa (nova versão) nas apps. " +
+    "Queria tornar o assistente configurável e publicamente exposto, com tenancy, billing e API documentada. O que achas?";
+
+  it("routes the exact Portuguese product-opinion shape to Discuss despite feature/API nouns", () => {
+    expect(discussionDutyShortCircuit(incident, discussionModel())).toMatchObject({ duty: "discuss", level: 2 });
+    expect(deterministicFallbackDispatch(discussionModel(), incident)).toMatchObject({ duty: "discuss", level: 2 });
+  });
+
+  it("routes the opinion before inference, so the model is never called", async () => {
+    let calls = 0;
+    const result = await dispatch(discussionModel(), incident, {
+      call: async () => {
+        calls += 1;
+        return { ok: true, structured: { duty: "code", level: 2, confidence: "high" } };
+      }
+    });
+    expect(result).toMatchObject({ duty: "discuss", level: 2, confidence: "high", source: "deterministic", inferenceUsed: false });
+    expect(calls).toBe(0);
+  });
+
+  it("does not turn a direct implementation request into a discussion", () => {
+    const ask = "Implement the app-assistant API feature and add tests.";
+    expect(discussionDutyShortCircuit(ask, discussionModel())).toBeNull();
+    expect(deterministicFallbackDispatch(discussionModel(), ask).duty).toBe("code");
   });
 });
 
@@ -343,9 +390,9 @@ describe("dispatch() orchestration (mocked garrison-call)", () => {
     expect(typeof seenSpec.prompt).toBe("string");
   });
 
-  it("requires an injected call function", async () => {
-    // deliberately omit the required `call` to exercise the runtime guard
-    await expect(dispatch(model(), "x", {} as any)).rejects.toThrow(/opts.call/);
+  it("degrades visibly when no inference adapter is available", async () => {
+    const r = await dispatch(model(), "x", {} as any);
+    expect(r).toMatchObject({ dispatchOk: false, source: "fallback", failureCode: "unavailable", callError: "unavailable" });
   });
 
   it("a failed call falls back to (other, standard) and records the error", async () => {
@@ -354,7 +401,8 @@ describe("dispatch() orchestration (mocked garrison-call)", () => {
     expect(r.duty).toBe("other");
     expect(r.level).toBe(2);
     expect(r.dispatchOk).toBe(false);
-    expect(r.callError).toMatch(/500/);
+    expect(r.callError).toBe("call-failed");
+    expect(r.failureCode).toBe("call-failed");
   });
 
   it("a thrown call is caught and falls back (never throws for an operational failure)", async () => {
@@ -363,7 +411,7 @@ describe("dispatch() orchestration (mocked garrison-call)", () => {
     };
     const r = await dispatch(model(), "x", { call });
     expect(r.dispatchOk).toBe(false);
-    expect(r.callError).toMatch(/socket hang up/);
+    expect(r.callError).toBe("call-failed");
   });
 
   it("a human override wins over the model's pick", async () => {

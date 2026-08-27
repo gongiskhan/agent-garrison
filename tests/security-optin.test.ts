@@ -3,20 +3,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs core typed by routing-core.d.mts
 import { compilePolicy } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+import { AUTHORED_SECTION_DEFAULTS } from "@/lib/orchestrator-authored-defaults";
 
 // GARRISON-FLOW-V2 S4 / D13: the `security-review` phase is a bindable,
-// opt-in phase. It must exist as a phase + binding + matrix cell, be absent
-// from every phase plan and work kind (off by default), and be gated by the
-// per-project `projects.<label>.security_sensitive` flag.
+// opt-in phase. It must exist as a phase + binding + matrix cell, never run at
+// a flow's default level (off by default), and be gated by the per-project
+// `projects.<label>.security_sensitive` flag.
 
 const ROOT = join(__dirname, "..");
 const SEED = JSON.parse(
   readFileSync(join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json"), "utf8")
 );
-const PROMPT = readFileSync(
-  join(ROOT, "fittings/seed/orchestrator/.apm/prompts/orchestrator.prompt.md"),
-  "utf8"
-);
+const PROMPT = AUTHORED_SECTION_DEFAULTS["execution-policy"].content;
 
 describe("security opt-in (S4 / D13)", () => {
   const policy = compilePolicy(SEED, "balanced");
@@ -36,17 +34,31 @@ describe("security opt-in (S4 / D13)", () => {
     }
   });
 
-  it("security-review is OFF by default — in no phase plan and no work kind", () => {
+  it("security-review is OFF by default — in no phase plan, and in no flow at its default level", () => {
     for (const [, plan] of Object.entries<any>(policy.phasePlans)) {
       const ids = (plan.phases || []).map((p: any) => (typeof p === "string" ? p : p.id));
       expect(ids).not.toContain("security-review");
     }
-    // work kinds only name a phasePlan; none should resolve to a plan carrying it
-    for (const [, wk] of Object.entries<any>(policy.workKinds)) {
-      const ids = (policy.phasePlans[wk.phasePlan]?.phases || []).map((p: any) =>
-        typeof p === "string" ? p : p.id
-      );
-      expect(ids).not.toContain("security-review");
+    // 2026-08-09: flows became levelled, so "in no flow" has to be asked per
+    // level — the old form read `wk.phasePlan`, which no flow carries any more,
+    // and would have passed vacuously against ANY library.
+    const running: string[] = [];
+    for (const [id, flow] of Object.entries<any>(policy.flows)) {
+      for (const [lvl, def] of Object.entries<any>(flow.levels ?? {})) {
+        if ((def.duties ?? []).includes("security-review")) running.push(`${id}:${lvl}`);
+      }
+    }
+    // Exactly one place in the whole library schedules it: the deepest ops level
+    // (deploys and infra are the one shape where a boundary review is the work).
+    expect(running).toEqual(["ops:3"]);
+    // …and that level sits ABOVE the flow's default, so no card reaches it
+    // without an explicit escalation. Every other route in is the project flag.
+    // (routing-core.d.mts still types a flow as the pre-levels `{phasePlan}`,
+    // hence the read through `any` here and above.)
+    expect(Number((policy.flows as Record<string, any>).ops.defaultLevel)).toBeLessThan(3);
+    for (const [id, flow] of Object.entries<any>(policy.flows)) {
+      const def = flow.levels?.[String(flow.defaultLevel ?? 1)];
+      expect(def?.duties ?? [], `${id} runs security-review by default`).not.toContain("security-review");
     }
   });
 

@@ -47,6 +47,7 @@ function runtimeMark(runtime: string): string {
     case "gemini": return "GM";
     case "opencode": return "OP";
     case "cursor": return "CR";
+    case "remote-shell": return "RSH";
     case "garrison-call": return "GC";
     default: return (runtime || "?").slice(0, 2).toUpperCase();
   }
@@ -410,7 +411,7 @@ export function DutyList({ model, actions }: { model: MusterModel; actions: Must
       <div className={styles.stateBox} data-testid="duties-empty">
         <div className={styles.stateTitle}>No duties selected</div>
         <p className={styles.stateBody}>
-          A composition runs the duties you select. Add one below to give the operative work to route.
+          A composition runs the duties you select. Add one below to give the session work to route.
         </p>
       </div>
     );
@@ -518,7 +519,7 @@ function DutyRow({
                   onChange={(e) => actions.describeLevel(duty.id, index + 1, e.target.value)}
                   spellCheck={false}
                   aria-label={`Level ${index + 1} routing criterion`}
-                  title="The Dispatcher routes by this description - say when this depth is the right one"
+                  title="Orchestrator routing inference uses this description - say when this depth is the right one"
                   data-testid={`level-desc-${duty.id}-${index + 1}`}
                 />
                 {level.cell ? (

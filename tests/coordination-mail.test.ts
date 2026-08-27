@@ -2,7 +2,7 @@
 // record lands in BOTH runDirs with an honest transport, a ledger mail row is
 // appended, and the agent-mail transport is used when the status-file contract
 // points at a reachable MCP endpoint.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer } from "node:http";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +15,19 @@ process.env.GARRISON_HOME = HOME;
 import { sendCoordMail } from "../fittings/seed/kanban-loop/lib/coord-mail.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const kroot = () => mkdtempSync(join(tmpdir(), "mail-kanban-"));
 const runDir = (tag: string) => {

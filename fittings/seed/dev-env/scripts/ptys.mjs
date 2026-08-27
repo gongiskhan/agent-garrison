@@ -142,7 +142,7 @@ export function listSessionTerminals(sessionId) {
 // (falls back to --continue / fresh) rather than executed.
 const SAFE_SESSION_ID = /^[0-9a-fA-F-]{8,64}$/;
 // Model aliases/ids are conservative; reject anything else so an orchestrator
-// placement value can't inject shell metachars into the spawned command.
+// placement value cannot inject shell metacharacters into the spawned command.
 // Must START alphanumeric so a model value can never be smuggled as a CLI option
 // (e.g. a leading "-"); then the conservative alias/id charset.
 const VALID_MODEL = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
@@ -157,9 +157,9 @@ function shquote(s) {
 
 // Build the `claude` launch command. Default (no orchestrated args) is unchanged:
 // the browser-pane prompt only, no --model. When the Dev Env starts a session
-// THROUGH the orchestrator (s3b), it passes the composed mode prompt(s) via
-// `appendPromptFiles` (prepended so the mode identity leads, browser-pane last)
-// and the placed `model` via --model.
+// THROUGH Orchestrator, it passes the authoritative assembled prompt via
+// `appendPromptFiles` (before browser-pane guidance). Model routing is per-turn;
+// the optional model remains compatibility-only for older placement responses.
 export function claudeCommand({ resume = false, resumeId = null, appendPromptFiles = null, model = null } = {}) {
   // Default dev-env sessions to "auto" rather than bypassing permissions: the
   // dev-env terminal is a real interactive TUI, so the user can answer prompts.
@@ -173,7 +173,7 @@ export function claudeCommand({ resume = false, resumeId = null, appendPromptFil
   if (safeId) parts.push("--resume", safeId); // UUID charset → no shell metachars, no quoting needed
   else if (resume) parts.push("--continue");
   if (model != null && VALID_MODEL.test(String(model))) parts.push("--model", String(model));
-  // Orchestrator/mode prompt(s) lead (identity first), browser-pane guidance last.
+  // Orchestrator prompt leads; browser-pane guidance remains last.
   const extra = Array.isArray(appendPromptFiles)
     ? appendPromptFiles.filter((f) => typeof f === "string" && f.length > 0)
     : [];

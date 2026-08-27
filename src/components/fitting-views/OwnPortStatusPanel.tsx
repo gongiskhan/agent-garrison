@@ -10,7 +10,7 @@ import type { LibraryEntry } from "@/lib/types";
 // The /fitting/<id> surface for an own-port Fitting: its UI lives on its own
 // port (embedded at /embed/<id> when live), so this page is the status +
 // controls + logs strip — not a config page. Fittings start and stop with the
-// operative; the controls here are for recovery and code reloads.
+// composition; the controls here are for recovery and code reloads.
 export function OwnPortStatusPanel({ entry }: { entry: LibraryEntry }) {
   const { entries: viewStatuses, refresh } = useFittingViewStatus(5000);
   const view = viewStatuses.find((t) => t.fittingId === entry.id) ?? null;
@@ -65,7 +65,7 @@ export function OwnPortStatusPanel({ entry }: { entry: LibraryEntry }) {
             </span>
           </div>
           <p style={{ margin: "5px 0 0", fontSize: 12, lineHeight: 1.6, color: "var(--mute)" }}>
-            Starts and stops with the Operative.
+            Starts and stops with the composition.
             {defaultPort ? (
               <>
                 {" · default "}

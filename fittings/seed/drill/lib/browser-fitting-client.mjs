@@ -51,10 +51,12 @@ export async function evalJs(tabId, js, { fetchImpl = globalThis.fetch } = {}) {
   return r.value;
 }
 
-export async function observeTab(tabId, { screenshot = false, fetchImpl = globalThis.fetch } = {}) {
+export async function observeTab(tabId, { screenshot = false, quiet = false, fetchImpl = globalThis.fetch } = {}) {
   const base = requireBase();
-  const q = `a11y=1${screenshot ? "&screenshot=1" : ""}`;
-  return json(await fetchImpl(`${base}/tabs/${encodeURIComponent(tabId)}/observe?${q}`));
+  const query = new URLSearchParams({ a11y: "1" });
+  if (screenshot) query.set("screenshot", "1");
+  if (quiet) query.set("quiet", "1");
+  return json(await fetchImpl(`${base}/tabs/${encodeURIComponent(tabId)}/observe?${query}`));
 }
 
 export async function setViewport(tabId, vp, { fetchImpl = globalThis.fetch } = {}) {
@@ -112,9 +114,27 @@ export async function tabInfo(tabId, { fetchImpl = globalThis.fetch } = {}) {
   return (r.tabs ?? []).find((t) => t.tabId === tabId || t.id === tabId) ?? null;
 }
 
-export async function readConsole(tabId, { limit = 120, fetchImpl = globalThis.fetch } = {}) {
+export async function readConsole(tabId, { limit = 120, since = null, fetchImpl = globalThis.fetch } = {}) {
   const base = requireBase();
-  return json(await fetchImpl(`${base}/tabs/${encodeURIComponent(tabId)}/console?limit=${limit}`));
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (since !== null && since !== undefined && since !== "" && Number.isFinite(Number(since))) {
+    query.set("since", String(Number(since)));
+  }
+  return json(await fetchImpl(`${base}/tabs/${encodeURIComponent(tabId)}/console?${query}`));
+}
+
+// Browser keeps a bounded request history per tab. Drill pins `since` just
+// before an explicit exploration navigation, then reuses it across actions and
+// observations so the evidence describes this page visit rather than whatever
+// the persistent tab happened to load previously.
+export async function readNetwork(tabId, { since = null, fetchImpl = globalThis.fetch } = {}) {
+  const base = requireBase();
+  const query = new URLSearchParams();
+  if (since !== null && since !== undefined && since !== "" && Number.isFinite(Number(since))) {
+    query.set("since", String(Number(since)));
+  }
+  const suffix = query.size ? `?${query}` : "";
+  return json(await fetchImpl(`${base}/tabs/${encodeURIComponent(tabId)}/network${suffix}`));
 }
 
 // The absolute URL of browser-default's iframeable canvas for a tab (B1: Drill

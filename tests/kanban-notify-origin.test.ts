@@ -2,7 +2,20 @@
 // originating thread when it lands terminal (done / needs-attention). These
 // cover the PURE edge logic + message shape; the fetch side is fire-and-forget
 // by design and exercised by the live run.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // @ts-ignore — pure .mjs
 const lib = () => import("../fittings/seed/kanban-loop/lib/notify-origin.mjs");
@@ -52,6 +65,15 @@ describe("outcomeMessage (what the thread reads)", () => {
     const text = outcomeMessage({ ...base, list: "done" });
     expect(text).toContain("Run complete — Add a CSV export button.");
     expect(text).toContain("exports the visible rows");
+  });
+
+  it("uses the authoritative engine summary without the card-front truncation or verdict token", async () => {
+    const { outcomeMessage } = await lib();
+    const marker = "final recommendation after the old 280-character boundary";
+    const summary = `${"context ".repeat(60)}${marker}\ndone`;
+    const text = outcomeMessage({ ...base, list: "done", lastReply: "context …" }, { summary });
+    expect(text).toContain(marker);
+    expect(text).not.toMatch(/\ndone\s*$/i);
   });
 
   it("a parked card carries the attention reason", async () => {

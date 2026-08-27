@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { RouteAttribution, TurnRouting } from "./transport";
 import { railBadges, type RailBadge } from "./run-context";
 
@@ -32,8 +32,9 @@ export type PinField =
   | "project"
   | "account"
   | "tier"
-  | "workKind"
-  | "phasesOff";
+  | "flow"
+  | "phasesOff"
+  | "phasesOn";
 
 /** A sparse change to the pins. A `null` value CLEARS that pin (back to the
  *  composition's routing) - it never means "pin the value null". */
@@ -50,7 +51,7 @@ const BADGE_FIELDS: Record<string, PinField[]> = {
   project: ["project"],
   target: ["target"],
   tier: ["tier"],
-  workKind: ["workKind", "phasesOff"],
+  flow: ["flow", "phasesOff", "phasesOn"],
 };
 
 /** The dimension order used for pins that have no resolved badge yet, and for the
@@ -63,7 +64,7 @@ const PIN_ORDER: PinField[] = [
   "effort",
   "account",
   "project",
-  "workKind",
+  "flow",
   "phasesOff",
 ];
 
@@ -78,8 +79,9 @@ const FIELD_LABEL: Record<PinField, string> = {
   project: "project",
   account: "account",
   tier: "tier",
-  workKind: "work kind",
+  flow: "flow",
   phasesOff: "phases",
+  phasesOn: "phases+",
 };
 
 /** The "stop pinning this" row per dimension. Says what happens INSTEAD, because
@@ -88,13 +90,17 @@ const AUTO_LABEL: Record<PinField, string> = {
   target: "Automatic - the composition's routing",
   model: "Automatic - the resolved target's model",
   effort: "Automatic - the duty's effort",
-  duty: "Automatic - the classifier decides",
+  duty: "Automatic - routing inference decides",
   level: "Automatic",
   project: "Automatic - the operative's own directory",
   account: "Automatic - the composition's account",
-  tier: "Automatic - the classifier decides",
-  workKind: "Automatic - the plan inferred from the tier",
+  tier: "Automatic - routing inference decides",
+  // 2026-08-13: flows carry levelled duty lists now; the router derives the flow
+  // from the routed duty and the flow's level defines the plan. "Inferred from
+  // the tier" was the pre-coherence world and read as if nothing had shipped.
+  flow: "Automatic - the router picks the flow, its level picks the plan",
   phasesOff: "Automatic - every phase in the plan runs",
+  phasesOn: "Automatic - only the plan's phases run",
 };
 
 function str(v: unknown): string {
@@ -123,8 +129,8 @@ export function joinPhasesOff(off: string[], planOrder: string[]): string | null
 }
 
 /** A pin is "in force" when it holds a real value. `null`/`undefined`/blank all
- *  mean "not pinned" - see PinPatch. */
-function pinnedValue(pins: TurnRouting | null | undefined, field: PinField): string | number | null {
+ *  mean "not pinned" - see PinPatch. Exported for the RoutingModal. */
+export function pinnedValue(pins: TurnRouting | null | undefined, field: PinField): string | number | null {
   if (!pins) return null;
   const raw = (pins as Record<string, unknown>)[field];
   if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : null;
@@ -153,10 +159,12 @@ function ranValue(route: RouteAttribution | null | undefined, field: PinField): 
       return str(route.account) || null;
     case "tier":
       return str(route.tier) || null;
-    case "workKind":
-      return str(route.workKind) || null;
+    case "flow":
+      return str(route.flow) || null;
     case "phasesOff":
       return str(route.phasesOff) || null;
+    case "phasesOn":
+      return str(route.phasesOn) || null;
   }
 }
 
@@ -289,14 +297,18 @@ export interface RailAccountOption {
   name: string;
   platform?: string | null;
 }
-/** One work kind from the compiled policy, with the phases its plan runs (in plan
+/** One flow from the compiled policy, with the phases its plan runs (in plan
  *  order). `phases` is what the phases menu offers - a phase outside the selected
  *  kind's plan is not toggleable, because turning it ON is not a thing the rail can
  *  do (`railForCard` only ever reads `toggles[id] === false`). */
-export interface RailWorkKindOption {
+export interface RailFlowOption {
   id: string;
   description?: string | null;
   phases?: string[] | null;
+  /** Level keys the flow defines ("1","2","3"), and the one an unpinned run
+   *  resolves to. Empty/null for the pre-levels shape. */
+  levels?: string[] | null;
+  defaultLevel?: number | null;
 }
 export interface RailOptions {
   targets?: RailTargetOption[] | null;
@@ -305,10 +317,14 @@ export interface RailOptions {
   accounts?: RailAccountOption[] | null;
   projects?: string[] | null;
   tiers?: string[] | null;
-  workKinds?: RailWorkKindOption[] | null;
-  /** The work kind used when none is pinned - labelled "(default)" in the menu so
+  /** Tier prose from the policy's tierDefinitions, keyed by tier id. */
+  tierDefinitions?: Record<string, string> | null;
+  flows?: RailFlowOption[] | null;
+  /** The policy's GLOBAL ordered phase catalog - what phasesOn may add. */
+  phaseCatalog?: string[] | null;
+  /** The flow used when none is pinned - labelled "(default)" in the menu so
    *  "Automatic" is not mistaken for "no plan". */
-  defaultWorkKind?: string | null;
+  defaultFlow?: string | null;
   /**
    * Why a dimension cannot be pinned right now, keyed by field (e.g. effort on a
    * provider with no effort control, project while the board is down). The menu
@@ -334,6 +350,9 @@ export interface RailMenu {
   field: PinField;
   /** Popover heading, also its accessible name. */
   label: string;
+  /** Visible settlement effect. Route identity changes are session boundaries;
+   * effort is request-scoped and explicitly is not one. */
+  effect: string;
   rows: RailMenuRow[];
   /** The typed escape hatch. Model only: there is no model catalog anywhere in the
    *  repo, so a menu alone cannot express "the model I actually want". */
@@ -361,12 +380,34 @@ export function menuForField(
   const auto: RailMenuRow = {
     key: "auto",
     label: AUTO_LABEL[field],
-    patch: field === "duty" ? { duty: null, level: null } : ({ [field]: null } as PinPatch),
-    selected: current === null,
+    // The duty menu speaks for BOTH axes since they merged (2026-08-07), so its
+    // Automatic row releases the flow pin too.
+    patch: field === "duty"
+      ? { duty: null, level: null, flow: null, phasesOff: null }
+      : ({ [field]: null } as PinPatch),
+    selected: field === "duty" ? current === null && pinnedValue(pins, "flow") === null : current === null,
   };
 
   if (field === "duty") {
     rows.push(auto);
+    // Duty and flow are ONE question ("what is this work?") that used to be
+    // asked as two sibling badges: a phased flow spans several duty-named
+    // lists, so pinning both read as a contradiction. The duty menu now offers
+    // the phased plans first; picking one pins flow and clears the
+    // duty/level pins (and vice versa below). The flow badge remains as the
+    // read-only home of the phase toggles.
+    for (const k of options?.flows ?? []) {
+      const id = str(k.id);
+      if (!id) continue;
+      const phases = (k.phases ?? []).filter((p) => str(p));
+      rows.push({
+        key: `plan:${id}`,
+        label: str(options?.defaultFlow) === id ? `${id} (default plan)` : `${id} (plan)`,
+        detail: phases.length ? `plan: ${phases.join(" → ")}` : str(k.description) || undefined,
+        patch: { flow: id, duty: null, level: null, phasesOff: null },
+        selected: pinnedValue(pins, "flow") === id && current === null,
+      });
+    }
     for (const duty of options?.duties ?? []) {
       const id = str(duty.id);
       if (!id) continue;
@@ -376,7 +417,7 @@ export function menuForField(
           key: id,
           label: id,
           detail: str(duty.title) || undefined,
-          patch: { duty: id, level: null },
+          patch: { duty: id, level: null, flow: null, phasesOff: null },
           selected: current === id && pinnedValue(pins, "level") === null,
         });
         continue;
@@ -389,7 +430,7 @@ export function menuForField(
           key: `${id}:${l.n}`,
           label: `${id} L${l.n}`,
           detail: str(l.description) || str(duty.title) || undefined,
-          patch: { duty: id, level: Math.trunc(l.n) },
+          patch: { duty: id, level: Math.trunc(l.n), flow: null, phasesOff: null },
           selected: current === id && pinnedValue(pins, "level") === Math.trunc(l.n),
         });
       }
@@ -467,13 +508,13 @@ export function menuForField(
         selected: current === id,
       });
     }
-  } else if (field === "workKind") {
+  } else if (field === "flow") {
     rows.push(auto);
-    for (const k of options?.workKinds ?? []) {
+    for (const k of options?.flows ?? []) {
       const id = str(k.id);
       if (!id) continue;
       const phases = (k.phases ?? []).filter((p) => str(p));
-      const isDefault = str(options?.defaultWorkKind) === id;
+      const isDefault = str(options?.defaultFlow) === id;
       rows.push({
         key: id,
         label: isDefault ? `${id} (default)` : id,
@@ -481,7 +522,7 @@ export function menuForField(
         // Switching plans invalidates the OFF set: those phase ids belong to the
         // OLD plan, and carrying them over would silently disable phases the user
         // never looked at.
-        patch: { workKind: id, phasesOff: null },
+        patch: { flow: id, phasesOff: null },
         selected: current === id,
       });
     }
@@ -489,8 +530,8 @@ export function menuForField(
     // Not a radio: each row TOGGLES one phase of the selected plan. The rows are
     // the plan's phases in plan order, so the menu doubles as a preview of what
     // the run will walk.
-    const kindId = str(pinnedValue(pins, "workKind")) || str(options?.defaultWorkKind);
-    const kind = (options?.workKinds ?? []).find((k) => str(k.id) === kindId);
+    const kindId = str(pinnedValue(pins, "flow")) || str(options?.defaultFlow);
+    const kind = (options?.flows ?? []).find((k) => str(k.id) === kindId);
     const planPhases = (kind?.phases ?? []).map((p) => str(p)).filter(Boolean);
     const off = new Set(splitPhasesOff(current));
     rows.push({ ...auto, selected: off.size === 0 });
@@ -543,6 +584,11 @@ export function menuForField(
       field === "phasesOff"
         ? "Phases this run walks"
         : `Pin ${FIELD_LABEL[field]} for the next message`,
+    effect: (["target", "model", "account", "project"] as PinField[]).includes(field)
+      ? "Starts a new session for your next message."
+      : field === "effort"
+        ? "Applies to your next request without starting a new session."
+        : "Applies to your next message.",
     rows,
     ...(field === "model"
       ? { freeText: { field: "model" as PinField, label: "Any model id", placeholder: "model id" } }
@@ -573,6 +619,10 @@ export interface AttributionRailProps {
   musterUrl?: string | null;
   /** Right-hand slot (the flight rail's elapsed time + Stop pair). */
   children?: React.ReactNode;
+  /** When set, an interactive badge OPENS THE ROUTING MODAL on its dimension
+   *  instead of the inline popover — the modal supersedes the popovers, which
+   *  broke the composer layout and could not express the levelled system. */
+  onOpenModal?: (field?: PinField) => void;
 }
 
 export function AttributionRail({
@@ -586,6 +636,7 @@ export function AttributionRail({
   label,
   musterUrl,
   children,
+  onOpenModal,
 }: AttributionRailProps) {
   const interactive = typeof onPin === "function" && Boolean(options);
   const badges = useMemo(
@@ -599,6 +650,7 @@ export function AttributionRail({
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [menuIdx, setMenuIdx] = useState(0);
   const [freeText, setFreeText] = useState("");
+  const menuEffectId = useId();
   const itemsRef = useRef<(HTMLElement | null)[]>([]);
   const railRef = useRef<HTMLDivElement>(null);
 
@@ -634,12 +686,17 @@ export function AttributionRail({
   const toggleMenu = useCallback(
     (badge: RailDisplayBadge, idx: number) => {
       if (!badge.field || !interactive) return;
+      if (onOpenModal) {
+        setFocusIdx(idx);
+        onOpenModal(badge.field);
+        return;
+      }
       setFocusIdx(idx);
       setOpenKey((prev) => (prev === badge.key ? null : badge.key));
       setMenuIdx(0);
       setFreeText("");
     },
-    [interactive]
+    [interactive, onOpenModal]
   );
 
   const applyRow = useCallback(
@@ -729,7 +786,10 @@ export function AttributionRail({
     [rows, menuIdx, closeMenu, focusIdx, applyRow]
   );
 
-  if (!badges.length) return null;
+  // The flight rail's control slot is safety-critical: generated Stop must stay
+  // reachable while route options are still hydrating (or unavailable). A
+  // settled, badge-less rail still has nothing to show and remains absent.
+  if (!badges.length && !children) return null;
 
   const badgeClass = (b: RailDisplayBadge) =>
     [
@@ -758,7 +818,7 @@ export function AttributionRail({
 
   return (
     <div className={`cc-rail cc-rail-${variant}`} ref={railRef}>
-      <div
+      {badges.length > 0 && <div
         className="cc-railscroll"
         role="toolbar"
         aria-label={label ?? "Run context"}
@@ -776,7 +836,7 @@ export function AttributionRail({
           const mark = b.pending ? (
             <span className="cc-rbadge-next">next</span>
           ) : b.auto ? (
-            <span className="cc-rbadge-automark" aria-hidden="true">
+            <span className="cc-rbadge-automark">
               auto
             </span>
           ) : null;
@@ -837,7 +897,7 @@ export function AttributionRail({
             </button>
           );
         })}
-      </div>
+      </div>}
       {children ? <div className="cc-railend">{children}</div> : null}
       {menu && (
         <>
@@ -845,8 +905,15 @@ export function AttributionRail({
               phone; CSS hides it above 560px, where the document listener above
               already handles an outside click. */}
           <div className="cc-railscrim" onClick={() => closeMenu(focusIdx)} />
-          <div className="cc-railmenu" role="menu" aria-label={menu.label} onKeyDown={onMenuKey}>
+          <div
+            className="cc-railmenu"
+            role="menu"
+            aria-label={menu.label}
+            aria-describedby={menuEffectId}
+            onKeyDown={onMenuKey}
+          >
             <div className="cc-railmenu-head">{menu.label}</div>
+            <div id={menuEffectId} className="cc-railmenu-effect">{menu.effect}</div>
             {menu.rows.map((row, i) =>
               row.href ? (
                 <a

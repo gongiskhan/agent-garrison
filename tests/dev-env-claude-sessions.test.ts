@@ -113,8 +113,11 @@ describe("readLiveRegistry — live-registry-ok", () => {
     expect(isInternalCwd(os.homedir())).toBe(true);
     expect(isInternalCwd(path.join(os.homedir(), "dev"))).toBe(true);
     expect(isInternalCwd("/anything/compositions/default")).toBe(true);
-    expect(isInternalCwd(path.join(os.homedir(), ".garrison"))).toBe(true); // exact root
-    expect(isInternalCwd(path.join(os.homedir(), ".garrison/orchestrator/classifier-cwd"))).toBe(true);
+    // GARRISON_HOME wins over ~/.garrison, and the suite pins it to a temp dir
+    // so no test resolves the real home.
+    const garrisonHome = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+    expect(isInternalCwd(garrisonHome)).toBe(true); // exact root
+    expect(isInternalCwd(path.join(garrisonHome, "orchestrator/classifier-cwd"))).toBe(true);
     expect(isInternalCwd(path.join(os.homedir(), ".claude"))).toBe(false);
     expect(isInternalCwd("/Users/ggomes/dev/ekoa-dev")).toBe(false);
     expect(isInternalCwd("")).toBe(true);

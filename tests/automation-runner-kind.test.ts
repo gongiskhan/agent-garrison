@@ -9,8 +9,8 @@ import { parseGarrisonMetadata, validateSelection } from "@/lib/metadata";
 // repair the scheduler manifest + its automation ecosystem so they parse + are
 // selectable under the live 6-roles schema. Faculties are shape/cardinality
 // driven: `observability` accepts `script` (scheduler, loop-heartbeat);
-// `sessions` is the only role accepting `cli-skill` (morning-briefing,
-// google-calendar, vault-sync). Satisfies brief §3 token `scheduler-manifest-ok`.
+// `sessions` is the only role accepting `cli-skill` (morning-briefing).
+// Satisfies brief §3 token `scheduler-manifest-ok`.
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -37,10 +37,11 @@ describe("MR0b — automation-runner kind re-add + scheduler manifest repair", (
   it("the automation-runner ecosystem fittings parse + validate (shape-driven role)", () => {
     // google-calendar left this set 2026-06-26 — it became the `google` connector
     // (provides connector, faculty connectors), covered by the connector tests.
+    // vault-sync left this set 2026-08-24 — the rsync mirror retired with the
+    // outposts; the mesh converges ~/.claude through git instead.
     const expected: Record<string, "observability" | "sessions"> = {
       "loop-heartbeat": "observability",
-      "morning-briefing": "sessions",
-      "vault-sync": "sessions"
+      "morning-briefing": "sessions"
     };
     for (const [fitting, faculty] of Object.entries(expected)) {
       const m = parseGarrisonMetadata(xgarrison(fitting));

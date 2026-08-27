@@ -1087,7 +1087,7 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState9(initialState) {
+        function useState10(initialState) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState);
         }
@@ -1095,11 +1095,11 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useReducer(reducer, initialArg, init);
         }
-        function useRef7(initialValue) {
+        function useRef8(initialValue) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
-        function useEffect9(create, deps) {
+        function useEffect10(create, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useEffect(create, deps);
         }
@@ -1111,11 +1111,11 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useLayoutEffect(create, deps);
         }
-        function useCallback4(callback, deps) {
+        function useCallback5(callback, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useCallback(callback, deps);
         }
-        function useMemo5(create, deps) {
+        function useMemo6(create, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useMemo(create, deps);
         }
@@ -1137,7 +1137,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useDeferredValue(value);
         }
-        function useId() {
+        function useId3() {
           var dispatcher = resolveDispatcher();
           return dispatcher.useId();
         }
@@ -1878,19 +1878,19 @@ var require_react_development = __commonJS({
         exports.memo = memo;
         exports.startTransition = startTransition;
         exports.unstable_act = act;
-        exports.useCallback = useCallback4;
+        exports.useCallback = useCallback5;
         exports.useContext = useContext;
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
-        exports.useEffect = useEffect9;
-        exports.useId = useId;
+        exports.useEffect = useEffect10;
+        exports.useId = useId3;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect;
-        exports.useMemo = useMemo5;
+        exports.useMemo = useMemo6;
         exports.useReducer = useReducer;
-        exports.useRef = useRef7;
-        exports.useState = useState9;
+        exports.useRef = useRef8;
+        exports.useState = useState10;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -2386,9 +2386,9 @@ var require_react_dom_development = __commonJS({
         if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ !== "undefined" && typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.registerInternalModuleStart === "function") {
           __REACT_DEVTOOLS_GLOBAL_HOOK__.registerInternalModuleStart(new Error());
         }
-        var React6 = require_react();
+        var React7 = require_react();
         var Scheduler = require_scheduler();
-        var ReactSharedInternals = React6.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React7.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         var suppressWarning = false;
         function setSuppressWarning(newSuppressWarning) {
           {
@@ -2437,7 +2437,7 @@ var require_react_dom_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment5 = 7;
+        var Fragment8 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -3594,7 +3594,7 @@ var require_react_dom_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment5:
+            case Fragment8:
               return "Fragment";
             case HostComponent:
               return type;
@@ -3995,7 +3995,7 @@ var require_react_dom_development = __commonJS({
           {
             if (props.value == null) {
               if (typeof props.children === "object" && props.children !== null) {
-                React6.Children.forEach(props.children, function(child) {
+                React7.Children.forEach(props.children, function(child) {
                   if (child == null) {
                     return;
                   }
@@ -12023,7 +12023,7 @@ var require_react_dom_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current2, fragment, lanes, key) {
-            if (current2 === null || current2.tag !== Fragment5) {
+            if (current2 === null || current2.tag !== Fragment8) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -12426,7 +12426,7 @@ var require_react_dom_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment5) {
+                  if (child.tag === Fragment8) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17902,7 +17902,7 @@ var require_react_dom_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current2, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment5:
+            case Fragment8:
               return updateFragment(current2, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current2, workInProgress2, renderLanes2);
@@ -18174,7 +18174,7 @@ var require_react_dom_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment5:
+            case Fragment8:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22435,7 +22435,7 @@ var require_react_dom_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode3, lanes, key) {
-          var fiber = createFiber(Fragment5, elements, key, mode3);
+          var fiber = createFiber(Fragment8, elements, key, mode3);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -29808,7 +29808,7 @@ var require_react_jsx_runtime_development = __commonJS({
     if (true) {
       (function() {
         "use strict";
-        var React6 = require_react();
+        var React7 = require_react();
         var REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element");
         var REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal");
         var REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment");
@@ -29834,7 +29834,7 @@ var require_react_jsx_runtime_development = __commonJS({
           }
           return null;
         }
-        var ReactSharedInternals = React6.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React7.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         function error(format) {
           {
             {
@@ -30684,11 +30684,11 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx10 = jsxWithValidationDynamic;
-        var jsxs9 = jsxWithValidationStatic;
+        var jsx11 = jsxWithValidationDynamic;
+        var jsxs10 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx10;
-        exports.jsxs = jsxs9;
+        exports.jsx = jsx11;
+        exports.jsxs = jsxs10;
       })();
     }
   }
@@ -32245,7 +32245,7 @@ var require_core = __commonJS({
 });
 
 // ui/main.tsx
-var import_react9 = __toESM(require_react());
+var import_react10 = __toESM(require_react());
 var import_client = __toESM(require_client());
 
 // ui/terminal-pane.tsx
@@ -32631,10 +32631,10 @@ function TerminalPane({
 }
 
 // ui/chat-pane.tsx
-var import_react5 = __toESM(require_react());
+var import_react6 = __toESM(require_react());
 
 // ../../../packages/claude-chat/src/ClaudeChat.tsx
-var import_react4 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
 
 // ../../../node_modules/marked/lib/marked.esm.js
 function _getDefaults() {
@@ -32706,10 +32706,10 @@ function cleanUrl(href) {
 }
 var noopTest = { exec: () => null };
 function splitCells(tableRow, count) {
-  const row = tableRow.replace(/\|/g, (match, offset, str3) => {
+  const row = tableRow.replace(/\|/g, (match, offset, str4) => {
     let escaped = false;
     let curr = offset;
-    while (--curr >= 0 && str3[curr] === "\\")
+    while (--curr >= 0 && str4[curr] === "\\")
       escaped = !escaped;
     if (escaped) {
       return "|";
@@ -32737,14 +32737,14 @@ function splitCells(tableRow, count) {
   }
   return cells;
 }
-function rtrim(str3, c, invert) {
-  const l = str3.length;
+function rtrim(str4, c, invert) {
+  const l = str4.length;
   if (l === 0) {
     return "";
   }
   let suffLen = 0;
   while (suffLen < l) {
-    const currChar = str3.charAt(l - suffLen - 1);
+    const currChar = str4.charAt(l - suffLen - 1);
     if (currChar === c && !invert) {
       suffLen++;
     } else if (currChar !== c && invert) {
@@ -32753,19 +32753,19 @@ function rtrim(str3, c, invert) {
       break;
     }
   }
-  return str3.slice(0, l - suffLen);
+  return str4.slice(0, l - suffLen);
 }
-function findClosingBracket(str3, b) {
-  if (str3.indexOf(b[1]) === -1) {
+function findClosingBracket(str4, b) {
+  if (str4.indexOf(b[1]) === -1) {
     return -1;
   }
   let level = 0;
-  for (let i = 0; i < str3.length; i++) {
-    if (str3[i] === "\\") {
+  for (let i = 0; i < str4.length; i++) {
+    if (str4[i] === "\\") {
       i++;
-    } else if (str3[i] === b[0]) {
+    } else if (str4[i] === b[0]) {
       level++;
-    } else if (str3[i] === b[1]) {
+    } else if (str4[i] === b[1]) {
       level--;
       if (level < 0) {
         return i;
@@ -39813,6 +39813,499 @@ function diff(hljs) {
   };
 }
 
+// ../../../packages/claude-chat/src/journal.ts
+var FANOUT_TOOL_NAMES = /* @__PURE__ */ new Set(["agent", "task", "spawn_agent", "create_thread", "fork_thread"]);
+var SESSION_RETRACT_CAP = 64;
+var FAILURE_SOURCES = /* @__PURE__ */ new Set([
+  "assistant",
+  "result",
+  "runtime",
+  "session",
+  "transport",
+  "system",
+  "gateway",
+  "web"
+]);
+var FAILURE_KINDS = /* @__PURE__ */ new Set([
+  "authentication",
+  "authorization",
+  "billing",
+  "rate_limit",
+  "overloaded",
+  "invalid_request",
+  "not_found",
+  "limit",
+  "execution",
+  "runtime",
+  "transport",
+  "routing",
+  "protocol",
+  "permission",
+  "unknown"
+]);
+function isFailureInfo(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const failure = value;
+  const optionalText = (key) => failure[key] === void 0 || typeof failure[key] === "string" && Boolean(failure[key].trim());
+  return typeof failure.source === "string" && FAILURE_SOURCES.has(failure.source) && typeof failure.kind === "string" && FAILURE_KINDS.has(failure.kind) && typeof failure.code === "string" && Boolean(failure.code.trim()) && typeof failure.text === "string" && Boolean(failure.text.trim()) && typeof failure.retryable === "boolean" && optionalText("requestId") && (failure.httpStatus === void 0 || typeof failure.httpStatus === "number" && Number.isInteger(failure.httpStatus) && failure.httpStatus >= 100 && failure.httpStatus <= 599) && (failure.retryAt === void 0 || typeof failure.retryAt === "number" && Number.isFinite(failure.retryAt) && failure.retryAt > 0);
+}
+function isSessionEvent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const event = value;
+  if (event.id !== null && typeof event.id !== "string") return false;
+  if (typeof event.role !== "string" || !Array.isArray(event.blocks)) return false;
+  if (event.retracts !== void 0 && (!Array.isArray(event.retracts) || event.retracts.length > SESSION_RETRACT_CAP || event.retracts.some((id) => typeof id !== "string" || !id.trim() || id.startsWith("terminal:")))) return false;
+  return event.blocks.every(
+    (block2) => Boolean(block2) && typeof block2 === "object" && !Array.isArray(block2) && typeof block2.type === "string"
+  );
+}
+function sessionEventText(event) {
+  return (event.blocks ?? []).filter((block2) => block2.type === "text" && typeof block2.text === "string").map((block2) => block2.text ?? "").join("");
+}
+function sessionEventTerminalText(event) {
+  for (let index = event.blocks.length - 1; index >= 0; index -= 1) {
+    const block2 = event.blocks[index];
+    if (block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim()) return block2.result;
+  }
+  return "";
+}
+function sessionActivityBeats(events) {
+  const beats = [];
+  for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
+    const event = events[eventIndex];
+    for (let blockIndex = 0; blockIndex < event.blocks.length; blockIndex += 1) {
+      const block2 = event.blocks[blockIndex];
+      if (block2.type === "text" && typeof block2.text === "string") {
+        const previous = beats[beats.length - 1];
+        if (previous?.type === "text" && previous.eventIndex === eventIndex) {
+          previous.text += block2.text;
+        } else {
+          beats.push({ type: "text", eventIndex, blockIndex, text: block2.text });
+        }
+      } else if (block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "") {
+        beats.push({ type: "error", eventIndex, blockIndex, text: block2.text, block: block2 });
+      } else if (block2.type === "rate_limit") {
+        const status = String(block2.status ?? "").toLowerCase();
+        const overageStatus = String(block2.overageStatus ?? "").toLowerCase();
+        if (status !== "allowed" || overageStatus && overageStatus !== "allowed") {
+          beats.push({ type: "rate_limit", eventIndex, blockIndex, block: block2 });
+        }
+      } else if (block2.type === "retry" || block2.type === "route" || block2.type === "turn_end") {
+        beats.push({ type: block2.type, eventIndex, blockIndex, block: block2 });
+      } else if (block2.type === "status" && (block2.subtype === "api_retry" || block2.subtype === "model_refusal_fallback")) {
+        beats.push({ type: "status", eventIndex, blockIndex, block: block2 });
+      } else if (block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request") {
+        beats.push({ type: block2.type, eventIndex, blockIndex, block: block2 });
+      }
+    }
+  }
+  return beats;
+}
+function groupSessionTurns(events) {
+  const turns = [];
+  let current = null;
+  let currentAssistantTurnId = null;
+  const assistantTurnId = (event) => {
+    if (typeof event.turnId === "number" && Number.isFinite(event.turnId)) return String(event.turnId);
+    if (typeof event.turnId !== "string") return null;
+    const value = event.turnId.trim();
+    return value || null;
+  };
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (event.role === "user" && !event.toolResultsOnly) {
+      current = {
+        key: event.id || `user-turn-${index}`,
+        userEvents: [event],
+        assistantEvents: []
+      };
+      turns.push(current);
+      currentAssistantTurnId = null;
+      continue;
+    }
+    if (event.role !== "assistant") continue;
+    const eventTurnId = assistantTurnId(event);
+    if (current && current.userEvents.length === 0 && current.assistantEvents.length > 0 && currentAssistantTurnId !== null && eventTurnId !== null && currentAssistantTurnId !== eventTurnId) {
+      current = null;
+    }
+    if (!current) {
+      current = {
+        key: event.id ? `assistant-turn-${event.id}` : `assistant-turn-${index}`,
+        userEvents: [],
+        assistantEvents: []
+      };
+      turns.push(current);
+    }
+    current.assistantEvents.push(event);
+    if (eventTurnId !== null) currentAssistantTurnId = eventTurnId;
+  }
+  return turns;
+}
+function presentSessionTurn(turn, live) {
+  const textual = turn.assistantEvents.map((event, eventIndex) => ({ eventIndex, text: sessionEventTerminalText(event) || sessionEventText(event) })).filter((entry) => entry.text.trim() !== "");
+  if (live) {
+    return {
+      primaryText: textual.map((entry) => entry.text).join("\n\n"),
+      interimText: [],
+      finalTextEventIndex: null
+    };
+  }
+  const final = textual[textual.length - 1] ?? null;
+  return {
+    primaryText: final?.text ?? "",
+    interimText: final ? textual.slice(0, -1).map((entry) => entry.text) : [],
+    finalTextEventIndex: final?.eventIndex ?? null
+  };
+}
+function parseToolInput(input) {
+  if (!input) return null;
+  if (typeof input === "object" && !Array.isArray(input)) return input;
+  if (typeof input !== "string") return null;
+  try {
+    const parsed = JSON.parse(input);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function compact(value, cap = 110) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > cap ? `${text.slice(0, cap - 1)}\u2026` : text;
+}
+function stringField(input, ...keys) {
+  for (const key of keys) {
+    const value = input?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+function sessionToolSummary(block2) {
+  const input = parseToolInput(block2.input);
+  const name = String(block2.name ?? "tool").split(/[.:/]/).pop()?.toLowerCase() ?? "tool";
+  if (name === "bash" || name === "shell" || name === "exec" || name === "exec_command") {
+    return compact(stringField(input, "command", "cmd") || block2.input);
+  }
+  if (name === "read" || name === "write" || name === "edit" || name === "multiedit") {
+    return compact(stringField(input, "file_path", "path", "file"));
+  }
+  if (name === "grep" || name === "glob" || name === "search") {
+    const pattern = stringField(input, "pattern", "query");
+    const where = stringField(input, "path", "cwd");
+    return compact([pattern, where && `in ${where}`].filter(Boolean).join(" "));
+  }
+  if (isFanoutTool(block2.name)) {
+    return compact(stringField(input, "description", "task", "name", "prompt"));
+  }
+  return compact(
+    stringField(input, "description", "query", "url", "path", "file_path", "command", "cmd", "pattern", "prompt") || (typeof block2.input === "string" ? block2.input : JSON.stringify(block2.input))
+  );
+}
+function sessionThinkingSummary(text) {
+  const clean = String(text ?? "").replace(/[`*_>#-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!clean) return "Reasoning";
+  const sentence = clean.match(/^(.{1,110}?)(?:[.!?](?:\s|$)|$)/)?.[1] ?? clean;
+  return compact(sentence, 96);
+}
+function isFanoutTool(name) {
+  const leaf = String(name ?? "").split(/[.:/]/).pop()?.toLowerCase() ?? "";
+  return FANOUT_TOOL_NAMES.has(leaf);
+}
+function latestBlocksByToolUse(events, type) {
+  const out = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    for (const block2 of event.blocks ?? []) {
+      if (block2.type === type && block2.toolUseId) out.set(block2.toolUseId, block2);
+    }
+  }
+  return out;
+}
+function hasVisibleSessionActivity(events) {
+  return events.some(
+    (event) => event.role === "assistant" && !event.toolResultsOnly && event.blocks.some(
+      (block2) => block2.type === "text" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "error" && typeof block2.text === "string" && block2.text.trim() !== "" || block2.type === "retry" || block2.type === "route" || block2.type === "turn_end" || block2.type === "rate_limit" && (String(block2.status ?? "").toLowerCase() !== "allowed" || Boolean(block2.overageStatus && String(block2.overageStatus).toLowerCase() !== "allowed")) || block2.type === "status" && (block2.subtype === "api_retry" || block2.subtype === "model_refusal_fallback") || block2.type === "thinking" || block2.type === "tool_use" || block2.type === "permission_request"
+    )
+  );
+}
+function canonicalRevision(event) {
+  const revision = event.revision;
+  return typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : null;
+}
+function shouldReplaceSessionEvent(current, incoming) {
+  const currentRevision = canonicalRevision(current);
+  const incomingRevision = canonicalRevision(incoming);
+  if (currentRevision !== null && incomingRevision !== null) return incomingRevision > currentRevision;
+  if (currentRevision !== null) return false;
+  if (incomingRevision !== null) return true;
+  return current !== incoming;
+}
+function mergeSessionEvents(current, incoming) {
+  if (!incoming.length) return current;
+  let next = current;
+  let indexes = /* @__PURE__ */ new Map();
+  const tombstones = /* @__PURE__ */ new Set();
+  const retractionsFor = (event) => {
+    const ids = Array.isArray(event.retracts) ? event.retracts : [];
+    return [...new Set(ids.map((id) => String(id).trim()).filter(
+      (id) => id && id !== event.id && !id.startsWith("terminal:")
+    ))].slice(0, SESSION_RETRACT_CAP);
+  };
+  const rebuildIndexes = () => {
+    indexes = /* @__PURE__ */ new Map();
+    next.forEach((event, index) => {
+      if (event.id && !indexes.has(event.id)) indexes.set(event.id, index);
+    });
+  };
+  current.forEach((event) => retractionsFor(event).forEach((id) => tombstones.add(id)));
+  rebuildIndexes();
+  for (const event of incoming) {
+    const index = event.id ? indexes.get(event.id) : void 0;
+    if (event.id && tombstones.has(event.id)) continue;
+    if (index !== void 0 && !shouldReplaceSessionEvent(next[index], event)) continue;
+    const retracts = retractionsFor(event);
+    if (retracts.length) {
+      retracts.forEach((id) => tombstones.add(id));
+      const filtered = next.filter((candidate) => !candidate.id || !tombstones.has(candidate.id));
+      if (filtered.length !== next.length) {
+        next = filtered;
+        rebuildIndexes();
+      }
+    }
+    const acceptedIndex = event.id ? indexes.get(event.id) : void 0;
+    if (acceptedIndex === void 0) {
+      if (next === current) next = current.slice();
+      next.push(event);
+    } else {
+      if (next === current) next = current.slice();
+      const retainedRetracts = [.../* @__PURE__ */ new Set([
+        ...retractionsFor(next[acceptedIndex]),
+        ...retracts
+      ])].slice(0, SESSION_RETRACT_CAP);
+      next[acceptedIndex] = retainedRetracts.length ? { ...event, retracts: retainedRetracts } : event;
+    }
+    rebuildIndexes();
+  }
+  return next;
+}
+function normaliseTaskStatus(value, fallback) {
+  const status = String(value ?? "").toLowerCase();
+  if (["running", "active", "streaming", "started", "pending"].includes(status)) return "running";
+  if (["complete", "completed", "done", "success", "succeeded"].includes(status)) return "completed";
+  if (["failed", "error", "cancelled", "canceled"].includes(status)) return "failed";
+  return fallback;
+}
+function sameOriginStreamUrl(value) {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!/^\/(?!\/)/.test(url) || url.includes("\\") || /(?:^|\/)\.\.(?:\/|$)/.test(url)) return null;
+  return url;
+}
+function collectRelatedTasks(events, live = false) {
+  const results = latestBlocksByToolUse(events, "tool_result");
+  const progress = latestBlocksByToolUse(events, "tool_progress");
+  const byKey = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    for (const block2 of event.blocks ?? []) {
+      if (block2.type === "related_task") {
+        const key2 = block2.taskId || block2.toolUseId || event.id;
+        if (!key2) continue;
+        const aliased = block2.toolUseId ? [...byKey.values()].find((candidate) => candidate.toolUseId === block2.toolUseId) : void 0;
+        const previous = byKey.get(key2) ?? aliased;
+        if (aliased && aliased.key !== key2) byKey.delete(aliased.key);
+        const result2 = block2.toolUseId ? results.get(block2.toolUseId) : void 0;
+        const fallback2 = result2 ? result2.isError ? "failed" : "completed" : previous?.status ?? "unknown";
+        byKey.set(key2, {
+          key: key2,
+          toolUseId: block2.toolUseId ?? previous?.toolUseId ?? null,
+          taskId: block2.taskId ?? previous?.taskId ?? null,
+          label: compact(block2.name || previous?.label || "Related task", 80),
+          detail: compact(block2.detail || previous?.detail || "", 60) || null,
+          status: result2 ? fallback2 : normaliseTaskStatus(block2.status, fallback2),
+          text: block2.text ? compact(block2.text, 160) : previous?.text ?? null,
+          streamUrl: sameOriginStreamUrl(block2.streamUrl) ?? previous?.streamUrl ?? null
+        });
+        continue;
+      }
+      if (block2.type !== "tool_use" || !isFanoutTool(block2.name)) continue;
+      const toolUseId = block2.toolUseId ?? null;
+      const input = parseToolInput(block2.input);
+      const result = toolUseId ? results.get(toolUseId) : void 0;
+      const beat = toolUseId ? progress.get(toolUseId) : void 0;
+      const taskId = beat?.taskId ?? (stringField(input, "task_id", "taskId", "resume") || null);
+      const label = compact(stringField(input, "description", "task", "name") || sessionToolSummary(block2) || block2.name || "Related task", 80);
+      const detail = compact(stringField(input, "subagent_type", "subagentType", "kind", "model"), 60) || null;
+      const fallback = result ? result.isError ? "failed" : "completed" : live ? "running" : "unknown";
+      const key = taskId || toolUseId || `${event.id ?? "event"}:${label}`;
+      byKey.set(key, {
+        key,
+        toolUseId,
+        taskId,
+        label,
+        detail,
+        status: result ? fallback : normaliseTaskStatus(beat?.status, fallback),
+        text: beat?.text ? compact(beat.text, 160) : null,
+        streamUrl: sameOriginStreamUrl(beat?.streamUrl)
+      });
+    }
+  }
+  return [...byKey.values()];
+}
+
+// ../../../packages/claude-chat/src/transport.ts
+var ChatTransportError = class extends Error {
+  failure;
+  constructor(failure, message = failure.text) {
+    super(message);
+    this.name = "ChatTransportError";
+    this.failure = failure;
+  }
+};
+var CHAT_INPUT_STATES = /* @__PURE__ */ new Set([
+  "queued",
+  "starting",
+  "running",
+  "stopping",
+  "settled",
+  "stopped",
+  "failed"
+]);
+function isChatInputReceipt(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const input = value;
+  const optionalText = (key, nonEmpty = false) => input[key] === void 0 || typeof input[key] === "string" && (!nonEmpty || Boolean(input[key].trim()));
+  return typeof input.clientRequestId === "string" && Boolean(input.clientRequestId.trim()) && typeof input.inputId === "string" && Boolean(input.inputId.trim()) && typeof input.state === "string" && CHAT_INPUT_STATES.has(input.state) && optionalText("generationId", true) && optionalText("acceptedAt") && optionalText("reason") && (input.failure === void 0 || isFailureInfo(input.failure)) && (input.position === void 0 || typeof input.position === "number" && Number.isInteger(input.position) && input.position >= 0);
+}
+function createHttpTransport(base = "/api", opts) {
+  const b = base.replace(/\/$/, "");
+  const post = async (path, body) => {
+    const res = await fetch(`${b}/claude/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : void 0
+    });
+    if (!res.ok) {
+      const body2 = await res.json().catch(() => null);
+      if (isFailureInfo(body2?.failure)) {
+        throw new ChatTransportError(
+          body2.failure,
+          typeof body2?.message === "string" && body2.message.trim() ? body2.message : body2.failure.text
+        );
+      }
+      throw new Error(`${path} ${res.status}`);
+    }
+    return res.json().catch(() => ({}));
+  };
+  return {
+    base: b,
+    connect(onEvent) {
+      let es = null;
+      let closed = false;
+      const open = () => {
+        if (closed) return;
+        es = new EventSource(`${b}/claude/stream`);
+        es.addEventListener("open", () => onEvent({ type: "connection", state: "open" }));
+        const on = (name) => es.addEventListener(name, (e) => {
+          try {
+            onEvent({ type: name, ...JSON.parse(e.data) });
+          } catch {
+          }
+        });
+        on("hello");
+        on("assistant");
+        es.addEventListener("session_event", (e) => {
+          try {
+            const event = JSON.parse(e.data);
+            if (isSessionEvent(event)) onEvent({ type: "session_event", event });
+          } catch {
+          }
+        });
+        on("status");
+        on("turn");
+        on("screen");
+        on("tool");
+        on("route");
+        on("activity");
+        es.addEventListener("error", (e) => {
+          const data = "data" in e ? e.data : void 0;
+          if (typeof data !== "string") return;
+          try {
+            const payload = JSON.parse(data);
+            const coordinates = {
+              ...typeof payload.inputId === "string" ? { inputId: payload.inputId } : {},
+              ...typeof payload.generationId === "string" ? { generationId: payload.generationId } : {}
+            };
+            const message = typeof payload.message === "string" && payload.message.trim() ? payload.message : void 0;
+            if (isFailureInfo(payload.failure)) {
+              onEvent({ type: "error", failure: payload.failure, ...message ? { message } : {}, ...coordinates });
+            } else if (message) {
+              onEvent({ type: "error", message, ...coordinates });
+            }
+          } catch {
+          }
+        });
+        es.onerror = (event) => {
+          if (event && "data" in event) return;
+          onEvent({ type: "connection", state: "reconnecting" });
+          if (es && es.readyState === EventSource.CLOSED && !closed) {
+            es.close();
+            setTimeout(open, 1500);
+          }
+        };
+      };
+      open();
+      return () => {
+        closed = true;
+        es?.close();
+        onEvent({ type: "connection", state: "closed" });
+      };
+    },
+    async sendMessage(text, meta) {
+      await post("message", {
+        text,
+        ...meta?.effort ? { effort: meta.effort } : {}
+      });
+    },
+    async sendCommand(text) {
+      await post("message", { text });
+    },
+    async sendKey(key) {
+      await post("keys", { key });
+    },
+    async setMode(mode3) {
+      return await post("mode", { mode: mode3 });
+    },
+    async interrupt() {
+      await post("interrupt");
+    },
+    async answerQuestion(answer) {
+      await post("answer", {
+        tool_use_id: answer.toolUseId,
+        ...answer.label !== void 0 ? { label: answer.label } : {},
+        ...answer.text !== void 0 ? { text: answer.text } : {},
+        ...answer.dismiss ? { dismiss: true } : {}
+      });
+    },
+    async fetchCommands() {
+      const res = await fetch(`${b}/claude/commands`);
+      if (!res.ok) return [];
+      const j = await res.json().catch(() => ({ commands: [] }));
+      return j.commands ?? [];
+    },
+    ...opts?.uploads ? {
+      async uploadFile(file) {
+        const res = await fetch(`${b}/attachments`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ filename: file.name, content_base64: file.base64 })
+        });
+        if (!res.ok) throw new Error(`attachments ${res.status}`);
+        const j = await res.json().catch(() => ({}));
+        return { path: String(j.path ?? ""), bytes: typeof j.bytes === "number" ? j.bytes : void 0 };
+      }
+    } : {}
+  };
+}
+
 // ../../../packages/claude-chat/src/AttributionRail.tsx
 var import_react2 = __toESM(require_react(), 1);
 
@@ -39920,17 +40413,17 @@ function railBadges(route) {
       )
     });
   }
-  const workKind = str(route.workKind);
+  const flow = str(route.flow);
   const off = str(route.phasesOff).split(",").map((p) => p.trim()).filter(Boolean);
-  if (workKind || off.length) {
+  if (flow || off.length) {
     badges.push({
-      key: "workKind",
+      key: "flow",
       // The OFF count rides the label because it is the part that changes what
       // actually runs - a plan silently missing two gates is the failure this
       // badge exists to prevent.
-      label: workKind ? off.length ? `${workKind} -${off.length}` : workKind : `plan -${off.length}`,
+      label: flow ? off.length ? `${flow} -${off.length}` : flow : `plan -${off.length}`,
       title: title(
-        workKind ? `work kind ${workKind}` : "plan inferred from the tier",
+        flow ? `flow ${flow}` : "flow derived by the router",
         off.length ? `phases off: ${off.join(", ")}` : "every phase in the plan runs"
       ),
       ...off.length ? { tone: "warn" } : {}
@@ -40004,7 +40497,8 @@ function railBadges(route) {
       tone: "warn"
     });
   }
-  return badges;
+  const warned = badges.filter((badge) => badge.tone === "warn");
+  return warned.length ? [...warned, ...badges.filter((badge) => badge.tone !== "warn")] : badges;
 }
 
 // ../../../packages/claude-chat/src/AttributionRail.tsx
@@ -40018,7 +40512,7 @@ var BADGE_FIELDS = {
   project: ["project"],
   target: ["target"],
   tier: ["tier"],
-  workKind: ["workKind", "phasesOff"]
+  flow: ["flow", "phasesOff", "phasesOn"]
 };
 var PIN_ORDER = [
   "duty",
@@ -40028,7 +40522,7 @@ var PIN_ORDER = [
   "effort",
   "account",
   "project",
-  "workKind",
+  "flow",
   "phasesOff"
 ];
 var FIELD_LABEL = {
@@ -40040,20 +40534,25 @@ var FIELD_LABEL = {
   project: "project",
   account: "account",
   tier: "tier",
-  workKind: "work kind",
-  phasesOff: "phases"
+  flow: "flow",
+  phasesOff: "phases",
+  phasesOn: "phases+"
 };
 var AUTO_LABEL = {
   target: "Automatic - the composition's routing",
   model: "Automatic - the resolved target's model",
   effort: "Automatic - the duty's effort",
-  duty: "Automatic - the classifier decides",
+  duty: "Automatic - routing inference decides",
   level: "Automatic",
   project: "Automatic - the operative's own directory",
   account: "Automatic - the composition's account",
-  tier: "Automatic - the classifier decides",
-  workKind: "Automatic - the plan inferred from the tier",
-  phasesOff: "Automatic - every phase in the plan runs"
+  tier: "Automatic - routing inference decides",
+  // 2026-08-13: flows carry levelled duty lists now; the router derives the flow
+  // from the routed duty and the flow's level defines the plan. "Inferred from
+  // the tier" was the pre-coherence world and read as if nothing had shipped.
+  flow: "Automatic - the router picks the flow, its level picks the plan",
+  phasesOff: "Automatic - every phase in the plan runs",
+  phasesOn: "Automatic - only the plan's phases run"
 };
 function str2(v) {
   return typeof v === "string" ? v.trim() : "";
@@ -40093,10 +40592,12 @@ function ranValue(route, field) {
       return str2(route.account) || null;
     case "tier":
       return str2(route.tier) || null;
-    case "workKind":
-      return str2(route.workKind) || null;
+    case "flow":
+      return str2(route.flow) || null;
     case "phasesOff":
       return str2(route.phasesOff) || null;
+    case "phasesOn":
+      return str2(route.phasesOn) || null;
   }
 }
 function railDisplayBadges(opts) {
@@ -40159,11 +40660,25 @@ function menuForField(field, options2, pins, musterUrl) {
   const auto = {
     key: "auto",
     label: AUTO_LABEL[field],
-    patch: field === "duty" ? { duty: null, level: null } : { [field]: null },
-    selected: current === null
+    // The duty menu speaks for BOTH axes since they merged (2026-08-07), so its
+    // Automatic row releases the flow pin too.
+    patch: field === "duty" ? { duty: null, level: null, flow: null, phasesOff: null } : { [field]: null },
+    selected: field === "duty" ? current === null && pinnedValue(pins, "flow") === null : current === null
   };
   if (field === "duty") {
     rows.push(auto);
+    for (const k of options2?.flows ?? []) {
+      const id = str2(k.id);
+      if (!id) continue;
+      const phases = (k.phases ?? []).filter((p) => str2(p));
+      rows.push({
+        key: `plan:${id}`,
+        label: str2(options2?.defaultFlow) === id ? `${id} (default plan)` : `${id} (plan)`,
+        detail: phases.length ? `plan: ${phases.join(" \u2192 ")}` : str2(k.description) || void 0,
+        patch: { flow: id, duty: null, level: null, phasesOff: null },
+        selected: pinnedValue(pins, "flow") === id && current === null
+      });
+    }
     for (const duty of options2?.duties ?? []) {
       const id = str2(duty.id);
       if (!id) continue;
@@ -40173,7 +40688,7 @@ function menuForField(field, options2, pins, musterUrl) {
           key: id,
           label: id,
           detail: str2(duty.title) || void 0,
-          patch: { duty: id, level: null },
+          patch: { duty: id, level: null, flow: null, phasesOff: null },
           selected: current === id && pinnedValue(pins, "level") === null
         });
         continue;
@@ -40183,7 +40698,7 @@ function menuForField(field, options2, pins, musterUrl) {
           key: `${id}:${l.n}`,
           label: `${id} L${l.n}`,
           detail: str2(l.description) || str2(duty.title) || void 0,
-          patch: { duty: id, level: Math.trunc(l.n) },
+          patch: { duty: id, level: Math.trunc(l.n), flow: null, phasesOff: null },
           selected: current === id && pinnedValue(pins, "level") === Math.trunc(l.n)
         });
       }
@@ -40261,13 +40776,13 @@ function menuForField(field, options2, pins, musterUrl) {
         selected: current === id
       });
     }
-  } else if (field === "workKind") {
+  } else if (field === "flow") {
     rows.push(auto);
-    for (const k of options2?.workKinds ?? []) {
+    for (const k of options2?.flows ?? []) {
       const id = str2(k.id);
       if (!id) continue;
       const phases = (k.phases ?? []).filter((p) => str2(p));
-      const isDefault = str2(options2?.defaultWorkKind) === id;
+      const isDefault = str2(options2?.defaultFlow) === id;
       rows.push({
         key: id,
         label: isDefault ? `${id} (default)` : id,
@@ -40275,13 +40790,13 @@ function menuForField(field, options2, pins, musterUrl) {
         // Switching plans invalidates the OFF set: those phase ids belong to the
         // OLD plan, and carrying them over would silently disable phases the user
         // never looked at.
-        patch: { workKind: id, phasesOff: null },
+        patch: { flow: id, phasesOff: null },
         selected: current === id
       });
     }
   } else if (field === "phasesOff") {
-    const kindId = str2(pinnedValue(pins, "workKind")) || str2(options2?.defaultWorkKind);
-    const kind = (options2?.workKinds ?? []).find((k) => str2(k.id) === kindId);
+    const kindId = str2(pinnedValue(pins, "flow")) || str2(options2?.defaultFlow);
+    const kind = (options2?.flows ?? []).find((k) => str2(k.id) === kindId);
     const planPhases = (kind?.phases ?? []).map((p) => str2(p)).filter(Boolean);
     const off = new Set(splitPhasesOff(current));
     rows.push({ ...auto, selected: off.size === 0 });
@@ -40320,6 +40835,7 @@ function menuForField(field, options2, pins, musterUrl) {
   return {
     field,
     label: field === "phasesOff" ? "Phases this run walks" : `Pin ${FIELD_LABEL[field]} for the next message`,
+    effect: ["target", "model", "account", "project"].includes(field) ? "Starts a new session for your next message." : field === "effort" ? "Applies to your next request without starting a new session." : "Applies to your next message.",
     rows,
     ...field === "model" ? { freeText: { field: "model", label: "Any model id", placeholder: "model id" } } : {}
   };
@@ -40334,7 +40850,8 @@ function AttributionRail({
   variant = "settled",
   label,
   musterUrl,
-  children
+  children,
+  onOpenModal
 }) {
   const interactive = typeof onPin === "function" && Boolean(options2);
   const badges = (0, import_react2.useMemo)(
@@ -40345,6 +40862,7 @@ function AttributionRail({
   const [openKey, setOpenKey] = (0, import_react2.useState)(null);
   const [menuIdx, setMenuIdx] = (0, import_react2.useState)(0);
   const [freeText, setFreeText] = (0, import_react2.useState)("");
+  const menuEffectId = (0, import_react2.useId)();
   const itemsRef = (0, import_react2.useRef)([]);
   const railRef = (0, import_react2.useRef)(null);
   (0, import_react2.useEffect)(() => {
@@ -40373,12 +40891,17 @@ function AttributionRail({
   const toggleMenu = (0, import_react2.useCallback)(
     (badge, idx) => {
       if (!badge.field || !interactive) return;
+      if (onOpenModal) {
+        setFocusIdx(idx);
+        onOpenModal(badge.field);
+        return;
+      }
       setFocusIdx(idx);
       setOpenKey((prev) => prev === badge.key ? null : badge.key);
       setMenuIdx(0);
       setFreeText("");
     },
-    [interactive]
+    [interactive, onOpenModal]
   );
   const applyRow = (0, import_react2.useCallback)(
     (row, restoreIdx) => {
@@ -40459,7 +40982,7 @@ function AttributionRail({
     },
     [rows, menuIdx, closeMenu, focusIdx, applyRow]
   );
-  if (!badges.length) return null;
+  if (!badges.length && !children) return null;
   const badgeClass = (b) => [
     "cc-rbadge",
     b.tone ? `cc-rbadge-${b.tone}` : "",
@@ -40478,7 +41001,7 @@ function AttributionRail({
     b.pending ? "applies next turn" : null
   ].filter(Boolean).join(" - ");
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `cc-rail cc-rail-${variant}`, ref: railRef, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    badges.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       "div",
       {
         className: "cc-railscroll",
@@ -40491,7 +41014,7 @@ function AttributionRail({
           const ref = (el) => {
             itemsRef.current[i] = el;
           };
-          const mark = b.pending ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-next", children: "next" }) : b.auto ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-automark", "aria-hidden": "true", children: "auto" }) : null;
+          const mark = b.pending ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-next", children: "next" }) : b.auto ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-rbadge-automark", children: "auto" }) : null;
           if (b.href) {
             return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
               "a",
@@ -40554,75 +41077,647 @@ function AttributionRail({
     children ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-railend", children }) : null,
     menu && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-railscrim", onClick: () => closeMenu(focusIdx) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-railmenu", role: "menu", "aria-label": menu.label, onKeyDown: onMenuKey, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-railmenu-head", children: menu.label }),
-        menu.rows.map(
-          (row, i) => row.href ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "a",
-            {
-              className: "cc-railitem cc-railitem-link",
-              href: row.href,
-              target: "_blank",
-              rel: "noopener noreferrer",
-              role: "menuitem",
-              children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-label", children: row.label })
-            },
-            row.key
-          ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-            "button",
-            {
-              type: "button",
-              className: `cc-railitem${i === menuIdx ? " cc-railitem-active" : ""}`,
-              role: "menuitemradio",
-              "aria-checked": Boolean(row.selected),
-              "aria-disabled": row.disabled ? true : void 0,
-              autoFocus: i === 0,
-              onMouseEnter: () => !row.disabled && setMenuIdx(i),
-              onClick: () => applyRow(row, focusIdx),
-              children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-label", children: row.label }),
-                row.detail && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-detail", children: row.detail }),
-                row.selected && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-on", children: "pinned" })
-              ]
-            },
-            row.key
-          )
-        ),
-        menu.freeText && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-railfree", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "input",
-            {
-              className: "cc-railfree-input",
-              value: freeText,
-              placeholder: menu.freeText.placeholder,
-              "aria-label": menu.freeText.label,
-              onChange: (e) => setFreeText(e.target.value),
-              onKeyDown: (e) => {
-                if (e.key === "Enter" && freeText.trim()) {
-                  e.preventDefault();
-                  onPin?.({ [menu.freeText.field]: freeText.trim() });
-                  closeMenu(focusIdx);
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+        "div",
+        {
+          className: "cc-railmenu",
+          role: "menu",
+          "aria-label": menu.label,
+          "aria-describedby": menuEffectId,
+          onKeyDown: onMenuKey,
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "cc-railmenu-head", children: menu.label }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { id: menuEffectId, className: "cc-railmenu-effect", children: menu.effect }),
+            menu.rows.map(
+              (row, i) => row.href ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "a",
+                {
+                  className: "cc-railitem cc-railitem-link",
+                  href: row.href,
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  role: "menuitem",
+                  children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-label", children: row.label })
+                },
+                row.key
+              ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+                "button",
+                {
+                  type: "button",
+                  className: `cc-railitem${i === menuIdx ? " cc-railitem-active" : ""}`,
+                  role: "menuitemradio",
+                  "aria-checked": Boolean(row.selected),
+                  "aria-disabled": row.disabled ? true : void 0,
+                  autoFocus: i === 0,
+                  onMouseEnter: () => !row.disabled && setMenuIdx(i),
+                  onClick: () => applyRow(row, focusIdx),
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-label", children: row.label }),
+                    row.detail && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-detail", children: row.detail }),
+                    row.selected && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "cc-railitem-on", children: "pinned" })
+                  ]
+                },
+                row.key
+              )
+            ),
+            menu.freeText && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "cc-railfree", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "input",
+                {
+                  className: "cc-railfree-input",
+                  value: freeText,
+                  placeholder: menu.freeText.placeholder,
+                  "aria-label": menu.freeText.label,
+                  onChange: (e) => setFreeText(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter" && freeText.trim()) {
+                      e.preventDefault();
+                      onPin?.({ [menu.freeText.field]: freeText.trim() });
+                      closeMenu(focusIdx);
+                    }
+                  }
                 }
-              }
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "button",
-            {
-              type: "button",
-              className: "cc-railfree-set",
-              disabled: !freeText.trim(),
-              onClick: () => {
-                onPin?.({ [menu.freeText.field]: freeText.trim() });
-                closeMenu(focusIdx);
-              },
-              children: "Pin"
-            }
-          )
-        ] })
-      ] })
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-railfree-set",
+                  disabled: !freeText.trim(),
+                  onClick: () => {
+                    onPin?.({ [menu.freeText.field]: freeText.trim() });
+                    closeMenu(focusIdx);
+                  },
+                  children: "Pin"
+                }
+              )
+            ] })
+          ]
+        }
+      )
     ] })
   ] });
+}
+
+// ../../../packages/claude-chat/src/RoutingModal.tsx
+var import_react3 = __toESM(require_react(), 1);
+var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
+function str3(v) {
+  return typeof v === "string" ? v.trim() : "";
+}
+function joinPhasesOn(on, catalogOrder) {
+  const set = new Set(on);
+  const ordered = catalogOrder.filter((p) => set.has(p));
+  for (const p of on) if (!catalogOrder.includes(p)) ordered.push(p);
+  return ordered.length ? ordered.join(",") : null;
+}
+function resolvedPlanForPins(options2, pins) {
+  const flows = options2?.flows ?? [];
+  const pinnedFlow = str3(pinnedValue(pins, "flow"));
+  const flowId = pinnedFlow || str3(options2?.defaultFlow);
+  if (!flowId) return null;
+  const flow = flows.find((f) => str3(f.id) === flowId);
+  if (!flow) return null;
+  const phases = (flow.phases ?? []).map((p) => str3(p)).filter(Boolean);
+  return { flowId, phases, pinned: Boolean(pinnedFlow) };
+}
+function runtimeGroups(options2) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const t of options2?.targets ?? []) {
+    const runtime = str3(t.runtime) || "other";
+    if (!groups.has(runtime)) groups.set(runtime, []);
+    groups.get(runtime).push(t);
+  }
+  return groups;
+}
+var EVERY_PIN_CLEARED = {
+  duty: null,
+  level: null,
+  tier: null,
+  target: null,
+  model: null,
+  effort: null,
+  account: null,
+  project: null,
+  flow: null,
+  phasesOff: null,
+  phasesOn: null
+};
+var SECTION_OF_FIELD = {
+  duty: "work",
+  level: "work",
+  tier: "tier",
+  target: "execution",
+  model: "execution",
+  effort: "execution",
+  account: "account",
+  project: "project",
+  flow: "flow",
+  phasesOff: "phases",
+  phasesOn: "phases"
+};
+function LockGlyph() {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { width: "11", height: "11", viewBox: "0 0 12 12", "aria-hidden": "true", className: "cc-rm-lock", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("rect", { x: "2.2", y: "5", width: "7.6", height: "5.4", rx: "1.2", fill: "none", stroke: "currentColor", strokeWidth: "1.2" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 5V3.8a2 2 0 0 1 4 0V5", fill: "none", stroke: "currentColor", strokeWidth: "1.2" })
+  ] });
+}
+function Opt({
+  label,
+  detail,
+  mono,
+  selected,
+  disabled,
+  onPick
+}) {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+    "button",
+    {
+      type: "button",
+      className: `cc-rm-opt${selected ? " cc-rm-opt-sel" : ""}`,
+      disabled,
+      onClick: onPick,
+      role: "radio",
+      "aria-checked": selected ?? false,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `cc-rm-opt-label${mono ? " cc-rm-mono" : ""}`, children: label }),
+        detail ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-opt-detail", children: detail }) : null
+      ]
+    }
+  );
+}
+function RoutingModal({ pins, options: options2, onPin, onClose, focusField, musterUrl }) {
+  const dialogRef = (0, import_react3.useRef)(null);
+  const [active, setActive] = (0, import_react3.useState)(
+    focusField && SECTION_OF_FIELD[focusField] || "work"
+  );
+  const [projectQuery, setProjectQuery] = (0, import_react3.useState)("");
+  const [modelDraft, setModelDraft] = (0, import_react3.useState)(str3(pinnedValue(pins, "model")));
+  (0, import_react3.useEffect)(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    dialogRef.current?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const duty = str3(pinnedValue(pins, "duty"));
+  const level = pinnedValue(pins, "level");
+  const tier = str3(pinnedValue(pins, "tier"));
+  const target = str3(pinnedValue(pins, "target"));
+  const model = str3(pinnedValue(pins, "model"));
+  const effort = str3(pinnedValue(pins, "effort"));
+  const account = str3(pinnedValue(pins, "account"));
+  const project = str3(pinnedValue(pins, "project"));
+  const flowPin = str3(pinnedValue(pins, "flow"));
+  const phasesOff = (0, import_react3.useMemo)(() => splitPhasesOff(pinnedValue(pins, "phasesOff")), [pins]);
+  const phasesOn = (0, import_react3.useMemo)(() => splitPhasesOff(pinnedValue(pins, "phasesOn")), [pins]);
+  const dutyOptions = options2?.duties ?? [];
+  const selectedDuty = dutyOptions.find((d) => str3(d.id) === duty) ?? null;
+  const groups = (0, import_react3.useMemo)(() => runtimeGroups(options2), [options2]);
+  const plan = (0, import_react3.useMemo)(() => resolvedPlanForPins(options2, pins), [options2, pins]);
+  const catalog = (options2?.phaseCatalog ?? []).map((p) => str3(p)).filter(Boolean);
+  const beyondPlan = catalog.filter((p) => !(plan?.phases ?? []).includes(p));
+  const tierGated = Boolean(tier);
+  const effortBlocked = str3(options2?.unavailable?.effort);
+  const projects = (options2?.projects ?? []).filter(
+    (p) => !projectQuery.trim() || p.toLowerCase().includes(projectQuery.trim().toLowerCase())
+  );
+  const pinChips = (0, import_react3.useMemo)(() => {
+    const chips = [];
+    if (duty) chips.push({ key: "duty", label: `${duty}${level ? ` L${level}` : ""}`, patch: { duty: null, level: null } });
+    if (tier) chips.push({ key: "tier", label: tier, patch: { tier: null } });
+    if (target) chips.push({ key: "target", label: target, patch: { target: null } });
+    if (model) chips.push({ key: "model", label: model, patch: { model: null } });
+    if (effort) chips.push({ key: "effort", label: `effort ${effort}`, patch: { effort: null } });
+    if (account) chips.push({ key: "account", label: account, patch: { account: null } });
+    if (project) chips.push({ key: "project", label: project, patch: { project: null } });
+    if (flowPin) chips.push({ key: "flow", label: `flow ${flowPin}`, patch: { flow: null } });
+    if (phasesOff.length) chips.push({ key: "phasesOff", label: `-${phasesOff.length} phase${phasesOff.length > 1 ? "s" : ""}`, patch: { phasesOff: null } });
+    if (phasesOn.length) chips.push({ key: "phasesOn", label: `+${phasesOn.length} phase${phasesOn.length > 1 ? "s" : ""}`, patch: { phasesOn: null } });
+    return chips;
+  }, [duty, level, tier, target, model, effort, account, project, flowPin, phasesOff, phasesOn]);
+  const navValue = {
+    work: { value: duty ? `${duty}${level ? ` L${level}` : ""}` : "auto", pinned: Boolean(duty) },
+    tier: { value: tier || "auto", pinned: Boolean(tier) },
+    execution: tierGated ? { value: "tier-decided", pinned: false, gated: true } : {
+      value: [target, model, effort].filter(Boolean).join(" \xB7 ") || "auto",
+      pinned: Boolean(target || model || effort)
+    },
+    account: { value: account || "auto", pinned: Boolean(account) },
+    project: { value: project || "auto", pinned: Boolean(project) },
+    flow: { value: flowPin || (str3(options2?.defaultFlow) ? `auto \xB7 ${options2?.defaultFlow}` : "auto"), pinned: Boolean(flowPin) },
+    phases: {
+      value: phasesOff.length || phasesOn.length ? [phasesOff.length ? `-${phasesOff.length}` : "", phasesOn.length ? `+${phasesOn.length}` : ""].filter(Boolean).join(" ") : "plan",
+      pinned: Boolean(phasesOff.length || phasesOn.length)
+    }
+  };
+  const NAV = [
+    { id: "work", label: "Duty & level" },
+    { id: "tier", label: "Tier" },
+    { id: "execution", label: "Execution" },
+    { id: "account", label: "Account" },
+    { id: "project", label: "Project" },
+    { id: "flow", label: "Flow" },
+    { id: "phases", label: "Phases" }
+  ];
+  const togglePlanPhase = (0, import_react3.useCallback)((id) => {
+    const next = phasesOff.includes(id) ? phasesOff.filter((p) => p !== id) : [...phasesOff, id];
+    onPin({ phasesOff: joinPhasesOff(next, plan?.phases ?? []) });
+  }, [phasesOff, plan, onPin]);
+  const toggleExtraPhase = (0, import_react3.useCallback)((id) => {
+    const next = phasesOn.includes(id) ? phasesOn.filter((p) => p !== id) : [...phasesOn, id];
+    onPin({ phasesOn: joinPhasesOn(next, catalog) });
+  }, [phasesOn, catalog, onPin]);
+  const applyModelDraft = (0, import_react3.useCallback)(() => {
+    const value = modelDraft.trim();
+    if (value === model) return;
+    onPin({ model: value || null });
+  }, [modelDraft, model, onPin]);
+  const hint = (text) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-hint", children: text });
+  const detail = (() => {
+    switch (active) {
+      case "work":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "work", children: [
+          hint("What kind of work the next message is. Automatic lets routing inference read the message; pinning skips the classifier. Pinning a duty releases a pinned flow \u2014 they answer the same question."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Duty", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: "Automatic",
+                detail: "Routing inference picks the duty and level from the message.",
+                selected: !duty && !flowPin,
+                onPick: () => onPin({ duty: null, level: null, flow: null, phasesOff: null, phasesOn: null })
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-grid", children: dutyOptions.map((d) => {
+              const id = str3(d.id);
+              if (!id) return null;
+              return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+                "button",
+                {
+                  type: "button",
+                  role: "radio",
+                  "aria-checked": duty === id,
+                  className: `cc-rm-card${duty === id ? " cc-rm-card-sel" : ""}`,
+                  onClick: () => onPin({ duty: id, level: null, flow: null, phasesOff: null, phasesOn: null }),
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-card-title", children: str3(d.title) || id }),
+                    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-card-id cc-rm-mono", children: id })
+                  ]
+                },
+                id
+              );
+            }) })
+          ] }),
+          selectedDuty && (selectedDuty.levels ?? []).length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-sub", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Level" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-seg", role: "radiogroup", "aria-label": "Level", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: `cc-rm-segbtn${level === null ? " cc-rm-segbtn-sel" : ""}`,
+                  onClick: () => onPin({ level: null }),
+                  children: "auto"
+                }
+              ),
+              (selectedDuty.levels ?? []).map(
+                (l) => typeof l?.n === "number" && l.n > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+                  "button",
+                  {
+                    type: "button",
+                    className: `cc-rm-segbtn${level === Math.trunc(l.n) ? " cc-rm-segbtn-sel" : ""}`,
+                    onClick: () => onPin({ level: Math.trunc(l.n) }),
+                    children: [
+                      "L",
+                      l.n
+                    ]
+                  },
+                  l.n
+                ) : null
+              )
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-leveldesc", children: level ? str3((selectedDuty.levels ?? []).find((l) => Math.trunc(l?.n ?? 0) === level)?.description) || "\xA0" : "Automatic \u2014 the router weighs the message and picks the level." })
+          ] }) : null
+        ] });
+      case "tier":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "tier", children: [
+          hint("The compute tier the routing matrix is keyed on. A pinned tier decides the execution \u2014 runtime, model, and effort come from the duty\xD7tier cell."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Tier", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: "Automatic",
+                detail: "Routing inference weighs the message and picks the tier.",
+                selected: !tier,
+                onPick: () => onPin({ tier: null })
+              }
+            ),
+            (options2?.tiers ?? []).map((t) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: t,
+                mono: true,
+                detail: str3(options2?.tierDefinitions?.[t]) || null,
+                selected: tier === t,
+                onPick: () => onPin({ tier: t })
+              },
+              t
+            ))
+          ] })
+        ] });
+      case "execution":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: `cc-rm-pane${tierGated ? " cc-rm-section-off" : ""}`, "data-section": "execution", children: tierGated ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-gatecard", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LockGlyph, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: tier }),
+            " decides the execution \u2014 runtime, model, and effort come from the duty\xD7tier cell."
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "cc-rm-ghost", onClick: () => onPin({ tier: null }), children: "Clear tier" })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          hint("Which engine runs the message. A target pins the coherent runtime+model pair; the model box overlays a different model id onto it."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Target", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: "Automatic",
+                detail: "The composition's routing picks the target.",
+                selected: !target,
+                onPick: () => onPin({ target: null, model: null })
+              }
+            ),
+            [...groups.entries()].map(([runtime, targets]) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-group", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: runtime }),
+              (targets ?? []).map((t) => {
+                const id = str3(t.id);
+                if (!id) return null;
+                const notes = [str3(t.model), str3(t.effort) && `effort ${str3(t.effort)}`, str3(t.account)].filter(Boolean).join(" \xB7 ");
+                return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                  Opt,
+                  {
+                    label: id,
+                    mono: true,
+                    detail: notes || null,
+                    selected: target === id,
+                    onPick: () => onPin({ target: id, model: null })
+                  },
+                  id
+                );
+              })
+            ] }, runtime))
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-sub", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Model override" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              "input",
+              {
+                className: "cc-rm-input cc-rm-mono",
+                type: "text",
+                value: modelDraft,
+                placeholder: "exact model id \u2014 overlays the resolved target",
+                onChange: (e) => setModelDraft(e.target.value),
+                onBlur: applyModelDraft,
+                onKeyDown: (e) => {
+                  if (e.key === "Enter") applyModelDraft();
+                }
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-sub", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Effort" }),
+            effortBlocked ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "cc-rm-gate", children: effortBlocked }) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-seg", role: "radiogroup", "aria-label": "Effort", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: `cc-rm-segbtn${!effort ? " cc-rm-segbtn-sel" : ""}`,
+                  disabled: Boolean(effortBlocked),
+                  onClick: () => onPin({ effort: null }),
+                  children: "auto"
+                }
+              ),
+              (options2?.efforts ?? []).map((e) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: `cc-rm-segbtn${effort === e ? " cc-rm-segbtn-sel" : ""}`,
+                  disabled: Boolean(effortBlocked),
+                  onClick: () => onPin({ effort: e }),
+                  children: e
+                },
+                e
+              ))
+            ] })
+          ] })
+        ] }) });
+      case "account":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "account", children: [
+          hint("The named runtime account the turn authenticates as. Only meaningful for targets on a matching platform \u2014 a mismatched pin is refused at the edge, with the reason on the badge."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Account", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: "Automatic",
+                detail: "The composition's account, or the machine's own login.",
+                selected: !account,
+                onPick: () => onPin({ account: null })
+              }
+            ),
+            (options2?.accounts ?? []).map((a) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: a.name,
+                mono: true,
+                detail: str3(a.platform) ? `platform: ${a.platform}` : null,
+                selected: account === a.name,
+                onPick: () => onPin({ account: a.name })
+              },
+              a.name
+            ))
+          ] })
+        ] });
+      case "project":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "project", children: [
+          hint("The repository the turn runs in (its working directory). Sticky: new conversations start with your last pinned project until you clear it."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            "input",
+            {
+              className: "cc-rm-input",
+              type: "search",
+              placeholder: "Filter projects\u2026",
+              value: projectQuery,
+              onChange: (e) => setProjectQuery(e.target.value)
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list cc-rm-scroll", role: "radiogroup", "aria-label": "Project", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: "Automatic",
+                detail: "The operative's own directory.",
+                selected: !project,
+                onPick: () => onPin({ project: null })
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-grid cc-rm-grid-tight", children: projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              "button",
+              {
+                type: "button",
+                role: "radio",
+                "aria-checked": project === p,
+                className: `cc-rm-card cc-rm-card-slim${project === p ? " cc-rm-card-sel" : ""}`,
+                onClick: () => onPin({ project: p }),
+                children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-card-title cc-rm-mono", children: p })
+              },
+              p
+            )) })
+          ] })
+        ] });
+      case "flow":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "flow", children: [
+          hint("The phase plan for work that becomes a card. Automatic derives the flow from the routed duty; its level picks the plan. Pinning a flow releases a pinned duty \u2014 same question, asked from the plan end."),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-list", role: "radiogroup", "aria-label": "Flow", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              Opt,
+              {
+                label: str3(options2?.defaultFlow) ? `Automatic \u2014 default ${options2?.defaultFlow}` : "Automatic",
+                detail: "The router derives the flow from the duty; the flow's level defines the plan.",
+                selected: !flowPin,
+                onPick: () => onPin({ flow: null, phasesOff: null, phasesOn: null })
+              }
+            ),
+            (options2?.flows ?? []).map((f) => {
+              const id = str3(f.id);
+              if (!id) return null;
+              const phases = (f.phases ?? []).map((p) => str3(p)).filter(Boolean);
+              return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+                "button",
+                {
+                  type: "button",
+                  role: "radio",
+                  "aria-checked": flowPin === id,
+                  className: `cc-rm-flow${flowPin === id ? " cc-rm-flow-sel" : ""}`,
+                  onClick: () => onPin({ flow: id, duty: null, level: null, phasesOff: null, phasesOn: null }),
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-rm-flow-head", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-mono cc-rm-flow-id", children: id }),
+                      phases.length ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-flow-plan cc-rm-mono", children: phases.join(" \u2192 ") }) : null
+                    ] }),
+                    str3(f.description) ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-opt-detail", children: f.description }) : null
+                  ]
+                },
+                id
+              );
+            })
+          ] })
+        ] });
+      case "phases":
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-pane", "data-section": "phases", children: [
+          plan ? hint(`Toggles against the ${plan.pinned ? "pinned" : "default"} flow's plan (${plan.flowId}). Tap a plan phase to skip it; tap one beyond the plan to add it. A phase both added and skipped stays off.`) : hint("No resolved plan to toggle against \u2014 pin a flow (or set a default flow in the policy) first."),
+          plan ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-chips", children: plan.phases.map((p) => {
+              const off = phasesOff.includes(p);
+              return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  "aria-pressed": !off,
+                  className: `cc-rm-phase cc-rm-mono${off ? " cc-rm-phase-off" : ""}`,
+                  onClick: () => togglePlanPhase(p),
+                  title: off ? "Skipped \u2014 tap to run it" : "In the plan \u2014 tap to skip",
+                  children: p
+                },
+                p
+              );
+            }) }),
+            beyondPlan.length ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-sub", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Beyond the plan" }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-chips", children: beyondPlan.map((p) => {
+                const on = phasesOn.includes(p);
+                return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    "aria-pressed": on,
+                    className: `cc-rm-phase cc-rm-phase-extra cc-rm-mono${on ? " cc-rm-phase-added" : ""}`,
+                    onClick: () => toggleExtraPhase(p),
+                    title: on ? "Added \u2014 tap to remove" : "Not in the plan \u2014 tap to add",
+                    children: p
+                  },
+                  p
+                );
+              }) })
+            ] }) : null
+          ] }) : null
+        ] });
+    }
+  })();
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-backdrop", onMouseDown: (e) => {
+    if (e.target === e.currentTarget) onClose();
+  }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm", role: "dialog", "aria-modal": "true", "aria-label": "Turn routing", tabIndex: -1, ref: dialogRef, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "cc-rm-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-head-text", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-kicker", children: "Routing" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Where your next message runs" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "cc-rm-close", onClick: onClose, "aria-label": "Close", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { width: "14", height: "14", viewBox: "0 0 14 14", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M3 3l8 8M11 3l-8 8", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round" }) }) })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-pins", "aria-label": "Pins in force", children: pinChips.length ? pinChips.map((c) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+      "button",
+      {
+        type: "button",
+        className: "cc-rm-chip cc-rm-mono",
+        title: "Clear this pin",
+        onClick: () => onPin(c.patch),
+        children: [
+          c.label,
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-chip-x", "aria-hidden": true, children: "\xD7" })
+        ]
+      },
+      c.key
+    )) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-rm-pins-none", children: "Everything automatic \u2014 the router decides. Saves as you tap." }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-split", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("nav", { className: "cc-rm-nav", "aria-label": "Routing dimensions", children: NAV.map((n) => {
+        const v = navValue[n.id];
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+          "button",
+          {
+            type: "button",
+            className: `cc-rm-navitem${active === n.id ? " cc-rm-navitem-on" : ""}`,
+            "aria-current": active === n.id ? "true" : void 0,
+            onClick: () => setActive(n.id),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "cc-rm-navlabel", children: [
+                n.label,
+                v.gated ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LockGlyph, {}) : null
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `cc-rm-navvalue cc-rm-mono${v.pinned ? " cc-rm-navvalue-pin" : ""}`, children: v.value })
+            ]
+          },
+          n.id
+        );
+      }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-rm-detail", children: detail })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("footer", { className: "cc-rm-foot", children: [
+      musterUrl ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("a", { href: musterUrl, target: "_blank", rel: "noreferrer", className: "cc-rm-muster", children: "Composition defaults live in Muster" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", {}),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-rm-foot-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "button",
+          {
+            type: "button",
+            className: "cc-rm-ghost",
+            disabled: !pinChips.length,
+            onClick: () => onPin(EVERY_PIN_CLEARED),
+            children: "Clear all pins"
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "cc-rm-done", onClick: onClose, children: "Done" })
+      ] })
+    ] })
+  ] }) });
 }
 
 // ../../../packages/claude-chat/src/chat-theme.ts
@@ -40736,6 +41831,19 @@ function createVoiceClient(base = "") {
 }
 
 // ../../../packages/claude-chat/src/sanitize.ts
+function sanitizeAssistantBadges(raw) {
+  const input = typeof raw === "string" ? raw : "";
+  const meta = {};
+  const routeMatch = ROUTE_RE.exec(input);
+  if (routeMatch) {
+    if (routeMatch[1]?.trim()) meta.route = routeMatch[1].trim();
+    if (routeMatch[2]?.trim()) meta.rule = routeMatch[2].trim();
+    if (routeMatch[3]?.trim()) meta.profile = routeMatch[3].trim();
+  }
+  const hadBadges = routeMatch != null || /\[orchestrator-active\]/i.test(input);
+  const text = input.replace(ROUTE_RE_G, " ").replace(ORCH_RE_G, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { text, meta, hadBadges };
+}
 var ROUTE_RE = /\[route:\s*([^|\]]+?)\s*(?:\|\s*rule:\s*([^|\]]+?)\s*)?(?:\|\s*profile:\s*([^\]]+?)\s*)?\]/i;
 var ROUTE_RE_G = new RegExp(ROUTE_RE.source, "gi");
 var ORCH_RE_G = /\[orchestrator-active\]/gi;
@@ -40761,19 +41869,10 @@ function isNoiseLine(line) {
   return false;
 }
 function sanitizeAssistantText(raw) {
-  const input = typeof raw === "string" ? raw : "";
-  const meta = {};
-  const routeMatch = ROUTE_RE.exec(input);
-  if (routeMatch) {
-    if (routeMatch[1]?.trim()) meta.route = routeMatch[1].trim();
-    if (routeMatch[2]?.trim()) meta.rule = routeMatch[2].trim();
-    if (routeMatch[3]?.trim()) meta.profile = routeMatch[3].trim();
-  }
-  const hadBadges = routeMatch != null || /\[orchestrator-active\]/i.test(input);
-  const withoutBadges = input.replace(ROUTE_RE_G, " ").replace(ORCH_RE_G, " ");
-  const kept = withoutBadges.split("\n").filter((l) => !isNoiseLine(l));
+  const badges = sanitizeAssistantBadges(raw);
+  const kept = badges.text.split("\n").filter((l) => !isNoiseLine(l));
   const text = kept.join("\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  return { text, meta, hadBadges };
+  return { text, meta: badges.meta, hadBadges: badges.hadBadges };
 }
 function routeChipLabel(meta) {
   const route = meta.route;
@@ -40815,7 +41914,7 @@ function rewriteHostUrl(raw, ctx) {
   if (!raw || !LOOPBACK.test(raw)) return raw;
   const hostname = ctx?.hostname ?? "";
   const protocol = ctx?.protocol ?? "";
-  const serveMap = ctx?.serveMap ?? {};
+  const serveMap2 = ctx?.serveMap ?? {};
   if (!hostname || hostname === "127.0.0.1" || hostname === "localhost") return raw;
   let u;
   try {
@@ -40824,7 +41923,7 @@ function rewriteHostUrl(raw, ctx) {
     return raw;
   }
   const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
-  const base = serveMap[String(port)];
+  const base = serveMap2[String(port)];
   if (base) {
     try {
       const b = new URL(base);
@@ -40888,67 +41987,908 @@ function filePathMarkedExtension() {
   };
 }
 
-// ../../../packages/claude-chat/src/SessionTranscript.tsx
-var import_react3 = __toESM(require_react(), 1);
-var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
-var md = new Marked({ breaks: true, gfm: true });
-md.use({
-  renderer: {
-    // The transcript is injected via dangerouslySetInnerHTML; marked doesn't
-    // sanitize, so escape any raw HTML in a text block.
-    html({ text }) {
-      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
+// ../../../packages/claude-chat/src/markdown-safety.ts
+var serveMap = {};
+var hostMapPromise = null;
+function loadHostMap() {
+  if (!hostMapPromise) {
+    hostMapPromise = fetch("/host-map").then((response) => response.ok ? response.json() : null).then((payload) => {
+      if (payload?.map && typeof payload.map === "object") serveMap = payload.map;
+    }).catch(() => {
+    });
   }
-});
+  return hostMapPromise;
+}
+function hostCtx() {
+  return {
+    hostname: typeof window !== "undefined" ? window.location.hostname : "",
+    protocol: typeof window !== "undefined" ? window.location.protocol : "",
+    serveMap
+  };
+}
+function escapeMarkdownHtml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escapeMarkdownAttribute(value) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function isSafeHref(url) {
+  const value = url.trim();
+  if (value === "") return false;
+  if (/^(?:\/|#|\?|\.\/|\.\.\/)/.test(value)) return true;
+  if (/^\/\//.test(value)) return true;
+  return /^(?:https?:|mailto:|tel:)/i.test(value);
+}
+function installSafeMarkdownRenderer(marked2, hostContext = hostCtx) {
+  marked2.use({
+    renderer: {
+      html({ text }) {
+        return escapeMarkdownHtml(text);
+      },
+      link({ href, title: title2, tokens }) {
+        const text = this.parser.parseInline(tokens);
+        const original = (href || "").trim();
+        let url = href || "";
+        const garrison = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
+        if (garrison) {
+          url = `/fitting/${garrison[1]}${garrison[2] ? `/${garrison[2]}` : ""}`;
+        }
+        if (!isSafeHref(url)) return text;
+        if (/^https?:\/\//i.test(url)) {
+          const reachable = rewriteHostUrl(url, hostContext());
+          if (reachable === "") return `<span class="cc-unreachable">${text}</span>`;
+          url = reachable;
+        }
+        const external = /^https?:\/\//i.test(url) || /^\/\//.test(url) ? ` target="_blank" rel="noopener noreferrer"` : "";
+        const label = title2 ? ` title="${escapeMarkdownAttribute(title2)}"` : "";
+        const shown = text.trim();
+        const body = shown === original || shown === escapeMarkdownHtml(original) ? escapeMarkdownHtml(url) : text;
+        return `<a href="${escapeMarkdownAttribute(url)}"${label}${external}>${body}</a>`;
+      }
+    }
+  });
+}
+
+// ../../../packages/claude-chat/src/SessionTranscript.tsx
+var React2 = __toESM(require_react(), 1);
+var import_react4 = __toESM(require_react(), 1);
+var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+var md = new Marked({ breaks: true, gfm: true });
+installSafeMarkdownRenderer(md);
 md.use({ extensions: [filePathMarkedExtension()] });
-function TextBlock({ text, role }) {
+function displayJsonValue(value) {
+  if (typeof value === "string") return value;
+  if (value === void 0) return "Not provided";
+  try {
+    const encoded = JSON.stringify(value, null, 2);
+    return encoded === void 0 ? String(value) : encoded;
+  } catch {
+    return String(value);
+  }
+}
+function permissionText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function permissionSuggestionDestinations(suggestions) {
+  const destinations = /* @__PURE__ */ new Set();
+  for (const suggestion of suggestions) {
+    if (!suggestion || typeof suggestion !== "object" || Array.isArray(suggestion)) continue;
+    const destination = permissionText(suggestion.destination);
+    if (destination) destinations.add(destination);
+  }
+  return [...destinations];
+}
+function TextBlock({
+  text,
+  role,
+  renderMarkdown = (value) => md.parse(value)
+}) {
   if (role === "user" && text.length > 280) {
     const head = text.slice(0, 140).split("\n")[0];
-    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("details", { className: "cc-session-longtext", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("summary", { children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("details", { className: "cc-session-longtext", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("summary", { children: [
         head,
         "\u2026"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: md.parse(text) } })
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: renderMarkdown(text) } })
     ] });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: md.parse(text || "") } });
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-md cc-md", dangerouslySetInnerHTML: { __html: renderMarkdown(text || "") } });
 }
-function ToolBlock({ block: block2, result }) {
-  const hint = (block2.input ?? "").replace(/\s+/g, " ").replace(/^[{[]\s*/, "").slice(0, 90);
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-toolwrap", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("details", { className: "cc-session-tool", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("summary", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-tool-ico", "aria-hidden": "true", children: "\u2699" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: block2.name }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-tool-hint", children: hint }),
-        result?.isError && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-err", children: "error" })
+function ActivityDetails({
+  active,
+  className,
+  id,
+  summary,
+  children
+}) {
+  const [open, setOpen] = (0, import_react4.useState)(active);
+  const wasActive = (0, import_react4.useRef)(active);
+  (0, import_react4.useEffect)(() => {
+    if (active !== wasActive.current) {
+      setOpen(active);
+      wasActive.current = active;
+    }
+  }, [active]);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+    "details",
+    {
+      id,
+      className: `${className}${active ? " is-live" : " is-complete"}`,
+      open,
+      onToggle: (event) => setOpen(event.currentTarget.open),
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("summary", { children: summary }),
+        children
+      ]
+    }
+  );
+}
+var NOTICE_INLINE_CHARS = 90;
+function elapsedLabel(elapsedMs) {
+  if (typeof elapsedMs !== "number" || !Number.isFinite(elapsedMs) || elapsedMs < 0) return null;
+  if (elapsedMs < 1e3) return `${Math.round(elapsedMs)}ms`;
+  const seconds = Math.round(elapsedMs / 1e3);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+function toolAnchorId(toolUseId) {
+  if (!toolUseId) return void 0;
+  return `cc-tool-${toolUseId.replace(/[^A-Za-z0-9_-]/g, "")}`;
+}
+function ToolBlock({
+  block: block2,
+  result,
+  progress,
+  live,
+  onImage
+}) {
+  const hint = sessionToolSummary(block2);
+  const progressDone = /^(?:complete|completed|done|success|succeeded|failed|error|cancelled|canceled)$/i.test(String(progress?.status ?? ""));
+  const active = live && !result && !progressDone;
+  const output = result ? result.text ?? "" : progress?.text ?? "";
+  const elapsed = elapsedLabel(progress?.elapsedMs);
+  const status = result?.isError ? "failed" : result ? "done" : active ? "running" : progress?.status || "pending";
+  const isCommand = /(?:^|[.:/])(bash|shell|exec|exec_command)$/i.test(block2.name ?? "");
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-toolwrap", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    ActivityDetails,
+    {
+      active,
+      className: `cc-session-tool${isCommand ? " cc-session-command" : ""}`,
+      id: toolAnchorId(block2.toolUseId),
+      summary: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-tool-ico", "aria-hidden": "true" }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { className: "cc-session-tool-name", title: block2.name || "Tool", children: block2.name || "Tool" }),
+        hint && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-tool-hint", children: hint }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: `cc-session-state ${result?.isError ? "error" : active ? "live" : ""}`, children: [
+          active && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-live-dot", "aria-hidden": "true" }),
+          status,
+          elapsed ? ` \xB7 ${elapsed}` : ""
+        ] })
       ] }),
-      block2.input && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre", children: block2.input }),
-      result?.text && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre cc-session-result", children: result.text })
+      children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-toolbody", children: [
+        Boolean(block2.input) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-section-label", children: "Input" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { className: "cc-session-pre", children: displayJsonValue(block2.input) })
+        ] }),
+        output && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-section-label", children: active ? "Live output" : "Result" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            "pre",
+            {
+              className: `cc-session-pre cc-session-result${active ? " is-live" : ""}`,
+              children: output
+            }
+          )
+        ] }),
+        active && !output && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-awaiting", children: "Waiting for output\u2026" }),
+        (result?.images ?? []).map((image, index) => {
+          const label = `${block2.name ?? "tool"} result image ${index + 1}`;
+          return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+            "button",
+            {
+              type: "button",
+              className: "cc-session-imgbtn",
+              onClick: () => onImage(image, label),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  "img",
+                  {
+                    className: "cc-session-img",
+                    src: `data:${image.mediaType};base64,${image.data}`,
+                    alt: label,
+                    loading: "lazy"
+                  }
+                ),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { children: [
+                  "Open ",
+                  label
+                ] })
+              ]
+            },
+            `${image.mediaType}:${index}`
+          );
+        })
+      ] })
+    }
+  ) });
+}
+function ThinkingBlock({ block: block2, active }) {
+  const summary = sessionThinkingSummary(block2.text);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    ActivityDetails,
+    {
+      active,
+      className: "cc-session-thinking",
+      summary: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: active ? "Thinking" : "Thought" }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-thinking-hint", children: summary }),
+        active && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-live-dot", "aria-hidden": "true" })
+      ] }),
+      children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { className: "cc-session-pre", children: block2.text })
+    }
+  );
+}
+function permissionDecisionLabel(decision) {
+  if (decision === "allow_once") return "Allowed once";
+  if (decision === "allow_always") return "Always allowed";
+  if (decision === "deny") return "Denied";
+  return "Resolved";
+}
+function PermissionBlock({
+  block: block2,
+  onPermissionDecision,
+  activeGenerationId
+}) {
+  const headingId = React2.useId();
+  const feedbackId = React2.useId();
+  const completenessId = React2.useId();
+  const requestId = permissionText(block2.requestId);
+  const generationId = permissionText(block2.generationId);
+  const status = block2.status === "pending" || block2.status === "resolved" || block2.status === "cancelled" ? block2.status : null;
+  const displayName = permissionText(block2.displayName) || permissionText(block2.name) || "tool";
+  const title2 = permissionText(block2.title) || `Allow ${displayName}?`;
+  const description = permissionText(block2.description);
+  const blockedPath = permissionText(block2.blockedPath);
+  const reason = permissionText(block2.reason);
+  const suggestions = Array.isArray(block2.suggestions) ? block2.suggestions : [];
+  const suggestionDestinations = permissionSuggestionDestinations(suggestions);
+  const hasSuggestions = suggestions.length > 0;
+  const inputComplete = block2.inputComplete === true;
+  const suggestionsComplete = block2.suggestionsComplete === true;
+  const canAlwaysAllow = inputComplete && suggestionsComplete && hasSuggestions;
+  const belongsToActiveGeneration = Boolean(
+    activeGenerationId && generationId && activeGenerationId === generationId
+  );
+  const canSubmit = status === "pending" && belongsToActiveGeneration && Boolean(
+    requestId && generationId && onPermissionDecision
+  );
+  const [submitting, setSubmitting] = (0, import_react4.useState)(null);
+  const [submitted, setSubmitted] = (0, import_react4.useState)(null);
+  const [failed, setFailed] = (0, import_react4.useState)(null);
+  const attemptRef = (0, import_react4.useRef)(0);
+  const decisionLockedRef = (0, import_react4.useRef)(false);
+  (0, import_react4.useEffect)(() => {
+    attemptRef.current += 1;
+    setSubmitting(null);
+    setSubmitted(null);
+    setFailed(null);
+    decisionLockedRef.current = false;
+  }, [requestId, generationId, status, block2.decision, activeGenerationId]);
+  const decide = async (decision) => {
+    if (!canSubmit || decisionLockedRef.current || submitting || submitted || !onPermissionDecision) return;
+    if (decision === "allow_once" && !inputComplete) return;
+    if (decision === "allow_always" && !canAlwaysAllow) return;
+    const attempt = ++attemptRef.current;
+    decisionLockedRef.current = true;
+    setSubmitting(decision);
+    setFailed(null);
+    try {
+      await onPermissionDecision({ requestId, generationId, decision });
+      if (attempt !== attemptRef.current) return;
+      setSubmitted(decision);
+    } catch (error) {
+      if (attempt !== attemptRef.current) return;
+      decisionLockedRef.current = false;
+      const detail = error instanceof Error && error.message.trim() ? error.message.replace(/\s+/g, " ").trim().slice(0, 180) : "Unknown error";
+      setFailed({ decision, message: `Could not send the decision: ${detail}` });
+    } finally {
+      if (attempt === attemptRef.current) setSubmitting(null);
+    }
+  };
+  const scope = block2.decision === "allow_always" ? "Future matching requests, using the saved changes below" : status === "pending" && hasSuggestions && suggestionsComplete ? "Allow once: this request \xB7 Always allow: future matching requests" : status === "pending" && !suggestionsComplete ? "Allow once: this request \xB7 Persistent scope unavailable" : "This request only";
+  const completenessMessage = !inputComplete ? status === "pending" ? "Approval unavailable because the full request details cannot be shown. You can still deny this request." : "Full request details were not retained, so this historical decision cannot be independently reviewed." : !suggestionsComplete ? status === "pending" ? "Always allow is unavailable because the full persistent permission changes cannot be shown. You can allow once or deny." : "Full persistent permission changes were not retained for this historical request." : "";
+  const statusLabel = status === "pending" ? onPermissionDecision && !belongsToActiveGeneration ? "No longer active" : !inputComplete ? "Approval unavailable" : submitted ? "Awaiting confirmation" : "Awaiting your decision" : status === "cancelled" ? "Cancelled" : status === "resolved" ? permissionDecisionLabel(block2.decision) : "Unavailable";
+  const buttonLabel = (decision, label) => failed?.decision === decision ? `Retry ${label}` : label;
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+    "section",
+    {
+      className: `cc-session-permission is-${status ?? "invalid"}`,
+      "data-permission-request-id": requestId || void 0,
+      "data-permission-generation-id": generationId || void 0,
+      "aria-labelledby": headingId,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-permission-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-permission-kicker", children: "Permission request" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: `cc-session-permission-status is-${status ?? "invalid"}`, children: statusLabel })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h3", { id: headingId, children: title2 }),
+        description && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "cc-session-permission-description", children: description }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("dl", { className: "cc-session-permission-facts", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { children: "Tool" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { children: displayName })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { children: "Scope" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { children: scope })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { children: "Blocked path" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { children: blockedPath || "Not reported by the runtime" })
+          ] }),
+          reason && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { children: "Reason" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { children: reason })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-permission-input", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-section-label", children: inputComplete ? "Exact proposed tool input" : "Available partial tool input" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { className: "cc-session-pre", children: displayJsonValue(block2.input) })
+        ] }),
+        hasSuggestions && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-permission-suggestions", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-section-label", children: suggestionsComplete ? "Exact changes saved by Always allow" : "Available partial persistent changes" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { children: "These permission changes would apply to future matching requests." }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dl", { className: "cc-session-permission-save-facts", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { children: "Permission destination" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { children: suggestionDestinations.length ? suggestionDestinations.join(", ") : "Not reported by the runtime" })
+          ] }) }),
+          suggestions.map((suggestion, index) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { className: "cc-session-pre", children: displayJsonValue(suggestion) }, index))
+        ] }),
+        completenessMessage && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { id: completenessId, className: "cc-session-permission-warning", children: completenessMessage }),
+        status === "pending" && !onPermissionDecision && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "cc-session-permission-readonly", children: "Return to chat to answer this permission request." }),
+        status === "pending" && onPermissionDecision && (!requestId || !generationId) && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "cc-session-permission-readonly", children: "This request is missing its secure answer coordinates and cannot be answered here." }),
+        status === "pending" && onPermissionDecision && requestId && generationId && !belongsToActiveGeneration && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "cc-session-permission-readonly", children: "This permission request is no longer active and cannot be answered." }),
+        !status && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "cc-session-permission-readonly", children: "This request has an invalid status and cannot be answered here." }),
+        status === "pending" && canSubmit && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+          "div",
+          {
+            className: "cc-session-permission-actions",
+            role: "group",
+            "aria-label": `Answer permission request for ${displayName}`,
+            "aria-describedby": [
+              completenessMessage ? completenessId : "",
+              failed || submitted ? feedbackId : ""
+            ].filter(Boolean).join(" ") || void 0,
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-session-permission-deny",
+                  disabled: Boolean(submitting || submitted),
+                  onClick: () => void decide("deny"),
+                  children: submitting === "deny" ? "Denying\u2026" : buttonLabel("deny", "Deny")
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "button",
+                {
+                  type: "button",
+                  disabled: Boolean(submitting || submitted || !inputComplete),
+                  title: !inputComplete ? "Unavailable because the full request details cannot be shown" : void 0,
+                  onClick: () => void decide("allow_once"),
+                  children: submitting === "allow_once" ? "Allowing\u2026" : buttonLabel("allow_once", "Allow once")
+                }
+              ),
+              canAlwaysAllow && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-session-permission-always",
+                  disabled: Boolean(submitting || submitted),
+                  onClick: () => void decide("allow_always"),
+                  children: submitting === "allow_always" ? "Allowing\u2026" : buttonLabel("allow_always", "Always allow")
+                }
+              )
+            ]
+          }
+        ),
+        failed && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { id: feedbackId, className: "cc-session-permission-error", children: failed.message }),
+        submitted && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { id: feedbackId, className: "cc-session-permission-submitted", children: "Answer sent. Waiting for durable confirmation\u2026" })
+      ]
+    }
+  );
+}
+function finiteEpochTime(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  const date = new Date(value * 1e3);
+  if (!Number.isFinite(date.getTime())) return null;
+  try {
+    return {
+      dateTime: date.toISOString(),
+      label: new Intl.DateTimeFormat(void 0, { dateStyle: "medium", timeStyle: "short" }).format(date)
+    };
+  } catch {
+    return null;
+  }
+}
+function compactNoticeText(value) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+function errorLabel(block2) {
+  if (block2.source === "runtime") return "Runtime error";
+  if (block2.source === "transport") return "Connection error";
+  if (block2.source === "gateway") return "Gateway error";
+  if (block2.source === "web") return "Web error";
+  if (block2.source === "session") return "Session error";
+  if (block2.source === "result") return "Execution error";
+  if (block2.source === "assistant") return "Request error";
+  return "Error";
+}
+function routeSummary(block2) {
+  const attribution = block2.attribution ?? {};
+  const signature = attribution.spawnSignature && typeof attribution.spawnSignature === "object" ? attribution.spawnSignature : {};
+  const field = (key) => compactNoticeText(attribution[key] ?? signature[key]);
+  const target = field("route") || field("target");
+  const runtime = field("runtime");
+  const provider = field("provider");
+  const model = field("model");
+  const destination = [runtime, provider, model].filter(Boolean).join(" / ");
+  const selected = [target, destination].filter(Boolean).join(" \xB7 ");
+  const requested = compactNoticeText(block2.requestedModel);
+  const disposition = compactNoticeText(attribution.sessionDisposition);
+  const lifecycle = disposition === "new" ? "Started a new session." : disposition === "resumed" ? "Resumed the session." : disposition === "warm" ? "Continued the current session." : "";
+  const effort = field("effort");
+  const effortClause = !effort ? "" : attribution.effortApplied === false ? ` at ${effort} effort (refused)` : attribution.effortApplied === true ? ` at ${effort} effort` : ` at ${effort} effort (unverified)`;
+  const duty = field("duty");
+  const level = typeof attribution.level === "number" && Number.isFinite(attribution.level) && attribution.level > 0 ? `L${Math.trunc(attribution.level)}` : "";
+  const dutyNote = [duty, level].filter(Boolean).join(" ");
+  const account = field("account");
+  const rest = [dutyNote && `duty ${dutyNote}`, account && `account ${account}`].filter(Boolean).join(", ");
+  const tail = `${effortClause}${rest ? `, ${rest}` : ""}`;
+  if (requested && model && requested !== model) {
+    return [lifecycle, `Requested ${requested}; using ${model}${target ? ` via ${target}` : ""}${tail}.`].filter(Boolean).join(" ");
+  }
+  const route = selected ? `Using ${selected}${tail}.` : compactNoticeText(block2.text) || "Route resolved.";
+  return [lifecycle, route].filter(Boolean).join(" ");
+}
+function retrySummary(block2) {
+  if (block2.kind === "model_fallback") {
+    const from = compactNoticeText(block2.fromModel);
+    const to = compactNoticeText(block2.toModel);
+    if (from && to) return `Model changed from ${from} to ${to}.`;
+  }
+  const parts = [];
+  if (typeof block2.attempt === "number" && Number.isFinite(block2.attempt)) {
+    const attempt = Math.max(0, Math.trunc(block2.attempt));
+    const maximum = typeof block2.maxAttempts === "number" && Number.isFinite(block2.maxAttempts) ? Math.max(0, Math.trunc(block2.maxAttempts)) : null;
+    parts.push(maximum !== null ? `attempt ${attempt} of ${maximum}` : `attempt ${attempt}`);
+  }
+  if (typeof block2.delayMs === "number" && Number.isFinite(block2.delayMs) && block2.delayMs >= 0) {
+    const seconds = Math.max(0, Math.round(block2.delayMs / 100) / 10);
+    parts.push(`in ${seconds} ${seconds === 1 ? "second" : "seconds"}`);
+  }
+  const text = compactNoticeText(block2.text);
+  return [text, parts.join(" \xB7 ")].filter(Boolean).join(" ");
+}
+function terminalSummary(block2) {
+  const reportedErrors = Array.isArray(block2.errors) ? block2.errors.map(compactNoticeText).filter(Boolean).join("; ") : "";
+  const candidates = [block2.reason, block2.terminalReason, block2.stopReason, reportedErrors, block2.subtype];
+  return candidates.map(compactNoticeText).find(Boolean) ?? "";
+}
+function SessionNotice({
+  block: block2,
+  renderMarkdown,
+  renderTerminalResult = false,
+  terminalResultDuplicated = false
+}) {
+  let tone = "info";
+  let label = "Notice";
+  let detail = compactNoticeText(block2.text);
+  let reset = null;
+  let timePrefix = "Resets";
+  if (block2.type === "error") {
+    tone = "danger";
+    label = errorLabel(block2);
+    reset = finiteEpochTime(block2.retryAt);
+    timePrefix = "Retry after";
+  } else if (block2.type === "retry" || block2.type === "status") {
+    const fallback = block2.kind === "model_fallback" || block2.subtype === "model_refusal_fallback";
+    tone = fallback ? "route" : "warning";
+    label = fallback ? "Route changed" : "Retrying request";
+    detail = retrySummary(block2) || (fallback ? "The request moved to a fallback model." : "The request will retry automatically.");
+  } else if (block2.type === "rate_limit") {
+    const rejected = block2.status === "rejected" || block2.overageStatus === "rejected";
+    const overageNeedsAttention = Boolean(block2.overageStatus && block2.overageStatus !== "allowed");
+    tone = rejected ? "danger" : "warning";
+    label = rejected ? "Rate limit reached" : "Rate limit warning";
+    detail = compactNoticeText(block2.text) || (block2.rateLimitType ? `${block2.rateLimitType.replace(/_/g, " ")} usage window.` : "Usage is nearing its limit.");
+    reset = finiteEpochTime(block2.status === "rejected" ? block2.resetsAt : overageNeedsAttention ? block2.overageResetsAt : block2.resetsAt);
+  } else if (block2.type === "route") {
+    tone = "route";
+    label = "Route selected";
+    detail = routeSummary(block2);
+  } else if (block2.type === "turn_end") {
+    const status = String(block2.status ?? "completed");
+    tone = status === "error" ? "danger" : status === "cancelled" ? "warning" : "complete";
+    label = status === "error" ? "Response failed" : status === "cancelled" ? "Response stopped" : "Response complete";
+    detail = terminalSummary(block2);
+  }
+  const meta = block2.type === "error" && (block2.code || block2.requestId) ? [compactNoticeText(block2.code), block2.requestId ? `request ${compactNoticeText(block2.requestId)}` : ""].filter(Boolean).join(" \xB7 ") : block2.type === "retry" && typeof block2.httpStatus === "number" ? `HTTP ${block2.httpStatus}` : null;
+  const terminalText = block2.type === "turn_end" && renderTerminalResult && !terminalResultDuplicated && typeof block2.result === "string" && block2.result.trim() ? block2.result : null;
+  const hasBody = Boolean(reset || terminalText || detail && detail.length > NOTICE_INLINE_CHARS);
+  const head = /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-notice-label", children: label }),
+    detail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-notice-lede", children: detail }),
+    meta && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-notice-meta", children: meta })
+  ] });
+  const body = /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-notice-body", children: [
+    detail && detail.length > NOTICE_INLINE_CHARS && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-notice-detail", children: detail }),
+    reset && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-notice-reset", children: [
+      timePrefix,
+      " ",
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("time", { dateTime: reset.dateTime, children: reset.label })
     ] }),
-    (result?.images ?? []).map((image, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-      "img",
-      {
-        className: "cc-session-img",
-        src: `data:${image.mediaType};base64,${image.data}`,
-        alt: `${block2.name ?? "tool"} result image ${index + 1}`,
-        loading: "lazy"
-      },
-      index
-    ))
+    terminalText && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-terminal-text cc-session-markdown", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TextBlock, { text: terminalText, role: "assistant", renderMarkdown }) })
+  ] });
+  const className = `cc-session-notice cc-session-notice-${tone}${block2.type === "error" ? " cc-session-error" : ""}`;
+  if (!hasBody) {
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: `${className} is-flat`, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-notice-head", children: head }) });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("details", { className, open: tone === "danger" || Boolean(terminalText), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("summary", { className: "cc-session-notice-head", children: head }),
+    body
   ] });
 }
-function SessionStream({ url, live }) {
-  const [events, setEvents] = (0, import_react3.useState)([]);
-  const [status, setStatus] = (0, import_react3.useState)("connecting");
-  const scrollRef = (0, import_react3.useRef)(null);
-  const stickRef = (0, import_react3.useRef)(true);
-  (0, import_react3.useEffect)(() => {
+function FailureNotice({ failure }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SessionNotice, { block: { type: "error", ...failure } });
+}
+function ActivityTimeline({
+  events,
+  includeText,
+  omittedTextEventIndex,
+  live,
+  activeThinkingBlock,
+  resultsByToolUse,
+  progressByToolUse,
+  onImage,
+  renderMarkdown,
+  onPermissionDecision,
+  permissionGenerationId,
+  renderTerminalResult = false
+}) {
+  const beats = sessionActivityBeats(events);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: `cc-session-activity${live ? " is-live" : ""}`, children: beats.map((beat) => {
+    const sourceEvent = events[beat.eventIndex];
+    const eventKey = sourceEvent?.id ?? `event-${beat.eventIndex}`;
+    const key = `${eventKey}:${beat.blockIndex}:${beat.type}`;
+    if (beat.type === "text") {
+      if (!includeText || beat.eventIndex === omittedTextEventIndex || !beat.text.trim()) return null;
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        "div",
+        {
+          className: "cc-session-interim-text cc-session-markdown",
+          "data-session-event-id": sourceEvent?.id ?? void 0,
+          "data-session-block-index": beat.blockIndex,
+          children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TextBlock, { text: beat.text, role: "assistant", renderMarkdown })
+        },
+        key
+      );
+    }
+    if (beat.type === "error") {
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        "div",
+        {
+          "data-session-event-id": sourceEvent?.id ?? void 0,
+          "data-session-block-index": beat.blockIndex,
+          children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SessionNotice, { block: beat.block })
+        },
+        key
+      );
+    }
+    const block2 = beat.block;
+    if (["retry", "rate_limit", "route", "turn_end", "status"].includes(beat.type)) {
+      const terminalResultDuplicated = block2.type === "turn_end" && typeof block2.result === "string" && events.some(
+        (event) => sessionEventText(event).trim() === block2.result.trim()
+      );
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        "div",
+        {
+          "data-session-event-id": sourceEvent?.id ?? void 0,
+          "data-session-block-index": beat.blockIndex,
+          children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            SessionNotice,
+            {
+              block: block2,
+              renderMarkdown,
+              renderTerminalResult,
+              terminalResultDuplicated
+            }
+          )
+        },
+        key
+      );
+    }
+    if (beat.type === "thinking") {
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ThinkingBlock, { block: block2, active: live && activeThinkingBlock === block2 }, key);
+    }
+    if (beat.type === "permission_request") {
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+        PermissionBlock,
+        {
+          block: block2,
+          onPermissionDecision,
+          activeGenerationId: live ? permissionGenerationId : void 0
+        },
+        key
+      );
+    }
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      ToolBlock,
+      {
+        block: block2,
+        result: block2.toolUseId ? resultsByToolUse.get(block2.toolUseId) : void 0,
+        progress: block2.toolUseId ? progressByToolUse.get(block2.toolUseId) : void 0,
+        live,
+        onImage
+      },
+      key
+    );
+  }) });
+}
+function SessionEventTimeline({
+  events,
+  live = false,
+  className = "",
+  renderMarkdown,
+  onPermissionDecision,
+  permissionGenerationId
+}) {
+  const [modalImage, setModalImage] = (0, import_react4.useState)(null);
+  const [, setHostMapReady] = (0, import_react4.useState)(false);
+  (0, import_react4.useEffect)(() => {
+    let alive = true;
+    void loadHostMap().then(() => {
+      if (alive) setHostMapReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const assistantEvents = (0, import_react4.useMemo)(
+    () => events.filter((event) => event.role === "assistant" && !event.toolResultsOnly),
+    [events]
+  );
+  const resultsByToolUse = (0, import_react4.useMemo)(() => latestBlocksByToolUse(events, "tool_result"), [events]);
+  const progressByToolUse = (0, import_react4.useMemo)(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
+  const activeThinkingBlock = (0, import_react4.useMemo)(() => {
+    if (!live) return null;
+    let latest = null;
+    for (const event of events) {
+      for (const block2 of event.blocks ?? []) {
+        if (block2.type === "related_task") continue;
+        latest = block2;
+      }
+    }
+    return latest?.type === "thinking" ? latest : null;
+  }, [events, live]);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+    "div",
+    {
+      className: `cc-session-inline${className ? ` ${className}` : ""}`,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          ActivityTimeline,
+          {
+            events: assistantEvents,
+            includeText: true,
+            omittedTextEventIndex: null,
+            live,
+            activeThinkingBlock,
+            resultsByToolUse,
+            progressByToolUse,
+            onImage: (image, label) => setModalImage({ image, label }),
+            renderMarkdown,
+            onPermissionDecision,
+            permissionGenerationId,
+            renderTerminalResult: true
+          }
+        ),
+        modalImage && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ImageModal, { image: modalImage.image, label: modalImage.label, onClose: () => setModalImage(null) })
+      ]
+    }
+  );
+}
+function InterimDetails({ count, openByDefault, children }) {
+  const [open, setOpen] = (0, import_react4.useState)(openByDefault);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("details", { className: "cc-session-interim", open, onToggle: (event) => setOpen(event.currentTarget.open), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("summary", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Interim activity" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-session-interim-count", children: [
+        count,
+        " ",
+        count === 1 ? "item" : "items"
+      ] })
+    ] }),
+    children
+  ] });
+}
+function RelatedTasks({ tasks, onOpen }) {
+  const running = tasks.filter((task) => task.status === "running").length;
+  if (!tasks.length) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    ActivityDetails,
+    {
+      active: running > 0,
+      className: "cc-related",
+      summary: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Parallel and related tasks" }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-related-count", children: [
+          running ? `${running} live \xB7 ` : "",
+          tasks.length
+        ] })
+      ] }),
+      children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-related-list", children: tasks.map((task) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-related-task", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: `cc-related-status ${task.status}`, "aria-label": task.status }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-related-main", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: task.label }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: [task.detail, task.taskId ? task.taskId.slice(0, 12) : null].filter(Boolean).join(" \xB7 ") }),
+          task.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-related-progress", children: task.text })
+        ] }),
+        task.streamUrl ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", onClick: () => onOpen(task), children: "Open" }) : task.toolUseId ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          "button",
+          {
+            type: "button",
+            onClick: () => document.getElementById(toolAnchorId(task.toolUseId) ?? "")?.scrollIntoView({ behavior: "smooth", block: "center" }),
+            children: "Locate"
+          }
+        ) : null
+      ] }, task.key)) })
+    }
+  );
+}
+function useModalLifecycle(dialogRef, initialFocusRef) {
+  (0, import_react4.useEffect)(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    if (!dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+    initialFocusRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (dialog.open) dialog.close();
+      opener?.focus();
+    };
+  }, []);
+}
+function trapDialogTab(event, dialog) {
+  if (event.key !== "Tab") return;
+  const focusable = dialog?.querySelectorAll(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  );
+  if (!focusable?.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first || !event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+function ImageModal({ image, label, onClose }) {
+  const dialogRef = (0, import_react4.useRef)(null);
+  const closeRef = (0, import_react4.useRef)(null);
+  useModalLifecycle(dialogRef, closeRef);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    "dialog",
+    {
+      ref: dialogRef,
+      className: "cc-session-modal",
+      "aria-label": label,
+      onCancel: (event) => {
+        event.preventDefault();
+        onClose();
+      },
+      onKeyDown: (event) => trapDialogTab(event, dialogRef.current),
+      onClick: (event) => {
+        if (event.target === event.currentTarget) onClose();
+      },
+      children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-modal-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-modal-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: label }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { ref: closeRef, type: "button", onClick: onClose, "aria-label": `Close ${label}`, children: "Close" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("img", { src: `data:${image.mediaType};base64,${image.data}`, alt: label })
+      ] })
+    }
+  );
+}
+function RelatedTaskModal({ task, onClose }) {
+  const dialogRef = (0, import_react4.useRef)(null);
+  const closeRef = (0, import_react4.useRef)(null);
+  useModalLifecycle(dialogRef, closeRef);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+    "dialog",
+    {
+      ref: dialogRef,
+      className: "cc-related-view",
+      "aria-label": task.label,
+      onCancel: (event) => {
+        event.preventDefault();
+        onClose();
+      },
+      onKeyDown: (event) => trapDialogTab(event, dialogRef.current),
+      onClick: (event) => {
+        if (event.target === event.currentTarget) onClose();
+      },
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-related-view-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: task.label }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { ref: closeRef, type: "button", onClick: onClose, children: "Close" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          SessionStream,
+          {
+            url: task.streamUrl,
+            live: task.status === "running",
+            title: task.detail ?? "Related task",
+            announceLiveUpdates: false
+          }
+        )
+      ]
+    }
+  );
+}
+function SessionStream({
+  url,
+  live = false,
+  title: titleProp,
+  announceLiveUpdates = true
+}) {
+  const [events, setEvents] = (0, import_react4.useState)([]);
+  const [title2, setTitle] = (0, import_react4.useState)(titleProp ?? null);
+  const [status, setStatus] = (0, import_react4.useState)("connecting");
+  const [retryToken, setRetryToken] = (0, import_react4.useState)(0);
+  const [, setHostMapReady] = (0, import_react4.useState)(false);
+  const [modalImage, setModalImage] = (0, import_react4.useState)(null);
+  const [relatedView, setRelatedView] = (0, import_react4.useState)(null);
+  const scrollRef = (0, import_react4.useRef)(null);
+  const stickRef = (0, import_react4.useRef)(true);
+  const liveRef = (0, import_react4.useRef)(live);
+  const previousLiveRef = (0, import_react4.useRef)(live);
+  liveRef.current = live;
+  (0, import_react4.useEffect)(() => {
+    const becameLive = live && !previousLiveRef.current;
+    previousLiveRef.current = live;
+    if (becameLive) setRetryToken((value) => value + 1);
+  }, [live]);
+  (0, import_react4.useEffect)(() => {
+    let alive = true;
+    void loadHostMap().then(() => {
+      if (alive) setHostMapReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  (0, import_react4.useEffect)(() => {
     setEvents([]);
+    setTitle(titleProp ?? null);
     setStatus("connecting");
+    setRelatedView(null);
     stickRef.current = true;
+    let retryTimer = null;
+    const retryWhileLive = () => {
+      if (!liveRef.current || retryTimer) return;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (liveRef.current) setRetryToken((value) => value + 1);
+      }, 900);
+    };
     const source = new EventSource(url);
     source.onmessage = (message) => {
       let payload;
@@ -40958,22 +42898,36 @@ function SessionStream({ url, live }) {
         return;
       }
       if (payload.type === "init") {
-        setEvents(payload.events ?? []);
-        setStatus(payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended");
+        setEvents(Array.isArray(payload.events) ? mergeSessionEvents([], payload.events.filter(isSessionEvent)) : []);
+        if (payload.title) setTitle(String(payload.title));
+        const nextStatus = payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended";
+        setStatus(nextStatus);
+        if (payload.available === false) retryWhileLive();
       } else if (payload.type === "events") {
-        if (payload.events?.length) setEvents((current) => [...current, ...payload.events]);
+        if (payload.title) setTitle(String(payload.title));
+        const incoming = Array.isArray(payload.events) ? payload.events.filter(isSessionEvent) : [];
+        if (incoming.length) setEvents((current) => mergeSessionEvents(current, incoming));
+      } else if (payload.type === "snapshot") {
+        if (!Array.isArray(payload.events)) return;
+        if (payload.title) setTitle(String(payload.title));
+        setEvents(mergeSessionEvents([], payload.events.filter(isSessionEvent)));
       } else if (payload.type === "end") {
         setStatus((current) => current === "unavailable" ? current : "ended");
         source.close();
+        retryWhileLive();
       }
     };
     source.onerror = () => {
       setStatus((current) => current === "unavailable" ? current : "ended");
       source.close();
+      retryWhileLive();
     };
-    return () => source.close();
-  }, [url]);
-  (0, import_react3.useEffect)(() => {
+    return () => {
+      source.close();
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [url, titleProp, retryToken]);
+  (0, import_react4.useEffect)(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [events]);
@@ -40981,38 +42935,107 @@ function SessionStream({ url, live }) {
     const el = scrollRef.current;
     if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
   };
-  const resultsByToolUse = (0, import_react3.useMemo)(() => {
-    const map = /* @__PURE__ */ new Map();
+  const resultsByToolUse = (0, import_react4.useMemo)(() => latestBlocksByToolUse(events, "tool_result"), [events]);
+  const progressByToolUse = (0, import_react4.useMemo)(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
+  const streamLive = live && status === "streaming";
+  const relatedTasks = (0, import_react4.useMemo)(() => collectRelatedTasks(events, streamLive), [events, streamLive]);
+  (0, import_react4.useEffect)(() => {
+    setRelatedView((selected) => {
+      if (!selected) return selected;
+      return relatedTasks.find((task) => task.key === selected.key) ?? selected;
+    });
+  }, [relatedTasks]);
+  const visibleEvents = (0, import_react4.useMemo)(
+    () => events.filter((event) => event.role === "assistant" ? hasVisibleSessionActivity([event]) : !event.toolResultsOnly && Boolean(sessionEventText(event).trim())),
+    [events]
+  );
+  const turns = (0, import_react4.useMemo)(() => groupSessionTurns(visibleEvents), [visibleEvents]);
+  const activeThinkingBlock = (0, import_react4.useMemo)(() => {
+    if (!streamLive) return null;
+    let last = null;
     for (const event of events) {
       for (const block2 of event.blocks) {
-        if (block2.type === "tool_result" && block2.toolUseId) map.set(block2.toolUseId, block2);
+        if (block2.type === "related_task") continue;
+        last = block2;
       }
     }
-    return map;
-  }, [events]);
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-scroll", ref: scrollRef, onScroll, children: [
-    events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "cc-session-empty", children: status === "connecting" ? "Opening the transcript\u2026" : status === "unavailable" ? "No rich transcript yet \u2014 send a message, then reopen." : live ? "Waiting for the first activity\u2026" : "No transcript activity." }),
-    events.filter((event) => !event.toolResultsOnly).map((event, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "cc-session-turn " + (event.role === "user" ? "user" : "assistant"), children: [
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "cc-session-role", children: event.role === "user" ? "You" : "Assistant" }),
-      event.blocks.map((block2, blockIndex) => {
-        if (block2.type === "text") return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TextBlock, { text: block2.text ?? "", role: event.role }, blockIndex);
-        if (block2.type === "thinking") {
-          return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("details", { className: "cc-session-thinking", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("summary", { children: "Thinking" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { className: "cc-session-pre", children: block2.text })
-          ] }, blockIndex);
-        }
-        if (block2.type === "tool_use") {
-          return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ToolBlock, { block: block2, result: block2.toolUseId ? resultsByToolUse.get(block2.toolUseId) : void 0 }, blockIndex);
-        }
-        return null;
+    return last?.type === "thinking" ? last : null;
+  }, [events, streamLive]);
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-head-title", children: title2 ?? "Activity" }),
+      status === "connecting" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "connecting\u2026" }),
+      streamLive && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-session-live", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-live-dot", "aria-hidden": "true" }),
+        "live"
+      ] }),
+      (status === "ended" || !live && status === "streaming") && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "complete" }),
+      status === "unavailable" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "transcript unavailable" })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RelatedTasks, { tasks: relatedTasks, onOpen: (task) => setRelatedView(task) }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-scroll", ref: scrollRef, onScroll, children: [
+      visibleEvents.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-empty", children: status === "connecting" ? "Opening the activity journal\u2026" : status === "unavailable" ? "No rich activity journal is available for this turn." : live ? "Waiting for the first activity\u2026" : "No journal activity." }),
+      turns.map((turn, turnIndex) => {
+        const turnLive = streamLive && turnIndex === turns.length - 1;
+        const presentation = presentSessionTurn(turn, turnLive);
+        const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
+        const hasSettlementNotice = turn.assistantEvents.some((event) => event.blocks.some(
+          (block2) => block2.type === "error" || block2.type === "retry" || block2.type === "route" || block2.type === "turn_end" || block2.type === "rate_limit" && (String(block2.status ?? "").toLowerCase() !== "allowed" || Boolean(block2.overageStatus && String(block2.overageStatus).toLowerCase() !== "allowed")) || block2.type === "status" && (block2.subtype === "api_retry" || block2.subtype === "model_refusal_fallback")
+        ));
+        const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
+          const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
+          const activityCount = event.blocks.filter(
+            (block2) => block2.type === "thinking" || block2.type === "tool_use" || block2.type === "error" || block2.type === "permission_request" || block2.type === "retry" || block2.type === "route" || block2.type === "turn_end" || block2.type === "rate_limit" && (String(block2.status ?? "").toLowerCase() !== "allowed" || Boolean(block2.overageStatus && String(block2.overageStatus).toLowerCase() !== "allowed")) || block2.type === "status" && (block2.subtype === "api_retry" || block2.subtype === "model_refusal_fallback")
+          ).length;
+          return count + textCount + activityCount;
+        }, 0);
+        return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(React2.Fragment, { children: [
+          userText && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-turn user", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-role", children: "You" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TextBlock, { text: userText, role: "user" })
+          ] }),
+          (turn.assistantEvents.length > 0 || turnLive) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-session-turn assistant", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-session-role", children: "Assistant" }),
+            !turnLive && presentation.primaryText && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TextBlock, { text: presentation.primaryText, role: "assistant" }),
+            turnLive && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(import_jsx_runtime4.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              ActivityTimeline,
+              {
+                events: turn.assistantEvents,
+                includeText: true,
+                omittedTextEventIndex: null,
+                live: true,
+                activeThinkingBlock,
+                resultsByToolUse,
+                progressByToolUse,
+                onImage: (image, label) => setModalImage({ image, label }),
+                renderTerminalResult: true
+              }
+            ) }),
+            turnLive && !presentation.primaryText && interimCount === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-session-awaiting", role: announceLiveUpdates ? "status" : void 0, children: "Working\u2026" }),
+            !turnLive && interimCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(InterimDetails, { count: interimCount, openByDefault: !presentation.primaryText || hasSettlementNotice, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              ActivityTimeline,
+              {
+                events: turn.assistantEvents,
+                includeText: true,
+                omittedTextEventIndex: presentation.finalTextEventIndex,
+                live: false,
+                activeThinkingBlock: null,
+                resultsByToolUse,
+                progressByToolUse,
+                onImage: (image, label) => setModalImage({ image, label })
+              }
+            ) })
+          ] })
+        ] }, turn.key);
       })
-    ] }, event.id ?? `event-${index}`))
-  ] }) });
+    ] }),
+    modalImage && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ImageModal, { image: modalImage.image, label: modalImage.label, onClose: () => setModalImage(null) }),
+    relatedView?.streamUrl && relatedView.streamUrl !== url && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(RelatedTaskModal, { task: relatedView, onClose: () => setRelatedView(null) })
+  ] });
 }
 
 // ../../../packages/claude-chat/src/ClaudeChat.tsx
-var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 var md2 = new Marked({ breaks: true, gfm: true });
 for (const [name, lang] of Object.entries({
   typescript,
@@ -41039,47 +43062,9 @@ function writeClipboard(text) {
   if (!cb?.writeText) return Promise.resolve(false);
   return cb.writeText(text).then(() => true, () => false);
 }
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function escapeAttr(s) {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function isSafeHref(url) {
-  const u = url.trim();
-  if (u === "") return false;
-  if (/^(?:\/|#|\?|\.\/|\.\.\/)/.test(u)) return true;
-  if (/^\/\//.test(u)) return true;
-  return /^(?:https?:|mailto:|tel:)/i.test(u);
-}
+installSafeMarkdownRenderer(md2, hostCtx);
 md2.use({
   renderer: {
-    // Neutralize RAW HTML in the assistant stream. The parsed markdown is
-    // injected via dangerouslySetInnerHTML, and marked does NOT sanitize, so a
-    // reply carrying `<img src=x onerror=…>` or `<script>` (e.g. the Operative
-    // relaying a fetched page / a produced document / third-party content) would
-    // otherwise become active DOM. Escaping the raw-HTML token keeps it visible
-    // as text. Block AND inline HTML tokens both route through this method.
-    html({ text }) {
-      return escapeHtml(text);
-    },
-    link({ href, title: title2, tokens }) {
-      const text = this.parser.parseInline(tokens);
-      let url = href || "";
-      const g = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
-      if (g) {
-        url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
-      }
-      if (!isSafeHref(url)) return text;
-      if (/^https?:\/\//i.test(url)) {
-        const reachable = rewriteHostUrl(url, hostCtx());
-        if (reachable === "") return `<span class="cc-unreachable">${text}</span>`;
-        url = reachable;
-      }
-      const attrs = /^https?:\/\//i.test(url) || /^\/\//.test(url) ? ` target="_blank" rel="noopener noreferrer"` : "";
-      const t = title2 ? ` title="${escapeAttr(title2)}"` : "";
-      return `<a href="${escapeAttr(url)}"${t}${attrs}>${text}</a>`;
-    },
     // Rich fenced code block: a dark "card" with a header (uppercase mono
     // language label + a Copy button) over a syntax-highlighted <pre>. The Copy
     // button carries no inline handler (the markdown is injected via
@@ -41095,34 +43080,27 @@ md2.use({
         try {
           body = core_default.highlight(text, { language, ignoreIllegals: true }).value;
         } catch {
-          body = escapeHtml(text);
+          body = escapeMarkdownHtml(text);
         }
       } else {
-        body = escapeHtml(text);
+        body = escapeMarkdownHtml(text);
       }
-      const label = escapeHtml(language || "text");
+      const label = escapeMarkdownHtml(language || "text");
       return `<div class="cc-codeblock"><div class="cc-codehead"><span class="cc-codelang">${label}</span><button type="button" class="cc-codecopy" aria-label="Copy code">Copy</button></div><pre class="hljs"><code>${body}</code></pre></div>`;
     }
   }
 });
 md2.use({ extensions: [filePathMarkedExtension()] });
-var chatServeMap = {};
-var hostMapPromise = null;
-function loadHostMap() {
-  if (!hostMapPromise) {
-    hostMapPromise = fetch("/host-map").then((r) => r.ok ? r.json() : null).then((d) => {
-      if (d?.map && typeof d.map === "object") chatServeMap = d.map;
-    }).catch(() => {
-    });
-  }
-  return hostMapPromise;
+function renderChatMarkdown(text) {
+  return md2.parse(text);
 }
-function hostCtx() {
-  return {
-    hostname: typeof window !== "undefined" ? window.location.hostname : "",
-    protocol: typeof window !== "undefined" ? window.location.protocol : "",
-    serveMap: chatServeMap
-  };
+function renderAssistantMarkdown(text) {
+  return renderChatMarkdown(sanitizeAssistantBadges(text).text);
+}
+function rewriteRouteForHost(route, ctx) {
+  if (!route || typeof route.cardUrl !== "string") return route;
+  const cardUrl = rewriteHostUrl(route.cardUrl, ctx);
+  return cardUrl === route.cardUrl ? route : { ...route, cardUrl };
 }
 var DRAFT_TEXT_PREFIX = "cc-draft-text:";
 var DRAFT_ATTACH_PREFIX = "cc-draft-attach:";
@@ -41163,6 +43141,317 @@ function saveDraft(key, text, attachments) {
   } catch {
   }
 }
+function generatedCoordinateKeys(coordinate) {
+  const keys = [];
+  if (coordinate.clientRequestId) keys.push(`client:${coordinate.clientRequestId}`);
+  if (coordinate.inputId) keys.push(`input:${coordinate.inputId}`);
+  if (coordinate.generationId) keys.push(`generation:${coordinate.generationId}`);
+  return keys;
+}
+function findGeneratedTurnIndex(turns, coordinate) {
+  const fields = ["clientRequestId", "inputId", "generationId"];
+  const matched = /* @__PURE__ */ new Set();
+  let supplied = false;
+  for (const field of fields) {
+    const value = coordinate[field];
+    if (typeof value !== "string" || !value.trim()) continue;
+    supplied = true;
+    const indices = [];
+    turns.forEach((turn, index2) => {
+      if (turn[field] === value) indices.push(index2);
+    });
+    if (indices.length > 1) return -1;
+    if (indices.length === 1) matched.add(indices[0]);
+  }
+  if (!supplied || matched.size !== 1) return -1;
+  const index = [...matched][0];
+  for (const field of fields) {
+    const incoming = coordinate[field];
+    const existing = turns[index][field];
+    if (typeof incoming === "string" && incoming.trim() && typeof existing === "string" && existing.trim() && incoming !== existing) return -1;
+  }
+  return index;
+}
+function applyGeneratedTurn(turns, coordinate, update) {
+  const index = findGeneratedTurnIndex(turns, coordinate);
+  if (index < 0) return turns;
+  const updated = update(turns[index]);
+  const bindings = {};
+  if (!updated.clientRequestId && coordinate.clientRequestId) bindings.clientRequestId = coordinate.clientRequestId;
+  if (!updated.inputId && coordinate.inputId) bindings.inputId = coordinate.inputId;
+  if (!updated.generationId && coordinate.generationId) bindings.generationId = coordinate.generationId;
+  const nextTurn = Object.keys(bindings).length ? { ...updated, ...bindings } : updated;
+  if (nextTurn === turns[index]) return turns;
+  const next = turns.slice();
+  next[index] = nextTurn;
+  return next;
+}
+var INPUT_STATE_ORDER = {
+  queued: 0,
+  starting: 1,
+  running: 2,
+  stopping: 3,
+  settled: 4,
+  stopped: 4,
+  failed: 4
+};
+function isActiveInputState(state) {
+  return state === "starting" || state === "running" || state === "stopping";
+}
+function isPendingInputState(state) {
+  return state === "queued" || isActiveInputState(state);
+}
+function inputLifecycleAnnouncement(input) {
+  const position = typeof input.position === "number" && Number.isFinite(input.position) ? Math.max(0, Math.trunc(input.position)) : null;
+  const failureText = input.failure?.text;
+  const reasonSource = typeof failureText === "string" ? failureText : input.reason;
+  const reason = typeof reasonSource === "string" ? reasonSource.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  switch (input.state) {
+    case "queued":
+      return position && position > 0 ? `Message queued, position ${position}.` : "Message queued.";
+    case "starting":
+      return "Starting response.";
+    case "running":
+      return "Response started.";
+    case "stopping":
+      return "Stopping current response.";
+    case "settled":
+      return "Response complete.";
+    case "stopped":
+      return "Response stopped.";
+    case "failed":
+      return reason ? `Message failed: ${reason}${/[.!?]$/.test(reason) ? "" : "."}` : "Message failed.";
+  }
+}
+function applyInputLifecycle(turns, input) {
+  return applyGeneratedTurn(turns, input, (turn) => {
+    if (turn.inputId && turn.inputId !== input.inputId) return turn;
+    if (turn.generationId && input.generationId && turn.generationId !== input.generationId) return turn;
+    if (turn.clientRequestId && turn.clientRequestId !== input.clientRequestId) return turn;
+    const currentState = turn.inputState;
+    const currentTerminal = currentState ? INPUT_STATE_ORDER[currentState] === 4 : false;
+    const stateAdvances = !currentState || !turn.inputId || currentState === input.state || !currentTerminal && INPUT_STATE_ORDER[input.state] >= INPUT_STATE_ORDER[currentState];
+    const nextState = stateAdvances ? input.state : currentState;
+    const nextStreaming = !turn.eventTerminal && isActiveInputState(nextState);
+    const position = typeof input.position === "number" && Number.isFinite(input.position) ? Math.max(0, Math.trunc(input.position)) : turn.inputPosition;
+    const next = {
+      ...turn,
+      clientRequestId: turn.clientRequestId ?? input.clientRequestId,
+      inputId: turn.inputId ?? input.inputId,
+      generationId: turn.generationId ?? input.generationId,
+      inputState: nextState,
+      inputPosition: position,
+      inputAcceptedAt: turn.inputAcceptedAt ?? input.acceptedAt,
+      inputReason: stateAdvances && input.reason !== void 0 ? input.reason : turn.inputReason,
+      failure: stateAdvances && input.failure !== void 0 ? input.failure : turn.failure,
+      eventTerminal: turn.eventTerminal || stateAdvances && INPUT_STATE_ORDER[input.state] === 4,
+      streaming: nextStreaming,
+      ...stateAdvances && INPUT_STATE_ORDER[input.state] === 4 ? { stopError: void 0 } : {}
+    };
+    const unchanged = next.clientRequestId === turn.clientRequestId && next.inputId === turn.inputId && next.generationId === turn.generationId && next.inputState === turn.inputState && next.inputPosition === turn.inputPosition && next.inputAcceptedAt === turn.inputAcceptedAt && next.inputReason === turn.inputReason && next.failure === turn.failure && next.eventTerminal === turn.eventTerminal && next.streaming === turn.streaming && next.stopError === turn.stopError;
+    return unchanged ? turn : next;
+  });
+}
+function mergeRouteAttribution(current, frame) {
+  const merged = { ...current ?? {}, ...frame };
+  if (frame.pending !== true) delete merged.pending;
+  return merged;
+}
+function numericSessionTurnId(value) {
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+function applySessionEvent(turns, event) {
+  if (turns.length === 0 || !isSessionEvent(event)) return turns;
+  const turnId = numericSessionTurnId(event.turnId);
+  let index = -1;
+  if (turnId !== null) {
+    for (let candidate = turns.length - 1; candidate >= 0; candidate -= 1) {
+      if (turns[candidate].seq === turnId) {
+        index = candidate;
+        break;
+      }
+    }
+  }
+  let adoptTurnId = false;
+  if (index === -1) {
+    const latestIndex = turns.length - 1;
+    const latest = turns[latestIndex];
+    if (turnId === null) {
+      if (!latest.streaming && latest.seq !== 0) return turns;
+    } else if (latest.seq === 0 || latest.streaming && turnId > latest.seq) {
+      adoptTurnId = latest.seq !== turnId;
+    } else {
+      return turns;
+    }
+    index = latestIndex;
+  }
+  const target = turns[index];
+  const sessionEvents = mergeSessionEvents(target.sessionEvents, [event]);
+  if (sessionEvents === target.sessionEvents && !adoptTurnId) return turns;
+  const copy = turns.slice();
+  copy[index] = {
+    ...target,
+    ...adoptTurnId && turnId !== null ? { seq: turnId } : {},
+    sessionEvents
+  };
+  return copy;
+}
+function applyTurnActive(turns, active) {
+  if (turns.length === 0) return turns;
+  const index = turns.length - 1;
+  if (turns[index].streaming === active) return turns;
+  const copy = turns.slice();
+  copy[index] = { ...turns[index], streaming: active };
+  return copy;
+}
+function canonicalResponseCandidates(events) {
+  const candidates = [];
+  for (const event of events) {
+    if (event.role !== "assistant") continue;
+    const text = sessionEventText(event);
+    if (text.trim()) candidates.push(text);
+    for (const block2 of event.blocks) {
+      if (block2.type === "error" && typeof block2.text === "string" && block2.text.trim()) {
+        candidates.push(block2.text);
+      } else if (block2.type === "turn_end" && typeof block2.result === "string" && block2.result.trim()) {
+        candidates.push(block2.result);
+      }
+    }
+  }
+  return candidates;
+}
+function canonicalAssistantReply(events) {
+  return canonicalResponseCandidates(events).at(-1) ?? "";
+}
+function canonicalTerminalReply(events) {
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex];
+    if (event.role !== "assistant") continue;
+    for (let blockIndex = event.blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block2 = event.blocks[blockIndex];
+      if (block2.type === "turn_end") {
+        if (typeof block2.result === "string" && block2.result.trim()) return block2.result;
+        return canonicalAssistantReply(events);
+      }
+    }
+  }
+  return null;
+}
+function resolvedAssistantText(turn) {
+  const terminal = canonicalTerminalReply(turn.sessionEvents);
+  if (terminal !== null) return sanitizeAssistantBadges(terminal).text;
+  if (turn.failure) return turn.failure.text;
+  const legacy = sanitizeAssistantText(turn.assistant).text;
+  if (legacy.trim()) return legacy;
+  return sanitizeAssistantBadges(canonicalAssistantReply(turn.sessionEvents)).text;
+}
+function resolvedAssistantRaw(turn) {
+  const terminal = canonicalTerminalReply(turn.sessionEvents);
+  if (terminal !== null) return terminal;
+  if (turn.failure) return turn.failure.text;
+  return sanitizeAssistantText(turn.assistant).text.trim() ? turn.assistant : canonicalAssistantReply(turn.sessionEvents);
+}
+function legacyAssistantFallback(assistant, events) {
+  const legacy = sanitizeAssistantText(assistant).text;
+  if (!legacy.trim()) return "";
+  if (hasCanonicalTurnEnd(events)) return "";
+  const duplicated = canonicalResponseCandidates(events).some(
+    (candidate) => sanitizeAssistantBadges(candidate).text.trim() === legacy.trim()
+  );
+  return duplicated ? "" : legacy;
+}
+function liveSessionAnnouncement(events, fallback) {
+  const toolNames = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    for (const block2 of event.blocks) {
+      if (block2.type === "tool_use" && block2.toolUseId) toolNames.set(block2.toolUseId, block2.name?.trim() || "Tool");
+    }
+  }
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const blocks = events[eventIndex].blocks;
+    for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block2 = blocks[blockIndex];
+      const blockName = typeof block2.name === "string" ? block2.name.trim() : "";
+      const tool = block2.toolUseId ? (toolNames.get(block2.toolUseId) ?? blockName) || "Tool" : blockName || "Tool";
+      if (block2.type === "permission_request") {
+        const permissionName = (typeof block2.displayName === "string" ? block2.displayName.trim() : "") || blockName || "tool";
+        if (block2.status === "cancelled") return `Permission request for ${permissionName} cancelled.`;
+        if (block2.status === "resolved") {
+          if (block2.decision === "deny") return `Permission denied for ${permissionName}.`;
+          if (block2.decision === "allow_always") return `Permission always allowed for ${permissionName}.`;
+          if (block2.decision === "allow_once") return `Permission allowed once for ${permissionName}.`;
+          return `Permission request for ${permissionName} resolved.`;
+        }
+        return `Permission requested for ${permissionName}.`;
+      }
+      if (block2.type === "error") return "Turn failed.";
+      if (block2.type === "retry") {
+        return block2.kind === "model_fallback" ? "Route changed to a fallback model." : "Request retrying.";
+      }
+      if (block2.type === "rate_limit") {
+        if (block2.status === "allowed" && (!block2.overageStatus || block2.overageStatus === "allowed")) continue;
+        return block2.status === "rejected" || block2.overageStatus === "rejected" ? "Rate limit reached." : "Rate limit warning.";
+      }
+      if (block2.type === "route") return "Route selected.";
+      if (block2.type === "turn_end") {
+        if (block2.status === "cancelled") return "Turn cancelled.";
+        if (block2.status === "error" || block2.status === "failed") return "Turn failed.";
+        return "Response complete.";
+      }
+      if (block2.type === "tool_result") return `${tool} ${block2.isError ? "failed" : "completed"}.`;
+      if (block2.type === "tool_progress") return `${tool} is running.`;
+      if (block2.type === "tool_use") return `${tool} started.`;
+      if (block2.type === "thinking") return "Thinking.";
+      if (block2.type === "text" && block2.text?.trim()) return "Response updating.";
+    }
+  }
+  const hint = fallback.replace(/\s+/g, " ").trim().slice(0, 80);
+  return hint ? `Working: ${hint}` : "Working.";
+}
+function hasCanonicalTurnEnd(events) {
+  return events.some((event) => event.blocks.some((block2) => block2.type === "turn_end"));
+}
+function terminalBlock(event) {
+  for (let index = event.blocks.length - 1; index >= 0; index -= 1) {
+    if (event.blocks[index].type === "turn_end") return event.blocks[index];
+  }
+  return null;
+}
+function terminalInputState(block2) {
+  if (block2.status === "cancelled") return "stopped";
+  if (block2.status === "error" || block2.status === "failed") return "failed";
+  return "settled";
+}
+function failureFromUnknown(value) {
+  if (value instanceof ChatTransportError) return value.failure;
+  if (value && typeof value === "object" && "failure" in value) {
+    const failure = value.failure;
+    if (isFailureInfo(failure)) return failure;
+  }
+  return void 0;
+}
+function rebindActiveTurn(turns, assistantSnapshot = "") {
+  if (turns.length === 0) {
+    return [{ id: nextId(), user: "", assistant: assistantSnapshot, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+  }
+  const last = turns.at(-1);
+  if (last.streaming) {
+    if (!assistantSnapshot.trim() || last.assistant === assistantSnapshot) return turns;
+    const copy2 = turns.slice();
+    copy2[copy2.length - 1] = { ...last, assistant: assistantSnapshot };
+    return copy2;
+  }
+  if (last.assistant.trim() || hasCanonicalTurnEnd(last.sessionEvents)) {
+    return [...turns, { id: nextId(), user: "", assistant: assistantSnapshot, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+  }
+  const copy = applyTurnActive(turns, true);
+  if (!assistantSnapshot.trim()) return copy;
+  copy[copy.length - 1] = { ...copy.at(-1), assistant: assistantSnapshot };
+  return copy;
+}
 function applyRouteFrame(turns, frame) {
   if (turns.length === 0) return turns;
   const idx = turns.length - 1;
@@ -41172,8 +43461,7 @@ function applyRouteFrame(turns, frame) {
     if (seq < last.seq) return turns;
     if (!last.streaming) return turns;
   }
-  const merged = { ...last.route ?? {}, ...frame };
-  if (frame.pending !== true) delete merged.pending;
+  const merged = mergeRouteAttribution(last.route, frame);
   const copy = turns.slice();
   copy[idx] = { ...last, route: merged, ...seq !== null ? { seq } : {} };
   return copy;
@@ -41182,19 +43470,21 @@ function QuestionBlock({
   q,
   answered,
   answering,
+  error,
+  active = true,
   onSelect,
   onOther
 }) {
-  const [otherOpen, setOtherOpen] = (0, import_react4.useState)(false);
-  const [otherText, setOtherText] = (0, import_react4.useState)("");
-  const locked = Boolean(answered) || Boolean(answering);
+  const [otherOpen, setOtherOpen] = (0, import_react5.useState)(false);
+  const [otherText, setOtherText] = (0, import_react5.useState)("");
+  const locked = !active || Boolean(answered) || Boolean(answering);
   const title2 = q.header?.trim() || q.question?.trim() || "Choose an option";
   const showSub = Boolean(q.question?.trim()) && q.question.trim() !== title2;
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-question", role: "group", "aria-label": title2, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-title", children: title2 }),
-    showSub && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-question-sub", children: q.question }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-question-opts", children: [
-      q.options.map((o) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-question", role: "group", "aria-label": title2, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-question-title", children: title2 }),
+    showSub && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-question-sub", children: q.question }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-question-opts", children: [
+      q.options.map((o) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
         "button",
         {
           type: "button",
@@ -41203,16 +43493,16 @@ function QuestionBlock({
           "aria-pressed": answered === o.label,
           onClick: () => onSelect(o.label),
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-question-opt-label", children: o.label }),
-            o.description && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-question-opt-desc", children: o.description })
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-question-opt-label", children: o.label }),
+            o.description && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-question-opt-desc", children: o.description })
           ]
         },
         o.label
       )),
-      !locked && !otherOpen && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "cc-question-other", onClick: () => setOtherOpen(true), children: "Other..." })
+      !locked && !otherOpen && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "cc-question-other", onClick: () => setOtherOpen(true), children: "Other..." })
     ] }),
-    !locked && otherOpen && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-question-otherrow", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    !locked && otherOpen && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-question-otherrow", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "input",
         {
           className: "cc-question-otherinput",
@@ -41228,7 +43518,7 @@ function QuestionBlock({
           }
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "button",
         {
           type: "button",
@@ -41239,7 +43529,46 @@ function QuestionBlock({
         }
       )
     ] }),
-    answered && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user cc-question-answer", children: answered })
+    answered && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-user cc-question-answer", children: answered }),
+    !active && !answered && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-question-inactive", children: "This question is no longer active and cannot be answered." }),
+    active && error && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-question-error", children: error })
+  ] });
+}
+function InputLifecycleStatus({
+  turn,
+  elapsed,
+  hint,
+  onRetryStop
+}) {
+  const state = turn.inputState;
+  if (!state) return null;
+  const label = {
+    queued: "Queued",
+    starting: "Starting",
+    running: "Working",
+    stopping: "Stopping",
+    settled: "Complete",
+    stopped: "Stopped",
+    failed: "Failed"
+  };
+  const active = state === "starting" || state === "running" || state === "stopping";
+  const detail = state === "queued" && typeof turn.inputPosition === "number" ? `Position ${turn.inputPosition}` : active ? hint : turn.failure ? "" : turn.inputReason || "";
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: `cc-lifecycle cc-lifecycle-${state}`, "data-input-state": state, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-lifecycle-mark", "aria-hidden": "true", children: active ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: "cc-working-dots", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("i", {}),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("i", {}),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("i", {})
+    ] }) : null }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-lifecycle-label", children: label[state] }),
+    active && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-lifecycle-time", children: fmtElapsed(elapsed) }),
+    detail && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-lifecycle-detail", children: detail }),
+    turn.stopError && turn.generationId && (state === "starting" || state === "running") && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: "cc-lifecycle-stoperror", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { children: [
+        "Stop failed: ",
+        turn.stopError
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", onClick: onRetryStop, children: "Retry stop" })
+    ] })
   ] });
 }
 var MODELS = [
@@ -41248,10 +43577,10 @@ var MODELS = [
   { id: "claude-haiku-4-5", label: "Haiku" }
 ];
 var EFFORTS = [
-  { id: "normal", label: "Normal", directive: "" },
-  { id: "think", label: "Think", directive: "think" },
-  { id: "think-hard", label: "Think hard", directive: "think hard" },
-  { id: "ultrathink", label: "Ultrathink", directive: "ultrathink" }
+  { id: "normal", label: "Normal", effort: "auto" },
+  { id: "think", label: "Think", effort: "low" },
+  { id: "think-hard", label: "Think hard", effort: "high" },
+  { id: "ultrathink", label: "Ultrathink", effort: "max" }
 ];
 var LS_EFFORT = "garrison.chat.effort";
 function readEffort() {
@@ -41272,6 +43601,58 @@ var MODE_LABELS = {
 var SWITCHABLE = ["default", "acceptEdits", "plan", "bypassPermissions"];
 var uid = 0;
 var nextId = () => `t${Date.now()}_${uid++}`;
+var nextClientRequestId = () => {
+  try {
+    const generated = globalThis.crypto?.randomUUID?.();
+    if (generated) return generated;
+  } catch {
+  }
+  return `chat-${Date.now()}-${uid++}`;
+};
+function RouteSheet({
+  onClose,
+  busy,
+  saving,
+  error,
+  onRetry,
+  children
+}) {
+  const ref = (0, import_react5.useRef)(null);
+  (0, import_react5.useEffect)(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    const onCancel = (event) => {
+      event.preventDefault();
+      onClose();
+    };
+    dialog.addEventListener("cancel", onCancel);
+    return () => dialog.removeEventListener("cancel", onCancel);
+  }, [onClose]);
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+    "dialog",
+    {
+      ref,
+      className: "cc-sheet",
+      "aria-label": "Run context",
+      onClick: (event) => {
+        if (event.target === ref.current) onClose();
+      },
+      children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-sheet-card", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-sheet-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { className: "cc-sheet-title", children: "Route" }),
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "cc-sheet-close", onClick: onClose, "aria-label": "Close route sheet", children: "\xD7" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: "cc-sheet-sub", children: busy ? "A response is running - these apply to your next message." : "Applies to your next message. Anything left on auto is chosen for you." }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-sheet-body", children }),
+        (saving || error) && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: `cc-pin-save${error ? " cc-pin-save-error" : ""}`, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { children: error ?? "Saving route choices\u2026" }),
+          error && onRetry && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", onClick: onRetry, children: "Retry save" })
+        ] })
+      ] })
+    }
+  );
+}
 function fmtElapsed(sec) {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
@@ -41281,31 +43662,31 @@ var THEME_ICONS = [
   {
     mode: "light",
     label: "Light",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("circle", { cx: "8", cy: "8", r: "3.2", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("g", { stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "8", y1: "1", x2: "8", y2: "2.8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "8", y1: "13.2", x2: "8", y2: "15" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "1", y1: "8", x2: "2.8", y2: "8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "13.2", y1: "8", x2: "15", y2: "8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "3.1", y1: "3.1", x2: "4.3", y2: "4.3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "11.7", y1: "11.7", x2: "12.9", y2: "12.9" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "12.9", y1: "3.1", x2: "11.7", y2: "4.3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "4.3", y1: "11.7", x2: "3.1", y2: "12.9" })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("circle", { cx: "8", cy: "8", r: "3.2", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("g", { stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "8", y1: "1", x2: "8", y2: "2.8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "8", y1: "13.2", x2: "8", y2: "15" }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "1", y1: "8", x2: "2.8", y2: "8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "13.2", y1: "8", x2: "15", y2: "8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "3.1", y1: "3.1", x2: "4.3", y2: "4.3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "11.7", y1: "11.7", x2: "12.9", y2: "12.9" }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "12.9", y1: "3.1", x2: "11.7", y2: "4.3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "4.3", y1: "11.7", x2: "3.1", y2: "12.9" })
       ] })
     ] })
   },
   {
     mode: "dark",
     label: "Dark",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z", fill: "currentColor" }) })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z", fill: "currentColor" }) })
   },
   {
     mode: "system",
     label: "System",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "1.5", y: "2.5", width: "13", height: "8.5", rx: "1", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("line", { x1: "5.5", y1: "13.5", x2: "10.5", y2: "13.5", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round" })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("rect", { x: "1.5", y: "2.5", width: "13", height: "8.5", rx: "1", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("line", { x1: "5.5", y1: "13.5", x2: "10.5", y2: "13.5", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round" })
     ] })
   }
 ];
@@ -41342,45 +43723,85 @@ function compactRouting(routing) {
   }
   return any ? out : void 0;
 }
-function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, features, context, mode: mode3, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }) {
+function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, features, context, mode: mode3, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
-  const seededTurns = (0, import_react4.useMemo)(
-    () => (initialHistory ?? []).map((h) => ({
-      id: nextId(),
-      user: h.user,
-      assistant: h.assistant,
-      streaming: false,
-      hideUser: h.hideUser,
-      // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
-      // stamped frame can never be mis-attached to one of them.
-      seq: 0,
-      route: h.route,
-      overrides: h.overrides
-    })),
+  const seededTurns = (0, import_react5.useMemo)(
+    () => (initialHistory ?? []).map((h) => {
+      const sessionEvents = mergeSessionEvents([], h.sessionEvents ?? []);
+      let boundary = null;
+      for (let eventIndex = sessionEvents.length - 1; eventIndex >= 0 && !boundary; eventIndex -= 1) {
+        boundary = terminalBlock(sessionEvents[eventIndex]);
+      }
+      const inputState = boundary ? terminalInputState(boundary) : h.input?.state;
+      return {
+        id: nextId(),
+        user: h.user,
+        assistant: h.assistant,
+        streaming: !boundary && (h.input ? isActiveInputState(h.input.state) : false),
+        hideUser: h.hideUser,
+        // Restored turns are not turns THIS mount sent, so they carry seq 0 and a
+        // stamped frame can never be mis-attached to one of them.
+        seq: 0,
+        sessionEvents,
+        route: h.route,
+        overrides: h.overrides,
+        clientRequestId: h.input?.clientRequestId,
+        inputId: h.input?.inputId,
+        generationId: h.input?.generationId,
+        inputState,
+        inputPosition: h.input?.position,
+        inputReason: h.input?.reason,
+        inputAcceptedAt: h.input?.acceptedAt,
+        failure: h.input?.failure,
+        eventTerminal: Boolean(boundary)
+      };
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
-  const [turns, setTurns] = (0, import_react4.useState)(seededTurns);
-  const [status, setStatus] = (0, import_react4.useState)({ rows: [], mode: "unknown", contextPct: null, model: null });
-  const [busy, setBusy] = (0, import_react4.useState)(false);
-  const [conn, setConn] = (0, import_react4.useState)("reconnecting");
-  const [screen, setScreen] = (0, import_react4.useState)([]);
-  const [showRaw, setShowRaw] = (0, import_react4.useState)(false);
-  const [showTranscript, setShowTranscript] = (0, import_react4.useState)(false);
-  const [input, setInput] = (0, import_react4.useState)(() => loadDraftText(draftKey));
-  const [commands, setCommands] = (0, import_react4.useState)([]);
-  const [menuIdx, setMenuIdx] = (0, import_react4.useState)(0);
-  const canAttach = typeof transport.uploadFile === "function";
-  const [attachments, setAttachments] = (0, import_react4.useState)(() => loadDraftAttachments(draftKey));
-  const attachmentsRef = (0, import_react4.useRef)(attachments);
+  const [turns, setTurns] = (0, import_react5.useState)(seededTurns);
+  const turnsRef = (0, import_react5.useRef)(turns);
+  turnsRef.current = turns;
+  const terminalCoordinatesRef = (0, import_react5.useRef)(new Set(
+    seededTurns.filter((turn) => turn.eventTerminal || turn.inputState && INPUT_STATE_ORDER[turn.inputState] === 4).flatMap(generatedCoordinateKeys)
+  ));
+  const rememberTerminalCoordinate = (0, import_react5.useCallback)((coordinate) => {
+    for (const key of generatedCoordinateKeys(coordinate)) terminalCoordinatesRef.current.add(key);
+  }, []);
+  const isRememberedTerminalCoordinate = (0, import_react5.useCallback)((coordinate) => generatedCoordinateKeys(coordinate).some((key) => terminalCoordinatesRef.current.has(key)), []);
+  const [status, setStatus] = (0, import_react5.useState)({ rows: [], mode: "unknown", contextPct: null, model: null });
+  const generatedMode = transport.inputLifecycle === true;
+  const [legacyBusy, setLegacyBusy] = (0, import_react5.useState)(false);
+  const generatedWork = generatedMode && turns.some((turn) => !turn.eventTerminal && isPendingInputState(turn.inputState));
+  const activeGeneratedTurn = generatedMode ? turns.find((turn) => !turn.eventTerminal && isActiveInputState(turn.inputState)) ?? null : null;
+  const busy = generatedMode ? generatedWork : legacyBusy;
+  const generatedWorkRef = (0, import_react5.useRef)(generatedWork);
+  generatedWorkRef.current = generatedWork;
+  const [turnAnnouncement, setTurnAnnouncement] = (0, import_react5.useState)("");
+  const announcedBusyRef = (0, import_react5.useRef)(false);
+  const [conn, setConn] = (0, import_react5.useState)("reconnecting");
+  const [screen, setScreen] = (0, import_react5.useState)([]);
+  const [showRaw, setShowRaw] = (0, import_react5.useState)(false);
+  const [showTranscript, setShowTranscript] = (0, import_react5.useState)(false);
+  const [input, setInput] = (0, import_react5.useState)(() => loadDraftText(draftKey));
+  const [commands, setCommands] = (0, import_react5.useState)([]);
+  const [menuIdx, setMenuIdx] = (0, import_react5.useState)(0);
+  const hasAttachmentTransport = typeof transport.uploadFile === "function";
+  const attachmentLocked = generatedMode && generatedWork;
+  const canAttach = hasAttachmentTransport && !attachmentLocked;
+  const [attachments, setAttachments] = (0, import_react5.useState)(() => loadDraftAttachments(draftKey));
+  const attachmentsRef = (0, import_react5.useRef)(attachments);
   attachmentsRef.current = attachments;
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     saveDraft(draftKey, input, attachments);
   }, [draftKey, input, attachments]);
-  const [dragOver, setDragOver] = (0, import_react4.useState)(false);
-  const fileInputRef = (0, import_react4.useRef)(null);
-  const uploadOne = (0, import_react4.useCallback)(
+  const [dragOver, setDragOver] = (0, import_react5.useState)(false);
+  const fileInputRef = (0, import_react5.useRef)(null);
+  (0, import_react5.useEffect)(() => {
+    if (autoShowTranscript && transcriptUrl && busy) setShowTranscript(true);
+  }, [autoShowTranscript, transcriptUrl, busy]);
+  const uploadOne = (0, import_react5.useCallback)(
     (file) => {
       const id = nextId();
       const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
@@ -41402,21 +43823,21 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     },
     [transport]
   );
-  const handleFiles = (0, import_react4.useCallback)(
+  const handleFiles = (0, import_react5.useCallback)(
     (files) => {
       if (!canAttach) return;
       Array.from(files).forEach(uploadOne);
     },
     [canAttach, uploadOne]
   );
-  const removeAttachment = (0, import_react4.useCallback)((id) => {
+  const removeAttachment = (0, import_react5.useCallback)((id) => {
     setAttachments((prev) => {
       const found = prev.find((a) => a.id === id);
       if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl);
       return prev.filter((a) => a.id !== id);
     });
   }, []);
-  const onComposerPaste = (0, import_react4.useCallback)(
+  const onComposerPaste = (0, import_react5.useCallback)(
     (e) => {
       if (!canAttach) return;
       const items = e.clipboardData?.items;
@@ -41435,7 +43856,7 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     },
     [canAttach, handleFiles]
   );
-  const onComposerDrop = (0, import_react4.useCallback)(
+  const onComposerDrop = (0, import_react5.useCallback)(
     (e) => {
       e.preventDefault();
       setDragOver(false);
@@ -41443,33 +43864,59 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     },
     [canAttach, handleFiles]
   );
-  const [autonomousOn, setAutonomousOn] = (0, import_react4.useState)(false);
-  const autonomousRef = (0, import_react4.useRef)(false);
-  (0, import_react4.useEffect)(() => {
+  const [autonomousOn, setAutonomousOn] = (0, import_react5.useState)(false);
+  const autonomousRef = (0, import_react5.useRef)(false);
+  (0, import_react5.useEffect)(() => {
     autonomousRef.current = autonomousOn;
   }, [autonomousOn]);
-  const [pins, setPins] = (0, import_react4.useState)(() => compactRouting(routing) ?? {});
-  const pinsRef = (0, import_react4.useRef)(pins);
+  const [pins, setPins] = (0, import_react5.useState)(() => compactRouting(routing) ?? {});
+  const pinsRef = (0, import_react5.useRef)(pins);
   pinsRef.current = pins;
+  const pinSaveEpochRef = (0, import_react5.useRef)(0);
+  const [pinSavePending, setPinSavePending] = (0, import_react5.useState)(false);
+  const [pinSaveError, setPinSaveError] = (0, import_react5.useState)(null);
   const routingPropKey = JSON.stringify(compactRouting(routing) ?? {});
-  (0, import_react4.useEffect)(() => {
-    if (JSON.stringify(pinsRef.current) === routingPropKey) return;
-    setPins(JSON.parse(routingPropKey));
+  (0, import_react5.useEffect)(() => {
+    if (JSON.stringify(pinsRef.current) === routingPropKey) {
+      pinSaveEpochRef.current += 1;
+      setPinSavePending(false);
+      setPinSaveError(null);
+      return;
+    }
+    const authoritative = JSON.parse(routingPropKey);
+    pinSaveEpochRef.current += 1;
+    pinsRef.current = authoritative;
+    setPins(authoritative);
+    setPinSavePending(false);
+    setPinSaveError(null);
   }, [routingPropKey]);
-  const [pendingPins, setPendingPins] = (0, import_react4.useState)([]);
-  const [railOpen, setRailOpen] = (0, import_react4.useState)(false);
-  const [resendArmed, setResendArmed] = (0, import_react4.useState)(false);
-  const [activity, setActivity] = (0, import_react4.useState)("");
-  const turnSeqRef = (0, import_react4.useRef)(0);
-  const inFlightTextRef = (0, import_react4.useRef)("");
-  const rootRef = (0, import_react4.useRef)(null);
-  const scrollRef = (0, import_react4.useRef)(null);
-  const pinnedRef = (0, import_react4.useRef)(true);
-  const taRef = (0, import_react4.useRef)(null);
+  const [pendingPins, setPendingPins] = (0, import_react5.useState)([]);
+  const pendingPinsRef = (0, import_react5.useRef)(pendingPins);
+  pendingPinsRef.current = pendingPins;
+  const [railOpen, setRailOpen] = (0, import_react5.useState)(false);
+  const [routeSheetOpen, setRouteSheetOpen] = (0, import_react5.useState)(false);
+  const [routeModal, setRouteModal] = (0, import_react5.useState)({ open: false });
+  const [openRails, setOpenRails] = (0, import_react5.useState)(() => /* @__PURE__ */ new Set());
+  const toggleRail = (0, import_react5.useCallback)((id) => {
+    setOpenRails((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const [resendArmed, setResendArmed] = (0, import_react5.useState)(false);
+  const [activity, setActivity] = (0, import_react5.useState)("");
+  const turnSeqRef = (0, import_react5.useRef)(0);
+  const inFlightTextRef = (0, import_react5.useRef)("");
+  const rootRef = (0, import_react5.useRef)(null);
+  const scrollRef = (0, import_react5.useRef)(null);
+  const pinnedRef = (0, import_react5.useRef)(true);
+  const taRef = (0, import_react5.useRef)(null);
   const themeOn = Boolean(feat.theme);
-  const [themeMode, setThemeMode] = (0, import_react4.useState)(() => getChatMode());
-  const [scheme, setScheme] = (0, import_react4.useState)(() => resolvedChatScheme());
-  (0, import_react4.useEffect)(() => {
+  const [themeMode, setThemeMode] = (0, import_react5.useState)(() => getChatMode());
+  const [scheme, setScheme] = (0, import_react5.useState)(() => resolvedChatScheme());
+  (0, import_react5.useEffect)(() => {
     if (!themeOn) return;
     const off = subscribeChatTheme(() => {
       setThemeMode(getChatMode());
@@ -41477,8 +43924,8 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     });
     return off;
   }, [themeOn]);
-  const [, setHostMapReady] = (0, import_react4.useState)(false);
-  (0, import_react4.useEffect)(() => {
+  const [, setHostMapReady] = (0, import_react5.useState)(false);
+  (0, import_react5.useEffect)(() => {
     let alive = true;
     loadHostMap().then(() => {
       if (alive) setHostMapReady(true);
@@ -41488,10 +43935,10 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     };
   }, []);
   const effortOn = Boolean(feat.effort);
-  const [effort, setEffort] = (0, import_react4.useState)(() => readEffort());
-  const effortRef = (0, import_react4.useRef)(effort);
+  const [effort, setEffort] = (0, import_react5.useState)(() => readEffort());
+  const effortRef = (0, import_react5.useRef)(effort);
   effortRef.current = effort;
-  const pickEffort = (0, import_react4.useCallback)((id) => {
+  const pickEffort = (0, import_react5.useCallback)((id) => {
     setEffort(id);
     try {
       localStorage.setItem(LS_EFFORT, id);
@@ -41499,27 +43946,30 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     }
   }, []);
   const voiceOn = Boolean(feat.voice);
-  const voiceClient = (0, import_react4.useMemo)(
+  const voiceClient = (0, import_react5.useMemo)(
     () => voiceOn ? createVoiceClient(transport.base ?? "") : null,
     [voiceOn, transport]
   );
-  const [voiceHealth, setVoiceHealth] = (0, import_react4.useState)({ available: false });
-  const [readAloud, setReadAloud] = (0, import_react4.useState)(false);
-  const [recording, setRecording] = (0, import_react4.useState)(false);
-  const [transcribing, setTranscribing] = (0, import_react4.useState)(false);
-  const [speaking, setSpeaking] = (0, import_react4.useState)(false);
-  const [paused, setPaused] = (0, import_react4.useState)(false);
-  const [ttsLoading, setTtsLoading] = (0, import_react4.useState)(false);
-  const [speakingId, setSpeakingId] = (0, import_react4.useState)(null);
-  const [voiceError, setVoiceError] = (0, import_react4.useState)(null);
-  const recorderRef = (0, import_react4.useRef)(null);
-  const streamRef = (0, import_react4.useRef)(null);
-  const recBusyRef = (0, import_react4.useRef)(false);
-  const voiceMountedRef = (0, import_react4.useRef)(true);
-  const audioRef = (0, import_react4.useRef)(null);
-  const audioUrlRef = (0, import_react4.useRef)(null);
-  const lastSpokenRef = (0, import_react4.useRef)("");
-  (0, import_react4.useEffect)(() => {
+  const [voiceHealth, setVoiceHealth] = (0, import_react5.useState)({ available: false });
+  const [readAloud, setReadAloud] = (0, import_react5.useState)(false);
+  const [recording, setRecording] = (0, import_react5.useState)(false);
+  const [transcribing, setTranscribing] = (0, import_react5.useState)(false);
+  const [speaking, setSpeaking] = (0, import_react5.useState)(false);
+  const [paused, setPaused] = (0, import_react5.useState)(false);
+  const [ttsLoading, setTtsLoading] = (0, import_react5.useState)(false);
+  const [speakingId, setSpeakingId] = (0, import_react5.useState)(null);
+  const [voiceError, setVoiceError] = (0, import_react5.useState)(null);
+  const recorderRef = (0, import_react5.useRef)(null);
+  const streamRef = (0, import_react5.useRef)(null);
+  const recBusyRef = (0, import_react5.useRef)(false);
+  const voiceMountedRef = (0, import_react5.useRef)(true);
+  const audioRef = (0, import_react5.useRef)(null);
+  const audioUrlRef = (0, import_react5.useRef)(null);
+  const lastSpokenRef = (0, import_react5.useRef)("");
+  (0, import_react5.useEffect)(() => {
+    if (voiceError) setTurnAnnouncement(voiceError);
+  }, [voiceError]);
+  (0, import_react5.useEffect)(() => {
     if (!voiceOn || !voiceClient) return;
     let cancelled = false;
     const probe = () => voiceClient.health().then((h) => {
@@ -41534,9 +43984,10 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     };
   }, [voiceOn, voiceClient]);
   const voiceUsable = voiceOn && voiceHealth.available && voiceHealth.keyConfigured !== false;
-  const [copied, setCopied] = (0, import_react4.useState)(false);
-  const [elapsed, setElapsed] = (0, import_react4.useState)(0);
-  (0, import_react4.useEffect)(() => {
+  const [copied, setCopied] = (0, import_react5.useState)(false);
+  const [elapsed, setElapsed] = (0, import_react5.useState)(0);
+  const activeTimerKey = generatedMode ? activeGeneratedTurn?.generationId ?? activeGeneratedTurn?.inputId ?? activeGeneratedTurn?.clientRequestId ?? "" : busy ? "legacy-active" : "";
+  (0, import_react5.useEffect)(() => {
     if (!busy) {
       setElapsed(0);
       return;
@@ -41544,8 +43995,8 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     setElapsed(0);
     const id = window.setInterval(() => setElapsed((e) => e + 1), 1e3);
     return () => window.clearInterval(id);
-  }, [busy]);
-  const workingHint = (0, import_react4.useMemo)(() => {
+  }, [busy, activeTimerKey]);
+  const workingHint = (0, import_react5.useMemo)(() => {
     if (activity) return activity;
     const row = [...status.rows].reverse().find((r) => /esc to interrupt|tokens/i.test(r));
     if (!row) return "";
@@ -41554,15 +44005,15 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
     const tail = row.includes("\u2026") ? row.split("\u2026").pop() : row;
     return (tail || "").replace(/^[\s*✻✶✳·•]+/, "").trim().slice(0, 80);
   }, [status.rows, activity]);
-  const [copiedId, setCopiedId] = (0, import_react4.useState)(null);
-  const copyMsg = (0, import_react4.useCallback)((id, text) => {
+  const [copiedId, setCopiedId] = (0, import_react5.useState)(null);
+  const copyMsg = (0, import_react5.useCallback)((id, text) => {
     void writeClipboard(text).then((ok) => {
       if (!ok) return;
       setCopiedId(id);
       window.setTimeout(() => setCopiedId((c) => c === id ? null : c), 1300);
     });
   }, []);
-  const onCodeCopyClick = (0, import_react4.useCallback)((e) => {
+  const onCodeCopyClick = (0, import_react5.useCallback)((e) => {
     const btn = e.target.closest?.(".cc-codecopy");
     if (!btn) return;
     const block2 = btn.closest(".cc-codeblock");
@@ -41576,10 +44027,10 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
       }, 1300);
     });
   }, []);
-  const applyAssistant = (0, import_react4.useCallback)((text) => {
+  const applyAssistant = (0, import_react5.useCallback)((text) => {
     setTurns((prev) => {
       if (prev.length === 0) {
-        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true, seq: 0 }];
+        return [{ id: nextId(), user: "", assistant: text, streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
       }
       const last = prev[prev.length - 1];
       if (last.assistant === text) return prev;
@@ -41588,34 +44039,88 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
       return copy;
     });
   }, []);
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     const off = transport.connect((ev) => {
       switch (ev.type) {
         case "hello": {
           setStatus(ev.status);
-          setBusy(ev.busy);
           setScreen(ev.screen ?? []);
+          if (generatedMode) break;
+          setLegacyBusy(ev.busy);
           const helloAssistant = typeof ev.assistant === "string" ? ev.assistant : "";
-          if (helloAssistant.trim()) {
-            const stillStreaming = ev.busy;
-            setTurns(
-              (prev) => prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: stillStreaming, hideUser: true, seq: 0 }]
-            );
+          if (ev.busy) {
+            setTurns((prev) => rebindActiveTurn(prev, helloAssistant));
+          } else if (helloAssistant.trim()) {
+            setTurns((prev) => prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: helloAssistant, streaming: false, hideUser: true, seq: 0, sessionEvents: [] }]);
           }
           break;
         }
         case "assistant":
-          applyAssistant(ev.text);
+          if (generatedMode) {
+            setTurns((prev) => applyGeneratedTurn(
+              prev,
+              ev,
+              (turn) => turn.assistant === ev.text ? turn : { ...turn, assistant: ev.text }
+            ));
+          } else {
+            applyAssistant(ev.text);
+          }
           break;
+        case "session_event": {
+          const boundary = terminalBlock(ev.event);
+          const eventGenerationId = typeof ev.event.generationId === "string" && ev.event.generationId.trim() ? ev.event.generationId : void 0;
+          const coordinate = {
+            ...ev.inputId ? { inputId: ev.inputId } : {},
+            ...ev.generationId || eventGenerationId ? { generationId: ev.generationId ?? eventGenerationId } : {}
+          };
+          const exactEvent = !generatedMode || findGeneratedTurnIndex(turnsRef.current, coordinate) >= 0;
+          const exactBoundary = boundary && exactEvent ? boundary : null;
+          if (generatedMode && exactBoundary) rememberTerminalCoordinate(coordinate);
+          setTurns((prev) => {
+            if (generatedMode) {
+              return applyGeneratedTurn(prev, coordinate, (turn) => {
+                const sessionEvents = mergeSessionEvents(turn.sessionEvents, [ev.event]);
+                if (!boundary) return sessionEvents === turn.sessionEvents ? turn : { ...turn, sessionEvents };
+                return {
+                  ...turn,
+                  sessionEvents,
+                  eventTerminal: true,
+                  inputState: terminalInputState(boundary),
+                  streaming: false,
+                  activity: "",
+                  stopError: void 0,
+                  answered: boundary.status === "error" ? void 0 : turn.answered,
+                  answering: false,
+                  questionError: void 0
+                };
+              });
+            }
+            const base = prev.length > 0 ? prev : [{ id: nextId(), user: "", assistant: "", streaming: true, hideUser: true, seq: 0, sessionEvents: [] }];
+            const attached = applySessionEvent(base, ev.event);
+            return boundary ? applyTurnActive(attached, false) : attached;
+          });
+          if (exactBoundary) {
+            if (!generatedMode) {
+              setLegacyBusy(false);
+              setActivity("");
+            }
+            setTurnAnnouncement(exactBoundary.status === "cancelled" ? "Response stopped." : exactBoundary.status === "error" || exactBoundary.status === "failed" ? "Turn failed." : "Response complete.");
+          } else if (exactEvent && hasVisibleSessionActivity([ev.event])) {
+            setTurnAnnouncement(liveSessionAnnouncement([ev.event], ""));
+          }
+          break;
+        }
         case "status":
           setStatus({ rows: ev.rows, mode: ev.mode, contextPct: ev.contextPct, model: ev.model });
           break;
         case "turn":
-          setBusy(ev.active);
+          if (generatedMode) break;
+          setLegacyBusy(ev.active);
           setActivity("");
-          if (!ev.active) {
-            setTurns((prev) => prev.map((t, i) => i === prev.length - 1 ? { ...t, streaming: false } : t));
-          }
+          setTurns((prev) => {
+            if (ev.active) return rebindActiveTurn(prev);
+            return applyTurnActive(prev, false);
+          });
           break;
         case "screen":
           setScreen(ev.lines);
@@ -41623,6 +44128,12 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
         case "tool": {
           if (ev.name !== "AskUserQuestion" || !Array.isArray(ev.questions) || ev.questions.length === 0) break;
           setTurns((prev) => {
+            if (generatedMode) {
+              return applyGeneratedTurn(prev, ev, (turn) => ({
+                ...turn,
+                question: { toolUseId: ev.tool_use_id, questions: ev.questions }
+              }));
+            }
             if (prev.length === 0) return prev;
             const copy = prev.slice();
             const last = copy[copy.length - 1];
@@ -41632,44 +44143,105 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
           break;
         }
         case "route": {
-          const { type: _type, ...attribution } = ev;
-          setTurns((prev) => applyRouteFrame(prev, attribution));
+          const { type: _type, inputId: _inputId, generationId: _generationId, ...attribution } = ev;
+          setTurns((prev) => generatedMode ? applyGeneratedTurn(prev, ev, (turn) => {
+            return { ...turn, route: mergeRouteAttribution(turn.route, attribution) };
+          }) : applyRouteFrame(prev, attribution));
           break;
         }
         case "activity": {
           if (ev.kind !== "tool" && ev.kind !== "thinking") break;
           const name = typeof ev.name === "string" ? ev.name.trim() : "";
-          if (name) setActivity(ev.kind === "thinking" ? `thinking: ${name.slice(0, 72)}` : name.slice(0, 40));
+          if (name) {
+            const nextActivity = ev.kind === "thinking" ? `thinking: ${name.slice(0, 72)}` : name.slice(0, 40);
+            if (generatedMode) {
+              setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) => ({ ...turn, activity: nextActivity })));
+            } else {
+              setActivity(nextActivity);
+            }
+          }
+          break;
+        }
+        case "input": {
+          const exactInput = !generatedMode || findGeneratedTurnIndex(turnsRef.current, ev) >= 0;
+          if (exactInput && INPUT_STATE_ORDER[ev.state] === 4) rememberTerminalCoordinate(ev);
+          setTurns((prev) => {
+            const next = applyInputLifecycle(prev, ev);
+            if (INPUT_STATE_ORDER[ev.state] !== 4) return next;
+            return applyGeneratedTurn(next, ev, (turn) => ({
+              ...turn,
+              ...ev.state === "failed" ? { answered: void 0 } : {},
+              answering: false,
+              questionError: void 0
+            }));
+          });
+          if (exactInput) setTurnAnnouncement(inputLifecycleAnnouncement(ev));
           break;
         }
         case "connection":
           setConn(ev.state);
           break;
-        case "error":
-          applyAssistant(`_error: ${ev.message}_`);
+        case "error": {
+          const failure = ev.failure;
+          const message = ev.message ?? failure?.text ?? "Request failed";
+          if (generatedMode) {
+            if (findGeneratedTurnIndex(turnsRef.current, ev) < 0) break;
+            rememberTerminalCoordinate(ev);
+            setTurns((prev) => applyGeneratedTurn(prev, ev, (turn) => ({
+              ...turn,
+              ...failure ? {} : { assistant: `_error: ${message}_` },
+              streaming: false,
+              inputState: "failed",
+              inputReason: message,
+              failure: failure ?? turn.failure,
+              eventTerminal: true,
+              activity: "",
+              stopError: void 0,
+              answered: void 0,
+              answering: false,
+              questionError: void 0
+            })));
+            setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason: message, failure }));
+          } else {
+            setLegacyBusy(false);
+            setActivity("");
+            if (failure) {
+              setTurns((prev) => {
+                const base = prev.length ? prev : [{ id: nextId(), user: "", assistant: "", streaming: false, hideUser: true, seq: 0, sessionEvents: [] }];
+                const copy = base.slice();
+                copy[copy.length - 1] = { ...copy[copy.length - 1], streaming: false, failure };
+                return copy;
+              });
+              setTurnAnnouncement(`Request failed: ${failure.text}`);
+            } else {
+              applyAssistant(`_error: ${message}_`);
+              setTurns((prev) => applyTurnActive(prev, false));
+            }
+          }
           break;
+        }
       }
     });
     return off;
-  }, [transport, applyAssistant]);
-  (0, import_react4.useEffect)(() => {
+  }, [transport, applyAssistant, generatedMode, rememberTerminalCoordinate]);
+  (0, import_react5.useEffect)(() => {
     transport.fetchCommands().then(setCommands).catch(() => setCommands([]));
   }, [transport]);
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     if (pinnedRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [turns, busy]);
-  const onScroll = (0, import_react4.useCallback)(() => {
+  const onScroll = (0, import_react5.useCallback)(() => {
     const el = scrollRef.current;
     if (!el) return;
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
-  const slashQuery = (0, import_react4.useMemo)(() => {
+  const slashQuery = (0, import_react5.useMemo)(() => {
     const m = /^\/([\w:-]*)$/.exec(input.trim());
     return m ? m[1].toLowerCase() : null;
   }, [input]);
-  const filtered = (0, import_react4.useMemo)(() => {
+  const filtered = (0, import_react5.useMemo)(() => {
     if (slashQuery === null) return [];
     return commands.filter((c) => c.name.toLowerCase().includes(slashQuery)).sort((a, b) => {
       const ap = a.name.toLowerCase().startsWith(slashQuery) ? 0 : 1;
@@ -41677,56 +44249,110 @@ function ClaudeChat({ transport, composerAdornment, title: title2, placeholder, 
       return ap - bp || a.name.localeCompare(b.name);
     }).slice(0, 8);
   }, [commands, slashQuery]);
-  (0, import_react4.useEffect)(() => setMenuIdx(0), [slashQuery]);
-  const contextRef = (0, import_react4.useRef)(context);
+  (0, import_react5.useEffect)(() => setMenuIdx(0), [slashQuery]);
+  const contextRef = (0, import_react5.useRef)(context);
   contextRef.current = context;
-  const modeRef = (0, import_react4.useRef)(mode3);
+  const modeRef = (0, import_react5.useRef)(mode3);
   modeRef.current = mode3;
-  const pendingSendRef = (0, import_react4.useRef)(null);
-  const send = (0, import_react4.useCallback)(
-    (text, opts) => {
-      if (attachmentsRef.current.some((a) => a.uploading)) {
-        pendingSendRef.current = { text, opts };
+  const pendingSendRef = (0, import_react5.useRef)([]);
+  const generatedAdmissionTailRef = (0, import_react5.useRef)(Promise.resolve());
+  const generatedAdmissionTransportRef = (0, import_react5.useRef)(transport);
+  if (generatedAdmissionTransportRef.current !== transport) {
+    generatedAdmissionTransportRef.current = transport;
+    generatedAdmissionTailRef.current = Promise.resolve();
+  }
+  const send = (0, import_react5.useCallback)(
+    (text, opts, deferred) => {
+      if (!deferred && generatedMode && generatedWorkRef.current && attachmentsRef.current.length > 0) {
+        setTurnAnnouncement("Attachments cannot be queued while another message is pending.");
+        return null;
+      }
+      if (!deferred && (attachmentsRef.current.some((a) => a.uploading) || pendingSendRef.current.length > 0)) {
+        const claimedIds = new Set(pendingSendRef.current.flatMap((item) => item.attachmentIds));
+        pendingSendRef.current.push({
+          text,
+          opts,
+          attachmentIds: attachmentsRef.current.filter((attachment) => !claimedIds.has(attachment.id)).map((attachment) => attachment.id)
+        });
         setInput("");
-        return;
+        return null;
       }
       const t = text.trim();
-      const ready = attachmentsRef.current.filter((a) => a.path && !a.uploading);
+      const deferredAttachmentIds = deferred ? new Set(deferred.attachmentIds) : null;
+      const ready = attachmentsRef.current.filter((attachment) => attachment.path && !attachment.uploading && (!deferredAttachmentIds || deferredAttachmentIds.has(attachment.id)));
       const attachmentSuffix = ready.length ? `
 
 ${ready.length === 1 ? "Attached file" : "Attached files"}:
 ${ready.map((a) => `- ${a.path}`).join("\n")}` : "";
       const full = `${t}${attachmentSuffix}`.trim();
-      if (!full) return;
-      const dir = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.directive ?? "" : "";
-      const wire = dir ? `${dir}
-
-${full}` : full;
+      if (!full) return null;
+      const nativeEffort = effortOn ? EFFORTS.find((e) => e.id === effortRef.current)?.effort : void 0;
       const sentPins = railOn ? compactRouting(pinsRef.current) : void 0;
+      const clientRequestId = generatedMode ? nextClientRequestId() : void 0;
+      const optimisticState = generatedMode ? generatedWorkRef.current ? "queued" : "starting" : void 0;
+      if (generatedMode) generatedWorkRef.current = true;
       inFlightTextRef.current = full;
-      setTurns((prev) => [
-        ...prev,
-        {
+      setTurns((prev) => {
+        const optimisticPosition = optimisticState === "queued" ? prev.filter((turn) => turn.inputState === "queued").length + 1 : void 0;
+        return [...prev, {
           id: nextId(),
           user: full,
           assistant: "",
-          streaming: true,
+          streaming: generatedMode ? isActiveInputState(optimisticState) : true,
           hideUser: opts?.hideUser,
           seq: ++turnSeqRef.current,
-          overrides: sentPins
-        }
-      ]);
-      setBusy(true);
-      setActivity("");
+          sessionEvents: [],
+          overrides: sentPins,
+          clientRequestId,
+          inputState: optimisticState,
+          inputPosition: optimisticPosition
+        }];
+      });
+      if (!generatedMode) {
+        setLegacyBusy(true);
+        setActivity("");
+      } else if (optimisticState) {
+        setTurnAnnouncement(inputLifecycleAnnouncement({ state: optimisticState }));
+      }
+      pendingPinsRef.current = [];
       setPendingPins([]);
       setResendArmed(false);
       pinnedRef.current = true;
-      const meta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : void 0, sentPins);
+      const baseMeta = buildSendMeta(contextRef.current, modeRef.current, feat.autonomous ? autonomousRef.current : void 0, sentPins);
+      const effortMeta = nativeEffort ? { ...baseMeta ?? {}, effort: nativeEffort } : baseMeta;
+      const meta = generatedMode ? { ...effortMeta ?? {}, clientRequestId } : effortMeta;
       const sendFn = transport.sendMessage;
-      const p = meta ? sendFn(wire, meta) : sendFn(wire);
-      p.catch(() => {
-      });
-      setInput("");
+      const invokeAdmission = () => meta ? sendFn(full, meta) : sendFn(full);
+      const p = generatedMode ? generatedAdmissionTailRef.current.then(invokeAdmission, invokeAdmission) : invokeAdmission();
+      if (generatedMode && clientRequestId) {
+        const admission = p.then((receipt) => {
+          if (!isChatInputReceipt(receipt)) return;
+          if (INPUT_STATE_ORDER[receipt.state] === 4) rememberTerminalCoordinate(receipt);
+          setTurns((prev) => applyInputLifecycle(prev, receipt));
+          setTurnAnnouncement(inputLifecycleAnnouncement(receipt));
+        }).catch((error) => {
+          const failure = failureFromUnknown(error);
+          const reason = failure?.text ?? (error instanceof Error ? error.message : String(error ?? "input admission failed"));
+          rememberTerminalCoordinate({ clientRequestId });
+          setTurns((prev) => applyGeneratedTurn(prev, { clientRequestId }, (turn) => ({
+            ...turn,
+            streaming: false,
+            inputState: "failed",
+            inputReason: reason,
+            failure,
+            eventTerminal: true
+          })));
+          setTurnAnnouncement(inputLifecycleAnnouncement({ state: "failed", reason, failure }));
+        });
+        generatedAdmissionTailRef.current = admission.then(() => {
+        }, () => {
+        });
+      } else {
+        p.catch(() => {
+        });
+      }
+      if (!deferred) setInput("");
+      if (generatedMode) taRef.current?.focus();
       if (ready.length) {
         const sentIds = new Set(ready.map((a) => a.id));
         ready.forEach((a) => {
@@ -41734,25 +44360,27 @@ ${full}` : full;
         });
         setAttachments((prev) => prev.filter((a) => !sentIds.has(a.id)));
       }
+      return clientRequestId ?? null;
     },
-    [transport, effortOn, railOn, feat.autonomous]
+    [transport, effortOn, railOn, feat.autonomous, generatedMode, rememberTerminalCoordinate]
   );
-  (0, import_react4.useEffect)(() => {
-    if (!pendingSendRef.current) return;
+  (0, import_react5.useEffect)(() => {
+    if (pendingSendRef.current.length === 0) return;
     if (attachments.some((a) => a.uploading)) return;
-    const queued = pendingSendRef.current;
-    pendingSendRef.current = null;
-    send(queued.text, queued.opts);
+    const queued = pendingSendRef.current.splice(0);
+    for (const item of queued) {
+      send(item.text, item.opts, { attachmentIds: item.attachmentIds });
+    }
   }, [attachments, send]);
-  const kickedRef = (0, import_react4.useRef)(false);
-  (0, import_react4.useEffect)(() => {
+  const kickedRef = (0, import_react5.useRef)(false);
+  (0, import_react5.useEffect)(() => {
     if (kickedRef.current) return;
     const msg = (initialMessage ?? "").trim();
     if (!msg) return;
     kickedRef.current = true;
     send(msg, { hideUser: initialMessageHidden });
   }, [initialMessage]);
-  const runCommand = (0, import_react4.useCallback)(
+  const runCommand = (0, import_react5.useCallback)(
     (line) => {
       const fn = transport.sendCommand ?? transport.sendMessage;
       fn.call(transport, line).catch(() => {
@@ -41760,23 +44388,23 @@ ${full}` : full;
     },
     [transport]
   );
-  const switchModel = (0, import_react4.useCallback)(
+  const switchModel = (0, import_react5.useCallback)(
     (id) => {
       setStatus((s) => ({ ...s, model: id }));
       runCommand(`/model ${id}`);
     },
     [runCommand]
   );
-  const copyLast = (0, import_react4.useCallback)(async () => {
-    const last = [...turns].reverse().find((t) => sanitizeAssistantText(t.assistant).text.trim());
+  const copyLast = (0, import_react5.useCallback)(async () => {
+    const last = [...turns].reverse().find((t) => resolvedAssistantText(t).trim());
     if (!last) return;
-    const cleanText = sanitizeAssistantText(last.assistant).text;
+    const cleanText = resolvedAssistantText(last);
     if (await writeClipboard(cleanText)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     }
   }, [turns]);
-  const teardownAudio = (0, import_react4.useCallback)(() => {
+  const teardownAudio = (0, import_react5.useCallback)(() => {
     const a = audioRef.current;
     if (a) {
       a.onended = null;
@@ -41792,7 +44420,7 @@ ${full}` : full;
       audioUrlRef.current = null;
     }
   }, []);
-  const speak = (0, import_react4.useCallback)(
+  const speak = (0, import_react5.useCallback)(
     async (text, turnId) => {
       if (!voiceClient || !text.trim()) return;
       teardownAudio();
@@ -41836,14 +44464,14 @@ ${full}` : full;
     },
     [voiceClient, teardownAudio]
   );
-  const stopSpeaking = (0, import_react4.useCallback)(() => {
+  const stopSpeaking = (0, import_react5.useCallback)(() => {
     teardownAudio();
     setSpeaking(false);
     setPaused(false);
     setTtsLoading(false);
     setSpeakingId(null);
   }, [teardownAudio]);
-  const togglePause = (0, import_react4.useCallback)(() => {
+  const togglePause = (0, import_react5.useCallback)(() => {
     const a = audioRef.current;
     if (!a) return;
     if (a.paused) {
@@ -41853,34 +44481,52 @@ ${full}` : full;
       setPaused(true);
     }
   }, []);
-  const persistedRef = (0, import_react4.useRef)(seededTurns.length ? seededTurns[seededTurns.length - 1].id : "");
-  const onTurnCompleteRef = (0, import_react4.useRef)(onTurnComplete);
+  const persistedRef = (0, import_react5.useRef)(new Set(seededTurns.map((turn) => turn.id)));
+  const onTurnCompleteRef = (0, import_react5.useRef)(onTurnComplete);
   onTurnCompleteRef.current = onTurnComplete;
-  const latestAssistant = turns.length ? turns[turns.length - 1] : null;
-  const settledReply = (0, import_react4.useMemo)(() => {
-    if (!latestAssistant || latestAssistant.streaming) return null;
-    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
-    return text ? { id: latestAssistant.id, text } : null;
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
-  (0, import_react4.useEffect)(() => {
+  const latestTurn = turns.length ? turns[turns.length - 1] : null;
+  const latestAssistant = generatedMode ? activeGeneratedTurn ?? latestTurn : latestTurn;
+  const latestSettledAssistant = generatedMode ? [...turns].reverse().find(
+    (turn) => !turn.streaming && (!turn.inputState || turn.inputState === "settled" || turn.inputState === "stopped" || turn.inputState === "failed") && resolvedAssistantText(turn).trim().length > 0
+  ) ?? null : latestTurn;
+  (0, import_react5.useEffect)(() => {
+    if (generatedMode) return;
+    if (busy) {
+      announcedBusyRef.current = true;
+      setTurnAnnouncement(liveSessionAnnouncement(latestAssistant?.sessionEvents ?? [], workingHint));
+    } else if (announcedBusyRef.current) {
+      announcedBusyRef.current = false;
+      setTurnAnnouncement("Response complete.");
+    }
+  }, [busy, latestAssistant?.sessionEvents, workingHint, generatedMode]);
+  const settledReply = (0, import_react5.useMemo)(() => {
+    if (!latestSettledAssistant || latestSettledAssistant.streaming) return null;
+    const text = resolvedAssistantText(latestSettledAssistant).trim();
+    return text ? {
+      id: latestSettledAssistant.id,
+      text,
+      ...latestSettledAssistant.clientRequestId ? { clientRequestId: latestSettledAssistant.clientRequestId } : {}
+    } : null;
+  }, [latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming]);
+  (0, import_react5.useEffect)(() => {
     const cb = onTurnCompleteRef.current;
-    if (!cb || !latestAssistant || latestAssistant.streaming) return;
-    const assistant = latestAssistant.assistant.trim();
+    if (!cb || !latestSettledAssistant || latestSettledAssistant.streaming) return;
+    const assistant = resolvedAssistantRaw(latestSettledAssistant).trim();
     if (!assistant) return;
-    if (persistedRef.current === latestAssistant.id) return;
-    persistedRef.current = latestAssistant.id;
-    cb({ user: latestAssistant.user, assistant: latestAssistant.assistant });
-  }, [latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming]);
-  (0, import_react4.useEffect)(() => {
-    if (!readAloud || !voiceUsable || !latestAssistant) return;
-    if (latestAssistant.streaming) return;
-    const text = sanitizeAssistantText(latestAssistant.assistant).text.trim();
+    if (persistedRef.current.has(latestSettledAssistant.id)) return;
+    persistedRef.current.add(latestSettledAssistant.id);
+    cb({ user: latestSettledAssistant.user, assistant });
+  }, [latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming]);
+  (0, import_react5.useEffect)(() => {
+    if (!readAloud || !voiceUsable || !latestSettledAssistant) return;
+    if (latestSettledAssistant.streaming) return;
+    const text = resolvedAssistantText(latestSettledAssistant).trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
-    void speak(text, latestAssistant.id);
-  }, [readAloud, voiceUsable, latestAssistant?.id, latestAssistant?.assistant, latestAssistant?.streaming, speak]);
-  const startRecording = (0, import_react4.useCallback)(async () => {
-    if (!voiceClient || recBusyRef.current) return;
+    void speak(text, latestSettledAssistant.id);
+  }, [readAloud, voiceUsable, latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming, speak]);
+  const startRecording = (0, import_react5.useCallback)(async () => {
+    if (!voiceClient || recBusyRef.current || generatedWorkRef.current) return;
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setVoiceError("Microphone needs a secure context (https or localhost)");
       return;
@@ -41892,16 +44538,8 @@ ${full}` : full;
     recBusyRef.current = true;
     setVoiceError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 16e3
-        }
-      });
-      if (!voiceMountedRef.current) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!voiceMountedRef.current || generatedWorkRef.current) {
         stream.getTracks().forEach((t) => {
           try {
             t.stop();
@@ -41958,7 +44596,7 @@ ${full}` : full;
       );
     }
   }, [voiceClient]);
-  const stopRecording = (0, import_react4.useCallback)(() => {
+  const stopRecording = (0, import_react5.useCallback)(() => {
     const rec = recorderRef.current;
     if (rec && rec.state !== "inactive") {
       try {
@@ -41967,7 +44605,7 @@ ${full}` : full;
       }
     }
   }, []);
-  (0, import_react4.useEffect)(() => {
+  (0, import_react5.useEffect)(() => {
     return () => {
       voiceMountedRef.current = false;
       recBusyRef.current = false;
@@ -42001,7 +44639,7 @@ ${full}` : full;
       }
     };
   }, []);
-  const pickCommand = (0, import_react4.useCallback)(
+  const pickCommand = (0, import_react5.useCallback)(
     (c) => {
       const next = `/${c.name}${c.argumentHint ? " " : ""}`;
       setInput(next);
@@ -42009,7 +44647,7 @@ ${full}` : full;
     },
     []
   );
-  const onKeyDown = (0, import_react4.useCallback)(
+  const onKeyDown = (0, import_react5.useCallback)(
     (e) => {
       if (slashQuery !== null && filtered.length > 0) {
         if (e.key === "ArrowDown") {
@@ -42044,7 +44682,7 @@ ${full}` : full;
     },
     [slashQuery, filtered, menuIdx, input, send, pickCommand]
   );
-  const onSetMode = (0, import_react4.useCallback)(
+  const onSetMode = (0, import_react5.useCallback)(
     async (mode4) => {
       try {
         const r = await transport.setMode(mode4);
@@ -42054,23 +44692,81 @@ ${full}` : full;
     },
     [transport]
   );
-  const answerQuestion = (0, import_react4.useCallback)(
-    (turnId, toolUseId, choice) => {
+  const answerQuestion = (0, import_react5.useCallback)(
+    (turn, toolUseId, choice) => {
+      const generatedQuestion = Boolean(turn.inputState);
+      const active = generatedQuestion ? !turn.eventTerminal && isActiveInputState(turn.inputState) && !isRememberedTerminalCoordinate(turn) : turn.streaming;
+      if (!active) return;
+      const turnId = turn.id;
       const chosen = choice.label ?? choice.text ?? "";
-      setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answered: chosen, answering: true } : t));
+      setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? { ...t, answered: chosen, answering: true, questionError: void 0 } : t));
       const fn = transport.answerQuestion;
       if (!fn) {
-        setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answering: false } : t));
+        setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? {
+          ...t,
+          answered: void 0,
+          answering: false,
+          questionError: "Could not send the answer. Please try again."
+        } : t));
+        setTurnAnnouncement("Could not send the answer. Please try again.");
         return;
       }
-      Promise.resolve(fn.call(transport, { toolUseId, ...choice })).catch(() => {
-      }).finally(() => setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, answering: false } : t)));
+      Promise.resolve(fn.call(transport, { toolUseId, ...choice })).then(() => setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? { ...t, answering: false, questionError: void 0 } : t))).catch(() => {
+        setTurns((prev) => prev.map((t) => t.id === turnId && t.question?.toolUseId === toolUseId ? {
+          ...t,
+          answered: void 0,
+          answering: false,
+          questionError: "Could not send the answer. Please try again."
+        } : t));
+        setTurnAnnouncement("Could not send the answer. Please try again.");
+      });
     },
-    [transport]
+    [transport, isRememberedTerminalCoordinate]
   );
-  const applyPin = (0, import_react4.useCallback)(
+  const persistPinChange = (0, import_react5.useCallback)(
+    (next, previous, previousPending, touched) => {
+      if (!onPinChange) {
+        setPinSavePending(false);
+        setPinSaveError(null);
+        return;
+      }
+      const epoch = ++pinSaveEpochRef.current;
+      setPinSavePending(true);
+      setPinSaveError(null);
+      let result;
+      try {
+        result = onPinChange(next);
+      } catch (error) {
+        result = Promise.reject(error);
+      }
+      Promise.resolve(result).then(
+        () => {
+          if (pinSaveEpochRef.current !== epoch) return;
+          setPinSavePending(false);
+        },
+        () => {
+          if (pinSaveEpochRef.current !== epoch) return;
+          pinsRef.current = previous;
+          setPins(previous);
+          pendingPinsRef.current = previousPending;
+          setPendingPins(previousPending);
+          setPinSavePending(false);
+          setPinSaveError({
+            attempted: next,
+            touched,
+            message: "Could not save route choices. Your previous choices were restored."
+          });
+          setTurnAnnouncement("Could not save route choices. Your previous choices were restored. Retry is available.");
+        }
+      );
+    },
+    [onPinChange]
+  );
+  const applyPin = (0, import_react5.useCallback)(
     (patch) => {
-      const next = { ...pinsRef.current };
+      const previous = { ...pinsRef.current };
+      const previousPending = [...pendingPinsRef.current];
+      const next = { ...previous };
       const touched = [];
       for (const [key, value] of Object.entries(patch)) {
         const field = key;
@@ -42086,18 +44782,82 @@ ${full}` : full;
         touched.push(field);
       }
       if (!touched.length) return;
-      const compact = compactRouting(next) ?? {};
-      setPins(compact);
-      if (busy) setPendingPins((prev) => [.../* @__PURE__ */ new Set([...prev, ...touched])]);
-      onPinChange?.(compact);
+      const compact2 = compactRouting(next) ?? {};
+      pinsRef.current = compact2;
+      setPins(compact2);
+      if (busy) {
+        const nextPending = [.../* @__PURE__ */ new Set([...previousPending, ...touched])];
+        pendingPinsRef.current = nextPending;
+        setPendingPins(nextPending);
+      }
+      persistPinChange(compact2, previous, previousPending, touched);
     },
-    [busy, onPinChange]
+    [busy, persistPinChange]
   );
-  const stopTurn = (0, import_react4.useCallback)(() => {
+  const retryPinSave = (0, import_react5.useCallback)(() => {
+    if (!pinSaveError) return;
+    const previous = { ...pinsRef.current };
+    const previousPending = [...pendingPinsRef.current];
+    const attempted = { ...pinSaveError.attempted };
+    pinsRef.current = attempted;
+    setPins(attempted);
+    if (busy) {
+      const nextPending = [.../* @__PURE__ */ new Set([...previousPending, ...pinSaveError.touched])];
+      pendingPinsRef.current = nextPending;
+      setPendingPins(nextPending);
+    }
+    persistPinChange(attempted, previous, previousPending, pinSaveError.touched);
+  }, [pinSaveError, busy, persistPinChange]);
+  const requestGeneratedStop = (0, import_react5.useCallback)(async (turn, restore) => {
+    if (!turn.generationId || turn.inputState !== "starting" && turn.inputState !== "running" || isRememberedTerminalCoordinate(turn)) return;
+    const coordinate = {
+      clientRequestId: turn.clientRequestId,
+      inputId: turn.inputId,
+      generationId: turn.generationId
+    };
+    setTurns((prev) => applyGeneratedTurn(prev, coordinate, (current) => ({
+      ...current,
+      inputState: "stopping",
+      streaming: true,
+      stopError: void 0
+    })));
+    setTurnAnnouncement("Stopping current response.");
+    try {
+      await transport.interrupt({ generationId: turn.generationId });
+      if (restore) {
+        setInput(turn.user);
+        setResendArmed(true);
+        setRailOpen(true);
+        taRef.current?.focus();
+      }
+    } catch (error) {
+      if (isRememberedTerminalCoordinate(coordinate)) return;
+      const message = (error instanceof Error ? error.message : String(error ?? "stop failed")).replace(/\s+/g, " ").trim().slice(0, 160) || "stop failed";
+      setTurns((prev) => applyGeneratedTurn(prev, coordinate, (current) => {
+        const terminal = current.inputState === "settled" || current.inputState === "stopped" || current.inputState === "failed";
+        return terminal ? current : {
+          ...current,
+          inputState: "running",
+          streaming: true,
+          stopError: message
+        };
+      }));
+      setTurnAnnouncement(`Stop failed: ${message}. Retry is available.`);
+    }
+  }, [transport, isRememberedTerminalCoordinate]);
+  const stopTurn = (0, import_react5.useCallback)(() => {
+    if (generatedMode) {
+      if (activeGeneratedTurn) void requestGeneratedStop(activeGeneratedTurn, false);
+      return;
+    }
     transport.interrupt().catch(() => {
     });
-  }, [transport]);
-  const stopAndChange = (0, import_react4.useCallback)(() => {
+  }, [transport, generatedMode, activeGeneratedTurn, requestGeneratedStop]);
+  const stopAndChange = (0, import_react5.useCallback)(() => {
+    if (generatedMode) {
+      if (activeGeneratedTurn) void requestGeneratedStop(activeGeneratedTurn, true);
+      return;
+    }
     stopTurn();
     const text = inFlightTextRef.current;
     if (text) {
@@ -42106,8 +44866,8 @@ ${full}` : full;
     }
     setRailOpen(true);
     taRef.current?.focus();
-  }, [stopTurn]);
-  (0, import_react4.useEffect)(() => {
+  }, [stopTurn, generatedMode, activeGeneratedTurn, requestGeneratedStop]);
+  (0, import_react5.useEffect)(() => {
     if (!busy) return;
     const onKey = (e) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
@@ -42122,14 +44882,45 @@ ${full}` : full;
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, stopTurn]);
   const hasPins = Object.keys(pins).length > 0;
-  const showFlightRail = railOn && (busy || hasPins || railOpen);
-  const flightRailEnd = busy ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-railtime", title: "Elapsed on this turn", children: fmtElapsed(elapsed) }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", className: "cc-stop cc-railstop", onClick: stopTurn, title: "Stop (Esc)", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq" }),
+  const showFlightRail = railOn && (busy || hasPins || railOpen || pinSavePending || Boolean(pinSaveError));
+  const generatedStopDisabled = !activeGeneratedTurn?.generationId || activeGeneratedTurn.inputState === "stopping";
+  const generatedStopLabel = activeGeneratedTurn?.inputState === "stopping" ? "Stopping\u2026" : activeGeneratedTurn?.stopError ? "Retry stop" : "Stop";
+  const flightRailEnd = generatedMode && busy ? activeGeneratedTurn ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-railtime", title: "Elapsed on this turn", children: fmtElapsed(elapsed) }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+      "button",
+      {
+        type: "button",
+        className: "cc-stop cc-railstop",
+        onClick: stopTurn,
+        disabled: generatedStopDisabled,
+        "aria-busy": activeGeneratedTurn.inputState === "stopping",
+        title: !activeGeneratedTurn.generationId ? "Stop is available once the response starts" : "Stop this response (Esc)",
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-stopsq" }),
+          " ",
+          generatedStopLabel
+        ]
+      }
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+      "button",
+      {
+        type: "button",
+        className: "cc-stop cc-railstop cc-railstop-change",
+        onClick: stopAndChange,
+        disabled: generatedStopDisabled,
+        title: "Stop this response, restore its message, and append any manual resend after the existing queue",
+        children: "Stop & change"
+      }
+    )
+  ] }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-railqueued", children: "Queued" }) : busy ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-railtime", title: "Elapsed on this turn", children: fmtElapsed(elapsed) }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("button", { type: "button", className: "cc-stop cc-railstop", onClick: stopTurn, title: "Stop (Esc)", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-stopsq" }),
       " Stop"
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
       "button",
       {
         type: "button",
@@ -42139,18 +44930,19 @@ ${full}` : full;
         children: "Stop & change"
       }
     )
-  ] }) : railOpen && !hasPins ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "cc-railclose", onClick: () => setRailOpen(false), title: "Hide the routing rail", children: "Close" }) : null;
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-root", ref: rootRef, "data-theme": themeOn ? scheme : void 0, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("header", { className: "cc-header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-title", children: title2 ?? "Claude" }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: `cc-conn cc-conn-${conn}`, title: `connection: ${conn}` }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-spacer" }),
-      status.model && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-model", title: "Active model", children: status.model }),
-      status.contextPct != null && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-ctx", children: [
+  ] }) : railOpen && !hasPins ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", className: "cc-railclose", onClick: () => setRailOpen(false), title: "Hide the routing rail", children: "Close" }) : null;
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-root", ref: rootRef, "data-theme": themeOn ? scheme : void 0, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-sr-only", role: "status", "aria-live": "polite", "aria-atomic": "true", children: turnAnnouncement }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("header", { className: "cc-header", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-title", children: title2 ?? "Claude" }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: `cc-conn cc-conn-${conn}`, title: `connection: ${conn}` }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-spacer" }),
+      status.model && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-model", title: "Active model", children: status.model }),
+      status.contextPct != null && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: "cc-ctx", children: [
         status.contextPct,
         "% ctx"
       ] }),
-      themeOn && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-theme", role: "group", "aria-label": "Chat theme", children: THEME_ICONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      themeOn && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-theme", role: "group", "aria-label": "Chat theme", children: THEME_ICONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "button",
         {
           type: "button",
@@ -42167,7 +44959,7 @@ ${full}` : full;
         },
         opt.mode
       )) }),
-      transcriptUrl && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      transcriptUrl && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "button",
         {
           className: "cc-rawtoggle",
@@ -42176,63 +44968,111 @@ ${full}` : full;
           children: showTranscript ? "Chat" : "Transcript"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { className: "cc-rawtoggle", onClick: () => setShowRaw((v) => !v), title: "Show raw terminal", children: showRaw ? "Hide raw" : "Raw" })
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { className: "cc-rawtoggle", onClick: () => setShowRaw((v) => !v), title: "Show raw terminal", children: showRaw ? "Hide raw" : "Raw" })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-scroll", ref: scrollRef, onScroll, onClick: onCodeCopyClick, children: [
-      showTranscript && transcriptUrl ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(SessionStream, { url: transcriptUrl, live: busy }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-        turns.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-empty", children: "Send a message to begin \xB7 type / for commands and skills" }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-scroll", ref: scrollRef, onScroll, onClick: onCodeCopyClick, children: [
+      showTranscript && transcriptUrl ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SessionStream, { url: transcriptUrl, live: busy, announceLiveUpdates: false }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+        turns.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-empty", children: "Send a message to begin \xB7 type / for commands and skills" }),
         turns.map((t) => {
           const clean = sanitizeAssistantText(t.assistant);
-          const showRail = railOn && Boolean(t.route);
-          const structuredChip = t.route ? routeChipFromAttribution(t.route) : null;
+          const legacyText = t.failure ? "" : clean.text;
+          const hasCanonicalActivity = hasVisibleSessionActivity(t.sessionEvents);
+          const canonicalOwnsFailure = t.sessionEvents.some(
+            (event) => event.blocks.some((block2) => block2.type === "error")
+          );
+          const legacyFallback = hasCanonicalActivity ? legacyAssistantFallback(t.assistant, t.sessionEvents) : "";
+          const actionText = resolvedAssistantText(t);
+          const turnWorkingHint = generatedMode ? t.activity ?? "" : workingHint;
+          const displayRoute = rewriteRouteForHost(t.route, hostCtx());
+          const showRail = railOn && Boolean(displayRoute);
+          const structuredChip = displayRoute ? routeChipFromAttribution(displayRoute) : null;
           const metaLabel = routeChipLabel(clean.meta);
           const metaTitle = clean.meta.route ? `routed via ${clean.meta.route}${clean.meta.rule ? ` \xB7 rule ${clean.meta.rule}` : ""}${clean.meta.profile ? ` \xB7 ${clean.meta.profile} profile` : ""}` : void 0;
           const routeLabel = structuredChip?.label ?? metaLabel;
           const routeTitle = structuredChip ? structuredChip.title : metaTitle;
-          return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-turn", children: [
-            !t.hideUser && t.user.trim() !== "" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-user", children: t.user }),
-            (clean.text || t.streaming || t.question || t.route) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-assistant", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: md2.parse(clean.text || "") } }),
-              t.streaming && clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
-              t.streaming && !clean.text && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-working", role: "status", "aria-live": "polite", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-working-dots", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {}),
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("i", {})
+          return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-turn", children: [
+            !t.hideUser && t.user.trim() !== "" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-user", children: t.user }),
+            (legacyText || hasCanonicalActivity || t.streaming || t.question || t.route || t.inputState || t.stopError || t.failure) && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-assistant", children: [
+              t.inputState && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                InputLifecycleStatus,
+                {
+                  turn: t,
+                  elapsed: isActiveInputState(t.inputState) ? elapsed : 0,
+                  hint: turnWorkingHint,
+                  onRetryStop: () => {
+                    if (t.generationId) void requestGeneratedStop(t, false);
+                  }
+                }
+              ),
+              t.failure && !canonicalOwnsFailure && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FailureNotice, { failure: t.failure }),
+              hasCanonicalActivity ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                SessionEventTimeline,
+                {
+                  events: t.sessionEvents,
+                  live: t.streaming,
+                  renderMarkdown: renderAssistantMarkdown,
+                  permissionGenerationId: !t.eventTerminal && isActiveInputState(t.inputState) ? t.generationId : void 0,
+                  onPermissionDecision: transport.answerPermission ? (answer) => {
+                    if (t.eventTerminal || !isActiveInputState(t.inputState) || !t.generationId || answer.generationId !== t.generationId || isRememberedTerminalCoordinate(t)) {
+                      return Promise.reject(new Error("permission request is no longer active"));
+                    }
+                    return transport.answerPermission(answer);
+                  } : void 0
+                }
+              ) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-md", dangerouslySetInnerHTML: { __html: renderChatMarkdown(legacyText || "") } }),
+              legacyFallback && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                "div",
+                {
+                  className: "cc-md cc-canonical-fallback",
+                  dangerouslySetInnerHTML: { __html: renderChatMarkdown(legacyFallback) }
+                }
+              ),
+              !hasCanonicalActivity && t.streaming && legacyText && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-cursor", "aria-hidden": "true" }),
+              !t.inputState && !hasCanonicalActivity && t.streaming && !legacyText && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-working", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: "cc-working-dots", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("i", {}),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("i", {}),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("i", {})
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-label", children: "Working" }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-time", children: fmtElapsed(elapsed) }),
-                workingHint && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-sep", "aria-hidden": "true", children: "-" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-working-hint", title: workingHint, children: workingHint })
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-working-label", children: "Working" }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-working-time", children: fmtElapsed(elapsed) }),
+                turnWorkingHint && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-working-sep", "aria-hidden": "true", children: "-" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-working-hint", title: turnWorkingHint, children: turnWorkingHint })
                 ] })
               ] }),
-              t.question && t.question.questions[0] && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              t.question && t.question.questions[0] && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
                 QuestionBlock,
                 {
                   q: t.question.questions[0],
                   answered: t.answered,
                   answering: t.answering,
-                  onSelect: (label) => answerQuestion(t.id, t.question.toolUseId, { label }),
-                  onOther: (text) => answerQuestion(t.id, t.question.toolUseId, { text })
+                  error: t.questionError,
+                  active: !t.eventTerminal && (t.inputState ? isActiveInputState(t.inputState) : t.streaming),
+                  onSelect: (label) => answerQuestion(t, t.question.toolUseId, { label }),
+                  onOther: (text) => answerQuestion(t, t.question.toolUseId, { text })
                 }
               ),
-              clean.text.trim() && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-msgactions", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              (actionText.trim() || showRail) && !t.streaming && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-msgactions", children: [
+                actionText.trim() && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
                   "button",
                   {
                     type: "button",
                     className: "cc-msgcopy",
                     title: "Copy this response",
-                    onClick: () => copyMsg(t.id, clean.text),
-                    children: copiedId === t.id ? "Copied" : "Copy"
+                    "aria-label": copiedId === t.id ? "Copied" : "Copy this response",
+                    onClick: () => copyMsg(t.id, actionText),
+                    children: copiedId === t.id ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M3 8.5 6.5 12 13 4.5", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("rect", { x: "5.5", y: "2.5", width: "8", height: "9", rx: "1.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M10.5 13.5h-7a1 1 0 0 1-1-1v-8", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+                    ] })
                   }
                 ),
                 feat.voice && voiceUsable && (() => {
                   const isThis = speakingId === t.id;
                   const playing = isThis && !paused && !ttsLoading;
                   const label = !isThis ? "Read this response aloud" : ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading";
-                  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
                     "button",
                     {
                       type: "button",
@@ -42240,31 +45080,46 @@ ${full}` : full;
                       title: label,
                       "aria-label": label,
                       "aria-pressed": isThis,
-                      onClick: () => isThis ? togglePause() : void speak(clean.text, t.id),
-                      children: playing ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
-                      ] }) : isThis && paused ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
-                        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+                      onClick: () => isThis ? togglePause() : void speak(actionText, t.id),
+                      children: playing ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
+                      ] }) : isThis && paused ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
+                        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
                       ] })
                     }
                   );
                 })(),
-                !showRail && routeLabel && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                showRail ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: `cc-msgroute${openRails.has(t.id) ? " cc-msgroute-open" : ""}`,
+                    "aria-expanded": openRails.has(t.id),
+                    "aria-label": openRails.has(t.id) ? "Hide run context" : `Show run context${routeLabel ? `: ${routeLabel}` : ""}`,
+                    title: routeTitle ?? "Run context for this reply",
+                    onClick: () => toggleRail(t.id),
+                    children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M8 14V9m0 0L3.5 5.2M8 9l4.5-3.8", fill: "none", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("circle", { cx: "3", cy: "4.2", r: "1.6", fill: "currentColor" }),
+                      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("circle", { cx: "13", cy: "4.2", r: "1.6", fill: "currentColor" })
+                    ] })
+                  }
+                ) : routeLabel ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
                   "span",
                   {
                     className: `cc-routechip${structuredChip ? " cc-routechip-rich" : ""}`,
                     title: routeTitle,
                     children: routeLabel
                   }
-                )
+                ) : null
               ] }),
-              showRail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              showRail && openRails.has(t.id) && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
                 AttributionRail,
                 {
                   variant: "settled",
-                  route: t.route,
+                  route: displayRoute,
                   pins: t.overrides,
                   label: "Run context for this reply",
                   onOpenTranscript
@@ -42274,10 +45129,10 @@ ${full}` : full;
           ] }, t.id);
         })
       ] }),
-      showRaw && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { className: "cc-raw", children: screen.join("\n") })
+      showRaw && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("pre", { className: "cc-raw", children: screen.join("\n") })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-statusstrip", title: "Claude Code status line", children: status.rows.length > 0 ? status.rows.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-statusrow", children: r }, i)) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-statusrow cc-dim", children: "no status" }) }),
-    status.mode !== "unknown" && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-modes", children: SWITCHABLE.map((m) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-statusstrip", title: "Claude Code status line", children: status.rows.length > 0 ? status.rows.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-statusrow", children: r }, i)) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-statusrow cc-dim", children: "no status" }) }),
+    status.mode !== "unknown" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-modes", children: SWITCHABLE.map((m) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
       "button",
       {
         className: `cc-mode ${status.mode === m ? "cc-mode-active" : ""}`,
@@ -42287,12 +45142,12 @@ ${full}` : full;
       },
       m
     )) }),
-    (feat.model || feat.effort || feat.voice || feat.autonomous || feat.routing) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-toolbar", children: [
-      feat.model && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Model", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-tool-label", children: "Model" }),
+    (feat.model || feat.effort || feat.voice || feat.autonomous || feat.routing && !generatedMode) && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-toolbar", children: [
+      feat.model && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Model", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-tool-label", children: "Model" }),
         MODELS.map((m) => {
           const active = (status.model ?? "").toLowerCase().includes(m.label.toLowerCase());
-          return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
             "button",
             {
               type: "button",
@@ -42305,21 +45160,22 @@ ${full}` : full;
           );
         })
       ] }),
-      feat.effort && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Thinking effort", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-tool-label", children: "Effort" }),
-        EFFORTS.map((e) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      feat.effort && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-tool-group", role: "group", "aria-label": "Thinking effort", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-tool-label", children: "Effort" }),
+        EFFORTS.map((e) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
           "button",
           {
             type: "button",
             className: `cc-chip ${effort === e.id ? "cc-chip-active" : ""}`,
-            title: e.directive ? `Prepend "${e.directive}" to your next message` : "No extra thinking directive",
+            "aria-pressed": effort === e.id,
+            title: e.effort === "auto" ? "Use Claude's default effort" : `Set native effort to ${e.effort}`,
             onClick: () => pickEffort(e.id),
             children: e.label
           },
           e.id
         ))
       ] }),
-      railOn && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      railOn && !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "button",
         {
           type: "button",
@@ -42330,8 +45186,8 @@ ${full}` : full;
           children: "Route"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-tool-spacer" }),
-      feat.autonomous && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-tool-spacer" }),
+      feat.autonomous && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "button",
         {
           type: "button",
@@ -42342,7 +45198,7 @@ ${full}` : full;
           children: "Autonomous"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "button",
         {
           type: "button",
@@ -42352,18 +45208,18 @@ ${full}` : full;
           children: "Compact"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         "button",
         {
           type: "button",
           className: "cc-chip",
           title: "Copy the last response",
-          disabled: !turns.some((t) => t.assistant.trim()),
+          disabled: !turns.some((t) => resolvedAssistantText(t).trim()),
           onClick: () => void copyLast(),
           children: copied ? "Copied" : "Copy last"
         }
       ),
-      feat.voice && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+      feat.voice && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
         "button",
         {
           type: "button",
@@ -42377,16 +45233,16 @@ ${full}` : full;
             if (!next) stopSpeaking();
           },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { className: "cc-ico", width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
-              voiceUsable && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { className: "cc-ico", width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M8 2 4.5 5H2v6h2.5L8 14z", fill: "currentColor" }),
+              voiceUsable && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
             ] }),
             "Read aloud"
           ]
         }
       ),
-      feat.voice && voiceUsable && (speaking || ttsLoading) && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-playback", role: "group", "aria-label": "Read-aloud playback", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      feat.voice && voiceUsable && (speaking || ttsLoading) && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-playback", role: "group", "aria-label": "Read-aloud playback", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
           "button",
           {
             type: "button",
@@ -42394,33 +45250,61 @@ ${full}` : full;
             disabled: ttsLoading,
             title: ttsLoading ? "Preparing audio" : paused ? "Resume reading" : "Pause reading",
             onClick: togglePause,
-            children: ttsLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-playback-spin", "aria-hidden": "true" }),
+            children: ttsLoading ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-playback-spin", "aria-hidden": "true" }),
               "Preparing"
-            ] }) : paused ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }),
+            ] }) : paused ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M5 3l8 5-8 5z", fill: "currentColor" }) }),
               "Resume"
-            ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("rect", { x: "4", y: "3", width: "3", height: "10", fill: "currentColor" }),
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("rect", { x: "9", y: "3", width: "3", height: "10", fill: "currentColor" })
               ] }),
               "Pause"
             ] })
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", className: "cc-chip", title: "Stop reading", onClick: stopSpeaking, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "3.5", y: "3.5", width: "9", height: "9", fill: "currentColor" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("button", { type: "button", className: "cc-chip", title: "Stop reading", onClick: stopSpeaking, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { className: "cc-ico", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("rect", { x: "3.5", y: "3.5", width: "9", height: "9", fill: "currentColor" }) }),
           "Stop"
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-composer", children: [
-      showFlightRail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-composer", children: [
+      routeSheetOpen && generatedMode && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+        RouteSheet,
+        {
+          onClose: () => setRouteSheetOpen(false),
+          busy,
+          saving: pinSavePending,
+          error: pinSaveError?.message ?? null,
+          onRetry: pinSaveError ? retryPinSave : void 0,
+          children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+            AttributionRail,
+            {
+              variant: "flight",
+              route: rewriteRouteForHost(latestAssistant?.route, hostCtx()),
+              pins,
+              pendingFields: pendingPins,
+              options: routeOptions ?? void 0,
+              onPin: applyPin,
+              onOpenTranscript,
+              label: "Run context for your next message",
+              musterUrl,
+              onOpenModal: (field) => {
+                setRouteSheetOpen(false);
+                setRouteModal({ open: true, focus: field });
+              }
+            }
+          )
+        }
+      ),
+      showFlightRail && !generatedMode && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_jsx_runtime5.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
         AttributionRail,
         {
           variant: "flight",
-          route: latestAssistant?.route,
+          route: rewriteRouteForHost(latestAssistant?.route, hostCtx()),
           pins,
           pendingFields: pendingPins,
           options: routeOptions ?? void 0,
@@ -42428,29 +45312,45 @@ ${full}` : full;
           onOpenTranscript,
           label: "Run context for your next message",
           musterUrl,
+          onOpenModal: (field) => setRouteModal({ open: true, focus: field }),
           children: flightRailEnd
         }
+      ) }),
+      (pinSavePending || pinSaveError) && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: `cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { children: pinSaveError?.message ?? "Saving route choices\u2026" }),
+        pinSaveError && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("button", { type: "button", onClick: retryPinSave, children: "Retry save" })
+      ] }),
+      routeModal.open && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+        RoutingModal,
+        {
+          pins,
+          options: routeOptions ?? void 0,
+          onPin: applyPin,
+          onClose: () => setRouteModal({ open: false }),
+          focusField: routeModal.focus ?? null,
+          musterUrl
+        }
       ),
-      slashQuery !== null && filtered.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-slashmenu", children: filtered.map((c, i) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+      slashQuery !== null && filtered.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-slashmenu", children: filtered.map((c, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
         "button",
         {
           className: `cc-slashitem ${i === menuIdx ? "cc-slashitem-active" : ""}`,
           onMouseEnter: () => setMenuIdx(i),
           onClick: () => pickCommand(c),
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "cc-slashname", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: "cc-slashname", children: [
               "/",
               c.name,
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: `cc-badge cc-badge-${c.source}`, children: c.source })
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: `cc-badge cc-badge-${c.source}`, children: c.source })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-slashdesc", children: c.description || c.argumentHint || "" })
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-slashdesc", children: c.description || c.argumentHint || "" })
           ]
         },
         c.name
       )) }),
-      feat.voice && voiceError && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "cc-voiceerr", role: "status", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-voiceerr-msg", children: voiceError }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+      feat.voice && voiceError && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: "cc-voiceerr", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-voiceerr-msg", children: voiceError }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
           "button",
           {
             type: "button",
@@ -42461,23 +45361,23 @@ ${full}` : full;
           }
         )
       ] }),
-      attachments.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "cc-attachments", children: attachments.map((a) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `cc-attachment-chip${a.error ? " cc-attachment-chip-error" : ""}`, title: a.error ?? a.name, children: [
-        a.previewUrl ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("img", { src: a.previewUrl, alt: "", className: "cc-attachment-thumb" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { className: "cc-attachment-icon", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M4 2h6l3 3v9H4z", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinejoin: "round" }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-attachment-name", children: a.name }),
-        a.uploading && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }),
-        a.error && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-attachment-err", "aria-hidden": "true", children: "!" }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-          "span",
+      attachments.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: "cc-attachments", children: attachments.map((a) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: `cc-attachment-chip${a.error ? " cc-attachment-chip-error" : ""}`, title: a.error ?? a.name, children: [
+        a.previewUrl ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("img", { src: a.previewUrl, alt: "", className: "cc-attachment-thumb" }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { className: "cc-attachment-icon", width: "12", height: "12", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M4 2h6l3 3v9H4z", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinejoin: "round" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-attachment-name", children: a.name }),
+        a.uploading && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }),
+        a.error && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-attachment-err", "aria-hidden": "true", children: "!" }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+          "button",
           {
+            type: "button",
             className: "cc-attachment-x",
-            role: "button",
             "aria-label": `Remove ${a.name}`,
             onClick: () => removeAttachment(a.id),
             children: "\xD7"
           }
         )
       ] }, a.id)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
         "div",
         {
           className: `cc-composerrow${dragOver ? " cc-composerrow-dragover" : ""}`,
@@ -42490,9 +45390,26 @@ ${full}` : full;
           onDragLeave: () => setDragOver(false),
           onDrop: onComposerDrop,
           children: [
-            typeof composerAdornment === "function" ? composerAdornment({ send: (text) => send(text), busy, lastReply: settledReply }) : composerAdornment,
-            canAttach && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            railOn && generatedMode && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+              "button",
+              {
+                type: "button",
+                className: `cc-mic cc-routebtn${routeSheetOpen ? " cc-routebtn-active" : ""}`,
+                "aria-haspopup": "dialog",
+                "aria-expanded": routeSheetOpen,
+                "aria-label": "Run context for your next message",
+                title: "Route: duty, level, tier, runtime, model, effort, account, project, flow or phases for your next message",
+                onClick: () => setRouteModal({ open: true }),
+                children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "15", height: "15", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M8 14V9m0 0L3.5 5.2M8 9l4.5-3.8", fill: "none", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("circle", { cx: "3", cy: "4.2", r: "1.6", fill: "currentColor" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("circle", { cx: "13", cy: "4.2", r: "1.6", fill: "currentColor" })
+                ] })
+              }
+            ),
+            typeof composerAdornment === "function" ? composerAdornment({ send: (text) => send(text), busy, queueLocked: generatedWork, lastReply: settledReply }) : composerAdornment,
+            hasAttachmentTransport && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
                 "input",
                 {
                   ref: fileInputRef,
@@ -42505,14 +45422,16 @@ ${full}` : full;
                   }
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
                 "button",
                 {
                   type: "button",
                   className: "cc-mic",
-                  title: "Attach a file",
+                  disabled: attachmentLocked,
+                  "aria-label": "Attach a file",
+                  title: attachmentLocked ? "Attachments are unavailable while messages are pending" : "Attach a file",
                   onClick: () => fileInputRef.current?.click(),
-                  children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
                     "path",
                     {
                       d: "M11 4.5 5.8 9.7a2.2 2.2 0 0 0 3.1 3.1L14 7.7a3.6 3.6 0 1 0-5.1-5.1L3.8 7.7a5 5 0 0 0 7.1 7.1",
@@ -42526,45 +45445,76 @@ ${full}` : full;
                 }
               )
             ] }),
-            feat.voice && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            feat.voice && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
               "button",
               {
                 type: "button",
                 className: `cc-mic ${recording ? "cc-mic-rec" : ""} ${transcribing ? "cc-mic-busy" : ""}`,
-                disabled: !voiceUsable || transcribing,
+                disabled: !voiceUsable || transcribing || generatedWork && !recording,
                 "aria-pressed": recording,
-                title: !voiceUsable ? "Voice fitting not running" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk - record then transcribe into the composer",
+                title: !voiceUsable ? "Voice fitting not running" : generatedWork && !recording ? "Voice input is unavailable while messages are pending" : transcribing ? "Transcribing\u2026" : recording ? "Stop recording and transcribe" : "Talk - record then transcribe into the composer",
                 onClick: () => recording ? stopRecording() : void startRecording(),
-                children: transcribing ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }) : recording ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-mic-dot", "aria-hidden": "true" }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "5.5", y: "1.5", width: "5", height: "8", rx: "2.5", fill: "currentColor" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
+                children: transcribing ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-mic-spin", "aria-hidden": "true" }) : recording ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-mic-dot", "aria-hidden": "true" }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("rect", { x: "5.5", y: "1.5", width: "5", height: "8", rx: "2.5", fill: "currentColor" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5", fill: "none", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" })
                 ] })
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
               "textarea",
               {
                 ref: taRef,
                 className: "cc-input",
                 value: input,
                 placeholder: placeholder ?? "Message Claude\u2026  (/ for commands)",
+                "aria-label": `Message ${title2 ?? "Claude"}`,
                 rows: 1,
                 onChange: (e) => setInput(e.target.value),
                 onKeyDown,
                 onPaste: onComposerPaste
               }
             ),
-            busy && !showFlightRail ? (
+            generatedMode ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+              activeGeneratedTurn && (generatedMode || !showFlightRail) && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-stop",
+                  onClick: generatedMode ? stopAndChange : stopTurn,
+                  disabled: generatedStopDisabled,
+                  "aria-busy": activeGeneratedTurn.inputState === "stopping",
+                  "aria-label": generatedStopLabel,
+                  title: !activeGeneratedTurn.generationId ? "Stop is available once the response starts" : generatedMode ? "Stop this response and put your message back in the composer (Esc)" : "Stop this response (Esc)",
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-stopsq", "aria-hidden": "true" }),
+                    generatedStopLabel !== "Stop" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-stoptext", children: generatedStopLabel })
+                  ]
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "cc-send cc-send-icon",
+                  onClick: () => send(input),
+                  disabled: !input.trim() && !attachments.some((a) => a.path) || attachments.some((a) => a.uploading) || attachmentLocked && attachments.length > 0,
+                  "aria-label": generatedWork ? "Queue" : resendArmed ? "Resend" : "Send",
+                  title: generatedWork ? "Append this message after the existing queue" : resendArmed ? "Resend the stopped message" : "Send",
+                  children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M8 13.5V3M8 3 3.5 7.5M8 3l4.5 4.5", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round" }) })
+                }
+              )
+            ] }) : busy && !showFlightRail ? (
               // Classic single Stop for a host without the rail (dev-env): with the
               // rail mounted the Stop pair lives at its right-hand end instead, so the
               // two are never on screen at once.
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { className: "cc-stop", onClick: stopTurn, title: "Stop (Esc)", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "cc-stopsq" }),
+              /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("button", { type: "button", className: "cc-stop", onClick: stopTurn, title: "Stop (Esc)", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: "cc-stopsq" }),
                 " Stop"
               ] })
-            ) : busy ? null : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            ) : busy ? null : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
               "button",
               {
+                type: "button",
                 className: "cc-send",
                 onClick: () => send(input),
                 disabled: !input.trim() && !attachments.some((a) => a.path) || attachments.some((a) => a.uploading),
@@ -42579,106 +45529,11 @@ ${full}` : full;
   ] });
 }
 
-// ../../../packages/claude-chat/src/transport.ts
-function createHttpTransport(base = "/api", opts) {
-  const b = base.replace(/\/$/, "");
-  const post = async (path, body) => {
-    const res = await fetch(`${b}/claude/${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: body ? JSON.stringify(body) : void 0
-    });
-    if (!res.ok) throw new Error(`${path} ${res.status}`);
-    return res.json().catch(() => ({}));
-  };
-  return {
-    base: b,
-    connect(onEvent) {
-      let es = null;
-      let closed = false;
-      const open = () => {
-        if (closed) return;
-        es = new EventSource(`${b}/claude/stream`);
-        es.addEventListener("open", () => onEvent({ type: "connection", state: "open" }));
-        const on = (name) => es.addEventListener(name, (e) => {
-          try {
-            onEvent({ type: name, ...JSON.parse(e.data) });
-          } catch {
-          }
-        });
-        on("hello");
-        on("assistant");
-        on("status");
-        on("turn");
-        on("screen");
-        on("tool");
-        on("route");
-        on("activity");
-        on("error");
-        es.onerror = () => {
-          onEvent({ type: "connection", state: "reconnecting" });
-          if (es && es.readyState === EventSource.CLOSED && !closed) {
-            es.close();
-            setTimeout(open, 1500);
-          }
-        };
-      };
-      open();
-      return () => {
-        closed = true;
-        es?.close();
-        onEvent({ type: "connection", state: "closed" });
-      };
-    },
-    async sendMessage(text) {
-      await post("message", { text });
-    },
-    async sendCommand(text) {
-      await post("message", { text });
-    },
-    async sendKey(key) {
-      await post("keys", { key });
-    },
-    async setMode(mode3) {
-      return await post("mode", { mode: mode3 });
-    },
-    async interrupt() {
-      await post("interrupt");
-    },
-    async answerQuestion(answer) {
-      await post("answer", {
-        tool_use_id: answer.toolUseId,
-        ...answer.label !== void 0 ? { label: answer.label } : {},
-        ...answer.text !== void 0 ? { text: answer.text } : {},
-        ...answer.dismiss ? { dismiss: true } : {}
-      });
-    },
-    async fetchCommands() {
-      const res = await fetch(`${b}/claude/commands`);
-      if (!res.ok) return [];
-      const j = await res.json().catch(() => ({ commands: [] }));
-      return j.commands ?? [];
-    },
-    ...opts?.uploads ? {
-      async uploadFile(file) {
-        const res = await fetch(`${b}/attachments`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ filename: file.name, content_base64: file.base64 })
-        });
-        if (!res.ok) throw new Error(`attachments ${res.status}`);
-        const j = await res.json().catch(() => ({}));
-        return { path: String(j.path ?? ""), bytes: typeof j.bytes === "number" ? j.bytes : void 0 };
-      }
-    } : {}
-  };
-}
-
 // ui/chat-pane.tsx
-var import_jsx_runtime5 = __toESM(require_jsx_runtime());
+var import_jsx_runtime6 = __toESM(require_jsx_runtime());
 function ChatPane({ sessionId, branch }) {
-  const transport = (0, import_react5.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+  const transport = (0, import_react6.useMemo)(() => createHttpTransport(`/sessions/${encodeURIComponent(sessionId)}`), [sessionId]);
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
     ClaudeChat,
     {
       transport,
@@ -42689,8 +45544,8 @@ function ChatPane({ sessionId, branch }) {
 }
 
 // ui/browser-pane.tsx
-var import_react6 = __toESM(require_react());
-var import_jsx_runtime6 = __toESM(require_jsx_runtime());
+var import_react7 = __toESM(require_react());
+var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 var tabIdByCwd = /* @__PURE__ */ new Map();
 var LS_DEVICE = "garrison.devenv.deviceViewport";
 function readDevice() {
@@ -42708,16 +45563,16 @@ function BrowserPane({
   onManualNav,
   onClose
 }) {
-  const [appUrl, setAppUrl] = (0, import_react6.useState)(null);
-  const [canvasUrl, setCanvasUrl] = (0, import_react6.useState)(null);
-  const [browserTabId, setBrowserTabId] = (0, import_react6.useState)(() => tabIdByCwd.get(cwd) ?? null);
-  const [browserBase, setBrowserBase] = (0, import_react6.useState)(null);
-  const [splitError, setSplitError] = (0, import_react6.useState)(null);
-  const [iframeNonce, setIframeNonce] = (0, import_react6.useState)(0);
-  const [iframeBaseUrl, setIframeBaseUrl] = (0, import_react6.useState)(null);
-  const [urlInput, setUrlInput] = (0, import_react6.useState)("");
-  const [manual, setManual] = (0, import_react6.useState)(false);
-  const [device, setDeviceState] = (0, import_react6.useState)(() => readDevice());
+  const [appUrl, setAppUrl] = (0, import_react7.useState)(null);
+  const [canvasUrl, setCanvasUrl] = (0, import_react7.useState)(null);
+  const [browserTabId, setBrowserTabId] = (0, import_react7.useState)(() => tabIdByCwd.get(cwd) ?? null);
+  const [browserBase, setBrowserBase] = (0, import_react7.useState)(null);
+  const [splitError, setSplitError] = (0, import_react7.useState)(null);
+  const [iframeNonce, setIframeNonce] = (0, import_react7.useState)(0);
+  const [iframeBaseUrl, setIframeBaseUrl] = (0, import_react7.useState)(null);
+  const [urlInput, setUrlInput] = (0, import_react7.useState)("");
+  const [manual, setManual] = (0, import_react7.useState)(false);
+  const [device, setDeviceState] = (0, import_react7.useState)(() => readDevice());
   const chooseDevice = (d) => {
     setDeviceState(d);
     try {
@@ -42725,15 +45580,15 @@ function BrowserPane({
     } catch {
     }
   };
-  const urlEditedRef = (0, import_react6.useRef)(false);
-  const iframeRef = (0, import_react6.useRef)(null);
-  const onWiredRef = (0, import_react6.useRef)(onWired);
+  const urlEditedRef = (0, import_react7.useRef)(false);
+  const iframeRef = (0, import_react7.useRef)(null);
+  const onWiredRef = (0, import_react7.useRef)(onWired);
   onWiredRef.current = onWired;
-  const tabIdRef = (0, import_react6.useRef)(null);
+  const tabIdRef = (0, import_react7.useRef)(null);
   tabIdRef.current = browserTabId;
-  const appUrlRef = (0, import_react6.useRef)(null);
+  const appUrlRef = (0, import_react7.useRef)(null);
   appUrlRef.current = appUrl;
-  const manualRef = (0, import_react6.useRef)(false);
+  const manualRef = (0, import_react7.useRef)(false);
   manualRef.current = manual;
   async function resolveAppUrl(opts = {}) {
     const setErr = opts.silent ? () => {
@@ -42829,7 +45684,7 @@ function BrowserPane({
     setCanvasUrl(wired.canvasUrl);
     onWiredRef.current?.({ cwd, appUrl: url, canvasUrl: wired.canvasUrl });
   }
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (!active || canvasUrl || manual) return;
     let cancelled = false;
     void (async () => {
@@ -42843,10 +45698,10 @@ function BrowserPane({
       cancelled = true;
     };
   }, [active, canvasUrl, cwd, manual]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (canvasUrl && !iframeBaseUrl) setIframeBaseUrl(canvasUrl);
   }, [canvasUrl, iframeBaseUrl]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (!browserTabId || !browserBase) return;
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -42855,7 +45710,7 @@ function BrowserPane({
     } catch {
     }
   }, [browserTabId, browserBase]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     const onMsg = (e) => {
       if (!browserBase || !browserTabId) return;
       if (e.source !== iframeRef.current?.contentWindow) return;
@@ -42872,7 +45727,7 @@ function BrowserPane({
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, [browserBase, browserTabId]);
-  (0, import_react6.useEffect)(() => {
+  (0, import_react7.useEffect)(() => {
     if (!active || manual) return;
     let cancelled = false;
     const id = window.setInterval(async () => {
@@ -42925,9 +45780,9 @@ function BrowserPane({
       "noopener"
     );
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "app-pane", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "app-pane-header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "app-pane", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "app-pane-header", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
         "input",
         {
           type: "text",
@@ -42944,8 +45799,8 @@ function BrowserPane({
           }
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "segmented device-selector", role: "group", "aria-label": "Viewport", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "segmented device-selector", role: "group", "aria-label": "Viewport", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
           "button",
           {
             type: "button",
@@ -42956,7 +45811,7 @@ function BrowserPane({
             children: "Desktop"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
           "button",
           {
             type: "button",
@@ -42967,7 +45822,7 @@ function BrowserPane({
             children: "Tablet"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
           "button",
           {
             type: "button",
@@ -42979,7 +45834,7 @@ function BrowserPane({
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
         "button",
         {
           type: "button",
@@ -42990,11 +45845,11 @@ function BrowserPane({
           children: "DevTools"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", className: "btn", onClick: () => void refreshIframe(), title: "Re-resolve app.port and reload the canvas", children: "Refresh" }),
-      onClose && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", className: "btn pane-close", onClick: onClose, title: "Close browser pane", children: "\xD7" })
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn", onClick: () => void refreshIframe(), title: "Re-resolve app.port and reload the canvas", children: "Refresh" }),
+      onClose && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn pane-close", onClick: onClose, title: "Close browser pane", children: "\xD7" })
     ] }),
-    splitError && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: "alert", children: splitError }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: `app-pane-viewport device-${device}`, children: iframeBaseUrl ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+    splitError && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "alert", children: splitError }),
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: `app-pane-viewport device-${device}`, children: iframeBaseUrl ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
       "iframe",
       {
         ref: iframeRef,
@@ -43012,9 +45867,9 @@ function BrowserPane({
         }
       },
       iframeNonce
-    ) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: "app-pane-empty", children: [
+    ) : /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "app-pane-empty", children: [
       "No ",
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { children: "app.port" }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { children: "app.port" }),
       " in ",
       cwd,
       " \u2014 type a URL above to browse."
@@ -43023,16 +45878,14 @@ function BrowserPane({
 }
 
 // ui/dialogs.tsx
-var import_react7 = __toESM(require_react());
+var import_react8 = __toESM(require_react());
 
 // ui/session-request.ts
 var MODE_OPTIONS = [
-  { value: "joe", label: "Joe \u2014 dev (default)" },
-  { value: "gary", label: "Gary \u2014 assistant" },
-  { value: "james", label: "James \u2014 product / architect" },
+  { value: "operative", label: "Operative \u2014 Orchestrator identity (default)" },
   { value: "plain", label: "Plain claude, for debugging Garrison itself (unorchestrated, logged)" }
 ];
-var DEFAULT_MODE = "joe";
+var DEFAULT_MODE = "operative";
 function buildSessionRequest({
   path,
   resume = false,
@@ -43047,12 +45900,11 @@ function buildSessionRequest({
     body.plain = true;
     return body;
   }
-  if (mode3) body.mode = mode3;
   return body;
 }
 
 // ui/dialogs.tsx
-var import_jsx_runtime7 = __toESM(require_jsx_runtime());
+var import_jsx_runtime8 = __toESM(require_jsx_runtime());
 function StartSessionDialog({
   onClose,
   onCreated,
@@ -43060,11 +45912,11 @@ function StartSessionDialog({
   initialRepoPath,
   resume = false
 }) {
-  const [projects, setProjects] = (0, import_react7.useState)([]);
-  const [path, setPath] = (0, import_react7.useState)(initialRepoPath ?? "");
-  const [busy, setBusy] = (0, import_react7.useState)(false);
-  const [mode3, setMode2] = (0, import_react7.useState)(DEFAULT_MODE);
-  (0, import_react7.useEffect)(() => {
+  const [projects, setProjects] = (0, import_react8.useState)([]);
+  const [path, setPath] = (0, import_react8.useState)(initialRepoPath ?? "");
+  const [busy, setBusy] = (0, import_react8.useState)(false);
+  const [mode3, setMode2] = (0, import_react8.useState)(DEFAULT_MODE);
+  (0, import_react8.useEffect)(() => {
     void (async () => {
       try {
         const res = await fetch("/projects");
@@ -43101,16 +45953,16 @@ function StartSessionDialog({
       setBusy(false);
     }
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h2", { children: resume ? "Continue session" : "New session" }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: "modal-help", children: resume ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h2", { children: resume ? "Continue session" : "New session" }),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: "modal-help", children: resume ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
       "Opens a tab and resumes the most recent Claude conversation in the chosen project with ",
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { children: "claude --continue" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("code", { children: "claude --continue" }),
       ", at the repo root."
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(import_jsx_runtime7.Fragment, { children: "Opens a tab with a Claude terminal at the project's repo root." }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("label", { className: "modal-label", children: [
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(import_jsx_runtime8.Fragment, { children: "Opens a tab with a Claude terminal at the project's repo root." }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("label", { className: "modal-label", children: [
       "Project",
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
         "select",
         {
           className: "project-picker",
@@ -43119,15 +45971,15 @@ function StartSessionDialog({
             if (e.target.value) setPath(e.target.value);
           },
           children: [
-            projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("option", { value: p.path, children: p.name }, p.path)),
-            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("option", { value: "", children: "custom path\u2026" })
+            projects.map((p) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("option", { value: p.path, children: p.name }, p.path)),
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("option", { value: "", children: "custom path\u2026" })
           ]
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("label", { className: "modal-label", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("label", { className: "modal-label", children: [
       "Path",
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         "input",
         {
           type: "text",
@@ -43141,21 +45993,21 @@ function StartSessionDialog({
         }
       )
     ] }),
-    !resume && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("label", { className: "modal-label", children: [
+    !resume && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("label", { className: "modal-label", children: [
       "Orchestrator",
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         "select",
         {
           className: "project-picker",
           value: mode3,
           onChange: (e) => setMode2(e.target.value),
-          children: MODE_OPTIONS.map((m) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("option", { value: m.value, children: m.label }, m.value))
+          children: MODE_OPTIONS.map((m) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("option", { value: m.value, children: m.label }, m.value))
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "modal-row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn", onClick: onClose, children: "Cancel" }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: () => void submit(), disabled: busy || !path.trim(), children: busy ? resume ? "Continuing\u2026" : "Starting\u2026" : resume ? "Continue" : "Start" })
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "modal-row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn", onClick: onClose, children: "Cancel" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: () => void submit(), disabled: busy || !path.trim(), children: busy ? resume ? "Continuing\u2026" : "Starting\u2026" : resume ? "Continue" : "Start" })
     ] })
   ] }) });
 }
@@ -43163,11 +46015,11 @@ function SettingsDialog({
   onClose,
   onError
 }) {
-  const [text, setText] = (0, import_react7.useState)("");
-  const [defaults, setDefaults] = (0, import_react7.useState)([]);
-  const [loaded, setLoaded] = (0, import_react7.useState)(false);
-  const [saveState, setSaveState] = (0, import_react7.useState)("idle");
-  (0, import_react7.useEffect)(() => {
+  const [text, setText] = (0, import_react8.useState)("");
+  const [defaults, setDefaults] = (0, import_react8.useState)([]);
+  const [loaded, setLoaded] = (0, import_react8.useState)(false);
+  const [saveState, setSaveState] = (0, import_react8.useState)("idle");
+  (0, import_react8.useEffect)(() => {
     void (async () => {
       try {
         const res = await fetch("/settings/excludes");
@@ -43181,7 +46033,7 @@ function SettingsDialog({
       }
     })();
   }, []);
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     if (!loaded) return;
     setSaveState("saving");
     const handle = window.setTimeout(() => {
@@ -43209,21 +46061,21 @@ function SettingsDialog({
       setSaveState("idle");
     }
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h2", { children: "Settings" }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { className: "modal-help", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "modal-overlay", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "modal", onClick: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h2", { children: "Settings" }),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("p", { className: "modal-help", children: [
       "Tab exclusions \u2014 cwds matching any line stay out of the tab strip and aren't tracked from hooks. One pattern per line. ",
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { children: "**" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("code", { children: "**" }),
       "/",
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { children: "*" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("code", { children: "*" }),
       " ",
       "are globs; a plain word (e.g. ",
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { children: "memory-compiler" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("code", { children: "memory-compiler" }),
       ") matches that path segment anywhere. A session with a live terminal here always shows, regardless. Changes save automatically."
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("label", { className: "modal-label", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("label", { className: "modal-label", children: [
       "Excluded paths",
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         "textarea",
         {
           className: "settings-textarea",
@@ -43238,9 +46090,9 @@ function SettingsDialog({
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "settings-foot", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "settings-status", children: saveState === "saving" ? "Saving\u2026" : saveState === "saved" ? "Saved" : "" }),
-      defaults.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "settings-foot", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "settings-status", children: saveState === "saving" ? "Saving\u2026" : saveState === "saved" ? "Saved" : "" }),
+      defaults.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         "button",
         {
           type: "button",
@@ -43250,18 +46102,18 @@ function SettingsDialog({
           children: "Reset to defaults"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "btn primary", onClick: onClose, children: "Done" })
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "btn primary", onClick: onClose, children: "Done" })
     ] })
   ] }) });
 }
 function Toast({ message }) {
   if (!message) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "toast", children: message });
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "toast", children: message });
 }
 
 // ui/session-panels.tsx
-var import_react8 = __toESM(require_react());
-var import_jsx_runtime8 = __toESM(require_jsx_runtime());
+var import_react9 = __toESM(require_react());
+var import_jsx_runtime9 = __toESM(require_jsx_runtime());
 function basename2(p) {
   const parts = (p || "").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? p;
@@ -43294,10 +46146,10 @@ function SessionsPanel({
   onOpen,
   onClose
 }) {
-  const [agents, setAgents] = (0, import_react8.useState)([]);
-  const [history, setHistory] = (0, import_react8.useState)([]);
-  const [loading, setLoading] = (0, import_react8.useState)(true);
-  (0, import_react8.useEffect)(() => {
+  const [agents, setAgents] = (0, import_react9.useState)([]);
+  const [history, setHistory] = (0, import_react9.useState)([]);
+  const [loading, setLoading] = (0, import_react9.useState)(true);
+  (0, import_react9.useEffect)(() => {
     let alive = true;
     (async () => {
       try {
@@ -43317,16 +46169,16 @@ function SessionsPanel({
       alive = false;
     };
   }, []);
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "sessions-panel", onClick: (e) => e.stopPropagation(), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "sp-section", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "sp-head", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "sessions-panel", onClick: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "sp-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "sp-head", children: [
         "Agents ",
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "sp-count", children: agents.length })
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "sp-count", children: agents.length })
       ] }),
-      !loading && agents.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "sp-empty", children: "No live sessions." }),
-      groupByProject(agents).map(([proj, rows]) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "sp-group", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "sp-proj", children: proj }),
-        rows.map((a) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+      !loading && agents.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "sp-empty", children: "No live sessions." }),
+      groupByProject(agents).map(([proj, rows]) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "sp-group", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "sp-proj", children: proj }),
+        rows.map((a) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
           "button",
           {
             type: "button",
@@ -43337,23 +46189,23 @@ function SessionsPanel({
               onClose();
             },
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: `sp-dot ${a.status ?? "idle"}`, "aria-hidden": "true" }),
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "sp-row-main", children: a.status ?? "live" }),
-              a.isOpen && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "sp-tag", children: "open" })
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: `sp-dot ${a.status ?? "idle"}`, "aria-hidden": "true" }),
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "sp-row-main", children: a.status ?? "live" }),
+              a.isOpen && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "sp-tag", children: "open" })
             ]
           },
           a.sessionId
         ))
       ] }, proj))
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "sp-sep" }),
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "sp-section", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "sp-head", children: "History" }),
-      loading && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "sp-empty", children: "Loading\u2026" }),
-      !loading && history.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "sp-empty", children: "No past sessions." }),
-      groupByProject(history).map(([proj, rows]) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "sp-group", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "sp-proj", children: proj }),
-        rows.map((h) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "sp-sep" }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "sp-section", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "sp-head", children: "History" }),
+      loading && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "sp-empty", children: "Loading\u2026" }),
+      !loading && history.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "sp-empty", children: "No past sessions." }),
+      groupByProject(history).map(([proj, rows]) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "sp-group", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "sp-proj", children: proj }),
+        rows.map((h) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
           "button",
           {
             type: "button",
@@ -43367,8 +46219,8 @@ function SessionsPanel({
               }
             },
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "sp-row-main", children: h.title ?? "(untitled session)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "sp-time", children: relTime(h.lastActivityAt) })
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "sp-row-main", children: h.title ?? "(untitled session)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "sp-time", children: relTime(h.lastActivityAt) })
             ]
           },
           h.sessionId
@@ -43379,7 +46231,7 @@ function SessionsPanel({
 }
 
 // ui/main.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime());
+var import_jsx_runtime10 = __toESM(require_jsx_runtime());
 var LS_CLAUDE_VIEW = "garrison.devenv.claudeView";
 function readClaudeView(sessionId) {
   try {
@@ -43401,37 +46253,37 @@ var THEME_OPTIONS = [
   {
     mode: "light",
     label: "Light",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("circle", { cx: "8", cy: "8", r: "3.2", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("g", { stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "8", y1: "1", x2: "8", y2: "2.8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "8", y1: "13.2", x2: "8", y2: "15" }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "1", y1: "8", x2: "2.8", y2: "8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "13.2", y1: "8", x2: "15", y2: "8" }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "3.1", y1: "3.1", x2: "4.3", y2: "4.3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "11.7", y1: "11.7", x2: "12.9", y2: "12.9" }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "12.9", y1: "3.1", x2: "11.7", y2: "4.3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "4.3", y1: "11.7", x2: "3.1", y2: "12.9" })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("circle", { cx: "8", cy: "8", r: "3.2", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("g", { stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "8", y1: "1", x2: "8", y2: "2.8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "8", y1: "13.2", x2: "8", y2: "15" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "1", y1: "8", x2: "2.8", y2: "8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "13.2", y1: "8", x2: "15", y2: "8" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "3.1", y1: "3.1", x2: "4.3", y2: "4.3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "11.7", y1: "11.7", x2: "12.9", y2: "12.9" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "12.9", y1: "3.1", x2: "11.7", y2: "4.3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "4.3", y1: "11.7", x2: "3.1", y2: "12.9" })
       ] })
     ] })
   },
   {
     mode: "dark",
     label: "Dark",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("path", { d: "M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z", fill: "currentColor" }) })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("path", { d: "M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z", fill: "currentColor" }) })
   },
   {
     mode: "system",
     label: "System",
-    icon: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("rect", { x: "1.5", y: "2.5", width: "13", height: "8.5", rx: "1", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("line", { x1: "5.5", y1: "13.5", x2: "10.5", y2: "13.5", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round" })
+    icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("svg", { width: "13", height: "13", viewBox: "0 0 16 16", "aria-hidden": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "1.5", y: "2.5", width: "13", height: "8.5", rx: "1", fill: "none", stroke: "currentColor", strokeWidth: "1.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "5.5", y1: "13.5", x2: "10.5", y2: "13.5", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round" })
     ] })
   }
 ];
 function TermThemeToggle() {
-  const [mode3, setLocalMode] = (0, import_react9.useState)(() => getMode());
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "term-theme", role: "group", "aria-label": "Terminal theme", children: THEME_OPTIONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+  const [mode3, setLocalMode] = (0, import_react10.useState)(() => getMode());
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "term-theme", role: "group", "aria-label": "Terminal theme", children: THEME_OPTIONS.map((opt) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
     "button",
     {
       type: "button",
@@ -43483,8 +46335,8 @@ function tabLabel(s) {
   return raw.length > 30 ? raw.slice(0, 29) + "\u2026" : raw;
 }
 function useIsMobile() {
-  const [mobile, setMobile] = (0, import_react9.useState)(() => window.matchMedia(MOBILE_QUERY).matches);
-  (0, import_react9.useEffect)(() => {
+  const [mobile, setMobile] = (0, import_react10.useState)(() => window.matchMedia(MOBILE_QUERY).matches);
+  (0, import_react10.useEffect)(() => {
     const mq = window.matchMedia(MOBILE_QUERY);
     const onChange = () => setMobile(mq.matches);
     mq.addEventListener("change", onChange);
@@ -43497,8 +46349,8 @@ function QuickPromptBar({
   disabled,
   onSend
 }) {
-  const [text, setText] = (0, import_react9.useState)("");
-  const [busy, setBusy] = (0, import_react9.useState)(false);
+  const [text, setText] = (0, import_react10.useState)("");
+  const [busy, setBusy] = (0, import_react10.useState)(false);
   async function send() {
     const t = text.trim();
     if (!t || busy) return;
@@ -43507,8 +46359,8 @@ function QuickPromptBar({
     setBusy(false);
     if (ok) setText("");
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "quick-prompt", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "quick-prompt", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
       "input",
       {
         type: "text",
@@ -43521,7 +46373,7 @@ function QuickPromptBar({
         }
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn", disabled: disabled || busy || !text.trim(), onClick: () => void send(), children: "Send" })
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn", disabled: disabled || busy || !text.trim(), onClick: () => void send(), children: "Send" })
   ] });
 }
 function ClaudePaneOverlay({
@@ -43530,44 +46382,44 @@ function ClaudePaneOverlay({
 }) {
   const { claudePty, external, claudeSessionId } = session;
   if (claudePty.state === "running" && claudePty.claudeAlive === false) {
-    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "claude exited \u2014 the shell underneath is still alive." }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Restart claude" })
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "claude exited \u2014 the shell underneath is still alive." }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Restart claude" })
     ] });
   }
   if (claudePty.state === "running") return null;
   if (claudePty.state === "persisted") {
-    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "Claude session persisted from a previous Dev Env run." }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Resume (claude --continue)" })
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "Claude session persisted from a previous Dev Env run." }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Resume (claude --continue)" })
     ] });
   }
   if (claudePty.state === "exited") {
-    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("p", { children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("p", { children: [
         "Terminal exited with code ",
         claudePty.exitCode ?? "?",
         "."
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Restart" })
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Restart" })
     ] });
   }
   if (external) {
-    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "Claude is running elsewhere for this directory (detected via hooks)." }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("p", { className: "pane-overlay-warn", children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "Claude is running elsewhere for this directory (detected via hooks)." }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("p", { className: "pane-overlay-warn", children: [
         "Take over starts a second claude here with ",
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("code", { children: "--continue" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("code", { children: "--continue" }),
         "; if the external one is still running, both will be attached to the project."
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Take over (claude --continue)" })
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, true), children: "Take over (claude --continue)" })
     ] });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "No Claude terminal for this session yet." }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay-row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, false), children: "Start Claude" }),
-      claudeSessionId && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn", onClick: () => onEnsureClaude(session.id, true), children: "Resume (claude --continue)" })
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "No Claude terminal for this session yet." }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay-row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn primary", onClick: () => onEnsureClaude(session.id, false), children: "Start Claude" }),
+      claudeSessionId && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn", onClick: () => onEnsureClaude(session.id, true), children: "Resume (claude --continue)" })
     ] })
   ] });
 }
@@ -43647,8 +46499,8 @@ function writeTree(sessionId, tree) {
   }
 }
 function SplitHandle({ dir, onResize, onCommit }) {
-  const draggingRef = (0, import_react9.useRef)(false);
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+  const draggingRef = (0, import_react10.useRef)(false);
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
     "div",
     {
       className: `term-divider ${dir}`,
@@ -43699,16 +46551,16 @@ function TermLeaf({
   onRestart
 }) {
   if (!term) {
-    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "term-leaf", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "pane-body", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "pane-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "Terminal closing\u2026" }) }) }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "term-leaf", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "pane-body", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "pane-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "Terminal closing\u2026" }) }) }) });
   }
   const running = term.state === "running";
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "term-leaf", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-strip term-leaf-strip", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "term-leaf", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-strip term-leaf-strip", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { children: [
         "term ",
         term.index
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
         "button",
         {
           type: "button",
@@ -43719,15 +46571,15 @@ function TermLeaf({
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "pane-body", children: running ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TerminalPane, { ptyId: term.id, isActive: active }, term.id) : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("p", { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "pane-body", children: running ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TerminalPane, { ptyId: term.id, isActive: active }, term.id) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("p", { children: [
         "Terminal exited",
         term.exitCode != null ? ` (code ${term.exitCode})` : "",
         "."
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn primary", onClick: () => onRestart(term.role), children: "Restart" }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn", onClick: () => onClose(term.role), children: "Close" })
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn primary", onClick: () => onRestart(term.role), children: "Restart" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn", onClick: () => onClose(term.role), children: "Close" })
       ] })
     ] }) })
   ] });
@@ -43743,12 +46595,12 @@ function TermTreeView({
   onCommit
 }) {
   if (node.t === "leaf") {
-    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TermLeaf, { term: termById.get(node.id), active, onClose, onRestart });
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TermLeaf, { term: termById.get(node.id), active, onClose, onRestart });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: `term-split ${node.dir}`, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "term-split-cell", style: { flexGrow: node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TermTreeView, { node: node.a, path: `${path}a`, active, termById, onClose, onRestart, onResize, onCommit }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SplitHandle, { dir: node.dir, onResize: (r) => onResize(path, r), onCommit }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "term-split-cell", style: { flexGrow: 1 - node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TermTreeView, { node: node.b, path: `${path}b`, active, termById, onClose, onRestart, onResize, onCommit }) })
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: `term-split ${node.dir}`, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "term-split-cell", style: { flexGrow: node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TermTreeView, { node: node.a, path: `${path}a`, active, termById, onClose, onRestart, onResize, onCommit }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(SplitHandle, { dir: node.dir, onResize: (r) => onResize(path, r), onCommit }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "term-split-cell", style: { flexGrow: 1 - node.ratio, flexBasis: 0, minWidth: 0, minHeight: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TermTreeView, { node: node.b, path: `${path}b`, active, termById, onClose, onRestart, onResize, onCommit }) })
   ] });
 }
 function SessionWorkspace({
@@ -43775,8 +46627,8 @@ function SessionWorkspace({
   const claudeKey = `${session.claudePty.id ?? "none"}:${session.claudePty.createdAt ?? ""}`;
   const showClaude = !isMobile || mobilePane === "claude";
   const showDeck = !isMobile || mobilePane === "shell";
-  const [claudeView, setClaudeViewState] = (0, import_react9.useState)(() => readClaudeView(session.id));
-  const setClaudeView = (0, import_react9.useCallback)(
+  const [claudeView, setClaudeViewState] = (0, import_react10.useState)(() => readClaudeView(session.id));
+  const setClaudeView = (0, import_react10.useCallback)(
     (v) => {
       setClaudeViewState(v);
       writeClaudeView(session.id, v);
@@ -43786,20 +46638,20 @@ function SessionWorkspace({
   const termById = new Map(session.terminals.map((t) => [t.id, t]));
   const serverIds = session.terminals.map((t) => t.id);
   const idsKey = serverIds.join("|");
-  const [tree, setTree] = (0, import_react9.useState)(() => reconcileTree(readTree(session.id), serverIds));
-  (0, import_react9.useEffect)(() => {
+  const [tree, setTree] = (0, import_react10.useState)(() => reconcileTree(readTree(session.id), serverIds));
+  (0, import_react10.useEffect)(() => {
     setTree((prev) => {
       const next = reconcileTree(prev, idsKey ? idsKey.split("|") : []);
       return treesEqual(prev, next) ? prev : next;
     });
   }, [idsKey]);
-  (0, import_react9.useEffect)(() => {
+  (0, import_react10.useEffect)(() => {
     writeTree(session.id, tree);
   }, [tree, session.id]);
-  const resizeSplit = (0, import_react9.useCallback)((path, r) => {
+  const resizeSplit = (0, import_react10.useCallback)((path, r) => {
     setTree((prev) => prev ? setRatioAt(prev, path, r) : prev);
   }, []);
-  const commitTree = (0, import_react9.useCallback)(() => {
+  const commitTree = (0, import_react10.useCallback)(() => {
     setTree((prev) => {
       writeTree(session.id, prev);
       return prev;
@@ -43807,15 +46659,15 @@ function SessionWorkspace({
   }, [session.id]);
   const hasTerminals = session.terminals.length > 0;
   const mobileLeafId = lastLeafId(tree);
-  const colRef = (0, import_react9.useRef)(null);
-  const claudeDragRef = (0, import_react9.useRef)(false);
-  const [claudeRatio, setClaudeRatio] = (0, import_react9.useState)(() => {
+  const colRef = (0, import_react10.useRef)(null);
+  const claudeDragRef = (0, import_react10.useRef)(false);
+  const [claudeRatio, setClaudeRatio] = (0, import_react10.useState)(() => {
     const v = Number(localStorage.getItem(LS_CLAUDE_RATIO));
     return Number.isFinite(v) && v > 0.15 && v < 0.85 ? v : 0.55;
   });
-  const [hasAppPort, setHasAppPort] = (0, import_react9.useState)(false);
-  const missesRef = (0, import_react9.useRef)(0);
-  (0, import_react9.useEffect)(() => {
+  const [hasAppPort, setHasAppPort] = (0, import_react10.useState)(false);
+  const missesRef = (0, import_react10.useRef)(0);
+  (0, import_react10.useEffect)(() => {
     if (isMobile || !active || browserPref !== void 0) return;
     let cancelled = false;
     const check = async () => {
@@ -43845,8 +46697,8 @@ function SessionWorkspace({
   const browserMounted = desktopBrowserVisible || isMobile && active;
   const showBrowser = isMobile ? mobilePane === "browser" : desktopBrowserVisible;
   const showTerminalsCol = !isMobile || mobilePane !== "browser";
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "workspace", style: { display: active ? "flex" : "none" }, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "workspace", style: { display: active ? "flex" : "none" }, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
       "div",
       {
         className: "terminals-col",
@@ -43856,7 +46708,7 @@ function SessionWorkspace({
           ...!isMobile && desktopBrowserVisible ? { flex: `0 0 calc(${splitRatio * 100}% - 3px)` } : {}
         },
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
             "div",
             {
               className: "claude-pane",
@@ -43865,9 +46717,9 @@ function SessionWorkspace({
                 ...!isMobile && hasTerminals ? { flexGrow: claudeRatio, flexBasis: 0 } : { flexGrow: 1, flexBasis: 0 }
               },
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "quick-prompt-row", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "claude-view-toggle", role: "group", "aria-label": "Claude view", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "quick-prompt-row", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "claude-view-toggle", role: "group", "aria-label": "Claude view", children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
                       "button",
                       {
                         type: "button",
@@ -43877,7 +46729,7 @@ function SessionWorkspace({
                         children: "Terminal"
                       }
                     ),
-                    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+                    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
                       "button",
                       {
                         type: "button",
@@ -43888,8 +46740,8 @@ function SessionWorkspace({
                       }
                     )
                   ] }),
-                  placementLabel(session.placement) && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "pane-placement", title: placementTitle(session.placement), children: placementLabel(session.placement) }),
-                  claudeView === "terminal" && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+                  placementLabel(session.placement) && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "pane-placement", title: placementTitle(session.placement), children: placementLabel(session.placement) }),
+                  claudeView === "terminal" && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
                     QuickPromptBar,
                     {
                       sessionId: session.id,
@@ -43897,7 +46749,7 @@ function SessionWorkspace({
                       onSend: onInstruct
                     }
                   ),
-                  session.claudePty.state !== "none" && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+                  session.claudePty.state !== "none" && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
                     "button",
                     {
                       type: "button",
@@ -43908,14 +46760,14 @@ function SessionWorkspace({
                     }
                   )
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "pane-body", children: claudeView === "chat" && claudeRunning ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ChatPane, { sessionId: session.id, branch: session.branch }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
-                  claudeRunning && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TerminalPane, { ptyId: session.claudePty.id, isActive: active && showClaude }, claudeKey),
-                  /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ClaudePaneOverlay, { session, onEnsureClaude })
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "pane-body", children: claudeView === "chat" && claudeRunning ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ChatPane, { sessionId: session.id, branch: session.branch }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+                  claudeRunning && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TerminalPane, { ptyId: session.claudePty.id, isActive: active && showClaude }, claudeKey),
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ClaudePaneOverlay, { session, onEnsureClaude })
                 ] }) })
               ]
             }
           ),
-          !isMobile && hasTerminals && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          !isMobile && hasTerminals && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
             "div",
             {
               className: "term-divider col claude-deck-divider",
@@ -43957,7 +46809,7 @@ function SessionWorkspace({
               }
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
             "div",
             {
               className: "terminals-deck",
@@ -43966,10 +46818,10 @@ function SessionWorkspace({
                 ...!isMobile && hasTerminals ? { flexGrow: 1 - claudeRatio, flexBasis: 0 } : {},
                 ...!isMobile && !hasTerminals ? { flex: "0 0 auto" } : {}
               },
-              children: !hasTerminals ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "terminals-deck-empty", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "No terminals open" }),
-                /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn", onClick: () => onAddTerminal(session.id), children: "+ New terminal" })
-              ] }) : isMobile ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+              children: !hasTerminals ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "terminals-deck-empty", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "No terminals open" }),
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn", onClick: () => onAddTerminal(session.id), children: "+ New terminal" })
+              ] }) : isMobile ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
                 TermLeaf,
                 {
                   term: termById.get(mobileLeafId ?? ""),
@@ -43977,7 +46829,7 @@ function SessionWorkspace({
                   onClose: (role) => onCloseTerminal(session.id, role),
                   onRestart: (role) => onRestartTerminal(session.id, role)
                 }
-              ) : tree && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+              ) : tree && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
                 TermTreeView,
                 {
                   node: tree,
@@ -43995,7 +46847,7 @@ function SessionWorkspace({
         ]
       }
     ),
-    !isMobile && desktopBrowserVisible && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    !isMobile && desktopBrowserVisible && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
       "div",
       {
         className: "split-divider",
@@ -44008,7 +46860,7 @@ function SessionWorkspace({
         title: "Drag to resize"
       }
     ),
-    browserMounted && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "browser-pane-host", style: { display: showBrowser ? "flex" : "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    browserMounted && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "browser-pane-host", style: { display: showBrowser ? "flex" : "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
       BrowserPane,
       {
         cwd: session.projectPath,
@@ -44021,12 +46873,12 @@ function SessionWorkspace({
   ] });
 }
 function App() {
-  const [sessions, setSessions] = (0, import_react9.useState)([]);
-  const [selectedId, setSelectedId] = (0, import_react9.useState)(
+  const [sessions, setSessions] = (0, import_react10.useState)([]);
+  const [selectedId, setSelectedId] = (0, import_react10.useState)(
     () => localStorage.getItem(LS_SELECTED)
   );
-  const [visited, setVisited] = (0, import_react9.useState)(() => /* @__PURE__ */ new Set());
-  const [mobilePane, setMobilePane] = (0, import_react9.useState)(() => {
+  const [visited, setVisited] = (0, import_react10.useState)(() => /* @__PURE__ */ new Set());
+  const [mobilePane, setMobilePane] = (0, import_react10.useState)(() => {
     try {
       const v = localStorage.getItem(LS_MOBILE_PANE);
       if (v === "claude" || v === "shell" || v === "browser") return v;
@@ -44034,35 +46886,35 @@ function App() {
     }
     return "claude";
   });
-  const chooseMobilePane = (0, import_react9.useCallback)((p) => {
+  const chooseMobilePane = (0, import_react10.useCallback)((p) => {
     setMobilePane(p);
     try {
       localStorage.setItem(LS_MOBILE_PANE, p);
     } catch {
     }
   }, []);
-  const [showAll, setShowAll] = (0, import_react9.useState)(() => localStorage.getItem(LS_SHOW_ALL) === "1");
-  const [browserPref, setBrowserPref] = (0, import_react9.useState)({});
-  const [menuOpen, setMenuOpen] = (0, import_react9.useState)(false);
-  const [panelOpen, setPanelOpen] = (0, import_react9.useState)(false);
-  const [dialog, setDialog] = (0, import_react9.useState)(null);
-  const [toastMsg, setToastMsg] = (0, import_react9.useState)(null);
+  const [showAll, setShowAll] = (0, import_react10.useState)(() => localStorage.getItem(LS_SHOW_ALL) === "1");
+  const [browserPref, setBrowserPref] = (0, import_react10.useState)({});
+  const [menuOpen, setMenuOpen] = (0, import_react10.useState)(false);
+  const [panelOpen, setPanelOpen] = (0, import_react10.useState)(false);
+  const [dialog, setDialog] = (0, import_react10.useState)(null);
+  const [toastMsg, setToastMsg] = (0, import_react10.useState)(null);
   const isMobile = useIsMobile();
-  const toastTimer = (0, import_react9.useRef)(null);
-  const ensuredRef = (0, import_react9.useRef)(/* @__PURE__ */ new Set());
-  const wiredByCwd = (0, import_react9.useRef)(/* @__PURE__ */ new Map());
-  const [splitRatio, setSplitRatio] = (0, import_react9.useState)(() => {
+  const toastTimer = (0, import_react10.useRef)(null);
+  const ensuredRef = (0, import_react10.useRef)(/* @__PURE__ */ new Set());
+  const wiredByCwd = (0, import_react10.useRef)(/* @__PURE__ */ new Map());
+  const [splitRatio, setSplitRatio] = (0, import_react10.useState)(() => {
     const v = Number(localStorage.getItem(LS_SPLIT_RATIO));
     return Number.isFinite(v) && v > 0.1 && v < 0.9 ? v : 0.5;
   });
-  const draggingRef = (0, import_react9.useRef)(false);
-  const shellWrapRef = (0, import_react9.useRef)(null);
-  const toast = (0, import_react9.useCallback)((msg) => {
+  const draggingRef = (0, import_react10.useRef)(false);
+  const shellWrapRef = (0, import_react10.useRef)(null);
+  const toast = (0, import_react10.useCallback)((msg) => {
     setToastMsg(msg);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToastMsg(null), 4e3);
   }, []);
-  const refresh = (0, import_react9.useCallback)(async () => {
+  const refresh = (0, import_react10.useCallback)(async () => {
     try {
       const res = await fetch("/sessions");
       const data = await res.json();
@@ -44075,12 +46927,12 @@ function App() {
     } catch {
     }
   }, []);
-  (0, import_react9.useEffect)(() => {
+  (0, import_react10.useEffect)(() => {
     void refresh();
     const t = window.setInterval(() => void refresh(), POLL_MS);
     return () => window.clearInterval(t);
   }, [refresh]);
-  (0, import_react9.useEffect)(() => {
+  (0, import_react10.useEffect)(() => {
     let lastInput = Date.now();
     const markInput = () => {
       lastInput = Date.now();
@@ -44106,7 +46958,7 @@ function App() {
     (s) => showAll || s.id === selectedId || s.openedInDevEnv === true
   );
   const hiddenCount = sessions.length - visibleSessions.length;
-  (0, import_react9.useEffect)(() => {
+  (0, import_react10.useEffect)(() => {
     if (visibleSessions.length === 0) return;
     if (!selected) {
       const first = visibleSessions[0];
@@ -44121,7 +46973,7 @@ function App() {
       return next;
     });
   }
-  const openFromPanel = (0, import_react9.useCallback)(
+  const openFromPanel = (0, import_react10.useCallback)(
     async (sessionId, cwd, title2) => {
       try {
         const res = await fetch("/sessions/open", {
@@ -44143,13 +46995,13 @@ function App() {
     },
     [refresh, toast]
   );
-  (0, import_react9.useEffect)(() => {
+  (0, import_react10.useEffect)(() => {
     if (selectedId) {
       localStorage.setItem(LS_SELECTED, selectedId);
       setVisited((v) => v.has(selectedId) ? v : new Set(v).add(selectedId));
     }
   }, [selectedId]);
-  const ensurePty = (0, import_react9.useCallback)(
+  const ensurePty = (0, import_react10.useCallback)(
     async (sessionId, role, resume = false) => {
       const key = `${sessionId}:${role}`;
       if (ensuredRef.current.has(key)) return;
@@ -44172,9 +47024,9 @@ function App() {
     },
     [refresh, toast]
   );
-  const selectedIdRef = (0, import_react9.useRef)(selectedId);
+  const selectedIdRef = (0, import_react10.useRef)(selectedId);
   selectedIdRef.current = selectedId;
-  const closePty = (0, import_react9.useCallback)(
+  const closePty = (0, import_react10.useCallback)(
     async (sessionId, role) => {
       try {
         await fetch(`/sessions/${encodeURIComponent(sessionId)}/ptys/${role}`, { method: "DELETE" });
@@ -44185,7 +47037,7 @@ function App() {
     },
     [refresh]
   );
-  const addTerminal = (0, import_react9.useCallback)(
+  const addTerminal = (0, import_react10.useCallback)(
     async (sessionId) => {
       try {
         const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/terminals`, { method: "POST" });
@@ -44201,7 +47053,7 @@ function App() {
     },
     [refresh, toast]
   );
-  const closeTerminal = (0, import_react9.useCallback)(
+  const closeTerminal = (0, import_react10.useCallback)(
     async (sessionId, role) => {
       try {
         await fetch(`/sessions/${encodeURIComponent(sessionId)}/ptys/${encodeURIComponent(role)}`, { method: "DELETE" });
@@ -44211,7 +47063,7 @@ function App() {
     },
     [refresh]
   );
-  const restartTerminal = (0, import_react9.useCallback)(
+  const restartTerminal = (0, import_react10.useCallback)(
     async (sessionId, role) => {
       try {
         const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/ptys`, {
@@ -44231,7 +47083,7 @@ function App() {
     },
     [refresh, toast]
   );
-  const closeTab = (0, import_react9.useCallback)(
+  const closeTab = (0, import_react10.useCallback)(
     async (sessionId) => {
       const idx = visibleSessions.findIndex((s) => s.id === sessionId);
       try {
@@ -44265,10 +47117,10 @@ function App() {
     },
     [visibleSessions, refresh, toast]
   );
-  const closeBrowser = (0, import_react9.useCallback)((sessionId) => {
+  const closeBrowser = (0, import_react10.useCallback)((sessionId) => {
     setBrowserPref((p) => ({ ...p, [sessionId]: "closed" }));
   }, []);
-  const pinBrowserOpen = (0, import_react9.useCallback)((sessionId) => {
+  const pinBrowserOpen = (0, import_react10.useCallback)((sessionId) => {
     setBrowserPref((p) => p[sessionId] === "open" ? p : { ...p, [sessionId]: "open" });
   }, []);
   function openBrowser() {
@@ -44276,14 +47128,14 @@ function App() {
     if (!selected) return;
     setBrowserPref((p) => ({ ...p, [selected.id]: "open" }));
   }
-  const onEnsureClaude = (0, import_react9.useCallback)(
+  const onEnsureClaude = (0, import_react10.useCallback)(
     (sessionId, resume) => {
       ensuredRef.current.delete(`${sessionId}:claude`);
       void ensurePty(sessionId, "claude", resume);
     },
     [ensurePty]
   );
-  const instruct = (0, import_react9.useCallback)(
+  const instruct = (0, import_react10.useCallback)(
     async (sessionId, text) => {
       try {
         const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/instruct`, {
@@ -44347,7 +47199,7 @@ function App() {
     }
     toast("No app detected for this session (missing app.port).");
   }
-  const onWired = (0, import_react9.useCallback)((info) => {
+  const onWired = (0, import_react10.useCallback)((info) => {
     wiredByCwd.current.set(info.cwd, info);
   }, []);
   function onDividerPointerDown(e) {
@@ -44376,23 +47228,23 @@ function App() {
     }
     localStorage.setItem(LS_SPLIT_RATIO, String(splitRatio));
   }
-  (0, import_react9.useEffect)(() => {
+  (0, import_react10.useEffect)(() => {
     if (!menuOpen) return;
     const close = () => setMenuOpen(false);
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
   }, [menuOpen]);
-  (0, import_react9.useEffect)(() => {
+  (0, import_react10.useEffect)(() => {
     if (!panelOpen) return;
     const close = () => setPanelOpen(false);
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
   }, [panelOpen]);
   const visible = sessions.filter((s) => visited.has(s.id));
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "header", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "menu-wrap", onClick: (e) => e.stopPropagation(), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "header", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "menu-wrap", onClick: (e) => e.stopPropagation(), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
           "button",
           {
             type: "button",
@@ -44400,33 +47252,33 @@ function App() {
             title: "Menu",
             "aria-label": "Menu",
             onClick: () => setMenuOpen((o) => !o),
-            children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 14 14", "aria-hidden": "true", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("rect", { x: "1", y: "2", width: "12", height: "1.6", fill: "currentColor" }),
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("rect", { x: "1", y: "6.2", width: "12", height: "1.6", fill: "currentColor" }),
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("rect", { x: "1", y: "10.4", width: "12", height: "1.6", fill: "currentColor" })
+            children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 14 14", "aria-hidden": "true", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "1", y: "2", width: "12", height: "1.6", fill: "currentColor" }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "1", y: "6.2", width: "12", height: "1.6", fill: "currentColor" }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "1", y: "10.4", width: "12", height: "1.6", fill: "currentColor" })
             ] })
           }
         ),
-        menuOpen && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "menu", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", onClick: () => {
+        menuOpen && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "menu", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
             setDialog("start-session");
           }, children: "New session\u2026" }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
             setDialog("continue-session");
           }, children: "Continue session\u2026" }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", onClick: () => void clearStale(), children: "Clear stale sessions" }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", onClick: () => void clearStale(), children: "Clear stale sessions" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
             toggleShowAll();
           }, children: showAll ? "Show active only" : `Show all sessions${hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ""}` }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", onClick: () => {
             setMenuOpen(false);
             setDialog("settings");
           }, children: "Settings\u2026" }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "menu-sep" }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "menu-sep" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
             "button",
             {
               type: "button",
@@ -44437,7 +47289,7 @@ function App() {
               children: "Create PR"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
             "button",
             {
               type: "button",
@@ -44448,9 +47300,9 @@ function App() {
               children: "Commit & push"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", disabled: !selected, onClick: () => void menuInstruct("/run"), children: "Run" }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "menu-sep" }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", disabled: !selected, onClick: () => void menuInstruct("/run"), children: "Run" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "menu-sep" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
             "button",
             {
               type: "button",
@@ -44462,7 +47314,7 @@ function App() {
               children: "New terminal"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
             "button",
             {
               type: "button",
@@ -44472,11 +47324,11 @@ function App() {
               children: "Open browser"
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", disabled: !selected, onClick: () => void openAppInNewTab(), children: "Open app in browser tab" })
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", disabled: !selected, onClick: () => void openAppInNewTab(), children: "Open app in browser tab" })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "panel-wrap", onClick: (e) => e.stopPropagation(), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "panel-wrap", onClick: (e) => e.stopPropagation(), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
           "button",
           {
             type: "button",
@@ -44486,10 +47338,10 @@ function App() {
             children: "Sessions"
           }
         ),
-        panelOpen && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SessionsPanel, { onOpen: openFromPanel, onClose: () => setPanelOpen(false) })
+        panelOpen && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(SessionsPanel, { onOpen: openFromPanel, onClose: () => setPanelOpen(false) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "tabs", children: [
-        visibleSessions.map((s) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "tabs", children: [
+        visibleSessions.map((s) => /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
           "span",
           {
             className: `tab ${s.id === selectedId ? "active" : ""} ${s.lastStatus === "stale" ? "stale" : ""}`,
@@ -44497,12 +47349,12 @@ function App() {
             title: `${s.projectPath}
 ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
             children: [
-              s.lastStatus === "working" && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "spinner", "aria-hidden": "true" }),
-              s.lastStatus === "waiting" && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "badge-waiting", "aria-hidden": "true" }),
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "tab-label", children: tabLabel(s) }),
-              placementLabel(s.placement) && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "tab-placement", title: placementTitle(s.placement), children: placementLabel(s.placement) }),
-              s.dirty === true && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "dirty-dot", title: "Uncommitted changes" }),
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+              s.lastStatus === "working" && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "spinner", "aria-hidden": "true" }),
+              s.lastStatus === "waiting" && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "badge-waiting", "aria-hidden": "true" }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "tab-label", children: tabLabel(s) }),
+              placementLabel(s.placement) && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "tab-placement", title: placementTitle(s.placement), children: placementLabel(s.placement) }),
+              s.dirty === true && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dirty-dot", title: "Uncommitted changes" }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
                 "span",
                 {
                   className: "close",
@@ -44518,14 +47370,14 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
           },
           s.id
         )),
-        sessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "tabs-empty", children: "No sessions - start a session or run claude anywhere." }),
-        sessions.length > 0 && visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "tabs-empty", children: [
+        sessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "tabs-empty", children: "No sessions - start a session or run claude anywhere." }),
+        sessions.length > 0 && visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "tabs-empty", children: [
           "No active sessions - ",
           hiddenCount,
           " hidden."
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
         "button",
         {
           type: "button",
@@ -44538,9 +47390,9 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
           children: "+ Terminal"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TermThemeToggle, {}),
-      isMobile && selected && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "segmented", role: "tablist", "aria-label": "Pane", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TermThemeToggle, {}),
+      isMobile && selected && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "segmented", role: "tablist", "aria-label": "Pane", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
           "button",
           {
             type: "button",
@@ -44551,7 +47403,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
             children: "Claude"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
           "button",
           {
             type: "button",
@@ -44562,7 +47414,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
             children: "Shell"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
           "button",
           {
             type: "button",
@@ -44575,8 +47427,8 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         )
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "shell-wrap", ref: shellWrapRef, children: [
-      visible.map((s) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "shell-wrap", ref: shellWrapRef, children: [
+      visible.map((s) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
         SessionWorkspace,
         {
           session: s,
@@ -44600,11 +47452,11 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         },
         s.id
       )),
-      visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "empty-state", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "No active sessions." }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "pane-overlay-row", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "btn primary", onClick: () => setDialog("start-session"), children: "New session\u2026" }),
-          hiddenCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("button", { type: "button", className: "btn", onClick: () => toggleShowAll(), children: [
+      visibleSessions.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "empty-state", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "No active sessions." }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "pane-overlay-row", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: "btn primary", onClick: () => setDialog("start-session"), children: "New session\u2026" }),
+          hiddenCount > 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("button", { type: "button", className: "btn", onClick: () => toggleShowAll(), children: [
             "Show all sessions (",
             hiddenCount,
             " hidden)"
@@ -44612,7 +47464,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         ] })
       ] })
     ] }),
-    dialog === "start-session" && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    dialog === "start-session" && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
       StartSessionDialog,
       {
         initialRepoPath: selected?.projectPath,
@@ -44625,7 +47477,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         onError: (m) => toast(m)
       }
     ),
-    dialog === "continue-session" && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    dialog === "continue-session" && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
       StartSessionDialog,
       {
         resume: true,
@@ -44639,7 +47491,7 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         onError: (m) => toast(m)
       }
     ),
-    dialog === "settings" && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    dialog === "settings" && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
       SettingsDialog,
       {
         onClose: () => {
@@ -44649,11 +47501,11 @@ ${s.lastStatus}${s.external ? " \xB7 external" : ""}`,
         onError: (m) => toast(m)
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Toast, { message: toastMsg })
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Toast, { message: toastMsg })
   ] });
 }
 var rootEl = document.getElementById("root");
-if (rootEl) (0, import_client.createRoot)(rootEl).render(/* @__PURE__ */ (0, import_jsx_runtime9.jsx)(App, {}));
+if (rootEl) (0, import_client.createRoot)(rootEl).render(/* @__PURE__ */ (0, import_jsx_runtime10.jsx)(App, {}));
 /*! Bundled license information:
 
 react/cjs/react.development.js:

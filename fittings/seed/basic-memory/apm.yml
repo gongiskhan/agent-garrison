@@ -6,6 +6,7 @@ type: skill
 includes: auto
 x-garrison:
   faculty: memory
+  category: Core
   cardinality_hint: single
   component_shape: skill
   ui:
@@ -16,8 +17,32 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact. Zero lock-in — the index rebuilds from the markdown files.
+  summary: Obsidian-native, plain-markdown memory backed by Basic Memory (basicmachines-co). Indexes the vault into a local SQLite knowledge graph and exposes write/search/read MCP tools to Claude, Codex, and Gemini. Auto-captures a lightweight session checkpoint on SessionEnd/PreCompact, and consumes bounded personal Done-card packets into provenance-marked source notes under Personal/Kanban Completions when Kanban is present. Zero lock-in - the index rebuilds from the markdown files. On a remote backend (config key `backend`, default `local`) the MCP registration is skipped and the session is taught the remote memory CLI instead; the garrison-memory skill installed in the session is authoritative about which tools actually exist. Moving an existing vault to a remote store is a bounded migration rather than a mode - `scripts/import-vault.mjs` seeds the remote once from the local files, `shadow_write` keeps both sides written while the two are compared, and a daily comparator files a dated diff report whose header carries the date the migration must end on.
   config_schema:
+    - key: backend
+      type: select
+      options:
+        - local
+        - cortex
+      default: local
+      description: >-
+        Where the session's memory lives. `local` (the default) is the whole stock fitting - upstream
+        Basic Memory, its MCP server registered with the local CLIs, a plain-markdown vault on this
+        disk: no account, no network, works on a fresh clone with an empty vault. A remote backend
+        suits the other shape of agent workstation - one whose memory has to outlive the machine and
+        be readable from the phone, the laptop and the box in the corner at once, which a per-machine
+        SQLite index cannot do. On a remote backend the fitting stops registering the local MCP
+        server, teaches the session the remote memory CLI instead of the MCP tools, and turns the
+        capture spool on so captures drain off the box. Any provider implementing the capability
+        contract (docs/CAPABILITY_CONTRACT.md) can fill that slot; each ships its own enum value and
+        skill variant, and `cortex` is the reference implementation that ships as the default remote.
+        Each backend has its OWN editable skill source in this fitting - .apm/skills/garrison-memory
+        for `local`, skill-variants/cortex for `cortex` - and the Skill view lists both; edit the one
+        matching the backend you are on. The DEPLOYED copy under <composition>/.claude/skills/ is
+        owned by APM and re-deployed from .apm/skills on every install, so an edit made there is
+        discarded, not kept. Deselecting this fitting does NOT remove its capture hook or its drain
+        job, so on a remote backend set `backend` back to `local` and re-run before unequipping, or a
+        scheduled job keeps shipping local captures off the machine. See this fitting's README.md.
     - key: vault_dir
       type: path
       default: ~/ObsidianVault
@@ -34,10 +59,93 @@ x-garrison:
       type: boolean
       default: true
       description: Whether to wire the lightweight session-capture hook (SessionEnd/PreCompact) into ~/.claude/settings.json.
+    - key: kanban_completion_capture_enabled
+      type: boolean
+      default: true
+      description: Consume neutral scope=personal Done-card packets from the Kanban outbox into deterministic Personal/Kanban Completions source notes. Requires the Kanban Loop and Scheduler fittings; this never promotes card text into verified facts.
+    - key: kanban_completion_capture_cron
+      type: string
+      default: "*/2 * * * *"
+      description: Scheduler cadence for consuming personal Done-card source packets. The exact configured GARRISON_KANBAN_DIR is baked into the job so instance/profile outboxes cannot be mixed.
     - key: register_codex_gemini
       type: boolean
       default: true
       description: Also register the basic-memory MCP server with the Codex CLI and Gemini CLI so all three agents read/write the same vault.
+    - key: spool_enabled
+      type: select
+      options:
+        - auto
+        - always
+        - never
+      default: auto
+      description: >-
+        Whether each session capture is ALSO spooled (same markdown, idempotency-keyed filename) for
+        a scheduled drain into a remote memory CLI. `auto` (the default) follows `backend`: off on
+        `local`, on for a remote backend - a remote backend that never drains is a silent no-op, so
+        it has to be the default there. `always` and `never` override the switch in either direction
+        (a legacy boolean `true`/`false` is read as `always`/`never` - correctly, but it matches no
+        option so the config form renders it BLANK; re-pick `always` or `never` to see your choice).
+        With the defaults - `local` + `auto` - nothing is spooled, no drain job is registered, and
+        there is no observable difference from the stock local-only capture.
+    - key: spool_dir
+      type: string
+      default: ""
+      description: Spool directory for pending captures. Empty means the built-in default (~/.garrison/memory-spool). Capped at 50MB, oldest captures evicted first.
+    - key: flush_interval_cron
+      type: string
+      default: "*/15 * * * *"
+      description: Local cron schedule for the scheduler job that drains the spool via the remote memory CLI. The job is registered only when spooling resolves to on (see spool_enabled), and is retired again when it resolves to off.
+    - key: remote_cli_bin
+      type: string
+      default: cortex
+      description: Binary the spool drain invokes as `<bin> memory write --file <spoolfile> --permalink <key> --json`. A missing binary is the safe no-op path - captures stay spooled until it appears.
+    - key: shadow_write
+      type: boolean
+      default: false
+      description: >-
+        Shadow dual-write, for MIGRATING memory from the local vault to a remote store. On, the
+        capture path keeps writing the local vault EXACTLY as today and ALSO enqueues the same
+        capture for the remote store - shadow adds a destination, it never replaces one, so on
+        `backend: local` the local behaviour is unchanged. Turning it on registers the daily
+        comparator (see compare_cron) and stamps a dual-write marker at
+        $GARRISON_HOME/basic-memory/shadow-write.json fixing the review date at 14 days out. This is
+        a migration with an end, not a mode - on or before that date the review picks one of three
+        outcomes (cut reads over, extend ONCE with a written reason, or remove) and records it in
+        docs/DECISIONS.md. Precedence with the tri-state spool: an explicit `spool_enabled`
+        (`always`/`never`) still wins; `auto` resolves to on when the backend is remote OR shadow is
+        on. `shadow_write: true` together with `spool_enabled: never` therefore leaves the shadow
+        INERT, and setup says so loudly every run.
+    - key: remote_folder
+      type: string
+      default: vault
+      description: >-
+        Remote permalink folder that the vault import, the shadow drain AND the comparator all use -
+        the `<folder>` in the `<folder>/<slug>` permalink each local note maps to. One folder segment
+        on purpose: the contract lists notes one folder at a time, so a single flat namespace is what
+        lets the comparator enumerate exactly the imported set in one call. All three halves agree on
+        it, which is what makes parity reachable at all - a shadow that shipped notes under one
+        identity while the comparator looked for another could never show agreement however well it
+        worked. The value is slugified (lowercase, `[a-z0-9-]`) before use, so `My Vault` becomes
+        `my-vault` everywhere at once rather than in some places and not others.
+    - key: compare_cron
+      type: string
+      default: "27 4 * * *"
+      description: >-
+        Local cron schedule for the daily job that compares the local vault against the remote store
+        and files a dated markdown diff report in the composition's data dir. Registered only while
+        shadow_write is on, and retired when it goes off. The job runs with `--fail-on-diff`, so a
+        divergence between the two sides - and, separately, a review that has passed its date - makes
+        the scheduled job FAIL rather than quietly filing another report. A daily job that exits 0
+        whatever it finds is how a migration becomes furniture.
+    - key: compare_sample_size
+      type: integer
+      default: 5
+      description: >-
+        How many notes present on BOTH sides the daily comparator reads back and compares
+        byte-for-byte. Set differences are computed over every comparable note; CONTENT is only ever
+        checked on this sample, and every report states the sample size next to its verdict. A sample
+        of 0 - or a run where nothing was present on both sides - is reported as `inconclusive`, never
+        as parity, because a comparison that compared nothing has found nothing.
   provides:
     - kind: memory-store
       name: basic-memory
@@ -56,7 +164,7 @@ x-garrison:
     command: bash apm_modules/_local/basic-memory/scripts/verify.sh
     expect: ok
     # 60s, not 15s: this verify shells out to TWO CLIs (`basic-memory project
-    # info` and `claude mcp get`) and measures ~8s on an idle box — so a 15s
+    # info` and `claude mcp get`) and measures ~8s on an idle box - so a 15s
     # budget lost the race whenever `up` ran it alongside the other setup hooks,
     # failing the whole composition with an EMPTY stderr (a timeout has no output
     # to report), which reads like a broken fitting rather than a slow one.

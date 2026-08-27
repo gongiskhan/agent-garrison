@@ -1,0 +1,690 @@
+name: openai
+version: 0.1.0
+target: claude
+dependencies:
+  apm:
+    - path: ../../fittings/seed/agent-sdk-runtime
+    - path: ../../fittings/seed/automations
+    - path: ../../fittings/seed/basic-memory
+    - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/capture-service
+    - path: ../../fittings/seed/claude-code-runtime
+    - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/cortex-automations
+    - path: ../../fittings/seed/cortex-client
+    - path: ../../fittings/seed/deepgram-voice
+    - path: ../../fittings/seed/dev-env
+    - path: ../../fittings/seed/drill
+    - path: ../../fittings/seed/file-browser
+    - path: ../../fittings/seed/garrison-assistant
+    - path: ../../fittings/seed/garrison-call
+    - path: ../../fittings/seed/gemini-runtime
+    - path: ../../fittings/seed/google
+    - path: ../../fittings/seed/http-gateway
+    - path: ../../fittings/seed/huggingface-runtime
+    - path: ../../fittings/seed/improver
+    - path: ../../fittings/seed/improver-nightly
+    - path: ../../fittings/seed/kanban-loop
+    - path: ../../fittings/seed/loop-heartbeat
+    - path: ../../fittings/seed/mcp-gateway
+    - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/omi-channel
+    - path: ../../fittings/seed/openai-agents-runtime
+    - path: ../../fittings/seed/opencode-runtime
+    - path: ../../fittings/seed/openrouter-runtime
+    - path: ../../fittings/seed/orchestrator
+    - path: ../../fittings/seed/ports-default
+    - path: ../../fittings/seed/power-default
+    - path: ../../fittings/seed/remote-shell-runtime
+    - path: ../../fittings/seed/roadmaps
+    - path: ../../fittings/seed/scheduler
+    - path: ../../fittings/seed/screen-share-default
+    - path: ../../fittings/seed/scroll-world
+    - path: ../../fittings/seed/slack-channel
+    - path: ../../fittings/seed/snapshots-default
+    - path: ../../fittings/seed/taste
+    - path: ../../fittings/seed/trello
+    - path: ../../fittings/seed/vault-git-sync
+    - path: ../../fittings/seed/web-channel-default
+x-garrison:
+  composition:
+    schema: 4
+    id: openai
+    name: openai
+    global_config:
+      projects_root: ~/dev
+      vault: default
+      platform: claude-code
+      guardrails:
+        max_tasks_per_tick: 10
+        max_spend_per_day: 250
+        max_tool_calls_per_tick: 300
+      permissions_mode: auto
+      observability_config:
+        log_sink: runner
+    selections:
+      orchestrator:
+        - id: orchestrator
+          config:
+            port: 8087
+            bind_host: 127.0.0.1
+      channels:
+        - id: slack-channel
+          config:
+            slack_port: 9512
+            gateway_url: http://127.0.0.1:5777
+            chat_timeout_ms: 600000
+        - id: web-channel-default
+          config:
+            port: 8083
+            bind_host: 127.0.0.1
+            gateway_url: ''
+        - id: omi-channel
+          config:
+            port: 8094
+            bind_host: 127.0.0.1
+            public_base_url: https://dev-madrid.tail31efa.ts.net:8443
+            enabled: true
+            triage_enabled: true
+            wake_enabled: true
+            chat_enabled: true
+            notify_enabled: true
+            wake_silence_close_ms: 15000
+            wake_min_capture_ms: 0
+            wake_max_capture_ms: 45000
+            wake_command_window_ms: 45000
+            wake_context_segments: 6
+            wake_context_max_age_ms: 120000
+        - id: capture-service
+          config:
+            port: 8097
+            bind_host: 127.0.0.1
+            enabled: true
+            transcribe_enabled: true
+            wake_enabled: true
+            notify_enabled: true
+            speak_enabled: true
+            pendant_enabled: true
+            capture_policy: wake_only
+            wake_silence_close_ms: 15000
+            wake_min_capture_ms: 0
+            wake_max_capture_ms: 45000
+            wake_command_window_ms: 45000
+            wake_context_segments: 6
+            wake_context_max_age_ms: 120000
+      gateway:
+        - id: http-gateway
+          config:
+            port: 5777
+            bind_host: 127.0.0.1
+            compact_enabled: true
+            compact_threshold_pct: 60
+        - id: mcp-gateway
+          config: {}
+      runtimes:
+        - id: openai-agents-runtime
+          config:
+            provider: chatgpt-subscription
+            model: gpt-5.6-terra
+            promptMode: coding
+            maxTurns: 500
+            account: codex-gmail
+        - id: claude-code-runtime
+          config:
+            account: auto
+        - id: garrison-call
+          config: {}
+        - id: codex-runtime
+          config:
+            account: ''
+        - id: gemini-runtime
+          config: {}
+        - id: opencode-runtime
+          config: {}
+        - id: remote-shell-runtime
+          config:
+            port: 8098
+            transports: '{"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","label":"CSG work","routingTarget":"csg-work","forwards":[{"name":"web","remotePort":3006,"label":"HRG shell (3006)"},{"name":"pcrf-mfe","remotePort":3008,"label":"PCRF remote (3008)"},{"name":"web-3009","remotePort":3009,"label":"webpack 3009"},{"name":"web-3010","remotePort":3010,"label":"webpack 3010"},{"name":"api","remotePort":8080,"label":"API / properties (8080)"},{"name":"ims","remotePort":8225,"label":"IMS (8225)"},{"name":"hrg","remotePort":8286,"label":"HRG service (8286)"},{"name":"pmcs","remotePort":8295,"label":"PMCS + remote (8295)"},{"name":"sms","remotePort":8298,"label":"SMS + remote (8298)"}]}}'
+        - id: agent-sdk-runtime
+          config:
+            provider: anthropic
+            model: ''
+            promptMode: coding
+            maxTurns: 500
+            account: auto
+        - id: openrouter-runtime
+          config:
+            model: anthropic/claude-sonnet-5
+            account: ''
+        - id: huggingface-runtime
+          config:
+            model: deepseek-ai/DeepSeek-V4-Pro
+            account: ''
+      memory:
+        - id: basic-memory
+          config:
+            vault_dir: ~/ObsidianVault
+            memory_dir: Memory
+            project_name: main
+            capture_enabled: true
+            register_codex_gemini: false
+      observability:
+        - id: monitor-default
+          config:
+            port: 8077
+            bind_host: 127.0.0.1
+            poll_interval_ms: 1000
+            log_retention_hours: 24
+        - id: automations
+          config:
+            port: 8090
+            bind_host: 127.0.0.1
+        - id: improver
+          config:
+            port: 8093
+            bind_host: 127.0.0.1
+            cron: 30 3 * * *
+            vault_dir: ~/ObsidianVault
+            memory_primary: true
+            checkpoint_retention_days: 14
+            dream_model: haiku
+        - id: scheduler
+          config:
+            jobs_file: ~/.garrison/scheduler-jobs.json
+            log_file: ~/.garrison/scheduler.log
+            health_port: 8099
+        - id: kanban-loop
+          config:
+            port: 8089
+            bind_host: 127.0.0.1
+            board_dir: ~/.garrison/kanban-loop
+            iteration_cap: 10
+            test_beat_cron: 0 */5 * * *
+            tick_cron: '*/2 * * * *'
+            review_cron: 0 8 * * 1
+            review_stall_hours: 2
+        - id: loop-heartbeat
+          config:
+            cadence_minutes: 40
+            gateway_url: http://127.0.0.1:5777/jobs
+      sessions:
+        - id: garrison-assistant
+          config:
+            port: 8095
+            bind_host: 127.0.0.1
+        - id: dev-env
+          config:
+            port: 8086
+            bind_host: 127.0.0.1
+        - id: file-browser
+          config:
+            port: 8091
+            bind_host: 127.0.0.1
+            root: ~/.garrison/files
+        - id: vault-git-sync
+          config:
+            cron: 0 4 * * *
+            vault_dir: ~/ObsidianVault
+        - id: snapshots-default
+          config:
+            projects_root: ~/dev
+        - id: improver-nightly
+          config:
+            autonomy_mode: enabled
+            schedule_cron: 17 3 * * *
+            state_dir: data/improver
+            proposal_namespace: improver
+            require_unlocked_vault: true
+      surfaces:
+        - id: screen-share-default
+          config:
+            port: 8079
+            bind_host: 127.0.0.1
+        - id: browser-default
+          config:
+            port: 8084
+            bind_host: 127.0.0.1
+            viewport_width: 1600
+            viewport_height: 1200
+            jpeg_quality: 70
+            every_nth_frame: 1
+        - id: ports-default
+          config:
+            port: 8088
+            bind_host: 127.0.0.1
+            scan_interval_ms: 5000
+        - id: power-default
+          config:
+            port: 8092
+            bind_host: 127.0.0.1
+            idle_minutes: 30
+            load_threshold: 1
+      knowledge:
+        - id: roadmaps
+          config: {}
+      building:
+        - id: drill
+          config:
+            port: 8096
+            bind_host: 127.0.0.1
+      design:
+        - id: taste
+          config: {}
+        - id: scroll-world
+          config: {}
+      connectors:
+        - id: deepgram-voice
+          config:
+            port: 8085
+            bind_host: 127.0.0.1
+            stt_model: nova-2
+            tts_model: aura-asteria-en
+        - id: trello
+          config:
+            board_id: vl1Z8KFH
+        - id: google
+          config: {}
+        - id: cortex-automations
+          config:
+            base_url: http://127.0.0.1:4111
+        - id: cortex-client
+          config:
+            repo_url: https://github.com/gongiskhan/ekoa-code.git
+            git_ref: 8b7d5812f581b06930ec8ce3023e7a21c2d00467
+            base_url: http://127.0.0.1:4111
+            bin_dir: ''
+            clone_dir: ''
+            package_subdir: clients/cortex-cli
+    prompt_sources:
+      orchestrator: .garrison/prompts/orchestrator.md
+    duties:
+      - id: implement
+        title: Implement
+        description: 'Write or change code: features, fixes, refactors, carried end to end.'
+        levels:
+          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
+            cell:
+              target: sol
+              effort: high
+          - description: >-
+              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
+              security-sensitive or multi-subsystem work
+            cell:
+              target: sol
+              effort: xhigh
+        context_hold: true
+      - id: test
+        title: Test
+        description: Write and run the checks that prove a change works.
+        levels:
+          - description: 'trivial: assert one obvious thing'
+            cell:
+              target: terra
+              effort: low
+          - description: 'standard: cover the change and its edges'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
+            cell:
+              target: sol
+              effort: high
+      - id: review
+        title: Review
+        description: Read a change against what it claimed to do.
+        levels:
+          - description: 'trivial: a skim for obvious mistakes'
+            cell:
+              target: sol
+              effort: low
+          - description: 'standard: read the diff against its acceptance'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'deep: argue with it - assume it is wrong and try to show how'
+            cell:
+              target: sol
+              effort: high
+      - id: research
+        title: Research
+        description: 'Find things out: look up, survey, investigate.'
+        levels:
+          - description: 'lookup: a fact check or a single-source answer'
+            cell:
+              target: sol
+              effort: low
+          - description: 'focused: survey a topic or compare a few options, with sources'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
+            cell:
+              target: sol
+              effort: high
+      - id: discuss
+        title: Discuss
+        description: Talk a problem through and write a brief when the thinking settles.
+        levels:
+          - description: 'level 1: talk a focused question or tradeoff through in prose'
+            cell:
+              target: sol
+              effort: low
+          - description: 'level 2: research it mid-conversation and write the brief when it settles'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'level 3: argue both sides properly before converging, then write it up'
+            cell:
+              target: sol
+              effort: high
+      - id: plan
+        title: Plan
+        description: Decide what to build and in what order before building it.
+        levels:
+          - description: 'sketch: the shape of the change in a few lines'
+            cell:
+              target: sol
+              effort: high
+          - description: 'standard: a slice plan with acceptance per slice'
+            cell:
+              target: sol
+              effort: xhigh
+          - description: 'deep: design alternatives weighed, risks named, sequencing argued'
+            cell:
+              target: sol
+              effort: max
+      - id: image
+        title: Image
+        description: Produce or edit an image.
+        levels:
+          - description: 'quick: one image to a clear description'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: iterate on composition and detail'
+            cell:
+              target: sol
+              effort: high
+          - description: 'deep: art-direct it against where it will actually appear'
+            cell:
+              target: sol
+              effort: xhigh
+      - id: video
+        title: Video
+        description: Produce or edit a video.
+        levels:
+          - description: 'quick: assemble what is already shot'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: script, assemble and check it plays'
+            cell:
+              target: sol
+              effort: high
+          - description: 'deep: direct it for the audience it is for'
+            cell:
+              target: sol
+              effort: xhigh
+      - id: ux-qa
+        title: UX QA
+        description: Walk the running UI and judge whether it is actually good.
+        levels:
+          - description: 'quick: the obvious breakages on one surface'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: the six-section checklist on desktop and mobile'
+            cell:
+              target: sol
+              effort: high
+          - description: 'deep: contrast, tap targets and states measured, not eyeballed'
+            cell:
+              target: sol
+              effort: xhigh
+      - id: writing
+        title: Writing
+        description: 'Prose: docs, site copy, a written answer.'
+        levels:
+          - description: 'quick: a short passage or a correction'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: a full piece with structure'
+            cell:
+              target: sol
+              effort: high
+          - description: 'deep: researched, sourced and argued'
+            cell:
+              target: sol
+              effort: xhigh
+      - id: ops
+        title: Ops
+        description: Deploys, infrastructure, provisioning.
+        levels:
+          - description: 'routine: a known operation with a known outcome'
+            cell:
+              target: sol
+              effort: low
+          - description: 'standard: plan it, run it, verify it'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'deep: blast radius established first, rollback rehearsed'
+            cell:
+              target: sol
+              effort: high
+      - id: drill
+        title: Drill
+        description: Drive the whole app looking for defects.
+        levels:
+          - description: 'targeted: one area or one reported finding'
+            cell:
+              target: sol
+              effort: xhigh
+          - description: 'standard: a full sweep of the app'
+            cell:
+              target: sol
+              effort: max
+          - description: 'deep: a sweep plus the judgement of what the findings mean'
+            cell:
+              target: sol
+              effort: max
+      - id: adversarial-review
+        title: Adversarial Review
+        description: A decorrelated second read whose job is to find what the first one missed.
+        levels:
+          - description: 'quick: the diff against its stated invariants'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: hunt for violations, cite each one'
+            cell:
+              target: sol
+              effort: xhigh
+          - description: 'deep: assume it is broken and prove it'
+            cell:
+              target: sol
+              effort: max
+      - id: adversarial-test
+        title: Adversarial Test
+        description: An independent functional pass that has not seen the diff.
+        levels:
+          - description: 'quick: drive the happy path independently'
+            cell:
+              target: sol
+              effort: medium
+          - description: 'standard: drive the acceptance criteria and try to break them'
+            cell:
+              target: sol
+              effort: high
+          - description: 'deep: probe the failure modes the implementer would not think of'
+            cell:
+              target: sol
+              effort: xhigh
+      - id: security-review
+        title: Security Review
+        description: >-
+          The security-boundary rubric: authorization, injection, secrets, tenancy, input
+          validation.
+        levels:
+          - description: 'quick: the boundary checklist on the diff'
+            cell:
+              target: sol
+              effort: high
+          - description: 'standard: the checklist plus the surfaces the change touches'
+            cell:
+              target: sol
+              effort: xhigh
+          - description: 'deep: adversarial, whole-surface, assume a motivated attacker'
+            cell:
+              target: sol
+              effort: max
+      - id: walkthrough
+        title: Walkthrough
+        description: Record self-verified evidence that the change works.
+        levels:
+          - description: 'quick: capture the flow end to end'
+            cell:
+              target: sol
+              effort: low
+          - description: 'standard: a narrated walkthrough of the acceptance path'
+            cell:
+              target: sol
+              effort: high
+      - id: validate
+        title: Validate
+        description: Check the definition of done from the durable gate markers.
+        levels:
+          - description: 'standard: read the gate records and decide done or not'
+            cell:
+              target: terra
+              effort: low
+          - description: 'strict: re-run what the markers claim rather than trusting them'
+            cell:
+              target: sol
+              effort: low
+      - id: codex-checkpoint
+        title: Codex Checkpoint
+        description: A cross-model pass over the security-critical surfaces.
+        levels:
+          - description: 'standard: the named invariants, narrowly scoped'
+            cell:
+              target: sol
+              effort: high
+      - id: report
+        title: Report
+        description: Say what happened, to whoever needs to know.
+        levels:
+          - description: 'quick: a one-line outcome'
+            cell:
+              target: terra
+              effort: low
+          - description: 'standard: what changed, what was proven, what is still open'
+            cell:
+              target: sol
+              effort: low
+      - id: other
+        title: Other
+        description: Anything that fits no other duty.
+        levels:
+          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
+            cell:
+              target: luna
+              effort: low
+          - description: 'involved: unclassified work that still needs real thought or multiple steps'
+            cell:
+              target: sol
+              effort: low
+      - id: probe-question
+        title: Probe Question
+        description: The improver asking one question worth asking.
+        levels:
+          - description: 'standard: one short, high-information question'
+            cell:
+              target: terra
+              effort: low
+      - id: dispatch
+        title: Dispatch
+        description: Decide which flow, duty and level an ambiguous request needs.
+        levels:
+          - description: 'standard: a bounded, tool-free, one-turn classification'
+            cell:
+              target: dispatch-fast
+              effort: low
+    selected_duties:
+      - implement
+      - test
+      - review
+      - research
+      - discuss
+      - plan
+      - image
+      - video
+      - ux-qa
+      - writing
+      - ops
+      - drill
+      - adversarial-review
+      - adversarial-test
+      - security-review
+      - walkthrough
+      - validate
+      - codex-checkpoint
+      - report
+      - other
+      - probe-question
+      - dispatch
+    targets:
+      - id: dispatch-fast
+        runtime: openai-agents
+        model: gpt-5.6-luna
+        provider: chatgpt-subscription
+        params:
+          type: runtime-target
+          effort: low
+          promptMode: lean
+          maxTurns: 1
+          timeoutMs: 8000
+      - id: luna
+        runtime: openai-agents
+        model: gpt-5.6-luna
+        provider: chatgpt-subscription
+        params:
+          type: runtime-target
+          promptMode: coding
+          maxTurns: 500
+      - id: terra
+        runtime: openai-agents
+        model: gpt-5.6-terra
+        provider: chatgpt-subscription
+        params:
+          type: runtime-target
+          promptMode: coding
+          maxTurns: 500
+      - id: sol
+        runtime: openai-agents
+        model: gpt-5.6-sol
+        provider: chatgpt-subscription
+        params:
+          type: runtime-target
+          promptMode: coding
+          maxTurns: 500
+      - id: sec-gemini
+        runtime: gemini
+        model: gemini-2.5-flash
+        params:
+          type: secondary
+      - id: sec-codex
+        runtime: codex
+        model: gpt-5.6-sol
+        params:
+          type: secondary
+      - id: csg-work
+        runtime: remote-shell
+        model: csg
+        params:
+          type: secondary

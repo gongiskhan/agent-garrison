@@ -3,9 +3,10 @@
 // GARRISON_COMPOSITION_DIR must be set before importing this module.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, mkdirSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createStateClient } from "./state-client.mjs";
 
 const COMPOSITION_DIR = process.env.GARRISON_COMPOSITION_DIR ?? process.cwd();
 
@@ -181,6 +182,206 @@ export async function callPollOriginEvents(input) {
   };
 }
 
+// ── Card scheduling tools (Omi reminder round-trip) ─────────────────────────
+// The board's reminders tell the user exactly "run card <REF>" / "snooze card
+// <REF> for 2 hours"; these tools make those phrases executable from ANY
+// session. A spoken ref resolves via the board's GET /cards/resolve (full
+// ULID, ULID suffix >= 3 chars - the notification short ref is the last 4 -
+// or a title fragment). Ambiguity is an ANSWER, never a guess: the 409
+// candidate list comes back as text so the model can ask the user.
+
+function shortCardRef(id) {
+  return String(id || "").slice(-4).toUpperCase();
+}
+
+// GET <board>/cards/resolve?ref=... -> { card } | { ambiguous, candidates, result }.
+// The ambiguous shape is a tool RESULT (not a thrown error) so the model relays
+// the candidates instead of retrying blind.
+async function resolveCardRef(base, ref, toolName) {
+  if (typeof ref !== "string" || !ref.trim()) {
+    throw new Error(`${toolName} requires card (a card id, id suffix, or title fragment)`);
+  }
+  const res = await fetch(`${base}/cards/resolve?ref=${encodeURIComponent(ref.trim())}`);
+  if (res.status === 409) {
+    const doc = await res.json().catch(() => ({}));
+    const candidates = Array.isArray(doc.candidates) ? doc.candidates : [];
+    const lines = candidates.map((c) => `  ${shortCardRef(c.id)} = ${c.id} [${c.list}] ${c.title ?? "(untitled)"}`);
+    return {
+      ambiguous: true,
+      candidates,
+      result: `"${ref.trim()}" is ambiguous - ask the user which card they meant:\n${lines.join("\n")}`
+    };
+  }
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`${toolName} resolve ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json().catch(() => ({}));
+  if (!doc?.card?.id) throw new Error(`${toolName} resolve: board returned no card`);
+  return { card: doc.card };
+}
+
+// schedule_card - set, move, or clear a card's schedule. clear=true PATCHes
+// scheduledFor null (with the resolved card's rev); otherwise POST /snooze with
+// exactly one of until (ISO) / in_minutes (relative). The board re-arms the
+// reminder itself (scheduleNotifiedAt resets on snooze).
+export async function callScheduleCard(input) {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const resolved = await resolveCardRef(base, input?.card, "schedule_card");
+  if (resolved.ambiguous) return resolved;
+  const card = resolved.card;
+  const label = `"${card.title ?? "(untitled)"}" (${card.id})`;
+
+  if (input?.clear === true) {
+    const res = await fetch(`${base}/cards/${encodeURIComponent(card.id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scheduledFor: null, rev: card.rev ?? 0 })
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`schedule_card clear ${res.status}: ${t.slice(0, 200)}`);
+    }
+    const was = card.scheduledFor ? ` (was ${card.scheduledFor})` : " (it had no schedule)";
+    return { card_id: card.id, cleared: true, result: `Cleared the schedule on ${label}${was}` };
+  }
+
+  if (input?.pause === true || input?.resume === true) {
+    if (!card.schedule) throw new Error("schedule_card pause/resume requires a v5 schedule on the card");
+    const enabled = input.resume === true;
+    const schedule = { ...card.schedule, enabled };
+    if (enabled && !schedule.nextAt && schedule.kind === "once") schedule.nextAt = schedule.at;
+    const res = await fetch(`${base}/cards/${encodeURIComponent(card.id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ schedule, rev: card.rev ?? 0 })
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`schedule_card ${enabled ? "resume" : "pause"} ${res.status}: ${t.slice(0, 200)}`);
+    }
+    return { card_id: card.id, enabled, result: `${enabled ? "Resumed" : "Paused"} ${label}` };
+  }
+
+  if (typeof input?.cron === "string" && input.cron.trim()) {
+    if (input?.until != null || input?.in_minutes != null) {
+      throw new Error("schedule_card cron cannot be combined with until or in_minutes");
+    }
+    const schedule = {
+      kind: "cron",
+      action: input?.action === "run" ? "run" : "notify",
+      cron: input.cron.trim(),
+      timezone: typeof input?.timezone === "string" && input.timezone.trim() ? input.timezone.trim() : "Europe/Lisbon",
+      enabled: true,
+      targetList: typeof input?.target_list === "string" && input.target_list.trim()
+        ? input.target_list.trim()
+        : card.list === "scheduled" ? card.schedule?.targetList ?? "backlog" : card.list
+    };
+    const res = await fetch(`${base}/cards/${encodeURIComponent(card.id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ schedule, rev: card.rev ?? 0 })
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`schedule_card cron ${res.status}: ${t.slice(0, 200)}`);
+    }
+    const doc = await res.json().catch(() => ({}));
+    return {
+      card_id: card.id,
+      cron: doc.card?.schedule?.cron ?? schedule.cron,
+      timezone: doc.card?.schedule?.timezone ?? schedule.timezone,
+      next_at: doc.card?.schedule?.nextAt ?? null,
+      result: `Scheduled ${label} on cron ${schedule.cron} (${schedule.timezone})`
+    };
+  }
+
+  const hasUntil = typeof input?.until === "string" && input.until.trim() !== "";
+  const hasMinutes = input?.in_minutes != null;
+  if (hasUntil === hasMinutes) {
+    throw new Error("schedule_card requires exactly one of until (ISO date-time) or in_minutes (positive number) - or clear=true");
+  }
+  const payload = hasUntil ? { until: input.until.trim() } : { minutes: Number(input.in_minutes) };
+  if (input?.action != null) payload.action = input.action;
+  const res = await fetch(`${base}/cards/${encodeURIComponent(card.id)}/snooze`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`schedule_card snooze ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json().catch(() => ({}));
+  const scheduledFor = doc.card?.scheduledFor ?? null;
+  const action = doc.card?.scheduleAction ?? "notify";
+  return {
+    card_id: card.id,
+    scheduled_for: scheduledFor,
+    action,
+    result: `Scheduled ${label} for ${scheduledFor} (${action === "run" ? "auto-run" : "notify"})`
+  };
+}
+
+// run_card - start/advance a card NOW. POST /cards/:id/start clears any
+// schedule itself (the start IS the run-it-now override), then either advances
+// a manual-list card to its next list or dispatches an agent-list card.
+export async function callRunCard(input) {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const resolved = await resolveCardRef(base, input?.card, "run_card");
+  if (resolved.ambiguous) return resolved;
+  const card = resolved.card;
+  const label = `"${card.title ?? "(untitled)"}" (${card.id})`;
+  const runPath = card.list === "scheduled" || card.schedule ? "run-now" : "start";
+  const res = await fetch(`${base}/cards/${encodeURIComponent(card.id)}/${runPath}`, { method: "POST" });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`run_card start ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json().catch(() => ({}));
+  const after = doc.card ?? {};
+  let what;
+  if (doc.occurrence) what = `created occurrence ${doc.card?.id ?? ""}`.trim();
+  else if (doc.advanced) what = `advanced to ${doc.advanced}`;
+  else if (doc.dispatched) what = doc.batched ? "dispatched (batched with its project group)" : "dispatched to the engine (running)";
+  else what = `started (now on ${after.list ?? card.list})`;
+  const clearedNote = card.scheduledFor ? " - its schedule was cleared" : "";
+  return {
+    card_id: card.id,
+    list: after.list ?? card.list,
+    advanced: doc.advanced ?? null,
+    dispatched: doc.dispatched ?? false,
+    result: `Started ${label}: ${what}${clearedNote}`
+  };
+}
+
+// list_scheduled_cards - GET /cards filtered to scheduledFor != null, rendered
+// as a compact text table (short ref = last 4 of the ULID, the same ref the
+// reminder speaks).
+export async function callListScheduledCards() {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const res = await fetch(`${base}/cards`);
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`list_scheduled_cards ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await res.json().catch(() => ({}));
+  const cards = (Array.isArray(doc.cards) ? doc.cards : []).filter((c) => c?.schedule != null || c?.scheduledFor != null);
+  if (!cards.length) return { count: 0, result: "no scheduled cards" };
+  cards.sort((a, b) => String(a.schedule?.nextAt ?? a.scheduledFor ?? "~").localeCompare(String(b.schedule?.nextAt ?? b.scheduledFor ?? "~")));
+  const rows = cards.map((c) => {
+    const notified = c.scheduleNotifiedAt ? " (reminder sent)" : "";
+    const when = c.schedule?.kind === "cron"
+      ? `cron ${c.schedule.cron} (${c.schedule.timezone}) next=${c.schedule.nextAt ?? "paused"}`
+      : c.schedule?.nextAt ?? c.scheduledFor;
+    return `${shortCardRef(c.id)}  ${c.title ?? "(untitled)"}  ${when}  ${c.schedule?.action ?? c.scheduleAction ?? "notify"}${notified}  [${c.list}]`;
+  });
+  return { count: cards.length, result: `ref  title  scheduledFor  action  list\n${rows.join("\n")}` };
+}
+
 function resolveScript(fittingId, scriptName) {
   return path.join(COMPOSITION_DIR, "apm_modules", "_local", fittingId, "scripts", scriptName);
 }
@@ -240,28 +441,66 @@ function callScript(scriptPath, input, timeoutMs) {
 }
 
 // ── Improver Probe capture-fallback (GARRISON-FLOW-V2 S8, D26/E13) ───────────
-// Append ONE probe answer to ~/.garrison/improver/feedback-queue.jsonl directly.
-// Same queue + D26 schema the PostToolUse capture and the gateway override writer
-// use; a single O_APPEND write per record keeps concurrent appends from
-// interleaving. This is the belt for surfaces without a PostToolUse hook.
-export async function callRecordImproverFeedback(input) {
+// Record ONE probe answer into the shared feedback queue — the state service's
+// `feedback_queue` since mesh phase 2 (§4.5), where it used to be
+// ~/.garrison/improver/feedback-queue.jsonl. Same D26 schema the PostToolUse
+// capture and the gateway override writer use, and the payload is that record
+// verbatim. This is the belt for surfaces without a PostToolUse hook.
+//
+// It now stamps an id, which it never did on the file: the id is what makes a
+// record deletable from the Signals view. FORMAT SOURCE OF TRUTH:
+// improver/lib/feedback-signals.mjs `mintFeedbackId` —
+// `fq-<9 chars base36 millis>-<8 hex random>`, replicated rather than imported
+// because that module lives in another fitting and cross-fitting imports break
+// containment (the same reason the gateway's writer replicates it).
+//
+// FAILS LOUD: no local fallback file. A feedback loop that silently splits in
+// two is worse than one that stops and says so.
+function mintFeedbackId(at) {
+  const parsed = Date.parse(at ?? "");
+  const ms = Number.isFinite(parsed) ? parsed : Date.now();
+  const stamp = Math.max(0, ms).toString(36).padStart(9, "0").slice(-9);
+  const bytes = new Uint8Array(4);
+  globalThis.crypto.getRandomValues(bytes);
+  const rand = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `fq-${stamp}-${rand}`;
+}
+
+let cachedStateClient = null;
+function stateClient(client = null) {
+  if (client) return client;
+  cachedStateClient ??= createStateClient({ readFileSync });
+  return cachedStateClient;
+}
+
+/** Drop the cached client (token rotation, tests). */
+export function resetFeedbackClient() {
+  cachedStateClient = null;
+}
+
+export async function callRecordImproverFeedback(input, { client } = {}) {
   const { session_id, area, question, answer } = input || {};
   if (!area || !question || answer == null) {
     throw new Error("record_improver_feedback requires area, question, answer");
   }
-  const home = process.env.GARRISON_HOME ?? path.join(os.homedir(), ".garrison");
-  const file = path.join(home, "improver", "feedback-queue.jsonl");
+  const at = new Date().toISOString();
   const rec = {};
+  rec.id = mintFeedbackId(at);
   if (session_id != null && String(session_id).length) rec.session_id = String(session_id);
   rec.area = String(area);
   rec.question = String(question);
   rec.answer = String(answer);
-  rec.timestamp = new Date().toISOString();
+  rec.timestamp = at;
   rec.provenance = "probe";
   rec.classification = { kind: null, tier: null, plan: null };
-  mkdirSync(path.dirname(file), { recursive: true });
-  appendFileSync(file, JSON.stringify(rec) + "\n", { encoding: "utf8", flag: "a" });
-  return { recorded: true, queue: file };
+  const { id, seq } = await stateClient(client).appendFeedback({
+    id: rec.id,
+    kind: rec.provenance,
+    area: rec.area,
+    ...(rec.session_id ? { sessionId: rec.session_id } : {}),
+    payload: rec
+  });
+  return { recorded: true, id, seq };
 }
 
 export async function callClassifyTier(input) {
@@ -274,85 +513,4 @@ export async function callRunTests(input) {
   const scriptPath = resolveScript("testing", "run_tests.mjs");
   if (!existsSync(scriptPath)) throw new Error("run_tests script not found");
   return callScript(scriptPath, input, 5 * 60_000);
-}
-
-// ───────────────────────────────────────────────────────── garrison-control
-// Thin HTTP forwarders to the http-gateway's internal endpoints. Only present
-// when GARRISON_HTTP_GATEWAY_BASE_URL is set at boot.
-
-const HTTP_GATEWAY_BASE_URL = process.env.GARRISON_HTTP_GATEWAY_BASE_URL ?? "";
-
-function httpGatewayUrl(pathSuffix) {
-  if (!HTTP_GATEWAY_BASE_URL) {
-    throw new Error("GARRISON_HTTP_GATEWAY_BASE_URL not set");
-  }
-  return `${HTTP_GATEWAY_BASE_URL.replace(/\/+$/, "")}${pathSuffix}`;
-}
-
-async function httpRequest(method, pathSuffix, body) {
-  const url = httpGatewayUrl(pathSuffix);
-  const init = { method, headers: { "content-type": "application/json" } };
-  if (body !== undefined) init.body = JSON.stringify(body);
-  let lastErr;
-  const delays = [100, 500, 2000];
-  for (let attempt = 0; attempt <= delays.length; attempt++) {
-    try {
-      const response = await fetch(url, init);
-      if (response.ok) return await response.json().catch(() => ({}));
-      const text = await response.text().catch(() => "");
-      lastErr = new Error(`${method} ${pathSuffix} → ${response.status}: ${text.slice(0, 200)}`);
-      if (response.status >= 500) throw lastErr; // retry
-      throw lastErr;
-    } catch (err) {
-      lastErr = err;
-      if (attempt < delays.length) {
-        await new Promise((r) => setTimeout(r, delays[attempt]));
-        continue;
-      }
-      throw lastErr;
-    }
-  }
-  throw lastErr;
-}
-
-export function isGarrisonControlEnabled() {
-  return Boolean(HTTP_GATEWAY_BASE_URL);
-}
-
-export async function callTalkTo(input) {
-  return httpRequest("POST", "/sessions/spawn", {
-    soul: input.soul,
-    message: input.message,
-    project: input.project,
-    mode: input.mode,
-    tier_hint: input.tier_hint,
-    task_title: input.task_title,
-    channel: input.channel,
-    cwd: input.cwd
-  });
-}
-
-export async function callWaitFor(input) {
-  return httpRequest(
-    "POST",
-    `/sessions/${encodeURIComponent(input.session_id)}/wait`,
-    { timeout_seconds: input.timeout_seconds }
-  );
-}
-
-export async function callListActiveSessions(input = {}) {
-  const params = new URLSearchParams();
-  if (input.parent) params.set("parent", input.parent);
-  if (input.mode) params.set("mode", input.mode);
-  if (input.soul) params.set("soul", input.soul);
-  const suffix = params.toString() ? `?${params}` : "";
-  return httpRequest("GET", `/sessions${suffix}`);
-}
-
-export async function callEndSession(input) {
-  return httpRequest("POST", `/sessions/by-soul/${encodeURIComponent(input.soul)}/end`);
-}
-
-export async function callListWorkdirs(input) {
-  return httpRequest("GET", `/workdirs?soul=${encodeURIComponent(input.soul)}`);
 }

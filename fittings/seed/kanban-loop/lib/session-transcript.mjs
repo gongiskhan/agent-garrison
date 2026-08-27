@@ -97,6 +97,140 @@ function entryTimestamp(entry) {
   return Number.isFinite(ts) ? ts : null;
 }
 
+const cleanId = (value) => {
+  const id = String(value ?? "").trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : null;
+};
+
+function contentText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item) => item && typeof item === "object" && item.type === "text" && typeof item.text === "string")
+    .map((item) => item.text)
+    .join("\n");
+}
+
+function taskNotificationText(content) {
+  const text = contentText(content).trim();
+  return /^<task-notification>[\s\S]*<\/task-notification>$/.test(text) ? text : null;
+}
+
+function normaliseTaskStatus(value) {
+  const status = String(value ?? "").trim().toLowerCase();
+  if (["completed", "complete", "done", "success", "succeeded"].includes(status)) return "completed";
+  if (["failed", "error", "cancelled", "canceled", "stopped"].includes(status)) return "failed";
+  if (["running", "started", "in_progress", "pending"].includes(status)) return "running";
+  return "unknown";
+}
+
+function xmlTag(text, name) {
+  const match = new RegExp(`<${name}>([\\s\\S]{0,1000}?)<\\/${name}>`, "i").exec(String(text ?? ""));
+  return match ? match[1].trim() : null;
+}
+
+// Keep Kanban's server adapter aligned with the activity-journal model consumed
+// by @garrison/claude-chat: grounded Agent/Task fan-out becomes safe related-task
+// descriptors, while the internal agent id remains server-only.
+export function extractRelatedTaskRecords(lines) {
+  const tasks = new Map();
+  const ensure = (toolUseId) => {
+    const safe = cleanId(toolUseId);
+    if (!safe) return null;
+    let task = tasks.get(safe);
+    if (!task) {
+      task = {
+        toolUseId: safe,
+        taskId: `task-${safe}`,
+        name: "Parallel task",
+        detail: null,
+        status: "unknown",
+        text: null,
+        agentId: null,
+        ts: null,
+        grounded: false
+      };
+      tasks.set(safe, task);
+    }
+    return task;
+  };
+
+  for (const line of lines) {
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    const ts = entryTimestamp(entry);
+    if (entry?.type === "progress" && entry.data?.type === "agent_progress") {
+      const task = ensure(entry.parentToolUseID ?? entry.parentToolUseId);
+      if (task) {
+        task.agentId = cleanId(entry.data.agentId) ?? task.agentId;
+        task.status = "running";
+        if (typeof entry.data.message === "string" && entry.data.message.trim()) {
+          task.text = clampText(entry.data.message.trim()).slice(0, 500);
+        }
+        if (ts !== null) task.ts = ts;
+      }
+    }
+    if (entry?.type === "assistant" && Array.isArray(entry.message?.content)) {
+      for (const block of entry.message.content) {
+        if (block?.type !== "tool_use" || (block.name !== "Agent" && block.name !== "Task")) continue;
+        const task = ensure(block.id);
+        if (!task) continue;
+        const input = block.input && typeof block.input === "object" ? block.input : {};
+        task.name = clampText(input.description ?? input.name ?? "Parallel task").slice(0, 200);
+        task.detail = typeof input.subagent_type === "string" ? input.subagent_type.trim().slice(0, 80) || null : null;
+        task.status = task.status === "unknown" ? "running" : task.status;
+        task.ts ??= ts;
+        task.grounded = true;
+      }
+    }
+    if (entry?.type === "user" && Array.isArray(entry.message?.content)) {
+      for (const block of entry.message.content) {
+        if (block?.type !== "tool_result") continue;
+        const task = ensure(block.tool_use_id);
+        if (!task?.grounded) continue;
+        const match = /\bagentId:\s*([A-Za-z0-9_-]{1,128})\b/.exec(contentText(block.content));
+        if (match) task.agentId = cleanId(match[1]);
+        if (block.is_error === true) task.status = "failed";
+      }
+    }
+    const notification = entry?.type === "queue-operation"
+      ? entry.content
+      : entry?.type === "user"
+        ? taskNotificationText(entry.message?.content)
+        : null;
+    if (typeof notification === "string" && notification.includes("<task-notification>")) {
+      const task = ensure(xmlTag(notification, "tool-use-id"));
+      if (!task) continue;
+      task.status = normaliseTaskStatus(xmlTag(notification, "status"));
+      const summary = xmlTag(notification, "summary");
+      if (summary) task.text = clampText(summary).slice(0, 500);
+      if (ts !== null) task.ts = ts;
+    }
+  }
+  return [...tasks.values()].filter((task) => task.grounded);
+}
+
+export function relatedTaskEvents(lines, { streamUrlFor } = {}) {
+  return extractRelatedTaskRecords(lines).map((task) => {
+    const streamUrl = task.agentId && typeof streamUrlFor === "function" ? streamUrlFor(task) : null;
+    return {
+      id: `related:${task.taskId}`,
+      role: "assistant",
+      ts: task.ts,
+      blocks: [{
+        type: "related_task",
+        toolUseId: task.toolUseId,
+        taskId: task.taskId,
+        name: task.name,
+        ...(task.detail ? { detail: task.detail } : {}),
+        status: task.status,
+        ...(task.text ? { text: task.text } : {}),
+        ...(streamUrl ? { streamUrl } : {})
+      }]
+    };
+  });
+}
+
 // Map raw transcript jsonl lines to viewer events:
 //   { id, role: "user"|"assistant", ts, blocks: [...] }
 // A user entry that carries ONLY tool_result blocks keeps role "user" but is
@@ -117,8 +251,36 @@ export function parseTranscriptLines(lines) {
       title = entry.title.trim();
       continue;
     }
+    if (entry?.type === "progress" && entry.data?.type === "bash_progress") {
+      const toolUseId = cleanId(entry.parentToolUseID ?? entry.parentToolUseId);
+      if (!toolUseId) continue;
+      const rawSeconds = Number(entry.data.elapsedTimeSeconds);
+      const elapsedMs = Number.isFinite(rawSeconds) && rawSeconds >= 0 ? Math.round(rawSeconds * 1000) : null;
+      const taskId = cleanId(entry.data.taskId);
+      events.push({
+        id: entry.uuid ?? `progress:${toolUseId}:${entry.timestamp ?? events.length}`,
+        role: "assistant",
+        ts: entryTimestamp(entry),
+        blocks: [{
+          type: "tool_progress",
+          toolUseId,
+          text: clampText(entry.data.fullOutput ?? entry.data.output ?? ""),
+          ...(elapsedMs !== null ? { elapsedMs } : {}),
+          status: "running",
+          ...(taskId ? { taskId } : {}),
+          ...(Number.isFinite(entry.data.timeoutMs) ? { timeoutMs: Math.max(0, Math.trunc(entry.data.timeoutMs)) } : {}),
+          ...(Number.isFinite(entry.data.totalBytes) ? { totalBytes: Math.max(0, Math.trunc(entry.data.totalBytes)) } : {}),
+          ...(Number.isFinite(entry.data.totalLines) ? { totalLines: Math.max(0, Math.trunc(entry.data.totalLines)) } : {})
+        }]
+      });
+      continue;
+    }
     if (entry?.type !== "user" && entry?.type !== "assistant") continue;
     const message = entry.message ?? {};
+    // Agent/Task completion notifications are internal runtime metadata even
+    // though Claude journals them as user rows. Never render their XML as a
+    // human prompt or let them split the surrounding assistant turn.
+    if (entry.type === "user" && taskNotificationText(message.content)) continue;
     const rawContent = Array.isArray(message.content)
       ? message.content
       : typeof message.content === "string"

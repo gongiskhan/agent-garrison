@@ -5,6 +5,7 @@
 // back. Keyed by (stepId, fingerprintKey) so the same step on a structurally
 // identical page reuses the action.
 
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { automationsDir } from "./store.mjs";
@@ -31,16 +32,28 @@ async function save(automationId, data) {
   await fs.writeFile(file, JSON.stringify(data, null, 2), "utf8");
 }
 
-const keyOf = (stepId, fp) => `${stepId}|${fingerprintKey(fp)}`;
+// The page fingerprint alone cannot key a resolution: two different
+// INSTRUCTIONS on the same step id and the same-looking page must never share
+// an entry, or an edited step silently replays what its old wording resolved
+// to. Live-fire 2026-08-07: a defused password-changing check re-ran its OLD
+// cached fills (the real credentials) and rotated the admin password again,
+// because the cache never saw the rewritten instruction. Folding the
+// instruction digest into the key also one-time-invalidates every pre-digest
+// entry - desired: stale resolutions re-resolve through vision once and
+// re-cache under the honest key.
+const instructionDigest = (instruction) =>
+  crypto.createHash("sha256").update(String(instruction ?? "").replace(/\s+/g, " ").trim()).digest("hex").slice(0, 16);
 
-export async function lookupActionCache(automationId, stepId, fingerprint) {
+const keyOf = (stepId, fp, instruction) => `${stepId}|${instructionDigest(instruction)}|${fingerprintKey(fp)}`;
+
+export async function lookupActionCache(automationId, stepId, fingerprint, instruction) {
   const data = await load(automationId);
-  return data.actions[keyOf(stepId, fingerprint)] ?? null;
+  return data.actions[keyOf(stepId, fingerprint, instruction)] ?? null;
 }
 
-export async function writeActionCache({ automationId, stepId, fingerprint, action, confidence = "high" }) {
+export async function writeActionCache({ automationId, stepId, fingerprint, action, confidence = "high", instruction }) {
   const data = await load(automationId);
-  const key = keyOf(stepId, fingerprint);
+  const key = keyOf(stepId, fingerprint, instruction);
   const prev = data.actions[key];
   data.actions[key] = {
     kind: "action-cache",
@@ -54,23 +67,23 @@ export async function writeActionCache({ automationId, stepId, fingerprint, acti
   return data.actions[key];
 }
 
-export async function evictAction(automationId, stepId, fingerprint) {
+export async function evictAction(automationId, stepId, fingerprint, instruction) {
   const data = await load(automationId);
-  const key = keyOf(stepId, fingerprint);
+  const key = keyOf(stepId, fingerprint, instruction);
   const had = key in data.actions;
   delete data.actions[key];
   await save(automationId, data);
   return had;
 }
 
-export async function lookupAssertionCache(automationId, stepId, fingerprint) {
+export async function lookupAssertionCache(automationId, stepId, fingerprint, instruction) {
   const data = await load(automationId);
-  return data.assertions[keyOf(stepId, fingerprint)] ?? null;
+  return data.assertions[keyOf(stepId, fingerprint, instruction)] ?? null;
 }
 
-export async function writeAssertionCache({ automationId, stepId, fingerprint, assertion }) {
+export async function writeAssertionCache({ automationId, stepId, fingerprint, assertion, instruction }) {
   const data = await load(automationId);
-  const key = keyOf(stepId, fingerprint);
+  const key = keyOf(stepId, fingerprint, instruction);
   const prev = data.assertions[key];
   data.assertions[key] = {
     kind: "assertion-cache",

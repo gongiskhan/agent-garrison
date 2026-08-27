@@ -11,7 +11,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import chokidar, { type FSWatcher } from "chokidar";
 import { commandExists } from "./preflight";
 import { listCompositions, readCompositionWithDerivedTasks, selectedLibraryEntries, type CompositionV4 } from "./compositions";
-import { assembleSouls, findModesEntry, findOrchestratorEntryId, mcpGatewayPresent } from "./souls";
 import {
   listSpawnRecordIds,
   ownPortConfigEnv,
@@ -22,7 +21,9 @@ import {
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
 import { deriveViewProvisions } from "./view-instances";
-import { materializeEnv, wipeMaterializedEnv } from "./vault";
+import { wipeMaterializedEnv } from "./vault";
+import { syncCompositionFromState, materializeEnvViaAuthority } from "./composition-sync";
+import { compositionFingerprint, readLastUp, writeLastUp } from "./up-fingerprint";
 import {
   DEFAULT_PRIMARY_RUNTIME,
   resolvePrimaryRuntime,
@@ -33,7 +34,11 @@ import {
   type RuntimeEntry
 } from "./runtime-selection";
 import { ROOT_DIR } from "./paths";
-import { PRIMARY_CONTEXT_FILES, projectPrimaryContext } from "./orchestrator-projection";
+import {
+  PRIMARY_CONTEXT_FILES,
+  projectPrimaryContext,
+  writeAssembledOrchestratorPrompt
+} from "./orchestrator-projection";
 import {
   clearKanbanResolvedModel,
   computeKanbanResolvedModel,
@@ -41,10 +46,28 @@ import {
   type KanbanResolvedModel
 } from "./kanban-model";
 import { garrisonDir } from "./claude-home";
+import { stateEnvForProjection } from "./state-client";
 import { appPort, applyPortOffsetToConfig, BASE_GATEWAY_PORT, profilePort } from "./instance-profile";
-import { claimComposition, releaseComposition } from "./composition-owner";
-import { accountTokenForSpawn, listAccounts, resolveRuntimeAccountEnv, setAccountNeedsRelogin } from "./accounts";
-import { accountVaultKey } from "./account-env";
+import {
+  claimCompositionForLaunch,
+  isCompositionClaimCurrent,
+  releaseComposition,
+  releaseCompositionClaim,
+  type CompositionLaunchClaim
+} from "./composition-owner";
+import {
+  accountTokenForSpawn,
+  listAccounts,
+  resolvePrimaryRuntimeAccount,
+  resolveRuntimeAccountEnv,
+  setAccountNeedsRelogin,
+  type RuntimeAccountRequest
+} from "./accounts";
+import {
+  accountVaultKey,
+  PLATFORM_SPECS,
+  type AccountPlatform
+} from "./account-env";
 import {
   PaymasterHoldError,
   candidatesFrom,
@@ -59,7 +82,11 @@ import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
 import { resolveCapabilities } from "./capabilities";
 import { reconcileCoordTeardown } from "./coord-wiring";
-import { resolvePrimaryFromPolicy } from "./routing-primary";
+import {
+  ensureCompositionRoutingPolicy,
+  readRoutingPolicySource,
+  resolvePrimaryFromPolicy
+} from "./routing-primary";
 import type { FittingSelectionMap, GarrisonMetadata, LibraryEntry, RunnerState, VerifyResult } from "./types";
 
 export { resolvePrimaryFromPolicy } from "./routing-primary";
@@ -110,9 +137,17 @@ interface RunnerRecord {
   watcher?: FSWatcher;
   restartTimer?: NodeJS.Timeout;
   gateway?: GatewayInfo;
+  // Serialize lifecycle mutations for one composition inside this server
+  // process. Without this, two Run/restart requests can interleave PID-file
+  // publication, account attribution, and catch cleanup against one record.
+  operationTail?: Promise<void>;
   // RUNTIME-ACCOUNTS-V1 D5: the account the running operative is pinned to,
   // so an auth failure in the log stream can flag it needs-relogin (once).
   activeAccount?: string;
+  // The account name alone is not enough to interpret provider failures. In
+  // particular, only an Anthropic account can be probed or rotated by the
+  // Paymaster; a GLM/OpenAI/etc. account must stay on its own provider rail.
+  activeAccountPlatform?: AccountPlatform;
   authFailureFlagged?: boolean;
   // PAYMASTER D10: a mid-run usage-limit hit is surfaced once (sticky session,
   // no migration) with the resolver's current best alternative pre-computed.
@@ -132,6 +167,82 @@ interface RunnerRuntime {
   reconciliation?: Promise<void>;
 }
 
+export type PrimaryAccountRoute =
+  | { kind: "anthropic-plan" }
+  | { kind: "strict"; platform: AccountPlatform; allowAuthFile: boolean }
+  | { kind: "ignored"; reason: string }
+  | { kind: "unsupported"; reason: string };
+
+/**
+ * Map the primary ENGINE + provider onto exactly one credential rail. Provider
+ * ids are not account platforms: `zai-glm` is an Anthropic-compatible endpoint,
+ * while `glm` is the OpenAI-shaped self-hosted slot. Keeping that distinction
+ * explicit prevents a stale pin or an alias from selecting the wrong vault key.
+ */
+export function primaryAccountRoute(
+  engine: string,
+  providerId: string,
+  providerKind?: string
+): PrimaryAccountRoute {
+  if (engine === "claude-code" || engine === "agent-sdk") {
+    if (providerId === "anthropic-plan" || providerKind === "anthropic-plan") {
+      return { kind: "anthropic-plan" };
+    }
+    return {
+      kind: "ignored",
+      reason: `provider "${providerId}" uses its provider vault credential, not an Anthropic account pin`
+    };
+  }
+  if (engine === "codex") {
+    return { kind: "strict", platform: "openai", allowAuthFile: true };
+  }
+  if (engine === "gemini") {
+    return { kind: "strict", platform: "google", allowAuthFile: true };
+  }
+  if (engine === "openrouter") {
+    return { kind: "strict", platform: "openrouter", allowAuthFile: false };
+  }
+  if (engine === "huggingface") {
+    return { kind: "strict", platform: "huggingface", allowAuthFile: false };
+  }
+  if (engine === "openai-agents") {
+    if (providerId === "glm") {
+      return { kind: "strict", platform: "glm", allowAuthFile: false };
+    }
+    if (providerId === "openai" || providerId === "openai-compat") {
+      return { kind: "strict", platform: "openai", allowAuthFile: false };
+    }
+    // The ChatGPT subscription is authenticated by the SAME auth-file credential
+    // the codex engine uses (the runtime resolves and refreshes it out of the
+    // account home this pin materializes), so it is the one openai-agents provider
+    // that must accept an auth-file account. Mirrors runtimeAccountContract's
+    // client-side entry - the two are asserted against each other in tests.
+    if (providerId === "chatgpt-subscription") {
+      return { kind: "strict", platform: "openai", allowAuthFile: true };
+    }
+    if (providerId === "ollama-local") {
+      return {
+        kind: "unsupported",
+        reason: "provider \"ollama-local\" is keyless and cannot use a named account"
+      };
+    }
+    return {
+      kind: "unsupported",
+      reason: `provider "${providerId}" has no declared named-account platform`
+    };
+  }
+  return {
+    kind: "unsupported",
+    reason: `engine "${engine}" has no declared primary-account platform`
+  };
+}
+
+function defaultProviderForPrimaryEngine(engine: string): string {
+  if (engine === "claude-code") return "anthropic-plan";
+  if (engine === "agent-sdk" || engine === "openai-agents") return "ollama-local";
+  return "";
+}
+
 declare global {
   // eslint-disable-next-line no-var
   var __agentGarrisonRunner: RunnerRuntime | undefined;
@@ -139,10 +250,141 @@ declare global {
 
 const MAX_LOG_LINES = 5000;
 const MAX_LOG_BYTES = 10 * 1024 * 1024;
+const MAX_BUFFERED_LOG_LINE_BYTES = 1024 * 1024;
+
+export interface LogLineBuffer {
+  pending: string;
+}
+
+/**
+ * Turn arbitrary pipe chunks into complete lines. Child-process data events do
+ * not preserve write boundaries, so parsing each chunk as JSON can miss a real
+ * structured provider failure split across two events. The one-line cap keeps a
+ * broken/no-newline child from growing runner memory without bound.
+ */
+export function splitBufferedLogChunk(
+  buffer: LogLineBuffer,
+  chunk: string,
+  flush = false
+): string[] {
+  const parts = `${buffer.pending}${chunk}`.split(/\r?\n/);
+  buffer.pending = parts.pop() ?? "";
+  if (
+    flush ||
+    Buffer.byteLength(buffer.pending) > MAX_BUFFERED_LOG_LINE_BYTES
+  ) {
+    if (buffer.pending) parts.push(buffer.pending);
+    buffer.pending = "";
+  }
+  return parts.filter((line) => line.length > 0);
+}
 
 function runtime(): RunnerRuntime {
   globalThis.__agentGarrisonRunner ??= { records: new Map() };
   return globalThis.__agentGarrisonRunner;
+}
+
+export async function withRunnerOperation<T>(
+  compositionId: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const record = getRecord(compositionId);
+  const prior = record.operationTail ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // The tail represents completion of this operation's gate, independent of
+  // whether the operation itself succeeds. Later lifecycle calls wait for it.
+  const tail = prior.catch(() => undefined).then(() => gate);
+  record.operationTail = tail;
+  await prior.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (record.operationTail === tail) record.operationTail = undefined;
+  }
+}
+
+function assertOwnedLiveProcess(
+  record: RunnerRecord,
+  child: ChildProcessWithoutNullStreams,
+  stage: string,
+  requireRunning = false
+): void {
+  if (
+    record.process !== child ||
+    child.exitCode !== null ||
+    child.signalCode !== null ||
+    child.killed ||
+    (requireRunning && record.state.status !== "running")
+  ) {
+    throw new Error(`Operative process exited or lost ownership during ${stage}`);
+  }
+}
+
+function clearAccountAttribution(record: RunnerRecord): void {
+  record.activeAccount = undefined;
+  record.activeAccountPlatform = undefined;
+  record.authFailureFlagged = false;
+  record.limitFlagged = false;
+  record.limitCooldownUntil = undefined;
+}
+
+function armAccountAttribution(
+  record: RunnerRecord,
+  account: string | undefined,
+  platform: AccountPlatform | undefined
+): void {
+  clearAccountAttribution(record);
+  record.activeAccount = account;
+  record.activeAccountPlatform = platform;
+}
+
+export interface FailedLaunchClaimState extends CompositionLaunchClaim {
+  compositionDir: string;
+  envMaterialized: boolean;
+}
+
+/**
+ * Remove failed-start state only for a fresh, exact claim with no possibly-live
+ * child/fitting/watch resource. This seam is exported so the ownership + secret
+ * cleanup contract can be regression-tested without launching a real runtime.
+ */
+export async function cleanupFailedLaunchClaim(
+  claim: FailedLaunchClaimState | undefined,
+  hasPossiblyLiveResources: boolean
+): Promise<string[]> {
+  if (!claim?.acquiredFresh || hasPossiblyLiveResources) return [];
+  const errors: string[] = [];
+  try {
+    if (!(await isCompositionClaimCurrent(claim.compositionDir, claim.owner))) {
+      return [];
+    }
+    if (claim.envMaterialized) {
+      await wipeMaterializedEnv(claim.compositionDir, { strict: true });
+    }
+    const released = await releaseCompositionClaim(claim.compositionDir, claim.owner);
+    if (!released) {
+      errors.push("composition ownership changed during failed-start cleanup; newer owner preserved");
+    }
+  } catch (error) {
+    errors.push(`composition claim: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return errors;
+}
+
+/** A non-Claude primary is hosted only by the composed HTTP gateway adapter. */
+export function assertPrimaryGatewayCompatibility(
+  engine: string,
+  hasGateway: boolean
+): void {
+  if (engine !== "claude-code" && !hasGateway) {
+    throw new Error(
+      `primary engine "${engine}" requires a composed HTTP gateway; the no-gateway fallback can host only claude-code.`
+    );
+  }
 }
 
 export function getRunnerState(compositionId: string): RunnerState {
@@ -168,7 +410,17 @@ export function subscribeLogs(
   return () => record.subscribers.delete(subscriber);
 }
 
-export async function up(compositionId: string, options: { devMode?: boolean } = {}): Promise<RunnerState> {
+export async function up(
+  compositionId: string,
+  options: { devMode?: boolean; full?: boolean } = {}
+): Promise<RunnerState> {
+  return withRunnerOperation(compositionId, () => upUnlocked(compositionId, options));
+}
+
+async function upUnlocked(
+  compositionId: string,
+  options: { devMode?: boolean; full?: boolean } = {}
+): Promise<RunnerState> {
   // Block on any pending reconciliation. If the user hits Run before the
   // fire-and-forget sweep from getRunnerState has finished, awaiting here
   // ensures stale Fittings are SIGTERM'd before we try to spawn fresh ones —
@@ -178,10 +430,18 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
 
   const record = getRecord(compositionId);
   if (record.process) {
-    await down(compositionId);
+    await downUnlocked(compositionId);
   }
+  // A failed/hot-reloaded prior up can leave account attribution on the record
+  // even though no process is live. Setup/verify output for the next launch must
+  // never flag that stale identity.
+  clearAccountAttribution(record);
   updateState(compositionId, { status: "starting", devMode: Boolean(options.devMode), lastError: undefined });
   appendLog(compositionId, "runner", `Starting composition ${compositionId}`);
+  let launchedChild: ChildProcessWithoutNullStreams | undefined;
+  let launchedGateway: GatewayInfo | undefined;
+  let launchAttempted = false;
+  let launchClaim: FailedLaunchClaimState | undefined;
 
   try {
     await requireCommand(compositionId, "apm");
@@ -192,7 +452,34 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // the tree the first instance's operative is executing from, and would
     // overwrite its materialized .env secrets from a different vault.
     // Same-profile re-entry (restart, redeploy) just refreshes the record.
-    await claimComposition(composition.directory, compositionId);
+    launchClaim = {
+      ...(await claimCompositionForLaunch(composition.directory, compositionId)),
+      compositionDir: composition.directory,
+      envMaterialized: false
+    };
+    // MESH (S10): materialise the composition's SHARED files from the state
+    // service before anything reads them — the DB is the source of truth, this
+    // tree is one node's copy. Hash-compared writes keep dev()'s watcher calm,
+    // and a refreshed manifest breaks the fast-path fingerprint naturally. An
+    // ENROLLED node that cannot reach the service fails the launch (no
+    // offline fork of shared state); an unenrolled box behaves as ever.
+    {
+      const sync = await syncCompositionFromState(compositionId, composition.directory);
+      if (sync.source === "seeded-to-service") {
+        appendLog(compositionId, "runner", "composition seeded to the state service (first contact)");
+      } else if (sync.refreshedFiles.length) {
+        appendLog(
+          compositionId,
+          "runner",
+          `composition refreshed from the state service: ${sync.refreshedFiles.join(", ")}`
+        );
+      }
+    }
+    // A composition-owned committed routing seed becomes local policy only at
+    // this mutating launch seam. GET/Muster reads can preview the seed without
+    // writing into a shared checkout; the claim above serializes the one-time
+    // materialization against other Garrison instances.
+    await ensureCompositionRoutingPolicy(composition.directory);
     // Run evidence (WS4 / D6): record which composition started + a content hash
     // of its apm.yml, written EARLY (before the heavy install/verify/spawn steps)
     // so the record lands even if a later step fails. Best-effort - a failed
@@ -221,9 +508,33 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // surfaces on transitive deps the user can't realistically audit line-by-
     // line. apm continues to PRINT the warnings, which the user can see in
     // the runner log.
-    await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
-    const envPath = await materializeEnv(composition.directory);
-    appendLog(compositionId, "runner", `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)}`);
+    // Fast path (Garrison-improvements card, item 3): when the composition is
+    // byte-identical to the last successfully VERIFIED up, the expensive steps
+    // (apm install, setup hooks, verify hooks) are provably redundant and are
+    // skipped. Any change — manifest, overlay, lockfile, any fitting source
+    // file — takes the full path. `Run with full verify` forces it.
+    const upFingerprint = await compositionFingerprint(composition.directory);
+    const lastUp = options.full || options.devMode ? null : await readLastUp(composition.directory);
+    const fastPath = Boolean(lastUp?.ok && lastUp.fingerprint === upFingerprint);
+    if (fastPath) {
+      appendLog(
+        compositionId,
+        "runner",
+        `fast path: composition unchanged since last verified up (${upFingerprint.slice(0, 12)}) — install/setup/verify skipped`
+      );
+    } else {
+      await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
+    }
+    const { envPath, source: envSource } = await materializeEnvViaAuthority(
+      composition.directory,
+      compositionId
+    );
+    launchClaim.envMaterialized = true;
+    appendLog(
+      compositionId,
+      "runner",
+      `Materialised secrets to ${path.relative(ROOT_DIR, envPath)} (${envSource === "authority" ? "mesh secret authority" : "local vault"})`
+    );
     const soulEntries = await selectedLibraryEntries(composition.selections);
     // Project before fitting setup: kanban-loop's setup hook seeds/reconciles the
     // board from this manifest. Writing it afterwards left a live launch one
@@ -277,73 +588,19 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     } catch (e) {
       appendLog(compositionId, "runner", `coord teardown reconcile skipped: ${e instanceof Error ? e.message : String(e)}`);
     }
-    await runSetupHooks(compositionId);
-    const verifyResults = await verify(compositionId);
-    const failed = verifyResults.find((result) => !result.ok);
-    if (failed) {
-      throw new Error(`Verify failed for ${failed.fittingId}`);
-    }
-    const promptPath = await assembleSystemPrompt(compositionId);
-
-    // Modes (souls): when a `modes` provider is selected, compose one prompt per
-    // mode (Gary/Joe/James) and hand the gateway a GARRISON_SOULS_CONFIG, which
-    // activates its orchestrator/soul mode. No modes provider → undefined → the
-    // gateway runs its normal single-operative routed mode (the default comp).
-    let gatewayExtraEnv: Record<string, string> | undefined;
-    const modesEntry = findModesEntry(soulEntries);
-    if (modesEntry) {
-      // Orchestrator/soul mode drives souls through the mcp-gateway sidecar
-      // (talk_to / spawn-soul). Without it, booting orchestrator mode yields an
-      // orchestrator that can't reach its souls — so only activate when present;
-      // otherwise warn and stay in the working single-operative routed mode.
-      if (await mcpGatewayPresent(composition.directory)) {
-        const modesDir = path.join(composition.directory, "apm_modules", "_local", modesEntry.id);
-        const soulsConfig = await assembleSouls({
-          compositionDir: composition.directory,
-          modesDir,
-          orchestratorPromptPath: promptPath,
-          orchestratorFittingId: findOrchestratorEntryId(soulEntries) ?? "orchestrator",
-          capabilitiesBlock: renderCapabilitiesBlock(soulEntries),
-          routingSection: await resolveRoutingSection(
-            composition.directory,
-            buildRuntimeEntries(soulEntries, composition.selections),
-            (message) => appendLog(compositionId, "stderr", `routing: ${message}`),
-            safeKanbanModel(composition, soulEntries)
-          ),
-          routingCorePath: ROUTING_CORE_PATH
-        });
-        if (soulsConfig) {
-          // gateway.mjs reads BOTH GARRISON_SOULS_CONFIG and the orchestrator
-          // fitting id from GARRISON_ORCHESTRATOR_FITTING_ID (it does not read
-          // soulsConfig.orchestratorFittingId), so project the id explicitly or
-          // the orchestrator session would mislabel as the bare "orchestrator".
-          gatewayExtraEnv = {
-            GARRISON_SOULS_CONFIG: JSON.stringify(soulsConfig),
-            GARRISON_ORCHESTRATOR_FITTING_ID: soulsConfig.orchestratorFittingId
-          };
-          appendLog(
-            compositionId,
-            "runner",
-            `modes: composed ${Object.keys(soulsConfig.souls).length} soul prompt(s) → gateway orchestrator/soul mode`
-          );
-        } else {
-          // modes + mcp-gateway are both present but assembleSouls returned null
-          // (modes.json missing/empty/malformed). Do NOT silently downgrade to
-          // routed mode without a trace — the operator selected modes.
-          appendLog(
-            compositionId,
-            "stderr",
-            `modes (${modesEntry.id}) is selected and mcp-gateway is present, but souls assembly produced no config (modes.json missing/empty/malformed) — staying in normal routed mode. Check apm_modules/_local/${modesEntry.id}/modes.json.`
-          );
-        }
-      } else {
-        appendLog(
-          compositionId,
-          "stderr",
-          `modes (${modesEntry.id}) is selected but the mcp-gateway fitting is not installed — orchestrator/soul mode needs it for talk_to; running normal gateway mode. Add the mcp-gateway fitting to enable Gary/Joe/James.`
-        );
+    let verifyResults: VerifyResult[];
+    if (fastPath) {
+      verifyResults = (lastUp?.verifyResults as VerifyResult[] | undefined) ?? [];
+      updateState(compositionId, { verifyResults });
+    } else {
+      await runSetupHooks(compositionId);
+      verifyResults = await verify(compositionId);
+      const failed = verifyResults.find((result) => !result.ok);
+      if (failed) {
+        throw new Error(`Verify failed for ${failed.fittingId}`);
       }
     }
+    const promptPath = await assembleSystemPrompt(compositionId);
 
     // Resolve the PRIMARY runtime — the Runtime-Faculty fitting that hosts the
     // orchestrator loop. Defaults to claude-code-runtime; its model + provider
@@ -407,16 +664,30 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     // here — audit-recorded like every other vault read — and merged into the
     // lookup that buildPrimaryRuntimeEnv resolves ANTHROPIC_ACCOUNT__* through.
     let primaryAccount = String(primaryRuntime.config.account ?? "").trim();
-    const primaryProviderId = String(primaryRuntime.config.provider ?? "anthropic-plan");
-    const primaryOnPlan =
-      primaryProviderId === "anthropic-plan" ||
-      providersList.find((p) => p && p.id === primaryProviderId)?.kind === "anthropic-plan";
+    const primaryProviderId = String(
+      primaryRuntime.config.provider ?? defaultProviderForPrimaryEngine(primaryRuntime.engine)
+    ).trim();
+    const providerKind = providersList.find((p) => p && p.id === primaryProviderId)?.kind;
+    const accountRoute = primaryAccountRoute(
+      primaryRuntime.engine,
+      primaryProviderId,
+      providerKind
+    );
+    const primaryOnPlan = accountRoute.kind === "anthropic-plan";
     // PAYMASTER D7/D8/D9: `auto` resolves to a concrete account HERE, before
     // the pure env builder - resolver inputs and pick always logged (hard
     // constraint). A hold (no eligible account) fails the up loudly with every
     // account's numbers instead of burning a scorched window; zero registered
     // accounts fall back to the machine login so fresh installs keep working.
-    let effectivePrimaryRuntime = primaryRuntime;
+    let effectivePrimaryRuntime: typeof primaryRuntime = {
+      ...primaryRuntime,
+      config: {
+        ...primaryRuntime.config,
+        ...(primaryProviderId && primaryRuntime.config.provider == null
+          ? { provider: primaryProviderId }
+          : {})
+      }
+    };
     if (primaryAccount === "auto" && primaryOnPlan) {
       try {
         const resolution = await resolveAutoAccount();
@@ -442,10 +713,13 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         throw error;
       }
       effectivePrimaryRuntime = {
-        ...primaryRuntime,
-        config: { ...primaryRuntime.config, account: primaryAccount }
+        ...effectivePrimaryRuntime,
+        config: { ...effectivePrimaryRuntime.config, account: primaryAccount }
       };
     }
+    // The heartbeat is process-global and idempotent. It keeps the Accounts
+    // surface current even when this particular operative is not on Anthropic;
+    // refreshUsage itself filters to Anthropic accounts.
     void ensurePaymasterHeartbeat().catch(() => undefined);
     const accountEnv: Record<string, string> = {};
     if (primaryAccount && primaryOnPlan) {
@@ -454,26 +728,117 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         primaryRuntime.runtimeId
       );
     }
+    // A non-Anthropic PRIMARY account must be resolved BEFORE the provider env:
+    // buildPrimaryRuntimeEnv asks for the provider's vault key (GLM_API_KEY for
+    // GLM), while named accounts are sealed under ACCOUNT__<PLATFORM>__<name>.
+    // Resolve + audit the named token now and present its platform env as the
+    // provider's secret lookup. This also makes the primary strict: it can never
+    // silently fall back to a literal key or a secondary account after the user
+    // explicitly selected a name.
+    let namedPrimaryAccount: Awaited<ReturnType<typeof resolvePrimaryRuntimeAccount>> | null = null;
+    if (primaryAccount && !primaryOnPlan) {
+      if (accountRoute.kind === "strict") {
+        namedPrimaryAccount = await resolvePrimaryRuntimeAccount(
+          primaryAccount,
+          primaryRuntime.runtimeId,
+          accountRoute.platform,
+          { allowAuthFile: accountRoute.allowAuthFile }
+        );
+        // buildPrimaryRuntimeEnv's account field is the Anthropic-plan pin. A
+        // native/provider account is injected separately below and must never
+        // be reinterpreted as ANTHROPIC_ACCOUNT__<name> by its default branch.
+        effectivePrimaryRuntime = {
+          ...effectivePrimaryRuntime,
+          config: { ...effectivePrimaryRuntime.config, account: "" }
+        };
+      } else if (accountRoute.kind === "ignored") {
+        appendLog(
+          compositionId,
+          "stderr",
+          `Runtime account "${primaryAccount}" is configured but ${accountRoute.reason}; account ignored for this launch.`
+        );
+      } else {
+        throw new Error(
+          `primary runtime ${primaryRuntime.runtimeId} cannot use account "${primaryAccount}": ${accountRoute.reason}. Clear the account selector or choose a compatible provider.`
+        );
+      }
+    }
     const { env: primaryEnv, providerLaunch: primaryProviderLaunch, account: pinnedAccount } =
       buildPrimaryRuntimeEnv(
         effectivePrimaryRuntime,
-        (key) => primaryVaultEnv[key] ?? accountEnv[key],
-        providersList
+        // A selected named account is an exclusive source. Falling through to a
+        // generic vault key would silently launch under a different identity.
+        (key) => namedPrimaryAccount
+          ? namedPrimaryAccount.env[key]
+          : primaryVaultEnv[key] ?? accountEnv[key],
+        providersList,
+        // The primary Fitting's own declaration of HOW a provider override is
+        // applied. Without it, an OpenAI-shape engine would have its base URL
+        // written to ANTHROPIC_BASE_URL — which it never reads — and its endpoint
+        // would stay untrusted, so its key would be silently withheld.
+        primaryEntry?.metadata.provider_mechanism
       );
-    record.activeAccount = pinnedAccount;
-    record.authFailureFlagged = false;
-    record.limitFlagged = false;
-    // RUNTIME-ACCOUNTS-V2: inject non-Anthropic runtime accounts (Codex/Gemini/
-    // custom) into the operative spawn env. Secondary runtime bridges inherit it
-    // via process.env, and a non-Anthropic PRIMARY (codex/gemini) is authed here
-    // too — buildPrimaryRuntimeEnv only handles the Anthropic plan path. Anthropic
-    // is excluded (single process-wide token owned by the primary/auto path).
+    // Keep attribution local through setup. Only arm the record immediately
+    // before the operative/gateway spawn, so an npm/preflight 401 can never be
+    // mistaken for a provider rejection under this account.
+    const activeAccount = pinnedAccount ?? namedPrimaryAccount?.name;
+    const activeAccountPlatform = resolveActiveAccountPlatform(
+      pinnedAccount,
+      namedPrimaryAccount?.platform
+    );
+    // RUNTIME-ACCOUNTS-V2: secondary bridges still inherit process.env, so each
+    // selected account is resolved against the platform implied by that
+    // runtime+provider. Fail on wrong-platform pins, missing credentials, or
+    // process-wide key/home collisions; silently flattening them can launch a
+    // delegate under the wrong identity.
+    const secondaryAccountRequests: RuntimeAccountRequest[] = [];
+    for (const entry of runtimeEntries.filter((item) => item.id !== primaryRuntime.runtimeId)) {
+      const account = String(entry.config?.account ?? "").trim();
+      if (!account) continue;
+      const engine =
+        entry.provides.find((provision) => provision.kind === "runtime")?.name ?? entry.id;
+      const providerId = String(
+        entry.config?.provider ?? defaultProviderForPrimaryEngine(engine)
+      ).trim();
+      const kind = providersList.find((provider) => provider?.id === providerId)?.kind;
+      const route = primaryAccountRoute(engine, providerId, kind);
+      if (route.kind === "strict") {
+        secondaryAccountRequests.push({
+          id: entry.id,
+          account,
+          expectedPlatform: route.platform,
+          allowAuthFile: route.allowAuthFile
+        });
+      } else if (route.kind === "anthropic-plan") {
+        // Claude/Agent-SDK target launchers resolve their per-target account in
+        // their own isolated spawn env; do not flatten it into the operative.
+        continue;
+      } else if (route.kind === "ignored") {
+        appendLog(
+          compositionId,
+          "stderr",
+          `Runtime account "${account}" on ${entry.id} is not process-injected: ${route.reason}.`
+        );
+      } else {
+        throw new Error(
+          `runtime ${entry.id} cannot use account "${account}": ${route.reason}. Clear the account selector or choose a compatible provider.`
+        );
+      }
+    }
     const runtimeAccountEnv = await resolveRuntimeAccountEnv(
-      runtimeEntries.map((entry) => ({
-        id: entry.id,
-        account: entry.config?.account != null ? String(entry.config.account) : undefined
-      })),
-      { log: (message) => appendLog(compositionId, "runner", message) }
+      secondaryAccountRequests,
+      {
+        log: (message) => appendLog(compositionId, "runner", message),
+        reservedEnv: { ...(namedPrimaryAccount?.env ?? {}), ...primaryEnv },
+        reservedPlatforms:
+          accountRoute.kind === "strict"
+            ? [{
+                platform: accountRoute.platform,
+                account: namedPrimaryAccount?.name,
+                owner: `primary runtime ${primaryRuntime.runtimeId}`
+              }]
+            : []
+      }
     );
     if (pinnedAccount) {
       appendLog(
@@ -481,17 +846,12 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         "runner",
         `Primary runtime ${primaryRuntime.runtimeId} pinned to Anthropic account "${pinnedAccount}"`
       );
-    } else if (primaryAccount) {
-      // Only an ANTHROPIC account is "ignored" off the plan path — a non-Anthropic
-      // primary account is injected above by resolveRuntimeAccountEnv.
-      const acct = (await listAccounts()).find((a) => a.name === primaryAccount);
-      if (!acct || acct.platform === "anthropic") {
-        appendLog(
-          compositionId,
-          "stderr",
-          `Runtime account "${primaryAccount}" is configured but the selected provider is not the Anthropic plan — account ignored for this launch.`
-        );
-      }
+    } else if (namedPrimaryAccount) {
+      appendLog(
+        compositionId,
+        "runner",
+        `Primary runtime ${primaryRuntime.runtimeId} pinned to ${namedPrimaryAccount.platform} account "${namedPrimaryAccount.name}"`
+      );
     }
     if (primaryProviderLaunch) {
       appendLog(
@@ -528,6 +888,7 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
     }
 
     const gateway = await resolveGatewayFitting(compositionId);
+    assertPrimaryGatewayCompatibility(primaryRuntime.engine, Boolean(gateway));
     let child: ChildProcessWithoutNullStreams;
     if (gateway) {
       await runProcess(
@@ -537,54 +898,167 @@ export async function up(compositionId: string, options: { devMode?: boolean } =
         gateway.fittingDir
       );
 
+      armAccountAttribution(record, activeAccount, activeAccountPlatform);
+      launchAttempted = true;
+      launchedGateway = gateway;
       child = await spawnGateway(
         compositionId,
         composition.directory,
         promptPath,
         gateway,
         {
-          ...(gatewayExtraEnv ?? {}),
           ...runtimeAccountEnv,
+          ...(namedPrimaryAccount?.env ?? {}),
           ...primaryEnv,
           ...(primaryProviderLaunch ? { GARRISON_PROVIDER_LAUNCH: "1" } : {}),
           ...(orchestratorModeEnv(gateway, composition, promptPath) ?? {})
         }
       );
-      record.gateway = gateway;
+      launchedChild = child;
     } else {
       await requireCommand(compositionId, "claude");
+      armAccountAttribution(record, activeAccount, activeAccountPlatform);
+      launchAttempted = true;
       child = spawnClaude(
         compositionId,
         composition.directory,
         promptPath,
-        { ...runtimeAccountEnv, ...primaryEnv },
+        { ...runtimeAccountEnv, ...(namedPrimaryAccount?.env ?? {}), ...primaryEnv },
         primaryProviderLaunch
       );
-      record.gateway = undefined;
+      launchedChild = child;
     }
 
-    record.process = child;
+    // Both spawn paths claim the record and install their lifecycle listeners
+    // synchronously, before returning. Never turn a dead/replaced child into a
+    // running record merely because its spawn function once returned it.
+    assertOwnedLiveProcess(record, child, "startup");
     updateState(compositionId, {
       status: "running",
       devMode: Boolean(options.devMode),
       pid: child.pid,
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      // Record what this launch actually ran under, so a later config edit can be
+      // shown as PENDING rather than silently having no effect.
+      launchedAccounts: {
+        ...(activeAccount ? { [primaryRuntime.runtimeId]: activeAccount } : {}),
+        ...Object.fromEntries(
+          secondaryAccountRequests
+            .filter((request) => request.account)
+            .map((request) => [request.id, String(request.account)])
+        )
+      }
     });
     if (options.devMode) {
       await startDevWatcher(compositionId);
+      assertOwnedLiveProcess(record, child, "dev watcher startup", true);
     }
     appendLog(compositionId, "runner", `Operative process started${child.pid ? ` with pid ${child.pid}` : ""}`);
     await startOperativeBoundFittings(compositionId);
+    assertOwnedLiveProcess(record, child, "operative-bound fitting startup", true);
+    // Record the verified state for the next up's fast-path decision. On the
+    // fast path the fingerprint is unchanged by definition, but the timestamp
+    // refresh is still useful evidence of the last successful launch.
+    await writeLastUp(composition.directory, {
+      fingerprint: upFingerprint,
+      at: new Date().toISOString(),
+      ok: true,
+      verifyResults
+    });
     return getRunnerState(compositionId);
   } catch (error) {
+    // A failure after a child became ready (for example the dev watcher or an
+    // operative-bound fitting failing to start) must not leave that child
+    // serving while the runner advertises a failed state. Only stop the child
+    // this invocation actually launched; a late failure must never kill a
+    // successor that has since claimed the record.
+    const cleanupErrors: string[] = [];
+    const cleanupChild = launchedChild ?? (launchAttempted ? record.process : undefined);
+    let childStillOwned = false;
+    if (launchAttempted) {
+      if (record.restartTimer) {
+        clearTimeout(record.restartTimer);
+        record.restartTimer = undefined;
+      }
+      if (record.watcher) {
+        const watcher = record.watcher;
+        record.watcher = undefined;
+        try {
+          await watcher.close();
+        } catch (watcherError) {
+          cleanupErrors.push(
+            `dev watcher: ${watcherError instanceof Error ? watcherError.message : String(watcherError)}`
+          );
+        }
+      }
+      if (launchedChild || cleanupChild) {
+        try {
+          await stopOperativeBoundFittings(compositionId, { strict: true });
+        } catch (fittingError) {
+          cleanupErrors.push(
+            `operative-bound fittings: ${fittingError instanceof Error ? fittingError.message : String(fittingError)}`
+          );
+        }
+      }
+      if (cleanupChild && record.process === cleanupChild) {
+        try {
+          await stopChild(cleanupChild);
+        } catch (stopError) {
+          cleanupErrors.push(
+            `operative process ${cleanupChild.pid ?? "unknown"}: ${stopError instanceof Error ? stopError.message : String(stopError)}`
+          );
+        }
+      }
+      childStillOwned = Boolean(cleanupChild && record.process === cleanupChild);
+      if (!childStillOwned && cleanupChild) {
+        if (record.process === cleanupChild) record.process = undefined;
+        if (launchedGateway && cleanupChild.pid) {
+          try {
+            await clearGatewayPidRecordForPid(
+              compositionId,
+              launchedGateway.port,
+              cleanupChild.pid
+            );
+          } catch (pidCleanupError) {
+            cleanupErrors.push(
+              `gateway PID record: ${pidCleanupError instanceof Error ? pidCleanupError.message : String(pidCleanupError)}`
+            );
+          }
+        }
+        if (record.gateway === launchedGateway) record.gateway = undefined;
+      }
+    }
+    // A pre-spawn account/provider/verify failure occurs after the tree claim and
+    // often after `.env` materialization. Clean both only when THIS invocation
+    // acquired an otherwise-unowned tree and no launched resource may still be
+    // using it. A rejected claim or same-profile re-entry preserves the prior
+    // owner's state, and the exact claim token prevents deleting a successor.
+    cleanupErrors.push(
+      ...(await cleanupFailedLaunchClaim(
+        launchClaim,
+        childStillOwned || cleanupErrors.length > 0
+      ))
+    );
     const message = error instanceof Error ? error.message : String(error);
-    updateState(compositionId, { status: "failed", lastError: message });
-    appendLog(compositionId, "runner", `Failed: ${message}`);
-    throw error;
+    const finalMessage = cleanupErrors.length > 0
+      ? `${message} Cleanup incomplete: ${cleanupErrors.join("; ")}`
+      : message;
+    if (!childStillOwned) clearAccountAttribution(record);
+    updateState(compositionId, {
+      status: "failed",
+      lastError: finalMessage,
+      pid: childStillOwned ? cleanupChild?.pid : undefined
+    });
+    appendLog(compositionId, "runner", `Failed: ${finalMessage}`);
+    throw cleanupErrors.length > 0 ? new Error(finalMessage) : error;
   }
 }
 
 export async function down(compositionId: string): Promise<RunnerState> {
+  return withRunnerOperation(compositionId, () => downUnlocked(compositionId));
+}
+
+async function downUnlocked(compositionId: string): Promise<RunnerState> {
   const record = getRecord(compositionId);
   updateState(compositionId, { status: "stopping" });
   appendLog(compositionId, "runner", `Stopping composition ${compositionId}`);
@@ -602,6 +1076,7 @@ export async function down(compositionId: string): Promise<RunnerState> {
     await stopChild(record.process);
     record.process = undefined;
   }
+  clearAccountAttribution(record);
   // A gateway from a previous server process is not in record.process - the
   // on-disk pid record is the only handle a fresh server has on it. The port
   // comes from the live record when we have one, else from the composition's
@@ -770,6 +1245,13 @@ export async function startOperativeBoundFittings(
       // composition's .garrison/routing.json — a config split-brain.
       GARRISON_COMPOSITION_DIR: composition.directory,
       GARRISON_BASE_URL: garrisonSelfBaseUrl(),
+      // The same shell-app base URL under the name the board's list-management
+      // proxy reads (kanban-loop POST /lists -> ${GARRISON_APP_URL}/api/muster/
+      // duty). GARRISON_BASE_URL predates it; both are this instance's app.
+      GARRISON_APP_URL: garrisonSelfBaseUrl(),
+      // Mesh state service credentials — part of the env fingerprint, so a
+      // token rotation heals running fittings on the next up().
+      ...stateEnvForProjection(),
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
     envByFitting.set(entry.id, extraEnv);
@@ -827,6 +1309,10 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
       // routing.json off the composition, not ~/.garrison/orchestrator.
       GARRISON_COMPOSITION_DIR: composition.directory,
       GARRISON_BASE_URL: garrisonSelfBaseUrl(),
+      // Same alias as the up() path (see startOperativeBoundFittings) so a
+      // manual Views start/restart projects the identical env fingerprint.
+      GARRISON_APP_URL: garrisonSelfBaseUrl(),
+      ...stateEnvForProjection(),
       ...(gatewayBaseUrl ? { GARRISON_GATEWAY_URL: gatewayBaseUrl } : {})
     };
   }
@@ -836,19 +1322,27 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
 // Exported for the fitting-lifecycle vitest gate; the app reaches this through
 // down(). Every own-port fitting stops with the operative — fittings share the
 // operative's lifecycle, always.
-export async function stopOperativeBoundFittings(compositionId: string): Promise<void> {
+export async function stopOperativeBoundFittings(
+  compositionId: string,
+  options: { strict?: boolean } = {}
+): Promise<void> {
   const composition = await readCompositionWithDerivedTasks(compositionId);
   const entries = await selectedLibraryEntries(composition.selections);
+  const failures: string[] = [];
   for (const entry of entries) {
     if (!isOwnPortFitting(entry)) continue;
     const result = await stopOwnPortFitting(entry.id);
     if (!result.ok) {
       appendLog(compositionId, "stderr", `own-port ${entry.id} stop: ${result.error}`);
+      failures.push(`${entry.id}: ${result.error ?? "termination was not confirmed"}`);
       continue;
     }
     if (result.wasRunning) {
       appendLog(compositionId, "runner", `own-port ${entry.id} stopped (pid ${result.pid})`);
     }
+  }
+  if (options.strict && failures.length > 0) {
+    throw new Error(`own-port cleanup incomplete (${failures.join("; ")})`);
   }
 }
 
@@ -896,16 +1390,23 @@ export { ownPortConfigEnv } from "./own-port-lifecycle";
 // spawnGateway will bind, and available before the gateway is up because it is
 // only a config read.
 async function gatewayHookEnv(compositionId: string): Promise<Record<string, string>> {
+  // This instance's own app URL travels with it. A setup hook that writes
+  // standing config naming a Garrison endpoint (drill's Results MCP
+  // registration) must bake the REGISTERING instance's app, and it cannot
+  // derive the port without re-hardcoding the port map a fitting must never
+  // hold. Same value own-port fittings already receive at runtime.
+  const base: Record<string, string> = { GARRISON_APP_URL: garrisonSelfBaseUrl() };
   try {
     const gateway = await resolveGatewayFitting(compositionId);
-    if (!gateway) return {};
+    if (!gateway) return base;
     return {
+      ...base,
       GARRISON_GATEWAY_HOST: gateway.host,
       GARRISON_GATEWAY_PORT: String(gateway.port),
       GARRISON_GATEWAY_URL: gateway.baseUrl
     };
   } catch {
-    return {};
+    return base;
   }
 }
 
@@ -1040,11 +1541,11 @@ export async function verify(compositionId: string): Promise<VerifyResult[]> {
   // (and setup hooks below) can see them. If the vault is locked, log a
   // clear actionable message rather than silently letting hooks fail.
   try {
-    const envPath = await materializeEnv(composition.directory);
+    const { envPath } = await materializeEnvViaAuthority(composition.directory, composition.id);
     appendLog(
       compositionId,
       "runner",
-      `Materialised vault secrets to ${path.relative(ROOT_DIR, envPath)} (verify will source them)`
+      `Materialised secrets to ${path.relative(ROOT_DIR, envPath)} (verify will source them)`
     );
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -1188,55 +1689,9 @@ async function startDevWatcher(compositionId: string): Promise<void> {
   appendLog(compositionId, "runner", `Dev mode watching ${watchPaths.length} local fitting path(s)`);
 }
 
-async function assembleSystemPrompt(compositionId: string): Promise<string> {
-  const composition = await readCompositionWithDerivedTasks(compositionId);
-  const entries = await selectedLibraryEntries(composition.selections);
-  const orchestratorRaw = await readPromptForFaculty(entries, "orchestrator");
-  const fallbackOrchestrator = await fs.readFile(
-    path.join(composition.directory, ".garrison", "prompts", "orchestrator.md"),
-    "utf8"
-  );
-  // Identity/soul prompt comes from the composition default file (.garrison/
-  // prompts/soul.md). Since the spawn path was retired, there is no separate
-  // soul Faculty; identity folds into the assembled prompt ahead of behavior.
-  const fallbackSoul = await fs.readFile(
-    path.join(composition.directory, ".garrison", "prompts", "soul.md"),
-    "utf8"
-  );
-  const orchestratorSource = orchestratorRaw ?? fallbackOrchestrator;
-  // Loud, not silent: provider for_consumers reaches the Operative ONLY
-  // through the {{capabilities}} placeholder, and prompt rewrites have
-  // shipped without it before (the 2026-06 Quarters pivot's routing prompt).
-  // We warn rather than auto-append the block so prompt authors keep control
-  // of where it lands.
-  const placeholderWarning = capabilitiesPlaceholderWarning(orchestratorSource);
-  if (placeholderWarning) {
-    appendLog(compositionId, "stderr", placeholderWarning);
-  }
-  const orchestrator = substituteCapabilitiesPlaceholder(orchestratorSource, entries);
-  // BRIEF v4 MR1b: inject the compiled Model Router policy via {{routing}}.
-  // No-op when the orchestrator prompt has no placeholder (e.g. the live
-  // garrison-orchestrator), so the default composition is untouched.
-  const routingDiagnostics: string[] = [];
-  const routingSection = await resolveRoutingSection(
-    composition.directory,
-    buildRuntimeEntries(entries, composition.selections),
-    (message) => routingDiagnostics.push(message),
-    safeKanbanModel(composition, entries)
-  );
-  if (orchestrator.includes("{{routing}}") && routingSection == null) {
-    for (const message of routingDiagnostics) {
-      appendLog(compositionId, "stderr", `routing: ${message}`);
-    }
-    appendLog(compositionId, "stderr", MISSING_ROUTING_CONFIG_WARNING);
-  }
-  const orchestratorRouted = substituteRoutingPlaceholder(orchestrator, routingSection);
-  // Identity first, Orchestrator (behavior) second — identity lands before the
-  // long behavior section buries it.
-  const prompt = [fallbackSoul, "", orchestratorRouted].join("\n");
-  const promptPath = path.join(composition.directory, ".garrison", "assembled-system-prompt.md");
-  await fs.writeFile(promptPath, prompt, "utf8");
-  appendLog(compositionId, "runner", `Assembled system prompt at ${path.relative(ROOT_DIR, promptPath)}`);
+export async function assembleSystemPrompt(compositionId: string): Promise<string> {
+  const { path: promptPath } = await writeAssembledOrchestratorPrompt(compositionId);
+  appendLog(compositionId, "runner", `Assembled layered Orchestrator prompt at ${path.relative(ROOT_DIR, promptPath)}`);
   return promptPath;
 }
 
@@ -1266,7 +1721,6 @@ export function capabilitiesPlaceholderWarning(prompt: string): string | null {
 // the bare-node own-port view and vitest). We dynamic-import it by file URL at
 // runtime so it is never pulled into the Next webpack bundle.
 const ROUTING_CORE_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/lib/routing-core.mjs");
-const SEED_ROUTING_PATH = path.join(ROOT_DIR, "fittings/seed/orchestrator/config/routing.seed.json");
 
 export const MISSING_ROUTING_CONFIG_WARNING =
   "WARNING: orchestrator prompt has a {{routing}} placeholder but the routing section could not be built (see the routing diagnostics above) - the routing section will be empty";
@@ -1281,24 +1735,39 @@ export async function resolveProvidersList(
   compositionDir: string,
   onDiagnostic?: (message: string) => void
 ): Promise<Array<{ id: string; kind?: string; baseUrl?: string | null; vaultKey?: string; dummyToken?: string }>> {
-  const scoped = path.join(compositionDir, ".garrison", "routing.json");
-  let config: unknown = null;
+  let source: Awaited<ReturnType<typeof readRoutingPolicySource>>;
   try {
-    config = JSON.parse(await fs.readFile(scoped, "utf8"));
-  } catch {
-    try {
-      config = JSON.parse(await fs.readFile(SEED_ROUTING_PATH, "utf8"));
-    } catch {
-      onDiagnostic?.(
-        `providers: neither ${scoped} nor the seed ${SEED_ROUTING_PATH} is readable — using the migration-seeded provider list`
-      );
-      config = {};
-    }
+    source = await readRoutingPolicySource(compositionDir);
+  } catch (error) {
+    const message = `providers: routing policy is unreadable (${error instanceof Error ? error.message : String(error)})`;
+    onDiagnostic?.(message);
+    throw new Error(message);
+  }
+  let config: unknown;
+  try {
+    config = JSON.parse(source.text) as unknown;
+  } catch (error) {
+    const message = `providers: routing policy ${source.path} is invalid JSON (${error instanceof Error ? error.message : String(error)})`;
+    onDiagnostic?.(message);
+    throw new Error(message);
+  }
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    const message = `providers: routing policy ${source.path} must be a JSON object`;
+    onDiagnostic?.(message);
+    throw new Error(message);
   }
   const mod = (await import(/* webpackIgnore: true */ pathToFileURL(ROUTING_CORE_PATH).href)) as {
     ensureProviders: (c: unknown) => { providers: Array<{ id: string }> };
+    validateProviders: (providers: unknown) => string[];
   };
-  return mod.ensureProviders(config ?? {}).providers as Awaited<ReturnType<typeof resolveProvidersList>>;
+  const declaredProviders = (config as { providers?: unknown }).providers;
+  const errors = mod.validateProviders(declaredProviders);
+  if (errors.length > 0) {
+    const message = `providers: routing policy ${source.path} is invalid (${errors.join("; ")})`;
+    onDiagnostic?.(message);
+    throw new Error(message);
+  }
+  return mod.ensureProviders(config).providers as Awaited<ReturnType<typeof resolveProvidersList>>;
 }
 
 // The duty model for the routing compile, best-effort: a malformed duty graph
@@ -1341,21 +1810,17 @@ export async function resolveRoutingSection(
   // policy.json and the {{routing}} prompt section.
   dutyModel?: KanbanResolvedModel | null
 ): Promise<string | null> {
-  const scoped = path.join(compositionDir, ".garrison", "routing.json");
-  let raw: string | null = null;
-  let configPath = scoped;
+  let raw: string;
+  let configPath: string;
   try {
-    raw = await fs.readFile(scoped, "utf8");
-  } catch {
-    try {
-      raw = await fs.readFile(SEED_ROUTING_PATH, "utf8");
-      configPath = SEED_ROUTING_PATH;
-    } catch {
-      onDiagnostic?.(
-        `routing.json missing: neither ${scoped} nor the seed ${SEED_ROUTING_PATH} is readable`
-      );
-      return null;
-    }
+    const source = await readRoutingPolicySource(compositionDir);
+    raw = source.text;
+    configPath = source.path;
+  } catch (error) {
+    onDiagnostic?.(
+      `routing.json missing or unreadable for ${compositionDir}: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return null;
   }
   let config: unknown;
   try {
@@ -1688,31 +2153,6 @@ function compactEnv(config: Record<string, unknown>): Record<string, string> {
   return env;
 }
 
-// Project the gateway fitting's `routing_on_primary` config into its spawn env.
-// It pins the whole ROUTING BRAIN — Stage-A classification AND the Dispatcher's
-// single-shot call — to the primary runtime's own adapter. One key, because
-// splitting them invites a composition that routes half on the primary and half
-// on a second engine.
-//
-// Why it exists, from two real failures on an all-Cursor composition:
-//   - the classifier defaults to a cheap Claude Code haiku PTY regardless of
-//     primary, and "is claude-code available" is a PATH probe that says nothing
-//     about whether that CLI can spawn (an instance with its own
-//     CLAUDE_CONFIG_DIR may be unauthenticated). When the spawn fails, the warm
-//     pool half-starts and EVERY turn logs classify-failed and falls through to
-//     the default route — silently.
-//   - the Dispatcher calls through garrison-call, which speaks HTTP wire shapes
-//     only, so it cannot reach a CLI engine at all: dispatch would always take
-//     the deterministic keyword fallback.
-//
-// Absent/false → byte-identical to the historical behaviour.
-function routingBrainEnv(config: Record<string, unknown>): Record<string, string> {
-  const raw = config.routing_on_primary;
-  if (raw === undefined || raw === null) return {};
-  const on = raw === true || String(raw).trim().toLowerCase() === "true";
-  return on ? { GARRISON_ROUTING_ON_PRIMARY: "1" } : {};
-}
-
 // ── gateway pid records ─────────────────────────────────────────────────────
 // The in-memory RunnerRecord dies with the Garrison server process, but the
 // gateway child does not: it keeps serving the OLD composition config on the
@@ -1721,7 +2161,7 @@ function routingBrainEnv(config: Record<string, unknown>): Record<string, string
 // stale gateway. The on-disk record is what lets a later down()/up(), possibly
 // in a fresh server process, reap it.
 
-interface GatewayPidRecord {
+export interface GatewayPidRecord {
   pid: number;
   host: string;
   port: number;
@@ -1743,17 +2183,266 @@ function legacyGatewayPidRecordPath(compositionId: string): string {
   return path.join(garrisonDir(), "gateway-pids", `${compositionId}.json`);
 }
 
-async function writeGatewayPidRecord(
+function gatewayPidLockPath(compositionId: string, port: number): string {
+  return path.join(garrisonDir(), "gateway-pids", `${compositionId}-${port}.lock.d`);
+}
+
+interface GatewayPidLockTicket {
+  pid: number;
+  processStartId?: string | null;
+  token: string;
+  choosing: boolean;
+  ticket: number;
+  createdAt: number;
+  released?: boolean;
+}
+
+const GATEWAY_PID_LOCK_TIMEOUT_MS = 5000;
+const GATEWAY_PID_INVALID_TICKET_STALE_MS = 60_000;
+
+async function processStartIdentity(pid: number): Promise<string | null> {
+  if (process.platform !== "linux") return null;
+  try {
+    const [stat, bootId] = await Promise.all([
+      fs.readFile(`/proc/${pid}/stat`, "utf8"),
+      fs.readFile("/proc/sys/kernel/random/boot_id", "utf8")
+    ]);
+    // comm (field 2) is parenthesized and may itself contain spaces. Fields
+    // after its final ')' start at state (field 3); starttime is field 22.
+    const commEnd = stat.lastIndexOf(")");
+    if (commEnd < 0) return null;
+    const startTicks = stat.slice(commEnd + 1).trim().split(/\s+/)[19];
+    return startTicks ? `${bootId.trim()}:${startTicks}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function validGatewayPidLockTicket(value: unknown): value is GatewayPidLockTicket {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<GatewayPidLockTicket>;
+  return (
+    Number.isInteger(candidate.pid) &&
+    Number(candidate.pid) > 0 &&
+    typeof candidate.token === "string" &&
+    candidate.token.length > 0 &&
+    (candidate.processStartId === undefined ||
+      candidate.processStartId === null ||
+      typeof candidate.processStartId === "string") &&
+    typeof candidate.choosing === "boolean" &&
+    (candidate.released === undefined || typeof candidate.released === "boolean") &&
+    Number.isInteger(candidate.ticket) &&
+    Number(candidate.ticket) >= 0 &&
+    typeof candidate.createdAt === "number" &&
+    Number.isFinite(candidate.createdAt)
+  );
+}
+
+async function readGatewayPidLockTickets(
+  lockDir: string
+): Promise<Array<{ id: string; file: string; ticket: GatewayPidLockTicket }>> {
+  const now = Date.now();
+  let names: string[];
+  try {
+    names = await fs.readdir(lockDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+
+  const tickets: Array<{ id: string; file: string; ticket: GatewayPidLockTicket }> = [];
+  for (const id of names) {
+    if (!id.endsWith(".json")) continue;
+    const file = path.join(lockDir, id);
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await fs.readFile(file, "utf8"));
+    } catch {
+      // Final ticket names are only published by atomic rename, so a malformed
+      // file is foreign or left by an older implementation. A fresh one blocks
+      // acquisition; an old one is safe to retire without touching any other
+      // contender's unique path.
+      try {
+        const stat = await fs.stat(file);
+        if (now - stat.mtimeMs >= GATEWAY_PID_INVALID_TICKET_STALE_MS) {
+          await fs.unlink(file).catch(() => undefined);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      tickets.push({
+        id,
+        file,
+        ticket: { pid: process.pid, token: id, choosing: true, ticket: 0, createdAt: now }
+      });
+      continue;
+    }
+    if (!validGatewayPidLockTicket(raw)) {
+      const stat = await fs.stat(file).catch(() => null);
+      if (stat && now - stat.mtimeMs >= GATEWAY_PID_INVALID_TICKET_STALE_MS) {
+        await fs.unlink(file).catch(() => undefined);
+        continue;
+      }
+      tickets.push({
+        id,
+        file,
+        ticket: { pid: process.pid, token: id, choosing: true, ticket: 0, createdAt: now }
+      });
+      continue;
+    }
+    if (raw.released) {
+      // Release is published atomically before best-effort deletion. An unlink
+      // failure therefore leaves an inert, independently-cleanable ticket, not
+      // a live-PID tombstone that wedges every later operation.
+      await fs.unlink(file).catch(() => undefined);
+      continue;
+    }
+    const ownerAlive = pidAlive(raw.pid);
+    const currentStartId = ownerAlive && raw.processStartId
+      ? await processStartIdentity(raw.pid)
+      : null;
+    if (
+      !ownerAlive ||
+      (raw.processStartId !== undefined &&
+        raw.processStartId !== null &&
+        currentStartId !== null &&
+        currentStartId !== raw.processStartId)
+    ) {
+      // Ticket paths include an unguessable process token and are never reused.
+      // Removing this exact dead/reused-owner participant cannot delete a
+      // successor's lock. A live ticket is NEVER expired by wall-clock age: a
+      // suspended owner may resume inside its critical section.
+      await fs.unlink(file).catch(() => undefined);
+      continue;
+    }
+    tickets.push({ id, file, ticket: raw });
+  }
+  return tickets;
+}
+
+async function withGatewayPidLock<T>(
+  compositionId: string,
+  port: number,
+  operation: () => Promise<T>
+): Promise<T> {
+  const lockDir = gatewayPidLockPath(compositionId, port);
+  await fs.mkdir(lockDir, { recursive: true });
+  const token = randomBytes(12).toString("hex");
+  const id = `${process.pid}-${token}.json`;
+  const file = path.join(lockDir, id);
+  const createdAt = Date.now();
+  let ownTicket: GatewayPidLockTicket = {
+    pid: process.pid,
+    processStartId: await processStartIdentity(process.pid),
+    token,
+    choosing: true,
+    ticket: 0,
+    createdAt
+  };
+  // Each participant owns a unique, atomically-published ticket. There is no
+  // shared lock inode to unlink, so a pair of stale-lock reclaimers cannot
+  // accidentally remove a newly-acquired successor lock.
+  await writeFileAtomic(file, JSON.stringify(ownTicket), { mode: 0o600 });
+  let result!: T;
+  let primaryError: unknown;
+  let operationFailed = false;
+  try {
+    const initial = await readGatewayPidLockTickets(lockDir);
+    ownTicket = {
+      ...ownTicket,
+      choosing: false,
+      ticket: initial.reduce((max, contender) => Math.max(max, contender.ticket.ticket), 0) + 1
+    };
+    await writeFileAtomic(file, JSON.stringify(ownTicket), { mode: 0o600 });
+
+    const deadline = Date.now() + GATEWAY_PID_LOCK_TIMEOUT_MS;
+    while (true) {
+      const contenders = await readGatewayPidLockTickets(lockDir);
+      const blocked = contenders.some((contender) => {
+        if (contender.id === id) return false;
+        if (contender.ticket.choosing) return true;
+        if (contender.ticket.ticket !== ownTicket.ticket) {
+          return contender.ticket.ticket < ownTicket.ticket;
+        }
+        return contender.id.localeCompare(id) < 0;
+      });
+      if (!blocked) break;
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for gateway PID lock ${path.basename(lockDir)}`);
+      }
+      await delay(50);
+    }
+    result = await operation();
+  } catch (error) {
+    operationFailed = true;
+    primaryError = error;
+  }
+
+  let releaseError: unknown;
+  try {
+    await writeFileAtomic(
+      file,
+      JSON.stringify({ ...ownTicket, choosing: false, ticket: 0, released: true }),
+      { mode: 0o600 }
+    );
+    // Once the released state is durable, deletion is only housekeeping.
+    await fs.unlink(file).catch(() => undefined);
+  } catch (error) {
+    // If release publication itself failed, deleting this unique ticket is the
+    // only safe fallback. Retry transient failures before surfacing the fault.
+    let removed = false;
+    for (let attempt = 0; attempt < 3 && !removed; attempt += 1) {
+      try {
+        await fs.unlink(file);
+        removed = true;
+      } catch (unlinkError) {
+        if ((unlinkError as NodeJS.ErrnoException).code === "ENOENT") {
+          removed = true;
+          break;
+        }
+        if (attempt < 2) await delay(25 * (attempt + 1));
+      }
+    }
+    if (!removed) releaseError = error;
+  }
+
+  if (releaseError) {
+    const cleanupMessage = releaseError instanceof Error ? releaseError.message : String(releaseError);
+    if (operationFailed) {
+      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      throw new Error(`${primaryMessage} Gateway PID lock cleanup incomplete: ${cleanupMessage}`);
+    }
+    throw new Error(`Gateway PID lock cleanup incomplete: ${cleanupMessage}`);
+  }
+  if (operationFailed) throw primaryError;
+  return result;
+}
+
+export async function writeGatewayPidRecord(
   compositionId: string,
   record: GatewayPidRecord
 ): Promise<void> {
-  const file = gatewayPidRecordPath(compositionId, record.port);
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(record), "utf8");
-}
-
-function clearGatewayPidRecord(compositionId: string, port: number): Promise<void> {
-  return fs.unlink(gatewayPidRecordPath(compositionId, port)).catch(() => undefined);
+  await withGatewayPidLock(compositionId, record.port, async () => {
+    const file = gatewayPidRecordPath(compositionId, record.port);
+    // Publish only into an empty slot. If another Garrison server races this
+    // startup, the loser must fail and stop rather than overwrite the live
+    // winner's reap handle. A fully-written temp inode is hard-linked into place:
+    // link(2) is atomic and refuses an existing destination.
+    const tmp = `${file}.publish-${process.pid}-${randomBytes(6).toString("hex")}`;
+    const publishHandle = await fs.open(tmp, "wx", 0o600);
+    let closed = false;
+    try {
+      await publishHandle.writeFile(JSON.stringify(record), "utf8");
+      await publishHandle.sync();
+      await publishHandle.close();
+      closed = true;
+      await fs.link(tmp, file);
+    } finally {
+      if (!closed) await publishHandle.close().catch(() => undefined);
+      await fs.unlink(tmp).catch(() => undefined);
+    }
+  });
 }
 
 // Exit-handler variant: only clear the record if it still names THIS child.
@@ -1764,15 +2453,16 @@ async function clearGatewayPidRecordForPid(
   port: number,
   pid: number
 ): Promise<void> {
-  try {
-    const record = JSON.parse(
-      await fs.readFile(gatewayPidRecordPath(compositionId, port), "utf8")
-    ) as GatewayPidRecord;
-    if (record.pid !== pid) return;
-  } catch {
-    return;
-  }
-  await clearGatewayPidRecord(compositionId, port);
+  await withGatewayPidLock(compositionId, port, async () => {
+    const file = gatewayPidRecordPath(compositionId, port);
+    try {
+      const record = JSON.parse(await fs.readFile(file, "utf8")) as GatewayPidRecord;
+      if (record.pid !== pid) return;
+    } catch {
+      return;
+    }
+    await fs.unlink(file).catch(() => undefined);
+  });
 }
 
 function pidAlive(pid: number): boolean {
@@ -1792,41 +2482,50 @@ function pidAlive(pid: number): boolean {
 // Exported for the gateway-reap vitest gate (sandbox GARRISON_HOME); the app
 // itself only reaches this through down()/spawnGateway.
 export async function reapRecordedGateway(compositionId: string, port: number): Promise<void> {
-  const candidates = [gatewayPidRecordPath(compositionId, port), legacyGatewayPidRecordPath(compositionId)];
-  const bootTime = Date.now() - os.uptime() * 1000;
-  for (const file of candidates) {
-    let record: GatewayPidRecord;
-    try {
-      record = JSON.parse(await fs.readFile(file, "utf8"));
-    } catch {
-      continue;
-    }
-    // A legacy (composition-only) record naming a different port is another
-    // instance's live gateway - leave both the process and the file alone.
-    if (record.port !== port) continue;
-    if (record.pid && Date.parse(record.startedAt) > bootTime && pidAlive(record.pid)) {
-      appendLog(
-        compositionId,
-        "runner",
-        `Reaping stale gateway pid ${record.pid} on ${record.host}:${record.port} (left by a previous server process)`
-      );
+  await withGatewayPidLock(compositionId, port, async () => {
+    const candidates = [gatewayPidRecordPath(compositionId, port), legacyGatewayPidRecordPath(compositionId)];
+    const bootTime = Date.now() - os.uptime() * 1000;
+    for (const file of candidates) {
+      let record: GatewayPidRecord;
       try {
-        process.kill(record.pid, "SIGTERM");
+        record = JSON.parse(await fs.readFile(file, "utf8"));
       } catch {
-        /* raced its exit */
+        continue;
       }
-      const deadline = Date.now() + 2000;
-      while (pidAlive(record.pid) && Date.now() < deadline) await delay(100);
-      if (pidAlive(record.pid)) {
+      // A legacy (composition-only) record naming a different port is another
+      // instance's live gateway - leave both the process and the file alone.
+      if (record.port !== port) continue;
+      if (record.pid && Date.parse(record.startedAt) > bootTime && pidAlive(record.pid)) {
+        appendLog(
+          compositionId,
+          "runner",
+          `Reaping stale gateway pid ${record.pid} on ${record.host}:${record.port} (left by a previous server process)`
+        );
         try {
-          process.kill(record.pid, "SIGKILL");
+          process.kill(record.pid, "SIGTERM");
         } catch {
           /* raced its exit */
         }
+        const deadline = Date.now() + 2000;
+        while (pidAlive(record.pid) && Date.now() < deadline) await delay(100);
+        if (pidAlive(record.pid)) {
+          try {
+            process.kill(record.pid, "SIGKILL");
+          } catch {
+            /* raced its exit */
+          }
+          const killDeadline = Date.now() + 2000;
+          while (pidAlive(record.pid) && Date.now() < killDeadline) await delay(100);
+          if (pidAlive(record.pid)) {
+            throw new Error(
+              `Recorded gateway pid ${record.pid} did not confirm exit; preserving ${file} for a later cleanup attempt.`
+            );
+          }
+        }
       }
+      await fs.unlink(file).catch(() => undefined);
     }
-    await fs.unlink(file).catch(() => undefined);
-  }
+  });
 }
 
 // Bind-probe: the truthful "is this port free" check - it attempts exactly
@@ -1876,7 +2575,6 @@ async function spawnGateway(
       (gateway.config.permission_mode as string | undefined) ?? "bypassPermissions",
     GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus",
     ...compactEnv(gateway.config),
-    ...routingBrainEnv(gateway.config),
     ...(extraEnv ?? {})
   };
 
@@ -1890,67 +2588,191 @@ async function spawnGateway(
     }
   );
 
+  // Claim ownership and attach every lifecycle listener before the first
+  // await. A child can fail immediately (ENOENT, EADDRINUSE, syntax error);
+  // delaying this until after the PID write/readiness poll used to miss that
+  // event and could mark a dead process as running.
+  const record = getRecord(compositionId);
+  record.process = child;
+  record.gateway = gateway;
+  let startupReady = false;
+  let startupFailure: Error | undefined;
+  const failStartup = (error: Error): void => {
+    if (!startupReady && !startupFailure) startupFailure = error;
+  };
+
+  const stdoutBuffer: LogLineBuffer = { pending: "" };
+  const stderrBuffer: LogLineBuffer = { pending: "" };
+  child.stdout.on("data", (chunk) => {
+    for (const line of splitBufferedLogChunk(stdoutBuffer, chunk.toString())) {
+      appendLog(compositionId, "stdout", line);
+    }
+  });
+  child.stderr.on("data", (chunk) => {
+    for (const line of splitBufferedLogChunk(stderrBuffer, chunk.toString())) {
+      appendLog(compositionId, "stderr", line);
+    }
+  });
+  child.stdout.on("end", () => {
+    for (const line of splitBufferedLogChunk(stdoutBuffer, "", true)) {
+      appendLog(compositionId, "stdout", line);
+    }
+  });
+  child.stderr.on("end", () => {
+    for (const line of splitBufferedLogChunk(stderrBuffer, "", true)) {
+      appendLog(compositionId, "stderr", line);
+    }
+  });
+  child.on("exit", (code, signal) => {
+    failStartup(
+      new Error(
+        `Gateway exited before becoming ready (code=${code ?? "null"}, signal=${signal ?? "null"})`
+      )
+    );
+    const current = getRecord(compositionId);
+    const ownsRecord = current.process === child;
+    if (ownsRecord) {
+      clearAccountAttribution(current);
+      current.process = undefined;
+    }
+    if (child.pid) {
+      void clearGatewayPidRecordForPid(compositionId, gateway.port, child.pid).catch((error) => {
+        appendLog(
+          compositionId,
+          "runner",
+          `Gateway PID record cleanup deferred: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
+    }
+    appendLog(
+      compositionId,
+      "runner",
+      `Gateway process exited code=${code ?? "null"} signal=${signal ?? "null"}`
+    );
+    if (ownsRecord && current.state.status === "running") {
+      updateState(compositionId, {
+        status: code === 0 ? "stopped" : "failed",
+        pid: undefined
+      });
+    } else if (ownsRecord) {
+      // A prior stop attempt may have timed out and left the record failed but
+      // intentionally retained. When the child eventually exits, retire the
+      // now-stale PID without rewriting that failure state.
+      updateState(compositionId, { pid: undefined });
+    }
+  });
+  child.on("error", (error) => {
+    failStartup(error);
+    const current = getRecord(compositionId);
+    const ownsRecord = current.process === child;
+    if (ownsRecord) clearAccountAttribution(current);
+    appendLog(compositionId, "stderr", error.message);
+    if (ownsRecord) {
+      updateState(compositionId, { status: "failed", lastError: error.message });
+    }
+  });
+
   // Durable before the startup poll: if the SERVER dies while the gateway is
   // coming up, the record is what lets the next server process reap it.
-  if (child.pid) {
+  try {
+    if (!child.pid) {
+      throw new Error("Gateway spawn returned without a process id");
+    }
     await writeGatewayPidRecord(compositionId, {
       pid: child.pid,
       host: gateway.host,
       port: gateway.port,
       startedAt: new Date().toISOString(),
       fittingId: gateway.fittingId
-    }).catch(() => undefined);
-  }
+    });
 
-  child.stdout.on("data", (chunk) => appendLog(compositionId, "stdout", chunk.toString()));
-  child.stderr.on("data", (chunk) => appendLog(compositionId, "stderr", chunk.toString()));
-  child.on("exit", (code, signal) => {
-    const record = getRecord(compositionId);
-    record.process = undefined;
-    if (child.pid) void clearGatewayPidRecordForPid(compositionId, gateway.port, child.pid);
-    appendLog(
-      compositionId,
-      "runner",
-      `Gateway process exited code=${code ?? "null"} signal=${signal ?? "null"}`
-    );
-    if (record.state.status === "running") {
-      updateState(compositionId, {
-        status: code === 0 ? "stopped" : "failed",
-        pid: undefined
-      });
-    }
-  });
-  child.on("error", (error) => {
-    appendLog(compositionId, "stderr", error.message);
-    updateState(compositionId, { status: "failed", lastError: error.message });
-  });
-
-  const deadline = Date.now() + 10_000;
-  let ready = false;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) {
-      throw new Error(`Gateway exited before becoming ready (code=${child.exitCode})`);
-    }
-    try {
-      const response = await fetch(`${gateway.baseUrl}/health`, {
-        signal: AbortSignal.timeout(1000)
-      });
-      if (response.ok) {
-        ready = true;
-        break;
+    const assertStillStarting = (): void => {
+      if (startupFailure) throw startupFailure;
+      if (
+        child.exitCode !== null ||
+        child.signalCode !== null ||
+        child.killed ||
+        getRecord(compositionId).process !== child
+      ) {
+        throw new Error("Gateway exited or lost runner ownership before becoming ready");
       }
-    } catch {
-      // not ready yet
+    };
+
+    assertStillStarting();
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      assertStillStarting();
+      try {
+        const response = await fetch(`${gateway.baseUrl}/health`, {
+          signal: AbortSignal.timeout(1000)
+        });
+        assertStillStarting();
+        if (response.ok) {
+          ready = true;
+          break;
+        }
+      } catch (error) {
+        if (startupFailure) throw startupFailure;
+        // A fetch timeout/refusal means "not ready yet". Lifecycle failures
+        // are retained separately and always win on the next assertion.
+        if (
+          child.exitCode !== null ||
+          child.signalCode !== null ||
+          child.killed ||
+          getRecord(compositionId).process !== child
+        ) {
+          throw error;
+        }
+      }
+      await delay(250);
     }
-    await delay(250);
-  }
 
-  if (!ready) {
-    throw new Error(`Gateway did not become ready within 10s on ${gateway.baseUrl}`);
-  }
+    assertStillStarting();
+    if (!ready) {
+      throw new Error(`Gateway did not become ready within 10s on ${gateway.baseUrl}`);
+    }
 
-  appendLog(compositionId, "runner", `Gateway ready on ${gateway.baseUrl}`);
-  return child;
+    startupReady = true;
+    appendLog(compositionId, "runner", `Gateway ready on ${gateway.baseUrl}`);
+    return child;
+  } catch (error) {
+    // Readiness failure owns its cleanup. This closes the orphan window on
+    // PID-write failures and timeouts, and exact-PID clearing cannot erase a
+    // successor's record.
+    const primaryError = startupFailure ?? (
+      error instanceof Error ? error : new Error(String(error))
+    );
+    try {
+      await stopChild(child);
+    } catch (stopError) {
+      // Preserve the in-memory handle and durable PID record when termination
+      // is not confirmed. A later down/reconciliation can retry; deleting the
+      // only handles would turn an uninterruptible child into an orphan.
+      const stopMessage = stopError instanceof Error ? stopError.message : String(stopError);
+      throw new Error(`${primaryError.message} Cleanup incomplete: ${stopMessage}`);
+    }
+    let pidCleanupError: unknown;
+    if (child.pid) {
+      try {
+        await clearGatewayPidRecordForPid(compositionId, gateway.port, child.pid);
+      } catch (cleanupError) {
+        pidCleanupError = cleanupError;
+      }
+    }
+    const current = getRecord(compositionId);
+    if (current.process === child) {
+      clearAccountAttribution(current);
+      current.process = undefined;
+    }
+    if (current.gateway === gateway) current.gateway = undefined;
+    if (pidCleanupError) {
+      throw new Error(
+        `${primaryError.message} PID record cleanup deferred: ${pidCleanupError instanceof Error ? pidCleanupError.message : String(pidCleanupError)}`
+      );
+    }
+    throw primaryError;
+  }
 }
 
 function spawnClaude(
@@ -1986,27 +2808,49 @@ function spawnClaude(
     { spawnSite: "runner:spawnClaude", description: `fallback claude (${compositionName})` }
   );
 
+  // Claim before returning so an immediate error/exit can never be missed by
+  // up() and subsequently overwritten with a false running state.
+  const record = getRecord(compositionId);
+  record.process = child;
+  record.gateway = undefined;
+
   child.stdout.on("data", (chunk) => appendLog(compositionId, "stdout", chunk.toString()));
   child.stderr.on("data", (chunk) => appendLog(compositionId, "stderr", chunk.toString()));
   child.on("exit", (code, signal) => {
     const record = getRecord(compositionId);
-    record.process = undefined;
+    const ownsRecord = record.process === child;
+    if (ownsRecord) {
+      clearAccountAttribution(record);
+      record.process = undefined;
+    }
     appendLog(
       compositionId,
       "runner",
       `Claude process exited code=${code ?? "null"} signal=${signal ?? "null"}`
     );
-    if (record.state.status === "running") {
+    if (ownsRecord && record.state.status === "running") {
       updateState(compositionId, {
         status: code === 0 ? "stopped" : "failed",
         pid: undefined
       });
+    } else if (ownsRecord) {
+      updateState(compositionId, { pid: undefined });
     }
   });
   child.on("error", (error) => {
+    const record = getRecord(compositionId);
+    const ownsRecord = record.process === child;
+    if (ownsRecord) clearAccountAttribution(record);
     appendLog(compositionId, "stderr", error.message);
-    updateState(compositionId, { status: "failed", lastError: error.message });
+    if (ownsRecord) {
+      updateState(compositionId, { status: "failed", lastError: error.message });
+    }
   });
+
+  if (!child.pid) {
+    if (record.process === child) record.process = undefined;
+    throw new Error("Claude fallback spawn returned without a process id");
+  }
 
   return child;
 }
@@ -2144,21 +2988,59 @@ async function runShellCommand(
   });
 }
 
-async function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
-  await new Promise<void>((resolve) => {
-    if (child.exitCode !== null || child.killed) {
+export async function stopChild(
+  child: ChildProcessWithoutNullStreams,
+  options: { forceAfterMs?: number; timeoutMs?: number } = {}
+): Promise<void> {
+  const forceAfterMs = options.forceAfterMs ?? 3000;
+  const timeoutMs = options.timeoutMs ?? 5000;
+  await new Promise<void>((resolve, reject) => {
+    if (!child.pid || child.exitCode !== null || child.signalCode !== null) {
       resolve();
       return;
     }
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
+    let settled = false;
+    let forceTimer: NodeJS.Timeout | undefined;
+    let giveUpTimer: NodeJS.Timeout | undefined;
+    const removeListeners = (): void => {
+      child.off("exit", finish);
+      child.off("close", finish);
+    };
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      if (forceTimer) clearTimeout(forceTimer);
+      if (giveUpTimer) clearTimeout(giveUpTimer);
+      removeListeners();
       resolve();
-    }, 3000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    child.kill("SIGTERM");
+    };
+    forceTimer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The bounded confirmation timer below remains authoritative.
+      }
+    }, forceAfterMs);
+    giveUpTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      if (forceTimer) clearTimeout(forceTimer);
+      removeListeners();
+      reject(
+        new Error(
+          `process ${child.pid} did not confirm exit after SIGTERM/SIGKILL within ${timeoutMs}ms`
+        )
+      );
+    }, timeoutMs);
+    child.once("exit", finish);
+    child.once("close", finish);
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // Keep the SIGKILL fallback armed. A failed first signal is not evidence
+      // that the process is gone, and clearing the runner handle here could
+      // turn it into an orphan.
+    }
   });
 }
 
@@ -2190,7 +3072,10 @@ function updateState(compositionId: string, update: Partial<RunnerState>): void 
 // RUNTIME-ACCOUNTS-V1 D5: an auth failure surfacing in a session's log stream
 // while the operative is pinned to a named account flags that account
 // needs-relogin (once per up; setup tokens are replaced, never refreshed).
-const ACCOUNT_AUTH_FAILURE_RE = /401 .*(bearer|oauth|authenticat)|Failed to authenticate/i;
+const ANTHROPIC_AUTH_FAILURE_RE =
+  /Failed to authenticate|\b401\b[^\n]*(?:bearer|oauth|authenticat|unauthori[sz]ed|invalid[_ -]?(?:token|credential))/i;
+const PROVIDER_AUTH_FAILURE_RE =
+  /\b401\b[^\n]*(?:unauthori[sz]ed|invalid[_ -]?(?:api[_ -]?key|token|credential)|incorrect[^\n]*api[_ -]?key|authenticat|bearer|oauth)/i;
 
 // PAYMASTER D10: a usage-limit hit in the log stream while pinned to an
 // account. The regex is only a TRIGGER - ordinary session output can mention
@@ -2198,10 +3083,126 @@ const ACCOUNT_AUTH_FAILURE_RE = /401 .*(bearer|oauth|authenticat)|Failed to auth
 // confirmed with a live probe of the pinned account before alarming. The
 // session stays sticky (no mid-run migration - that waits for Handoff
 // Packets); the surfacing pre-computes "resume on <best account now>".
-const ACCOUNT_LIMIT_RE =
+const ANTHROPIC_LIMIT_RE =
   /usage limit reached|rate.?limit.?(error|reached|exceeded)|"type"\s*:\s*"rate_limit_error"/i;
+const PROVIDER_LIMIT_RE =
+  /\b429\b|"(?:type|code)"\s*:\s*"(?:rate_limit_error|rate_limit_exceeded)"/i;
 
-function surfaceMidRunLimit(compositionId: string, account: string): void {
+export type AccountFailureKind = "auth" | "limit";
+
+/**
+ * Extract only a trusted failure payload. Gateway chat input/output is JSON on
+ * stdout and can quote arbitrary user/assistant prose. For non-Anthropic
+ * accounts, only the gateway's structured chat-stream-failed stderr event is
+ * attributable to the active provider; setup/npm/sidecar stderr is not. Raw
+ * stderr/stdout remains only for the legacy direct Anthropic CLI path.
+ */
+export function accountFailureText(
+  stream: LogEvent["stream"],
+  line: string,
+  platform: AccountPlatform | undefined
+): string | null {
+  if (stream !== "stdout" && stream !== "stderr") return null;
+  try {
+    const parsed = JSON.parse(line) as {
+      component?: unknown;
+      stream?: unknown;
+      kind?: unknown;
+      error?: unknown;
+    };
+    if (
+      parsed.component === "http-gateway-pty" &&
+      parsed.stream === "stderr"
+    ) {
+      return stream === "stderr" &&
+        parsed.kind === "chat-stream-failed" &&
+        typeof parsed.error === "string"
+        ? parsed.error
+        : null;
+    }
+  } catch {
+    // Raw CLI/log output continues through the stream checks below.
+  }
+  if (platform !== "anthropic") return null;
+  return line;
+}
+
+export function classifyAccountFailure(
+  stream: LogEvent["stream"],
+  line: string,
+  platform: AccountPlatform | undefined
+): AccountFailureKind | null {
+  const text = accountFailureText(stream, line, platform);
+  if (!text) return null;
+  if (platform === "anthropic") {
+    if (ANTHROPIC_AUTH_FAILURE_RE.test(text)) return "auth";
+    if (ANTHROPIC_LIMIT_RE.test(text)) return "limit";
+    return null;
+  }
+  if (PROVIDER_AUTH_FAILURE_RE.test(text)) return "auth";
+  if (PROVIDER_LIMIT_RE.test(text)) return "limit";
+  return null;
+}
+
+export function accountAuthFailureMessage(
+  account: string,
+  platform: AccountPlatform | undefined
+): string {
+  if (platform === "anthropic") {
+    return `Auth failure observed under account "${account}" — flagged needs-relogin (re-run setup-token from the runtime config).`;
+  }
+  const label = platform ? PLATFORM_SPECS[platform].label : "Provider";
+  return `${label} account "${account}" rejected its credential — flagged needs-relogin. Replace or reconnect it in Accounts, then restart the operative.`;
+}
+
+export type MidRunLimitHandling =
+  | { kind: "anthropic-paymaster" }
+  | { kind: "provider"; message: string };
+
+/** The env builder's account is Anthropic; a strictly resolved account keeps its registry platform. */
+export function resolveActiveAccountPlatform(
+  anthropicAccount: string | undefined,
+  namedAccountPlatform: AccountPlatform | undefined
+): AccountPlatform | undefined {
+  return anthropicAccount ? "anthropic" : namedAccountPlatform;
+}
+
+/**
+ * Decide which usage-limit rail owns a named primary account. Missing platform
+ * metadata fails closed onto a generic provider message: only an explicit
+ * `anthropic` value may invoke the Paymaster or recommend its Auto mode.
+ */
+export function midRunLimitHandling(
+  account: string,
+  platform: AccountPlatform | undefined
+): MidRunLimitHandling {
+  if (platform === "anthropic") return { kind: "anthropic-paymaster" };
+
+  const providerLabel = platform ? PLATFORM_SPECS[platform].label : null;
+  const accountLabel = providerLabel ? `${providerLabel} account` : "Account";
+  const resetLabel = providerLabel ?? "provider";
+  const alternative = platform
+    ? `another ${platform} account`
+    : "another account for that provider";
+  return {
+    kind: "provider",
+    message:
+      `${accountLabel} "${account}" hit a rate limit mid-run (session stays pinned). ` +
+      `Retry after the ${resetLabel} limit resets or restart with ${alternative}.`
+  };
+}
+
+function surfaceMidRunLimit(
+  compositionId: string,
+  account: string,
+  platform: AccountPlatform | undefined
+): void {
+  const handling = midRunLimitHandling(account, platform);
+  if (handling.kind === "provider") {
+    appendLog(compositionId, "runner", handling.message);
+    return;
+  }
+
   void (async () => {
     const accounts = await listAccounts();
     const pinned = accounts.filter((candidate) => candidate.name === account);
@@ -2245,20 +3246,25 @@ function surfaceMidRunLimit(compositionId: string, account: string): void {
 function appendLog(compositionId: string, stream: LogEvent["stream"], message: string): void {
   const record = getRecord(compositionId);
   for (const line of message.split(/\r?\n/).filter((value) => value.length > 0)) {
+    const accountFailure =
+      record.activeAccount &&
+      (record.state.status === "starting" || record.state.status === "running")
+      ? classifyAccountFailure(stream, line, record.activeAccountPlatform)
+      : null;
     if (
       record.activeAccount &&
       !record.authFailureFlagged &&
-      (stream === "stdout" || stream === "stderr") &&
-      ACCOUNT_AUTH_FAILURE_RE.test(line)
+      accountFailure === "auth"
     ) {
       record.authFailureFlagged = true;
       const account = record.activeAccount;
-      void setAccountNeedsRelogin(account, true)
+      const platform = record.activeAccountPlatform;
+      void setAccountNeedsRelogin(account, true, platform ?? "anthropic")
         .then(() =>
           appendLog(
             compositionId,
             "runner",
-            `Auth failure observed under account "${account}" — flagged needs-relogin (re-run setup-token from the runtime config).`
+            accountAuthFailureMessage(account, platform)
           )
         )
         .catch(() => undefined);
@@ -2267,11 +3273,14 @@ function appendLog(compositionId: string, stream: LogEvent["stream"], message: s
       record.activeAccount &&
       !record.limitFlagged &&
       (record.limitCooldownUntil ?? 0) <= Date.now() &&
-      (stream === "stdout" || stream === "stderr") &&
-      ACCOUNT_LIMIT_RE.test(line)
+      accountFailure === "limit"
     ) {
       record.limitFlagged = true;
-      surfaceMidRunLimit(compositionId, record.activeAccount);
+      surfaceMidRunLimit(
+        compositionId,
+        record.activeAccount,
+        record.activeAccountPlatform
+      );
     }
     const event: LogEvent = { ts: new Date().toISOString(), stream, message: line };
     record.logs.push(event);

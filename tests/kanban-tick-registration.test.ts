@@ -10,13 +10,28 @@
 //   2. `--setup` (the apm.yml hook, which has no gateway URL in scope) and the board
 //      server (which does) BOTH call registerTick. The job command is persisted, so
 //      the env-less setup registration silently overwrote the good one.
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // @ts-ignore pure mjs
 import { instanceEnvPrefix } from "../fittings/seed/kanban-loop/lib/instance-env.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // Non-literal specifier: tsc treats a pure .mjs import as `any` instead of erroring
 // on missing declarations (the convention used by the other kanban tests).
@@ -26,11 +41,30 @@ const BEATS_MODULE = "../fittings/seed/kanban-loop/lib/scheduler-beats.mjs";
 const SAVED = { ...process.env };
 let home: string;
 
-function writeJobs(jobs: unknown[]) {
-  writeFileSync(join(home, "scheduler-jobs.json"), JSON.stringify(jobs), "utf8");
+// The registry is read and written through the SCHEDULER CLI, not through a file.
+// Jobs live in the mesh state service on an enrolled node (this file boots one) and
+// in the legacy file when it is not, so a fixture that touched
+// $GARRISON_HOME/scheduler-jobs.json would seed a store the code under test no longer
+// reads — and would pass or fail for reasons that have nothing to do with registerTick.
+const SCHEDULER_CLI = fileURLToPath(
+  new URL("../fittings/seed/scheduler/scripts/scheduler.mjs", import.meta.url)
+);
+
+function sched(args: string[]): string {
+  return execFileSync(process.execPath, [SCHEDULER_CLI, ...args], { encoding: "utf8" });
 }
 function readJobs(): any[] {
-  return JSON.parse(readFileSync(join(home, "scheduler-jobs.json"), "utf8"));
+  return JSON.parse(sched(["list"])).jobs ?? [];
+}
+function clearJobs(): void {
+  for (const job of readJobs()) sched(["remove", job.id]);
+}
+function writeJobs(jobs: { id: string; cron: string; command: string; enabled?: boolean }[]) {
+  clearJobs();
+  for (const job of jobs) {
+    sched(["add", job.id, job.cron, job.command]);
+    if (job.enabled === false) sched(["disable", job.id]);
+  }
 }
 
 beforeEach(() => {
@@ -39,6 +73,8 @@ beforeEach(() => {
   delete process.env.GARRISON_GATEWAY_URL;
   delete process.env.GARRISON_GATEWAY_PORT;
   delete process.env.GARRISON_KANBAN_DIR;
+  // A fresh home no longer empties the registry: the state service outlives it.
+  clearJobs();
 });
 afterEach(() => {
   for (const k of ["GARRISON_HOME", "GARRISON_GATEWAY_URL", "GARRISON_GATEWAY_PORT", "GARRISON_KANBAN_DIR"]) {
@@ -69,10 +105,14 @@ describe("instanceEnvPrefix — the tick job carries this instance's identity", 
     expect(prefix.join(" ")).not.toContain("4777");
   });
 
-  it("carries the outpost daemon URL too — the engine's affinity resolver has no fallback", () => {
+  // The outpost daemon URL used to ride here too, because the engine's affinity
+  // resolver had no fallback. The daemon retired with the mesh (2026-08-24) and
+  // placement now resolves through the node registry behind GARRISON_APP_URL, so
+  // the prefix must NOT resurrect a variable nothing reads.
+  it("does not carry the retired outpost daemon URL", () => {
     process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL = "http://127.0.0.1:4702";
     try {
-      expect(instanceEnvPrefix()).toContain("GARRISON_KANBANLOOP_OUTPOST_HOST_URL='http://127.0.0.1:4702'");
+      expect(instanceEnvPrefix().join(" ")).not.toContain("OUTPOST");
     } finally {
       delete process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL;
     }

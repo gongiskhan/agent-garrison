@@ -5,7 +5,8 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
-  faculty: knowledge
+  faculty: code-intelligence
+  category: Building
   cardinality_hint: multi
   component_shape: skill
   ui:
@@ -22,9 +23,7 @@ x-garrison:
       type: path
       default: ~/Projects
       description: Directory scanned for projects. Each immediate subdirectory becomes a project.
-  provides:
-    - kind: agent-skill
-      name: projects-index
+  provides: []
   setup:
     command: bash scripts/setup.sh
     idempotent: true

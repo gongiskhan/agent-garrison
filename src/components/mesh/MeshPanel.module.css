@@ -1,0 +1,337 @@
+.header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(18rem, 0.6fr);
+  gap: 2rem;
+  align-items: end;
+  padding: 1.1rem 0 1.5rem;
+  border-bottom: 1px solid var(--rule-2);
+}
+
+.header h1 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+}
+
+.header p {
+  margin: 0;
+  color: var(--mute);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 0.7rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.empty {
+  margin: 1.5rem 0 0;
+  color: var(--mute);
+  font-size: 0.95rem;
+}
+
+.roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+  padding: 1.1rem 1.25rem 1.2rem;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.card[data-state="offline"] {
+  border-color: var(--rule-2);
+  background: var(--paper-2);
+}
+
+.cardHead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.cardTitle {
+  min-width: 0;
+}
+
+.cardTitle h2 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.cardSub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.3rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.selfTag,
+.warnTag {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--rule-2);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.warnTag {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.1rem;
+  border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.dotLarge {
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.pill {
+  flex: none;
+  align-self: start;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  white-space: nowrap;
+}
+
+.pillReady {
+  border-color: var(--sage);
+  background: var(--sage-soft);
+  color: var(--sage);
+}
+
+.pillBusy {
+  border-color: var(--brass);
+  background: var(--brass-soft);
+  color: var(--brass);
+}
+
+.pillDegraded {
+  border-color: var(--brass);
+  background: var(--warn-soft);
+  color: var(--brass);
+}
+
+.pillOffline {
+  border-color: var(--alarm);
+  background: var(--alarm-soft);
+  color: var(--alarm);
+}
+
+.staleNote {
+  margin: 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--rule-2);
+  color: var(--mute);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 1rem;
+  margin: 0;
+}
+
+.fact {
+  min-width: 0;
+}
+
+.fact dt {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.fact dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.factNote {
+  color: var(--mute);
+}
+
+.factWarn {
+  color: var(--brass);
+}
+
+.open {
+  align-self: start;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.openMissing {
+  font-size: 0.75rem;
+  color: var(--mute);
+}
+
+/* ── Compact variant (Garrison dashboard) ───────────────────────────────── */
+
+.compactList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compactRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.compactRow:last-child {
+  border-bottom: 0;
+}
+
+.compactName {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  min-width: 0;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.compactNote {
+  font-size: 0.8rem;
+  color: var(--mute);
+}
+
+.compactMore {
+  display: inline-block;
+  margin-top: 0.8rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+@media (max-width: 720px) {
+  .header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.9rem;
+    align-items: start;
+  }
+}
+
+/* ── Sessions on a node ─────────────────────────────────────────────────── */
+
+.sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--rule);
+}
+
+.sessionsHead {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sessionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.sessionLink,
+.sessionName {
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.sessionLink {
+  color: var(--brass);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.sessionName {
+  color: var(--ink);
+}
+
+.sessionMeta {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+  white-space: nowrap;
+}

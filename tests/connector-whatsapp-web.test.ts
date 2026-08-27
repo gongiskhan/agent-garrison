@@ -97,9 +97,12 @@ describe("whatsapp-web connector runAction", () => {
     expect(cap.calls).toHaveLength(0);
   });
 
-  it("send_text POSTs /send with the exact jid and body when given a valid jid", async () => {
+  // The immediate path is now the HUMAN path only: an agent-triggered send is
+  // parked in the daemon's outbox for a cancel window first (see
+  // tests/outbox-wiring.test.ts and fittings/seed/whatsapp-web/lib/outbox.mjs).
+  it("send_text POSTs /send with the exact jid and body when a human sends it", async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), "wweb-conn-"));
-    const env = { WHATSAPP_WEB_STATUS_FILE: statusFile(dir) };
+    const env = { WHATSAPP_WEB_STATUS_FILE: statusFile(dir), GARRISON_SEND_CONTEXT: "human" };
     const cap = { calls: [] as any[] };
     const fetchImpl = mockFetch(cap, () => ({ json: { id: "wamid.1" } }));
     const result = await runAction({

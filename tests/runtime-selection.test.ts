@@ -70,12 +70,12 @@ describe("resolvePrimaryRuntime (S2)", () => {
     expect(d.engine).toBe("claude-code");
   });
 
-  it("carries the primary fitting's selection config", () => {
+  it("carries the primary fitting's selection config before provider validation", () => {
     const d = resolvePrimaryRuntime({
       primaryRuntimeId: "claude-code-runtime",
-      runtimeEntries: [{ ...ccRuntime, config: { model: "sonnet", provider: "ollama-local" } }]
+      runtimeEntries: [{ ...ccRuntime, config: { model: "sonnet", provider: "deepseek" } }]
     });
-    expect(d.config).toEqual({ model: "sonnet", provider: "ollama-local" });
+    expect(d.config).toEqual({ model: "sonnet", provider: "deepseek" });
   });
 });
 
@@ -123,17 +123,14 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
     expect(env.GARRISON_PRIMARY_MAX_TURNS).toBeUndefined();
   });
 
-  it("runs the Claude Code engine against ollama-local with a dummy token (no vault)", () => {
+  it("rejects the removed ollama-local primary provider", () => {
     const d = resolvePrimaryRuntime({
       primaryRuntimeId: "claude-code-runtime",
       runtimeEntries: [{ ...ccRuntime, config: { provider: "ollama-local" } }]
     });
-    const { env, providerLaunch } = buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS);
-    expect(providerLaunch).toBe(true);
-    expect(env.ANTHROPIC_BASE_URL).toBe(providerById("ollama-local").baseUrl);
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe("ollama");
-    expect(env.GARRISON_PROVIDER).toBe("ollama-local");
-    expect(env.ANTHROPIC_API_KEY).toBe("");
+    expect(() => buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS)).toThrow(
+      /unknown provider "ollama-local"/
+    );
   });
 
   it("pulls the auth token from the vault for a cloud provider (deepseek)", () => {
@@ -159,13 +156,62 @@ describe("buildPrimaryRuntimeEnv (S2)", () => {
     expect(() => buildPrimaryRuntimeEnv(d, () => undefined, POLICY_PROVIDERS)).toThrow(/requires vault key ZAI_API_KEY/);
   });
 
-  it("honors an explicit base_url override", () => {
+  it("launches a GLM primary through only the fitting-declared GLM env pair", () => {
+    const d: ReturnType<typeof resolvePrimaryRuntime> = {
+      runtimeId: "openai-agents-runtime",
+      engine: "openai-agents",
+      isDefault: false,
+      config: {
+        provider: "glm",
+        model: "glm-5.2",
+        baseUrl: "https://glm.internal/v1",
+        account: "glm-box"
+      }
+    };
+    const providers: PolicyProvider[] = [
+      {
+        id: "glm",
+        kind: "cloud-oss",
+        baseUrl: "https://glm.internal/v1",
+        vaultKey: "GLM_API_KEY"
+      }
+    ];
+    const mechanism = {
+      type: "env" as const,
+      base_url_env: "OPENAI_BASE_URL",
+      auth_env: "OPENAI_API_KEY",
+      provider_env: {
+        glm: { base_url_env: "GLM_BASE_URL", auth_env: "GLM_API_KEY" }
+      }
+    };
+
+    const { env, providerLaunch } = buildPrimaryRuntimeEnv(
+      d,
+      (key) => (key === "GLM_API_KEY" ? "named-account-token" : undefined),
+      providers,
+      mechanism
+    );
+
+    expect(providerLaunch).toBe(false);
+    expect(env).toMatchObject({
+      GARRISON_PRIMARY_RUNTIME: "openai-agents-runtime",
+      GARRISON_PRIMARY_ENGINE: "openai-agents",
+      GARRISON_PROVIDER: "glm",
+      GLM_BASE_URL: "https://glm.internal/v1",
+      GLM_API_KEY: "named-account-token"
+    });
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+  });
+
+  it("does not let base_url resurrect the removed ollama-local provider", () => {
     const d = resolvePrimaryRuntime({
       primaryRuntimeId: "claude-code-runtime",
       runtimeEntries: [{ ...ccRuntime, config: { provider: "ollama-local", base_url: "http://localhost:9999" } }]
     });
-    const { env } = buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS);
-    expect(env.ANTHROPIC_BASE_URL).toBe("http://localhost:9999");
+    expect(() => buildPrimaryRuntimeEnv(d, noSecrets, POLICY_PROVIDERS)).toThrow(
+      /unknown provider "ollama-local"/
+    );
   });
 
   it("throws on an unknown provider", () => {
@@ -182,13 +228,13 @@ describe("deriveRuntimeTargets (S3)", () => {
   const geminiRuntime: RuntimeEntry = { id: "gemini-runtime", provides: [{ kind: "runtime", name: "gemini" }] };
 
   it("derives a runtime-target for a claude-code runtime carrying its provider/model", () => {
-    const [t] = deriveRuntimeTargets([{ ...ccRuntime, config: { provider: "ollama-local", model: "qwen2.5-coder" } }]);
+    const [t] = deriveRuntimeTargets([{ ...ccRuntime, config: { provider: "deepseek", model: "deepseek-chat" } }]);
     expect(t).toMatchObject({
       id: "fitted-claude-code-runtime",
       type: "runtime-target",
       runtime: "claude-code",
-      provider: "ollama-local",
-      model: "qwen2.5-coder",
+      provider: "deepseek",
+      model: "deepseek-chat",
       derivedFrom: "claude-code-runtime"
     });
   });

@@ -2,7 +2,7 @@
 
 // Muster > Transfer - composition import/export.
 //
-// A composition is the whole shape of an operative: which Fittings are
+// A composition is the whole shape of a session: which Fittings are
 // stationed and how they are configured, the duties and targets it routes over,
 // the orchestrator and soul prompts, the routing policy. Until now that only
 // ever existed as a directory on one machine. This panel makes it a document:
@@ -549,7 +549,7 @@ function ImportBay() {
                 <h5>Imported {imported.name}</h5>
                 <p>
                   It is now a composition on this machine (<code>{imported.id}</code>). Activating it
-                  stops the current operative and starts this one.
+                  stops the current composition and starts this one.
                 </p>
               </div>
             </div>

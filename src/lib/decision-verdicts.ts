@@ -5,11 +5,11 @@
 // can be corrected, and correction only compounds if it is CAPTURED. This module is
 // the capture.
 //
-// It deliberately creates NO new store. `~/.garrison/improver/feedback-queue.jsonl`
-// already exists, already has a writer contract (the gateway's
-// `buildOverrideRecord`), and already has a consumer (the Improver's `feedback`
-// rule, which turns operator answers into REVIEWABLE proposals and never
-// auto-applies them). Until now that queue had exactly one producer — regex
+// It deliberately creates NO new store. The Improver's feedback queue already
+// exists (a shared JSONL then, the state service's `feedback_queue` now), already
+// has a writer contract (the gateway's `buildOverrideRecord`), and already has a
+// consumer (the Improver's `feedback` rule, which turns operator answers into
+// REVIEWABLE proposals and never auto-applies them). Until now that queue had exactly one producer — regex
 // phrase-matching on the user's message ("run the full pipeline") — and on this box
 // it has never been written to at all. A verdict from the Decisions panel is a far
 // stronger signal than a phrase match: a human looked at a specific resolved route
@@ -42,7 +42,7 @@ export const CORRECTION_FIELDS = [
   "tier",
   "account",
   "project",
-  "workKind",
+  "flow",
   "phasesOff"
 ] as const;
 export type CorrectionField = (typeof CORRECTION_FIELDS)[number];
@@ -79,6 +79,31 @@ function cleanId(raw: unknown, max = 200): string | null {
 /** Keep only the known dimensions, and only as clean scalars. Returns undefined for
  *  an empty correction so an "I don't know what it should have been" verdict does
  *  not record an empty object that reads like a deliberate blank. */
+/**
+ * Mint the queue-record id.
+ *
+ * FORMAT SOURCE OF TRUTH: `fittings/seed/improver/lib/feedback-signals.mjs`
+ * (`mintFeedbackId`) — `fq-<9 chars base36 millis>-<8 hex random>`. Replicated
+ * rather than imported because that file is a Node module in another package and
+ * this one is imported by the Decisions panel, a "use client" component: a single
+ * cross-package or `node:` import here drags a Node builtin into the browser
+ * bundle and the Next build fails outright. Web Crypto is the one RNG all three
+ * producers of this queue can call, which is why the format specifies it.
+ *
+ * The id exists so a record can be DELETED. Deletion is a tombstone appended to
+ * the same log naming this id; without a stable handle the Signals view would
+ * have to fall back to hashing the raw line.
+ */
+function mintFeedbackId(at?: string): string {
+  const parsed = Date.parse(at ?? "");
+  const ms = Number.isFinite(parsed) ? parsed : Date.now();
+  const stamp = Math.max(0, ms).toString(36).padStart(9, "0").slice(-9);
+  const bytes = new Uint8Array(4);
+  globalThis.crypto.getRandomValues(bytes);
+  const rand = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `fq-${stamp}-${rand}`;
+}
+
 export function sanitizeCorrection(raw: unknown): Correction | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const src = raw as Record<string, unknown>;
@@ -108,7 +133,11 @@ export function buildVerdictRecord(input: DecisionVerdictInput): Record<string, 
   const correction = sanitizeCorrection(input.correction);
   const resolved = sanitizeCorrection(input.resolved);
   const sessionId = cleanId(input.sessionId, 200);
+  const at = input.at ?? new Date().toISOString();
   return {
+    // First field on the line, and the handle a tombstone names when the user
+    // deletes this verdict from the Signals view.
+    id: mintFeedbackId(at),
     ...(sessionId ? { session_id: sessionId } : {}),
     area: "orchestrator",
     question: "decision-verdict",
@@ -118,7 +147,7 @@ export function buildVerdictRecord(input: DecisionVerdictInput): Record<string, 
     decision_id: decisionId,
     ...(resolved ? { original: resolved } : {}),
     ...(correction ? { applied: correction } : {}),
-    timestamp: input.at ?? new Date().toISOString(),
+    timestamp: at,
     provenance: "decision-verdict"
   };
 }

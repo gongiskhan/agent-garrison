@@ -1357,31 +1357,10 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
   .vault-secret-row button { min-height: 40px; }
 }
 
-/* ── Vault secret rows — reflow instead of overflowing at phone width ─────── */
-.vault-secret-row {
-  display: grid;
-  grid-template-columns: 220px 1fr auto auto auto;
-  gap: 14px;
-  align-items: center;
-  padding: 11px 18px;
-  border-bottom: 1px solid var(--rule);
-}
-.vault-secret-row .secret-consumers { text-align: right; }
-@media (max-width: 560px) {
-  .vault-secret-row {
-    grid-template-columns: 1fr auto auto;
-    grid-template-areas:
-      "key    reveal remove"
-      "value  value  value"
-      "cons   cons   cons";
-    gap: 8px 10px;
-  }
-  .vault-secret-row .secret-key { grid-area: key; }
-  .vault-secret-row .secret-value { grid-area: value; }
-  .vault-secret-row .secret-reveal { grid-area: reveal; }
-  .vault-secret-row .secret-remove { grid-area: remove; }
-  .vault-secret-row .secret-consumers { grid-area: cons; text-align: left; }
-}
+/* Vault secret rows are laid out by VaultPanel.module.css alone. A legacy
+   .vault-secret-row grid block here used to fight it (different column
+   counts, breakpoints, and area names on the same element), which computed
+   into implicit tracks and overlapping controls at phone widths. */
 
 /* ── Compose station station-header cells — 4-up on desktop, 2-up on narrow ─ */
 .station-cells {
@@ -1615,3 +1594,18 @@ nav.tabs .item .pin-toggle:active { transform: translateY(1px); }
 .jarvis-orb-expand-btn:hover,
 .jarvis-orb-mute-btn:hover { border-color: rgba(255, 255, 255, 0.32); }
 .jarvis-orb-mute-btn { font-size: 14px; }
+
+/* ── Native form primitives ──────────────────────────────────────────────────
+   A browser-default checkbox has no intrinsic flex basis, so inside a flex label
+   row it can be squeezed to a sliver - measured at 13x13 on the Accounts page at
+   390px, and at 1px on the Kanban board before the same fix landed there. Size it
+   once, here, rather than per surface. Also below the 44px touch floor on its own,
+   which is why the LABEL is the tap target: the gap keeps the hit area contiguous. */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--accent, #746232);
+}

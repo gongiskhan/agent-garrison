@@ -36,12 +36,116 @@ the composition manifest), all default OFF:
 | `triage_enabled` | heartbeat triage | scheduler job removed on next restart; ticks exit "disabled" |
 | `wake_enabled` | wake bus | realtime segments counted and dropped; mid-capture sessions never dispatch |
 | `notify_enabled` | Omi push | outbound degrades to the web-channel thread |
-| `chat_enabled` | ask_gary | tool + manifest answer 403 |
+| `chat_enabled` | ask_zeca | tool + manifest answer 403 |
 | `backfeed_enabled` | import into Omi | no interval scheduled |
 | `tips_enabled` | tips | triage emits no tips |
 
 Config changes apply at the next `up` (env-fingerprint heal) or
 immediately via `POST /api/fittings/omi-channel/restart`.
+
+## The two model lanes (why spoken commands are fast now)
+
+Every model call this fitting makes goes to the gateway's `/chat`, but they are
+not the same kind of work and must not share a lane:
+
+- **Classification** (wake intent, wake revision, batch triage, the fast half of
+  `ask_zeca`) is pinned to `classify_target` (default `cc-haiku-low`). Unpinned,
+  these resolve to the composition's `other`/L1 duty cell - a full Sonnet
+  agent-sdk turn carrying the operative's whole toolset. Measured: **82s** for
+  one classification, against a wearer waiting to hear back and an `ask_zeca`
+  budget of 8.5s. Pinned: ~6s.
+- **Delegation** (`delegate_enabled`) is the opposite: the real operative with
+  its tools and connectors, no pin, a ten-minute budget. Nothing blocks on it -
+  the wearer gets an acknowledgement first and the answer arrives as a second
+  notification. This is the ONLY path from speech to an integration; the
+  classifier lane cannot send a message or read the board, it can only answer
+  from its own head.
+
+Latency of a spoken command splits into `wake_capture_ms` (waiting to be sure
+the user stopped talking) + `wake_classify_ms` + `wake_notify_ms`. Read them
+separately on `/health` - a single end-to-end number cannot say which regressed,
+and guessing from the total already produced one wrong diagnosis. Typical today:
+5s + 6s + 0.4s ≈ 12s to the acknowledgement, plus the operative's own time
+(7-90s) when the command was delegated.
+
+`wake_settled_close_ms` (5s) is why capture is no longer the dominant cost: a
+segment ending in `.`, `?` or `!` closes the window early, while anything
+unpunctuated still waits the full `wake_silence_close_ms`.
+
+## Driving the whole thing end to end (`scripts/speak.mjs`)
+
+```bash
+# a spoken command, injected at the realtime webhook exactly as Omi delivers it
+node scripts/speak.mjs say "Zeca, cria uma tarefa para comprar peixe."
+node scripts/speak.mjs say "Zeca, what is on my board?" --garble --wait 300
+
+# a conversation, injected THROUGH the Omi cloud - Omi structures it and calls
+# our webhook back, so this is the only mode that exercises Omi's own pipeline
+node scripts/speak.mjs converse "I decided we ship Friday. Remind me to call the bank."
+
+# the Omi chat tool, called exactly as Omi calls it
+node scripts/speak.mjs ask "which cards are in progress?"
+```
+
+Each mode follows its own effect and prints it (the assembled command, the
+intent, the card, the delegated answer, the triage verdict) or says plainly that
+nothing arrived. `--garble` interleaves real background speech from this
+account's own captures - television, family, transcriber filler - which is the
+signal-to-noise ratio the wake bus actually faces.
+
+**What it does not cover**, so a green run is not mistaken for more than it is:
+
+- Omi exposes no inbound audio API (every audio path in the docs is outbound,
+  and `/v4/listen` is the device's own Firebase-authed socket), so `say` starts
+  at the transcript, not at sound. **Omi's own speech-to-text is never under
+  test.** `converse` is the only mode where Omi's own processing runs.
+- `ask` proves our endpoint answers correctly; it cannot prove **Omi decides to
+  call it**. There is no API to post a message into the user's chat, so that one
+  step - Omi's model choosing the `ask_zeca` tool, against its cached copy of
+  our manifest - is only verifiable by asking in the Omi app by hand. That is
+  also exactly where a stale cached `?key=` bites (see `chat_rejected_auth`),
+  so when chat misbehaves but `speak.mjs ask` passes, re-save the app at Omi.
+
+## Transcript quality (measure it before blaming it)
+
+Omi's own titles make capture look worse than it is - "Garbled Conversation",
+"Fragmented Multilingual Conversation", "Repeated Phrase Exchange" are
+day-to-day sights, and it is tempting to conclude transcription is broken.
+Measured over the last 16 stored conversations on this account, **13 are clean
+Portuguese**. The failures are not systemic and not a language misconfiguration:
+they are **degenerate decoder output on low-speech or noisy stretches**, where
+the model loops one phrase - once producing 126 words of Dutch ("En hou het
+voor de massa" over and over) on a conversation correctly tagged `language:
+pt`, with a healthy 754-word Portuguese capture three minutes later.
+
+So: a single garbled conversation is not evidence of a broken setup. Sample
+before concluding, over what Omi actually delivered rather than the API's
+conversation list (which returns `transcript_segments: null`):
+
+```bash
+# language-sniff the transcripts we stored from the webhook
+python3 - <<'PY'
+import json, glob, re
+PT = set("que não uma para com você está isso então mas muito bem aqui vamos porque".split())
+for f in sorted(glob.glob('/home/ggomes/.garrison/omi/events/*.json')):
+    d = json.load(open(f))
+    t = ((d.get('normalized') or {}).get('transcript_text') or '')
+    w = re.findall(r"[a-zà-ÿ]+", t.lower())
+    if len(w) < 25: continue
+    print(d['occurred_at'][:16], f"pt={sum(x in PT for x in w)/len(w):.3f}", len(w), "words")
+PY
+```
+
+A pt score around 0.07-0.17 is a healthy Portuguese transcript; near 0.00 with a
+low word count is a degenerate stretch.
+
+Transcription language is a **per-connection query parameter the phone app
+sets** (`language`, default `en`, `multi` = auto-detect) on Omi's `/v4/listen`
+socket - there is no server-side user setting and no API to change it. Stored
+conversations carry the value that was used, so `language` on a conversation
+tells you what the app declared: this account shows `multi` on 2026-08-07 and
+`pt` since. Providers "fail closed" on an unsupported language rather than
+falling back.
 
 ## Replaying fixtures
 
@@ -84,7 +188,7 @@ fingerprint from `index.json`.
   the wake word alone), `wake_killed_mid_session`, or dispatch degraded
   to a note (see `wake-results/<id>.json` for the reason; the wearer got
   an honest confirmation either way).
-- **ask_gary slow/unanswered** — overruns return a friendly answer and
+- **ask_zeca slow/unanswered** — overruns return a friendly answer and
   count `chat_overruns`; the operative's serialized turn chain is the
   usual cause (a long card run in flight).
 - **Backfeed silent** — flag off, `OMI_IMPORT_API_KEY` missing

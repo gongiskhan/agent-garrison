@@ -45,6 +45,11 @@ async function postJson(p: string, body: unknown) {
   return { status: r.status, body: await r.json() };
 }
 
+async function patchJson(p: string, body: unknown) {
+  const r = await fetch(`${DRILL_BASE}${p}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  return { status: r.status, body: await r.json() };
+}
+
 // Poll /api/plan/status until the job leaves "planning" (or the deadline).
 async function waitPlanSettled(ms: number) {
   const end = Date.now() + ms;
@@ -76,7 +81,8 @@ beforeAll(async () => {
 
   // The stub planner: behavior switched per kick through a plan-stub-mode
   // file in its cwd (the project root). "ok" honors the whole contract,
-  // "fail" reports a failure, "lie" claims success without writing anything,
+  // "empirical" writes an unsupported current-defect claim for the post-plan
+  // integrity guard, "fail" reports a failure, "lie" claims success without writing anything,
   // "silent" exits without any sentinel, "noop" claims OK=0 (already
   // covered, changed nothing), "fail-then-ok" recovers after an early
   // failure line (last sentinel wins), "hang" stays alive without ever
@@ -93,8 +99,15 @@ beforeAll(async () => {
     "  writeFileSync(path.join(process.cwd(), 'drills', 'drillbook.yml'), 'app:\\n  name: stub\\n  url: \\'\\'\\nfullDrill: true\\npages:\\n  - id: home\\n    title: Home\\n    path: /\\n    mode: steps\\n    selected: true\\n');",
     "  writeFileSync(path.join(process.cwd(), 'drills', 'pages', 'home.yml'), 'id: home\\ntitle: Home\\npath: /\\nmode: steps\\nareas: []\\nsteps:\\n  - id: hero\\n    area: 0\\n    mode: vision\\n    enabled: true\\n    viewports:\\n      - desktop\\n    state: default\\n    description: hero renders\\n    tags: []\\nstates: []\\n');",
     "}",
+    "function writeEmpiricalBook() {",
+    "  writeBook();",
+    "  writeFileSync(path.join(process.cwd(), 'drills', 'pages', 'home.yml'), 'id: home\\ntitle: Home\\npath: /\\nmode: steps\\nareas: []\\nsteps:\\n  - id: hero\\n    area: 0\\n    mode: vision\\n    enabled: true\\n    viewports:\\n      - desktop\\n    state: default\\n    description: hero renders\\n    tags: []\\n  - id: current-defect\\n    area: 0\\n    mode: vision\\n    enabled: true\\n    viewports:\\n      - desktop\\n    state: default\\n    description: \\'Standing defect: this page currently shows a blank panel\\'\\n    tags: []\\nstates: []\\n');",
+    "}",
     'if (mode === "ok") {',
     "  writeBook();",
+    '  console.log("DRILL_PLAN_OK=1");',
+    '} else if (mode === "empirical") {',
+    "  writeEmpiricalBook();",
     '  console.log("DRILL_PLAN_OK=1");',
     '} else if (mode === "fail") {',
     '  console.log("DRILL_PLAN_FAILED=cannot map the app");',
@@ -151,6 +164,33 @@ describe("plan requires a selected project", () => {
   });
 });
 
+describe("planning refuses to start against an app that is not there", () => {
+  // A plan agent pointed at a dead app spends its whole session anyway: it
+  // cannot drive anything, so it falls back to reading source and authoring
+  // checks it never drove. Unlike a run there is no circuit breaker to stop it,
+  // so the only cheap moment to catch this is before the spawn.
+  it("blocks with an actionable reason and spawns nothing", async () => {
+    expect((await postJson("/api/projects/select", { path: projEmpty })).status).toBe(200);
+    // A configured-but-unreachable app. (The default fixture book ships url: ''
+    // precisely so the URL can be discovered later by /api/app/start.)
+    expect((await patchJson("/api/drillbook", { app: { name: "stub", url: "http://127.0.0.1:9" } })).status).toBe(200);
+    const { status, body } = await postJson("/api/plan/start", {});
+    expect(status).toBe(409);
+    expect(body.blocked).toBe("app-unreachable");
+    expect(body.appUrl).toBe("http://127.0.0.1:9");
+    expect(body.error).toMatch(/not responding/);
+    // Nothing was started, so a retry after fixing the app is immediately possible.
+    expect((await getJson("/api/plan/status")).body.job).toBeNull();
+
+    // An unconfigured URL is deliberately NOT blocked: /api/app/start discovers
+    // one via the run skill's APP_URL sentinel, and blocking would strand that.
+    expect((await patchJson("/api/drillbook", { app: { name: "stub", url: "" } })).status).toBe(200);
+    stubMode(projEmpty, "fail");
+    expect((await postJson("/api/plan/start", {})).status).toBe(200);
+    await waitPlanSettled(12000);
+  }, 25000);
+});
+
 describe("failure paths stay honest", () => {
   it("surfaces the agent's DRILL_PLAN_FAILED reason", async () => {
     expect((await postJson("/api/projects/select", { path: projEmpty })).status).toBe(200);
@@ -186,6 +226,7 @@ describe("full plan + scoped update", () => {
     const kick = await postJson("/api/plan/start", {});
     expect(kick.status).toBe(200);
     expect(kick.body.job.mode).toBe("full");
+    expect(kick.body.job).not.toHaveProperty("baseline");
 
     const st = await waitPlanSettled(12000);
     expect(st.job.status).toBe("done");
@@ -220,6 +261,23 @@ describe("full plan + scoped update", () => {
     expect(prompt).toContain("Mode: UPDATE");
     expect(prompt).toContain("the new invoices page: list, filters, CSV export");
     expect(prompt).not.toContain("Mode: FULL PLAN");
+  }, 20000);
+
+  it("finishes but flags and quarantines an unsupported empirical plan claim", async () => {
+    stubMode(projOk, "empirical");
+    expect((await postJson("/api/plan/start", { brief: "cover the latest UI" })).status).toBe(200);
+    const st = await waitPlanSettled(12000);
+    expect(st.job.status).toBe("done");
+    expect(st.job.needsAttention).toBe(true);
+    expect(st.job.integrity).toMatchObject({ quarantined: 1 });
+    expect(st.job.warnings.join("\n")).toMatch(/quarantined/);
+    expect(st.job).not.toHaveProperty("baseline");
+
+    const saved = await getJson("/api/pages/home");
+    expect(saved.body.page.steps.find((item: any) => item.id === "current-defect")).toMatchObject({
+      enabled: false,
+      planGuard: { status: "quarantined" }
+    });
   }, 20000);
 
   it("rejects an OK claim that changed nothing on a Book that already has pages", async () => {

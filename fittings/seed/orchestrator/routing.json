@@ -302,13 +302,6 @@
       "label": "Memory consolidation workflow",
       "type": "workflow",
       "workflow": "memory-consolidation"
-    },
-    {
-      "description": "Local Ollama routing target placeholder.",
-      "enabled": false,
-      "id": "ollama-local",
-      "label": "Ollama local",
-      "type": "ollama"
     }
   ],
   "version": 1

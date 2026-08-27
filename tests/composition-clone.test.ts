@@ -39,15 +39,13 @@ async function writeSource(): Promise<void> {
         selected_duties: ["implement"],
         targets: [],
         prompt_sources: {
-          orchestrator: ".garrison/prompts/orchestrator.md",
-          soul: ".garrison/prompts/soul.md"
+          orchestrator: ".garrison/prompts/orchestrator.md"
         }
       }
     }
   };
   await fs.writeFile(path.join(SOURCE_DIR, "apm.yml"), yaml.dump(manifest), "utf8");
   await fs.writeFile(path.join(SOURCE_DIR, ".garrison", "prompts", "orchestrator.md"), "authored prompt\n");
-  await fs.writeFile(path.join(SOURCE_DIR, ".garrison", "prompts", "soul.md"), "authored soul\n");
   await fs.writeFile(
     path.join(SOURCE_DIR, ".garrison", "routing.json"),
     `${JSON.stringify({ policyVersion: 2, primaryRuntime: "codex-runtime", targets: [] }, null, 2)}\n`

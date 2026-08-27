@@ -5,9 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CompositionOwnedByOtherInstanceError,
   claimComposition,
+  claimCompositionForLaunch,
+  isCompositionClaimCurrent,
   ownerFilePath,
   readCompositionOwner,
-  releaseComposition
+  releaseComposition,
+  releaseCompositionClaim
 } from "@/lib/composition-owner";
 
 // prod, dev and codex all run out of ONE checkout, so they resolve the same
@@ -38,19 +41,19 @@ afterEach(() => {
 describe("composition working-tree ownership", () => {
   it("records the claiming instance and its pid", async () => {
     const dir = sandbox();
-    asProfile("prod");
+    asProfile("node");
     const owner = await claimComposition(dir, "default");
 
-    expect(owner.instanceId).toBe("prod");
+    expect(owner.instanceId).toBe("node");
     expect(owner.pid).toBe(process.pid);
     expect(owner.compositionId).toBe("default");
     expect(existsSync(ownerFilePath(dir))).toBe(true);
-    expect(JSON.parse(readFileSync(ownerFilePath(dir), "utf8")).instanceId).toBe("prod");
+    expect(JSON.parse(readFileSync(ownerFilePath(dir), "utf8")).instanceId).toBe("node");
   });
 
   it("refuses a second instance — the case that would clobber prod's apm_modules and .env", async () => {
     const dir = sandbox();
-    asProfile("prod");
+    asProfile("node");
     await claimComposition(dir, "default");
 
     asProfile("codex");
@@ -59,40 +62,68 @@ describe("composition working-tree ownership", () => {
     );
 
     // The prod claim must survive the rejected attempt.
-    expect((await readCompositionOwner(dir))?.instanceId).toBe("prod");
+    expect((await readCompositionOwner(dir))?.instanceId).toBe("node");
   });
 
   it("names the owner and the remedy in the error", async () => {
     const dir = sandbox();
-    asProfile("prod");
+    asProfile("node");
     await claimComposition(dir, "default");
     asProfile("dev");
 
-    await expect(claimComposition(dir, "default")).rejects.toThrow(/already in use by the prod/);
+    await expect(claimComposition(dir, "default")).rejects.toThrow(/already in use by the node/);
     await expect(claimComposition(dir, "default")).rejects.toThrow(/different composition/);
   });
 
   it("allows same-profile re-entry so a restart or redeploy is never blocked", async () => {
     const dir = sandbox();
-    asProfile("prod");
+    asProfile("node");
     const first = await claimComposition(dir, "default");
     // A systemd restart re-enters with a new pid; the profile is what matters.
     const second = await claimComposition(dir, "default");
 
-    expect(second.instanceId).toBe("prod");
+    expect(second.instanceId).toBe("node");
     expect(second.claimedAt >= first.claimedAt).toBe(true);
+  });
+
+  it("marks only an otherwise-unowned launch claim as safe for failure cleanup", async () => {
+    const dir = sandbox();
+    asProfile("node");
+
+    const first = await claimCompositionForLaunch(dir, "default");
+    const reentry = await claimCompositionForLaunch(dir, "default");
+
+    expect(first.acquiredFresh).toBe(true);
+    expect(reentry.acquiredFresh).toBe(false);
+    expect(await isCompositionClaimCurrent(dir, first.owner)).toBe(false);
+    expect(await isCompositionClaimCurrent(dir, reentry.owner)).toBe(true);
+  });
+
+  it("an old failed launch cannot release a newer same-profile owner generation", async () => {
+    const dir = sandbox();
+    asProfile("codex");
+    const oldClaim = await claimCompositionForLaunch(dir, "default");
+    const successor = await claimCompositionForLaunch(dir, "default");
+
+    expect(await releaseCompositionClaim(dir, oldClaim.owner)).toBe(false);
+    expect(await readCompositionOwner(dir)).toMatchObject({
+      instanceId: "codex",
+      claimId: successor.owner.claimId
+    });
+    expect(await releaseCompositionClaim(dir, successor.owner)).toBe(true);
+    expect(await readCompositionOwner(dir)).toBeNull();
   });
 
   it("releases only for the owning profile, so another instance cannot give away a live tree", async () => {
     const dir = sandbox();
-    asProfile("prod");
+    asProfile("node");
     await claimComposition(dir, "default");
 
     asProfile("codex");
     await releaseComposition(dir);
-    expect((await readCompositionOwner(dir))?.instanceId).toBe("prod");
+    expect((await readCompositionOwner(dir))?.instanceId).toBe("node");
 
-    asProfile("prod");
+    asProfile("node");
     await releaseComposition(dir);
     expect(await readCompositionOwner(dir)).toBeNull();
 
@@ -105,7 +136,7 @@ describe("composition working-tree ownership", () => {
     const dir = sandbox();
     expect(await readCompositionOwner(dir)).toBeNull();
 
-    asProfile("prod");
+    asProfile("node");
     await claimComposition(dir, "default");
     const { writeFileSync } = await import("node:fs");
     writeFileSync(ownerFilePath(dir), "{ not json");

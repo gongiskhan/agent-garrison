@@ -574,8 +574,8 @@ function jsonRes(res, status, body) {
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
 // A host/IP is TRUSTED when it is loopback, an RFC1918 private address, a tailnet
 // CGNAT address (100.64.0.0/10), an IPv6 ULA / link-local literal, or a *.ts.net
-// name. Kept identical across the guarded fittings (ports-default, power-default,
-// outpost-tailscale-host).
+// name. Kept identical across the guarded fittings (ports-default,
+// power-default) and src/lib/mesh/peer-auth.ts.
 function isTrustedHost(value) {
   const h = String(value || "").replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "").toLowerCase();
   if (!h) return true;

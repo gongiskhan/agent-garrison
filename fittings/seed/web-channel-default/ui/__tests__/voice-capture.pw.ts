@@ -152,12 +152,20 @@ test.afterAll(async () => {
 
 test.beforeEach(() => resetState());
 
+/** Hands-free lives in the voice sheet now: TAP the mic to open it, then start
+ *  the conversation. Holding the mic is push-to-talk and must NOT open a sheet. */
+async function startConversation(page: import("@playwright/test").Page) {
+  await page.getByTestId("wcv-mic").click();
+  const convo = page.getByTestId("wcv-convo");
+  await convo.waitFor({ state: "visible" });
+  await convo.click();
+}
+
+
 test("conversation: mic starts capture, WS opens, PCM frames flow", async ({ page }) => {
   await page.goto(`${baseUrl}/?scenario=interim-final`);
-  await expect(page.getByTestId("wcv-convo")).toBeEnabled();
-
   // Start hands-free conversation → opens the mic + STT WebSocket.
-  await page.getByTestId("wcv-convo").click();
+  await startConversation(page);
 
   // The panel appears in the listening state.
   await expect(page.getByTestId("wcv-state")).toHaveAttribute("data-state", "listening");
@@ -169,7 +177,7 @@ test("conversation: mic starts capture, WS opens, PCM frames flow", async ({ pag
 
 test("transcript: interim renders, then final replaces it", async ({ page }) => {
   await page.goto(`${baseUrl}/?scenario=interim-final`);
-  await page.getByTestId("wcv-convo").click();
+  await startConversation(page);
 
   // Interim result shows the live (not-yet-final) text.
   await expect(page.getByTestId("wcv-interim")).toHaveText("hello", { timeout: 5000 });
@@ -182,7 +190,7 @@ test("transcript: interim renders, then final replaces it", async ({ page }) => 
 
 test("conversation cycle: silence sends, reply streams TTS, latency readout renders", async ({ page }) => {
   await page.goto(`${baseUrl}/?scenario=full`);
-  await page.getByTestId("wcv-convo").click();
+  await startConversation(page);
 
   // Silence endpoint → the utterance is sent as a chat turn.
   await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 6000 })
@@ -215,4 +223,57 @@ test("push-to-talk: hold opens capture, release sends the transcript", async ({ 
   await mic.dispatchEvent("pointerup");
   await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 5000 })
     .toContain("hello world");
+});
+
+test("push-to-talk: Space and Enter hold/release work from the keyboard without repeat starts", async ({ page }) => {
+  await page.goto(`${baseUrl}/?scenario=interim-final`);
+  const mic = page.getByTestId("wcv-mic");
+  await mic.focus();
+
+  await page.keyboard.down("Space");
+  await expect(mic).toHaveAttribute("aria-pressed", "true");
+  await expect(mic).toHaveAttribute("aria-label", "Release push-to-talk");
+  await page.keyboard.down("Space");
+  await expect.poll(() => state.sttConnections, { timeout: 5000 }).toBe(1);
+  await expect(page.getByTestId("wcv-final")).toHaveText("hello world", { timeout: 5000 });
+  await page.keyboard.up("Space");
+  await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 5000 })
+    .toEqual(["hello world"]);
+
+  await expect(mic).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.down("Enter");
+  await expect(mic).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => state.sttConnections, { timeout: 5000 }).toBe(2);
+  await expect(page.getByTestId("wcv-final")).toHaveText("hello world", { timeout: 5000 });
+  await page.keyboard.up("Enter");
+  await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 5000 })
+    .toEqual(["hello world", "hello world"]);
+  await expect(mic).toHaveAttribute("aria-pressed", "false");
+});
+
+test("queue lock blocks new voice starts and stops conversation re-arm only after its current reply", async ({ page }) => {
+  await page.goto(`${baseUrl}/?scenario=full`);
+  const mic = page.getByTestId("wcv-mic");
+  await startConversation(page);
+  await expect.poll(async () => await page.evaluate(() => (window as any).__sent ?? []), { timeout: 6000 })
+    .toContain("hello world");
+
+  // A typed/backlogged turn becomes active while this voice turn is awaiting its
+  // own reply. The current voice cycle may finish and be read aloud, but TTS_DONE
+  // must not reopen capture into the unrelated queued turn.
+  await page.evaluate(() => (window as any).__setQueueLocked(true));
+  await expect.poll(() => state.ttsConnections, { timeout: 6000 }).toBeGreaterThan(0);
+  await expect(page.getByTestId("wcv-panel")).toHaveCount(0, { timeout: 6000 });
+  // The mic stays reachable so the reason is readable: it is the only door to
+  // the voice sheet, and a dead button would just be a mystery.
+  await expect(mic).toBeEnabled();
+  await mic.click();
+  const talk = page.getByTestId("wcv-convo");
+  await expect(talk).toBeDisabled();
+  await expect(talk).toHaveAttribute("title", /pending messages/i);
+  await page.keyboard.press("Escape");
+
+  await page.evaluate(() => (window as any).__setQueueLocked(false));
+  await mic.click();
+  await expect(page.getByTestId("wcv-convo")).toBeEnabled();
 });

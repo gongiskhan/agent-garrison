@@ -6,7 +6,17 @@
 // scheduler-beats would then dynamically import kanban.mjs mid-setup — which never
 // settles and makes `node scripts/kanban.mjs --setup` exit 13, failing `up`.
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+// The installed scheduler CLI (sibling fitting), overridable for tests — the
+// same resolver scheduler-beats.mjs uses.
+function schedulerCli() {
+  return process.env.GARRISON_SCHEDULER_CLI
+    || path.resolve(HERE, "..", "..", "scheduler", "scripts", "scheduler.mjs");
+}
 
 // The gateway URL the tick dispatches through. There is deliberately NO literal
 // port fallback (HARD RULE: never hardcode a port). The old fallback was
@@ -39,35 +49,39 @@ export function instanceEnvPrefix() {
   const vars = {
     GARRISON_GATEWAY_URL: resolveGatewayUrl(),
     GARRISON_HOME: process.env.GARRISON_HOME,
-    GARRISON_KANBAN_DIR: process.env.GARRISON_KANBAN_DIR,
-    // The outpost daemon is instance-specific too, and the engine's affinity resolver
-    // has no fallback by design (its old literal named the codex port and parked every
-    // affinity card). Without this the tick cannot resolve an outpost either, and every
-    // outpost-affinity card it touches parks with "outpost offline".
-    GARRISON_KANBANLOOP_OUTPOST_HOST_URL: process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL,
-    GARRISON_OUTPOST_URL: process.env.GARRISON_OUTPOST_URL
+    GARRISON_KANBAN_DIR: process.env.GARRISON_KANBAN_DIR
   };
   return Object.entries(vars)
     .filter(([, v]) => typeof v === "string" && v.trim() && !v.includes("'"))
     .map(([k, v]) => `${k}='${v.trim()}'`);
 }
 
-// Does the ALREADY-REGISTERED scheduler job carry a gateway URL? Read straight from
-// the scheduler's jobs file — that persisted command string is what actually runs, and
-// outliving whichever process registered it is the entire point.
+// Does the ALREADY-REGISTERED scheduler job carry a gateway URL? Asked of the
+// SCHEDULER, never of its storage — that persisted command string is what actually
+// runs, and outliving whichever process registered it is the entire point.
 //
 // This exists because registration happens from TWO places with different visibility:
 // the apm.yml `--setup` hook (no gateway URL in scope) and the board server (which has
 // one). Both re-register, so without this check whichever ran last wins, and the setup
 // hook silently replaces a working job with a dead one.
+//
+// It reads through `scheduler.mjs list` rather than $GARRISON_HOME/scheduler-jobs.json
+// because jobs moved into the mesh state service: on an enrolled node that file is
+// frozen, so a direct read answered "nothing registered" every single time — which
+// turns this guard into a no-op and re-opens exactly the downgrade it prevents. The CLI
+// answers from whichever store is live (service when enrolled, the legacy file when
+// not) and keeps the `command` projection either way.
 export function registeredJobHasGateway(id) {
   try {
-    const home = process.env.GARRISON_HOME || path.join(process.env.HOME || "", ".garrison");
-    const raw = JSON.parse(readFileSync(path.join(home, "scheduler-jobs.json"), "utf8"));
-    const jobs = Array.isArray(raw) ? raw : raw?.jobs ?? [];
+    const listing = execFileSync(process.execPath, [schedulerCli(), "list"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    const jobs = JSON.parse(listing).jobs ?? [];
     const job = jobs.find((j) => j?.id === id);
     return typeof job?.command === "string" && /GARRISON_GATEWAY_URL=/.test(job.command);
   } catch {
+    // An unreadable registry is "nothing to lose", exactly as before.
     return false;
   }
 }

@@ -101,6 +101,9 @@ declare module "*/whatsapp-web/scripts/server.mjs" {
     status(): { paired: boolean; connected: boolean; connecting: boolean; phone: string | null };
     close(): Promise<void>;
   };
+  export function createOutboxSender(connectionManager: {
+    sendText(jid: string, body: string): Promise<unknown>;
+  }): (entry: any) => Promise<unknown>;
   export function createApp(opts: {
     connectionManager: {
       status(): unknown;
@@ -110,6 +113,7 @@ declare module "*/whatsapp-web/scripts/server.mjs" {
     store: unknown;
     contactIndex: unknown;
     messageBus?: MessageBus;
+    outbox?: unknown;
     port: number;
     host: string;
     log?: (...args: unknown[]) => void;

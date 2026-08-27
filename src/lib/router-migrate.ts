@@ -81,7 +81,7 @@ export interface RoutingConfig {
 // Runtimes whose target hosts an agent loop (can own/run a skill). garrison-call
 // is single-shot and deliberately absent - a skill-shaped cell may never target
 // it (validateCellCompatibility). Exported for reuse (S5a Muster live-validation).
-export const AGENTIC_RUNTIMES = ["claude-code", "agent-sdk", "codex", "gemini", "opencode", "cursor"] as const;
+export const AGENTIC_RUNTIMES = ["claude-code", "agent-sdk", "codex", "gemini", "opencode", "cursor", "openai-agents", "remote-shell"] as const;
 const AGENTIC_RUNTIME_SET = new Set<string>(AGENTIC_RUNTIMES);
 
 // Effort tokens that may appear as a target-id suffix. `med` is the historical

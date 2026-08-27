@@ -21,6 +21,19 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-expect-error — plain ESM .mjs sibling
 import { saveBoard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 let server: http.Server;
 let base: string;
 let root: string;
@@ -98,7 +111,7 @@ describe("quick cards stay operator-editable on an agent list (D19 lock exemptio
     expect((await j(manual)).card.list).toBe("done");
   });
 
-  it("a NORMAL card on Implement stays engine-owned (manual move → 403)", async () => {
+  it("a NORMAL card on Implement keeps manual moves and scope edits engine-owned", async () => {
     const created = await j(
       await fetch(`${base}/cards`, {
         method: "POST",
@@ -121,6 +134,14 @@ describe("quick cards stay operator-editable on an agent list (D19 lock exemptio
     });
     expect(manual.status).toBe(403);
     expect((await j(manual)).error).toBe("engine-owned");
+
+    const scopeEdit = await fetch(`${base}/cards/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "personal", rev: afterImpl.card.rev }),
+    });
+    expect(scopeEdit.status).toBe(403);
+    expect((await j(scopeEdit)).error).toBe("engine-owned");
   });
 
   it("an engine Done move persists the quick turn's actual route and effort evidence", async () => {

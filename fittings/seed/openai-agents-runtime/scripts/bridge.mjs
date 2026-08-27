@@ -19,9 +19,15 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import os from "node:os";
 import { delegate, parseTaskSpec } from "@garrison/claude-pty";
-import { OpenAiAgentsAdapter } from "../lib/openai-adapter.mjs";
+import { OpenAiAgentsAdapter } from "../lib/openai-agents-adapter.mjs";
 import { buildHarness } from "../lib/harness.mjs";
-import { OPENAI_PROVIDERS, capabilityRecord, resolveEndpoint, DEFAULT_API_KEY_ENV } from "../lib/providers.mjs";
+import {
+  OPENAI_PROVIDERS,
+  capabilityRecord,
+  resolveEndpoint,
+  wireApiFor,
+  DEFAULT_API_KEY_ENV
+} from "../lib/providers.mjs";
 
 const DATA_DIR =
   process.env.OPENAI_AGENTS_RUNTIME_DATA ||
@@ -73,8 +79,19 @@ function selfTest() {
   if (!full.toolsEnabled || !full.instructions) throw new Error("harness full FAILED");
   if (lean.toolsEnabled || !lean.instructions) throw new Error("harness lean FAILED");
 
-  for (const p of ["openai", "ollama-local", "openai-compat"]) {
+  for (const p of ["openai", "ollama-local", "openai-compat", "chatgpt-subscription"]) {
     if (!OPENAI_PROVIDERS[p]) throw new Error(`provider "${p}" is missing from the table`);
+  }
+  // The subscription provider is the one entry that is neither key-authenticated
+  // nor chat-completions. Both properties are load-bearing (a key would never be
+  // sent, and the Codex backend 404s /chat/completions), so verify asserts them
+  // rather than leaving them to be discovered on the first routed turn.
+  if (wireApiFor({ provider: "chatgpt-subscription" }) !== "responses") {
+    throw new Error("chatgpt-subscription must speak the responses wire API");
+  }
+  const sub = resolveEndpoint({ provider: "chatgpt-subscription" }, { secrets: null });
+  if (!/^https:\/\/chatgpt\.com\/backend-api\/codex$/.test(sub.baseUrl) || sub.apiKeyEnv !== null) {
+    throw new Error("chatgpt-subscription must resolve to the Codex backend with no vault key");
   }
   const local = capabilityRecord({ provider: "ollama-local" });
   if (local.image || local.mcp || local.webSearch || local.document) {

@@ -8,21 +8,17 @@
 // is logged server-side. `resume` keeps the legacy `claude --continue` path.
 // Kept React-free so it can be unit-tested without a DOM.
 
-export interface ModeOption {
+export interface SessionKindOption {
   value: string;
   label: string;
 }
 
-// Default to Joe — the dev face — for new Dev Env sessions (the modes brief's
-// channel default for dev-env).
-export const MODE_OPTIONS: ModeOption[] = [
-  { value: "joe", label: "Joe — dev (default)" },
-  { value: "gary", label: "Gary — assistant" },
-  { value: "james", label: "James — product / architect" },
+export const MODE_OPTIONS: SessionKindOption[] = [
+  { value: "operative", label: "Operative — Orchestrator identity (default)" },
   { value: "plain", label: "Plain claude, for debugging Garrison itself (unorchestrated, logged)" }
 ];
 
-export const DEFAULT_MODE = "joe";
+export const DEFAULT_MODE = "operative";
 
 export function buildSessionRequest({
   path,
@@ -44,8 +40,7 @@ export function buildSessionRequest({
     body.plain = true;
     return body;
   }
-  // Orchestrated is the DEFAULT: no mode selection still places through the
-  // orchestrator (the server resolves the channel-default face).
-  if (mode) body.mode = mode;
+  // Orchestrated is the default. Identity and routing come from Orchestrator;
+  // there is no persona/mode selector to send over the wire.
   return body;
 }

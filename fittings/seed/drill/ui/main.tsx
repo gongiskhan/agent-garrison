@@ -2,6 +2,7 @@ import { Component, useCallback, useEffect, useMemo, useRef, useState, type Keyb
 import { createRoot } from "react-dom/client";
 import useEmblaCarousel from "embla-carousel-react";
 import { Check, Camera, Crosshair, Plus, X, Eye, FileCode2, Monitor, Tablet, Smartphone, NotebookPen, ArrowLeft, ArrowRight, RotateCw, RefreshCcw, ExternalLink, Terminal, Flag, Film, Video as VideoIcon, LayoutGrid, ListChecks, ListFilter, LocateFixed, MessageSquare, Wrench, SquarePen } from "lucide-react";
+import { waitForPlanStatus } from "./plan-wait";
 // Every page crossing into this UI goes through these - a page file may omit
 // `areas`/`steps`/`states` entirely, and an unguarded `.map` on one white-
 // screens the whole surface. See the module header.
@@ -259,6 +260,47 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
+// ─── media lightbox ────────────────────────────────────────────────────────
+// Evidence images and videos open in a full-screen, closeable modal — never a
+// new browser tab (a tab drops you out of the app, and on a phone there is no
+// obvious way back). One MediaLightbox is mounted at the app root and listens
+// on a window event so any of the many evidence components can open it without
+// threading a handler through the whole tree.
+
+type MediaTarget = { url: string; kind: "image" | "video"; alt?: string };
+const MEDIA_EVENT = "garrison-drill:open-media";
+
+function openMedia(url: string, kind: "image" | "video", alt?: string): void {
+  window.dispatchEvent(new CustomEvent<MediaTarget>(MEDIA_EVENT, { detail: { url, kind, alt } }));
+}
+
+function MediaLightbox() {
+  const [target, setTarget] = useState<MediaTarget | null>(null);
+  useEffect(() => {
+    const onOpen = (event: Event) => setTarget((event as CustomEvent<MediaTarget>).detail);
+    window.addEventListener(MEDIA_EVENT, onOpen);
+    return () => window.removeEventListener(MEDIA_EVENT, onOpen);
+  }, []);
+  useEffect(() => {
+    if (!target) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setTarget(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [target]);
+  if (!target) return null;
+  const close = () => setTarget(null);
+  return (
+    <div className="dr-media-scrim" onClick={close} role="dialog" aria-modal="true" aria-label={target.alt || target.kind}>
+      <button type="button" className="dr-media-close" aria-label="Close" onClick={close}>×</button>
+      <div className="dr-media-frame" onClick={(event) => event.stopPropagation()}>
+        {target.kind === "video"
+          ? <video className="dr-media-el" src={target.url} controls autoPlay playsInline />
+          : <img className="dr-media-el" src={target.url} alt={target.alt || ""} />}
+      </div>
+    </div>
+  );
+}
+
 // ─── project selection + app-under-test lifecycle ────────────────────────
 
 interface Project { name: string; path: string; runSkill: string | null; hasDrillBook: boolean; active: boolean }
@@ -276,6 +318,7 @@ interface PlanProgress {
 interface PlanJob {
   status: string;
   mode: string;
+  sessionId: string;
   brief: string | null;
   error: string | null;
   logFile: string | null;
@@ -283,6 +326,7 @@ interface PlanJob {
   startedAt: string;
   deadlineAt: string;
   canceledAt: string | null;
+  needsAttention?: boolean;
   progress?: PlanProgress;
   // Plan-time defects that are not worth failing a long plan over, but that
   // silently cost coverage if nobody is told (a page with no default-state
@@ -357,26 +401,16 @@ async function ensurePlanned(
     // Joining an in-flight plan would silently swallow the brief - refuse.
     throw new Error("a plan is already running for this project - wait for it to finish before planning an update");
   }
-  // Client-side deadline slightly above the server job's own (30min default):
-  // every other exit depends on the job object reporting sanely.
-  const deadline = Date.now() + 1860000;
-  for (;;) {
-    st = (await apiGet(`/api/plan/status?root=${encodeURIComponent(root)}`)) as PlanStatus;
-    onJob?.(st.job);
-    if (st.job && st.job.status === "done") { onPhase(null); return st; }
-    // A cancel is a normal, user-requested stop - not an error. Return
-    // normally so the caller can show a notice instead of an error banner.
-    if (st.job && st.job.status === "canceled") { onPhase(null); return st; }
-    if (st.job && st.job.status === "failed") throw new Error(st.job.error || "planning failed");
-    // The job lives in the drill server's memory - no job after we kicked one
-    // means the server restarted mid-plan; bail rather than poll forever.
-    if (!st.job) throw new Error("plan job lost (drill server restarted?) - retry");
-    if (Date.now() > deadline) throw new Error("timed out waiting for planning to finish - see the plan log");
-    onPhase(st.job.mode === "update"
-      ? "Planning the Book update - an agent session is authoring the pages and steps this change touches…"
-      : "Planning the Drill Book - an agent session is exploring the app and authoring pages, steps, and states…");
-    await new Promise((r) => setTimeout(r, 3000));
-  }
+  // The server owns the deadline and publishes it as job.deadlineAt. Planning
+  // can legitimately take hours and DRILL_PLAN_TIMEOUT_MS is configurable;
+  // a second client-side cutoff only detaches the UI from work that is still
+  // healthy (and was the cause of a completed 42-minute plan being labelled
+  // timed out). Poll until the authoritative job reaches a terminal state.
+  return waitForPlanStatus({
+    getStatus: () => apiGet(`/api/plan/status?root=${encodeURIComponent(root)}`) as Promise<PlanStatus>,
+    onPhase,
+    onJob
+  });
 }
 
 // Topbar quick-switcher. "custom path…" hands off to the full picker dialog
@@ -646,6 +680,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
   const [planOpen, setPlanOpen] = useState(false);
   const [planBusy, setPlanBusy] = useState(false);
   const [planJob, setPlanJob] = useState<PlanJob | null>(null);
+  const [planSessionOpen, setPlanSessionOpen] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [canceledNotice, setCanceledNotice] = useState<string | null>(null);
   const [planWarnings, setPlanWarnings] = useState<string[] | null>(null);
@@ -679,9 +714,20 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
     setError(null);
     setCanceledNotice(null);
     setPlanJob(null);
+    if (!join) setPlanSessionOpen(true);
     setPlanBusy(true);
     try {
-      const st = await ensurePlanned({ brief, join, rootHint: pinnedRootRef.current }, setPlanPhase, setPlanJob);
+      const st = await ensurePlanned(
+        { brief, join, rootHint: pinnedRootRef.current },
+        setPlanPhase,
+        (job) => {
+          setPlanJob(job);
+          if (job?.status === "planning") setPlanSessionOpen(true);
+        }
+      );
+      // Preserve the terminal job too so the just-finished session remains
+      // reviewable, including the screenshots it actually inspected.
+      setPlanJob(st.job);
       // A finished plan can still have cost coverage. Surfacing this is the
       // difference between "20 pages authored" and knowing three of them run
       // nothing at all.
@@ -704,6 +750,10 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
       const freshBook = b.book as DrillBook;
       if (freshPages.length === 0) throw new Error("planning finished but the Book still has no pages - see the plan log");
       if (thenRun) {
+        if (st.job?.needsAttention) {
+          setError("Planning finished with integrity warnings. Review the warnings and Drill Book, then start the run explicitly when it is ready.");
+          return;
+        }
         const ticked = freshBook.pages.filter((pg) => pg.selected).map((pg) => pg.id);
         const ids = freshBook.fullDrill || ticked.length === 0 ? freshPages.map((pg) => pg.id) : ticked;
         onRunSelected(ids, freshBook.viewports.length ? freshBook.viewports : ["desktop"]);
@@ -712,14 +762,13 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
       setError(e.message);
     } finally {
       setPlanPhase(null);
-      setPlanJob(null);
       setPlanBusy(false);
     }
   };
 
-  // Cancel the plan currently in flight (planJob is only ever non-null while
-  // ensurePlanned's poll loop is running). A safe stop, not an error - the
-  // notice comes from runPlan once ensurePlanned returns the "canceled" job.
+  // Cancel the plan currently in flight. A safe stop, not an error - the
+  // notice comes from runPlan once ensurePlanned returns the "canceled" job;
+  // planJob itself remains afterward so the session can still be reviewed.
   const cancelRunningPlan = async () => {
     if (canceling) return;
     setCanceling(true);
@@ -896,6 +945,21 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }: {
             </div>
           )}
         </div>
+      )}
+
+      {planJob?.sessionId && pinnedRootRef.current && (
+        <details
+          className="dr-sec dr-plan-session"
+          open={planSessionOpen}
+          onToggle={(event) => setPlanSessionOpen(event.currentTarget.open)}
+        >
+          <summary>
+            Plan session
+            <span className={"chip" + (planJob.status === "planning" ? " sage" : "")}>{planJob.status}</span>
+            <span className="dr-help-inline">tool calls and inspected screenshots stream here</span>
+          </summary>
+          <PlanSessionStream root={pinnedRootRef.current} job={planJob} />
+        </details>
       )}
 
       {canceledNotice && (
@@ -2373,10 +2437,14 @@ function EvidenceImage({ src, alt, compact = false }: { src: string; alt: string
   const [failed, setFailed] = useState(false);
   if (failed) return <div className="dr-evidence-missing">Evidence image unavailable</div>;
   return (
-    <a className={"dr-evidence-link" + (compact ? " compact" : "")} href={src} target="_blank" rel="noreferrer">
+    <button
+      type="button"
+      className={"dr-evidence-link" + (compact ? " compact" : "")}
+      onClick={() => openMedia(src, "image", alt)}
+    >
       <img className="dr-evidence-image" src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />
       <span>Open full evidence</span>
-    </a>
+    </button>
   );
 }
 
@@ -3287,18 +3355,26 @@ function DebriefView({
     return r.stateId as string;
   }, [run.id, stepForChunk]);
 
-  // Load the sidecars the index advertises. Both are confined artifact routes.
-  // Fetch reel.json regardless of whether evidence.json advertises a reel row.
+  // Load the sidecars the index advertises. Fetch the reel regardless of
+  // whether evidence.json advertises a reel row.
   // The row write is warn-only, so gating the fetch on it meant a reel that
   // exists on disk was never loaded and the surface claimed "Curation is still
-  // selecting the reel" permanently. A 404 is the only honest "not ready".
+  // selecting the reel" permanently. The dedicated optional endpoint reports
+  // an ordinary not-yet/never-curated run as `reel:null`; generic artifact
+  // links still return 404 when their file is missing.
   useEffect(() => {
     setReel(null);
     setReelMissing(false);
     let cancelled = false;
-    fetch(evidenceFileUrl(run.id, "reel.json"))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (!cancelled) { setReel(j); setReelMissing(!j); } })
+    fetch(`/api/runs/${encodeURIComponent(run.id)}/reel`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`reel lookup ${r.status}`))))
+      .then((payload) => {
+        if (!cancelled) {
+          const next = payload?.reel ?? null;
+          setReel(next);
+          setReelMissing(!next);
+        }
+      })
       .catch(() => { if (!cancelled) setReelMissing(true); });
     return () => { cancelled = true; };
   }, [run.id]);
@@ -3502,6 +3578,26 @@ function DebriefView({
                 {passedCount} passed · {failedCount} failed{unprovenCount > 0 ? ` · ${unprovenCount} unproven` : ""}
               </span>
             </div>
+            {/* Jump straight to a page's results. The rail below lists every page
+                and every check under it, which is a long scroll on a real run
+                (the ekoa book is ~700 checks across 28 pages) - this is the
+                "just show me that page" control. It drives the same `scope`
+                state as the rows, so the two always agree. */}
+            {pageGroups.length > 1 && (
+              <select
+                className="dr-db-scope-select"
+                aria-label="Show results for page"
+                value={scope.kind === "all" ? "" : scope.pageId}
+                onChange={(e) => setScope(e.target.value ? { kind: "page", pageId: e.target.value } : { kind: "all" })}
+              >
+                <option value="">All pages ({steps.length} checks)</option>
+                {pageGroups.map((group) => (
+                  <option key={group.pageId} value={group.pageId}>
+                    {group.title} ({group.checks.length})
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               className={"dr-db-scope-row all" + (scope.kind === "all" ? " active" : "")}
               onClick={() => setScope({ kind: "all" })}
@@ -3944,17 +4040,19 @@ function RunResultsPanel({
                     const videoName = run.evidence?.video;
                     return (
                       <div className="dr-rowwrap" style={{ marginTop: 5, gap: 6 }}>
-                        {row.screenshot && (
-                          <a className="chip" href={evidenceFileUrl(run.id, row.screenshot)} target="_blank" rel="noreferrer">full-page shot</a>
-                        )}
-                        {row.failureScreenshot && (
-                          <a className="chip alarm" href={evidenceFileUrl(run.id, row.failureScreenshot)} target="_blank" rel="noreferrer">failure shot</a>
-                        )}
+                        {row.screenshot && (() => {
+                          const shot = evidenceFileUrl(run.id, row.screenshot);
+                          return <a className="chip" href={shot} onClick={(e) => { e.preventDefault(); openMedia(shot, "image", "full-page shot"); }}>full-page shot</a>;
+                        })()}
+                        {row.failureScreenshot && (() => {
+                          const shot = evidenceFileUrl(run.id, row.failureScreenshot);
+                          return <a className="chip alarm" href={shot} onClick={(e) => { e.preventDefault(); openMedia(shot, "image", "failure shot"); }}>failure shot</a>;
+                        })()}
                         {row.trace && (
                           <a className="chip" href={evidenceFileUrl(run.id, row.trace)} title="Playwright trace chunk - open with npx playwright show-trace">trace</a>
                         )}
                         {videoName && Number.isFinite(row.startMs) && (
-                          <a className="chip" href={`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1000)}`} target="_blank" rel="noreferrer">
+                          <a className="chip" href={`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1000)}`} onClick={(e) => { e.preventDefault(); openMedia(`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1000)}`, "video", "run video"); }}>
                             video @{fmtOffset(row.startMs ?? 0)}
                           </a>
                         )}
@@ -4117,11 +4215,17 @@ function RunResultsPanel({
                         {f.evidence.trace && (
                           <a className="chip" href={evidenceFileUrl(run.id, f.evidence.trace)} title="Playwright trace chunk - open with npx playwright show-trace">trace</a>
                         )}
-                        {run.evidence?.video && Number.isFinite(f.evidence.videoMs) && (
-                          <a className="chip" href={`${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1000)}`} target="_blank" rel="noreferrer">
-                            video @{fmtOffset(f.evidence.videoMs ?? 0)}
-                          </a>
-                        )}
+                        {run.evidence?.video && Number.isFinite(f.evidence.videoMs) && (() => {
+                          // Resolve the url ONCE, outside the click closure: a
+                          // handler re-reading `run.evidence.video` loses the
+                          // narrowing the JSX guard just did.
+                          const at = `${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1000)}`;
+                          return (
+                            <a className="chip" href={at} onClick={(e) => { e.preventDefault(); openMedia(at, "video", "run video"); }}>
+                              video @{fmtOffset(f.evidence.videoMs ?? 0)}
+                            </a>
+                          );
+                        })()}
                       </div>
                     </>
                   ) : f.stepId && run.pages.filter((entry) =>
@@ -4255,14 +4359,12 @@ function SessionToolBlock({ block, result }: { block: SessionBlock; result: Sess
   );
 }
 
-function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }: {
-  runId: string;
+function TranscriptStream({ sourceUrl, sessionId, live, fallbackTitle, emptyEndedText, compact = false }: {
+  sourceUrl: string;
   sessionId: string;
   live: boolean;
-  // Optional wall-clock window (epoch ms): narrows the stream to one check's
-  // session steps in the merged results view.
-  windowFrom?: number | null;
-  windowTo?: number | null;
+  fallbackTitle: string;
+  emptyEndedText: string;
   compact?: boolean;
 }) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
@@ -4276,10 +4378,7 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
     setTitle(null);
     setStatus("connecting");
     stickRef.current = true;
-    const params = new URLSearchParams({ session: sessionId });
-    if (Number.isFinite(windowFrom as number)) params.set("from", String(Math.floor(windowFrom as number)));
-    if (Number.isFinite(windowTo as number)) params.set("to", String(Math.ceil(windowTo as number)));
-    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`);
+    const source = new EventSource(sourceUrl);
     source.onmessage = (message) => {
       let payload: any;
       try { payload = JSON.parse(message.data); } catch { return; }
@@ -4302,8 +4401,7 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
       source.close();
     };
     return () => source.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- window bounds are stable per mount
-  }, [runId, sessionId, windowFrom, windowTo]);
+  }, [sourceUrl, sessionId]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -4324,12 +4422,11 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
     return map;
   }, [events]);
 
-  const windowed = Number.isFinite(windowFrom as number) || Number.isFinite(windowTo as number);
   return (
     <div className={"dr-session" + (compact ? " compact" : "")}>
       <div className="dr-session-head">
         <MessageSquare size={13} aria-hidden="true" />
-        <b>{title ?? "Verify session"}</b>
+        <b>{title ?? fallbackTitle}</b>
         <span className="mono dr-session-id">{sessionId.slice(0, 8)}</span>
         {live && status === "streaming" && <span className="chip sage">live</span>}
         {status === "connecting" && <span className="chip">connecting…</span>}
@@ -4344,9 +4441,7 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
                 ? "No transcript was captured for this session (the gateway did not report one)."
                 : live
                   ? "Waiting for the first session activity…"
-                  : windowed
-                    ? "No session activity fell inside this check's window."
-                    : "No session activity fell inside this run's window."}
+                  : emptyEndedText}
           </div>
         )}
         {events.filter((event) => !event.toolResultsOnly).map((event, index) => (
@@ -4371,6 +4466,47 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
         ))}
       </div>
     </div>
+  );
+}
+
+function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }: {
+  runId: string;
+  sessionId: string;
+  live: boolean;
+  // Optional wall-clock window (epoch ms): narrows the stream to one check's
+  // session steps in the merged results view.
+  windowFrom?: number | null;
+  windowTo?: number | null;
+  compact?: boolean;
+}) {
+  const params = new URLSearchParams({ session: sessionId });
+  if (Number.isFinite(windowFrom as number)) params.set("from", String(Math.floor(windowFrom as number)));
+  if (Number.isFinite(windowTo as number)) params.set("to", String(Math.ceil(windowTo as number)));
+  const windowed = Number.isFinite(windowFrom as number) || Number.isFinite(windowTo as number);
+  return (
+    <TranscriptStream
+      sourceUrl={`/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`}
+      sessionId={sessionId}
+      live={live}
+      fallbackTitle="Verify session"
+      emptyEndedText={windowed
+        ? "No session activity fell inside this check's window."
+        : "No session activity fell inside this run's window."}
+      compact={compact}
+    />
+  );
+}
+
+function PlanSessionStream({ root, job }: { root: string; job: PlanJob }) {
+  const params = new URLSearchParams({ root, session: job.sessionId });
+  return (
+    <TranscriptStream
+      sourceUrl={`/api/plan/session-stream?${params.toString()}`}
+      sessionId={job.sessionId}
+      live={job.status === "planning"}
+      fallbackTitle="Plan session"
+      emptyEndedText="No session activity was captured for this plan. The raw plan log remains available on failures."
+    />
   );
 }
 
@@ -4455,9 +4591,9 @@ function LiveCheckThumb({ src, alt }: { src: string; alt: string }) {
   }, [src]);
   if (!imageUrl) return null;
   return (
-    <a className="dr-live-check-shot" href={src} target="_blank" rel="noreferrer">
+    <button type="button" className="dr-live-check-shot" onClick={() => openMedia(imageUrl, "image", alt)}>
       <img src={imageUrl} alt={alt} />
-    </a>
+    </button>
   );
 }
 
@@ -5764,6 +5900,7 @@ function App() {
         </ViewErrorBoundary>
       </div>
       {pickerOpen && projInfo && <ProjectPickerDialog info={projInfo} onClose={() => setPickerOpen(false)} />}
+      <MediaLightbox />
     </>
   );
 }

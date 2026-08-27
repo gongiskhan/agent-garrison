@@ -6,11 +6,12 @@ type: skill
 includes: auto
 x-garrison:
   faculty: knowledge
+  category: Knowledge
   cardinality_hint: multi
   component_shape: cli-skill
   platforms:
     - claude-code
-  summary: Markdown documents workspace. The Operative captures decisions, plans, and specs here; the user reads and edits them in the sidebar.
+  summary: Markdown documents workspace. The session captures decisions, plans, and specs here; the user reads and edits them in the sidebar.
   for_consumers: |
     Use the Documents Faculty to capture decisions, plans, and specs that
     emerge from conversations. Trigger conditions:
@@ -39,9 +40,7 @@ x-garrison:
     Don't create documents for trivial single-turn answers, acknowledgements,
     or questions.
   config_schema: []
-  provides:
-    - kind: agent-skill
-      name: project-documents
+  provides: []
   consumes: []
   setup:
     command: bash scripts/setup.sh

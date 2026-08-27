@@ -2,7 +2,7 @@
 
 Single-shot, structured LLM calls for Garrison. **One request, one response, never
 a primary** — no tool loop, no session, no streaming. This is the call target the
-Dispatcher duty cells and (in a later slice) the probe-question cell resolve to.
+Orchestrator routing-inference cells and (in a later slice) the probe-question cell resolve to.
 
 ## What it is
 

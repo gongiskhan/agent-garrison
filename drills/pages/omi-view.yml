@@ -1,0 +1,28 @@
+id: omi-view
+title: Omi status
+path: /fitting/omi-channel
+mode: steps
+areas: []
+steps:
+  - id: diagnostics-surface
+    area: 0
+    mode: vision
+    enabled: true
+    viewports:
+      - desktop
+      - mobile
+    state: default
+    description: >-
+      The read-only Omi diagnostics surface uses Garrison's warm paper and olive
+      visual language, shows a clear summary followed by Pipes, Credentials,
+      and Activity sections, communicates every status with text as well as
+      colour, masks wearer identity and secret values, and remains legible at
+      both desktop and phone widths without clipped controls or horizontal
+      overflow.
+    tags:
+      - dogfood
+      - omi
+      - ux
+      - smoke
+    judgment: true
+states: []

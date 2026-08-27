@@ -1,0 +1,73 @@
+.panel {
+  border: 1px solid var(--line, #d9d2c2);
+  border-radius: 10px;
+  background: var(--surface, #fbf8f1);
+  padding: 14px 16px;
+  margin-top: 14px;
+}
+.head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kicker {
+  font: 600 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent, #746232);
+}
+.select {
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--line, #d9d2c2);
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  max-width: 320px;
+}
+.domains { display: flex; gap: 4px; margin-left: auto; }
+.domainBtn {
+  font: 10.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--line, #d9d2c2);
+  border-radius: 999px;
+  background: none;
+  padding: 2px 9px;
+  cursor: pointer;
+  color: inherit;
+}
+.domainOn { border-color: var(--accent, #746232); color: var(--accent, #746232); }
+.error { color: #a33; font-size: 12px; margin-top: 8px; }
+.rows { margin-top: 10px; max-height: 380px; overflow-y: auto; }
+.row { border-top: 1px solid var(--line, #e7e0cf); }
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 5px 2px;
+  cursor: pointer;
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: inherit;
+}
+.rowHead:hover { background: rgba(0, 0, 0, 0.03); }
+.seq { color: #9a917d; min-width: 3.5ch; }
+.domain { text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.08em; }
+.d_session { color: #3d6249; }
+.d_channel { color: #746232; }
+.d_agent { color: #6f7a6c; }
+.d_api { color: #7a5a3a; }
+.d_lifecycle { color: #9a917d; }
+.kind { font-weight: 600; }
+.turn { color: #9a917d; overflow: hidden; text-overflow: ellipsis; }
+.shadow { color: #a3703f; }
+.ts { margin-left: auto; color: #9a917d; }
+.payload {
+  margin: 0 0 8px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  font-size: 11px;
+  overflow-x: auto;
+  max-height: 320px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

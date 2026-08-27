@@ -10,7 +10,7 @@
 
 import { spawn } from "node:child_process";
 import { createReadStream, existsSync, readFileSync, watchFile, unwatchFile } from "node:fs";
-import { mkdir, readdir, readFile, stat, unlink, writeFile, rm } from "node:fs/promises";
+import { mkdir, readdir, readFile, readlink, stat, unlink, writeFile, rm } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -95,8 +95,8 @@ function walkDescendants(table, rootPid, stopAtPid) {
     for (const child of children) {
       descendants.push(child);
       // Don't descend into our own probe subprocesses (ps/lsof/etc. spawned
-      // by getProcessTable/getPorts/getCwd/getEnv on every poll). Including
-      // them as short-lived "DEAD" entries pollutes the UI.
+      // by getProcessTable/snapshotSockets on every poll). Including them as
+      // short-lived "DEAD" entries pollutes the UI.
       if (stopAtPid != null && child.pid === stopAtPid) continue;
       queue.push(child.pid);
     }
@@ -104,29 +104,56 @@ function walkDescendants(table, rootPid, stopAtPid) {
   return descendants;
 }
 
-async function getPorts(pid) {
-  const { stdout } = await execLines("lsof", ["-i", "-P", "-n", "-p", String(pid)]);
-  const listening = [];
-  const connections = [];
+const NO_SOCKETS = { listening: [], connections: [] };
+
+function addSocketRow(entry, name) {
+  const stateMatch = name.match(/\(([A-Z_]+)\)$/);
+  const state = stateMatch ? stateMatch[1] : "";
+  const addrPart = stateMatch ? name.slice(0, stateMatch.index).trim() : name.trim();
+  if (state === "LISTEN") {
+    const portMatch = addrPart.match(/:(\d+)$/);
+    if (portMatch) entry.listening.push({ port: Number(portMatch[1]), address: addrPart });
+  } else if (state && addrPart) {
+    entry.connections.push({ state, peer: addrPart });
+  }
+}
+
+// ONE system-wide socket snapshot per tick, indexed by pid.
+//
+// This used to be `lsof -i -P -n -p <pid>` per process. At a 1s poll that is
+// ~0.2*N lsof spawns per second, and each one walks every socket on the box
+// anyway — so the per-pid filter bought nothing but N times the work. Under a
+// `next build`, which forks a swarm of short-lived workers, every new pid also
+// took the full three-subprocess read, and the monitor's own probes drove the
+// load average past 70 and starved the build that was creating the processes.
+// One invocation per tick is the whole fix; -b -w keep it non-blocking.
+async function snapshotSockets() {
+  const byPid = new Map();
+  const { stdout } = await execLines("lsof", ["-nP", "-i", "-b", "-w"], 10000);
   for (const line of stdout.split("\n")) {
     if (!line || line.startsWith("COMMAND")) continue;
     const parts = line.split(/\s+/);
     if (parts.length < 9) continue;
-    const name = parts.slice(8).join(" ");
-    const stateMatch = name.match(/\(([A-Z_]+)\)$/);
-    const state = stateMatch ? stateMatch[1] : "";
-    const addrPart = stateMatch ? name.slice(0, stateMatch.index).trim() : name.trim();
-    if (state === "LISTEN") {
-      const portMatch = addrPart.match(/:(\d+)$/);
-      if (portMatch) listening.push({ port: Number(portMatch[1]), address: addrPart });
-    } else if (state && addrPart) {
-      connections.push({ state, peer: addrPart });
+    const pid = Number(parts[1]);
+    if (!Number.isInteger(pid)) continue;
+    let entry = byPid.get(pid);
+    if (!entry) {
+      entry = { listening: [], connections: [] };
+      byPid.set(pid, entry);
     }
+    addSocketRow(entry, parts.slice(8).join(" "));
   }
-  return { listening, connections };
+  return byPid;
 }
 
+// /proc is authoritative and free here; lsof -p <pid> spawned a process and
+// read every open file just to recover one row.
 async function getCwd(pid) {
+  try {
+    return await readlink(`/proc/${pid}/cwd`);
+  } catch {
+    /* not Linux, or the process died — fall through */
+  }
   const { stdout } = await execLines("lsof", ["-p", String(pid)]);
   for (const line of stdout.split("\n")) {
     const parts = line.split(/\s+/);
@@ -137,7 +164,27 @@ async function getCwd(pid) {
   return null;
 }
 
+function redactEnvValue(key, value) {
+  return REDACT_PATTERN.test(key) ? REDACTED : value;
+}
+
 async function getEnv(pid) {
+  // NUL-delimited and exact, where `ps eww` splits on whitespace and so
+  // silently truncates any value containing a space.
+  try {
+    const raw = await readFile(`/proc/${pid}/environ`, "utf8");
+    const env = {};
+    for (const tok of raw.split("\0")) {
+      const eq = tok.indexOf("=");
+      if (eq <= 0) continue;
+      const key = tok.slice(0, eq);
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+      env[key] = redactEnvValue(key, tok.slice(eq + 1));
+    }
+    return env;
+  } catch {
+    /* not Linux, or the process died — fall through */
+  }
   const { stdout } = await execLines("ps", ["eww", "-p", String(pid)]);
   // The 'eww' format prints env vars at end of the command line column.
   // We parse the second non-header line and pick `KEY=VALUE` tokens that look envvar-shaped.
@@ -295,23 +342,22 @@ async function poll(rootPid) {
     next.set(proc.pid, entry);
   }
 
-  // Refresh costly fields (cwd, env, ports) opportunistically — every 5 polls per PID.
+  // Ports come from one shared snapshot, so every entity gets CURRENT socket
+  // state each tick instead of a 20%-per-tick refresh — cheaper AND fresher.
+  const sockets = await snapshotSockets().catch(() => new Map());
   for (const [pid, entry] of next) {
+    entry.ports = sockets.get(pid) ?? NO_SOCKETS;
+    // cwd and env are per-process reads that cannot be batched, but on Linux
+    // they are /proc reads rather than subprocesses, and a process's cwd/env
+    // are fixed at exec — so reading them once, when the pid first appears,
+    // is both correct and the only time it costs anything.
     if (!knownPids.has(pid)) {
-      // brand new; do a full read once
-      const [ports, cwd, env] = await Promise.all([
-        getPorts(pid).catch(() => ({ listening: [], connections: [] })),
+      const [cwd, env] = await Promise.all([
         getCwd(pid).catch(() => null),
         getEnv(pid).catch(() => ({}))
       ]);
-      entry.ports = ports;
       entry.cwd = cwd ?? entry.cwd;
       entry.env = env;
-    } else if (Math.random() < 0.2) {
-      // periodic refresh of ports for existing entries
-      try {
-        entry.ports = await getPorts(pid);
-      } catch {}
     }
   }
 

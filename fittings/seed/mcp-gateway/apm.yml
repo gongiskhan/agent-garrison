@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: gateway
+  category: Core
   cardinality_hint: multi
   component_shape: script
   ui:
@@ -16,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Exposes installed Faculties as MCP tools to interactive (UI-tab-launched) Claude Code sessions. Hosts the garrison-control tool set (talk_to, wait_for, …) when GARRISON_HTTP_GATEWAY_BASE_URL is set.
+  summary: Exposes installed Faculties as MCP tools to interactive (UI-tab-launched) Claude Code sessions.
   config_schema:
     - key: bind_host
       type: string
@@ -37,11 +38,10 @@ x-garrison:
     expect: ok
     timeout_ms: 8000
   for_consumers: |
-    Orchestrator/soul-mode sidecar - not invoked directly by the Operative.
-    The http-gateway spawns it per soul session as a stdio MCP child (no port of
-    its own); remote outpost sessions connect over HTTP MCP instead. Hosts the
-    garrison-control tool set (present when GARRISON_HTTP_GATEWAY_BASE_URL is
-    set): talk_to, wait_for, list_active_sessions, end_session, list_workdirs.
+    Faculty-tool sidecar - not invoked directly by the session. Interactive
+    sessions use it as a stdio MCP child (no port of its own); remote outpost
+    sessions connect over HTTP MCP instead. Delegation is owned by the active
+    runtime/orchestration layer, not by persona-named Soul sessions.
 
     Kanban run-engine tools (WS2, present when the kanban-loop board is live at
     ~/.garrison/ui-fittings/kanban-loop.json):
@@ -55,6 +55,15 @@ x-garrison:
         events for a run origin (skill/terminal parity with a web thread's push
         feed) - created | needs-input | blocked | failed | finished | duty-summary
         | steering; poll again with the returned next_since for only new events.
+      - schedule_card(card, until? | in_minutes?, action?, clear?): schedule or
+        snooze a card by spoken ref (the executable "snooze card 7Q2M for 2
+        hours") - resolves full ULID / ULID suffix >= 3 chars / title fragment,
+        sets scheduledFor + re-arms the reminder; clear=true removes the hold;
+        an ambiguous ref returns candidates to relay, never a guess.
+      - run_card(card): start/advance a card NOW by spoken ref (the executable
+        "run card 7Q2M"); the start itself clears any schedule on the card.
+      - list_scheduled_cards(): compact table of every card holding a schedule
+        (short ref, title, due instant, action notify|run, list).
     NOTE: "continuation" here is CARD CHAINING (one card continues another's work),
     DISTINCT from the Orchestrator policy's post-task "continuations" vocabulary
     (store|ask|route|notify steps by output kind).

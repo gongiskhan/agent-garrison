@@ -6,7 +6,8 @@ type: skill
 includes: auto
 x-garrison:
   parked: true
-  faculty: classifier
+  faculty: building
+  category: Building
   cardinality_hint: single
   component_shape: skill
   platforms:
@@ -20,10 +21,8 @@ x-garrison:
     - key: plan_threshold
       type: integer
       default: 3
-      description: Tier at which the operative must plan before execution.
-  provides:
-    - kind: agent-skill
-      name: tier-classifier
+      description: Tier at which the session must plan before execution.
+  provides: []
   setup:
     command: bash scripts/setup.sh
     idempotent: true
@@ -36,7 +35,7 @@ x-garrison:
     Input: { prompt: string }
     Output: { tier: integer (1-7), reason: string }
     tier_floor (default 3) is the minimum returned tier. plan_threshold (default 3)
-    is documented for the model; enforcement is the Operative's responsibility.
+    is documented for the model; enforcement is the session's responsibility.
     Backed by @anthropic-ai/claude-agent-sdk; uses user's Max auth — no API key needed.
   ui:
     views:

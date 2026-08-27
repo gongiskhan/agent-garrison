@@ -11,7 +11,7 @@
 //  2. Three own-port servers still carried findFreePort. 07ba683 removed the
 //     auto-shift so a server binds its configured port or exits 1 — but it fixed
 //     only the NINE servers that were then stationed. ports-default, power-default
-//     and outpost-tailscale-host kept shifting, which is exactly what hid bug (1):
+//     and the since-retired outpost-tailscale-host kept shifting, which is exactly what hid bug (1):
 //     ports-default silently walked 7088 → 7092 instead of refusing, so the
 //     collision surfaced as a mystery ("the view is on the wrong port") rather
 //     than as a loud failure.

@@ -7,6 +7,7 @@ import { ensureDir, pathExists, slugify, toPosixPath } from "./fs-utils";
 import { readLibrary } from "./library";
 import { vaultViewMasked } from "./vault";
 import { currentProfile } from "./instance-profile";
+import { LEGACY_IDENTITY_SOURCE_REL, migrateLegacyIdentityOverride } from "./identity-migration";
 import {
   ensureComposition,
   getCompositionDirectory,
@@ -81,7 +82,8 @@ export const BUNDLE_EXCLUSIONS: readonly string[] = [
   "local.yml (machine-local overlay: home paths, machine ports)",
   "apm.lock.yaml (re-resolved by apm install on import)",
   "apm_modules/ and .claude/ (installed by apm install)",
-  ".garrison/souls/ and assembled-system-prompt.md (regenerated at launch)",
+  ".garrison/prompts/soul.md (retired; an authored override is migrated into Orchestrator Identity)",
+  ".garrison/souls/ and assembled-system-prompt.md (legacy/generated runtime state)",
   "session ids, decisions.jsonl, run-evidence.json, owner.json (runtime state)"
 ];
 
@@ -97,6 +99,7 @@ const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 export function compositionExportPathAllowed(relativePath: string): boolean {
   if (!relativePath) return false;
   const normalized = toPosixPath(relativePath);
+  if (normalized === LEGACY_IDENTITY_SOURCE_REL) return false;
   if (normalized.startsWith("/") || normalized.includes("\\") || normalized.includes("\0")) return false;
   const segments = normalized.split("/");
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
@@ -268,7 +271,11 @@ export async function buildCompositionBundle(
   // Parse it as a composition before exporting: a bundle built from a manifest
   // that cannot itself be read is a bundle that cannot be imported.
   const composition = await readCompositionWithDerivedTasks(id);
-  const { files, warnings } = await readAuthoredFiles(getCompositionDirectory(id));
+  const compositionDir = getCompositionDirectory(id);
+  // Preserve any genuine pre-v4 authored identity before excluding its retired
+  // source path from the portable bundle.
+  await migrateLegacyIdentityOverride(compositionDir, { throwOnMalformed: true });
+  const { files, warnings } = await readAuthoredFiles(compositionDir);
   const library = await readLibrary();
   const byId = new Map(library.map((entry) => [entry.id, entry]));
 

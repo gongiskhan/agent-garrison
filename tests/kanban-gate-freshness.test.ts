@@ -1,7 +1,7 @@
 // Current-attempt durable gate contract. A retry deliberately keeps its runDir
 // for context/audit, so the engine must distinguish a gate rewritten by THIS
 // attempt from an inherited file whose matching verdict belongs to an older run.
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   mkdirSync,
   mkdtempSync,
@@ -20,6 +20,19 @@ import { advanceCardPhase, processBatch, processCard } from "../fittings/seed/ka
 import { createCard, loadCard, saveCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { resetPolicyCache } from "../fittings/seed/kanban-loop/lib/policy.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 let root: string;
 
@@ -43,7 +56,7 @@ function writePolicy() {
     taskTypes: ["review", "test"],
     tiers: ["T1-standard"],
     phaseSkills: { bindings: {}, overrides: {} },
-    workKinds: {},
+    flows: {},
     phasePlans: {}
   }));
   process.env.GARRISON_POLICY_PATH = file;

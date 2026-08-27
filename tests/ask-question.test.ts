@@ -111,12 +111,20 @@ describe("gateway lib: createAskQuestionWatcher", () => {
     fs.writeFileSync(file, JSON.stringify(askEvent("toolu_A")) + "\n");
 
     const seen: any[] = [];
+    const sources: any[] = [];
     // No priming: read from offset 0 so the fixture already on disk is picked up.
-    const watcher = createAskQuestionWatcher({ projectDir: dir, onQuestion: (p: any) => seen.push(p) });
+    const watcher = createAskQuestionWatcher({
+      projectDir: dir,
+      onQuestion: (p: any, source: any) => {
+        seen.push(p);
+        sources.push(source);
+      },
+    });
 
     watcher.tickOnce();
     expect(seen).toHaveLength(1);
     expect(seen[0].tool_use_id).toBe("toolu_A");
+    expect(sources[0]).toEqual({ transcriptPath: file });
 
     // Second tick with no new content → no re-emit.
     watcher.tickOnce();
@@ -184,6 +192,21 @@ describe("claude-chat: QuestionBlock", () => {
     // The chosen label renders as the user's message.
     expect(html).toContain("cc-question-answer");
     // The Other affordance is gone once answered.
+    expect(html).not.toContain("Other...");
+  });
+
+  it("keeps an orphaned question readable without answer controls", async () => {
+    const { QuestionBlock } = await import("../packages/claude-chat/src/index");
+    const html = renderToStaticMarkup(
+      createElement(QuestionBlock, {
+        q: SPIKE_INPUT.questions[0] as any,
+        active: false,
+        onSelect: () => {},
+        onOther: () => {},
+      })
+    );
+    expect(html).toContain("This question is no longer active and cannot be answered.");
+    expect(html).toContain("disabled");
     expect(html).not.toContain("Other...");
   });
 });

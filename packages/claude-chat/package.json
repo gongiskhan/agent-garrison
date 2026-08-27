@@ -7,6 +7,8 @@
   "main": "src/index.tsx",
   "exports": {
     ".": "./src/index.tsx",
+    "./journal": "./src/journal.ts",
+    "./transport": "./src/transport.ts",
     "./styles.css": "./src/claude-chat.css"
   },
   "peerDependencies": {

@@ -2,7 +2,31 @@
 // and dev-env both expose the same /claude/* shape, so a single HTTP transport
 // serves both — only the base path differs.
 
+import {
+  isFailureInfo,
+  isSessionEvent,
+  type FailureInfo,
+  type PermissionAnswer,
+  type SessionEvent,
+} from "./journal";
+
+/** An HTTP/admission failure whose user-facing semantics survive an `Error`
+ * boundary without callers parsing message prose. */
+export class ChatTransportError extends Error {
+  readonly failure: FailureInfo;
+
+  constructor(failure: FailureInfo, message = failure.text) {
+    super(message);
+    this.name = "ChatTransportError";
+    this.failure = failure;
+  }
+}
+
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "unknown";
+
+/** Native Claude Code effort controls accepted by `/effort`. `auto` resets the
+ * session to the current model's default; the remaining values pin a level. */
+export type ChatEffort = "auto" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ClaudeStatus {
   rows: string[];
@@ -70,12 +94,14 @@ export interface RouteAttribution {
   /** How the route was chosen: a duty-ladder cell, a per-turn override, or the
    *  classifier. */
   via?: "duty-cell" | "turn-override" | "classifier" | string | null;
-  /** The work kind whose phase plan the run follows, as RESOLVED (a pin when the
+  /** The flow whose phase plan the run follows, as RESOLVED (a pin when the
    *  user chose one, otherwise whatever the gateway inferred). Reported so the
    *  rail can badge an auto-chosen plan instead of leaving it invisible. */
-  workKind?: string | null;
+  flow?: string | null;
   /** Phases turned OFF for the run, comma-separated - see TurnRouting.phasesOff. */
   phasesOff?: string | null;
+  /** Phases ADDED beyond the plan, comma-separated - see TurnRouting.phasesOn. */
+  phasesOn?: string | null;
   /** True when the router reached a route WITHOUT an LLM classification, because
    *  the pin already carried it. The honest counterpart to `via` - it is what makes
    *  "explicit, so no classifier ran" a reported fact rather than an assumption. */
@@ -98,6 +124,11 @@ export interface RouteAttribution {
   /** The routed runtime's OWN session id, per message (not per thread) - the key
    *  the transcript drill-down passes to GET /api/session-stream. */
   sessionId?: string | null;
+  /** Durable runtime-session identity reported on canonical route revisions. */
+  sessionEpoch?: string | number | null;
+  sessionDisposition?: "new" | "warm" | "resumed" | string | null;
+  sessionBoundaryReason?: string | null;
+  spawnSignature?: Record<string, unknown> | null;
   transcriptPath?: string | null;
   stoppedByUser?: boolean | null;
   stoppedReason?: string | null;
@@ -149,12 +180,12 @@ export interface TurnRouting {
    */
   tier?: string | null;
   /**
-   * The work kind whose phase plan this run follows (`full-feature`, `ui-change`,
-   * … from the policy's `workKinds`). Decides WHICH phases exist for the run; the
+   * The flow whose phase plan this run follows (`full-feature`, `ui-change`,
+   * … from the policy's `flows`). Decides WHICH phases exist for the run; the
    * duty sequence decides their ORDER. Only meaningful for a run that becomes a
    * card - a conversational turn has no pipeline to plan.
    */
-  workKind?: string | null;
+  flow?: string | null;
   /**
    * Phases turned OFF for this run, as a comma-separated list of phase ids
    * ("adversarial-review,walkthrough").
@@ -162,16 +193,102 @@ export interface TurnRouting {
    * A CSV of the OFF set rather than an on/off map for two reasons: every pin
    * crosses four separate scalar whitelists (this type, the channel's thread
    * persistence, the gateway's edge validator, and the client compactor), and the
-   * toggles are one-directional anyway - `railForCard` only ever tests
-   * `toggles[id] === false`, so a phase can be turned off below its plan but never
-   * on above it. An OFF phase stays IN the rail rendered off; it is never hidden.
+   * OFF set and ON set stay separate scalars so each crosses the whitelists on
+   * its own. An OFF phase stays IN the rail rendered off; it is never hidden.
    */
   phasesOff?: string | null;
+  /**
+   * Phases ADDED for this run beyond the resolved flow's plan, comma-separated
+   * ("security-review,walkthrough"). Validated against the policy's GLOBAL
+   * phase catalog (that is the point - the plan does not carry them);
+   * `railForCard` unions a `true` toggle into the plan, OFF wins a conflict.
+   */
+  phasesOn?: string | null;
 }
 
-export type ChatEvent =
+/** Client-generated correlation only. The host assigns the durable input id and
+ * the runtime assigns the generation id; neither authority is delegated to the
+ * browser. Keeping this in the ordinary per-send metadata lets legacy transports
+ * ignore it while an orchestrated transport can return an exact receipt. */
+export interface ChatSendMeta {
+  context?: unknown;
+  mode?: string;
+  autonomous?: boolean;
+  routing?: TurnRouting;
+  /** Host-native effort control, carried separately from user-visible text. */
+  effort?: ChatEffort;
+  clientRequestId?: string;
+}
+
+export type ChatInputState =
+  | "queued"
+  | "starting"
+  | "running"
+  | "stopping"
+  | "settled"
+  | "stopped"
+  | "failed";
+
+/** Durable admission/lifecycle coordinates returned by an orchestrated host.
+ * `generationId` is absent while an accepted input is queued or still starting;
+ * exact Stop stays disabled until the runtime publishes it. */
+export interface ChatInputReceipt {
+  clientRequestId: string;
+  inputId: string;
+  state: ChatInputState;
+  position?: number;
+  generationId?: string;
+  acceptedAt?: string;
+  reason?: string;
+  failure?: FailureInfo;
+}
+
+const CHAT_INPUT_STATES: ReadonlySet<string> = new Set([
+  "queued", "starting", "running", "stopping", "settled", "stopped", "failed",
+]);
+
+export function isChatInputReceipt(value: unknown): value is ChatInputReceipt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const input = value as Record<string, unknown>;
+  const optionalText = (key: string, nonEmpty = false) => input[key] === undefined ||
+    (typeof input[key] === "string" && (!nonEmpty || Boolean((input[key] as string).trim())));
+  return typeof input.clientRequestId === "string" && Boolean(input.clientRequestId.trim()) &&
+    typeof input.inputId === "string" && Boolean(input.inputId.trim()) &&
+    typeof input.state === "string" && CHAT_INPUT_STATES.has(input.state) &&
+    optionalText("generationId", true) && optionalText("acceptedAt") && optionalText("reason") &&
+    (input.failure === undefined || isFailureInfo(input.failure)) &&
+    (input.position === undefined ||
+      (typeof input.position === "number" && Number.isInteger(input.position) && input.position >= 0));
+}
+
+/** Coordinates stamped onto every generated chat frame. They stay optional so
+ * existing PTY/EventSource transports remain source-compatible. */
+export interface ChatFrameCoordinate {
+  inputId?: string;
+  generationId?: string;
+}
+
+/** Exact generated-turn stop. A missing argument is retained only for legacy
+ * transports; lifecycle-capable callers always provide the runtime generation. */
+export interface ChatInterruptRequest {
+  generationId: string;
+}
+
+export interface ChatInterruptResult {
+  generationId: string;
+  state: "stopping" | "stopped" | "settled";
+  inputId?: string;
+  reason?: string;
+}
+
+export type ChatErrorEvent =
+  | { type: "error"; failure: FailureInfo; message?: string }
+  | { type: "error"; message: string; failure?: undefined };
+
+type ChatEventPayload =
   | { type: "hello"; mode: PermissionMode; status: ClaudeStatus; busy: boolean; assistant: string; screen: string[] }
   | { type: "assistant"; text: string }
+  | { type: "session_event"; event: SessionEvent }
   | { type: "status"; rows: string[]; mode: PermissionMode; contextPct: number | null; model: string | null }
   | { type: "turn"; active: boolean }
   | { type: "screen"; lines: string[] }
@@ -191,8 +308,11 @@ export type ChatEvent =
   // strongest liveness signal the lane has.
   | { type: "activity"; kind: "tool"; name: string; id?: string }
   | { type: "activity"; kind: "thinking"; name: string }
-  | { type: "error"; message: string }
+  | ({ type: "input" } & ChatInputReceipt)
+  | ChatErrorEvent
   | { type: "connection"; state: "open" | "closed" | "reconnecting" };
+
+export type ChatEvent = ChatEventPayload & ChatFrameCoordinate;
 
 export interface SlashCommand {
   name: string;
@@ -216,8 +336,11 @@ export interface ChatTransport {
    * compat with transports that don't set it.
    */
   base?: string;
+  /** Opt-in before the first send so the composer can expose Queue immediately.
+   * Omitted by legacy transports, whose global busy/Stop behavior is unchanged. */
+  inputLifecycle?: true;
   connect(onEvent: (ev: ChatEvent) => void): () => void; // returns an unsubscribe/close fn
-  sendMessage(text: string): Promise<void>;
+  sendMessage(text: string, meta?: ChatSendMeta): Promise<void | ChatInputReceipt>;
   /**
    * Submit a line into the live Claude PTY WITHOUT it being rendered as a user
    * turn in the chat transcript — used for slash commands that drive the TUI
@@ -228,7 +351,7 @@ export interface ChatTransport {
   sendCommand?(text: string): Promise<void>;
   sendKey(key: "escape" | "shift-tab" | "up" | "down" | "enter" | "tab" | "ctrl-c"): Promise<void>;
   setMode(mode: PermissionMode): Promise<{ mode: PermissionMode; reached: boolean }>;
-  interrupt(): Promise<void>;
+  interrupt(request?: ChatInterruptRequest): Promise<void | ChatInterruptResult>;
   fetchCommands(): Promise<SlashCommand[]>;
   /**
    * Answer an AskUserQuestion picker the operative raised (a tapped option label,
@@ -236,6 +359,9 @@ export interface ChatTransport {
    * keystrokes. Optional so transports that never surface `tool` events stay valid.
    */
   answerQuestion?(answer: QuestionAnswer): Promise<void>;
+  /** Resolve one durable, generation-bound tool permission request. Hosts that
+   * do not own a Web thread omit this capability and render prompts read-only. */
+  answerPermission?(answer: PermissionAnswer): Promise<void>;
   /**
    * Upload a pasted/dropped/picked file so its path can be referenced in the
    * next message. Optional — a transport that omits this hides the
@@ -260,7 +386,16 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
       headers: { "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error(`${path} ${res.status}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null) as { failure?: unknown; message?: unknown } | null;
+      if (isFailureInfo(body?.failure)) {
+        throw new ChatTransportError(
+          body.failure,
+          typeof body?.message === "string" && body.message.trim() ? body.message : body.failure.text
+        );
+      }
+      throw new Error(`${path} ${res.status}`);
+    }
     return res.json().catch(() => ({}));
   };
   return {
@@ -282,6 +417,14 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
           });
         on("hello");
         on("assistant");
+        es.addEventListener("session_event", (e: MessageEvent) => {
+          try {
+            const event: unknown = JSON.parse(e.data);
+            if (isSessionEvent(event)) onEvent({ type: "session_event", event });
+          } catch {
+            /* ignore malformed */
+          }
+        });
         on("status");
         on("turn");
         on("screen");
@@ -291,8 +434,29 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
         // server speaks the same /claude/* shape as the web channel.
         on("route");
         on("activity");
-        on("error");
-        es.onerror = () => {
+        es.addEventListener("error", (e: Event) => {
+          const data = "data" in e ? (e as MessageEvent).data : undefined;
+          if (typeof data !== "string") return;
+          try {
+            const payload = JSON.parse(data) as Record<string, unknown>;
+            const coordinates = {
+              ...(typeof payload.inputId === "string" ? { inputId: payload.inputId } : {}),
+              ...(typeof payload.generationId === "string" ? { generationId: payload.generationId } : {}),
+            };
+            const message = typeof payload.message === "string" && payload.message.trim() ? payload.message : undefined;
+            if (isFailureInfo(payload.failure)) {
+              onEvent({ type: "error", failure: payload.failure, ...(message ? { message } : {}), ...coordinates });
+            } else if (message) {
+              onEvent({ type: "error", message, ...coordinates });
+            }
+          } catch {
+            /* ignore malformed */
+          }
+        });
+        es.onerror = (event) => {
+          // A server-sent `event: error` is an application failure frame, not a
+          // broken EventSource connection. The listener above owns its data.
+          if (event && "data" in event) return;
           onEvent({ type: "connection", state: "reconnecting" });
           // EventSource auto-reconnects; if it's permanently closed, retry.
           if (es && es.readyState === EventSource.CLOSED && !closed) {
@@ -308,8 +472,11 @@ export function createHttpTransport(base = "/api", opts?: { uploads?: boolean })
         onEvent({ type: "connection", state: "closed" });
       };
     },
-    async sendMessage(text) {
-      await post("message", { text });
+    async sendMessage(text, meta) {
+      await post("message", {
+        text,
+        ...(meta?.effort ? { effort: meta.effort } : {}),
+      });
     },
     async sendCommand(text) {
       // Identical wire call to sendMessage; the caller chooses this variant only

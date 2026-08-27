@@ -13,9 +13,11 @@ import type {
   ResolvedPromotedFitting
 } from "@/lib/promoted-catalog";
 import { BASE_GATEWAY_PORT } from "@/lib/instance-profile";
+import { CATEGORY_BY_FACULTY, fittingCategories } from "@/lib/types";
 import type {
   FacultyDefinition,
   FacultyId,
+  FittingCategory,
   FittingSelectionMap,
   LibraryEntry,
   SelectedFitting,
@@ -285,7 +287,7 @@ export function StationGrid() {
             <TierSection
               tier="agent"
               title="Agent faculties"
-              blurb="The everyday Operative — brain, memory, channels, gateway, and what it knows."
+              blurb="The everyday session — brain, memory, channels, gateway, and what it knows."
               composition={composition}
               library={library}
               verifyResults={verifyResults}
@@ -402,18 +404,52 @@ function TierSection({
           loading capabilities…
         </div>
       ) : (
-        capBlocks.map((group) => <CapabilityFacultyBlock key={group.faculty} group={group} />)
+        groupByCategory(capBlocks).map((block) => (
+          <CapabilityCategoryBlock
+            key={block.category}
+            category={block.category}
+            fittings={block.fittings}
+          />
+        ))
       )}
     </section>
   );
 }
 
-// One optional capability faculty — its name + role copy, then its promoted
-// Fitting cards. This is what replaced the old primitive-typed "Claude Code
-// components" tiles: each card is a first-class Fitting, never a "skill"/"MCP".
-function CapabilityFacultyBlock({ group }: { group: PromotedFacultyGroup }) {
+/**
+ * Collapse the per-faculty capability groups into the 6 presentation
+ * categories. Faculty stays the contract (it is what a Fitting is selected
+ * INTO, and the core role tiles above are still faculty slots) — it just stops
+ * being the browsing axis here, because 17 faculties made an unreadable list.
+ * Each card keeps its faculty as a label.
+ */
+function groupByCategory(
+  groups: PromotedFacultyGroup[]
+): { category: FittingCategory; fittings: ResolvedPromotedFitting[] }[] {
+  const byCategory = new Map<FittingCategory, ResolvedPromotedFitting[]>();
+  for (const group of groups) {
+    const category = CATEGORY_BY_FACULTY[group.faculty];
+    if (!category) continue;
+    byCategory.set(category, [...(byCategory.get(category) ?? []), ...group.fittings]);
+  }
+  // Stable, meaningful order rather than insertion order.
+  return fittingCategories
+    .filter((category) => (byCategory.get(category)?.length ?? 0) > 0)
+    .map((category) => ({ category, fittings: byCategory.get(category) ?? [] }));
+}
+
+// One category of promoted Fittings — the category name, then its cards. Each
+// card shows which faculty it fulfils, so the contract stays visible without
+// being the organizing principle.
+function CapabilityCategoryBlock({
+  category,
+  fittings
+}: {
+  category: FittingCategory;
+  fittings: ResolvedPromotedFitting[];
+}) {
   return (
-    <div data-testid={`capability-faculty-${group.faculty}`} style={{ margin: "16px 0 4px" }}>
+    <div data-testid={`capability-category-${category}`} style={{ margin: "16px 0 4px" }}>
       <div
         className="font-mono"
         style={{
@@ -424,7 +460,7 @@ function CapabilityFacultyBlock({ group }: { group: PromotedFacultyGroup }) {
           margin: "0 0 8px"
         }}
       >
-        {group.facultyName}
+        {category}
       </div>
       <div
         style={{
@@ -433,13 +469,14 @@ function CapabilityFacultyBlock({ group }: { group: PromotedFacultyGroup }) {
           gap: 10
         }}
       >
-        {group.fittings.map((f) => (
+        {fittings.map((f) => (
           <PromotedFittingCard key={f.id} fitting={f} />
         ))}
       </div>
     </div>
   );
 }
+
 
 // A single promoted Fitting card — title, plain-language description, and an
 // installed/available pip. Links to the Fitting's detail view (where its setup

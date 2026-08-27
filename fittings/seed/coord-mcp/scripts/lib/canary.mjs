@@ -15,7 +15,8 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { repoSlug, repoRoot } from "./repo.mjs";
+import { repoRef } from "./repo.mjs";
+import { removeIntentsBySession } from "./intent-store.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(__dirname, "..");
@@ -41,29 +42,27 @@ function declareViaServer(session, repo, area, reason) {
   });
 }
 
-function cleanupRepo(repo) {
-  const slug = repoSlug(repo);
-  const gh = garrisonHome();
-  for (const sub of ["intents", "plans", "plan-locks"]) {
-    const dir = path.join(gh, "coord", sub);
+// Release the canary's synthetic intents (set-once tombstone on the service —
+// the ledger is append-only, so "cleanup" means released, never deleted) and
+// strip the heartbeat lines the real hook appended for the throwaway repo. The
+// throwaway repo has no origin, so its key is `local:<node>:<hash>` and is
+// unique to this run: nothing else can be caught by this.
+async function cleanupRepo(repoKey, repoPath) {
+  for (const session of ["canary-A", "canary-B"]) {
     try {
-      for (const f of fs.readdirSync(dir)) {
-        if (f.startsWith(slug)) fs.rmSync(path.join(dir, f), { force: true });
-      }
+      await removeIntentsBySession(repoKey, session);
     } catch {
-      /* none */
+      /* the canary already reported the real failure; cleanup is best-effort */
     }
   }
-  // The real hook also appended a heartbeat line for this throwaway repo to the
-  // SHARED log — strip those too so the canary leaves zero synthetic records.
-  const hb = path.join(gh, "coord", "heartbeat.log");
+  const hb = path.join(garrisonHome(), "coord", "heartbeat.log");
   try {
     const txt = fs.readFileSync(hb, "utf8");
     const kept = txt.split("\n").filter((line) => {
       const t = line.trim();
       if (!t) return false;
       try {
-        return JSON.parse(t).repo !== repo;
+        return JSON.parse(t).repo !== repoPath;
       } catch {
         return true; // keep unparseable lines untouched
       }
@@ -76,17 +75,25 @@ function cleanupRepo(repo) {
 
 export async function runCanary() {
   const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "coord-canary-repo-"));
-  let repo = tmpRepo;
+  let ref = { key: null, path: tmpRepo };
   try {
     try {
       execFileSync("git", ["init", "-q"], { cwd: tmpRepo });
     } catch {
       /* git optional; repo path still works as an identity */
     }
-    // Canonical repo identity — the SAME value the hook computes via repoRoot()
-    // (git realpath), so the declared intents and the hook's lookup hash to the
-    // same slug (macOS /tmp -> /private/tmp symlink would otherwise mismatch).
-    repo = repoRoot(tmpRepo);
+    // The hook only injects in repos that opted into coordination (a committed
+    // `.coord` marker). The canary drives the REAL hook, so its throwaway repo
+    // has to opt in too - without this it exercises the gate rather than the
+    // write -> detect -> inject chain it exists to prove, and reports a
+    // conflict that was never surfaced.
+    fs.writeFileSync(path.join(tmpRepo, ".coord"), "");
+    // Canonical repo identity — the SAME value the hook computes via repoRef()
+    // (git realpath + origin), so the declared intents and the hook's lookup land
+    // on the same mesh key (macOS /tmp -> /private/tmp symlink would otherwise
+    // mismatch).
+    ref = repoRef(undefined, tmpRepo);
+    const repo = ref.path;
     const area = "src/lib/runner.ts";
     // 1. WRITE — two deliberately conflicting synthetic intents (different sessions).
     declareViaServer("canary-A", repo, area, "canary synthetic intent A");
@@ -113,8 +120,8 @@ export async function runCanary() {
     }
     return { ok: true, detail: `injected ${Buffer.byteLength(ctx)}B naming the conflicting session` };
   } finally {
-    // 4. CLEANUP — remove the throwaway repo's synthetic coord records + the repo.
-    cleanupRepo(repo);
+    // 4. CLEANUP — release the throwaway repo's synthetic coord records + the repo.
+    if (ref.key) await cleanupRepo(ref.key, ref.path);
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   }
 }

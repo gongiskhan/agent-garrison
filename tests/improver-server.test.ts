@@ -178,7 +178,7 @@ describe("S15 - run-now runs the orchestrator-policy rule", () => {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(
         path.join(dir, "evidence-index.json"),
-        JSON.stringify({ workKind: "full-feature", slices: [{ slice: "s1", gates: { test: { status: i === 3 ? "passed" : "failed" } } }] })
+        JSON.stringify({ flow: "full-feature", slices: [{ slice: "s1", gates: { test: { status: i === 3 ? "passed" : "failed" } } }] })
       );
     }
     proc = spawn("node", [SERVER], {

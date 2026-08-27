@@ -1,7 +1,8 @@
 // feedback-rule.mjs — the Improver's consumer of the feedback queue
-// (GARRISON-FLOW-V2 S8, D27). The Probe (probe/retrospective records) and the
-// gateway (conversational-override records) both append to ONE queue,
-// ~/.garrison/improver/feedback-queue.jsonl. This rule reads that queue and turns
+// (GARRISON-FLOW-V2 S8, D27). Three producers append to ONE queue, the state
+// service's `feedback_queue` table: the Probe (probe/retrospective
+// records), the gateway (conversational-override records), and the Decisions
+// panel (decision-verdict records). This rule reads that queue and turns
 // the operator's EXPLICIT answers into reviewable policy proposals — phase-plan
 // changes, matrix-cell effort steps, and kind-matcher reviews — routed through the
 // SAME review queue as every other Improver rule and rendered in the composer as
@@ -13,41 +14,37 @@
 //
 // The ANALYSIS is pure (analyzeFeedbackProposals) so it unit-tests without a
 // filesystem; the collector does the I/O.
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import { createHash } from "node:crypto";
+import { feedbackQueuePath as queuePath, readFeedbackQueue, liveRecords } from "./feedback-signals.mjs";
 
 const shortHash = (s) => createHash("sha256").update(String(s)).digest("hex").slice(0, 8);
 
 // ── Collector (I/O) ───────────────────────────────────────────────────────────
-function garrisonHome() {
-  const o = process.env.GARRISON_HOME;
-  return o && o.trim().length ? o : path.join(os.homedir(), ".garrison");
-}
+export { queuePath as feedbackQueuePath };
 
-export function feedbackQueuePath() {
-  return path.join(garrisonHome(), "improver", "feedback-queue.jsonl");
-}
-
-export function collectFeedback(file = feedbackQueuePath(), cap = 2000) {
-  if (!existsSync(file)) return [];
-  let text = "";
-  try {
-    text = readFileSync(file, "utf8");
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const line of text.split("\n")) {
-    if (!line.trim() || out.length >= cap) continue;
-    try {
-      out.push(JSON.parse(line));
-    } catch {
-      /* skip malformed line */
-    }
-  }
-  return out;
+/**
+ * The records this rule learns from: every queue line EXCEPT the ones a
+ * tombstone deletes.
+ *
+ * The delete path is what makes this filter load-bearing. A wrong inference is
+ * corrected by deleting the record that caused it (Signals view → DELETE
+ * /api/signals/:id, which appends a tombstone), and that correction is only real
+ * if the next nightly run stops counting the record. The tombstone join now runs
+ * in the service, so this consumer, the Signals API and the shell's autonomy
+ * bands read the same rows by construction rather than by three matching
+ * implementations.
+ *
+ * `cap` bounds the SURVIVING records rather than the raw rows: a deleted record
+ * must not go on consuming a slot it was removed from. It doubles as the read
+ * ceiling handed to the service.
+ *
+ * ASYNC since the queue became a service call; there is no file to read and no
+ * fallback if it is unreachable — the nightly run's caller logs and skips the
+ * rule rather than proposing from an evidence set it could not load.
+ */
+export async function collectFeedback({ client, cap = 2000 } = {}) {
+  const { entries } = await readFeedbackQueue({ client, limit: cap });
+  return liveRecords(entries).slice(0, cap);
 }
 
 // ── Pure analysis (D27) ───────────────────────────────────────────────────────
@@ -59,7 +56,7 @@ export function collectFeedback(file = feedbackQueuePath(), cap = 2000) {
 // separately rather than collapsed into the existing deeper/lighter axis (a
 // correction from haiku to opus is not "deeper", it is a different cell).
 const COMPUTE_DIMENSIONS = ["target", "model", "effort", "account"];
-const PLAN_DIMENSIONS = ["workKind", "phasesOff", "duty", "tier"];
+const PLAN_DIMENSIONS = ["flow", "phasesOff", "duty", "tier"];
 
 /** The first corrected dimension of a decision verdict, as {field, value}, or null
  *  when the user said it was wrong without saying what it should have been (still
@@ -106,7 +103,7 @@ function categorize(rec) {
 }
 
 function kindOf(rec) {
-  // A decision verdict groups by the CORRECTION, not by work kind: three verdicts
+  // A decision verdict groups by the CORRECTION, not by flow: three verdicts
   // all saying "this should have run on cc-opus-high" are one accumulating signal
   // about that dimension, while three verdicts about three different dimensions are
   // three separate observations that should not add up to a proposal.
@@ -114,11 +111,24 @@ function kindOf(rec) {
     const corrected = correctedDimension(rec);
     return corrected ? `${corrected.field}=${corrected.value}` : "(no counterfactual)";
   }
-  if (rec?.provenance === "override") return rec?.applied?.workKind || rec?.original?.workKind || "(unspecified)";
+  if (rec?.provenance === "override") return rec?.applied?.flow || rec?.original?.flow || "(unspecified)";
   return rec?.classification?.kind || "(unspecified)";
 }
 
-export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {}) {
+// The bar a tally must clear before it becomes a proposal. Exported so the
+// Signals view can tell the operator how far a given group still is from
+// producing one, instead of showing a row with no stated consequence.
+export const DEFAULT_MIN_SIGNAL = 2;
+
+/** What this rule makes of one record: its direction category (null = no signal)
+ *  and the group it accumulates into. The Signals view renders this so a row can
+ *  say which rule it feeds rather than just what it said. */
+export function describeFeedbackSignal(rec) {
+  const category = categorize(rec);
+  return { category, group: category ? kindOf(rec) : null, minSignal: DEFAULT_MIN_SIGNAL };
+}
+
+export function analyzeFeedbackProposals({ records = [], at, minSignal = DEFAULT_MIN_SIGNAL } = {}) {
   // tally[kind][category] = { count, provenances:Set, tiers:Set }
   const tally = new Map();
   for (const rec of records) {
@@ -147,7 +157,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} explicit ${provs} answers say ${kind} work should have gone DEEPER (fuller pipeline / stronger target).`,
         evidence,
-        diff: `workKinds["${kind}"].phasePlan / matrix cells — step ${kind} work UP toward the full pipeline (composer › Work kinds / Matrix)`,
+        diff: `flows["${kind}"].phasePlan / matrix cells — step ${kind} work UP toward the full pipeline (composer › Flows / Matrix)`,
         decision: `Give ${kind} work a fuller phase plan (or a stronger matrix target)?`,
         applyVia,
         at,
@@ -159,7 +169,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} explicit ${provs} answers say ${kind} work was too HEAVY (overkill / should have run less).`,
         evidence,
-        diff: `workKinds["${kind}"].phasePlan / matrix cells — step ${kind} work DOWN toward a lighter plan (composer › Work kinds / Matrix)`,
+        diff: `flows["${kind}"].phasePlan / matrix cells — step ${kind} work DOWN toward a lighter plan (composer › Flows / Matrix)`,
         decision: `Give ${kind} work a lighter phase plan (or a cheaper matrix target)?`,
         applyVia,
         at,
@@ -200,7 +210,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} decision verdicts say the orchestrator planned this work wrongly — the operator would have set ${field} to ${value}.`,
         evidence,
-        diff: `workKinds / phasePlans / tierDefinitions — make ${field} ${value} the default for this work (composer › Work kinds / Tiers)`,
+        diff: `flows / phasePlans / tierDefinitions — make ${field} ${value} the default for this work (composer › Flows / Tiers)`,
         decision: `Default ${field} to ${value} for this kind of work?`,
         applyVia,
         at,
@@ -212,7 +222,7 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
         targetClass: "orchestrator/policy",
         claim: `${count} "how did it go" answers report ${kind} work needed rework or took the wrong approach — its plan or skill bindings may be worth reviewing.`,
         evidence,
-        diff: `phaseSkills.bindings / workKinds["${kind}"] — review the phase plan + skill bindings ${kind} work runs through (composer › Work kinds / Phase skills)`,
+        diff: `phaseSkills.bindings / flows["${kind}"] — review the phase plan + skill bindings ${kind} work runs through (composer › Flows / Phase skills)`,
         decision: `Review the phase plan / skill bindings for ${kind} work?`,
         applyVia,
         at,
@@ -225,8 +235,8 @@ export function analyzeFeedbackProposals({ records = [], at, minSignal = 2 } = {
 }
 
 // Convenience: collect + analyze in one call (the improver run path).
-export function runFeedbackRule({ now, queueFile } = {}) {
-  const records = collectFeedback(queueFile);
+export async function runFeedbackRule({ now, client } = {}) {
+  const records = await collectFeedback({ client });
   return {
     proposals: analyzeFeedbackProposals({ records, at: now }),
     inputs: { records: records.length },

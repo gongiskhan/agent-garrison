@@ -52,7 +52,10 @@ export function resolveOptionIndex(question, label) {
  *
  * @param {{
  *   projectDir: string,
- *   onQuestion: (payload: {tool_use_id: string, name: string, questions: any[]}) => void,
+ *   onQuestion: (
+ *     payload: {tool_use_id: string, name: string, questions: any[]},
+ *     source: {transcriptPath: string}
+ *   ) => void,
  *   intervalMs?: number,
  *   logFn?: (e: object) => void,
  * }} opts
@@ -102,7 +105,14 @@ export function createAskQuestionWatcher({ projectDir, onQuestion, intervalMs = 
         if (seen.has(id)) continue;
         seen.add(id);
         try {
-          onQuestion?.({ ...q, tool_use_id: q.tool_use_id ?? id });
+          // The transcript is the durable session coordinate. Callers with
+          // concurrent sessions need it to route the question to the stream
+          // that owns this tool use; broadcasting by process-global "current
+          // turn" leaks one conversation's question into every open stream.
+          onQuestion?.(
+            { ...q, tool_use_id: q.tool_use_id ?? id },
+            { transcriptPath: file }
+          );
         } catch (err) {
           logFn?.({ kind: "ask-question-emit-failed", error: err?.message });
         }

@@ -5,7 +5,7 @@
 //   - listSkills(): the skills installed under ~/.claude/skills (each subdir with a
 //     SKILL.md), so the list-config skill field is a real list, not free text.
 // Read-only + best-effort: a missing dir / unreadable file just yields [].
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -32,8 +32,39 @@ export function readDevRoot() {
   return path.join(HOME, "dev");
 }
 
+// Fitting-local twin of the gateway's wire-safe project resolver. Cross-fitting
+// source imports are forbidden because a promoted/installed Kanban fitting must
+// remain self-contained, so tests pin this predicate to project-source.mjs.
+// Only a direct dev-root child NAME which resolves to a Git repository is
+// accepted; paths, traversal and symlink escapes never become a shell cwd.
+function isStrictlyInside(root, target) {
+  const rel = path.relative(root, target);
+  if (!rel) return false;
+  return !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+export function resolveProjectName(label, { devRoot = readDevRoot() } = {}) {
+  if (typeof label !== "string") return null;
+  const name = label.trim();
+  if (!name) return null;
+  if (name.includes("/") || name.includes("\\")) return null;
+  if (name.includes("..")) return null;
+  if (path.isAbsolute(name)) return null;
+  if (name.startsWith(".")) return null;
+
+  const root = expandHome(devRoot);
+  let realRoot;
+  try { realRoot = realpathSync(root); } catch { return null; }
+  let real;
+  try { real = realpathSync(path.join(realRoot, name)); } catch { return null; }
+  if (!isStrictlyInside(realRoot, real)) return null;
+  try { if (!statSync(real).isDirectory()) return null; } catch { return null; }
+  if (!existsSync(path.join(real, ".git"))) return null;
+  return real;
+}
+
 // Enumerate git repos directly under devRoot (one level, ".git" required) — the SAME
-// rule as dev-env's listProjects. Returns [{ name, path }] sorted by name.
+// acceptance rule as resolveProjectName. Returns [{ name, path }] sorted by name.
 export function listProjects(devRoot = readDevRoot()) {
   const root = expandHome(devRoot);
   if (!existsSync(root)) return [];
@@ -42,11 +73,9 @@ export function listProjects(devRoot = readDevRoot()) {
   const out = [];
   for (const e of entries) {
     if (!e.isDirectory() && !e.isSymbolicLink()) continue;
-    if (e.name.startsWith(".")) continue;
-    const p = path.join(root, e.name);
-    try { if (!statSync(p).isDirectory()) continue; } catch { continue; }
-    if (!existsSync(path.join(p, ".git"))) continue;
-    out.push({ name: e.name, path: p });
+    const projectPath = resolveProjectName(e.name, { devRoot: root });
+    if (!projectPath) continue;
+    out.push({ name: e.name, path: projectPath });
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
   return out;

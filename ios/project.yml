@@ -1,0 +1,129 @@
+name: Garrison
+options:
+  bundleIdPrefix: com.gomes
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+# ---------------------------------------------------------------------------
+# Team ID is read from the APPLE_TEAM_ID environment variable (CI sets it from
+# a secret; for local Mac builds either `export APPLE_TEAM_ID=XXXXXXXXXX` before
+# running xcodegen, or just pick your team in Xcode > Signing & Capabilities).
+# Required for App Groups + broadcast extension provisioning.
+# ---------------------------------------------------------------------------
+settings:
+  base:
+    DEVELOPMENT_TEAM: "${APPLE_TEAM_ID}"
+    # Manual signing driven by fastlane match. The CI runner imports the match
+    # Apple Distribution certificate + App Store profiles (named deterministically
+    # "match AppStore <bundle id>"); each target pins its profile below.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Apple Distribution"
+    # The sdk-qualified key is required: Xcode's built-in default
+    # CODE_SIGN_IDENTITY[sdk=iphoneos*] = "iPhone Developer" otherwise wins over
+    # the unqualified value above and the archive looks for a Development cert.
+    "CODE_SIGN_IDENTITY[sdk=iphoneos*]": "Apple Distribution"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  GarrisonApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: GarrisonApp
+        excludes:
+          - Resources
+      - path: GarrisonApp/Resources
+        buildPhase: resources
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gomes.garrison
+        INFOPLIST_FILE: GarrisonApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: GarrisonApp/GarrisonApp.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # App icon from Assets.xcassets/AppIcon.appiconset. actool injects
+        # CFBundleIconName into the built Info.plist (required for upload).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Signing pinned at TARGET level: xcodegen's preset injects a target
+        # CODE_SIGN_IDENTITY = "iPhone Developer" that overrides project-level
+        # settings, so the distribution identity must be set here too.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Distribution"
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": "Apple Distribution"
+        PROVISIONING_PROFILE_SPECIFIER: "match AppStore com.gomes.garrison"
+    dependencies:
+      - target: BroadcastExtension
+
+  BroadcastExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BroadcastExtension
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gomes.garrison.broadcast
+        INFOPLIST_FILE: BroadcastExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: BroadcastExtension/BroadcastExtension.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        # Same target-level signing override as GarrisonApp (see note above).
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Distribution"
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": "Apple Distribution"
+        PROVISIONING_PROFILE_SPECIFIER: "match AppStore com.gomes.garrison.broadcast"
+
+  GarrisonTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+      # The REAL BLE transport source, recompiled into the test target with
+      # PENDANT_MOCK_BLE so its CoreBluetooth surface maps onto the mock -
+      # the local copy shadows the @testable one (mock harness layer 2).
+      - path: GarrisonApp/Pendant/PendantBLETransport.swift
+    dependencies:
+      - target: GarrisonApp
+      # TEST-ONLY third-party dependency (ADR D11): Nordic's CoreBluetoothMock
+      # exercises the real PendantBLETransport against a scripted peripheral
+      # without radio. The shipping app targets stay zero-dependency.
+      - package: CoreBluetoothMock
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gomes.garrison.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PENDANT_MOCK_BLE"
+        # Tests run on the simulator only (CODE_SIGNING_ALLOWED=NO at
+        # invocation); the manual-signing project defaults must not apply.
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: ""
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": ""
+        PROVISIONING_PROFILE_SPECIFIER: ""
+
+packages:
+  CoreBluetoothMock:
+    url: https://github.com/NordicSemiconductor/IOS-CoreBluetooth-Mock.git
+    from: "0.18.0"
+
+# Explicit shared scheme so fastlane gym (build_app) can find "GarrisonApp".
+# Without this, xcodegen emits no shared scheme and only plain `xcodebuild`
+# (which auto-creates one) works — gym requires a real shared scheme.
+schemes:
+  GarrisonApp:
+    build:
+      targets:
+        GarrisonApp: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - GarrisonTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { ROOT_DIR } from "./paths";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
+import { stateClient, StateApiError, StateUnavailableError } from "./state-client";
 import { readComposition, selectedLibraryEntries } from "./compositions";
 import { computeKanbanResolvedModel } from "./kanban-model";
 import {
@@ -13,6 +14,7 @@ import {
   type RouterTarget,
   type RuntimeEntry
 } from "./runtime-selection";
+import { adoptFlowKeys } from "./flow-compat";
 import type { CompositionV4 } from "./compositions";
 import type { FittingSelectionMap, LibraryEntry } from "./types";
 
@@ -42,10 +44,11 @@ export type PolicyConfig = Record<string, unknown> & {
   profiles?: Record<string, unknown>;
   targets?: RouterTarget[];
   primaryRuntime?: string;
-  defaultWorkKind?: string;
-  workKinds?: Record<string, { phasePlan?: string; description?: string }>;
+  defaultFlow?: string;
+  flows?: Record<string, { phasePlan?: string; description?: string }>;
   projects?: Record<string, { security_sensitive?: boolean }>;
   uxQa?: { severityThreshold?: string };
+  dispatchInference?: { timeoutMs?: number; maxTokens?: number; clarityRubric?: string };
 };
 
 interface RoutingCore {
@@ -60,7 +63,7 @@ interface RoutingCore {
     profile: string | null,
     classification: { taskType: string; tier: string; matchedException?: string | null }
   ) => { targetId?: string; ruleId?: string; target?: Record<string, unknown> | null };
-  railFor: (c: unknown, workKind?: string | null) => TryItRail;
+  railFor: (c: unknown, flow?: string | null) => TryItRail;
   classifyExecution: (input: {
     message: string;
     classification: { taskType: string; tier: string };
@@ -104,8 +107,30 @@ export async function readRoutingPolicy(compositionDir: string): Promise<PolicyR
     await fs.mkdir(path.dirname(target), { recursive: true });
     await writeFileAtomic(target, raw);
   }
+  // MESH: refresh this node's materialisation when another node moved the
+  // authoritative document. Hash-compare before writing (the reconcile.ts
+  // echo-suppression pattern) — an unconditional rewrite would spin dev()'s
+  // chokidar watcher. Unreachable service degrades to the local file: reads
+  // must survive an outage even though writes refuse.
+  try {
+    const compositionId = path.basename(compositionDir);
+    const doc = await stateClient().getConfig("runtime.policy", `composition:${compositionId}`);
+    if (doc?.body) {
+      const docSerialized = JSON.stringify(doc.body, null, 2) + "\n";
+      if (docSerialized !== raw) {
+        await writeFileAtomic(target, docSerialized);
+        raw = docSerialized;
+      }
+    }
+  } catch {
+    // Service unreachable or node unenrolled — the local materialisation is
+    // the best truth available for a READ.
+  }
   const core = await loadRoutingCore();
-  let parsed = JSON.parse(raw) as unknown;
+  // Compat: a routing.json written before the 2026-08-09 flow rename still carries
+  // the retired spellings. Adopt them on read; only the new keys are ever written
+  // back (see src/lib/flow-compat.ts, which is the only place they are named).
+  let parsed = adoptFlowKeys(JSON.parse(raw) as unknown);
   if (!core.isV2(parsed)) {
     const migrated = core.migrateRoutingConfig(parsed);
     const backup = `${target}.v1.bak`;
@@ -128,14 +153,14 @@ export async function readRoutingPolicy(compositionDir: string): Promise<PolicyR
 // the fitting seed — served, not persisted: the baselineSha stays over the
 // disk bytes, and the next accepted whole-document write heals the file.
 //
-// The phase machinery (phases / workKinds / phasePlans / phaseSkills /
-// defaultWorkKind) backfills as ONE coherent group, and only when the config
-// carries no work kinds and no phase plans of its own: seed phase-skill
+// The phase machinery (phases / flows / phasePlans / phaseSkills /
+// defaultFlow) backfills as ONE coherent group, and only when the config
+// carries no flows and no phase plans of its own: seed phase-skill
 // bindings reference seed phases (e.g. security-review), so filling one member
 // against a config's own phase list produces a config that fails its own
 // validation.
-const INDEPENDENT_SECTIONS = ["coordination", "uxQa", "projects"] as const;
-const PHASE_GROUP = ["phases", "workKinds", "phasePlans", "phaseSkills", "defaultWorkKind"] as const;
+const INDEPENDENT_SECTIONS = ["dispatchInference", "coordination", "uxQa", "projects"] as const;
+const PHASE_GROUP = ["phases", "flows", "phasePlans", "phaseSkills", "defaultFlow"] as const;
 
 function sectionEmpty(value: unknown): boolean {
   if (value === undefined || value === null) return true;
@@ -159,7 +184,7 @@ function sectionEmpty(value: unknown): boolean {
 
 async function backfillSeedSections(config: PolicyConfig): Promise<PolicyConfig> {
   const missingIndependent = INDEPENDENT_SECTIONS.filter((key) => sectionEmpty(config[key]));
-  const phaseGroupEmpty = sectionEmpty(config.workKinds) && sectionEmpty(config["phasePlans"]);
+  const phaseGroupEmpty = sectionEmpty(config.flows) && sectionEmpty(config["phasePlans"]);
   if (missingIndependent.length === 0 && !phaseGroupEmpty) return config;
   const seed = JSON.parse(await fs.readFile(SEED_ROUTING_PATH, "utf8")) as Record<string, unknown>;
   const next: Record<string, unknown> = { ...config };
@@ -295,6 +320,38 @@ export async function writeRoutingPolicyForComposition(
   }
 
   const serialized = JSON.stringify(next, null, 2) + "\n";
+
+  // MESH: the state service holds the authoritative policy document; the file
+  // below is this node's materialisation (the gateway still reads the file at
+  // spawn). Service first — a policy write that cannot reach shared state
+  // FAILS rather than forking this node's file from the mesh (a local-only
+  // write would be a silent split-brain, which is worse than a clear stop).
+  try {
+    const client = stateClient();
+    const scope = `composition:${composition.id}`;
+    const currentDoc = await client.getConfig("runtime.policy", scope);
+    await client.putConfig("runtime.policy", scope, next, {
+      ifMatchRev: currentDoc?.rev ?? 0
+    });
+  } catch (err) {
+    if (err instanceof StateApiError && err.status === 409) {
+      // Another node changed the policy since this node last materialised it.
+      const theirs = (err.body as { body?: unknown }).body;
+      const theirsSerialized = JSON.stringify(theirs, null, 2) + "\n";
+      await writeFileAtomic(scopedRoutingPath(composition.directory), theirsSerialized);
+      return { status: "conflict", currentSha: sha256(theirsSerialized) };
+    }
+    if (err instanceof StateUnavailableError) {
+      return {
+        status: "invalid",
+        errors: [
+          `state service unreachable (${err.url}) — policy writes go through the mesh; retry when it is back`
+        ]
+      };
+    }
+    throw err;
+  }
+
   await writeFileAtomic(scopedRoutingPath(composition.directory), serialized);
   const policyFile =
     process.env.GARRISON_POLICY_PATH ?? path.join(garrisonDir(), "orchestrator", "policy.json");
@@ -331,7 +388,7 @@ export interface TryItGates {
 
 export interface TryItResult {
   classification: { taskType: string; tier: string; matchedException: string | null; execution: string };
-  workKind: string | null;
+  flow: string | null;
   project: string | null;
   rail: TryItRail | { error: string } | null;
   gates: TryItGates | null;
@@ -347,8 +404,11 @@ export function heuristicClassify(prompt: string): {
 } {
   const p = String(prompt || "").toLowerCase();
   const has = (...ws: string[]) => ws.some((w) => p.includes(w));
-  let taskType = "code";
+  // `implement` is the default since `code` was retired into it (2026-08-09) —
+  // they named the same work, one as a lane and one as a phase.
+  let taskType = "implement";
   if (has("research", "investigate", "compare", "find out", "look into")) taskType = "research";
+  else if (has("let's talk", "let us talk", "discuss", "thoughts on", "what do you think")) taskType = "discuss";
   else if (has("review", "audit")) taskType = "review";
   else if (has("unit test", "e2e", "add a test", "write tests", "test coverage")) taskType = "test";
   else if (has("logo", "icon", "image", "picture", "diagram")) taskType = "image";
@@ -366,19 +426,19 @@ export function heuristicClassify(prompt: string): {
 }
 
 // Gate reasoning for a dry-run request: whether security-review and ux-qa
-// WOULD run for this work kind + project, and why. Pure over the passed config
+// WOULD run for this flow + project, and why. Pure over the passed config
 // + base rail.
 function tryItGates(
   config: PolicyConfig,
   baseRail: TryItRail | null,
-  workKind: string | null,
+  flow: string | null,
   projectLabel: string | null
 ): TryItGates {
   const phaseOn = (id: string) => {
     const p = (baseRail?.phases || []).find((x) => x.id === id);
     return !!(p && p.on);
   };
-  const kindLabel = workKind || config.defaultWorkKind || "the selected work kind";
+  const kindLabel = flow || config.defaultFlow || "the selected flow";
 
   const byPlanSec = phaseOn("security-review");
   const project = projectLabel && config.projects ? config.projects[projectLabel] : null;
@@ -415,11 +475,11 @@ export type SimulateOutcome =
   | { status: "unknown-profile"; profile: string; known: string[] };
 
 // Deterministic dry-run: heuristic classification + the fully-resolved phase
-// rail for the chosen work kind. Every ON chip is enriched with the target it
+// rail for the chosen flow. Every ON chip is enriched with the target it
 // resolves to at the classified tier; OFF chips stay in the rail (honesty).
 export async function simulateTryIt(
   compositionDir: string,
-  input: { prompt: string; workKind?: string | null; project?: string | null }
+  input: { prompt: string; flow?: string | null; project?: string | null }
 ): Promise<SimulateOutcome> {
   const { config } = await readRoutingPolicy(compositionDir);
   const core = await loadRoutingCore();
@@ -432,13 +492,13 @@ export async function simulateTryIt(
     message: String(input.prompt || ""),
     classification
   });
-  const workKind = input.workKind || config.defaultWorkKind || null;
+  const flow = input.flow || config.defaultFlow || null;
   const project = typeof input.project === "string" && input.project ? input.project : null;
   let rail: TryItRail | { error: string };
   let gates: TryItGates | null = null;
   try {
-    const base = core.railFor(config, workKind);
-    gates = tryItGates(config, base, workKind, project);
+    const base = core.railFor(config, flow);
+    gates = tryItGates(config, base, flow, project);
     rail = {
       ...base,
       phases: base.phases.map((ph) => {
@@ -466,7 +526,7 @@ export async function simulateTryIt(
     status: "ok",
     result: {
       classification: { ...classification, execution },
-      workKind,
+      flow,
       project,
       rail,
       gates,

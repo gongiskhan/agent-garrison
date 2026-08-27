@@ -40,6 +40,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 45 * 1000;
+const NATIVE_EFFORTS = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
 
 function canonicalisedCwd(p) {
   try {
@@ -379,6 +380,9 @@ function stripNestingMarkers(env, { keepProvider = false } = {}) {
  * @returns {Promise<{reply: string, sessionId: string|null}>}
  */
 export async function oneShotTurn(opts) {
+  if (opts.effort !== undefined && !NATIVE_EFFORTS.has(opts.effort)) {
+    throw new RangeError(`unsupported Claude effort: ${String(opts.effort)}`);
+  }
   const session = await OperativePtySession.spawn({
     compositionDir: opts.cwd,
     appendSystemPromptFile: opts.appendSystemPromptFile,
@@ -386,28 +390,46 @@ export async function oneShotTurn(opts) {
     permissionMode: opts.permissionMode ?? "bypassPermissions",
     claudeBinary: opts.claudeBinary,
     env: opts.env,
+    providerLaunch: opts.providerLaunch,
     cols: opts.cols,
     rows: opts.rows,
     readinessTimeoutMs: opts.readinessTimeoutMs,
     spawnImpl: opts.spawnImpl,
     extraArgs: opts.extraArgs,
   });
-  // Optional peek at the disposable session (e.g. to build a streaming reply
-  // extractor over its handle). The session is disposed below regardless.
-  if (typeof opts.onSession === "function") {
-    try {
-      opts.onSession(session);
-    } catch {
-      /* observer errors never break the turn */
-    }
-  }
   try {
+    let effortApplied = null;
+    if (opts.effort !== undefined) {
+      // Effort is a native TUI control, never a phrase prepended to user text.
+      // Apply it before exposing the session to Stop registration so a Stop
+      // cannot interrupt this settle and then let the future user input through.
+      // The strict vocabulary above is the injection boundary.
+      session.writeKeys(`/effort ${opts.effort}\r`);
+      await sleep(Number.isFinite(opts.effortSettleMs) ? Math.max(0, opts.effortSettleMs) : 250);
+      effortApplied = true;
+    }
+    // Optional peek at the disposable session (e.g. to build a streaming reply
+    // extractor or register its Stop primitive). Publish it only after native
+    // controls settle, immediately before runTurn: a caller with a latched Stop
+    // can dispose synchronously here, and runTurn's disposed guard then prevents
+    // any user-message bytes from being submitted. The gateway's typed
+    // pre-runtime interrupt sentinel must propagate so the exact input settles as
+    // stopped rather than as a runtime failure; ordinary observer errors remain
+    // non-fatal. The session is always disposed below regardless.
+    if (typeof opts.onSession === "function") {
+      try {
+        opts.onSession(session);
+      } catch (error) {
+        if (error?.code === "turn_interrupted_before_runtime") throw error;
+        /* observer errors never break the turn */
+      }
+    }
     const outcome = await session.runTurn({
       message: opts.message,
       timeoutMs: opts.timeoutMs,
       onScreen: opts.onScreen,
     });
-    return { reply: outcome.reply, sessionId: outcome.sessionId };
+    return { reply: outcome.reply, sessionId: outcome.sessionId, effortApplied };
   } finally {
     session.dispose();
   }

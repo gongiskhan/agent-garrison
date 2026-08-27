@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  category: Operations
   # RUNTIME-ACCOUNTS-V1 D6 (best-effort, untested): OpenCode native login.
   login:
     command: opencode auth login
@@ -27,17 +28,16 @@ x-garrison:
     runtime-bridge exposing the uniform delegate(task_spec) -> {summary,
     artifacts} tool. The orchestrator routes `secondary:opencode` tasks here; the
     primary calls the bridge, OpenCode does the work in its own loop against any
-    configured provider (hosted `opencode/*` catalog or a local Ollama), and
+    explicitly configured provider, and
     returns a self-contained result + artifact paths. Multi-turn continuity comes
     from OpenCode's own `-s <sessionId>` resume - no standing server needed.
   config_schema:
     - key: model
       type: string
-      default: ollama-local/qwen2.5:3b
+      default: ''
       description: >-
-        Default OpenCode model for delegated tasks, in provider/model form (e.g.
-        ollama-local/qwen2.5:3b, opencode/deepseek-v4-flash-free). The provider
-        half must exist in ~/.config/opencode/opencode.json.
+        Optional OpenCode model for delegated tasks, in provider/model form. When
+        blank, OpenCode uses the model selected in its own native configuration.
   provides:
     - kind: runtime
       name: opencode
@@ -93,8 +93,9 @@ x-garrison:
     passed via STDIN (never argv). Per turn the bridge runs a stateless
     `opencode run --format json --auto -m <provider/model>` subprocess with the
     prompt on stdin, capturing the minted session id so follow-up turns resume it
-    with `-s`. `model` is provider/model (e.g. ollama-local/qwen2.5:3b); the
-    provider half must be configured in ~/.config/opencode/opencode.json. Full
+    with `-s`. An explicit `model` is provider/model; the provider half must be
+    configured in ~/.config/opencode/opencode.json. When omitted, OpenCode uses
+    its own configured default. Full
     output lands in the Artifact Store; the return is a schema-validated summary +
     artifact paths; every delegation is appended to decisions.jsonl. No
     machine-wide lock is needed - OpenCode has no shared-token revocation issue.
@@ -108,24 +109,7 @@ x-garrison:
     OpenCode's summarize/compact. So a delegated OpenCode turn reports no context %, no
     peak context, and no compactions today.
 
-    Provider wiring (opencode.json). OpenCode ships hosted models (the
-    `opencode/*` catalog, some free) and speaks to any OpenAI-compatible endpoint
-    via @ai-sdk/openai-compatible. The default `ollama-local` provider below
-    points at a local Ollama daemon - no credentials, fully offline:
-
-        {
-          "$schema": "https://opencode.ai/config.json",
-          "provider": {
-            "ollama-local": {
-              "npm": "@ai-sdk/openai-compatible",
-              "name": "Ollama (local)",
-              "options": { "baseURL": "http://127.0.0.1:11434/v1" },
-              "models": { "qwen2.5:3b": { "name": "Qwen2.5 3B (local)" } }
-            }
-          },
-          "model": "ollama-local/qwen2.5:3b"
-        }
-
-    Swap `model` (or pass task_spec.model) to any provider/model you have
-    configured - a hosted `opencode/*` model, an Anthropic/OpenAI key-backed
-    provider, or another local endpoint.
+    Provider wiring (opencode.json). OpenCode owns provider authentication and
+    its native default model. Garrison does not seed a provider or silently start
+    a local service. Set `model` (or pass task_spec.model) only to select a
+    provider/model already configured and authenticated in OpenCode.

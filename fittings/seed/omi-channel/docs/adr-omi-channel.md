@@ -18,8 +18,8 @@ without `own_port` is precisely why it never runs. The runner projects
 `GARRISON_GATEWAY_URL`, `GARRISON_BASE_URL`, `GARRISON_COMPOSITION_ID/DIR`,
 and the `secret_scope` vault keys (`OMI_APP_ID`, `OMI_APP_SECRET`,
 `OMI_IMPORT_API_KEY`, `OMI_WEBHOOK_SECRET`) into the spawn env. All feature
-flags are `config_schema` booleans defaulting false (`routing_on_primary`
-precedent: off = byte-identical, inert server).
+flags are `config_schema` booleans defaulting false (off = byte-identical,
+inert server).
 
 ## Ingress: Tailscale Funnel on port 8443 (decided)
 
@@ -108,12 +108,12 @@ skips with a logged reason):
   confirmation with deep link; note → memory write; query → bounded
   blocking `/chat` answer pushed back as a notification; create_event /
   fallthrough → a turn on channel "omi" (D19 auto-carding applies to
-  task-shaped turns, which is correct for "Gary, go do X").
-- **ask_gary (M5)**: blocking `POST /chat` with the T0-trivial hint,
+  task-shaped turns, which is correct for "Zeca, go do X").
+- **ask_zeca (M5)**: blocking `POST /chat` with the T0-trivial hint,
   `suppressContinuations: true`, and a client AbortController at ~9s (the
   agent-sdk lane ignores `timeoutMs`; the turn chain is serialized, so a
-  busy operative degrades to a friendly "Gary is mid-task" partial answer).
-  `garrison-call` is rejected for ask_gary: no memory, no skills, no
+  busy operative degrades to a friendly "Zeca is mid-task" partial answer).
+  `garrison-call` is rejected for ask_zeca: no memory, no skills, no
   orchestrator context — it would violate the single-brain spirit.
 
 ## Outbound: in-fitting Omi client + the two real notification seams (decided)

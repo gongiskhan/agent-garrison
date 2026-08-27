@@ -1,6 +1,6 @@
 ---
 name: duty-image
-description: Produce an image from a text prompt. The image-production duty — no image path existed in the composition before, so this is the simplest HONEST working path: invoke an image-capable model the operative can already reach (the gemini runtime, or an image MCP tool) with the prompt and save the result to the artifact store. Use when a change or task needs a generated image (a diagram, an illustration, a mockup asset) from a description.
+description: Produce an image from a text prompt. The image-production duty — no image path existed in the composition before, so this is the simplest HONEST working path: invoke an image-capable model the session can already reach (the gemini runtime, or an image MCP tool) with the prompt and save the result to the artifact store. Use when a change or task needs a generated image (a diagram, an illustration, a mockup asset) from a description.
 ---
 
 # Image duty
@@ -11,7 +11,7 @@ automated generation service.
 
 ## The path
 
-1. **Pick an image-capable model the operative can reach.**
+1. **Pick an image-capable model the session can reach.**
    - **Default: the gemini runtime.** The `gemini` CLI ships with the
      gemini-runtime fitting. Use an image-generation model (e.g. an Imagen model) —
      the general text model (`gemini-2.5-flash`) does not generate images, so name

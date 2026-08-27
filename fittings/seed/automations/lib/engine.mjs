@@ -157,20 +157,35 @@ function defaultRunCommand({ command, argv, cwd, timeoutMs = 300000, onChunk }) 
 // it at a different model than the caller's default vision resolution — the
 // mechanism R12's "a different model set in the composition" needs, with no
 // caller-specific naming baked into the engine itself.
-async function visionResolve(observation, step, mode, contextTag, fetchImpl = globalThis.fetch, onMeta = null) {
-  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+async function visionResolve(observation, step, mode, contextTag, fetchImpl = globalThis.fetch, onMeta = null, sleepMs = (ms) => new Promise((r) => setTimeout(r, ms))) {
+  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
   let res;
-  try {
-    res = await fetchImpl(`${base}/api/automations/vision`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-garrison-internal": internalToken() },
-      body: JSON.stringify({ observation, step, mode, contextTag })
-    });
-  } catch (cause) {
-    const error = new Error(`vision connection failed: ${cause instanceof Error ? cause.message : String(cause)}`);
-    error.failure = { class: "infrastructure", component: "vision", code: "vision-transport", retryable: true };
-    error.recoverable = false;
-    throw error;
+  // A transport failure here is usually NOT an outage: the gateway answers
+  // turns one at a time, so a single long conversation turn holds the lane
+  // past undici's 300s header deadline and the fetch dies seconds before the
+  // lane frees (live-fire 2026-08-07: a 5-minute streaming chat turn killed a
+  // 359-check run at check 37). Retry the call in place - the queued lane is
+  // typically free by then - and only a persistent failure escalates to the
+  // circuit-opening infrastructure error.
+  const attemptDelaysMs = [3000, 15000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetchImpl(`${base}/api/automations/vision`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-garrison-internal": internalToken() },
+        body: JSON.stringify({ observation, step, mode, contextTag })
+      });
+      break;
+    } catch (cause) {
+      if (attempt < attemptDelaysMs.length) {
+        await sleepMs(attemptDelaysMs[attempt]);
+        continue;
+      }
+      const error = new Error(`vision connection failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      error.failure = { class: "infrastructure", component: "vision", code: "vision-transport", retryable: true };
+      error.recoverable = false;
+      throw error;
+    }
   }
   if (!res.ok) {
     let detail = "";
@@ -749,3 +764,6 @@ export async function runAutomationMatrix(opts) {
 }
 
 export { getAutomation };
+// Exported for the transport-retry regression test only - production callers go
+// through makeLiveRunBrowser's deps.
+export { visionResolve };

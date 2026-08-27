@@ -5,7 +5,8 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
-  faculty: skills
+  faculty: building
+  category: Building
   cardinality_hint: multi
   component_shape: skill
   ui:
@@ -16,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Plan-then-execute coding sub-agent. The Operative produces a plan against a project, captures it as a Document, and on user approval spawns an execution sub-agent in the project folder.
+  summary: Plan-then-execute coding sub-agent. The session produces a plan against a project, captures it as a Document, and on user approval spawns an execution sub-agent in the project folder.
   for_consumers: |
     Use coding-subagent to plan and execute substantial coding work on
     real projects under ~/Projects/.
@@ -78,16 +79,8 @@ x-garrison:
       type: integer
       default: 200
       description: Max turns for the execution sub-agent. Real work needs headroom.
-  provides:
-    - kind: agent-skill
-      name: coding-subagent
-  consumes:
-    - kind: agent-skill
-      name: projects-index
-      cardinality: one
-    - kind: agent-skill
-      name: project-documents
-      cardinality: one
+  provides: []
+  consumes: []
   setup:
     command: bash scripts/setup.sh
     idempotent: true

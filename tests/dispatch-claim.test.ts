@@ -4,7 +4,7 @@
 // same card, or whether a card can be stranded on a dead one. They are pure
 // functions precisely so they can be tested without a board, a worker, or a Mac.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   claimability,
   findExpiredClaims,
@@ -12,10 +12,25 @@ import {
   parsePlacement,
   selectClaimable,
   buildJob,
+  buildDutyPrompt,
+  claimRevisionMatches,
   DISPATCH_LEASE_SECONDS,
   type CardDispatch,
   type ClaimableCard
 } from "@/lib/dispatch";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const NOW = Date.parse("2026-07-27T12:00:00.000Z");
 const MACHINE = "goncalos-mac-mini-1";
@@ -25,11 +40,18 @@ function card(over: Partial<ClaimableCard> = {}): ClaimableCard {
     id: "01KY000000000000000000001",
     title: "stub",
     list: "implement",
+    level: 2,
+    sequence: ["implement", "review", "done"],
     project: "garrison",
+    scope: "project",
     rev: 3,
     placement: { target: MACHINE },
     dispatch: null,
     command: "echo hi",
+    description: null,
+    acceptance: null,
+    duty: null,
+    goalMode: false,
     ...over
   };
 }
@@ -69,10 +91,13 @@ describe("claimability", () => {
     expect(claimability(card(), MACHINE, NOW).claimable).toBe(true);
   });
 
-  it("never claims a host-targeted card", () => {
+  // The pre-mesh literal. A card filed before the rename still carries
+  // `placement.target: "host"` and must still read as "runs where it was
+  // filed", never as claimable by a peer.
+  it("never claims a self-targeted card", () => {
     const verdict = claimability(card({ placement: { target: "host" } }), MACHINE, NOW);
     expect(verdict.claimable).toBe(false);
-    expect(verdict.reason).toContain("host");
+    expect(verdict.reason).toContain("this node");
   });
 
   it("never claims another machine's card", () => {
@@ -181,16 +206,79 @@ describe("findExpiredClaims", () => {
 });
 
 describe("buildJob", () => {
-  it("refuses to build a job with no runnable payload", () => {
-    // Handing a worker a job it cannot execute would burn a claim and a lease
-    // for nothing.
-    expect(buildJob(card({ command: null }))).toBeNull();
-  });
-
   it("carries the command and the lease terms", () => {
-    const job = buildJob(card())!;
+    const job = buildJob(card(), { claimRevision: 4 })!;
     expect(job.run).toEqual({ kind: "command", command: "echo hi" });
     expect(job.leaseSeconds).toBe(DISPATCH_LEASE_SECONDS);
     expect(job.heartbeatSeconds).toBeLessThan(job.leaseSeconds);
+    expect(job.claimRevision).toBe(4);
+    expect(job.scope).toBe("project");
+  });
+
+  // A literal command was once the ONLY runnable payload: buildJob returned null
+  // for anything else, so an agentic card placed on a machine was skipped
+  // forever - the worker polled, saw nothing claimable, and the card sat on the
+  // board looking dispatched while nothing intended to run it.
+  it("builds a DUTY run for an agentic card (no literal command)", () => {
+    const job = buildJob(card({ command: null, duty: "implement" }))!;
+    expect(job).not.toBeNull();
+    expect(job.run.kind).toBe("duty");
+    if (job.run.kind !== "duty") throw new Error("expected a duty run");
+    expect(job.run.duty).toBe("implement");
+    expect(job.run.prompt).toContain("stub");        // the title
+    expect(job.run.prompt).toContain("garrison");    // the project
+  });
+
+  it("falls back to the card's list when it names no duty", () => {
+    const job = buildJob(card({ command: null, duty: null, list: "review" }))!;
+    if (job.run.kind !== "duty") throw new Error("expected a duty run");
+    expect(job.run.duty).toBe("review");
+  });
+
+  it("prefers an explicit command over the duty lane", () => {
+    // The zero-token stub lane stays the cheapest way to smoke test a machine.
+    const job = buildJob(card({ command: "echo probe", duty: "implement" }))!;
+    expect(job.run).toEqual({ kind: "command", command: "echo probe" });
+  });
+
+  it("carries personal scope so the worker selects its managed workspace", () => {
+    const job = buildJob(card({ project: null, scope: "personal", command: null, duty: "plan" }))!;
+    expect(job.scope).toBe("personal");
+    expect(job.project).toBeNull();
+  });
+});
+
+describe("claim revision identity", () => {
+  it("accepts only the revision tracked by the active claim", () => {
+    const dispatch = claim({ claimRevision: 7 });
+    expect(claimRevisionMatches(7, dispatch)).toBe(true);
+    expect(claimRevisionMatches(8, dispatch)).toBe(false);
+    expect(claimRevisionMatches(7, claim({ claimRevision: undefined }))).toBe(false);
+  });
+});
+
+describe("buildDutyPrompt", () => {
+  it("states the work item, acceptance, and where the agent is running", () => {
+    const p = buildDutyPrompt(card({
+      command: null,
+      title: "Add a health endpoint",
+      description: "Return 200 with a version string.",
+      acceptance: "GET /health returns 200."
+    }));
+    expect(p).toContain("# Work item: Add a health endpoint");
+    expect(p).toContain("Return 200 with a version string.");
+    expect(p).toContain("# Acceptance");
+    expect(p).toContain("GET /health returns 200.");
+    expect(p).toContain("running on a Garrison node");
+  });
+
+  it("says the project must be inferred when the card has none", () => {
+    const p = buildDutyPrompt(card({ command: null, project: null }));
+    expect(p).toMatch(/none assigned/i);
+  });
+
+  it("never leaves a goalMode card without a definition of done", () => {
+    const p = buildDutyPrompt(card({ command: null, goalMode: true, acceptance: null }));
+    expect(p).toContain("# Acceptance");
   });
 });

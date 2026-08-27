@@ -1,0 +1,808 @@
+{
+  "schemaVersion": 1,
+  "source": "Claude Agent SDK 0.3.179",
+  "model": "claude-opus-5",
+  "prompt": "In the current scratch directory, use Write to create fixture-note.txt containing exactly WEB_PARITY_FIXTURE, then use Read to read it. Use exactly those two tool calls in that order. Finally reply with only the text you read.",
+  "expected": {
+    "minimumToolCalls": 2,
+    "toolNames": [
+      "Write",
+      "Read"
+    ],
+    "hasPartialMessages": true,
+    "hasTerminalResult": true
+  },
+  "messages": [
+    {
+      "type": "system",
+      "subtype": "hook_started",
+      "uuid": "uuid-1",
+      "session_id": "session-2"
+    },
+    {
+      "type": "system",
+      "subtype": "hook_started",
+      "uuid": "uuid-3",
+      "session_id": "session-2"
+    },
+    {
+      "type": "system",
+      "subtype": "hook_started",
+      "uuid": "uuid-4",
+      "session_id": "session-2"
+    },
+    {
+      "type": "system",
+      "subtype": "hook_started",
+      "uuid": "uuid-5",
+      "session_id": "session-2"
+    },
+    {
+      "type": "system",
+      "subtype": "hook_response",
+      "uuid": "uuid-6",
+      "session_id": "session-2"
+    },
+    {
+      "type": "system",
+      "subtype": "hook_response",
+      "uuid": "uuid-7",
+      "session_id": "session-2"
+    },
+    {
+      "type": "system",
+      "subtype": "hook_response",
+      "uuid": "uuid-8",
+      "session_id": "session-2"
+    },
+    {
+      "type": "system",
+      "subtype": "hook_response",
+      "uuid": "uuid-9",
+      "session_id": "session-2"
+    },
+    {
+      "type": "system",
+      "subtype": "init",
+      "uuid": "uuid-10",
+      "session_id": "session-2",
+      "model": "claude-opus-5",
+      "tools": [
+        "AskUserQuestion",
+        "CronCreate",
+        "CronDelete",
+        "CronList",
+        "DesignSync",
+        "EnterPlanMode",
+        "EnterWorktree",
+        "ExitPlanMode",
+        "ExitWorktree",
+        "Monitor",
+        "PushNotification",
+        "Read",
+        "RemoteTrigger",
+        "ScheduleWakeup",
+        "SendMessage",
+        "TaskCreate",
+        "TaskGet",
+        "TaskList",
+        "TaskUpdate",
+        "ToolSearch",
+        "Workflow",
+        "Write",
+        "mcp__codegraph__codegraph_explore",
+        "mcp__coord-mcp__begin_planning",
+        "mcp__coord-mcp__coord_digest",
+        "mcp__coord-mcp__declare_intent",
+        "mcp__coord-mcp__end_planning",
+        "mcp__coord-mcp__plan_heartbeat",
+        "mcp__coord-mcp__plan_status",
+        "mcp__coord-mcp__release_intents",
+        "mcp__drill-results__results_add_step",
+        "mcp__drill-results__results_attach_media",
+        "mcp__drill-results__results_finalize_run",
+        "mcp__drill-results__results_list_runs",
+        "mcp__drill-results__results_open_run"
+      ],
+      "mcp_servers": [
+        {
+          "name": "codegraph",
+          "status": "connected"
+        },
+        {
+          "name": "basic-memory",
+          "status": "pending"
+        },
+        {
+          "name": "coord-agentmail",
+          "status": "failed"
+        },
+        {
+          "name": "coord-mcp",
+          "status": "connected"
+        },
+        {
+          "name": "dup",
+          "status": "failed"
+        },
+        {
+          "name": "omi",
+          "status": "pending"
+        },
+        {
+          "name": "drill-results",
+          "status": "connected"
+        }
+      ]
+    },
+    {
+      "type": "system",
+      "subtype": "status",
+      "uuid": "uuid-11",
+      "session_id": "session-2"
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-12",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-opus-5",
+          "id": "message-13",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "stop_details": null,
+          "usage": {
+            "input_tokens": 1303,
+            "cache_creation_input_tokens": 15546,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 15546
+            },
+            "output_tokens": 14,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          },
+          "diagnostics": null
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-14",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "tool_use",
+          "id": "tool-15",
+          "name": "Write",
+          "input": {},
+          "caller": {
+            "type": "direct"
+          }
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-16",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": ""
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-17",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "{\"file_path\": \"<scratch>/fixture-note.txt"
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-18",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "\", \"content\": \"WEB_PARITY_FIXTURE"
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-19",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "\"}"
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "uuid": "uuid-20",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "message": {
+        "model": "claude-opus-5",
+        "id": "message-13",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tool-15",
+            "name": "Write",
+            "input": {
+              "file_path": "<scratch>/fixture-note.txt",
+              "content": "WEB_PARITY_FIXTURE"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "stop_details": null,
+        "usage": {
+          "input_tokens": 1303,
+          "cache_creation_input_tokens": 15546,
+          "cache_read_input_tokens": 0,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 15546
+          },
+          "output_tokens": 14,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "diagnostics": null,
+        "context_management": null
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-21",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-22",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "tool_use",
+          "stop_sequence": null,
+          "stop_details": null
+        },
+        "usage": {
+          "input_tokens": 1303,
+          "cache_creation_input_tokens": 15546,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 111,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "iterations": [
+            {
+              "input_tokens": 1303,
+              "output_tokens": 111,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 15546,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 15546
+              },
+              "type": "message"
+            }
+          ]
+        },
+        "context_management": {
+          "applied_edits": []
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-23",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_stop"
+      }
+    },
+    {
+      "type": "rate_limit_event",
+      "rate_limit_info": {
+        "status": "allowed",
+        "resetsAt": 1786881000,
+        "rateLimitType": "five_hour",
+        "overageStatus": "allowed",
+        "overageResetsAt": 1788220800,
+        "isUsingOverage": false
+      },
+      "uuid": "uuid-24",
+      "session_id": "session-2"
+    },
+    {
+      "type": "user",
+      "uuid": "uuid-25",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "tool_use_id": "tool-15",
+            "type": "tool_result",
+            "content": "File created successfully at: <scratch>/fixture-note.txt (file state is current in your context — no need to Read it back)"
+          }
+        ]
+      }
+    },
+    {
+      "type": "system",
+      "subtype": "status",
+      "uuid": "uuid-26",
+      "session_id": "session-2"
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-27",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-opus-5",
+          "id": "message-28",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "stop_details": null,
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 1470,
+            "cache_read_input_tokens": 15546,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 1470
+            },
+            "output_tokens": 17,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          },
+          "diagnostics": null
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-29",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "tool_use",
+          "id": "tool-30",
+          "name": "Read",
+          "input": {},
+          "caller": {
+            "type": "direct"
+          }
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-31",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": ""
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-32",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "{\"file_path\": \"/tmp/"
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-33",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "garrison-web-parity"
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-34",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "-RRfvbG/fixture-note.txt"
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-35",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "\"}"
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "uuid": "uuid-36",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "message": {
+        "model": "claude-opus-5",
+        "id": "message-28",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tool-30",
+            "name": "Read",
+            "input": {
+              "file_path": "<scratch>/fixture-note.txt"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "stop_details": null,
+        "usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 1470,
+          "cache_read_input_tokens": 15546,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 1470
+          },
+          "output_tokens": 17,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "diagnostics": null,
+        "context_management": null
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-37",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-38",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "tool_use",
+          "stop_sequence": null,
+          "stop_details": null
+        },
+        "usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 1470,
+          "cache_read_input_tokens": 15546,
+          "output_tokens": 76,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 76,
+              "cache_read_input_tokens": 15546,
+              "cache_creation_input_tokens": 1470,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 1470
+              },
+              "type": "message"
+            }
+          ]
+        },
+        "context_management": {
+          "applied_edits": []
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-39",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_stop"
+      }
+    },
+    {
+      "type": "user",
+      "uuid": "uuid-40",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "tool_use_id": "tool-30",
+            "type": "tool_result",
+            "content": "1\tWEB_PARITY_FIXTURE"
+          }
+        ]
+      }
+    },
+    {
+      "type": "system",
+      "subtype": "status",
+      "uuid": "uuid-41",
+      "session_id": "session-2"
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-42",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-opus-5",
+          "id": "message-43",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "stop_details": null,
+          "usage": {
+            "input_tokens": 999,
+            "cache_creation_input_tokens": 98,
+            "cache_read_input_tokens": 17016,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 98
+            },
+            "output_tokens": 1,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          },
+          "diagnostics": null
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-44",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-45",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "W"
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-46",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "EB_PARITY_FIXTURE"
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "uuid": "uuid-47",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "message": {
+        "model": "claude-opus-5",
+        "id": "message-43",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "WEB_PARITY_FIXTURE"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "stop_details": null,
+        "usage": {
+          "input_tokens": 999,
+          "cache_creation_input_tokens": 98,
+          "cache_read_input_tokens": 17016,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 98
+          },
+          "output_tokens": 1,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "diagnostics": null,
+        "context_management": null
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-48",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-49",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "stop_details": null
+        },
+        "usage": {
+          "input_tokens": 999,
+          "cache_creation_input_tokens": 98,
+          "cache_read_input_tokens": 17016,
+          "output_tokens": 17,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "iterations": [
+            {
+              "input_tokens": 999,
+              "output_tokens": 17,
+              "cache_read_input_tokens": 17016,
+              "cache_creation_input_tokens": 98,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 98
+              },
+              "type": "message"
+            }
+          ]
+        },
+        "context_management": {
+          "applied_edits": []
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "uuid": "uuid-50",
+      "session_id": "session-2",
+      "parent_tool_use_id": null,
+      "event": {
+        "type": "message_stop"
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "uuid": "uuid-52",
+      "session_id": "session-53",
+      "is_error": false,
+      "result": "WEB_PARITY_FIXTURE",
+      "stop_reason": "end_turn",
+      "permission_denials": []
+    }
+  ]
+}

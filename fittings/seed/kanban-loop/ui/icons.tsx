@@ -74,6 +74,35 @@ export function WrenchIcon(): JSX.Element {
 export function DrillIcon(): JSX.Element {
   return <svg {...base}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><line x1="12" y1="1" x2="12" y2="4" /><line x1="12" y1="20" x2="12" y2="23" /><line x1="1" y1="12" x2="4" y2="12" /><line x1="20" y1="12" x2="23" y2="12" /></svg>;
 }
+// An envelope — "click a letter" to write feedback that sends the card back
+// through the pipeline (the Feedback button on a done / needs-attention card).
+export function MailIcon(): JSX.Element {
+  return <svg {...base}><rect x="3" y="5" width="18" height="14" rx="2" /><polyline points="3 7 12 13 21 7" /></svg>;
+}
+// A check mark — "Mark done": a one-click way to send a human-held card to Done
+// without dragging it through the pipeline.
+export function CheckIcon(): JSX.Element {
+  return <svg {...base}><polyline points="4 12 9 17 20 6" /></svg>;
+}
+// An archive box — move a finished/parked card into the Archived column to get it
+// out of the way.
+export function ArchiveIcon(): JSX.Element {
+  return <svg {...base}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><line x1="10" y1="12" x2="14" y2="12" /></svg>;
+}
+// An archive box with an up-arrow — restore an archived card back to the board.
+export function UnarchiveIcon(): JSX.Element {
+  return <svg {...base}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><polyline points="9 14 12 11 15 14" /><line x1="12" y1="11" x2="12" y2="17" /></svg>;
+}
+// A right-pointing chevron for collapsible section headers; the CSS rotates it
+// 90deg when its section is open.
+export function ChevronIcon(): JSX.Element {
+  return <svg {...base}><polyline points="9 6 15 12 9 18" /></svg>;
+}
+// A pencil — the explicit rename affordance on a card front, so the title itself
+// is free to open the card rather than doubling as the edit trigger.
+export function PencilIcon(): JSX.Element {
+  return <svg {...base}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>;
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>

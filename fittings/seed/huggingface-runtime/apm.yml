@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  category: Operations
   cardinality_hint: multi
   component_shape: cli-skill
   ui:

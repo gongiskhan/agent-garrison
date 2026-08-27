@@ -1,6 +1,6 @@
 ---
 name: Morning Briefing
-description: Daily synthetic prompt that asks the Operative to compose a Trello + Calendar briefing and post it to Slack.
+description: Daily synthetic prompt that asks the session to compose a Trello + Calendar briefing and post it to Slack.
 ---
 
 # Morning Briefing
@@ -8,9 +8,9 @@ description: Daily synthetic prompt that asks the Operative to compose a Trello 
 Once a day (default 08:00 weekdays, configurable) the scheduler
 fires a synthetic prompt at the gateway. The gateway formats it as
 `Heartbeat job: morning-briefing\n\nPayload:\n{...}` and routes it
-to the Operative the same way `/jobs` heartbeat ticks are routed.
+to the session the same way `/jobs` heartbeat ticks are routed.
 
-## What the Operative does on receipt
+## What the session does on receipt
 
 1. Treat the prompt like any other inbound message — same tier
    classifier, same orchestrator routing.

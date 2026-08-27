@@ -1,0 +1,8 @@
+{
+  "note": "Three JPEG stills for the screen_audio video stream. The image is the smallest valid JPEG (1x1) from ios-thing's test-client — the ingress cares about framing and idempotency, never pixel content. ts advances ~667 ms per frame (the extension's ~1.5 fps).",
+  "frames": [
+    { "seq": 1, "ts": 0, "bytes": "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP///////////////////////////////////////////////////////////////////////////////////2wBDAf///////////////////////////////////////////////////////////////////////////////////wgARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAAAv/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AmAAH/9k=" },
+    { "seq": 2, "ts": 667, "bytes": "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP///////////////////////////////////////////////////////////////////////////////////2wBDAf///////////////////////////////////////////////////////////////////////////////////wgARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAAAv/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AmAAH/9k=" },
+    { "seq": 3, "ts": 1334, "bytes": "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP///////////////////////////////////////////////////////////////////////////////////2wBDAf///////////////////////////////////////////////////////////////////////////////////wgARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAAAv/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AmAAH/9k=" }
+  ]
+}

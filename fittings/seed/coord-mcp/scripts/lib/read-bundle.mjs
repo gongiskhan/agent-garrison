@@ -1,24 +1,28 @@
 // The planning read-bundle — what the NEXT planner inherits the instant it
-// acquires the lock, so it plans with full knowledge instead of blind:
-//   (a) the plan the session that just released the lock produced
+// acquires the lease, so it plans with full knowledge instead of blind:
+//   (a) the plan the session that just released the lease produced
 //   (b) all recent plans for this repo within the lookback window
-//   (c) the in-flight intents / decisions / leases of currently-running sessions
-// Mechanical (file scans + a bd query) — NO model call (stays within PTY).
-import { lockStatus } from "./plan-lock.mjs";
+//   (c) the in-flight intents / lease of currently-running sessions
+// Mechanical (state-service reads) — NO model call (stays within PTY). Because
+// the ledger is now mesh-wide, (a) and (b) can have been written on another
+// machine: a planner on the Air inherits a planner on dev-madrid.
+import { planLeaseStatus } from "./plan-lease.mjs";
 import { lastReleasedPlan, recentPlans } from "./plan-store.mjs";
 import { recentIntents } from "./intent-store.mjs";
 import { lookbackDays } from "./lookback.mjs";
 
-export function buildReadBundle(repo, now = new Date()) {
+export async function buildReadBundle(repoKey, now = new Date()) {
+  const [releasedPlan, plans, lock, intents] = await Promise.all([
+    lastReleasedPlan(repoKey), // (a)
+    recentPlans(repoKey, now), // (b)
+    planLeaseStatus(repoKey), // (c)
+    recentIntents(repoKey, now)
+  ]);
   return {
-    repo,
+    repo: repoKey,
     lookbackDays: lookbackDays(now),
-    releasedPlan: lastReleasedPlan(repo), // (a)
-    recentPlans: recentPlans(repo, now), // (b)
-    inFlight: {
-      // (c)
-      lock: lockStatus(repo, now),
-      intents: recentIntents(repo, now)
-    }
+    releasedPlan,
+    recentPlans: plans,
+    inFlight: { lock, intents }
   };
 }

@@ -3,6 +3,7 @@ import {
   capabilityKinds,
   dutyEfforts,
   facultyIds,
+  fittingCategories,
   fittingShapes,
   uiPlacements,
   type FacultyId,
@@ -172,6 +173,24 @@ const providerMechanismSchema = z
         auth_env: z.string().min(1).optional(),
         model_arg: z.string().min(1).optional(),
         model_env: z.string().min(1).optional(),
+        // Per-provider-slot overrides of the pair above. An engine that fronts
+        // SEVERAL endpoint families needs one env pair per family: a single
+        // <PREFIX>_API_KEY shared between, say, OpenAI cloud and a self-hosted box
+        // means the composition can only ever authenticate one of them, and
+        // whichever key is present gets sent to whichever endpoint is configured.
+        // Declared here (rather than mirrored in src/lib) so the runner can project
+        // the fitting's base-URL config into the SELECTED provider's env var
+        // without a second copy of the fitting's provider table to keep in sync.
+        provider_env: z
+          .record(
+            z
+              .object({
+                base_url_env: z.string().min(1).optional(),
+                auth_env: z.string().min(1).optional()
+              })
+              .strict()
+          )
+          .optional(),
         notes: z.string().optional()
       })
       .strict(),
@@ -335,7 +354,25 @@ export type TourDescriptor = z.infer<typeof tourDescriptorSchema>;
 
 export const garrisonMetadataSchema = z.object({
   faculty: z.enum(facultyIds),
+  /**
+   * Presentation-only browsing axis for the Fittings views (6 categories vs 17
+   * faculties). Optional: when absent, resolve it from the faculty via
+   * CATEGORY_BY_FACULTY. Never branch composition/routing logic on this — the
+   * contract lives in `faculty`, `provides` and `consumes`.
+   */
+  category: z.enum(fittingCategories).optional(),
   cardinality_hint: z.enum(["single", "multi"]),
+  /**
+   * Station this Fitting in EVERY composition unless it is explicitly unfitted
+   * (the composition's `unfitted` list). Opt-in per Fitting rather than blanket
+   * "every multi-cardinality Fitting", because membership is not free: every
+   * selection is an `apm install`, a setup hook and a MANDATORY verify hook, and
+   * a single verify failure aborts the whole `up()`. So this belongs only on
+   * Fittings that verify green on a bare box — no vendor CLI to install, no
+   * credential to seal, no port to claim. A Fitting needing any of those stays
+   * opt-in, or every composition breaks on a machine that lacks it.
+   */
+  default_fit: z.boolean().optional(),
   component_shape: z.enum(fittingShapes),
   platforms: z.array(z.string()).min(1),
   summary: z.string().optional(),

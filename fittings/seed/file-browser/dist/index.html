@@ -3,311 +3,689 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#273126" />
 <title>Files</title>
 <style>
-  :root { --paper:#faf8f3; --ink:#1c1b17; --rule:#e3ddcf; --mute:#8a8474; --sage:#3f7d53; --brass:#9a7b2e; --accent:#2f6b8f; --mono: ui-monospace, "JetBrains Mono", Menlo, monospace; }
-  * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:var(--paper); color:var(--ink); font-family: -apple-system, system-ui, sans-serif; }
-  header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--rule); position:sticky; top:0; background:var(--paper); z-index:5; }
-  header h1 { font-size:16px; margin:0; }
-  .crumbs { font-family:var(--mono); font-size:12px; color:var(--mute); overflow-x:auto; white-space:nowrap; flex:1; }
-  .crumbs a { color:var(--accent); text-decoration:none; cursor:pointer; }
-  .wrap { display:flex; flex-direction:column; height:calc(100% - 49px); }
-  #list { overflow-y:auto; -webkit-overflow-scrolling:touch; }
-  .row { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--rule); cursor:pointer; font-size:15px; min-height:48px; }
-  .row:active { background:#f0ece1; }
-  .row .ic { width:18px; text-align:center; color:var(--mute); font-family:var(--mono); }
-  .row .sz { margin-left:auto; color:var(--mute); font-size:12px; font-family:var(--mono); }
-  .row.dir { font-weight:600; }
-  #viewer { display:none; flex-direction:column; height:100%; }
-  #viewer.open { display:flex; }
-  .vbar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--rule); }
-  .vbar .name { font-family:var(--mono); font-size:13px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .btn { font:inherit; font-size:13px; padding:8px 14px; border:1px solid var(--rule); background:#fff; border-radius:7px; cursor:pointer; min-height:40px; }
-  .btn.primary { background:var(--ink); color:var(--paper); border-color:var(--ink); }
-  .btn:disabled { opacity:.5; }
-  #edit { flex:1; width:100%; border:0; padding:14px; font-family:var(--mono); font-size:13px; resize:none; outline:none; background:#fff; color:var(--ink); }
-  #md { flex:1; overflow-y:auto; padding:16px 18px; line-height:1.55; }
-  #md img { max-width:100%; }
-  #img { flex:1; display:flex; align-items:center; justify-content:center; padding:16px; }
-  #img img { max-width:100%; max-height:100%; }
-  .empty { color:var(--mute); padding:24px; text-align:center; font-size:14px; }
-  .actions { display:flex; gap:8px; padding:10px 16px; border-bottom:1px solid var(--rule); }
-  .actions .btn { font-size:12px; min-height:34px; padding:6px 12px; }
-  .empty-root { padding:36px 24px; text-align:center; color:var(--mute); max-width:520px; margin:0 auto; }
-  .empty-root h2 { color:var(--ink); font-size:16px; font-weight:600; margin:0 0 10px; }
-  .empty-root p { font-size:14px; line-height:1.55; margin:0 0 10px; }
-  .empty-root .path { font-family:var(--mono); font-size:12px; color:var(--accent); word-break:break-all; }
-  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--paper); padding:9px 16px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; }
-  .toast.show { opacity:1; }
-
-  /* Fortress operations-room refit */
+/* Garrison editorial skin: paper, ink, sage, brass. No CDN, no build step - this
+   fitting ships zero dependencies and a single file is the honest shape for it. */
+:root {
+  --paper: #fbf8f1;
+  --paper-2: #f4ede0;
+  --paper-3: #ede4d3;
+  --rule: #d6cdba;
+  --rule-2: #c4b89f;
+  --ink: #1f2a22;
+  --ink-2: #2f3128;
+  --mute: #66695f;
+  --mute-2: #7d8077;
+  --sage: #3d6249;
+  --sage-soft: #eaf1e7;
+  --brass: #746232;
+  --alarm: #8c3a2e;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
   :root {
-    --paper:#f2ecdf;--paper-2:#e8dfcf;--ink:#202820;--rule:#cec2ab;--rule-strong:#a99b82;
-    --mute:#575b52;--sage:#526f58;--brass:#b1954e;--accent:#6f6338;--alarm:#963f35;
-    --sans:Avenir,"Avenir Next","Barlow","Segoe UI",sans-serif;
-    --serif:Iowan Old Style,"Source Serif 4","Palatino Linotype",Georgia,serif;
-    --mono:"SFMono-Regular","Cascadia Code",Consolas,monospace;
+    --paper: #14170f; --paper-2: #191d14; --paper-3: #20251a;
+    --rule: #333a2b; --rule-2: #46503a;
+    --ink: #e9e6da; --ink-2: #d7d3c4; --mute: #9aa08f; --mute-2: #848a79;
+    --sage: #8fbf9c; --sage-soft: #1d2a20; --brass: #c6ab63; --alarm: #e08a7c;
   }
-  html { background:#182019; }
-  html, body {
-    background:
-      linear-gradient(rgba(42,55,44,.035) 1px,transparent 1px),
-      linear-gradient(90deg,rgba(42,55,44,.035) 1px,transparent 1px),
-      var(--paper);
-    background-size:30px 30px;
-    font-family:var(--sans);
-  }
-  header {
-    min-height:56px;padding:10px 18px;border-bottom-color:#59665a;
-    background:linear-gradient(90deg,rgba(177,149,78,.11),transparent 36%),#273126;
-    color:#f5f0e6;box-shadow:0 10px 28px rgba(20,26,21,.14)
-  }
-  header h1 { font:650 17px/1.15 var(--serif);letter-spacing:-.012em; }
-  .crumbs { color:#b7beb2;font:11px/1.3 var(--mono); }
-  .crumbs a { color:#d2ba78; }
-  .wrap { height:calc(100% - 56px); }
-  .actions { padding:11px 16px;background:#e5dccb;border-bottom-color:var(--rule-strong); }
-  .row {
-    width:100%;appearance:none;text-align:left;color:var(--ink);background:rgba(248,244,235,.82);
-    border:0;border-bottom:1px solid var(--rule);border-left:3px solid transparent;border-radius:0;
-    font-family:var(--sans);transition:background .12s,border-color .12s
-  }
-  .row:hover { background:#e7decd;border-left-color:var(--brass); }
-  .row:active { background:#ddd2bd;transform:translateY(1px); }
-  .row .ic { color:#6f6338; }
-  .row.dir { font-weight:650; }
-  .vbar { min-height:58px;padding:9px 14px;background:#e5dccb;border-bottom-color:var(--rule-strong); }
-  .vbar .name { font:11px/1.3 var(--mono);letter-spacing:.035em; }
-  .btn { min-height:40px;border-color:var(--rule-strong);border-radius:2px;background:#f8f4eb;font-family:var(--sans); }
-  .btn:hover:not(:disabled) { border-color:var(--brass);background:#eee6d7; }
-  .btn:active:not(:disabled) { transform:translateY(1px); }
-  .btn.primary { background:#6f6338;color:#fffaf0;border-color:#6f6338; }
-  #edit {
-    padding:20px;background:#f8f4eb;color:var(--ink);font:13px/1.6 var(--mono);
-    background-image:linear-gradient(rgba(42,55,44,.035) 1px,transparent 1px);
-    background-size:100% 26px
-  }
-  #md { background:#f8f4eb; }
-  #img { background:#ded4c0; }
-  #img img { box-shadow:0 18px 42px rgba(20,26,21,.2); }
-  .empty,.empty-root {
-    max-width:560px;margin:8vh auto;padding:30px;border-top:1px solid var(--rule-strong);
-    border-bottom:1px solid var(--rule);font:16px/1.55 var(--serif)
-  }
-  .empty-root h2 { font:650 21px/1.2 var(--serif);letter-spacing:-.012em; }
-  .empty-root .path { display:block;padding:8px 10px;background:#e2d8c5;border:1px solid var(--rule);color:#5c522f; }
-  .toast {
-    bottom:18px;border:1px solid #657166;border-left:3px solid var(--brass);border-radius:2px;
-    background:#273126;color:#f5f0e6;box-shadow:0 18px 42px rgba(20,26,21,.28)
-  }
-  :is(button,a,textarea,[tabindex]):focus-visible { outline:2px solid var(--brass);outline-offset:2px; }
+}
+* { box-sizing: border-box; }
+/* A later `display` rule beats the [hidden] attribute, which silently un-hides
+   anything toggled that way - the back button showed on phones before a file was
+   even open. State it once, with the weight to win. */
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex; flex-direction: column;
+  background: var(--paper); color: var(--ink);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
 
-  /* Scrollbars — near-invisible until needed: thin bars, transparent tracks, a
-     faint ink thumb. Dark surfaces (header crumbs) flip to a faint paper thumb. */
-  :root { --sb-thumb: rgba(32, 40, 32, 0.16); --sb-thumb-hover: rgba(32, 40, 32, 0.34); }
-  * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
-  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--sb-thumb); border: 2px solid transparent; background-clip: padding-box; }
-  *::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
-  ::-webkit-scrollbar-corner { background: transparent; }
-  header { --sb-thumb: rgba(245, 240, 230, 0.2); --sb-thumb-hover: rgba(245, 240, 230, 0.4); }
+/* ── Masthead ─────────────────────────────────────────────────────────────── */
+header.bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; padding-top: max(10px, env(safe-area-inset-top));
+  background: var(--paper-2); border-bottom: 1px solid var(--rule);
+  flex: 0 0 auto; min-width: 0;
+}
+.brand {
+  font: 600 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--brass); flex: 0 0 auto;
+}
+.srcwrap { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
+select.src {
+  font: 500 12.5px/1 var(--mono); color: var(--ink);
+  background: var(--paper); border: 1px solid var(--rule-2); border-radius: 3px;
+  padding: 7px 9px; min-width: 0; flex: 1 1 auto; max-width: 340px; min-height: 34px;
+}
+.ro {
+  flex: 0 0 auto;
+  font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--brass); border: 1px solid var(--rule-2); border-radius: 999px;
+  padding: 3px 7px; white-space: nowrap;
+}
+.spacer { flex: 1 1 auto; }
+button.ghost {
+  flex: 0 0 auto; white-space: nowrap;
+  font: 500 12px/1 var(--mono); color: var(--mute);
+  background: none; border: 1px solid transparent; border-radius: 3px;
+  padding: 7px 8px; min-height: 34px; cursor: pointer;
+}
+button.ghost:hover { color: var(--ink); border-color: var(--rule); }
 
-  @media(pointer:coarse){button,.row,.btn{min-height:44px}}
-  @media(max-width:620px){header{padding-left:14px;padding-right:14px}.row{padding-left:13px;padding-right:13px}}
-  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+main { flex: 1 1 auto; display: flex; min-height: 0; }
+aside {
+  width: 300px; flex: 0 0 auto; display: flex; flex-direction: column;
+  background: var(--paper-2); border-right: 1px solid var(--rule); min-height: 0;
+}
+.filterwrap { padding: 9px 10px; border-bottom: 1px solid var(--rule); }
+input.filter {
+  width: 100%; font: 12.5px/1 var(--mono); color: var(--ink);
+  background: var(--paper); border: 1px solid var(--rule-2); border-radius: 3px;
+  padding: 8px 9px; min-height: 34px;
+}
+input.filter::placeholder { color: var(--mute-2); }
+.crumbs {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px;
+  padding: 8px 10px; border-bottom: 1px solid var(--rule);
+  font: 11.5px/1.6 var(--mono); color: var(--mute);
+}
+.crumbs button {
+  font: inherit; color: var(--sage); background: none; border: none;
+  padding: 2px 3px; cursor: pointer; border-radius: 2px;
+}
+.crumbs button:hover { text-decoration: underline; }
+.crumbs .sep { color: var(--rule-2); }
+.crumbs .here { color: var(--ink); padding: 2px 3px; }
+
+ul.list { list-style: none; margin: 0; padding: 4px 0 24px; overflow-y: auto; flex: 1 1 auto; }
+ul.list li { margin: 0; }
+.row {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 9px 12px; min-height: 40px;
+  font: 13px/1.35 var(--mono); color: var(--ink-2); text-align: left;
+  background: none; border: none; border-left: 2px solid transparent; cursor: pointer;
+}
+.row:hover { background: var(--paper-3); }
+.row.sel { background: var(--sage-soft); border-left-color: var(--sage); color: var(--ink); }
+.row .nm { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .sz { flex: 0 0 auto; font-size: 10.5px; color: var(--mute-2); font-variant-numeric: tabular-nums; }
+/* Type marks: a glyph-free shape so the list reads at a glance without emoji. */
+.mk { flex: 0 0 auto; width: 9px; height: 9px; border: 1.5px solid var(--mute-2); }
+.mk.dir { border-radius: 2px; background: var(--mute-2); }
+.mk.file { border-radius: 2px; }
+.mk.up { border: none; width: 12px; color: var(--sage); font-size: 12px; line-height: 1; }
+
+/* ── Viewer ───────────────────────────────────────────────────────────────── */
+section.view { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.vhead {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-2);
+}
+.vname { font: 600 14px/1.3 var(--mono); color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.vmeta { font: 11px/1.4 var(--mono); color: var(--mute-2); font-variant-numeric: tabular-nums; }
+.vbody { flex: 1 1 auto; overflow: auto; min-height: 0; }
+pre.code {
+  margin: 0; padding: 14px 16px 40px;
+  font: 12.5px/1.65 var(--mono); color: var(--ink-2);
+  white-space: pre; tab-size: 2;
+}
+pre.code .ln {
+  display: inline-block; width: 3.5em; margin-right: 14px;
+  color: var(--rule-2); text-align: right; user-select: none;
+}
+.md { padding: 18px 22px 48px; max-width: 74ch; font-family: var(--serif); font-size: 16px; line-height: 1.62; }
+.md h1, .md h2, .md h3 { font-family: var(--serif); line-height: 1.25; margin: 1.4em 0 .5em; }
+.md h1 { font-size: 26px; } .md h2 { font-size: 21px; } .md h3 { font-size: 17px; }
+.md code { font: 13px var(--mono); background: var(--paper-3); padding: 1px 4px; border-radius: 2px; }
+.md pre { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 4px; padding: 12px; overflow-x: auto; }
+.md pre code { background: none; padding: 0; }
+.md a { color: var(--sage); }
+.md blockquote { margin: 1em 0; padding-left: 14px; border-left: 2px solid var(--rule-2); color: var(--mute); }
+.imgwrap { padding: 20px; }
+.imgwrap img { max-width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 3px; }
+
+.note {
+  margin: 0; padding: 9px 16px;
+  font: 11.5px/1.5 var(--mono); color: var(--brass);
+  background: var(--paper-3); border-bottom: 1px solid var(--rule);
+}
+.empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; height: 100%; padding: 40px 24px; text-align: center; color: var(--mute);
+}
+.empty .t { font: 600 13px/1.4 var(--mono); color: var(--ink-2); letter-spacing: .02em; }
+.empty .s { font-size: 12.5px; max-width: 42ch; line-height: 1.55; }
+.err { color: var(--alarm); }
+
+/* ── Phone: one pane at a time ────────────────────────────────────────────── */
+.back { display: none; }
+@media (max-width: 760px) {
+  aside { width: 100%; border-right: none; }
+  main.on-file aside { display: none; }
+  main:not(.on-file) section.view { display: none; }
+  /* Not `display: inline-flex` unconditionally - that is what overrode [hidden].
+     Only the phone LAYOUT is different; visibility stays the script's business. */
+  .back:not([hidden]) { display: inline-flex; }
+  /* The bar carries five controls and a phone has room for about three. Drop the
+     wordmark (the app is already on screen) and let the rest keep full size
+     rather than overlapping, which is what a squeezed nowrap row does. */
+  .brand { display: none; }
+  header.bar { gap: 8px; padding-inline: 10px; }
+  .ro { display: none; }
+  main.on-file ~ * .ro { display: none; }
+  #copy { display: none; }
+  .md { padding: 16px 16px 40px; font-size: 15.5px; }
+  pre.code { font-size: 12px; }
+  pre.code .ln { width: 2.6em; margin-right: 10px; }
+}
+
+/* ── Git panel ────────────────────────────────────────────────────────────── */
+/* Scoped under .git so nothing here can out-specify the file views above. */
+.git { padding: 14px 16px 40px; }
+.git section { margin-bottom: 22px; }
+.git h3 {
+  margin: 0 0 8px; font: 600 10.5px/1 var(--mono); letter-spacing: .16em;
+  text-transform: uppercase; color: var(--brass);
+}
+.git .branchline { font: 500 15px/1.4 var(--serif); color: var(--ink); margin-bottom: 6px; }
+.git .branchline code { font: 500 13px/1 var(--mono); color: var(--sage); }
+.git .counts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.git .chip {
+  font: 500 11px/1 var(--mono); padding: 5px 8px; border-radius: 3px;
+  border: 1px solid var(--rule); background: var(--paper-2); color: var(--mute);
+}
+.git .chip.on { color: var(--ink); border-color: var(--rule-2); }
+.git .chip.warn { color: var(--alarm); border-color: var(--alarm); }
+.git .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.git .actions button {
+  font: 500 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: 8px 12px; min-height: 34px; border-radius: 3px; cursor: pointer;
+  border: 1px solid var(--rule-2); background: var(--paper-2); color: var(--ink);
+}
+.git .actions button:hover { background: var(--paper-3); }
+.git .actions button[disabled] { opacity: .5; cursor: default; }
+.git ul.files { list-style: none; margin: 0; padding: 0; }
+.git ul.files li { border-bottom: 1px solid var(--rule); }
+.git ul.files button {
+  display: flex; gap: 10px; align-items: baseline; width: 100%; text-align: left;
+  padding: 9px 4px; min-height: 38px; background: none; border: 0; cursor: pointer;
+  color: var(--ink); font: 13px/1.3 var(--mono);
+}
+.git ul.files button:hover { background: var(--paper-2); }
+.git ul.files .xy { color: var(--brass); flex: 0 0 auto; width: 2.4em; }
+.git ul.files .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git ol.log { list-style: none; margin: 0; padding: 0; }
+.git ol.log li { padding: 7px 0; border-bottom: 1px solid var(--rule); font-size: 13px; }
+.git ol.log .sha { font: 12px/1 var(--mono); color: var(--brass); margin-right: 8px; }
+.git ol.log .who { color: var(--mute); font-size: 12px; }
+.git pre.diff {
+  margin: 0; padding: 10px 12px; overflow: auto; border: 1px solid var(--rule);
+  background: var(--paper-2); font: 12px/1.55 var(--mono); white-space: pre;
+}
+.git pre.diff .add { color: var(--sage); }
+.git pre.diff .del { color: var(--alarm); }
+.git pre.diff .hunk { color: var(--brass); }
+.git pre.diff .meta { color: var(--mute-2); }
+.git .said {
+  margin: 0 0 12px; padding: 9px 11px; border-left: 3px solid var(--rule-2);
+  background: var(--paper-2); font-size: 13px; color: var(--ink-2);
+  white-space: pre-wrap; word-break: break-word;
+}
+.git .said.bad { border-left-color: var(--alarm); color: var(--alarm); }
+.git .quiet { color: var(--mute); font-size: 13px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Files</h1>
-  <div class="crumbs" id="crumbs"></div>
-</header>
-<div class="wrap">
-  <div id="list"><div class="empty">loading…</div></div>
-  <div id="viewer">
-    <div class="vbar">
-      <button class="btn" id="back">‹ Back</button>
-      <span class="name" id="vname"></span>
-      <button class="btn" id="toggleMd" style="display:none">Preview</button>
-      <button class="btn primary" id="save" style="display:none">Save</button>
-    </div>
-    <textarea id="edit" spellcheck="false" style="display:none"></textarea>
-    <div id="md" style="display:none"></div>
-    <div id="img" style="display:none"></div>
+<header class="bar">
+  <span class="brand">Files</span>
+  <div class="srcwrap">
+    <select class="src" id="src" aria-label="Source"></select>
+    <span class="ro" id="ro" hidden>read-only</span>
   </div>
-</div>
-<div class="toast" id="toast"></div>
-<input type="file" id="uploadInput" style="display:none" />
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <span class="spacer"></span>
+  <button class="ghost back" id="back" hidden>&larr; Files</button>
+  <button class="ghost" id="copy" hidden>Copy path</button>
+  <button class="ghost" id="git" hidden title="Repository status, diff and the cross-node merge actions">Git</button>
+  <button class="ghost" id="refresh" title="Reload this directory">Refresh</button>
+</header>
+
+<main id="shell">
+  <aside>
+    <div class="filterwrap">
+      <input class="filter" id="filter" type="search" placeholder="Filter this folder" autocomplete="off" spellcheck="false" />
+    </div>
+    <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+    <ul class="list" id="list"></ul>
+  </aside>
+  <section class="view">
+    <div class="vhead" id="vhead" hidden>
+      <span class="vname" id="vname"></span>
+      <span class="spacer"></span>
+      <span class="vmeta" id="vmeta"></span>
+    </div>
+    <p class="note" id="note" hidden></p>
+    <div class="vbody" id="vbody">
+      <div class="empty">
+        <span class="t">Nothing open</span>
+        <span class="s">Pick a file on the left. Switch source at the top to browse a machine an agent is working on.</span>
+      </div>
+    </div>
+  </section>
+</main>
+
 <script>
+"use strict";
 const $ = (id) => document.getElementById(id);
-let cwd = "";        // current dir (rel)
-let openFile = null; // {path, kind}
-let showingMd = false;
-let rootAbs = "";    // absolute workspace root, from /api/health
+const state = { sources: [], source: "local", path: "", items: [], file: null, filter: "", git: null, said: null };
 
-function toast(m) { const t=$("toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1600); }
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtSize = (n) => {
+  if (!n) return "";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + " kB";
+  return (n / 1048576).toFixed(1) + " MB";
+};
+const currentSource = () => state.sources.find((s) => s.id === state.source) || null;
 
-function fmtSize(n){ if(!n) return ""; if(n<1024) return n+"B"; if(n<1048576) return (n/1024).toFixed(0)+"K"; return (n/1048576).toFixed(1)+"M"; }
+async function api(path) {
+  const res = await fetch(path, { cache: "no-store" });
+  const data = await res.json().catch(() => ({ error: "the server sent a response this page could not read" }));
+  if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
+  return data;
+}
+
+/* ── Sources ─────────────────────────────────────────────────────────────── */
+async function loadSources() {
+  try {
+    const { sources } = await api("/api/sources");
+    state.sources = sources;
+  } catch {
+    state.sources = [{ id: "local", kind: "local", label: "Garrison files", writable: true }];
+  }
+  const sel = $("src");
+  sel.innerHTML = state.sources
+    .map((s) => `<option value="${esc(s.id)}">${esc(s.label)}${s.kind === "remote" ? " · remote" : ""}</option>`)
+    .join("");
+  const remembered = localStorage.getItem("fb.source");
+  if (remembered && state.sources.some((s) => s.id === remembered)) state.source = remembered;
+  sel.value = state.source;
+  syncSourceChrome();
+}
+
+function syncSourceChrome() {
+  const src = currentSource();
+  $("ro").hidden = !src || src.writable !== false;
+}
+
+/* ── Directory ───────────────────────────────────────────────────────────── */
+async function loadDir(path) {
+  state.path = path || "";
+  renderCrumbs();
+  $("list").innerHTML = `<li><div class="row" style="cursor:default;color:var(--mute-2)">loading…</div></li>`;
+  try {
+    const data = await api(`/api/tree?source=${encodeURIComponent(state.source)}&path=${encodeURIComponent(state.path)}`);
+    state.items = data.items || [];
+    state.truncated = Boolean(data.truncated);
+    renderList();
+  } catch (err) {
+    state.items = [];
+    $("list").innerHTML = `<li><div class="empty"><span class="t err">Could not open this folder</span><span class="s">${esc(err.message)}</span></div></li>`;
+  }
+}
 
 function renderCrumbs() {
-  const c = $("crumbs"); c.textContent = "";
-  const root = document.createElement("a"); root.textContent = "~"; root.onclick = () => openDir(""); c.appendChild(root);
-  const parts = cwd ? cwd.split("/") : [];
-  let acc = "";
-  for (const p of parts) {
-    acc = acc ? acc + "/" + p : p;
-    c.appendChild(document.createTextNode(" / "));
-    const a = document.createElement("a"); a.textContent = p; const target = acc; a.onclick = () => openDir(target); c.appendChild(a);
+  const src = currentSource();
+  const parts = state.path ? state.path.split("/") : [];
+  const bits = [`<button data-go="">${esc(src ? (src.root || src.label).replace(/^.*\//, "") || src.label : "root")}</button>`];
+  parts.forEach((part, i) => {
+    const upto = parts.slice(0, i + 1).join("/");
+    bits.push(`<span class="sep">/</span>`);
+    bits.push(i === parts.length - 1
+      ? `<span class="here">${esc(part)}</span>`
+      : `<button data-go="${esc(upto)}">${esc(part)}</button>`);
+  });
+  $("crumbs").innerHTML = bits.join("");
+}
+
+function renderList() {
+  const q = state.filter.trim().toLowerCase();
+  const items = q ? state.items.filter((i) => i.name.toLowerCase().includes(q)) : state.items;
+  const rows = [];
+  if (state.path) {
+    const parent = state.path.includes("/") ? state.path.slice(0, state.path.lastIndexOf("/")) : "";
+    rows.push(`<li><button class="row" data-dir="${esc(parent)}"><span class="mk up">&larr;</span><span class="nm">..</span></button></li>`);
+  }
+  for (const it of items) {
+    const sel = state.file && state.file.path === it.path ? " sel" : "";
+    rows.push(
+      `<li><button class="row${sel}" data-${it.type === "dir" ? "dir" : "file"}="${esc(it.path)}">` +
+      `<span class="mk ${it.type}"></span><span class="nm">${esc(it.name)}</span>` +
+      `<span class="sz">${it.type === "file" ? esc(fmtSize(it.size)) : ""}</span></button></li>`
+    );
+  }
+  if (!rows.length) {
+    rows.push(`<li><div class="empty"><span class="t">${q ? "Nothing matches" : "Empty folder"}</span>` +
+      `<span class="s">${q ? "Clear the filter to see everything here." : "There are no files in this directory."}</span></div></li>`);
+  }
+  if (state.truncated) {
+    rows.push(`<li><div class="note">Only the first entries are shown - this folder is very large.</div></li>`);
+  }
+  $("list").innerHTML = rows.join("");
+}
+
+/* ── File ────────────────────────────────────────────────────────────────── */
+async function openFile(path) {
+  $("vhead").hidden = false;
+  $("vname").textContent = path.split("/").pop();
+  $("vmeta").textContent = "";
+  $("note").hidden = true;
+  $("copy").hidden = false;
+  $("back").hidden = false;
+  $("shell").classList.add("on-file");
+  $("vbody").innerHTML = `<div class="empty"><span class="s">Opening…</span></div>`;
+  try {
+    const data = await api(`/api/file?source=${encodeURIComponent(state.source)}&path=${encodeURIComponent(path)}`);
+    state.file = { path, ...data };
+    renderFile();
+    renderList();
+  } catch (err) {
+    state.file = { path };
+    $("vbody").innerHTML = `<div class="empty"><span class="t err">Could not open this file</span><span class="s">${esc(err.message)}</span></div>`;
   }
 }
 
-function actionsRow() {
-  const bar = document.createElement("div"); bar.className = "actions";
-  const nf = document.createElement("button"); nf.type = "button"; nf.className = "btn"; nf.textContent = "New folder"; nf.onclick = newFolder;
-  const up = document.createElement("button"); up.type = "button"; up.className = "btn"; up.textContent = "Upload"; up.onclick = () => $("uploadInput").click();
-  bar.append(nf, up);
-  return bar;
+function renderFile() {
+  const f = state.file;
+  $("vmeta").textContent = [f.size ? fmtSize(f.size) : "", f.kind || ""].filter(Boolean).join("  ·  ");
+  if (f.truncated) {
+    $("note").hidden = false;
+    $("note").textContent = "Showing the first part of this file - it is larger than the browser will pull over the link.";
+  }
+  if (f.kind === "image") {
+    const ext = (f.ext || "png").toLowerCase();
+    $("vbody").innerHTML = `<div class="imgwrap"><img alt="${esc(f.path)}" src="data:image/${esc(ext)};base64,${esc(f.content)}" /></div>`;
+    return;
+  }
+  if (f.kind === "markdown") {
+    $("vbody").innerHTML = `<article class="md">${markdown(f.content || "")}</article>`;
+    return;
+  }
+  const lines = String(f.content || "").split("\n");
+  $("vbody").innerHTML = `<pre class="code">` +
+    lines.map((l, i) => `<span class="ln">${i + 1}</span>${esc(l)}`).join("\n") +
+    `</pre>`;
 }
 
-function simpleEmpty() {
-  const d = document.createElement("div"); d.className = "empty"; d.textContent = "Empty folder.";
-  return d;
-}
-
-function rootEmpty() {
-  const d = document.createElement("div"); d.className = "empty-root";
-  const h = document.createElement("h2"); h.textContent = "Operative file workspace";
-  const p1 = document.createElement("p");
-  p1.textContent = "Documents, recordings and run outputs the Operative produces land here, sorted into folders like documents/ and runs/. Nothing has been produced yet.";
-  const rp = document.createElement("p"); rp.className = "path"; rp.textContent = rootAbs || "~/.garrison/files";
-  const p2 = document.createElement("p"); p2.textContent = "Use New folder or Upload above to add your own files.";
-  d.append(h, p1, rp, p2);
-  return d;
-}
-
-async function newFolder() {
-  const name = (prompt("Folder name") || "").trim();
-  if (!name) return;
-  try {
-    const r = await (await fetch("/api/mkdir", { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({ path: cwd ? cwd + "/" + name : name }) })).json();
-    if (r.error) throw new Error(r.error);
-    openDir(cwd);
-  } catch (e) { toast("Create failed: " + e.message); }
-}
-
-const TEXT_TYPES = /^(text\/|application\/(json|xml|javascript|x-sh|x-yaml))/;
-const TEXT_EXT = /\.(md|markdown|txt|json|yml|yaml|js|mjs|cjs|ts|tsx|css|html|csv|log|sh|py|toml|xml|svg)$/i;
-function isTextUpload(file) { return TEXT_TYPES.test(file.type || "") || TEXT_EXT.test(file.name); }
-
-$("uploadInput").onchange = async () => {
-  const file = $("uploadInput").files[0];
-  $("uploadInput").value = "";
-  if (!file) return;
-  if (file.size > 2 * 1048576) return toast("Upload failed: file exceeds the 2 MB cap");
-  const rel = cwd ? cwd + "/" + file.name : file.name;
-  try {
-    let body;
-    if (isTextUpload(file)) {
-      body = { path: rel, content: await file.text() };
-    } else {
-      const dataUrl = await new Promise((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(fr.result);
-        fr.onerror = () => reject(new Error("could not read file"));
-        fr.readAsDataURL(file);
-      });
-      body = { path: rel, content: String(dataUrl).split(",")[1] || "", encoding: "base64" };
+/* A deliberately small Markdown renderer: headings, code, lists, quotes, links,
+   emphasis. Everything is escaped FIRST, so no document content can become
+   markup - this fitting will not ship an HTML sanitiser it cannot fully audit. */
+function markdown(src) {
+  const out = [];
+  const lines = esc(src).split("\n");
+  let inCode = false, para = [], list = null;
+  const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (/^```/.test(line)) {
+      flushPara(); flushList();
+      out.push(inCode ? "</code></pre>" : "<pre><code>");
+      inCode = !inCode;
+      continue;
     }
-    const r = await (await fetch("/api/file", { method:"PUT", headers:{"content-type":"application/json"}, body: JSON.stringify(body) })).json();
-    if (r.error) throw new Error(r.error);
-    toast("Uploaded " + file.name);
-    openDir(cwd);
-  } catch (e) { toast("Upload failed: " + e.message); }
-};
-
-async function openDir(rel) {
-  cwd = rel; openFile = null;
-  $("viewer").classList.remove("open");
-  renderCrumbs();
-  const list = $("list"); list.innerHTML = '<div class="empty">loading…</div>';
-  try {
-    const data = await (await fetch("/api/tree?path=" + encodeURIComponent(rel))).json();
-    if (data.error) throw new Error(data.error);
-    list.innerHTML = "";
-    list.appendChild(actionsRow());
-    if (!data.items.length) { list.appendChild(rel ? simpleEmpty() : rootEmpty()); return; }
-    for (const it of data.items) {
-      const row = document.createElement("button"); row.type = "button"; row.className = "row " + it.type;
-      const ic = document.createElement("span"); ic.className = "ic"; ic.textContent = it.type === "dir" ? "▸" : "·";
-      const nm = document.createElement("span"); nm.textContent = it.name;
-      row.append(ic, nm);
-      if (it.type === "file") { const sz = document.createElement("span"); sz.className = "sz"; sz.textContent = fmtSize(it.size); row.appendChild(sz); }
-      row.onclick = () => it.type === "dir" ? openDir(it.path) : openFileView(it.path);
-      list.appendChild(row);
+    if (inCode) { out.push(line); continue; }
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+    const h = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (h) { flushPara(); flushList(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
+    if (/^&gt;\s?/.test(line)) { flushPara(); flushList(); out.push(`<blockquote>${inline(line.replace(/^&gt;\s?/, ""))}</blockquote>`); continue; }
+    const li = /^\s*([-*+]|\d+\.)\s+(.*)$/.exec(line);
+    if (li) {
+      flushPara();
+      const want = /\d/.test(li[1]) ? "ol" : "ul";
+      if (list !== want) { flushList(); list = want; out.push(`<${want}>`); }
+      out.push(`<li>${inline(li[2])}</li>`);
+      continue;
     }
-  } catch (e) { list.innerHTML = '<div class="empty">Could not list: ' + e.message + '</div>'; }
+    flushList();
+    para.push(line.trim());
+  }
+  flushPara(); flushList();
+  if (inCode) out.push("</code></pre>");
+  return out.join("\n");
+}
+function inline(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|\W)\*([^*]+)\*/g, "$1<em>$2</em>");
 }
 
-async function openFileView(rel) {
-  try {
-    const data = await (await fetch("/api/file?path=" + encodeURIComponent(rel))).json();
-    if (data.error) throw new Error(data.error);
-    openFile = { path: rel, kind: data.kind };
-    $("viewer").classList.add("open");
-    $("vname").textContent = rel.split("/").pop();
-    const edit = $("edit"), md = $("md"), img = $("img");
-    edit.style.display = md.style.display = img.style.display = "none";
-    $("save").style.display = "none"; $("toggleMd").style.display = "none";
-    if (data.kind === "image") {
-      img.style.display = "flex";
-      img.innerHTML = ""; const i = document.createElement("img");
-      i.src = "data:image/" + (data.ext || "png") + ";base64," + data.content; img.appendChild(i);
-    } else {
-      edit.value = data.content;
-      if (data.kind === "markdown") { $("toggleMd").style.display = ""; showingMd = true; renderMd(); }
-      else { edit.style.display = "block"; }
-      $("save").style.display = "";
-    }
-  } catch (e) { toast("Open failed: " + e.message); }
+
+/* ── Git panel ─────────────────────────────────────────────────────────────
+   Only ever shown for a `project:` source, because only those are repositories.
+   The two mesh actions are slow by nature (push-to-others commits and pushes;
+   pull-from-others waits out a 120s deadline on peers), so both disable the bar
+   and say what they are waiting for rather than appearing to hang. */
+
+async function apiPost(path, body) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+  const data = await res.json().catch(() => ({ error: "the server sent a response this page could not read" }));
+  if (!res.ok) throw new Error(data.error || `${res.status}`);
+  return data;
 }
 
-function renderMd() {
-  const md = $("md"), edit = $("edit");
-  if (showingMd) {
-    // Render into a fully-sandboxed iframe (sandbox="" = no scripts, unique
-    // origin) so a malicious .md cannot run JS or reach the same-origin file API.
-    const body = window.marked ? window.marked.parse(edit.value) : edit.value;
-    md.textContent = "";
-    const frame = document.createElement("iframe");
-    frame.setAttribute("sandbox", "");
-    frame.style.cssText = "width:100%;height:100%;border:0;background:#fff";
-    frame.srcdoc = '<!doctype html><meta charset="utf-8"><style>body{font-family:Iowan Old Style,Georgia,serif;padding:22px;line-height:1.65;color:#202820;background:#f8f4eb}img{max-width:100%}pre{font-family:ui-monospace,monospace;background:#141b16;color:#dce4d9;padding:12px;overflow-x:auto;border:1px solid #344137}code{font-family:ui-monospace,monospace}:root{--sb-thumb:rgba(32,40,32,.16);--sb-thumb-hover:rgba(32,40,32,.34)}*{scrollbar-width:thin;scrollbar-color:var(--sb-thumb) transparent}::-webkit-scrollbar{width:8px;height:8px;background:transparent}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--sb-thumb);border:2px solid transparent;background-clip:padding-box}*::-webkit-scrollbar-thumb:hover{background-color:var(--sb-thumb-hover)}::-webkit-scrollbar-corner{background:transparent}pre{--sb-thumb:rgba(220,228,217,.2);--sb-thumb-hover:rgba(220,228,217,.4)}</style>' + body;
-    md.appendChild(frame);
-    md.style.display = "block"; edit.style.display = "none"; $("toggleMd").textContent = "Edit";
-  } else {
-    edit.style.display = "block"; md.style.display = "none"; $("toggleMd").textContent = "Preview";
+function syncGitChrome() {
+  const src = currentSource();
+  $("git").hidden = !(src && src.git);
+}
+
+async function openGit() {
+  $("back").hidden = false;
+  $("shell").classList.add("on-file");
+  $("vhead").hidden = false;
+  $("vname").textContent = "Git";
+  $("vmeta").textContent = currentSource() ? currentSource().label : "";
+  $("note").hidden = true;
+  $("copy").hidden = true;
+  state.file = null;
+  $("vbody").innerHTML = `<div class="git"><p class="quiet">Reading the repository...</p></div>`;
+  try {
+    const [status, log] = await Promise.all([
+      api(`/api/git/status?source=${encodeURIComponent(state.source)}`),
+      api(`/api/git/log?source=${encodeURIComponent(state.source)}&limit=12`)
+    ]);
+    state.git = { status, log, diff: null };
+    renderGit();
+  } catch (err) {
+    $("vbody").innerHTML = `<div class="git"><p class="said bad">${esc(err.message)}</p></div>`;
   }
 }
 
-$("toggleMd").onclick = () => { showingMd = !showingMd; renderMd(); };
-$("back").onclick = () => { $("viewer").classList.remove("open"); openFile = null; };
-$("save").onclick = async () => {
-  if (!openFile) return;
-  $("save").disabled = true;
-  try {
-    const r = await (await fetch("/api/file", { method:"PUT", headers:{"content-type":"application/json"}, body: JSON.stringify({ path: openFile.path, content: $("edit").value }) })).json();
-    if (r.error) throw new Error(r.error);
-    toast("Saved");
-  } catch (e) { toast("Save failed: " + e.message); } finally { $("save").disabled = false; }
-};
+function renderGit() {
+  const g = state.git;
+  if (!g) return;
+  const st = g.status;
+  const chips = [
+    `<span class="chip ${st.ahead ? "on" : ""}">${st.ahead} ahead</span>`,
+    `<span class="chip ${st.behind ? "on" : ""}">${st.behind} behind</span>`,
+    `<span class="chip ${st.dirtyCount ? "on" : ""}">${st.dirtyCount} changed</span>`,
+    st.stash ? `<span class="chip on">${st.stash} stashed</span>` : "",
+    st.mergeInProgress ? `<span class="chip warn">${esc(st.inProgress.join(", "))} in progress</span>` : ""
+  ].filter(Boolean).join("");
 
-(async () => {
-  try { rootAbs = (await (await fetch("/api/health")).json()).root || ""; } catch { /* header only */ }
-  openDir("");
+  const files = st.dirty.length
+    ? `<ul class="files">${st.dirty.map((d) =>
+        `<li><button data-diff="${esc(d.path)}" data-state="${esc(d.state)}"><span class="xy">${esc(d.xy)}</span><span class="nm">${esc(d.path)}</span></button></li>`
+      ).join("")}</ul>`
+    : `<p class="quiet">Working tree clean.</p>`;
+
+  const log = `<ol class="log">${(g.log.commits || []).map((c) =>
+    `<li><span class="sha">${esc(c.short)}</span>${esc(c.subject)}<br /><span class="who">${esc(c.author)} &middot; ${esc(String(c.at).slice(0, 16).replace("T", " "))}</span></li>`
+  ).join("")}</ol>`;
+
+  const diff = g.diff
+    ? `<section><h3>Diff &mdash; ${esc(g.diff.path || "working tree")}</h3>${
+        g.diff.truncated ? `<p class="said">Truncated at ${Math.round(g.diff.cap / 1024)} KB &mdash; read the rest with git.</p>` : ""
+      }<pre class="diff">${diffHtml(g.diff.diff)}</pre></section>`
+    : "";
+
+  $("vbody").innerHTML =
+    `<div class="git">` +
+      (state.said ? `<p class="said ${state.said.bad ? "bad" : ""}">${esc(state.said.text)}</p>` : "") +
+      `<section>` +
+        `<div class="branchline">on <code>${esc(st.branch || "(detached)")}</code>` +
+        (st.upstream ? ` tracking <code>${esc(st.upstream)}</code>` : " with no upstream") + `</div>` +
+        `<div class="counts">${chips}</div>` +
+        `<div class="actions">` +
+          `<button data-act="fetch">Fetch</button>` +
+          `<button data-act="pull-from-others">Pull from others</button>` +
+          `<button data-act="push-to-others">Push to others</button>` +
+          `<button data-act="reload">Reload</button>` +
+        `</div>` +
+      `</section>` +
+      `<section><h3>Changed files</h3>${files}</section>` +
+      diff +
+      `<section><h3>Recent commits</h3>${log}</section>` +
+    `</div>`;
+}
+
+/* Escape first, then colour: a diff is someone else's file content and must
+   never be able to become markup. */
+function diffHtml(text) {
+  return String(text || "")
+    .split("\n")
+    .map((line) => {
+      const safe = esc(line);
+      if (/^(diff |index |--- |\+\+\+ |new file|deleted file|similarity|rename )/.test(line)) return `<span class="meta">${safe}</span>`;
+      if (line.startsWith("@@")) return `<span class="hunk">${safe}</span>`;
+      if (line.startsWith("+")) return `<span class="add">${safe}</span>`;
+      if (line.startsWith("-")) return `<span class="del">${safe}</span>`;
+      return safe;
+    })
+    .join("\n") || '<span class="meta">(no changes)</span>';
+}
+
+async function gitAction(act) {
+  const bar = document.querySelectorAll(".git .actions button");
+  bar.forEach((b) => { b.disabled = true; });
+  const waiting = {
+    "fetch": "Fetching from origin...",
+    "pull-from-others": "Asking every other node to commit and push. Waiting up to 120 seconds; a silent node is reported, never assumed clean.",
+    "push-to-others": "Committing and pushing, then filing one merge card per node...",
+    "reload": "Reading the repository..."
+  }[act];
+  state.said = { text: waiting };
+  renderGit();
+  try {
+    if (act === "reload") {
+      await openGit();
+      state.said = null;
+      renderGit();
+      return;
+    }
+    if (act === "fetch") {
+      const r = await apiPost("/api/git/fetch", { source: state.source });
+      state.said = { text: r.ok ? "Fetched." : `Fetch failed: ${r.output}`, bad: !r.ok };
+    } else if (act === "pull-from-others") {
+      const r = await apiPost("/api/git/pull-from-others", { source: state.source });
+      const lines = r.nodes.map((n) =>
+        n.status === "replied" ? `${n.node}: ${n.result} (${n.branch || "?"} ${String(n.sha || "").slice(0, 8)})` : `${n.node}: no reply`
+      );
+      state.said = { text: [`Fetched. ${r.note}`, ...lines].join("\n") };
+    } else if (act === "push-to-others") {
+      const r = await apiPost("/api/git/push-to-others", { source: state.source });
+      const lines = r.cards.map((c) => `${c.node}: ${c.status === "filed" ? "merge card filed" : `not filed - ${c.detail}`}`);
+      state.said = { text: [`Local: ${r.local.status} on ${r.local.branch || "?"}.`, ...lines].join("\n") };
+    }
+  } catch (err) {
+    state.said = { text: err.message, bad: true };
+  }
+  try {
+    state.git.status = await api(`/api/git/status?source=${encodeURIComponent(state.source)}`);
+  } catch { /* keep the previous status rather than blanking the panel */ }
+  renderGit();
+}
+
+async function showDiff(relPath, entryState) {
+  if (entryState === "untracked") {
+    // git diff only ever describes TRACKED files, so an untracked path would
+    // render an empty pane that reads as "nothing changed".
+    state.git.diff = null;
+    state.said = { text: `${relPath} is untracked - git has no previous version to diff against. Open it from the file list to read it.` };
+    renderGit();
+    return;
+  }
+  try {
+    state.git.diff = await api(`/api/git/diff?source=${encodeURIComponent(state.source)}&path=${encodeURIComponent(relPath)}`);
+    state.said = null;
+  } catch (err) {
+    state.git.diff = null;
+    state.said = { text: err.message, bad: true };
+  }
+  renderGit();
+}
+
+$("git").addEventListener("click", () => { state.said = null; openGit(); });
+$("vbody").addEventListener("click", (e) => {
+  const act = e.target.closest(".git .actions button");
+  if (act) { gitAction(act.dataset.act); return; }
+  const file = e.target.closest(".git ul.files button");
+  if (file) showDiff(file.dataset.diff, file.dataset.state);
+});
+
+/* ── Wiring ──────────────────────────────────────────────────────────────── */
+$("list").addEventListener("click", (e) => {
+  const btn = e.target.closest("button.row");
+  if (!btn) return;
+  if (btn.dataset.dir !== undefined) { state.filter = ""; $("filter").value = ""; loadDir(btn.dataset.dir); }
+  else if (btn.dataset.file !== undefined) openFile(btn.dataset.file);
+});
+$("crumbs").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-go]");
+  if (btn) { state.filter = ""; $("filter").value = ""; loadDir(btn.dataset.go); }
+});
+$("filter").addEventListener("input", (e) => { state.filter = e.target.value; renderList(); });
+$("src").addEventListener("change", (e) => {
+  state.source = e.target.value;
+  localStorage.setItem("fb.source", state.source);
+  state.file = null; state.filter = ""; $("filter").value = "";
+  $("vhead").hidden = true; $("note").hidden = true; $("copy").hidden = true;
+  $("shell").classList.remove("on-file");
+  $("vbody").innerHTML = `<div class="empty"><span class="t">Nothing open</span><span class="s">Pick a file on the left.</span></div>`;
+  state.git = null; state.said = null;
+  syncSourceChrome();
+  syncGitChrome();
+  loadDir("");
+});
+$("refresh").addEventListener("click", () => loadDir(state.path));
+$("back").addEventListener("click", () => { $("shell").classList.remove("on-file"); });
+$("copy").addEventListener("click", async () => {
+  const src = currentSource();
+  const full = ((src && src.root) ? src.root.replace(/\/$/, "") + "/" : "") + (state.file ? state.file.path : "");
+  try { await navigator.clipboard.writeText(full); $("copy").textContent = "Copied"; }
+  catch { $("copy").textContent = "Copy failed"; }
+  setTimeout(() => { $("copy").textContent = "Copy path"; }, 1400);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== $("filter")) { e.preventDefault(); $("filter").focus(); }
+  if (e.key === "Escape" && document.activeElement === $("filter")) { state.filter = ""; $("filter").value = ""; renderList(); $("filter").blur(); }
+});
+
+(async function boot() {
+  await loadSources();
+  syncGitChrome();
+  await loadDir("");
 })();
 </script>
 </body>

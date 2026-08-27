@@ -61,7 +61,7 @@ overlap. Manual workflow, not an automatic rejection.
 
 ## What's NOT in the catalog (intentionally)
 
-- Natural-language date parsing — operative-side.
+- Natural-language date parsing — your side, not the CLI's.
 - Recurring event creation — use Google Calendar's web UI.
 - Event update/delete — use the web UI for now.
 - Multiple Google accounts — single user identity per machine.

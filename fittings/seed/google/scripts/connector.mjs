@@ -13,6 +13,18 @@
 //     auth-env route — the same route, internal-token guard, and refresher the
 //     engine uses. Either way the Vault stays the single owner of the grant and
 //     the token never touches the manifest, disk, or the logs (it is redacted).
+//     Vault-sealed end to end — no plaintext token.json on disk.
+//
+// NOT BUFFERED — gmail.send goes out the moment it is called. Slack and
+// whatsapp-web park an agent-triggered send for a 60-second cancel window (see
+// fittings/seed/whatsapp-web/lib/outbox.mjs), which is what lets an autonomy
+// band treat an outbound message as revertible-in-practice. This Fitting cannot
+// do that: it is this CLI plus setup.sh, with no long-lived process anywhere,
+// and a process that exits in milliseconds cannot hold a 60-second timer or
+// answer a cancel. Buffering gmail.send needs one of two things first — an
+// own-port google daemon, or the buffer moved up into whatever shared executor
+// invokes connectors — and until then gmail.send stays genuinely irreversible
+// and must be treated as ask-first, never act-and-inform.
 
 import { readFileSync, realpathSync } from "node:fs";
 import os from "node:os";

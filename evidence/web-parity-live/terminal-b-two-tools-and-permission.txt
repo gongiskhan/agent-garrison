@@ -1,0 +1,31 @@
+
+╭─── Claude Code v2.1.233 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                                                                                                        │
+│                Welcome back Goncalo!               │ Ask Claude to create a new app or clone a repository                                                                                            │
+│                                                    │ ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                                                                                                      │
+│                      ▝▜█████▛▘                     │ Added GitLab merge request URL support to the `--worktree` flag and the `claude agents` view (where MRs display as `!N`)                        │
+│                        ▘▘ ▝▝                       │ Added an opt-in `forward_user_identity` apps gateway setting on Anthropic upstreams that sends the signed-in user's identity as headers, so a … │
+│      Opus 5 with xhigh effort · Claude Max ·       │ Added opt-in memory cgroup support for Bash tool commands on Linux (`CLAUDE_CODE_TOOL_MEMORY_LIMIT`) so a runaway build can't stall the session │
+│      goncalo.p.gomes@gmail.com's Organization      │ /release-notes for more                                                                                                                         │
+│            /tmp/web-parity-term-0TEzHI             │                                                                                                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+❯ In one short sentence: what does the word 'garrison' mean?
+● A garrison is a body of troops stationed in a fortified place to defend it (or the fortified place itself), and as a verb it means to station troops there.
+✻ Brewed for 2s
+❯ Write a file parity.txt containing exactly the word ready, then run `cksum parity.txt` in the shell and tell me the checksum.
+  Thought for 7s
+● Write(parity.txt)
+  ⎿  Wrote 1 line to parity.txt
+      1 ready
+  Ran 1 shell command
+● cksum parity.txt → 949236767 5 parity.txt
+  Checksum: 949236767, size: 5 bytes (no trailing newline — just ready).
+✻ Crunched for 11s
+                                                                                                                                                                                      ◉ xhigh · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 to keep future transcripts
+  web-parity-term-0TEzHI | 4% | Opus 5@xhigh                                                                                                                                                        /rc
+  ⏸ manual mode on

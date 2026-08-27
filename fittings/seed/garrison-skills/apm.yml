@@ -6,6 +6,7 @@ type: skill
 includes: auto
 x-garrison:
   faculty: building
+  category: Building
   cardinality_hint: single
   component_shape: skill
   ui:

@@ -82,7 +82,7 @@ export function collectFrictionLines(projectsRoot = path.join(os.homedir(), "dev
 // ── Pure analysis (D38 heuristics) ──────────────────────────────────────────
 // Three seeded proposal kinds, each conservative (min-sample thresholds):
 //  1. phase-plan edit — a phase that consistently finds nothing for a kind
-//     (skipped/clean across >= minRuns runs of that work kind) → propose
+//     (skipped/clean across >= minRuns runs of that flow) → propose
 //     turning it off in that kind's plan.
 //  2. matrix cell effort — a phase whose gate FAILED in >= failRatio of runs
 //     → propose one ladder step up; a phase clean across >= calmRuns runs at
@@ -92,12 +92,12 @@ export function collectFrictionLines(projectsRoot = path.join(os.homedir(), "dev
 export function analyzeForPolicyProposals({ outcomes = [], frictionLines = [], at, minRuns = 3, failRatio = 0.5, calmRuns = 5, minMentions = 3 } = {}) {
   const proposals = [];
 
-  // Aggregate per (workKind, phase): {runs, clean, failed, skipped, sources}.
+  // Aggregate per (flow, phase): {runs, clean, failed, skipped, sources}.
   // `sources` collects the evidence-index.json files that fed the aggregate so a
   // proposal can cite them (shadcn/improve pattern 1 — evidence discipline).
   const byKindPhase = new Map();
   for (const o of outcomes) {
-    const kind = o.index?.workKind || o.index?.gatesConfig?.workKind || "full-feature";
+    const kind = o.index?.flow || o.index?.gatesConfig?.flow || "full-feature";
     for (const slice of o.index?.slices || []) {
       const gates = slice.gateStatus?.gates || slice.gates || {};
       for (const [gateKey, entry] of Object.entries(gates)) {
@@ -159,7 +159,7 @@ export function analyzeForPolicyProposals({ outcomes = [], frictionLines = [], a
         evidence: citeSources(agg),
         confidence: gradeByRuns(agg.runs),
         signal: { kind, gate: gateKey, runs: agg.runs, skipped: agg.skipped },
-        diff: `phasePlans[workKinds["${kind}"].phasePlan] — turn ${gateKey} OFF for ${kind} (chip toggle in the composer)`,
+        diff: `phasePlans[flows["${kind}"].phasePlan] — turn ${gateKey} OFF for ${kind} (chip toggle in the composer)`,
         decision: `Turn the ${gateKey} phase off in the ${kind} plan?`,
         applyVia: "PUT /routing (baselineSha, Orchestrator fitting)",
         at

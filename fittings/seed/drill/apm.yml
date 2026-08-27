@@ -10,8 +10,9 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: building
+  category: Building
   own_port: true
-  default_port: 7096
+  default_port: 8096
   component_shape: plugin
   cardinality_hint: single
   platforms:
@@ -22,7 +23,10 @@ x-garrison:
     under test, compiles enabled steps to ephemeral inline automations engine
     runs (vision or graduated e2e), and surfaces run results, findings, and
     page states. Provides the `drill` duty (plan, gate, run) so it slots into
-    the Garrison roster after review.
+    the Garrison roster after review. Equipping it also registers the
+    `drill-results` stdio MCP server at user scope - the universal evidence
+    entry point any session reports to (see for_consumers); deselecting the
+    fitting removes that registration.
   config_schema:
     # Key is `target_repo` (not `drill_target_repo`) deliberately: the runner
     # projects config as GARRISON_<ID>_<KEY>, so this lands as the
@@ -210,3 +214,26 @@ x-garrison:
     2h, DRILL_PLAN_TIMEOUT_MS overrides). An ABSENT drills/ tree means author
     fresh - a retired Book is never restored from git. The Authoring UI is the
     manual override surface, never the required entry path.
+
+    RESULTS MCP (`drill-results`) - the universal evidence entry point, and the
+    one part of Drill that is NOT about executing anything. ANY session that
+    tested something (a work session, an automation, an e2e run, another tool)
+    reports what it verified and gets back a drill-style report page with a
+    durable link. Tools: results_open_run -> results_add_step (name + status,
+    everything else optional) -> results_attach_media (screenshots, video) ->
+    results_finalize_run. The reporting session chooses what evidence fits its
+    context; a run of bare steps and statuses is a valid, complete report.
+    Print the returned url as the LAST line of your output so it is tappable
+    from the phone.
+
+    Two things about it that matter. (1) EVERY run it creates is stamped
+    `origin: reported` and the page says, in words, that the evidence is
+    self-declared - it can never be mistaken for an executed Drill run, which
+    is the only thing allowed to claim `executed`. (2) The MCP is a THIN
+    WRAPPER over a plain HTTP API served by the GARRISON APP, not by this
+    fitting: POST $GARRISON_APP_URL/api/results, then .../<id>/steps, /media,
+    /finalize. Claude Code loads MCP servers only at session start, so an
+    already-running session cannot see the tools - it reports with curl over
+    that same API instead, with no restart and no loss of capability. The
+    report link is served by the Garrison app too, so it keeps working after
+    this fitting and the MCP stop. Full contract: docs/RESULTS.md.

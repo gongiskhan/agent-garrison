@@ -11,6 +11,23 @@
 //     have no projects" (§11).
 
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import type { SessionBlock } from "@garrison/claude-chat";
+// @ts-ignore — dependency-free fitting JavaScript intentionally has no .d.ts.
+import { normalizeAgentSdkMessages } from "../fittings/seed/agent-sdk-runtime/lib/session-events.mjs";
+
+const SDK_FIXTURE = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./fixtures/agent-sdk-web-parity-events.json", import.meta.url)), "utf8")
+);
+
+function settledFixtureEvents(turnId: string) {
+  let now = 1_786_880_000_000;
+  const revisions = normalizeAgentSdkMessages(SDK_FIXTURE.messages, { turnId, now: () => now++ });
+  const latest = new Map<string, any>();
+  for (const event of revisions) latest.set(event.id, event);
+  return [...latest.values()];
+}
 
 // react-dom/client is the ONLY import with a real DOM requirement at module scope.
 vi.mock("react-dom/client", () => ({
@@ -26,7 +43,18 @@ vi.mock("react-dom/client", () => ({
   setInterval: () => 0,
   clearInterval: () => {},
   setTimeout: () => 0,
+  // The session list remembers whether it was expanded; without a store the
+  // component's initializer throws before any of this file's subjects can run.
+  localStorage: {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  },
 };
+// main.tsx pulls in the remote-shell pane, and through it @xterm/addon-fit, whose
+// UMD wrapper dereferences `self` at import time. It is a browser global with no
+// Node equivalent, so the module fails to load before a single test runs.
+(globalThis as any).self = (globalThis as any).window;
 (globalThis as any).document = {
   getElementById: () => ({}),
   visibilityState: "visible",
@@ -45,10 +73,263 @@ afterEach(() => {
 // of its own. A global satisfies the emitted calls without touching the source.
 const reactMod = await import("react");
 (globalThis as any).React = (reactMod as any).default ?? reactMod;
+const { renderToStaticMarkup } = await import("react-dom/server");
 
 const ui = await import("../fittings/seed/web-channel-default/ui/main");
 
+describe("web-channel Discuss kickoff admission guard", () => {
+  it("arms only a truly pristine thread across admission crash and reload windows", () => {
+    expect(ui.shouldArmDiscussKickoff(null)).toBe(false);
+    expect(ui.shouldArmDiscussKickoff({
+      messages: [], pendingInputs: [], inputReceipts: [], inputRevision: 0,
+    })).toBe(true);
+    expect(ui.shouldArmDiscussKickoff({
+      messages: [],
+      pendingInputs: [{ inputId: "input-kickoff", clientRequestId: "client-kickoff", state: "running" }],
+      inputReceipts: [],
+      inputRevision: 1,
+    })).toBe(false);
+    expect(ui.shouldArmDiscussKickoff({
+      messages: [],
+      pendingInputs: [],
+      inputReceipts: [{ inputId: "input-kickoff", clientRequestId: "client-kickoff", state: "failed" }],
+      inputRevision: 2,
+    })).toBe(false);
+    // The monotonic revision remains durable evidence even if bounded receipt
+    // cleanup has already removed the row itself.
+    expect(ui.shouldArmDiscussKickoff({
+      messages: [], pendingInputs: [], inputReceipts: [], inputRevision: 3,
+    })).toBe(false);
+  });
+});
+
+describe("web-channel push notices", () => {
+  it("gives blocked/install notices and transient notifications a separate accessible close", () => {
+    const dismissed = vi.fn();
+    const noticeElement = (globalThis as any).React.createElement(ui.PushNotice, {
+      text: "Notifications blocked",
+      onDismiss: dismissed,
+    });
+    const notice = renderToStaticMarkup(noticeElement);
+    const toast = renderToStaticMarkup(
+      (globalThis as any).React.createElement(ui.PushNotice, { kind: "toast", text: "Task complete", onDismiss: () => {} })
+    );
+    expect(notice).toContain("wc-push-notice");
+    expect(notice).toContain('aria-label="Dismiss notification notice"');
+    expect(toast).toContain("wc-push-toast");
+    expect(toast).toContain('aria-label="Dismiss notification"');
+    // PushNotice owns no enrolment behavior: its close control performs only the
+    // dismissal callback supplied by PushEnroller.
+    const renderedNotice = ui.PushNotice(noticeElement.props);
+    renderedNotice.props.children[1].props.onClick();
+    expect(dismissed).toHaveBeenCalledOnce();
+  });
+});
+
 describe("web-channel toHistory: run context survives a reload (contract §10)", () => {
+  it("reattaches a terminal failure receipt to its exact durable input turn", () => {
+    const failure = {
+      source: "web",
+      kind: "transport",
+      code: "gateway_stream_ended",
+      text: "The gateway stream ended without a terminal frame.",
+      retryable: true,
+    } as const;
+    const history = ui.toHistory(
+      [
+        { role: "user", text: "run it", turnId: "input-failed", ts: "2026-08-16T10:00:00.000Z" },
+        { role: "assistant", text: "", turnId: "input-failed", ts: "2026-08-16T10:00:01.000Z" },
+      ],
+      [{
+        id: "terminal:[\"generation-failed\"]",
+        role: "assistant",
+        ts: Date.parse("2026-08-16T10:00:01.000Z"),
+        turnId: "input-failed",
+        generationId: "generation-failed",
+        order: 1,
+        revision: 1,
+        blocks: [
+          { type: "error", ...failure },
+          { type: "turn_end", status: "error", reason: failure.code },
+        ],
+      }],
+      [{
+        clientRequestId: "request-failed",
+        inputId: "input-failed",
+        generationId: "generation-failed",
+        state: "failed",
+        acceptedAt: "2026-08-16T09:59:59.000Z",
+        reason: failure.text,
+        failure,
+      }],
+    );
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      user: "run it",
+      assistant: "",
+      input: { inputId: "input-failed", generationId: "generation-failed", state: "failed", failure },
+      sessionEvents: [{ id: "terminal:[\"generation-failed\"]" }],
+    });
+  });
+
+  it("detects an in-place canonical revision even when message and event counts stay fixed", () => {
+    const base: any = {
+      messages: [{ role: "user", text: "run it", ts: "2026-08-16T10:00:00.000Z" }],
+      sessionEvents: [{ id: "tool", role: "assistant", ts: 1, order: 1, revision: 1, blocks: [{ type: "tool_use" }] }],
+    };
+    const revised = {
+      ...base,
+      sessionEvents: [{ ...base.sessionEvents[0], revision: 2, blocks: [{ type: "tool_use", input: "complete" }] }],
+    };
+    expect(ui.threadHistoryRevision(revised)).not.toBe(ui.threadHistoryRevision(base));
+  });
+
+  it("refreshes a painted terminal snapshot without remounting, but remounts missed replay recovery", () => {
+    const before: any = {
+      messages: [{ role: "user", text: "speak this", turnId: "input-voice" }],
+      sessionEvents: [],
+      pendingInputs: [{ inputId: "input-voice", clientRequestId: "voice-client", state: "running" }],
+      inputRevision: 2,
+    };
+    const settled: any = {
+      messages: [
+        ...before.messages,
+        { role: "assistant", text: "spoken answer", turnId: "input-voice" },
+      ],
+      sessionEvents: [],
+      pendingInputs: [],
+      inputRevision: 3,
+    };
+    expect(ui.shouldRemountAfterResume(before, settled, false, ["input-voice"])).toBe(false);
+    expect(ui.shouldRemountAfterResume(before, settled, true, ["input-voice"])).toBe(true);
+  });
+
+  it("remounts when a post-resume snapshot contains an unseen multi-client input", () => {
+    const before: any = {
+      messages: [{ role: "user", text: "A", turnId: "input-a" }],
+      sessionEvents: [],
+      pendingInputs: [{ inputId: "input-a", clientRequestId: "client-a", state: "running" }],
+      inputReceipts: [],
+      inputRevision: 10,
+    };
+    const settledA: any = {
+      messages: [...before.messages, { role: "assistant", text: "answer A", turnId: "input-a" }],
+      sessionEvents: [],
+      pendingInputs: [],
+      inputReceipts: [{ inputId: "input-a", clientRequestId: "client-a", state: "settled" }],
+      inputRevision: 11,
+    };
+    expect(ui.shouldRemountAfterResume(before, settledA, false, ["input-a"])).toBe(false);
+    expect(ui.shouldRemountAfterResume(
+      { messages: [], sessionEvents: [], pendingInputs: [], inputReceipts: [], inputRevision: 0 },
+      settledA,
+      false,
+      [],
+      ["client-a"],
+    )).toBe(false);
+
+    const bQueued: any = {
+      ...settledA,
+      pendingInputs: [{ inputId: "input-b", clientRequestId: "client-b", state: "queued", message: "B" }],
+      inputRevision: 12,
+    };
+    expect(ui.shouldRemountAfterResume(before, bQueued, false, ["input-a"])).toBe(true);
+
+    const bRunning: any = {
+      ...settledA,
+      messages: [...settledA.messages, { role: "user", text: "B", turnId: "input-b" }],
+      pendingInputs: [{ inputId: "input-b", clientRequestId: "client-b", state: "running", message: "B" }],
+      inputRevision: 13,
+    };
+    expect(ui.shouldRemountAfterResume(before, bRunning, false, ["input-a"])).toBe(true);
+
+    const bSettled: any = {
+      ...settledA,
+      messages: [
+        ...settledA.messages,
+        { role: "user", text: "B", turnId: "input-b" },
+        { role: "assistant", text: "answer B", turnId: "input-b" },
+      ],
+      inputReceipts: [
+        ...settledA.inputReceipts,
+        { inputId: "input-b", clientRequestId: "client-b", state: "settled" },
+      ],
+      inputRevision: 14,
+    };
+    expect(ui.shouldRemountAfterResume(before, bSettled, false, ["input-a"])).toBe(true);
+
+    const bEventOnly: any = {
+      ...settledA,
+      sessionEvents: [{
+        id: "external-b",
+        role: "assistant",
+        ts: 1,
+        turnId: "input-b",
+        revision: 1,
+        blocks: [{ type: "assistant_text", text: "B appeared elsewhere" }],
+      }],
+      inputRevision: 15,
+    };
+    expect(ui.shouldRemountAfterResume(before, bEventOnly, false, ["input-a"])).toBe(true);
+  });
+
+  it("remounts an uncoordinated external assistant notice after resume", () => {
+    const before: any = { messages: [], sessionEvents: [], inputRevision: 1 };
+    const fresh: any = {
+      ...before,
+      messages: [{ role: "assistant", text: "External completion notice" }],
+    };
+    expect(ui.shouldRemountAfterResume(before, fresh, false, ["input-local"])).toBe(true);
+  });
+
+  it("hydrates the active input onto its durable user row and appends queued rows in FIFO order", () => {
+    const active = {
+      clientRequestId: "client-active",
+      inputId: "input-active",
+      state: "running" as const,
+      generationId: "generation-active",
+      acceptedAt: "2026-08-16T10:00:00.000Z",
+      message: "active ask",
+    };
+    const queued = {
+      clientRequestId: "client-queued",
+      inputId: "input-queued",
+      state: "queued" as const,
+      position: 1,
+      acceptedAt: "2026-08-16T10:00:01.000Z",
+      message: "queued ask",
+    };
+    const history = ui.toHistory([
+      { role: "user", text: "active ask", turnId: "input-active", ts: active.acceptedAt },
+    ], [], [active, queued]);
+    expect(history).toEqual([
+      {
+        user: "active ask",
+        assistant: "",
+        input: {
+          clientRequestId: "client-active",
+          inputId: "input-active",
+          state: "running",
+          generationId: "generation-active",
+          acceptedAt: active.acceptedAt,
+        },
+      },
+      {
+        user: "queued ask",
+        assistant: "",
+        input: {
+          clientRequestId: "client-queued",
+          inputId: "input-queued",
+          state: "queued",
+          position: 1,
+          acceptedAt: queued.acceptedAt,
+        },
+      },
+    ]);
+    expect(ui.threadHistoryRevision({ messages: [], sessionEvents: [], inputRevision: 2, pendingInputs: [active, queued] }))
+      .not.toBe(ui.threadHistoryRevision({ messages: [], sessionEvents: [], inputRevision: 1, pendingInputs: [active] }));
+  });
+
   it("carries the assistant message's route and the user message's overrides onto the pair", () => {
     const h = ui.toHistory([
       { role: "user", text: "plan it", overrides: { duty: "plan", level: 2 } },
@@ -109,6 +390,209 @@ describe("web-channel toHistory: run context survives a reload (contract §10)",
       { user: "one", assistant: "", overrides: { duty: "plan" } },
       { user: "two", assistant: "2", route: { duty: "execute" } },
     ]);
+  });
+
+  it("keeps an interleaved external assistant notice separate from an exact input reply", () => {
+    const history = ui.toHistory([
+      { role: "user", text: "run the input", turnId: "input-1", ts: "2026-08-16T10:00:00.000Z" },
+      { role: "assistant", text: "external card update", ts: "2026-08-16T10:00:01.000Z" },
+      {
+        role: "assistant",
+        text: "exact input answer",
+        turnId: "input-1",
+        ts: "2026-08-16T10:00:02.000Z",
+        route: { runtime: "agent-sdk", generationId: "generation-1" },
+      },
+    ] as any);
+    expect(history).toEqual([
+      {
+        user: "run the input",
+        assistant: "exact input answer",
+        route: { runtime: "agent-sdk", generationId: "generation-1" },
+      },
+      { user: "", assistant: "external card update" },
+    ]);
+  });
+
+  it("hydrates the authentic two-tool fixture onto its explicitly numbered exchange", () => {
+    const canonical = settledFixtureEvents("1");
+    const h = ui.toHistory([
+      { role: "user", text: "run the fixture", ts: "2026-08-16T10:00:00.000Z" },
+      {
+        role: "assistant",
+        text: "WEB_PARITY_FIXTURE",
+        ts: "2026-08-16T10:00:05.000Z",
+        route: { turnSeq: 1, sessionId: "session-53" },
+      },
+    ], canonical);
+
+    expect(h[0].sessionEvents).toEqual(canonical);
+    expect(h[0].sessionEvents?.[0]).toBe(canonical[0]);
+    const blocks = h[0].sessionEvents?.flatMap((event: any) => event.blocks) ?? [];
+    expect(blocks.filter((block: any) => block.type === "tool_use").map((block: any) => block.name)).toEqual(["Write", "Read"]);
+    expect(blocks.find((block: any) => block.type === "text" && block.text === "WEB_PARITY_FIXTURE")).toBeDefined();
+  });
+
+  it("prefers explicit turnId coordinates over contradictory timestamps", () => {
+    const event = (id: string, turnId: string, ts: number) => ({
+      id,
+      role: "assistant",
+      ts,
+      turnId,
+      sessionId: "same-session",
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: id }],
+    });
+    const first = event("first-event", "1", Date.parse("2026-08-16T10:01:30.000Z"));
+    const second = event("second-event", "2", Date.parse("2026-08-16T10:00:30.000Z"));
+    const h = ui.toHistory([
+      { role: "user", text: "one", ts: "2026-08-16T10:00:00.000Z" },
+      { role: "assistant", text: "1", ts: "2026-08-16T10:00:10.000Z", route: { turnSeq: 1, sessionId: "same-session" } },
+      { role: "user", text: "two", ts: "2026-08-16T10:01:00.000Z" },
+      { role: "assistant", text: "2", ts: "2026-08-16T10:01:10.000Z", route: { turnSeq: 2, sessionId: "same-session" } },
+    ], [first, second]);
+
+    expect(h[0].sessionEvents?.map((entry: any) => entry.id)).toEqual(["first-event"]);
+    expect(h[1].sessionEvents?.map((entry: any) => entry.id)).toEqual(["second-event"]);
+  });
+
+  it("uses timestamps before session id when a reloaded client reuses its turn counter", () => {
+    const h = ui.toHistory([
+      { role: "user", text: "old", ts: "2026-08-16T10:00:00.000Z", turnId: "1" },
+      {
+        role: "assistant",
+        text: "old reply",
+        ts: "2026-08-16T10:00:10.000Z",
+        route: { turnSeq: 1, sessionId: "session-old" },
+      },
+      // The ask is persisted before routing settles, so it has the repeated
+      // client turn id but no runtime session id yet.
+      { role: "user", text: "new", ts: "2026-08-16T10:01:00.000Z", turnId: "1" },
+    ], [{
+      id: "new-early-event",
+      role: "assistant",
+      ts: Date.parse("2026-08-16T10:01:05.000Z"),
+      turnId: "1",
+      sessionId: "session-old",
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "tool_use", name: "Read", toolUseId: "read-new" }],
+    }]);
+
+    expect(h[0].sessionEvents).toBeUndefined();
+    expect(h[1].sessionEvents?.map((entry: any) => entry.id)).toEqual(["new-early-event"]);
+  });
+
+  it("keeps early s2 activity on a trailing repeated turn after the prior turn rolls from s2 to s53", () => {
+    const sessionEvent = (
+      id: string,
+      ts: string,
+      sessionId: string,
+      order: number,
+      blocks: SessionBlock[]
+    ) => ({
+      id,
+      role: "assistant",
+      ts: Date.parse(ts),
+      turnId: "1",
+      sessionId,
+      order,
+      revision: 1,
+      blocks,
+    });
+    const h = ui.toHistory([
+      { role: "user", text: "old turn", ts: "2026-08-16T10:00:00.000Z", turnId: "1" },
+      {
+        role: "assistant",
+        text: "old reply",
+        ts: "2026-08-16T10:00:10.000Z",
+        route: { turnSeq: 1, sessionId: "s2" },
+      },
+      // A browser remount resets turnSeq to 1. This ask is already durable, but
+      // it is intentionally unanswered while its early SDK activity arrives.
+      { role: "user", text: "new turn", ts: "2026-08-16T10:01:00.000Z", turnId: "1" },
+    ], [
+      sessionEvent("old-early-s2", "2026-08-16T10:00:02.000Z", "s2", 1, [
+        { type: "tool_use", name: "Write", toolUseId: "write-old" },
+      ]),
+      sessionEvent("old-terminal-s53", "2026-08-16T10:00:08.000Z", "s53", 2, [
+        { type: "turn_end", status: "completed" },
+      ]),
+      // A new normalizer starts at order 1 and initially reports s2 again. Exact
+      // session matching must not drag this group back onto the old s2 reply.
+      sessionEvent("new-early-s2", "2026-08-16T10:01:02.000Z", "s2", 1, [
+        { type: "tool_use", name: "Read", toolUseId: "read-new" },
+      ]),
+    ]);
+
+    expect(h).toHaveLength(2);
+    expect(h[0].sessionEvents?.map((event: any) => event.id)).toEqual([
+      "old-early-s2",
+      "old-terminal-s53",
+    ]);
+    expect(h[1]).toMatchObject({ user: "new turn", assistant: "" });
+    expect(h[1].sessionEvents?.map((event: any) => event.id)).toEqual(["new-early-s2"]);
+  });
+
+  it("falls back to message timestamps when no explicit turn coordinate matches", () => {
+    const event = (id: string, ts: string) => ({
+      id,
+      role: "assistant",
+      ts: Date.parse(ts),
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: id }],
+    });
+    const h = ui.toHistory([
+      { role: "user", text: "one", ts: "2026-08-16T10:00:00.000Z" },
+      { role: "assistant", text: "1", ts: "2026-08-16T10:00:20.000Z" },
+      { role: "user", text: "two", ts: "2026-08-16T10:01:00.000Z" },
+      { role: "assistant", text: "2", ts: "2026-08-16T10:01:20.000Z" },
+    ], [
+      event("first-by-time", "2026-08-16T10:00:10.000Z"),
+      event("second-by-time", "2026-08-16T10:01:10.000Z"),
+    ]);
+
+    expect(h.map((exchange: any) => exchange.sessionEvents?.[0]?.id)).toEqual(["first-by-time", "second-by-time"]);
+  });
+
+  it("uses stable persisted sequence when neither coordinates nor timestamps can disambiguate", () => {
+    const events = ["first-by-sequence", "second-by-sequence"].map((id, index) => ({
+      id,
+      role: "assistant",
+      ts: null,
+      turnId: `legacy-${index}`,
+      order: 1,
+      revision: 1,
+      blocks: [{ type: "text", text: id }],
+    }));
+    const h = ui.toHistory([
+      { role: "user", text: "one" },
+      { role: "assistant", text: "1" },
+      { role: "user", text: "two" },
+      { role: "assistant", text: "2" },
+    ], events);
+
+    expect(h.map((exchange: any) => exchange.sessionEvents?.[0]?.id)).toEqual(["first-by-sequence", "second-by-sequence"]);
+  });
+});
+
+describe("web-channel routing persistence", () => {
+  it("adopts only the server-confirmed pins and rejects a failed autosave", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      routing: { target: "opus-plan", effort: "high" },
+    }), { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch;
+    await expect(ui.apiSetRouting("thread-route", { target: "opus-plan", effort: "high" })).resolves.toEqual({
+      target: "opus-plan",
+      effort: "high",
+    });
+
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ error: "routing store unavailable" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+    await expect(ui.apiSetRouting("thread-route", { target: "sonnet-plan" })).rejects.toThrow("routing store unavailable");
   });
 });
 

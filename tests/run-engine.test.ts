@@ -1,8 +1,8 @@
 // S4 (GARRISON-UNIFY-V1) — THE run engine: policy-driven resolution (D15),
 // durable gate-evidence transitions (D9), rail fast-forward + per-card phase
 // toggles (D17), engine-owned list locks (D16 API side), the in-process
-// library entry (D13), and the board v2→v3 migration.
-import { describe, it, expect, beforeEach } from "vitest";
+// library entry (D13), and the board schema migrations.
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -34,9 +34,27 @@ import {
 // @ts-ignore
 import { seedBoard, migrateBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore pure mjs
-import { atomicWriteJSON, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { atomicWriteJSON, loadCard, BOARD_VERSION } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore pure mjs
 import { compilePolicy, stableStringify } from "../fittings/seed/orchestrator/lib/routing-core.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState, seedCard } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// Fixed-ULID fixtures are reused across tests in this file; a per-test wipe gives
+// each one the fresh board its own tmp root used to give it.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const ROOT = path.resolve(__dirname, "..");
 const SEED_CONFIG = path.join(ROOT, "fittings/seed/orchestrator/config/routing.seed.json");
@@ -70,7 +88,7 @@ async function makeCard(root: string, overrides: Record<string, unknown> = {}) {
     ...overrides
   };
   mkdirSync(path.join(root, "cards", card.id), { recursive: true });
-  await atomicWriteJSON(path.join(root, "cards", card.id, "card.json"), card);
+  await seedCard(card);
   return card;
 }
 
@@ -112,8 +130,8 @@ describe("policy resolution (D15)", () => {
     expect(plan.tier).toBeUndefined();
     expect(plan.mode).toBeUndefined();
     const policy = loadPolicy();
-    expect(skillForPhase(policy, "plan", "full-feature")).toBe("garrison-plan");
-    expect(skillForPhase(policy, "review", "full-feature")).toBe("garrison-review");
+    expect(skillForPhase(policy, "plan", "feature")).toBe("garrison-plan");
+    expect(skillForPhase(policy, "review", "feature")).toBe("garrison-review");
     expect(classificationForPhase(policy, "implement", { tier: "T2-deep" })).toEqual({
       taskType: "implement",
       tier: "T2-deep"
@@ -122,7 +140,7 @@ describe("policy resolution (D15)", () => {
     expect(classificationForPhase(policy, "implement", { tier: "bogus" })!.tier).toBe("T1-standard");
   });
 
-  it("v2 boards migrate: dead per-list pins stripped, phase stamped, version 3", () => {
+  it("v2 boards migrate through v5: pins stripped, phase stamped, Scheduled and Archived added", () => {
     const v2 = {
       version: 2,
       lists: [
@@ -130,16 +148,68 @@ describe("policy resolution (D15)", () => {
         { id: "todo", kind: "manual", validNext: ["plan"] }
       ]
     };
-    const v3 = migrateBoard(v2);
-    expect(v3.version).toBe(3);
-    const plan = v3.lists[0];
+    const v5 = migrateBoard(v2);
+    expect(v5.version).toBe(BOARD_VERSION);
+    expect(v5.lists[0]).toMatchObject({
+      id: "scheduled",
+      order: -1,
+      userOrder: -1,
+      kind: "scheduled",
+      system: true
+    });
+    const plan = v5.lists[1];
     expect(plan.skill).toBeUndefined();
     expect(plan.taskType).toBeUndefined();
     expect(plan.tier).toBeUndefined();
     expect(plan.mode).toBeUndefined();
     expect(plan.phase).toBe("plan");
+    expect(v5.lists.at(-1)).toMatchObject({
+      id: "archived",
+      kind: "manual",
+      terminal: true,
+      archived: true,
+      validNext: []
+    });
     // idempotent
-    expect(migrateBoard(v3)).toBe(v3);
+    expect(migrateBoard(v5)).toBe(v5);
+  });
+
+  it("v3 boards receive the v5 system columns without disturbing existing lists", () => {
+    const v3 = {
+      version: 3,
+      lists: [
+        { id: "todo", title: "To do", order: 1, kind: "manual", validNext: ["plan"] },
+        { id: "done", title: "Done", order: 11, kind: "manual", terminal: true, validNext: [] }
+      ],
+      custom: { retained: true }
+    };
+    const before = structuredClone(v3.lists);
+    const v5 = migrateBoard(v3);
+    expect(v5).not.toBe(v3);
+    expect(v5.version).toBe(BOARD_VERSION);
+    expect(v5.custom).toEqual({ retained: true });
+    const byId = (id: string) => v5.lists.find((l: { id: string }) => l.id === id);
+
+    expect(byId("scheduled")).toMatchObject({ system: true, order: -1 });
+    expect(byId("archived")).toMatchObject({ order: 12, terminal: true, archived: true });
+
+    // "Without disturbing existing lists" is the point of this case, and it is
+    // about the lists THEMSELVES, not about the array being a fixed length: v7
+    // adds a column for every duty a flow level can name, so the array grows.
+    // What must never change is any pre-existing list — including its `order`,
+    // since renumbering would silently reshuffle a board reordered by hand.
+    for (const original of before) {
+      expect(byId(original.id), `${original.id} was disturbed`).toEqual(original);
+    }
+
+    // The new duty columns land between the last agent column and the terminal
+    // ones, so the board still reads left to right.
+    const order = (id: string) => Number(byId(id)!.order);
+    for (const duty of ["walkthrough", "validate", "report"]) {
+      expect(byId(duty), `no column for duty ${duty}`).toMatchObject({ kind: "agent", phase: duty });
+      expect(order(duty)).toBeGreaterThan(order("todo"));
+      expect(order(duty)).toBeLessThan(order("done"));
+    }
   });
 
   it("the dispatch prompt names the policy-bound skill and demands the gate-status entry", () => {
@@ -157,6 +227,19 @@ describe("policy resolution (D15)", () => {
     expect(prompt).not.toContain("james,"); // per-list mode line is dead
   });
 });
+
+// The rail every gate case below has to run on. A D9 case only means something
+// when the phase under test is actually ON the card's rail: a phase the rail has
+// OFF never runs, owes no gate record, and is legitimately fast-forwarded past
+// without a dispatch — so a fixture sitting on an OFF phase would "pass" the gate
+// by never reaching it. Before the 2026-08-09 flow-library rewrite a fixture that
+// named no flow got that for free: the seed's default flow was `full-feature`,
+// whose plan ran every phase. The default is now `fix` at level 1
+// ([implement, test]), which has review and both adversarial gates OFF, so the
+// flow is named EXPLICITLY here rather than inherited from whatever the seed
+// happens to default to. `feature` level 3 is the levelled library's all-phases
+// rail — the direct successor of the retired `full` plan.
+const FULL_RAIL = { flow: "feature", level: 3 };
 
 describe("durable gate evidence (D9)", () => {
   it("hasPhaseGateEvidence finds slice-level entries by camelCase gate key", () => {
@@ -193,7 +276,7 @@ describe("durable gate evidence (D9)", () => {
 
   it("a verdict WITHOUT the phase's gate evidence parks the card in needs-attention", async () => {
     const board = seedBoard();
-    const card = await makeCard(tmp, { list: "review", tier: "T1-standard" });
+    const card = await makeCard(tmp, { ...FULL_RAIL, list: "review", tier: "T1-standard" });
     const runFn = async () => ({ reply: "looks clean.\nadversarial-review" });
     const { card: out, outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
     expect(outcome.status).toBe("needs-attention");
@@ -204,7 +287,7 @@ describe("durable gate evidence (D9)", () => {
 
   it("a verdict WITH gate evidence advances (a FAILED entry counts too)", async () => {
     const board = seedBoard();
-    const card = await makeCard(tmp, { list: "review" });
+    const card = await makeCard(tmp, { ...FULL_RAIL, list: "review" });
     const runFn = async ({ card: running }: { card: any }) => {
       writeGateEvidence(tmp, running.runDir, "review", "failed");
       return { reply: "found real issues.\nimplement" };
@@ -216,7 +299,7 @@ describe("durable gate evidence (D9)", () => {
 
   it("a max-turn runtime stop advances only from the current phase's durable verdict and keeps error + route audit", async () => {
     const board = seedBoard();
-    const card = await makeCard(tmp, { list: "review", tier: "T1-standard" });
+    const card = await makeCard(tmp, { ...FULL_RAIL, list: "review", tier: "T1-standard" });
     const route = {
       targetId: "sdk-sonnet-full",
       runtime: "agent-sdk",
@@ -255,7 +338,7 @@ describe("durable gate evidence (D9)", () => {
 
   it("a max-turn runtime stop without a valid durable verdict still parks and is not nudged", async () => {
     const board = seedBoard();
-    const card = await makeCard(tmp, { id: "01TESTCARD0000000000000012", list: "review" });
+    const card = await makeCard(tmp, { ...FULL_RAIL, id: "01TESTCARD0000000000000012", list: "review" });
     let calls = 0;
     const { card: out, outcome } = await processCard({
       root: tmp,
@@ -275,33 +358,47 @@ describe("durable gate evidence (D9)", () => {
 });
 
 describe("rails + per-card phase toggles (D17)", () => {
-  it("railForCard merges card toggles over the work kind's plan; off phases stay visible", () => {
+  it("railForCard merges card toggles over the flow's level plan; off phases stay visible", () => {
     const policy = loadPolicy();
-    const rail = railForCard(policy, { workKind: "full-feature", phases: { walkthrough: false } });
+    // Level 3 of `feature` is the rail that RUNS walkthrough — toggling a phase
+    // the level never runs would prove nothing about the merge.
+    const rail = railForCard(policy, { flow: "feature", level: 3, phases: { walkthrough: false } });
     const wt = rail.phases.find((p: { id: string }) => p.id === "walkthrough");
     expect(wt.on).toBe(false);
     expect(wt.off_reason).toBe("card-toggle");
     expect(rail.phases.length).toBeGreaterThan(5);
     expect(phaseOnForCard(rail, "walkthrough")).toBe(false);
     expect(phaseOnForCard(rail, "implement")).toBe(true);
+    // …and the level below never had it on in the first place, for a different
+    // reason. Both stay visible; only the reason differs.
+    const shallower = railForCard(policy, { flow: "feature", level: 2 });
+    expect(phaseOnForCard(shallower, "walkthrough")).toBe(false);
+    expect(shallower.phases.find((p: { id: string }) => p.id === "walkthrough").off_reason).toBe("phase-plan");
   });
 
-  it("a docs-change card fast-forwards over OFF phases with explicit off events", async () => {
+  it("a prose card fast-forwards over OFF phases with explicit off events", async () => {
     const board = seedBoard();
-    // docs-change rail = [implement] only; a card landing on review (all other
-    // phases off) fast-forwards to done, recording each skipped phase.
+    // The `docs` rail at its default level is [writing]: every pipeline phase is
+    // off, so a card landing on review fast-forwards to done, recording each
+    // skipped phase.
     const policy = loadPolicy();
-    const rail = railForCard(policy, { workKind: "docs-change" });
+    const rail = railForCard(policy, { flow: "docs" });
     const fwd = effectiveListForCard(board, rail, "review", {});
     expect(fwd.listId).toBe("done");
     expect(fwd.skipped).toContain("review");
     expect(fwd.skipped).toContain("test");
     expect(fwd.skipped).toContain("walkthrough");
+    // A card written before the 2026-08-09 library rewrite still carries the
+    // retired name; it must fast-forward the SAME way, not fall through to an
+    // all-on rail that would re-run the whole pipeline on a prose card.
+    const legacy = effectiveListForCard(board, railForCard(policy, { flow: "docs-change" }), "review", {});
+    expect(legacy.listId).toBe("done");
+    expect(legacy.skipped).toEqual(fwd.skipped);
   });
 
   it("processCard skips an OFF phase on entry without dispatching", async () => {
     const board = seedBoard();
-    const card = await makeCard(tmp, { list: "walkthrough", workKind: "api-change" });
+    const card = await makeCard(tmp, { list: "walkthrough", flow: "fix" });
     let dispatched = false;
     const runFn = async () => {
       dispatched = true;
@@ -310,7 +407,7 @@ describe("rails + per-card phase toggles (D17)", () => {
     const { card: out, outcome } = await processCard({ root: tmp, board, card, runFn, cwd: tmp });
     expect(dispatched).toBe(false);
     expect(outcome.status).toBe("moved");
-    // api-change rail: implement + test only → walkthrough/validate off → done
+    // `fix` at its default level 1: implement + test only → walkthrough/validate off → done
     expect(out.list).toBe("done");
     const offEvents = out.events.filter((e: { kind: string }) => e.kind === "phase-off");
     expect(offEvents.length).toBeGreaterThan(0);
@@ -339,13 +436,13 @@ describe("review fixes (rev-s4 findings)", () => {
     // @ts-ignore pure mjs
     const { processBatch } = await import("../fittings/seed/kanban-loop/lib/engine.mjs");
     const board = seedBoard();
-    const card = await makeCard(tmp, { list: "test", project: "p1", tier: "T1-standard", runDir: path.join(tmp, "run-b1") });
+    const card = await makeCard(tmp, { ...FULL_RAIL, list: "test", project: "p1", tier: "T1-standard", runDir: path.join(tmp, "run-b1") });
     const batchRunFn = async () => ({ reply: `${card.id} adversarial-test` });
     const { outcomes } = await processBatch({ root: tmp, board, listId: "test", cards: [card], batchRunFn, cwd: tmp });
     expect(outcomes[0].status).toBe("needs-attention");
     expect(outcomes[0].reason).toBe("no-gate-evidence");
     // with evidence → moves
-    const card2 = await makeCard(tmp, { id: "01TESTCARD0000000000000003", list: "test", project: "p1", runDir: path.join(tmp, "run-b2") });
+    const card2 = await makeCard(tmp, { ...FULL_RAIL, id: "01TESTCARD0000000000000003", list: "test", project: "p1", runDir: path.join(tmp, "run-b2") });
     const r2 = await processBatch({
       root: tmp,
       board,
@@ -365,6 +462,7 @@ describe("review fixes (rev-s4 findings)", () => {
     const { processBatch } = await import("../fittings/seed/kanban-loop/lib/engine.mjs");
     const board = seedBoard();
     const card = await makeCard(tmp, {
+      ...FULL_RAIL,
       id: "01TESTCARD0000000000000013",
       list: "test",
       project: "p1",

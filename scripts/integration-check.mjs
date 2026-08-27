@@ -75,12 +75,21 @@ async function checkAssembledPrompt() {
   const contents = await fs.readFile(promptPath, "utf8");
   const missing = [];
   if (!contents.includes("[orchestrator-active]")) missing.push("[orchestrator-active] marker");
-  if (!contents.includes("Verity")) missing.push("Verity");
-  if (missing.length > 0) {
+  const zecaIdentityCount = (contents.match(/\bYou are Zeca\b/g) ?? []).length;
+  if (zecaIdentityCount === 0) missing.push("Zeca identity");
+  const retiredIdentities = ["Verity", "Joe", "James"]
+    .filter((name) => new RegExp(`\\b${name}\\b`, "i").test(contents));
+  if (missing.length > 0 || zecaIdentityCount !== 1 || retiredIdentities.length > 0) {
+    const conflicts = [];
+    if (zecaIdentityCount > 1) conflicts.push(`Zeca identity appears ${zecaIdentityCount} times`);
+    if (retiredIdentities.length > 0) conflicts.push(`retired identities present: ${retiredIdentities.join(", ")}`);
     record(
       "Assembled system prompt",
       "warn",
-      `Assembled prompt is present but missing: ${missing.join(", ")}`,
+      [
+        missing.length > 0 ? `missing: ${missing.join(", ")}` : null,
+        ...conflicts
+      ].filter(Boolean).join("; "),
       `Run \`npm run refresh:prompts -- ${COMPOSITION_ID}\` and restart the operative.`
     );
     return;
@@ -88,7 +97,7 @@ async function checkAssembledPrompt() {
   record(
     "Assembled system prompt",
     "pass",
-    "Assembled prompt contains the orchestrator marker and the Verity identity.",
+    "Assembled prompt contains the orchestrator marker and exactly one Zeca identity.",
     path.relative(REPO_ROOT, promptPath)
   );
 }
@@ -238,7 +247,7 @@ async function runNetworkChecks() {
     turn1 = await chat("Briefly say hello.");
   } catch (error) {
     record("Orchestrator routing (turn 1)", "fail", "chat call failed", error instanceof Error ? error.message : String(error));
-    recordSkippedNetwork("Soul + session resume (turn 2)", "skipped: turn 1 failed");
+    recordSkippedNetwork("Identity + session resume (turn 2)", "skipped: turn 1 failed");
     recordSkippedNetwork("In-session memory", "skipped: turn 1 failed");
     return;
   }
@@ -257,19 +266,19 @@ async function runNetworkChecks() {
   try {
     turn2 = await chat("What is your name?");
   } catch (error) {
-    record("Soul + session resume (turn 2)", "fail", "chat call failed", error instanceof Error ? error.message : String(error));
+    record("Identity + session resume (turn 2)", "fail", "chat call failed", error instanceof Error ? error.message : String(error));
     recordSkippedNetwork("In-session memory", "skipped: turn 2 failed");
     return;
   }
   const sameSession = turn2.session_id === turn1.session_id;
-  const namedVerity = /\bVerity\b/i.test(turn2.reply ?? "");
-  if (sameSession && namedVerity) {
-    record("Soul + session resume (turn 2)", "pass", "Session resumed and operative identified as Verity.", `session_id=${turn2.session_id}`);
+  const namedZeca = /\bZeca\b/i.test(turn2.reply ?? "");
+  if (sameSession && namedZeca) {
+    record("Identity + session resume (turn 2)", "pass", "Session resumed and operative identified as Zeca.", `session_id=${turn2.session_id}`);
   } else {
     const misses = [];
     if (!sameSession) misses.push(`session_id changed: turn1=${turn1.session_id} turn2=${turn2.session_id}`);
-    if (!namedVerity) misses.push(`reply did not contain "Verity": ${truncate(turn2.reply ?? "(empty reply)")}`);
-    record("Soul + session resume (turn 2)", "fail", "Conditions failed.", misses.join(" | "));
+    if (!namedZeca) misses.push(`reply did not contain "Zeca": ${truncate(turn2.reply ?? "(empty reply)")}`);
+    record("Identity + session resume (turn 2)", "fail", "Conditions failed.", misses.join(" | "));
   }
 
   try {
@@ -354,7 +363,7 @@ async function main() {
     await runNetworkChecks();
   } else {
     recordSkippedNetwork("Orchestrator routing (turn 1)");
-    recordSkippedNetwork("Soul + session resume (turn 2)");
+    recordSkippedNetwork("Identity + session resume (turn 2)");
     recordSkippedNetwork("In-session memory");
   }
   await checkCrossSessionMemory();

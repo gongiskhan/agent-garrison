@@ -7,8 +7,8 @@
 // card run through the engine's processCard is SKIPPED (interactive), so Discuss
 // never auto-advances. Hermetic: a per-test tmpdir, no live socket.
 
-import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
@@ -19,6 +19,19 @@ import { createCard, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs
 import { processCard, isInteractive, getList, buildCardPrompt, readBriefContext } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-discuss-"));
 
@@ -42,15 +55,16 @@ function channelDecodeContext(raw: string | null): unknown {
 }
 
 describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", () => {
-  it("encodes mode=james and an opaque context the channel can decode without kanban knowledge", () => {
+  it("encodes a Discuss source and opaque context the channel can decode", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add a Discuss brief", project: "garrison" };
     const url = buildDiscussUrl(card);
 
-    // The URL targets the web channel in James mode via Garrison's embed route.
+    // The URL targets a thread whose host pins the Discuss duty.
     // The seed web-channel fitting id is `web-channel-default` (the /embed/<id>).
     expect(url.startsWith("/embed/web-channel-default?")).toBe(true);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
-    expect(q.get("mode")).toBe("james");
+    expect(q.get("source")).toBe("discuss");
+    expect(q.get("mode")).toBeNull();
 
     // The channel does exactly two things with `context`: URLSearchParams
     // url-decodes it, then decodeContext un-wraps the base64 transport layer.
@@ -60,7 +74,7 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
     const forwarded = channelDecodeContext(rawContext);
     expect(typeof forwarded).toBe("string");
 
-    // Only downstream (James) parses the blob — and it round-trips to the card.
+    // The downstream Operative can parse the blob, which round-trips to the card.
     const ctx = JSON.parse(forwarded as string);
     expect(ctx).toMatchObject({
       source: "kanban",
@@ -77,11 +91,33 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
   it("computes an absolute, card-owned briefAbsPath from cardsAbsDir", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "X", project: null };
     const url = buildDiscussUrl(card, { webChannelBase: "/fitting/web-channel/", cardsAbsDir: "/Users/x/.garrison/kanban-loop/cards" });
-    expect(url.startsWith("/fitting/web-channel?mode=james&context=")).toBe(true);
+    expect(url.startsWith("/fitting/web-channel?source=discuss&context=")).toBe(true);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
     const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
     expect(ctx.briefAbsPath).toBe("/Users/x/.garrison/kanban-loop/cards/01HZX5K3QABCDEFGHJKMNPQRS0/brief.md");
     expect(ctx.project).toBe(null);
+  });
+
+  // The channel pins {duty: discuss, level} on the thread it opens. A card that
+  // reached Discuss through the clarity gate can be level 2+, so the level has to
+  // travel with the card instead of the channel forcing 1.
+  it("carries the card's LEVEL (in the query + the context blob) when it has one", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "garrison", level: 2 };
+    const q = new URLSearchParams(buildDiscussUrl(card).split("?")[1]);
+    // A bare integer - readable in the URL, and the channel parses it directly.
+    expect(q.get("level")).toBe("2");
+    const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
+    expect(ctx.level).toBe(2);
+    // The kickoff it carries is the level 2 one.
+    expect(channelDecodeContext(q.get("kickoff")) as string).toContain("This is a level 2 discussion");
+  });
+
+  it("omits the level for an ordinary level-less card (the channel defaults it to 1)", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "garrison" };
+    const q = new URLSearchParams(buildDiscussUrl(card).split("?")[1]);
+    expect(q.get("level")).toBeNull();
+    const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
+    expect(ctx.level).toBeUndefined();
   });
 
   it("carries a STABLE per-card thread key + title (so reopening returns to the same session)", () => {
@@ -97,10 +133,10 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
 });
 
 describe("kanban discuss — buildDiscussKickoff (the auto-sent opening message)", () => {
-  it("leads with 'James,' (so the gateway switches the face) and carries the title + description + brief path", () => {
+  it("is persona-free and carries the title + description + brief path", () => {
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "garrison", description: "Users hit a redirect loop on Safari." };
     const k = buildDiscussKickoff(card);
-    expect(k.startsWith("James,")).toBe(true);
+    expect(k).toMatch(/^Let's talk this work item through/);
     expect(k).toContain("# Card: Add SSO");
     expect(k).toContain("Project: garrison");
     expect(k).toContain("Users hit a redirect loop on Safari.");
@@ -129,23 +165,111 @@ describe("kanban discuss — buildDiscussKickoff (the auto-sent opening message)
     expect(k).toContain("(none assigned yet)");
     expect(k.toLowerCase()).toContain("no description");
   });
+
+  // The behaviour spec distilled from Anthropic's published Opus 5 system prompt and
+  // the operator's stated preferences. These are the lines a discuss turn is actually
+  // steered by, so each one is pinned rather than assumed.
+  it("carries the research doctrine: search BEFORE asserting, report the finding not the search", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Pricing", project: "g", description: "d" };
+    const k = buildDiscussKickoff(card);
+    expect(k).toContain("Look it up before you assert it");
+    expect(k).toContain("search the web first");
+    expect(k).toContain("after your training cutoff");
+    // Say what you found, not that you looked.
+    expect(k).toContain("rather than that you went looking");
+    expect(k).toContain("Do not narrate the search");
+    // Honest degradation: no search available means "unverified", never a confident assertion.
+    expect(k).toContain("say the claim is unverified");
+  });
+
+  it("names the DOCUMENT triggers: the conversation is the deliverable at level 1", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Shape it", project: "g", description: "d" };
+    const k = buildDiscussKickoff(card);
+    expect(k).toContain("The conversation is the deliverable here, not a document");
+    expect(k).toContain("when I ask for it");
+    expect(k).toContain("stops us re-litigating");
+    expect(k).toContain("outgrown talking");
+    expect(k).toContain("one document per decision");
+    // And it writes to the card-owned brief path it already names, not somewhere new.
+    expect(k).toContain("the document is the brief below");
+  });
+
+  it("bans the persuasion modifiers and matches the user's language", () => {
+    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Voice", project: "g", description: "d" };
+    const k = buildDiscussKickoff(card);
+    expect(k).toContain('"genuinely", "honestly" or "straightforward"');
+    expect(k).toContain("not carrying its own weight");
+    expect(k).toContain("Answer in the language I write in");
+    // The instructions must not themselves model the tic they ban.
+    const instructions = k.replace(card.description, "");
+    expect(instructions).not.toMatch(/\bgenuinely matters\b/);
+  });
+});
+
+describe("kanban discuss — buildDiscussKickoff level-aware depth", () => {
+  const card = (level?: number) => ({
+    id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "g", description: "d",
+    ...(level === undefined ? {} : { level })
+  });
+
+  it("level 1 (and a level-less card) leaves research + the brief to the triggers", () => {
+    for (const c of [card(), card(1)]) {
+      const k = buildDiscussKickoff(c);
+      expect(k).not.toContain("research is expected rather than optional");
+      expect(k).not.toContain("exit criterion");
+    }
+  });
+
+  it("level 2+ makes research expected and the written brief the exit criterion", () => {
+    const k = buildDiscussKickoff(card(2));
+    expect(k).toContain("This is a level 2 discussion");
+    expect(k).toContain("research is expected rather than optional");
+    expect(k).toContain("the written brief below is the exit criterion");
+    // Level 3 says so by its own number, not a generic "deep" label.
+    expect(buildDiscussKickoff(card(3))).toContain("This is a level 3 discussion");
+  });
+
+  it("an explicit level option wins over the card (the call site that resolved it)", () => {
+    // The engine's clarity-gated discuss resolves the level itself; the option lets
+    // that call site pass it without writing it onto the card first.
+    expect(buildDiscussKickoff(card(1), { level: 3 })).toContain("This is a level 3 discussion");
+    // Garbage in the option falls back to the card, and a level below 1 clamps to 1.
+    expect(buildDiscussKickoff(card(2), { level: undefined })).toContain("This is a level 2 discussion");
+    expect(buildDiscussKickoff(card(0))).not.toContain("exit criterion");
+  });
 });
 
 describe("kanban discuss — buildDiscussUrl carries the kickoff + description", () => {
-  it("adds a kickoff param that decodes (same as context) to the James opening message", () => {
-    const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add SSO", project: "g", description: "loop on Safari" };
+  it("adds a kickoff param that decodes to the Discuss opening message", () => {
+    const card = {
+      id: "01HZX5K3QABCDEFGHJKMNPQRS0",
+      title: "Add SSO",
+      project: "g",
+      // Carries the multi-byte characters on purpose: the transport guard below
+      // needs a non-ASCII fixture, and sourcing it from the PROSE meant the guard
+      // broke the moment the prompt stopped using an em dash (which it must not,
+      // per the discuss behaviour spec).
+      description: "loop on Safari — sessão expira"
+    };
     const url = buildDiscussUrl(card);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
-    const kickoff = channelDecodeContext(q.get("kickoff"));
+    const kickoff = channelDecodeContext(q.get("kickoff")) as string;
     expect(typeof kickoff).toBe("string");
-    expect((kickoff as string).startsWith("James,")).toBe(true);
+    expect(kickoff).toMatch(/^Let's talk this work item through/);
     expect(kickoff).toContain("loop on Safari");
-    // Non-ASCII survives the base64 transport (the em-dash in the brief instruction) —
-    // a regression guard for the UTF-8 decode fix (atob alone mangled multi-byte chars).
+    // Non-ASCII survives the base64 transport — a regression guard for the UTF-8
+    // decode fix (atob alone mangled multi-byte chars).
+    expect(kickoff).toContain("sessão");
     expect(kickoff).toContain("—");
+    // The discuss behaviour spec: prose for reading aloud, and no em dashes in
+    // anything the model is being told to imitate.
+    const instructions = kickoff.replace(card.description, "");
+    expect(instructions).not.toContain("—");
+    expect(instructions).toContain("No flattery");
+    expect(instructions).toContain("Argue with me before you agree with me");
     // The context blob now also carries the description (for a context-honoring path).
     const ctx = JSON.parse(channelDecodeContext(q.get("context")) as string);
-    expect(ctx.description).toBe("loop on Safari");
+    expect(ctx.description).toBe("loop on Safari — sessão expira");
   });
 
   it("round-trips non-ASCII in the card description through the transport", () => {
@@ -182,12 +306,16 @@ describe("kanban discuss — the discussion result becomes downstream context", 
     const root = mkdtempSync(join(tmpdir(), "kanban-discuss-brief-"));
     const cwd = mkdtempSync(join(tmpdir(), "kanban-discuss-cwd-"));
     const board = seedBoard();
-    const card = await createCard(root, { title: "T", project: "p", list: "plan" });
+    // Implement, not Plan: the default rail has the plan phase OFF, so a card
+    // seeded there fast-forwards (outcome `moved`, phasesOff ["plan"]) and
+    // never dispatches - which asserts nothing about the prompt. This test is
+    // about what reaches runFn, so it has to sit on a phase that is ON.
+    const card = await createCard(root, { title: "T", project: "p", list: "implement" });
     // The brief lives next to the card's card.json — the deterministic location James is
     // told to write to; the engine reads it from there regardless of any project cwd.
     writeFileSync(join(root, "cards", card.id, "brief.md"), "AGREED: build the widget behind a flag.");
     let captured = "";
-    const runFn = async ({ prompt }: any) => { captured = prompt; return { reply: "implement" }; };
+    const runFn = async ({ prompt }: any) => { captured = prompt; return { reply: "review" }; };
     await processCard({ root, board, card: await loadCard(root, card.id), runFn, cap: 10, cwd });
     expect(captured).toContain("## Discussion");
     expect(captured).toContain("AGREED: build the widget behind a flag.");
@@ -334,5 +462,67 @@ describe("kanban discuss — briefRelPath (the CARD-UNIQUE auto-link convention)
     const rel = briefRelPath(card);
     expect(rel.includes("..")).toBe(false);
     expect(rel.startsWith("briefs/")).toBe(true);
+  });
+});
+
+describe("kanban discuss — the card's checklist is part of what it says", () => {
+  // A card with an empty description and six checklist items opened a Discuss
+  // that answered "the card is just a title, with no description, so I have
+  // nothing to read from it". The items WERE the card; the kickoff never looked
+  // at them.
+  const CARD = {
+    id: "01KZBWCJY5V57M4M3TJQN8315P",
+    title: "Garrison: bits",
+    description: "",
+    checklist: [
+      { id: "a", text: "Accounts should be named after the provider and username", done: false },
+      { id: "b", text: "Second thing", done: true },
+      { id: "c", text: "   ", done: false },
+    ],
+  };
+
+  it("prints the items, with their done state, under the description", () => {
+    const k = buildDiscussKickoff(CARD);
+    expect(k).toContain("## Checklist (2 items, 1 done)");
+    expect(k).toContain("- [ ] Accounts should be named after the provider and username");
+    expect(k).toContain("- [x] Second thing");
+    // A blank item is not an item.
+    expect(k).not.toMatch(/- \[[ x]\]\s*$/m);
+  });
+
+  it("stops claiming nothing was provided when the checklist is the content", () => {
+    const k = buildDiscussKickoff(CARD);
+    expect(k).toContain("the checklist below is what this card says");
+    expect(k).not.toContain("no description was provided");
+  });
+
+  it("still asks about a card that genuinely says nothing", () => {
+    const k = buildDiscussKickoff({ id: "x", title: "bits", description: "" });
+    expect(k).toContain("no description was provided");
+    expect(k).not.toContain("## Checklist");
+  });
+
+  it("keeps a written description AND the items when the card has both", () => {
+    const k = buildDiscussKickoff({ ...CARD, description: "Prose the card carries." });
+    expect(k).toContain("Prose the card carries.");
+    expect(k).toContain("## Checklist (2 items, 1 done)");
+  });
+
+  it("carries the items in the context blob a channel decodes", () => {
+    const url = buildDiscussUrl(CARD, { webChannelBase: "/embed/web-channel-default" });
+    const context = new URL(url, "http://x").searchParams.get("context")!;
+    const decoded = JSON.parse(Buffer.from(decodeURIComponent(context), "base64").toString("utf8"));
+    expect(decoded.checklist).toHaveLength(3);
+    expect(decoded.checklist[0].text).toContain("named after the provider");
+    // A card with no items must not carry an empty key.
+    const bare = buildDiscussUrl({ id: "x", title: "t" }, { webChannelBase: "/embed/web-channel-default" });
+    const bareCtx = new URL(bare, "http://x").searchParams.get("context")!;
+    expect(JSON.parse(Buffer.from(decodeURIComponent(bareCtx), "base64").toString("utf8"))).not.toHaveProperty("checklist");
+  });
+
+  it("is wired to the board: Discuss pulls the DETAIL, since the summary has only counts", () => {
+    const main = readFileSync(new URL("../fittings/seed/kanban-loop/ui/main.tsx", import.meta.url), "utf8");
+    expect(main).toContain("const detail = await api.card(card.id);");
+    expect(main).toContain("checklist: detail.checklist ?? []");
   });
 });

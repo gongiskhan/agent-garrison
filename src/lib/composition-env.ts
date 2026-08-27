@@ -1,4 +1,5 @@
 import { readActiveConfig } from "./active-composition";
+import { stateEnvForProjection } from "./state-client";
 import { readComposition } from "./compositions";
 import { appPort, applyPortOffsetToConfig } from "./instance-profile";
 import { ownPortConfigEnv } from "./own-port-lifecycle";
@@ -30,7 +31,8 @@ async function compositionEnvById(): Promise<{
           GARRISON_COMPOSITION_DIR: composition.directory,
           GARRISON_BASE_URL: `http://127.0.0.1:${
             process.env.GARRISON_APP_PORT?.trim() || process.env.PORT?.trim() || String(appPort())
-          }`
+          }`,
+          ...stateEnvForProjection()
         };
       }
     }

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Body: { composition?, dutyId, action: "add" | "remove" | "describe", level?, description? }
 // Manage a duty's level ladder: append a level, remove one (guarded - never
 // leaves a duty level-less, never breaks another duty's sequence ref), or
-// rewrite one level's description (the Dispatcher's routing criterion).
+// rewrite one level's description (Orchestrator routing inference's criterion).
 // Autosave discipline - a discrete change persists immediately.
 export async function POST(request: NextRequest) {
   try {

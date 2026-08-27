@@ -133,7 +133,7 @@ function readyModel() {
     libEntry("chan", { faculty: "channels", provides: [{ kind: "channel", name: "web" }] }),
     libEntry("mem", { faculty: "memory", provides: [{ kind: "memory-store", name: "basic" }] }),
     libEntry("gw", { faculty: "gateway" }),
-    libEntry("ident", { faculty: "orchestrator", provides: [{ kind: "identity", name: "gary" } as never] }),
+    libEntry("ident", { faculty: "orchestrator", provides: [{ kind: "identity", name: "zeca" } as never] }),
     libEntry("disp", { provides: [{ kind: "duty", name: "dispatch" }], duties: [dispatchDuty] })
   ];
   const model = resolveModel({ fittings: toFittings(entries), selectedDuties: ["dispatch"] });
@@ -199,7 +199,7 @@ describe("renderReadiness (locked)", () => {
     expect(out).toContain("State: NOT READY");
     // every default rule unmet here (no orchestrator/runtime/... provided)
     expect(out).toContain("[ ] orchestrator:");
-    expect(out).toContain("[ ] dispatcher:");
+    expect(out).toContain("[ ] routing-inference:");
     expect(out).not.toContain("[x]");
     // valid graph even though not ready
     expect(out).toContain("Duty graph: valid");
@@ -210,7 +210,7 @@ describe("renderReadiness (locked)", () => {
     const out = renderReadiness(model);
     expect(out).toContain("State: READY");
     expect(out).toContain("[x] orchestrator:");
-    expect(out).toContain("[x] dispatcher:");
+    expect(out).toContain("[x] routing-inference:");
     expect(out).not.toContain("[ ]");
   });
 
@@ -297,7 +297,7 @@ describe("assembleLayeredPrompt", () => {
       "id=readiness",
       "id=escalation-policy",
       "id=when-to-ask-vs-proceed",
-      "id=identity-handoff"
+      "id=identity"
     ];
     const positions = order.map((marker) => assembled.indexOf(marker));
     expect(positions.every((p) => p >= 0)).toBe(true);
@@ -308,6 +308,8 @@ describe("assembleLayeredPrompt", () => {
     expect(assembled).toContain("## Routing philosophy");
     // locked marker carries the regeneration provenance for the UI badge
     expect(assembled).toContain("kind=locked regenerated-from=composition");
+    expect((assembled.match(/\bZeca\b/g) ?? [])).toHaveLength(1);
+    expect(assembled).not.toMatch(/\b(?:Verity|Joe|James)\b/);
     // no leaked placeholders
     expect(assembled).not.toContain("{{capabilities}}");
   });

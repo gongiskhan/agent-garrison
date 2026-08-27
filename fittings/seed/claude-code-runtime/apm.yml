@@ -3,7 +3,7 @@ version: 0.1.0
 description: >-
   Claude Code runtime (Runtime Faculty) — the node-pty engine that drives the
   real interactive Claude Code TUI. The DEFAULT PRIMARY runtime that hosts the
-  Operative's orchestrator loop. Selectable as an orchestrator claude-code target,
+  session's orchestrator loop. Selectable as an orchestrator claude-code target,
   with provider/base-url overrides (Max OAuth by default; Ollama / DeepSeek / Z.ai
   by base-url swap).
 target: claude
@@ -11,6 +11,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  category: Operations
   cardinality_hint: single
   component_shape: cli-skill
   ui:
@@ -25,8 +26,8 @@ x-garrison:
   summary: >-
     The Claude Code runtime: the node-pty + @xterm/headless substrate
     (packages/claude-pty) that drives the real interactive Claude Code TUI. This
-    is the DEFAULT PRIMARY runtime — the engine that hosts the Operative's
-    orchestrator loop, via the HTTP gateway or the direct PTY operative. It also
+    is the DEFAULT PRIMARY runtime — the engine that hosts the session's
+    orchestrator loop, via the HTTP gateway or a direct PTY session. It also
     registers as an orchestrator `runtime: claude-code` target so the orchestrator
     can route turns to it at a chosen model/effort. By default it runs on the
     Max-plan Claude account (anthropic-plan, no base URL); selecting a non-default
@@ -83,7 +84,7 @@ x-garrison:
     timeout_ms: 20000
   for_consumers: |
     The Claude Code runtime (default PRIMARY). This is the node-pty engine that
-    runs the Operative's orchestrator loop — you are most likely already talking
+    runs the session's orchestrator loop — you are most likely already talking
     to it. When a composition names this runtime as its `primary_runtime`, the
     runner spawns the orchestrator on the Claude Code PTY / HTTP gateway path. The
     the orchestrator can also route individual turns to it as a `runtime: claude-code`

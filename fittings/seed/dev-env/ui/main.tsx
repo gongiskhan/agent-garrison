@@ -147,7 +147,7 @@ interface SessionPlacement {
   runtime: string | null;
 }
 
-// Compact "<mode> · <model>" label for the placement chip (e.g. "james · sonnet").
+// Compact "<duty> · <model>" label for the placement chip (e.g. "discuss · sonnet").
 // Falls back to whichever half is present; returns null when neither is.
 function placementLabel(p: SessionPlacement | null | undefined): string | null {
   if (!p) return null;

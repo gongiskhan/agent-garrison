@@ -13,7 +13,15 @@
 // new OpenAI({ baseURL }), model)` reaches OpenAI cloud, local Ollama, and any
 // OpenAI-compatible endpoint without touching the setDefaultOpenAIClient global.
 import OpenAI from "openai";
-import { Agent, Runner, OpenAIChatCompletionsModel, MaxTurnsExceededError, tool, setTracingDisabled } from "@openai/agents";
+import {
+  Agent,
+  Runner,
+  OpenAIChatCompletionsModel,
+  OpenAIResponsesModel,
+  MaxTurnsExceededError,
+  tool,
+  setTracingDisabled
+} from "@openai/agents";
 import { z } from "zod";
 import path from "node:path";
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
@@ -85,6 +93,22 @@ export function buildFileTools(cwd) {
   ];
 }
 
+// The reasoning efforts @openai/agents ModelSettings accepts. The Codex catalog
+// also advertises `ultra`, which the SDK's type does not carry - it is dropped
+// here rather than passed through as an unchecked string.
+// Provider-level diagnoses raised inside the transport that must survive the
+// OpenAI client's blanket error wrapping (see the unwrap in the catch below).
+const TRANSPORT_ERROR_CODES = new Set([
+  "usage-limit-reached",
+  "credential-absent",
+  "credential-expired",
+  "credential-corrupt",
+  "credential-not-subscription",
+  "refresh-failed"
+]);
+
+const SUPPORTED_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
 function sumUsage(res) {
   let total = 0;
   for (const r of res?.rawResponses ?? []) {
@@ -97,12 +121,53 @@ function sumUsage(res) {
 // Run ONE turn through the OpenAI agentic loop and normalize the result. Returns
 // { finalOutput, newItems, history, stoppedReason, usedTokens }. A maxTurns
 // overrun is caught and reported as stoppedReason:"max_turns" (never thrown out).
-export async function runOpenAiAgent({ baseUrl, apiKey, model, instructions, toolsEnabled, cwd, input, thread, maxTurns }) {
+export async function runOpenAiAgent({
+  baseUrl,
+  apiKey,
+  model,
+  instructions,
+  toolsEnabled,
+  cwd,
+  input,
+  thread,
+  maxTurns,
+  signal,
+  wireApi,
+  fetchImpl,
+  effort
+}) {
   if (!model) throw new Error("openai-agents: no model specified for the turn");
-  const client = new OpenAI({ baseURL: baseUrl || undefined, apiKey: apiKey || "unused" });
-  const modelInstance = new OpenAIChatCompletionsModel(client, model);
+  // `fetchImpl` is how a provider that is not a plain keyed endpoint injects its
+  // own auth and body rules (the ChatGPT subscription resolves + refreshes an
+  // OAuth token per request). Passed to the client rather than wrapped around it
+  // so retries and streaming inside the SDK go through it too.
+  const client = new OpenAI({
+    baseURL: baseUrl || undefined,
+    apiKey: apiKey || "unused",
+    ...(fetchImpl ? { fetch: fetchImpl } : {})
+  });
+  // Wire API is a PROVIDER property, not a preference: the Codex backend serves
+  // only /responses, while every OpenAI-compatible endpoint this fitting targets
+  // (Ollama, vLLM, LiteLLM, OpenAI cloud) serves /chat/completions. Picking the
+  // wrong class is a 404, so the provider table decides and this just obeys.
+  const modelInstance =
+    wireApi === "responses"
+      ? new OpenAIResponsesModel(client, model)
+      : new OpenAIChatCompletionsModel(client, model);
   const tools = toolsEnabled ? buildFileTools(cwd) : [];
-  const agent = new Agent({ name: "garrison-operative", instructions, model: modelInstance, tools });
+  // Reasoning effort is the tier dial on this engine: one model family answers at
+  // several depths, so a routing tier that cannot move it is not a tier at all.
+  // Only values the SDK's ModelSettings actually accepts are forwarded - an
+  // unrecognised string would be sent verbatim and rejected by the endpoint, which
+  // reads as a broken route rather than an unsupported knob.
+  const modelSettings = SUPPORTED_EFFORTS.has(effort) ? { reasoning: { effort } } : undefined;
+  const agent = new Agent({
+    name: "garrison-operative",
+    instructions,
+    model: modelInstance,
+    tools,
+    ...(modelSettings ? { modelSettings } : {})
+  });
   const runner = new Runner({ tracingDisabled: true });
 
   // Continue a prior conversation by concatenating the new user turn onto the
@@ -110,7 +175,28 @@ export async function runOpenAiAgent({ baseUrl, apiKey, model, instructions, too
   const runInput = Array.isArray(thread) && thread.length ? thread.concat([{ role: "user", content: input }]) : input;
 
   try {
-    const res = await runner.run(agent, runInput, { maxTurns: maxTurns ?? 12 });
+    // `signal` is the Stop primitive for this runtime: there is no child process to
+    // SIGTERM, so aborting the in-flight run IS the cancel (agents-core run.d.ts
+    // accepts it). Without it a routed turn on this engine would be un-stoppable.
+    //
+    // The Codex backend REFUSES a non-streamed request outright ({"detail":"Stream
+    // must be set to true"}), so the responses lane runs the streamed loop and
+    // waits for it to complete. Everything else keeps the non-streamed call it has
+    // always made - the same result object either way, so the envelope below is
+    // shared rather than duplicated per lane.
+    const streamed = wireApi === "responses";
+    const res = await runner.run(agent, runInput, {
+      maxTurns: maxTurns ?? 12,
+      ...(streamed ? { stream: true } : {}),
+      ...(signal ? { signal } : {})
+    });
+    if (streamed) {
+      await res.completed;
+      // A streamed run reports a mid-run failure on the result rather than by
+      // rejecting, so an unchecked `completed` would return an empty turn as if it
+      // had succeeded.
+      if (res.error) throw res.error;
+    }
     return {
       finalOutput: res.finalOutput ?? "",
       newItems: res.newItems ?? [],
@@ -122,6 +208,18 @@ export async function runOpenAiAgent({ baseUrl, apiKey, model, instructions, too
     if (err instanceof MaxTurnsExceededError || err?.name === "MaxTurnsExceededError") {
       return { finalOutput: "", newItems: [], history: Array.isArray(thread) ? thread : null, stoppedReason: "max_turns", usedTokens: 0 };
     }
+    // A cancelled run settles as a partial turn, not a thrown error - the same
+    // contract the exec adapters' cancel() gives (stop yields what was produced).
+    if (err?.name === "AbortError" || signal?.aborted) {
+      return { finalOutput: "", newItems: [], history: Array.isArray(thread) ? thread : null, stoppedReason: "cancelled", usedTokens: 0 };
+    }
+    // The OpenAI client wraps ANYTHING thrown out of its fetch as a bare
+    // "APIConnectionError: Connection error." A provider-level diagnosis raised in
+    // the transport (a plan usage limit, an unusable credential) is exactly the
+    // message the operator needs, and reporting it as a connection failure sends
+    // them to look at the network instead. The client preserves `cause`, so
+    // surface ours when it is there.
+    if (err?.cause?.code && TRANSPORT_ERROR_CODES.has(err.cause.code)) throw err.cause;
     throw err;
   }
 }

@@ -18,7 +18,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   }
   // Only prod is fronted on the always-on tailnet address; publishing from a
   // dev/codex instance would remap it onto that instance's server.
-  if (currentProfile() !== "prod") {
+  if (currentProfile() !== "node") {
     return NextResponse.json(
       { error: "only the prod instance is published to the tailnet" },
       { status: 409 }

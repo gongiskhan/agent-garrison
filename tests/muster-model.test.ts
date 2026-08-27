@@ -66,7 +66,7 @@ async function writeFixture(): Promise<void> {
         duties: [developDuty, choreDuty, pipelineDuty],
         selected_duties: ["develop"],
         targets: TARGETS,
-        prompt_sources: { orchestrator: ".garrison/prompts/orchestrator.md", soul: ".garrison/prompts/soul.md" }
+        prompt_sources: { orchestrator: ".garrison/prompts/orchestrator.md" }
       }
     }
   };
@@ -112,7 +112,7 @@ describe("buildMusterPayload (pure)", () => {
     });
     expect(bare.ready).toBe(false);
     expect(bare.rules.find((r) => r.rule.id === "orchestrator")?.met).toBe(false);
-    expect(bare.rules.find((r) => r.rule.id === "dispatcher")?.met).toBe(false);
+    expect(bare.rules.find((r) => r.rule.id === "routing-inference")?.met).toBe(false);
 
     // A composition whose fitting provides the orchestrator kind flips that one rule.
     const withOrch = buildMusterPayload({
@@ -230,7 +230,7 @@ describe("write-path server-side validation + payload sanitization (codex S5a)",
     const appended = levels[levels.length - 1];
     expect(appended.cell?.target).toBe("cc-sonnet"); // cloned from the last level
     expect(appended.cell?.effort).toBe("xhigh"); // bumped one notch from "high"
-    expect(appended.description).toMatch(/Dispatcher/);
+    expect(appended.description).toMatch(/Orchestrator routing inference/);
 
     // DESCRIBE: rewrites the routing criterion; empty is refused.
     const described = await describeDutyLevel(FIXTURE_ID, "develop", levels.length, "deep: architecture work");

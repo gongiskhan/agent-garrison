@@ -94,3 +94,89 @@ self.addEventListener("fetch", (event) => {
     })()
   );
 });
+
+// ---- Web Push ---------------------------------------------------------------
+// The only route to a background notification on a phone without an App Store /
+// Play build. On iOS this fires ONLY for a PWA added to the Home Screen.
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // A push service can wake us with no payload at all (or a non-JSON one).
+    // Showing something generic beats swallowing it: on iOS a push that
+    // resolves without showNotification() can cost the site its permission.
+    data = { title: "Garrison", body: event.data ? event.data.text() : "You have a new notification." };
+  }
+  const title = data.title || "Garrison";
+  const actions = Array.isArray(data.actions)
+    ? data.actions.slice(0, 2).map((a) => ({ action: a.action, title: a.title }))
+    : [];
+  const options = {
+    body: data.body || "",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    // tag collapses repeats of the same subject instead of stacking them.
+    tag: data.tag || undefined,
+    renotify: Boolean(data.tag),
+    data: { link: data.link || "/", actions: data.actions || [] },
+    actions
+  };
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(title, options);
+      // Tell any open page, so the UI can render an in-app toast rather than
+      // relying on a system banner the OS often suppresses while focused.
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of clients) {
+        client.postMessage({ type: "garrison-notification", payload: data });
+      }
+    })()
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  // An action button carries its own url when it has one; otherwise fall back
+  // to the notification's link so a plain body tap still lands somewhere useful.
+  const chosen = (data.actions || []).find((a) => a.action === event.action);
+  const target = (chosen && chosen.url) || data.link || "/";
+  event.waitUntil(
+    (async () => {
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // Focus an existing window rather than opening a duplicate PWA instance.
+      for (const client of clients) {
+        if ("focus" in client) {
+          await client.focus();
+          client.postMessage({ type: "garrison-notification-click", action: event.action || null, url: target });
+          return;
+        }
+      }
+      if (self.clients.openWindow) await self.clients.openWindow(target);
+    })()
+  );
+});
+
+// Chrome/Safari can rotate a subscription without the page being open; without
+// this the server keeps pushing to an endpoint the browser has abandoned.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const res = await fetch("/api/push/key");
+        const { publicKey } = await res.json();
+        const sub = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: publicKey
+        });
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subscription: sub.toJSON(), label: "resubscribed" })
+        });
+      } catch {}
+    })()
+  );
+});

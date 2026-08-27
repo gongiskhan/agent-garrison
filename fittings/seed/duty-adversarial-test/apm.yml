@@ -10,6 +10,7 @@ includes: auto
 x-garrison:
   # A per-duty work Fitting (S3f1): provides exactly one duty, owns its skill.
   faculty: building
+  category: Building
   cardinality_hint: single
   component_shape: skill
   ui:

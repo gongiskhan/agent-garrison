@@ -132,7 +132,7 @@ describe("ownPortEnvKey / guaranteed port projection", () => {
   // Every spawn must now name a port, whatever the caller managed to resolve.
   it("projects a profile-shifted port when the caller supplies none", async () => {
     const entry = makeEntry(true);
-    entry.metadata.default_port = 7096;
+    entry.metadata.default_port = 8096;
     const spawned = await startOwnPortFitting(entry, {});
     // The entry has no real start script, so the spawn is refused - but the env
     // is assembled before that, and the spawn record carries its fingerprint.
@@ -140,14 +140,16 @@ describe("ownPortEnvKey / guaranteed port projection", () => {
 
     // Assert the projection directly: same base port, shifted per profile.
     for (const [profile, expected] of [
-      ["dev", 7096],
+      ["dev", 18096],
+      ["node", 8096],
+      // "prod" is the one-release alias for node — same family, same ports.
       ["prod", 8096],
-      ["codex", 27096]
+      ["codex", 28096]
     ] as const) {
       const prev = process.env.GARRISON_INSTANCE_ID;
       process.env.GARRISON_INSTANCE_ID = profile;
       try {
-        expect(profilePort(7096), `${profile} must shift 7096 into its own family`).toBe(expected);
+        expect(profilePort(8096), `${profile} must shift 8096 into its own family`).toBe(expected);
       } finally {
         if (prev === undefined) delete process.env.GARRISON_INSTANCE_ID;
         else process.env.GARRISON_INSTANCE_ID = prev;

@@ -2,7 +2,7 @@
 
 // The Muster Orchestrator panel (S5c, D11/D12): the layered orchestrator prompt.
 // Two classes of section render differently:
-//   - AUTHORED doctrine (routing philosophy, escalation, when-to-ask-vs-proceed,
+//   - AUTHORED doctrine (routing philosophy, execution policy, escalation, when-to-ask-vs-proceed,
 //     identity hand-off) - an editable, autosaving textarea each. A debounced
 //     write persists ONE section to the composition's authored overrides.
 //   - GENERATED + LOCKED blocks (capabilities, duties-and-levels, readiness) -
@@ -130,8 +130,8 @@ export function OrchestratorPanel({ compositionId }: { compositionId: string }) 
     <section className={styles.section} data-testid="orchestrator-panel">
       <div className={styles.panelHead}>
         <span className={styles.panelLead}>
-          The operative&apos;s system prompt, layered: your editable doctrine plus blocks
-          regenerated from the composition, assembled below exactly as the operative receives it.
+          The session&apos;s system prompt, layered: your editable doctrine plus blocks
+          regenerated from the composition, assembled below exactly as the session receives it.
         </span>
         {summary ? <span className={styles.panelSummary}>{summary}</span> : null}
       </div>
@@ -146,7 +146,7 @@ export function OrchestratorPanel({ compositionId }: { compositionId: string }) 
           <>
             <p className={styles.subLabel}>Doctrine · editable</p>
             <p className={styles.groupLead}>
-              How the operative routes, escalates, decides when to ask, and hands off to its
+              How the session routes, escalates, decides when to ask, and hands off to its
               identity. This is yours to tune; it is folded into the prompt verbatim.
             </p>
             <div className={styles.authoredList}>

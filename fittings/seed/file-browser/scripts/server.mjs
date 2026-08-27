@@ -1,9 +1,18 @@
 #!/usr/bin/env node
 // File Browser own-port server. Serves a mobile-first UI + a SCOPED, path-
-// traversal-safe file API confined to a workspace root (default ~/.garrison/files).
-// It can never escape the root (resolve + realpath checks, incl. symlink escape)
-// and refuses to serve credential files. Same-origin CSRF guard, like the
-// automations fitting.
+// traversal-safe file API, plus the git surface the merge system runs on.
+//
+// CONFINEMENT IS PER SCOPE, NOT PER PROCESS. The browser now serves more than
+// one root — the artifact workspace (read/write) and each dev-root project
+// (read-only, git-aware) — so `resolveInRoot` / `assertRealInRoot` /
+// `assertWriteInRoot` all take the root they are confining to. Every guard the
+// single-root version had still applies, once per root: resolve-and-compare,
+// realpath after symlinks, deepest-existing-ancestor on writes, O_NOFOLLOW on
+// reads, rename-into-place on writes, and the credential refusal list. The
+// invariant that matters most is the new one: a path inside project A can
+// never reach project B, because A's checks run against A's root only.
+//
+// Same-origin CSRF guard, like the automations fitting.
 
 import http from "node:http";
 import os from "node:os";
@@ -19,6 +28,9 @@ const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
+import { listSources, parseSourceId, readDevRoot, remoteList, remoteRead, resolveProjectName } from "./sources.mjs";
+import { DIFF_CAP_BYTES, GitError, gitDiff, gitFetch, gitLog, gitStatus } from "./git.mjs";
+
 function expandHome(p) {
   return p && p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
 }
@@ -29,19 +41,77 @@ const NAMESPACES = ["documents", "recordings", "runs", "uploads"];
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024; // 2 MB cap for in-browser editing
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]);
-// Never serve credential-bearing files even within the root (defense in depth).
-const SENSITIVE = [/(^|\/)vault\.json$/i, /(^|\/)internal-token$/i, /(^|\/)\.env(\.|$)/i, /\.(key|pem|crt|p12|pfx)$/i, /(^|\/)id_rsa/i];
+// Never serve credential-bearing files even within a root (defense in depth).
+// `.git` joined the list when project sources did: a repository's own config and
+// object store carry remote credentials and history that has nothing to do with
+// browsing the working tree.
+const SENSITIVE = [
+  /(^|\/)vault\.json$/i,
+  /(^|\/)internal-token$/i,
+  /(^|\/)\.env(\.|$)/i,
+  /\.(key|pem|crt|p12|pfx)$/i,
+  /(^|\/)id_rsa/i,
+  /(^|\/)\.git(\/|$)/i
+];
 
 function isSensitive(rel) {
   return SENSITIVE.some((re) => re.test(rel));
 }
 
-// Resolve a client-supplied relative path inside ROOT — reject any escape.
-function resolveInRoot(rel) {
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// ── scopes: one browsable root each ──────────────────────────────────────────
+
+/** The artifact workspace. The only writable scope. */
+const LOCAL_SCOPE = { id: "local", kind: "local", root: ROOT, writable: true, git: false, label: path.basename(ROOT) };
+
+/**
+ * Resolve a source id to the scope it names. Project sources go through the
+ * dev-root name discipline in sources.mjs — the same resolver the gateway uses
+ * for a channel-supplied project — so a source id can only ever name a git
+ * repository directly under this node's dev-root.
+ */
+function scopeFor(sourceId) {
+  const parsed = parseSourceId(sourceId);
+  if (parsed.kind === "local") return LOCAL_SCOPE;
+  if (parsed.kind === "project") {
+    const root = resolveProjectName(parsed.project, { devRoot: readDevRoot() });
+    if (!root) throw new HttpError(404, `no git project named "${parsed.project}" under this node's dev-root`);
+    return {
+      id: `project:${parsed.project}`,
+      kind: "project",
+      project: parsed.project,
+      root,
+      // Read-only day one: an agent may be running in that tree, and the useful
+      // edit path for a repository is git, not a file PUT from a browser tab.
+      writable: false,
+      git: true,
+      label: parsed.project
+    };
+  }
+  return parsed; // remote / unknown — the caller decides what to do with it
+}
+
+/** A git-aware scope, or a 400 naming why not. */
+function gitScopeFor(sourceId) {
+  const scope = scopeFor(sourceId);
+  if (!scope.git) throw new HttpError(400, `source "${scope.id ?? sourceId}" is not a git repository`);
+  return scope;
+}
+
+// ── confinement, parameterised by root ───────────────────────────────────────
+
+// Resolve a client-supplied relative path inside `root` — reject any escape.
+function resolveInRoot(root, rel) {
   const clean = String(rel ?? "").replace(/^\/+/, "");
-  const abs = path.resolve(ROOT, clean);
-  if (abs !== ROOT && !abs.startsWith(ROOT + path.sep)) throw new Error("path escapes workspace root");
-  if (isSensitive(path.relative(ROOT, abs))) throw new Error("file not browsable");
+  const abs = path.resolve(root, clean);
+  if (abs !== root && !abs.startsWith(root + path.sep)) throw new Error("path escapes workspace root");
+  if (isSensitive(path.relative(root, abs))) throw new Error("file not browsable");
   return abs;
 }
 
@@ -50,8 +120,8 @@ function assertContained(rootReal, real) {
 }
 
 // Read guard: the (existing) target, with symlinks followed, must stay in root.
-async function assertRealInRoot(abs) {
-  const rootReal = await realpath(ROOT);
+async function assertRealInRoot(root, abs) {
+  const rootReal = await realpath(root);
   let real;
   try {
     real = await realpath(abs);
@@ -62,10 +132,10 @@ async function assertRealInRoot(abs) {
 }
 
 // Write guard (stronger): walk to the DEEPEST EXISTING ancestor and realpath it
-// — so a symlinked dir anywhere on the path (e.g. ROOT/link -> /outside) is
+// — so a symlinked dir anywhere on the path (e.g. root/link -> /outside) is
 // caught — and refuse to overwrite THROUGH an existing symlink at the target.
-async function assertWriteInRoot(abs) {
-  const rootReal = await realpath(ROOT);
+async function assertWriteInRoot(root, abs) {
+  const rootReal = await realpath(root);
   let anchor = abs;
   for (;;) {
     try {
@@ -109,9 +179,9 @@ async function readJsonBody(req) {
   }
 }
 
-async function handleTree(res, rel) {
-  const abs = resolveInRoot(rel);
-  await assertRealInRoot(abs);
+async function handleTree(res, scope, rel) {
+  const abs = resolveInRoot(scope.root, rel);
+  await assertRealInRoot(scope.root, abs);
   const entries = await readdir(abs, { withFileTypes: true });
   const items = [];
   for (const e of entries) {
@@ -122,12 +192,12 @@ async function handleTree(res, rel) {
     items.push({ name: e.name, path: childRel, type: e.isDirectory() ? "dir" : "file", size });
   }
   items.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1));
-  send(res, 200, { root: path.basename(ROOT), path: String(rel ?? ""), items });
+  send(res, 200, { root: path.basename(scope.root), source: scope.id, path: String(rel ?? ""), writable: scope.writable, items });
 }
 
-async function handleReadFile(res, rel) {
-  const abs = resolveInRoot(rel);
-  await assertRealInRoot(abs);
+async function handleReadFile(res, scope, rel) {
+  const abs = resolveInRoot(scope.root, rel);
+  await assertRealInRoot(scope.root, abs);
   // Open with O_NOFOLLOW so the FINAL component is never followed as a symlink —
   // closes the check->use race on the target itself (a symlink swapped in after
   // the realpath check makes open() fail ELOOP rather than escaping the root).
@@ -144,18 +214,19 @@ async function handleReadFile(res, rel) {
     const kind = kindFor(abs);
     if (kind === "image") {
       const buf = await fh.readFile();
-      return send(res, 200, { path: rel, kind, encoding: "base64", content: buf.toString("base64"), ext: path.extname(abs).slice(1) });
+      return send(res, 200, { path: rel, kind, encoding: "base64", content: buf.toString("base64"), ext: path.extname(abs).slice(1), readOnly: !scope.writable });
     }
     if (st.size > MAX_TEXT_BYTES) return send(res, 413, { error: "file too large to open in the browser", size: st.size });
-    return send(res, 200, { path: rel, kind, encoding: "utf8", content: await fh.readFile("utf8") });
+    return send(res, 200, { path: rel, kind, encoding: "utf8", content: await fh.readFile("utf8"), readOnly: !scope.writable });
   } finally {
     await fh.close();
   }
 }
 
-async function handleWriteFile(res, rel, content, encoding) {
-  const abs = resolveInRoot(rel);
-  await assertWriteInRoot(abs);
+async function handleWriteFile(res, scope, rel, content, encoding) {
+  if (!scope.writable) return send(res, 403, { error: `source "${scope.id}" is read-only` });
+  const abs = resolveInRoot(scope.root, rel);
+  await assertWriteInRoot(scope.root, abs);
   if (typeof content !== "string") return send(res, 400, { error: "content must be a string" });
   const data = encoding === "base64" ? Buffer.from(content, "base64") : content;
   const bytes = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data, "utf8");
@@ -177,13 +248,90 @@ async function handleWriteFile(res, rel, content, encoding) {
   send(res, 200, { ok: true, path: rel });
 }
 
-async function handleMkdir(res, rel) {
+async function handleMkdir(res, scope, rel) {
+  if (!scope.writable) return send(res, 403, { error: `source "${scope.id}" is read-only` });
   const clean = String(rel ?? "").replace(/^\/+/, "").replace(/\/+$/, "");
   if (!clean) return send(res, 400, { error: "path required" });
-  const abs = resolveInRoot(clean);
-  await assertWriteInRoot(abs);
+  const abs = resolveInRoot(scope.root, clean);
+  await assertWriteInRoot(scope.root, abs);
   await mkdir(abs, { recursive: true });
   send(res, 200, { ok: true, path: clean });
+}
+
+// ── the merge actions ────────────────────────────────────────────────────────
+// Imported lazily: they construct a state client, and a node that is not
+// enrolled in the mesh must still browse files perfectly well.
+
+async function mergeActions() {
+  return import("./merge-actions.mjs");
+}
+
+/** Which project a mesh action names: an explicit `project`, or a `project:<name>` source. */
+function projectFromBody(body) {
+  const direct = typeof body?.project === "string" ? body.project.trim() : "";
+  if (direct) return direct;
+  const parsed = parseSourceId(body?.source);
+  if (parsed.kind === "project") return parsed.project;
+  throw new HttpError(400, "project required");
+}
+
+/** Returns true when it answered the request, false when the path is not a git route. */
+async function handleGit(req, res, url) {
+  const { pathname } = url;
+
+  if (pathname === "/api/git/status" && req.method === "GET") {
+    const scope = gitScopeFor(url.searchParams.get("source"));
+    send(res, 200, { source: scope.id, project: scope.project, root: scope.root, ...(await gitStatus(scope.root)) });
+    return true;
+  }
+
+  if (pathname === "/api/git/diff" && req.method === "GET") {
+    const scope = gitScopeFor(url.searchParams.get("source"));
+    const rel = url.searchParams.get("path");
+    const staged = url.searchParams.get("staged") === "1" || url.searchParams.get("staged") === "true";
+    send(res, 200, { source: scope.id, ...(await gitDiff(scope.root, { relPath: rel || null, staged })) });
+    return true;
+  }
+
+  if (pathname === "/api/git/log" && req.method === "GET") {
+    const scope = gitScopeFor(url.searchParams.get("source"));
+    send(res, 200, { source: scope.id, ...(await gitLog(scope.root, { limit: url.searchParams.get("limit") })) });
+    return true;
+  }
+
+  if (pathname === "/api/git/fetch" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const scope = gitScopeFor(body.source ?? url.searchParams.get("source"));
+    send(res, 200, { source: scope.id, ...(await gitFetch(scope.root)) });
+    return true;
+  }
+
+  // ── state-mediated, cross-node ──
+  if (pathname === "/api/git/commit-push" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const project = projectFromBody(body);
+    const { commitPushProject } = await mergeActions();
+    send(res, 200, await commitPushProject(project, { force: body.force === true }));
+    return true;
+  }
+
+  if (pathname === "/api/git/pull-from-others" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const project = projectFromBody(body);
+    const { pullFromOthers } = await mergeActions();
+    send(res, 200, await pullFromOthers(project, {}));
+    return true;
+  }
+
+  if (pathname === "/api/git/push-to-others" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const project = projectFromBody(body);
+    const { pushToOthers } = await mergeActions();
+    send(res, 200, await pushToOthers(project, {}));
+    return true;
+  }
+
+  return false;
 }
 
 async function handle(req, res) {
@@ -200,15 +348,82 @@ async function handle(req, res) {
 
   try {
     if (pathname === "/health" || pathname === "/api/health") return send(res, 200, { ok: true, root: ROOT });
-    if (pathname === "/api/tree" && req.method === "GET") return await handleTree(res, url.searchParams.get("path") || "");
-    if (pathname === "/api/file" && req.method === "GET") return await handleReadFile(res, url.searchParams.get("path") || "");
+    if (pathname === "/api/sources" && req.method === "GET") {
+      return send(res, 200, { sources: await listSources(process.env, ROOT) });
+    }
+    if (pathname.startsWith("/api/git/")) {
+      if (await handleGit(req, res, url)) return;
+      return send(res, 404, { error: "not found" });
+    }
+    // One tree/file contract for every source: the UI must not know which side of
+    // an ssh channel a path lives on, or every view grows two code paths.
+    if (pathname === "/api/tree" && req.method === "GET") {
+      const source = scopeFor(url.searchParams.get("source"));
+      const rel = url.searchParams.get("path") || "";
+      if (source.kind === "remote") {
+        try {
+          const listing = await remoteList(source.transport, rel);
+          return send(res, 200, {
+            root: listing.root,
+            path: listing.path,
+            truncated: Boolean(listing.truncated),
+            items: (listing.entries ?? []).map((e) => ({
+              name: e.name,
+              path: e.path,
+              type: e.type === "dir" ? "dir" : "file",
+              size: e.size ?? 0,
+              modified: e.modified ?? null
+            }))
+          });
+        } catch (err) {
+          return send(res, 502, { error: String(err?.message || err) });
+        }
+      }
+      if (source.kind === "unknown") return send(res, 400, { error: `unknown source "${source.raw}"` });
+      return await handleTree(res, source, rel);
+    }
+    if (pathname === "/api/file" && req.method === "GET") {
+      const source = scopeFor(url.searchParams.get("source"));
+      const rel = url.searchParams.get("path") || "";
+      if (source.kind === "remote") {
+        try {
+          const file = await remoteRead(source.transport, rel);
+          const buf = Buffer.from(file.base64 || "", "base64");
+          const kind = kindFor(rel);
+          if (kind === "image") {
+            return send(res, 200, { path: rel, kind, encoding: "base64", content: buf.toString("base64"), ext: path.extname(rel).slice(1) });
+          }
+          return send(res, 200, {
+            path: rel,
+            kind,
+            encoding: "utf8",
+            content: buf.toString("utf8"),
+            truncated: Boolean(file.truncated),
+            size: file.size ?? buf.length,
+            readOnly: true
+          });
+        } catch (err) {
+          return send(res, 502, { error: String(err?.message || err) });
+        }
+      }
+      if (source.kind === "unknown") return send(res, 400, { error: `unknown source "${source.raw}"` });
+      return await handleReadFile(res, source, rel);
+    }
     if (pathname === "/api/file" && req.method === "PUT") {
       const body = await readJsonBody(req);
-      return await handleWriteFile(res, body.path, body.content, body.encoding);
+      const source = scopeFor(body.source);
+      if (source.kind !== "local" && source.kind !== "project") {
+        return send(res, 403, { error: `source "${body.source ?? "?"}" is read-only` });
+      }
+      return await handleWriteFile(res, source, body.path, body.content, body.encoding);
     }
     if (pathname === "/api/mkdir" && req.method === "POST") {
       const body = await readJsonBody(req);
-      return await handleMkdir(res, body.path);
+      const source = scopeFor(body.source);
+      if (source.kind !== "local" && source.kind !== "project") {
+        return send(res, 403, { error: `source "${body.source ?? "?"}" is read-only` });
+      }
+      return await handleMkdir(res, source, body.path);
     }
     // Static UI.
     if (req.method === "GET") {
@@ -225,7 +440,8 @@ async function handle(req, res) {
     send(res, 404, { error: "not found" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const code = /escapes|not browsable/.test(msg) ? 403 : /not found/.test(msg) ? 404 : 400;
+    const explicit = err instanceof HttpError || err instanceof GitError ? err.status : Number(err?.status) || null;
+    const code = explicit ?? (/escapes|not browsable/.test(msg) ? 403 : /not found/.test(msg) ? 404 : 400);
     send(res, code, { error: msg });
   }
 }
@@ -295,14 +511,30 @@ export async function startServer() {
     throw err;
   }
   const ownsStatusFile = await claimStatusFile(port, host);
+
+  // The commit-push pump: this node's answer to a peer's pull-from-others. It
+  // runs here rather than in a card because it has to work when the operative is
+  // DOWN, which is exactly when a node is behind and someone wants its work.
+  // Off (with one honest log line) when this node is not enrolled in the mesh.
+  let stopPump = null;
+  if (process.env.GARRISON_FILEBROWSER_NO_PUMP !== "1") {
+    try {
+      const { startCommitPushPump } = await mergeActions();
+      stopPump = startCommitPushPump({});
+    } catch (err) {
+      console.error("[file-browser] merge pump unavailable:", err?.message || err);
+    }
+  }
+
   const shutdown = async () => {
+    if (stopPump) stopPump();
     if (ownsStatusFile) { try { await unlink(STATUS_FILE); } catch {} }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000);
   };
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
-  console.log(`file-browser server on http://${host}:${port} (root ${ROOT})`);
+  console.log(`file-browser server on http://${host}:${port} (root ${ROOT}, diff cap ${DIFF_CAP_BYTES} bytes)`);
   return server;
 }
 

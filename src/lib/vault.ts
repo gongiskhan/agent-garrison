@@ -492,11 +492,15 @@ export async function materializeEnv(compositionDir: string): Promise<string> {
   return envPath;
 }
 
-export async function wipeMaterializedEnv(compositionDir: string): Promise<void> {
+export async function wipeMaterializedEnv(
+  compositionDir: string,
+  options: { strict?: boolean } = {}
+): Promise<void> {
   const envPath = path.join(compositionDir, ".env");
   try {
     await fs.rm(envPath, { force: true });
-  } catch {
+  } catch (error) {
+    if (options.strict) throw error;
     // Best effort cleanup; callers log the stop result.
   }
 }

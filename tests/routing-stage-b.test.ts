@@ -7,7 +7,14 @@ import { SEED_PROVIDERS, validateProviders, compilePolicy } from "../fittings/se
 // P2: providers are policy data — every launch-env call supplies the policy's
 // providers section (the migration-seeded list here).
 const PROVIDERS_LIST = SEED_PROVIDERS;
-const providerById = (id: string) => PROVIDERS_LIST.find((p: any) => p.id === id)!;
+const OPTIONAL_LOCAL_PROVIDER = {
+  id: "ollama-local",
+  kind: "local",
+  baseUrl: "http://localhost:11434",
+  dummyToken: "ollama"
+};
+const PROVIDERS_WITH_EXPLICIT_LOCAL = [...PROVIDERS_LIST, OPTIONAL_LOCAL_PROVIDER];
+const providerById = (id: string, providers = PROVIDERS_LIST) => providers.find((p: any) => p.id === id)!;
 
 const opus = { id: "cc-opus-high", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "opus", effort: "high" };
 const haiku = { id: "cc-haiku-low", type: "runtime-target", runtime: "claude-code", provider: "anthropic-plan", model: "haiku", effort: "low" };
@@ -59,8 +66,8 @@ describe("Stage B launch env (MR1d — provider-launch-ok)", () => {
   });
 
   it("ollama-local: base URL wired + dummy auth token, no vault key needed", () => {
-    const env = buildLaunchEnv(ollama, { baseEnv: {}, secrets: {}, providers: PROVIDERS_LIST });
-    expect(env.ANTHROPIC_BASE_URL).toBe(providerById("ollama-local").baseUrl);
+    const env = buildLaunchEnv(ollama, { baseEnv: {}, secrets: {}, providers: PROVIDERS_WITH_EXPLICIT_LOCAL });
+    expect(env.ANTHROPIC_BASE_URL).toBe(providerById("ollama-local", PROVIDERS_WITH_EXPLICIT_LOCAL).baseUrl);
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe("ollama");
   });
 
@@ -93,10 +100,10 @@ describe("Stage B launch env (MR1d — provider-launch-ok)", () => {
   });
 
   it("buildRespawnOpts uses --continue + the target model + the provider env", () => {
-    const opts = buildRespawnOpts(ollama, { compositionDir: "/tmp/x", appendSystemPromptFile: "/tmp/x/.garrison/assembled-system-prompt.md", baseEnv: {}, secrets: {}, providers: PROVIDERS_LIST });
+    const opts = buildRespawnOpts(ollama, { compositionDir: "/tmp/x", appendSystemPromptFile: "/tmp/x/.garrison/assembled-system-prompt.md", baseEnv: {}, secrets: {}, providers: PROVIDERS_WITH_EXPLICIT_LOCAL });
     expect(opts.continueSession).toBe(true);
     expect(opts.model).toBe("qwen2.5-coder");
-    expect(opts.env.ANTHROPIC_BASE_URL).toBe(providerById("ollama-local").baseUrl);
+    expect(opts.env.ANTHROPIC_BASE_URL).toBe(providerById("ollama-local", PROVIDERS_WITH_EXPLICIT_LOCAL).baseUrl);
   });
 });
 
@@ -112,12 +119,15 @@ describe("providers as policy data (P2)", () => {
     ).toThrowError(/unknown provider "nope".*anthropic-plan/);
   });
 
-  it("migration seeds resolve byte-identically to the historical registry", () => {
-    // anthropic-plan: empty env delta; ollama: base URL + dummy token;
-    // deepseek/zai: base URL + vault key as AUTH_TOKEN. (The fifth id,
-    // "anthropic", is the agent-sdk spelling of the Max OAuth path.)
+  it("migration seeds cloud providers but does not silently retain a local daemon", () => {
+    // "anthropic" is the Agent SDK spelling of the Max OAuth path. OpenAI
+    // entries make the openai-agents fitting's documented providers valid;
+    // a local provider is still supported when explicitly authored above.
     expect(PROVIDERS_LIST.map((p: any) => p.id)).toEqual([
-      "anthropic-plan", "anthropic", "ollama-local", "deepseek", "zai-glm"
+      "anthropic-plan", "anthropic", "deepseek", "zai-glm", "openai", "openai-compat",
+      // Runtime-managed: the ChatGPT plan behind the Codex backend. No vault key
+      // and no base-URL override - the runtime resolves both.
+      "chatgpt-subscription"
     ]);
     const zai = buildLaunchEnv({ provider: "zai-glm" } as any, { baseEnv: {}, secrets: { ZAI_API_KEY: "zk" }, providers: PROVIDERS_LIST });
     expect(zai.ANTHROPIC_BASE_URL).toBe("https://api.z.ai/api/anthropic");
@@ -126,6 +136,7 @@ describe("providers as policy data (P2)", () => {
 
   it("validateProviders rejects duplicates, bad kinds, and null baseUrl on non-plan kinds", () => {
     expect(validateProviders([{ id: "x", kind: "cloud-oss", baseUrl: null }]).join(" ")).toMatch(/baseUrl is required/);
+    expect(validateProviders([{ id: "x", kind: "openai-compatible", baseUrl: null }])).toEqual([]);
     expect(validateProviders([{ id: "x", kind: "weird", baseUrl: "http://h" }]).join(" ")).toMatch(/unknown kind/);
     expect(
       validateProviders([

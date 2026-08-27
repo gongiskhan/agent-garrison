@@ -8,7 +8,7 @@ const seedIds = [
   "http-gateway",
   "slack-channel",
   "monitor-default",
-  "dispatcher"
+  "orchestrator"
 ] as const;
 
 describe("validateFitting", () => {

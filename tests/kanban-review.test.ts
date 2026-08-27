@@ -125,7 +125,7 @@ describe("review rendering", () => {
   it("renderReviewMarkdown sections carry counts and card lines", () => {
     const r = computeReview({
       cards: [
-        card({ id: "01S1", title: "stuck one", project: "side-income", workKind: "channel", status: "running", runningSince: iso(4 * HOUR) }),
+        card({ id: "01S1", title: "stuck one", project: "side-income", flow: "channel", status: "running", runningSince: iso(4 * HOUR) }),
         card({ id: "01M1", title: "healthy", events: [{ at: iso(DAY), kind: "moved" }] }),
         card({ id: "01A1", title: "parked", list: "needs-attention", attentionReason: "iteration cap" })
       ],

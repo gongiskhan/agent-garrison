@@ -102,5 +102,5 @@ Override via fitting config in the composition's `apm.yml`:
 
 Real coding work runs minutes. When invoking `execute`, pass a long
 Bash timeout (e.g. 1200000 = 20 minutes). The CLI streams to a log
-file regardless of how long the call blocks the operative; the user
+file regardless of how long the call blocks the session; the user
 can watch progress in the Run tab's sub-agent pane.

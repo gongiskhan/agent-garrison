@@ -9,7 +9,7 @@ export interface DispatchError {
 }
 
 // Per-turn routing attribution (the gateway's `done` event surfaces which
-// runtime/model/tier actually served a routed phase turn; null in souls mode). Stamped
+// runtime/model/tier actually served a routed phase turn; null for legacy non-routed turns). Stamped
 // on a `routed` event by the engine and surfaced on the card front as `lastRoute`.
 // Every field is nullable — attribution is best-effort, never load-bearing.
 export interface RouteStamp {
@@ -105,10 +105,46 @@ export interface PreparedRevertSummary {
   preparedAt: string | null;
 }
 
+// Task ownership is independent of the execution flow. Personal cards may
+// still carry a real project and use any agent rail; unscoped means no project has
+// been assigned yet.
+export type CardScope = "personal" | "project" | "unscoped";
+
+export interface CardSchedule {
+  kind: "once" | "cron";
+  action: "notify" | "run";
+  at?: string;
+  cron?: string;
+  timezone: string;
+  enabled: boolean;
+  targetList: string;
+  nextAt: string | null;
+  lastAt: string | null;
+  lastError?: string | null;
+  snoozedUntil?: string | null;
+  cutoverPending?: boolean;
+  desiredEnabled?: boolean;
+}
+
+export interface DispatchRunProvenance {
+  runId: string;
+  machine: string;
+  workerId?: string | null;
+  phase?: string | null;
+  state: "done" | "failed" | "cancelled" | string;
+  claimedAt?: string | null;
+  completedAt?: string | null;
+  logIndex?: number | null;
+  sessionId?: string | null;
+  logCursor?: number | null;
+  evidenceManifest?: Array<{ name: string; bytes: number; sha256: string }>;
+}
+
 export interface CardSummary {
   id: string;
   title: string;
   project: string | null;
+  scope: CardScope;
   list: string;
   status: string;
   iterations: number;
@@ -120,16 +156,38 @@ export interface CardSummary {
   sessionIds: string[];
   briefPath: string | null;
   videoUrl: string | null;
-  // S4 (D2/D17): run-policy fields — the work kind naming the card's rail, the
+  // S4 (D2/D17): run-policy fields — the flow naming the card's rail, the
   // per-card phase toggle map (false = OFF, rendered dimmed, never hidden), the
   // tier, and who registered the run.
-  workKind?: string | null;
+  flow?: string | null;
   phases?: Record<string, boolean> | null;
   tier?: string | null;
   /** RUN-SPEC-V1: what the user explicitly chose for this run. Absent/null on a
    *  fully-automatic card, which is every card by default. */
   routing?: CardRouting | null;
   origin?: string | null;
+  placement?: { target: string; not_before?: string | null } | null;
+  dispatch?: {
+    machine: string;
+    workerId?: string | null;
+    runId?: string | null;
+    phase?: string | null;
+    state: "claimed" | "running" | "cancelling" | "done" | "failed" | string;
+    claimedAt?: string | null;
+    heartbeatAt?: string | null;
+    releasedAt?: string | null;
+    sessionId?: string | null;
+    cancellation?: {
+      state: "requested" | "timeout" | "acknowledged" | string;
+      requestedAt?: string | null;
+      deadlineAt?: string | null;
+      acknowledgedAt?: string | null;
+      detail?: string | null;
+    } | null;
+  } | null;
+  /** Immutable provenance for every settled remote phase. Unlike `dispatch`,
+   * these entries survive the next claim and keep completed Watch streams reachable. */
+  dispatchRuns?: DispatchRunProvenance[];
   // D19: a quick card is a trivial-plan task the gateway ran inline and
   // auto-advanced to Done. The Done column groups quick cards under a collapsed
   // "quick tasks" strip.
@@ -169,7 +227,7 @@ export interface CardSummary {
   lastReply?: string | null;
   lastEvent?: CardEvent | null;
   // Per-phase runtime/model attribution for the card front: the most recent routed
-  // event's route stamp, or null when no turn has routed yet / souls mode. The board
+  // event's route stamp, or null when no turn has routed yet / a legacy non-routed runtime. The board
   // renders a small "<phase> @ <model>" chip from it.
   lastRoute?: RouteStamp | null;
   // What the card WILL run on, resolved from its (duty, level) + current phase
@@ -181,9 +239,74 @@ export interface CardSummary {
   runningSince?: string | null;
   liveTail?: string | null;
   inferState?: string | null;
+  // A clarity-gated card starts the interactive Discuss duty when moved there.
+  clarity?: string | null;
   // S3c: a mid-run revisit steering directive is pending (unapplied) on this card.
   steeringPending?: boolean;
+  // D15 (S4a): the card's resolved leaf phase lists, in visit order (null on a legacy
+  // / non-duty card). The Feedback sheet offers these as the phases to send a card
+  // back to; without one it falls back to the board's agent lists.
+  sequence?: string[] | null;
+  // Card scheduling: held until this instant; what happens when it arrives
+  // (notify | run); whether the due reminder already fired.
+  scheduledFor?: string | null;
+  scheduleAction?: "notify" | "run" | null;
+  scheduleNotifiedAt?: string | null;
+  schedule?: CardSchedule | null;
+  scheduleTemplateId?: string | null;
+  scheduleSystemKey?: string | null;
+  occurrenceKey?: string | null;
+  occurrenceAt?: string | null;
+  systemKey?: string | null;
+  morningBriefDelivery?: {
+    completedAt?: string | null;
+    calendar?: { status: string; detail?: string | null };
+    web?: { status: string; detail?: string | null; threadId?: string | null };
+    omi?: { status: string; detail?: string | null; threadId?: string | null };
+  } | null;
+  // Within-list ordering: explicit position (drag-reorder) or null = created order.
+  position?: number | null;
+  // Checklist progress for the card-front chip (full items on the detail).
+  checklistTotal?: number;
+  checklistDone?: number;
+  created?: string | null;
   updated: string | null;
+}
+
+// One checklist item on a card. Whole-array replace on PATCH.
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+  doneAt?: string | null;
+}
+
+export interface CardImportSourceList {
+  id: string;
+  title: string;
+  archived?: boolean;
+  count?: number;
+  archivedCount?: number;
+}
+
+export interface CardImportPreview {
+  preview: true;
+  count: number;
+  targetList: string;
+  warnings: string[];
+  sourceFormat: "garrison" | "trello";
+  sourceName: string;
+  sourceLists: CardImportSourceList[];
+  excludedArchived?: number;
+}
+
+export interface CardImportResult {
+  imported: number;
+  targetList: string;
+  warnings: string[];
+  cards: CardSummary[];
+  sourceFormat: "garrison" | "trello";
+  sourceName: string;
 }
 
 // GET /board/runtime — channel discovery + gateway status for the board UI.
@@ -209,6 +332,7 @@ export interface ListView {
   phase?: string | null;
   terminal: boolean;
   notifyOnEntry: boolean;
+  system?: boolean;
   validNext: string[];
   cards: CardSummary[];
 }
@@ -229,9 +353,10 @@ export interface ArtifactRef {
   exists?: boolean;
   sessionId?: string;
   n?: number;
-  // Evidence entries carry the file name + whether it's an image (rendered inline).
+  // Evidence entries carry the file name + whether it's an image/video (rendered inline).
   name?: string;
   image?: boolean;
+  video?: boolean;
 }
 
 export interface CardLinks {
@@ -262,6 +387,10 @@ export interface ListConfig {
   beatCron: string | null;
   interactive: boolean;
   terminal: boolean;
+  system?: boolean;
+  // A human-managed list the operator added via "Add list" (not a duty). Removable
+  // directly from the board with no composition change.
+  userCreated?: boolean;
   // D15: skill/taskType/tier/mode are GONE — a list maps to a phase name and
   // nothing else; resolution lives in the compiled Orchestrator policy.
   phase?: string | null;
@@ -271,11 +400,11 @@ export interface ListConfig {
 }
 
 // The board's GET /policy passthrough (D17): enough of the compiled policy to
-// offer work kinds + per-card phase toggles at card creation.
+// offer flows + per-card phase toggles at card creation.
 export interface PolicyView {
-  workKinds: Record<string, { phasePlan: string; description?: string }>;
+  flows: Record<string, { phasePlan: string; description?: string }>;
   phasePlans: Record<string, { phases: Array<string | { id: string; on?: boolean }>; evidence?: string }>;
-  defaultWorkKind: string | null;
+  defaultFlow: string | null;
   phases: string[];
   phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
 }
@@ -299,7 +428,7 @@ export interface CardRouting {
   project?: string;
   account?: string;
   tier?: string;
-  workKind?: string;
+  flow?: string;
   /** Comma-separated phase ids turned OFF for this run. */
   phasesOff?: string;
 }
@@ -313,8 +442,8 @@ export interface RouteOptionsView {
   efforts: string[];
   accounts: { name: string; platform?: string | null }[];
   tiers: string[];
-  workKinds: { id: string; description?: string | null; phases?: string[] | null }[];
-  defaultWorkKind: string | null;
+  flows: { id: string; description?: string | null; phases?: string[] | null }[];
+  defaultFlow: string | null;
   projects: string[];
   sources: { gateway: boolean };
 }
@@ -364,9 +493,12 @@ export interface CardDetail {
   decisionLog: DecisionRun[];
   // The full execution timeline, newest-first (the Activity feed).
   events?: CardEvent[];
-  // Files the user attached via ClaudeChat (parsed from the description, issue #2).
-  // Derived server-side; each carries a same-origin serve URL.
-  attachments?: { i: number; name: string; image: boolean; url: string }[];
+  // Card attachments, two sources in one list: card-owned uploads
+  // (uploaded: true, deletable, served by artifact ref) and the legacy
+  // ClaudeChat description-block files (derived, read-only).
+  attachments?: { i?: number; name: string; image: boolean; url: string; uploaded?: boolean }[];
+  // The full checklist items (the summary carries only the counts).
+  checklist?: ChecklistItem[];
 }
 
 async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -378,11 +510,71 @@ async function jfetch<T>(path: string, init?: RequestInit): Promise<T> {
     let msg = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      if (body?.error) msg = body.error;
+      // API failures may expose a stable machine code in `error` while giving
+      // the operator actionable context in `message`. Prefer that context, but
+      // retain compatibility with older endpoints that only return `error`.
+      if (typeof body?.message === "string" && body.message.trim()) msg = body.message;
+      else if (typeof body?.error === "string" && body.error.trim()) msg = body.error;
     } catch { /* keep status */ }
     throw new Error(msg);
   }
   return res.json() as Promise<T>;
+}
+
+export interface MachineOption {
+  name: string;
+  label: string;
+  connected: boolean;
+  pending?: boolean;
+  isHost: boolean;
+  bridge?: "connected" | "offline";
+  worker?: {
+    state: "ready" | "busy" | "degraded" | "offline";
+    ready: boolean;
+    stale?: boolean;
+    detail?: string | null;
+    error?: string | null;
+    runtimes?: string[];
+    currentCardId?: string | null;
+    workerVersion?: string | null;
+    protocolVersion?: string | null;
+  };
+}
+export interface RemoteRuntimeRequirement {
+  key: string;
+  targetId: string;
+  runtime: string;
+  provider: string | null;
+  model?: string | null;
+  duty: string;
+  level: number;
+  phase: string;
+}
+export interface MachinesView {
+  machines: MachineOption[];
+  nodesAvailable: boolean;
+  reason?: string;
+  defaultRuntime?: RemoteRuntimeRequirement | null;
+}
+
+export interface LoadoutEditorValue {
+  id: string;
+  repo_remote: string;
+  default_branch: string;
+  apm_manifest_path?: string;
+  setup_commands: string[];
+  env_vars: string[];
+  verify_command: string;
+  projects_root_override?: string;
+}
+
+export interface LoadoutReadiness {
+  project: string;
+  ready: boolean;
+  status: "ready" | "missing" | "missing-vault-values" | "vault-locked" | "invalid" | "unavailable" | "unknown-project";
+  detail: string;
+  missing?: string[];
+  editor?: LoadoutEditorValue;
 }
 
 export const api = {
@@ -394,18 +586,89 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body)
     }),
+  exportBoardUrl: () => "/cards/export?download=1",
+  exportListUrl: (id: string) => `/cards/export?list=${encodeURIComponent(id)}&download=1`,
+  importCards: (body: {
+    bundle: unknown;
+    targetList?: string;
+    preview?: boolean;
+    sourceList?: string | null;
+    includeArchived?: boolean;
+  }) => jfetch<CardImportPreview | CardImportResult>("/cards/import", {
+    method: "POST",
+    body: JSON.stringify(body)
+  }),
   card: (id: string) => jfetch<CardDetail>(`/cards/${encodeURIComponent(id)}`),
   projects: () => jfetch<ProjectsView>("/projects"),
   skills: () => jfetch<SkillsView>("/skills"),
   // Title is optional — the server infers it from the description when blank.
-  // workKind + phases (D17): the policy phase plan this run follows and the
+  // flow + phases (D17): the policy phase plan this run follows and the
   // per-card toggle map (false = OFF, recorded off, never silent).
   // `routing` is the card's explicit run spec (RUN-SPEC-V1) — the SAME TurnRouting
   // pin the Web Channel's rail produces. Every field is optional and an absent one
   // means automatic, which is the default for every card.
-  create: (body: { title?: string; description?: string; project?: string; goalMode?: boolean; workKind?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string }) =>
+  // `placement` (brief D6) is WHERE the card runs: { target: "host" } (the
+  // default) or a paired machine name. Absent means host, so an untouched picker
+  // sends nothing at all.
+  create: (body: { title?: string; description?: string; project?: string; scope?: CardScope; targetList?: string; goalMode?: boolean; flow?: string; phases?: Record<string, boolean>; routing?: CardRouting; continues?: string; placement?: { target: string; not_before?: string }; schedule?: CardSchedule | Omit<CardSchedule, "nextAt" | "lastAt">; scheduledFor?: string; scheduleAction?: "notify" | "run"; checklist?: ChecklistItem[] }) =>
     jfetch<{ card: CardSummary }>("/cards", { method: "POST", body: JSON.stringify(body) }),
-  // GET /policy — the compiled Orchestrator policy passthrough (work kinds,
+  // Card scheduling: push the schedule out (or set one from now). The server
+  // re-arms the due reminder; action defaults to the card's current one.
+  snooze: (id: string, body: { minutes?: number; until?: string; action?: "notify" | "run" }) =>
+    jfetch<{ card: CardSummary }>(`/cards/${encodeURIComponent(id)}/snooze`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  runScheduleNow: (id: string) =>
+    jfetch<{ card: CardSummary; occurrence: boolean; created: boolean }>(`/cards/${encodeURIComponent(id)}/run-now`, {
+      method: "POST"
+    }),
+  // Card-owned attachment upload (JSON base64, 10 MB cap). The file lands under
+  // cards/<id>/attachments/ and is folded into the operative's dispatch prompt.
+  uploadAttachment: (id: string, filename: string, contentBase64: string) =>
+    jfetch<{ name: string; bytes: number; url: string }>(`/cards/${encodeURIComponent(id)}/attachments`, {
+      method: "POST",
+      body: JSON.stringify({ filename, content_base64: contentBase64 })
+    }),
+  deleteAttachment: (id: string, name: string) =>
+    jfetch<{ ok: boolean; removed: string }>(
+      `/cards/${encodeURIComponent(id)}/attachments?name=${encodeURIComponent(name)}`,
+      { method: "DELETE" }
+    ),
+  // Column drag: persist the full column order (operator-owned, survives the
+  // duty reconcile). `rev` is the board-level CAS token from GET /lists.
+  reorderLists: (order: string[], rev?: number) =>
+    jfetch<{ ok: boolean; order: string[] }>("/lists/reorder", {
+      method: "POST",
+      body: JSON.stringify({ order, ...(Number.isInteger(rev) ? { rev } : {}) })
+    }),
+  // Create a new column = a human-managed manual list, persisted straight to the
+  // board (agent-managed lists come from selecting a duty in Muster).
+  createList: (body: { title: string }) =>
+    jfetch<{ ok: boolean; list?: { id: string; title: string }; error?: string }>("/lists", {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  // Remove a column. A user-created manual list is dropped from the board; a
+  // duty-backed list deselects its duty via the shell. Cards on it are parked.
+  deleteList: (id: string) =>
+    jfetch<{ ok: boolean; dutyId?: string; reconciled?: boolean; reconcile?: { movedToAttention?: string[] } }>(
+      `/lists/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    ),
+  // GET /machines — the placement picker's vocabulary: the host plus every paired
+  // node and whether it is claim-ready right now. Degrades to this node only
+  // with a `reason` when the registry is unreachable, so the picker is never an
+  // unexplained empty menu.
+  machines: () => jfetch<MachinesView>("/machines"),
+  loadoutReadiness: (project: string) =>
+    jfetch<LoadoutReadiness>(`/loadouts/${encodeURIComponent(project)}`),
+  saveLoadout: (project: string, body: LoadoutEditorValue) =>
+    jfetch<{ loadout: LoadoutEditorValue }>(`/loadouts/${encodeURIComponent(project)}`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  // GET /policy — the compiled Orchestrator policy passthrough (flows,
   // phase plans, bindings) for the card-create UI. 404 → no policy compiled.
   policy: () => jfetch<PolicyView>("/policy"),
   // GET /route-options — the board's same-origin proxy of the gateway's routing
@@ -426,6 +689,18 @@ export const api = {
       `/cards/${encodeURIComponent(id)}/start`,
       { method: "POST" }
     ),
+  // Panic is a card-bound interrupt, not a move and not steering. The server asks
+  // the gateway to stop only a turn that proves it contains this card; the engine
+  // then parks the interrupted card(s) without accepting partial verdicts.
+  panic: (id: string) =>
+    jfetch<{
+      ok: boolean;
+      stopped: boolean;
+      lane: string | null;
+      affectedCardIds: string[];
+      sharedBatch: boolean;
+      message: string;
+    }>(`/cards/${encodeURIComponent(id)}/panic`, { method: "POST" }),
   // Abandon a card: build a PREPARED (not applied) revert of its trailer-attributed
   // commits and park it in needs-attention. Human-only on the server.
   abandon: (id: string) =>
@@ -447,6 +722,16 @@ export const api = {
     jfetch<{ card: CardSummary; job: { id: string; state: string } | null; started: boolean }>(
       `/cards/${encodeURIComponent(id)}/drill`,
       { method: "POST" }
+    ),
+  // Send feedback to a card (steering). `absorb` folds the message into the card's
+  // context without moving it; `revisit` also re-stages the SAME card back to an
+  // earlier phase (`revisitDuty`) so it runs through the pipeline again carrying the
+  // feedback — the "it forgot part of the feature, send it back" path. `acknowledge`
+  // just records a note. Same wire contract the web-channel steering uses.
+  steer: (id: string, body: { message: string; action: "absorb" | "revisit" | "acknowledge"; revisitDuty?: string; reason?: string }) =>
+    jfetch<{ ok: boolean; action: string; revisitDuty: string | null; applied: boolean }>(
+      `/cards/${encodeURIComponent(id)}/steer`,
+      { method: "POST", body: JSON.stringify(body) }
     ),
   inferProject: (id: string) =>
     jfetch<{ card: CardSummary; inferring?: boolean; note?: string }>(

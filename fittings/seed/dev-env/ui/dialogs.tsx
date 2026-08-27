@@ -29,7 +29,7 @@ export function StartSessionDialog({
   const [projects, setProjects] = useState<Project[]>([]);
   const [path, setPath] = useState<string>(initialRepoPath ?? "");
   const [busy, setBusy] = useState(false);
-  // Which face the session starts as (dev-env defaults to Joe). "off" = bare.
+  // One authoritative Operative, with an explicit plain debugging escape hatch.
   const [mode, setMode] = useState<string>(DEFAULT_MODE);
 
   useEffect(() => {

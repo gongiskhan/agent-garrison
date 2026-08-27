@@ -12,10 +12,13 @@
 //     Stop-hook sweeper and exit (we never capture the operative's own questions);
 //   • otherwise append ONE D26 record per answered question (provenance probe or
 //     retrospective) and ONE dismissed record per unanswered question, then clear
-//     the pending. Atomic single-write appends into the shared feedback queue.
+//     the pending. One transaction per record into the shared feedback queue,
+//     which is the state service now (improver/lib/feedback-signals.mjs).
 //
 // Fail-safe: any error exits 0 (a missed capture is recovered by the sweeper's
-// dismissed record; a thrown hook would surface noise to the operative).
+// dismissed record; a thrown hook would surface noise to the operative). The
+// error still reaches stderr — an unreachable state service must not look like
+// a capture that simply had nothing to record.
 
 import { readFileSync } from "node:fs";
 import { matchAnswers, buildFeedbackRecord } from "../lib/probe-core.mjs";
@@ -29,7 +32,7 @@ function readStdin() {
   }
 }
 
-function main() {
+async function main() {
   const now = process.env.PROBE_NOW || new Date().toISOString();
   let payload = {};
   try {
@@ -53,7 +56,7 @@ function main() {
 
   const provenance = pending.mode === "retrospective" ? "retrospective" : "probe";
   for (const { q, answer } of answered) {
-    store.appendFeedbackSync(
+    await store.appendFeedback(
       buildFeedbackRecord({
         session_id: pending.session_id,
         area: q.area,
@@ -68,7 +71,7 @@ function main() {
     );
   }
   for (const q of unanswered) {
-    store.appendFeedbackSync(
+    await store.appendFeedback(
       buildFeedbackRecord({
         session_id: pending.session_id,
         area: q.area,
@@ -86,8 +89,9 @@ function main() {
   return 0;
 }
 
-try {
-  process.exit(main() ?? 0);
-} catch {
-  process.exit(0);
-}
+main()
+  .then((code) => process.exit(code ?? 0))
+  .catch((err) => {
+    process.stderr.write(`probe-capture: ${err?.message || err}\n`);
+    process.exit(0);
+  });

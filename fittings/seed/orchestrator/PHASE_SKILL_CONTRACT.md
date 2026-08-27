@@ -4,7 +4,7 @@ A **phase skill** is any Claude Code skill that can execute one pipeline phase
 of an autonomous Garrison run (plan, implement, review, adversarial-review,
 test, adversarial-test, security-review, ux-qa, walkthrough, validate,
 codex-checkpoint, report — the policy's `phases` list). The Orchestrator's phase-skill registry
-(`phaseSkills.bindings`, per-work-kind `phaseSkills.overrides`) binds each
+(`phaseSkills.bindings`, per-flow `phaseSkills.overrides`) binds each
 phase to the skill that executes it. Swapping a binding in the composer view
 requires **zero code changes** — any skill honoring this contract can be
 slotted in. The direction is fixed: **Garrison calls skills, never the
@@ -26,7 +26,7 @@ reverse.**
 2. **Consume the run context it is handed.** The engine (or doorway) invokes
    the skill with: `runDir` (the run's evidence directory under
    `~/.garrison/runs/<project>/<runId>/`), the `card` (id, title, brief,
-   project, tier, work kind, per-card phase toggles), and the `phase` it is
+   project, tier, flow, per-card phase toggles), and the `phase` it is
    executing. The skill does its phase's work scoped to that context.
 
 3. **Write its phase's gate-status entry.** On completion (pass OR fail), the
@@ -58,6 +58,6 @@ The verb skills are the seed bindings (`garrison-plan`,
 `garrison-implement`, `garrison-review`, `garrison-adversarial-review`,
 `garrison-test`, `garrison-adversarial-test`, `garrison-security-review`,
 `garrison-ux-qa`, `garrison-walkthrough`, `garrison-validate`,
-`garrison-codex-checkpoint`, `garrison-report`). Any work kind may
+`garrison-codex-checkpoint`, `garrison-report`). Any flow may
 override any binding (e.g. a docs review bound to a different review skill
 than a feature review).

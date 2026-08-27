@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { StateUnavailableError } from "@garrison/state-client";
 import { getCompositionDirectory, DEFAULT_COMPOSITION_ID } from "@/lib/compositions";
 import { readDecisionsTail, DEFAULT_DECISIONS_LIMIT } from "@/lib/decisions-feed";
 import { recordDecisionVerdict } from "@/lib/decision-verdicts-store";
@@ -61,6 +62,8 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
+    // A mesh outage is the service's fault, not the caller's: 503, not 400.
+    if (error instanceof StateUnavailableError) return jsonError(error, 503);
     return jsonError(error, 400);
   }
 }

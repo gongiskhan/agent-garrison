@@ -8,9 +8,11 @@ import {
   buildOrchestratorInstructions,
   projectOrchestrator,
   orchestratorAppendSystemPrompt,
+  readAuthoredOverrides,
   ORCHESTRATOR_PRIMITIVE_ID,
   ORCHESTRATOR_RULE_REL
 } from "@/lib/orchestrator-projection";
+import { LEGACY_SHIPPED_IDENTITY } from "@/lib/identity-migration";
 import { computeStateModel } from "@/lib/primitive-state";
 import { claudeHome, provenanceLedgerPath } from "@/lib/claude-home";
 import type { ApmRunner } from "@/lib/apm-exec";
@@ -111,14 +113,14 @@ afterEach(() => {
 });
 
 describe("buildOrchestratorInstructions (pure fold + capabilities substitution)", () => {
-  it("leads with identity, then behavior, and substitutes {{capabilities}}", () => {
+  it("ignores the retired soul input and substitutes {{capabilities}}", () => {
     const out = buildOrchestratorInstructions({
       soul: "You are the soul.",
       orchestrator: "## Behavior\n\nTools available:\n{{capabilities}}",
       entries: [providerEntry("slack-channel", "channel", "slack", "Slack inbound/outbound")]
     });
-    expect(out.startsWith("You are the soul.")).toBe(true);
-    expect(out.indexOf("You are the soul.")).toBeLessThan(out.indexOf("## Behavior"));
+    expect(out.startsWith("## Behavior")).toBe(true);
+    expect(out).not.toContain("You are the soul.");
     expect(out).toContain("- channel:slack — Slack inbound/outbound");
     expect(out).not.toContain("{{capabilities}}");
     expect(out.endsWith("\n")).toBe(true);
@@ -132,6 +134,71 @@ describe("buildOrchestratorInstructions (pure fold + capabilities substitution)"
   it("omits the identity block when no soul is given", () => {
     const out = buildOrchestratorInstructions({ orchestrator: "Just behavior.", entries: [] });
     expect(out).toBe("Just behavior.\n");
+  });
+
+  it("migrates a custom legacy soul even when no overrides file exists", async () => {
+    const composition = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-soul-migrate-"));
+    fs.mkdirSync(path.join(composition, ".garrison", "prompts"), { recursive: true });
+    fs.writeFileSync(path.join(composition, ".garrison", "prompts", "soul.md"), "# Custom identity\nSpeak with dry humour.\n");
+    const overrides = await readAuthoredOverrides(composition);
+    expect(overrides.identity).toContain("Speak with dry humour");
+    const persisted = JSON.parse(fs.readFileSync(path.join(composition, ".garrison", "orchestrator-authored.json"), "utf8"));
+    expect(persisted.identity).toBe(overrides.identity);
+    expect(fs.existsSync(path.join(composition, ".garrison", "prompts", "soul.md"))).toBe(false);
+  });
+
+  it("preserves additions appended to the shipped legacy identity without reviving Verity", async () => {
+    const composition = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-soul-appended-"));
+    fs.mkdirSync(path.join(composition, ".garrison", "prompts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(composition, ".garrison", "prompts", "soul.md"),
+      `${LEGACY_SHIPPED_IDENTITY}\n\nAlways remember the school pickup is at 16:00.\n`
+    );
+    const overrides = await readAuthoredOverrides(composition);
+    expect(overrides.identity).toContain("You are Zeca");
+    expect(overrides.identity).toContain("school pickup is at 16:00");
+    expect(overrides.identity).not.toContain("Verity");
+    expect(fs.existsSync(path.join(composition, ".garrison", "prompts", "soul.md"))).toBe(false);
+    fs.rmSync(composition, { recursive: true, force: true });
+  });
+
+  it("retires a shipped legacy source without reviving it", async () => {
+    const composition = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-soul-shipped-"));
+    fs.mkdirSync(path.join(composition, ".garrison", "prompts"), { recursive: true });
+    const legacy = path.join(composition, ".garrison", "prompts", "soul.md");
+    fs.writeFileSync(legacy, `${LEGACY_SHIPPED_IDENTITY}\n`);
+    expect(await readAuthoredOverrides(composition)).toEqual({});
+    expect(fs.existsSync(legacy)).toBe(false);
+    expect(fs.existsSync(path.join(composition, ".garrison", "orchestrator-authored.json"))).toBe(false);
+    fs.rmSync(composition, { recursive: true, force: true });
+  });
+
+  it("archives a displaced custom legacy source when canonical Identity already exists", async () => {
+    const composition = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-soul-displaced-"));
+    fs.mkdirSync(path.join(composition, ".garrison", "prompts"), { recursive: true });
+    const authored = path.join(composition, ".garrison", "orchestrator-authored.json");
+    const legacy = path.join(composition, ".garrison", "prompts", "soul.md");
+    fs.writeFileSync(authored, `${JSON.stringify({ identity: "Canonical Zeca identity." })}\n`);
+    fs.writeFileSync(legacy, "# Custom legacy identity\nKeep this historical voice note.\n");
+
+    expect(await readAuthoredOverrides(composition)).toEqual({ identity: "Canonical Zeca identity." });
+    const persisted = JSON.parse(fs.readFileSync(authored, "utf8"));
+    expect(persisted.identity).toBe("Canonical Zeca identity.");
+    expect(persisted["retired-legacy-identity"]).toContain("historical voice note");
+    expect(fs.existsSync(legacy)).toBe(false);
+    fs.rmSync(composition, { recursive: true, force: true });
+  });
+
+  it("does not overwrite a malformed authored document during legacy migration", async () => {
+    const composition = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-soul-malformed-"));
+    fs.mkdirSync(path.join(composition, ".garrison", "prompts"), { recursive: true });
+    const authored = path.join(composition, ".garrison", "orchestrator-authored.json");
+    fs.writeFileSync(authored, "{ definitely not valid json\n");
+    fs.writeFileSync(path.join(composition, ".garrison", "prompts", "soul.md"), "# Custom identity\nKeep this.\n");
+    await expect(readAuthoredOverrides(composition)).resolves.toEqual({});
+    expect(fs.readFileSync(authored, "utf8")).toBe("{ definitely not valid json\n");
+    expect(fs.existsSync(path.join(composition, ".garrison", "prompts", "soul.md"))).toBe(true);
+    fs.rmSync(composition, { recursive: true, force: true });
   });
 });
 

@@ -6,64 +6,71 @@
 //
 // Usage:
 //   node scheduler.mjs --probe                       # health check, prints "ok"
-//   node scheduler.mjs list                          # JSON list of jobs
-//   node scheduler.mjs add <id> <cron> <cmd>         # add or replace a job
+//   node scheduler.mjs list [--target <t>]           # JSON list of jobs
+//   node scheduler.mjs add <id> <cron> [--target <t>] <cmd>   # add or replace a job
 //   node scheduler.mjs register <id> <cron> [flags] -- <cmd>
 //        # idempotent registration for setup hooks; flags: --disabled,
 //        # --description <d>, --type cron|listener, --integration <key>,
-//        # --poll-ms <n>. PRESERVES the enable/disable choice on re-register.
+//        # --poll-ms <n>, --target node:<name>|any|all. PRESERVES the
+//        # enable/disable choice on re-register.
 //   node scheduler.mjs enable <id> | disable <id>    # toggle a job
 //   node scheduler.mjs remove <id>                   # remove a job
 //   node scheduler.mjs run-now <id>                  # run a job once, immediately
-//   node scheduler.mjs tick                          # process jobs due this minute
+//   node scheduler.mjs tick [--dry-run]              # process jobs due this minute
+//        # (--tick is accepted as an alias). --dry-run prints the fully
+//        # materialised command per due job and runs nothing.
 //   node scheduler.mjs daemon [--health-port <n>]    # always-on: tick + supervise
 //        # listeners until SIGTERM; serves /health. Platform-agnostic — any
 //        # supervisor (systemd/Docker/PM2/launchd, see launchers/) keeps it up.
+//        # Also pumps the mesh node heartbeat (lib/node-beat.mjs) unless
+//        # GARRISON_DISABLE_NODE_BEAT=1.
 //
 // Job execution: stdout/stderr appended to the log file with a header
 // line per run; non-zero exits are recorded but don't stop the loop.
+//
+// WHERE JOBS LIVE. The mesh state service, when this node is enrolled: jobs
+// there are structured ({target, spec}) rather than baked shell strings, so one
+// registration is visible from every node and a shared job fires exactly once.
+// When the node is NOT enrolled the store falls back to the legacy machine-global
+// file (~/.garrison/scheduler-jobs.json, override GARRISON_SCHEDULER_JOBS) and
+// behaves exactly as it did pre-mesh — see lib/job-store.mjs for why that one
+// fallback is permitted.
 
 import fs from "node:fs/promises";
-import fsSync from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import http from "node:http";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-// Machine-global scheduler state in ~/.garrison (NOT cwd-relative): jobs are
+import { createJobStore, targetMatchesNode, defaultTargetFor, fromServiceRow } from "./lib/job-store.mjs";
+import { materialiseCommand } from "./lib/materialise.mjs";
+
+// Machine-global scheduler log in ~/.garrison (NOT cwd-relative): jobs are
 // registered by fitting setup hooks (cwd = the fitting dir) and fired by the
-// io.garrison.scheduler launchd daemon (cwd = anywhere), so an absolute,
-// per-machine location is the only thing all callers agree on. Override with
-// GARRISON_SCHEDULER_JOBS / GARRISON_SCHEDULER_LOG.
+// scheduler daemon (cwd = anywhere), so an absolute, per-machine location is the
+// only thing all callers agree on. Override with GARRISON_SCHEDULER_LOG.
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
-const JOBS_FILE = process.env.GARRISON_SCHEDULER_JOBS
-  ?? path.join(GARRISON_HOME, "scheduler-jobs.json");
 const LOG_FILE = process.env.GARRISON_SCHEDULER_LOG
   ?? path.join(GARRISON_HOME, "scheduler.log");
 const TICK_INTERVAL_MS = 60_000;
+// A shared ('any') job's occurrence lease lasts as long as the job may run.
+const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000;
 // Default port for the daemon's /health endpoint. Override with
 // GARRISON_SCHEDULER_HEALTH_PORT or `daemon --health-port <n>`; a busy port is
 // tolerated (logged, daemon continues without /health).
 const DEFAULT_HEALTH_PORT = 7099;
 
-async function loadJobs() {
-  try {
-    const raw = await fs.readFile(JOBS_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) throw new Error("jobs file is not an array");
-    return parsed;
-  } catch (err) {
-    if (err.code === "ENOENT") return [];
-    throw err;
-  }
+// Discovery is re-attempted on every operation rather than memoised for the
+// life of the process — the same discipline as the node beat: a daemon running
+// on a machine that gets enrolled mid-life must pick up the mesh store the
+// moment state.json lands, with no restart. The fallback notice is announced
+// once per process by the store itself.
+function store() {
+  return createJobStore({ log: (line) => void appendLog(line) });
 }
 
-async function saveJobs(jobs) {
-  await fs.mkdir(path.dirname(JOBS_FILE), { recursive: true });
-  await fs.writeFile(JOBS_FILE, JSON.stringify(jobs, null, 2) + "\n");
-}
-
-function parseCron(cron) {
+export function parseCron(cron) {
   const parts = cron.trim().split(/\s+/);
   if (parts.length !== 5) {
     throw new Error(`cron must have 5 fields, got ${parts.length}: "${cron}"`);
@@ -112,15 +119,24 @@ function fieldMatches(field, value) {
   return field.values.has(value);
 }
 
-function cronMatches(parsed, date) {
+export function cronMatches(parsed, date) {
+  const dayOfMonth = fieldMatches(parsed[2], date.getDate());
+  const dayOfWeek = fieldMatches(parsed[4], date.getDay());
+  // Standard Vixie-style cron semantics: DOM and DOW are ORed only when both
+  // are restricted. Keep the daemon and Kanban's Scheduled clock identical.
+  const dayMatches = parsed[2].kind !== "any" && parsed[4].kind !== "any"
+    ? dayOfMonth || dayOfWeek
+    : dayOfMonth && dayOfWeek;
   return fieldMatches(parsed[0], date.getMinutes())
     && fieldMatches(parsed[1], date.getHours())
-    && fieldMatches(parsed[2], date.getDate())
-    && fieldMatches(parsed[3], date.getMonth() + 1)
-    && fieldMatches(parsed[4], date.getDay());
+    && dayMatches
+    && fieldMatches(parsed[3], date.getMonth() + 1);
 }
 
-function minuteKey(date) {
+// The occurrence key. Shared across nodes, it is what makes "this minute's run"
+// a thing two machines can agree on — and what the lease and the run ledger are
+// both keyed by.
+export function minuteKey(date) {
   return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}T${date.getHours()}:${date.getMinutes()}`;
 }
 
@@ -140,14 +156,14 @@ function jobEnv() {
   return { ...process.env, PATH };
 }
 
-async function runJob(job) {
+async function runJob(job, command) {
   const startedAt = new Date().toISOString();
-  await appendLog(`[${startedAt}] start ${job.id} :: ${job.command}`);
+  await appendLog(`[${startedAt}] start ${job.id} :: ${command}`);
   return new Promise((resolve) => {
     // sh -c is the shell-evaluated execution path. Job commands are
     // user-authored (added via the `add` CLI) and trusted; this is the
     // same trust model as a user's own crontab entry.
-    const child = spawn("/bin/sh", ["-c", job.command], { env: jobEnv() });
+    const child = spawn("/bin/sh", ["-c", command], { env: jobEnv() });
     let stdout = "", stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
@@ -173,31 +189,81 @@ async function runJob(job) {
   });
 }
 
-async function tick(now = new Date()) {
-  const jobs = await loadJobs();
+// Materialise, or say loudly why not. A job whose command cannot be built on
+// this node must NOT run — a job that silently does nothing is exactly the
+// failure this replaced.
+async function materialiseOrSkip(job) {
+  const built = materialiseCommand(job);
+  if (!built.ok) {
+    await appendLog(`[${new Date().toISOString()}] skip ${job.id}: ${built.reason}`);
+    return null;
+  }
+  return built.command;
+}
+
+async function tick(now = new Date(), { dryRun = false } = {}) {
+  const jobs = store();
+  const all = await jobs.loadJobs();
   const currentMinute = minuteKey(now);
   const ran = [];
-  for (const job of jobs) {
+  const due = [];
+  const skipped = [];
+
+  for (const job of all) {
     if (job.enabled === false) continue;
     // Listener jobs are supervised as long-running workers (one per job), never
     // cron-fired — otherwise tick() would double-run them alongside the worker.
     if (job.type === "listener") continue;
-    if (job.last_run_minute === currentMinute) continue;
+    // The service already filters by target, but a local re-check is what keeps
+    // the file lane and the mesh lane one code path — and it is cheap.
+    if (!targetMatchesNode(job.target, jobs.self)) continue;
+    // last_run_minute is the legacy file store's once-per-minute guard; on the
+    // mesh the occurrence ledger is that guard, shared rather than per-file.
+    if (jobs.mode === "file" && !dryRun && job.last_run_minute === currentMinute) continue;
+
     let parsed;
     try {
       parsed = parseCron(job.cron);
     } catch (err) {
       await appendLog(`[${new Date().toISOString()}] skip ${job.id}: ${err.message}`);
+      skipped.push({ id: job.id, reason: err.message });
       continue;
     }
     if (!cronMatches(parsed, now)) continue;
-    job.last_run = now.toISOString();
-    job.last_run_minute = currentMinute;
-    await saveJobs(jobs);
-    const result = await runJob(job);
+
+    const built = materialiseCommand(job);
+    if (!built.ok) {
+      await appendLog(`[${new Date().toISOString()}] skip ${job.id}: ${built.reason}`);
+      skipped.push({ id: job.id, reason: built.reason, missing: built.missing });
+      continue;
+    }
+
+    if (dryRun) {
+      due.push({ id: job.id, target: job.target, occurrence: currentMinute, command: built.command });
+      continue;
+    }
+
+    // A shared job is claimed for this occurrence before it runs. `node:<self>`
+    // and `all` need no lease — nobody else is a candidate, or every node is
+    // meant to run it.
+    const lease = await jobs.acquireOccurrence(job, currentMinute, job.spec?.timeout_ms || DEFAULT_JOB_TIMEOUT_MS);
+    if (!lease.granted) continue;
+
+    // The ledger is the belt to the lease's braces, and it is what makes a
+    // MISSED occurrence visible for the first time.
+    const started = await jobs.recordRunStart(job, currentMinute);
+    if (!started.recorded) continue;
+
+    if (jobs.mode === "file") {
+      await jobs.saveJob(job.id, { ...job, last_run: now.toISOString(), last_run_minute: currentMinute });
+    }
+
+    const result = await runJob(job, built.command);
+    await jobs.recordRunEnd(job, currentMinute, result.exit);
     ran.push({ id: job.id, exit: result.exit });
   }
-  return ran;
+
+  return dryRun ? { dryRun: true, node: jobs.self, store: jobs.mode, occurrence: currentMinute, due, skipped } : ran;
 }
 
 // ── Listener supervision (ekoa pattern: one worker per polling trigger) ──────
@@ -209,7 +275,7 @@ const listenerWorkers = new Map(); // id -> live child
 const listenerTimers = new Map(); // id -> pending restart timeout
 let shuttingDown = false;
 
-function spawnListener(job, backoffMs = 1000) {
+function spawnListener(job, command, backoffMs = 1000) {
   if (shuttingDown) return;
   // Guard against a double-spawn: a live worker already exists, or a restart
   // timer is about to fire one.
@@ -223,7 +289,7 @@ function spawnListener(job, backoffMs = 1000) {
   // shutdown can kill the whole subprocess TREE — `/bin/sh -c <command>` plus any
   // grandchildren the command spawns — not just the shell parent (which would
   // orphan the real worker).
-  const child = spawn("/bin/sh", ["-c", job.command], { stdio: ["ignore", "pipe", "pipe"], detached: true, env: jobEnv() });
+  const child = spawn("/bin/sh", ["-c", command], { stdio: ["ignore", "pipe", "pipe"], detached: true, env: jobEnv() });
   listenerWorkers.set(job.id, child);
   child.stdout.on("data", (c) => { void appendLog(`  [listener ${job.id}] ${c.toString().trimEnd()}`); });
   child.stderr.on("data", (c) => { void appendLog(`  [listener ${job.id}] err | ${c.toString().trimEnd()}`); });
@@ -235,7 +301,7 @@ function spawnListener(job, backoffMs = 1000) {
     // (the double-spawn race) and shutdown can cancel it.
     const timer = setTimeout(() => {
       listenerTimers.delete(job.id);
-      spawnListener(job, Math.min(backoffMs * 2, 60_000));
+      spawnListener(job, command, Math.min(backoffMs * 2, 60_000));
     }, backoffMs);
     listenerTimers.set(job.id, timer);
   });
@@ -253,12 +319,15 @@ function killListenerGroup(child, signal) {
 }
 
 async function superviseListeners() {
-  const jobs = await loadJobs();
-  for (const job of jobs) {
+  const jobs = store();
+  for (const job of await jobs.loadJobs()) {
     if (job.type !== "listener" || job.enabled === false) continue;
+    if (!targetMatchesNode(job.target, jobs.self)) continue;
     // Skip if a worker is live OR a restart is already scheduled.
     if (listenerWorkers.has(job.id) || listenerTimers.has(job.id)) continue;
-    spawnListener(job);
+    const command = await materialiseOrSkip(job);
+    if (!command) continue;
+    spawnListener(job, command);
   }
 }
 
@@ -297,6 +366,7 @@ async function daemon(opts = {}) {
   // server started listening, the default disposition would kill the process
   // mid-startup with a non-zero exit.
   let healthServer = null;
+  let nodeBeat = null;
 
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -305,6 +375,7 @@ async function daemon(opts = {}) {
     // Cancel any pending listener restart so we don't spawn during shutdown.
     for (const timer of listenerTimers.values()) clearTimeout(timer);
     listenerTimers.clear();
+    nodeBeat?.stop();
     healthServer?.close();
     // SIGTERM every listener, then WAIT for them to exit (bounded), so we never
     // orphan a child; SIGKILL any straggler past the grace window.
@@ -326,6 +397,20 @@ async function daemon(opts = {}) {
   process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
   process.on("SIGINT", () => { void shutdown("SIGINT"); });
 
+  // Single-daemon guard: if an ANSWERING scheduler already owns this node's
+  // health port, this spawn is redundant - exit 0 deliberately and quietly.
+  // (Without this, a second daemon keeps ticking portless and every
+  // node-local cron fires twice; the ledger only dedupes SHARED jobs.)
+  if (healthPort) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${healthPort}/health`, { signal: AbortSignal.timeout(1500) });
+      if (res.ok) {
+        await appendLog(`[${new Date().toISOString()}] another scheduler daemon answers :${healthPort} - exiting (single-daemon guard)`);
+        return;
+      }
+    } catch { /* nobody answering - this daemon owns the node */ }
+  }
+
   healthServer = startHealthServer(healthPort, () => ({
     startedAt,
     ticks,
@@ -334,7 +419,44 @@ async function daemon(opts = {}) {
   }));
   await appendLog(`[${startedAt}] scheduler daemon start (interval ${TICK_INTERVAL_MS}ms, health :${healthPort})`);
 
-  await superviseListeners();
+  // The mesh node heartbeat. The daemon owns this interval because the Next
+  // app cannot: its route modules are evicted and re-instantiated, so a
+  // module-level setInterval in a route file is not a daemon. Imported lazily
+  // and treated as fully optional - the scheduler must keep firing cron jobs on
+  // a node that is not enrolled in a mesh, or whose checkout predates one.
+  // Disable with GARRISON_DISABLE_NODE_BEAT=1.
+  try {
+    const { startNodeBeat, BEAT_INTERVAL_MS } = await import("./lib/node-beat.mjs");
+    nodeBeat = startNodeBeat();
+    if (nodeBeat) {
+      await appendLog(`[${new Date().toISOString()}] node beat start (every ${BEAT_INTERVAL_MS}ms)`);
+    }
+  } catch (err) {
+    await appendLog(`[${new Date().toISOString()}] node beat unavailable: ${err.message}`);
+  }
+
+  // The git event pump: the DOWN-SURVIVAL floor under the file-browser
+  // fitting's pump. It only acts while that fitting's status file is absent,
+  // so the two never race — division by liveness, not preference. Disable
+  // with GARRISON_DISABLE_GIT_PUMP=1.
+  try {
+    const { startGitPump } = await import("./lib/git-pump.mjs");
+    if (startGitPump({ log: console })) {
+      await appendLog(`[${new Date().toISOString()}] git pump start`);
+    }
+  } catch (err) {
+    await appendLog(`[${new Date().toISOString()}] git pump unavailable: ${err.message}`);
+  }
+
+  // Startup supervision must not be able to kill the daemon: a broken or
+  // unreachable state config here would exit(1), and under the launchd/systemd
+  // concurrently group that takes the WHOLE NODE down with it (proven on the
+  // first Mac enrolment). Log, keep ticking; the in-loop catch handles the rest.
+  try {
+    await superviseListeners();
+  } catch (err) {
+    await appendLog(`[${new Date().toISOString()}] startup supervision failed (continuing): ${err.message}`);
+  }
   while (!shuttingDown) {
     try {
       const ran = await tick();
@@ -350,10 +472,45 @@ async function daemon(opts = {}) {
   }
 }
 
+// `--target node:<name>|any|all`, defaulting to this node — so an unmodified
+// setup hook keeps exactly today's behaviour (its job stays pinned here).
+const TARGET_RE = /^(node:[a-z][a-z0-9-]{1,31}|any|all|local)$/;
+
+function validateTarget(target) {
+  if (!TARGET_RE.test(target)) {
+    throw new Error(`invalid --target "${target}" (expected node:<name>, any, or all)`);
+  }
+  return target;
+}
+
+// A job listing entry: the structured record PLUS the legacy `command`
+// projection consumers still read. For a fitting-script job the command is the
+// one this node would actually fire, so `list` and `--tick --dry-run` agree.
+function describeJob(job) {
+  const built = materialiseCommand(job);
+  const entry = {
+    id: job.id,
+    cron: job.cron,
+    type: job.type ?? "cron",
+    enabled: job.enabled !== false,
+    target: job.target,
+    command: built.ok ? built.command : (job.command ?? null),
+    spec: job.spec
+  };
+  if (!built.ok) entry.unresolved = built.reason;
+  if (job.description !== undefined) entry.description = job.description;
+  if (job.integration !== undefined) entry.integration = job.integration;
+  if (job.poll_interval_ms !== undefined) entry.poll_interval_ms = job.poll_interval_ms;
+  if (job.rev !== null && job.rev !== undefined) entry.rev = job.rev;
+  if (job.last_run !== undefined) entry.last_run = job.last_run;
+  if (job.last_run_minute !== undefined) entry.last_run_minute = job.last_run_minute;
+  return entry;
+}
+
 async function main(argv) {
   if (argv[0] === "--probe") {
     try {
-      await loadJobs();
+      await store().loadJobs();
       console.log("ok");
       return 0;
     } catch (err) {
@@ -365,24 +522,54 @@ async function main(argv) {
   const cmd = argv[0];
 
   if (cmd === "list") {
-    const jobs = await loadJobs();
-    process.stdout.write(JSON.stringify({ jobs_file: JOBS_FILE, jobs }, null, 2) + "\n");
+    const jobs = store();
+    // `list --target all` shows every node's jobs; `--target node:<name>` shows
+    // that node's view (useful for auditing a peer from here). Default is this
+    // node's own view, which is what every setup hook expects.
+    const targetIdx = argv.indexOf("--target");
+    const view = targetIdx !== -1 ? argv[targetIdx + 1] : null;
+    let listed;
+    if (!view) {
+      listed = await jobs.loadJobs();
+    } else if (jobs.mode === "state") {
+      const filter = view === "all" ? undefined : view.replace(/^node:/, "");
+      listed = (await jobs.client.listSchedulerJobs(filter)).map(fromServiceRow);
+    } else {
+      listed = await jobs.loadJobs();
+    }
+    process.stdout.write(
+      JSON.stringify(
+        { store: jobs.mode, node: jobs.self, jobs_file: jobs.jobsFile, jobs: listed.map(describeJob) },
+        null,
+        2
+      ) + "\n"
+    );
     return 0;
   }
 
   if (cmd === "add") {
-    const [, id, cron, ...rest] = argv;
+    let [, id, cron, ...rest] = argv;
+    const jobs = store();
+    let target = jobs.defaultTarget;
+    // `--target` is accepted only immediately after the cron field, where it is
+    // unambiguous — everything after it is the command, verbatim, as before.
+    if (rest[0] === "--target") {
+      target = rest[1];
+      rest = rest.slice(2);
+    }
     if (!id || !cron || rest.length === 0) {
-      console.error("usage: scheduler.mjs add <id> <cron> <command...>");
+      console.error("usage: scheduler.mjs add <id> <cron> [--target node:<name>|any|all] <command...>");
       return 2;
     }
     try { parseCron(cron); }
     catch (err) { console.error(`invalid cron: ${err.message}`); return 1; }
+    try { validateTarget(target); }
+    catch (err) { console.error(err.message); return 1; }
     const command = rest.join(" ");
-    const jobs = await loadJobs();
-    const next = jobs.filter((j) => j.id !== id);
-    next.push({ id, cron, command, enabled: true });
-    await saveJobs(next);
+    await jobs.saveJob(id, {
+      id, cron, type: "cron", enabled: true, target,
+      spec: { kind: "shell", command }
+    });
     console.log(`added ${id}`);
     return 0;
   }
@@ -390,33 +577,34 @@ async function main(argv) {
   if (cmd === "remove") {
     const id = argv[1];
     if (!id) { console.error("usage: scheduler.mjs remove <id>"); return 2; }
-    const jobs = await loadJobs();
-    const next = jobs.filter((j) => j.id !== id);
-    await saveJobs(next);
-    console.log(`removed ${id} (was ${jobs.length - next.length === 1 ? "present" : "absent"})`);
+    const { removed } = await store().removeJob(id);
+    console.log(`removed ${id} (was ${removed ? "present" : "absent"})`);
     return 0;
   }
 
   if (cmd === "run-now") {
     const id = argv[1];
     if (!id) { console.error("usage: scheduler.mjs run-now <id>"); return 2; }
-    const jobs = await loadJobs();
-    const job = jobs.find((j) => j.id === id);
+    const job = await store().getJob(id);
     if (!job) { console.error(`job not found: ${id}`); return 1; }
-    const result = await runJob(job);
+    // Manual is deliberate: no occurrence lease, no ledger gate. The operator
+    // asked for this run on THIS node.
+    const built = materialiseCommand(job);
+    if (!built.ok) { console.error(built.reason); return 1; }
+    const result = await runJob(job, built.command);
     console.log(`ran ${id} exit=${result.exit}`);
     return result.exit === 0 ? 0 : 1;
   }
 
   // register: idempotent registration used by fitting setup hooks. Unlike `add`,
   // it (a) supports --disabled / --description / --type / --integration /
-  // --poll-ms flags, (b) takes the command after a `--` separator, and (c)
-  // PRESERVES the user's enable/disable choice on re-registration — so a setup
-  // hook that re-runs every `up` never clobbers an explicit `enable`.
+  // --poll-ms / --target flags, (b) takes the command after a `--` separator,
+  // and (c) PRESERVES the user's enable/disable choice on re-registration — so a
+  // setup hook that re-runs every `up` never clobbers an explicit `enable`.
   if (cmd === "register") {
     const [, id, cron, ...rest] = argv;
     if (!id || !cron) {
-      console.error("usage: scheduler.mjs register <id> <cron> [--disabled] [--description <d>] [--type cron|listener] [--integration <key>] [--poll-ms <n>] -- <command...>");
+      console.error("usage: scheduler.mjs register <id> <cron> [--disabled] [--description <d>] [--type cron|listener] [--integration <key>] [--poll-ms <n>] [--target node:<name>|any|all] -- <command...>");
       return 2;
     }
     const sepIdx = rest.indexOf("--");
@@ -427,6 +615,7 @@ async function main(argv) {
     let type = "cron";
     let integration;
     let pollMs;
+    let target;
     for (let i = 0; i < flagArgs.length; i++) {
       const f = flagArgs[i];
       if (f === "--disabled") disabled = true;
@@ -434,6 +623,7 @@ async function main(argv) {
       else if (f === "--type") type = flagArgs[++i];
       else if (f === "--integration") integration = flagArgs[++i];
       else if (f === "--poll-ms") pollMs = Number(flagArgs[++i]);
+      else if (f === "--target") target = flagArgs[++i];
     }
     const command = commandParts.join(" ");
     if (!command) { console.error("register requires a command after `--`"); return 2; }
@@ -441,20 +631,28 @@ async function main(argv) {
       try { parseCron(cron); }
       catch (err) { console.error(`invalid cron: ${err.message}`); return 1; }
     }
-    const jobs = await loadJobs();
-    const existing = jobs.find((j) => j.id === id);
-    // Preserve the existing enable/disable choice on re-register; a NEW job uses
-    // !--disabled.
+    const jobs = store();
+    target = target ?? jobs.defaultTarget;
+    try { validateTarget(target); }
+    catch (err) { console.error(err.message); return 1; }
+
+    const existing = await jobs.getJob(id);
+    const spec = { kind: "shell", command };
+    if (integration !== undefined) spec.integration = integration;
+    if (pollMs !== undefined) spec.poll_interval_ms = pollMs;
+
+    // `enabled: undefined` asks the STORE to preserve the existing choice; a
+    // NEW job uses !--disabled. Leaving the decision to the store (and thus,
+    // on the mesh, to the write transaction) is what keeps a re-registration
+    // race from resurrecting a disabled job.
+    await jobs.saveJob(id, {
+      id, cron, type, target, spec,
+      enabled: existing ? undefined : !disabled,
+      ...(description !== undefined ? { description } : {}),
+      ...(existing?.last_run !== undefined ? { last_run: existing.last_run } : {}),
+      ...(existing?.last_run_minute !== undefined ? { last_run_minute: existing.last_run_minute } : {})
+    });
     const enabled = existing ? existing.enabled !== false : !disabled;
-    const job = { id, cron, command, enabled, type };
-    if (description !== undefined) job.description = description;
-    if (integration !== undefined) job.integration = integration;
-    if (pollMs !== undefined) job.poll_interval_ms = pollMs;
-    if (existing?.last_run) job.last_run = existing.last_run;
-    if (existing?.last_run_minute) job.last_run_minute = existing.last_run_minute;
-    const next = jobs.filter((j) => j.id !== id);
-    next.push(job);
-    await saveJobs(next);
     console.log(`registered ${id} (${enabled ? "enabled" : "disabled"})`);
     return 0;
   }
@@ -462,18 +660,18 @@ async function main(argv) {
   if (cmd === "enable" || cmd === "disable") {
     const id = argv[1];
     if (!id) { console.error(`usage: scheduler.mjs ${cmd} <id>`); return 2; }
-    const jobs = await loadJobs();
-    const job = jobs.find((j) => j.id === id);
+    const jobs = store();
+    const job = await jobs.getJob(id);
     if (!job) { console.error(`job not found: ${id}`); return 1; }
-    job.enabled = cmd === "enable";
-    await saveJobs(jobs);
+    await jobs.saveJob(id, { ...job, enabled: cmd === "enable" });
     console.log(`${cmd === "enable" ? "enabled" : "disabled"} ${id}`);
     return 0;
   }
 
-  if (cmd === "tick") {
-    const ran = await tick();
-    process.stdout.write(JSON.stringify({ ran }) + "\n");
+  if (cmd === "tick" || cmd === "--tick") {
+    const dryRun = argv.includes("--dry-run");
+    const result = await tick(new Date(), { dryRun });
+    process.stdout.write(JSON.stringify(dryRun ? result : { ran: result }, null, dryRun ? 2 : 0) + "\n");
     return 0;
   }
 
@@ -485,11 +683,16 @@ async function main(argv) {
   }
 
   console.error(`unknown command: ${cmd ?? "(none)"}`);
-  console.error("commands: --probe | list | add | register | enable | disable | remove | run-now | tick | daemon [--health-port <n>]");
+  console.error("commands: --probe | list | add | register | enable | disable | remove | run-now | tick [--dry-run] | daemon [--health-port <n>]");
   return 2;
 }
 
-main(process.argv.slice(2)).then(
-  (code) => process.exit(code ?? 0),
-  (err) => { console.error(err.stack ?? err.message); process.exit(1); }
-);
+export { tick, defaultTargetFor };
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code ?? 0),
+    (err) => { console.error(err.stack ?? err.message); process.exit(1); }
+  );
+}

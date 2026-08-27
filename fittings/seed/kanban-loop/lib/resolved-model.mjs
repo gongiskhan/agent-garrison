@@ -1,7 +1,7 @@
 // The board, DRIVEN BY the resolved model (GARRISON-UNIFY-V1 D15, slice S4a).
 //
-// D15 — "Kanban is the duty surface": the FIXED HUMAN columns are only Backlog,
-// To-do, Done and Needs-attention. Every LEAF DUTY that appears in a selected
+// D15 — "Kanban is the duty surface": the fixed system/head columns are Scheduled,
+// Backlog and To-do, followed by one column per resolved leaf duty. Every LEAF DUTY that appears in a selected
 // composite's resolved sequence (or stands alone) becomes a PHASE LIST. A card
 // carries a (duty, level); its resolved sequence (resolver.resolveSequence)
 // decides which phase lists it visits and in what order — it SKIPS every list
@@ -26,10 +26,14 @@ import path from "node:path";
 import os from "node:os";
 import { isDeepStrictEqual } from "node:util";
 
-// The four fixed human columns (D15). Discuss is NOT a fixed human column — it
+// The fixed system/human head columns (D15). Discuss is NOT a fixed human column — it
 // only exists as a phase list when the composition declares a discuss duty.
-export const HUMAN_HEAD = ["backlog", "todo"];
-export const HUMAN_TAIL = ["done", "needs-attention"];
+export const HUMAN_HEAD = ["scheduled", "backlog", "todo"];
+// `archived` is a fixed human tail column (added 2026-08-04): a terminal parking
+// place for finished/abandoned cards so the Done column stays legible. It is
+// terminal (like Done) so it never counts a card as live, and carries no forward
+// edges — a card leaves it only by an explicit human Move/Unarchive.
+export const HUMAN_TAIL = ["done", "needs-attention", "archived"];
 
 // The phases whose FAIL edge loops a card back to implement (they can send work
 // backwards). This is phase SEMANTICS — which phases are gates — not a pipeline
@@ -229,6 +233,7 @@ const ENGINE_OWNED_LIST_FIELDS = new Set([
   "terminal",
   "onEnter",
   "notifyOnEntry",
+  "system",
   "batched",
   "requiresEvidence",
   "requiresEvidenceOn",
@@ -349,7 +354,7 @@ export function buildBoard(model, opts = {}) {
   const templates = opts.templates || {};
   const allPhases = Array.isArray(model?.kanbanLists) ? model.kanbanLists.filter((x) => typeof x === "string") : [];
   // S3d (D9b): discuss is NOT part of the linear pipeline chain - it is a pre-plan
-  // INTERACTIVE detour (James-mode, or a clarity-gated dispatch) entered via a move /
+  // Interactive Discuss detour (human-selected or clarity-gated) entered via a move /
   // targetList, never a forward edge from another phase. Pull it out of the forward-
   // edge computation and add it as its own interactive list edged to the first
   // pipeline phase, so the main pipeline (plan -> implement -> ...) stays unbroken.
@@ -367,6 +372,14 @@ export function buildBoard(model, opts = {}) {
   const push = (list) => lists.push({ ...list, order: order++ });
 
   push({
+    id: "scheduled",
+    title: "Scheduled",
+    kind: "scheduled",
+    trigger: "scheduler-beat",
+    system: true,
+    validNext: []
+  });
+  push({
     id: "backlog",
     title: "Backlog",
     kind: "manual",
@@ -379,10 +392,10 @@ export function buildBoard(model, opts = {}) {
     title: "To Do",
     kind: "manual",
     trigger: "manual",
-    // A human can send a card to Discuss (James-mode) or straight to the pipeline.
+    // A human can send a card to Discuss or straight to the pipeline.
     validNext: hasDiscuss ? ["discuss", first] : [first]
   });
-  // The Discuss detour: an interactive list (never auto-dispatched for a James-mode
+  // The Discuss detour is interactive (never auto-dispatched for a human-selected
   // card; the engine's gated-discuss exemption dispatches a clarity-gated one). Its
   // behaviour comes from the interactive template (surface / onEnter / interactive
   // flag); its forward edge is recomputed to the pipeline entry.
@@ -413,8 +426,37 @@ export function buildBoard(model, opts = {}) {
     // (a re-run entry point) when the pipeline has one.
     validNext: [...new Set(hasImplement ? ["todo", first, "implement"] : ["todo", first])]
   });
+  // The Archived tail: a terminal parking column. No forward edges — a card leaves
+  // it only by an explicit human Move/Unarchive back onto the board.
+  push({ id: "archived", title: "Archived", kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] });
 
-  return { version: 3, lists, projects: {} };
+  return { version: 5, lists, projects: {} };
+}
+
+// A human-managed list the operator created from the Kanban "Add list" affordance
+// (NOT a composition duty). These are plain manual parking columns that carry no
+// agent behaviour and are NOT part of the resolved model, so the duty reconcile
+// must PRESERVE them rather than treat them as removed. Marked by `userCreated`.
+export function isUserList(list) {
+  return !!list && list.userCreated === true;
+}
+
+// Splice user-created manual lists into a board just before the fixed human tail
+// (done / needs-attention / archived), preserving their relative order. Each gets a
+// FRACTIONAL `order` in the gap so no existing list's order churns (idempotent
+// reconcile); `order` is only the fallback sort key — the operator-owned `userOrder`
+// (drag-reorder) still wins at serve time. Returns a NEW array; input untouched.
+export function insertUserLists(lists, extras) {
+  const base = Array.isArray(lists) ? lists : [];
+  if (!Array.isArray(extras) || extras.length === 0) return base.slice();
+  const tail = new Set(HUMAN_TAIL);
+  let at = base.findIndex((l) => tail.has(l.id));
+  if (at === -1) at = base.length;
+  const before = at === 0 ? 0 : Number(base[at - 1]?.order ?? at - 1);
+  const after = at < base.length ? Number(base[at]?.order ?? before + 1) : before + 1;
+  const step = (after - before) / (extras.length + 1);
+  const placed = extras.map((l, i) => ({ ...l, order: before + step * (i + 1) }));
+  return [...base.slice(0, at), ...placed, ...base.slice(at)];
 }
 
 // Reconcile an EXISTING board's phase-list SET to the current resolved model
@@ -435,13 +477,24 @@ export function reconcileBoardLists(existingBoard, model, opts = {}) {
   const existingById = new Map(existingLists.map((list) => [list.id, list]));
   const oldIds = new Set(existingLists.map((l) => l.id));
   const newIds = new Set(rebuilt.lists.map((l) => l.id));
-  const removed = [...oldIds].filter((id) => !newIds.has(id));
+  // User-created manual lists are NOT in the model. Preserve every one the model
+  // does not also define, and keep it OUT of `removed` so its cards are never
+  // stranded when duties change.
+  const userLists = existingLists.filter((l) => isUserList(l) && !newIds.has(l.id));
+  const userListIds = new Set(userLists.map((l) => l.id));
+  const removed = [...oldIds].filter((id) => !newIds.has(id) && !userListIds.has(id));
   const added = [...newIds].filter((id) => !oldIds.has(id));
-  const lists = rebuilt.lists.map((list) =>
+  const reconciled = rebuilt.lists.map((list) =>
     reconcileList(existingById.get(list.id), list, opts.legacyDefaultPrompts)
   );
+  const lists = insertUserLists(reconciled, userLists);
   const updated = lists
-    .filter((list) => oldIds.has(list.id) && !isDeepStrictEqual(existingById.get(list.id), list))
+    .filter(
+      (list) =>
+        oldIds.has(list.id) &&
+        !userListIds.has(list.id) &&
+        !isDeepStrictEqual(existingById.get(list.id), list)
+    )
     .map((list) => list.id);
   const board = {
     ...rebuilt,

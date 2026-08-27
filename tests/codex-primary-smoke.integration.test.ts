@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync, cpSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, symlinkSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
@@ -23,10 +23,13 @@ describe.skipIf(!LIVE)("codex primary carries the orchestrator contract (S8 live
     const res = await projectPrimaryContext({ engine: "codex", instructions, targetDir: dir });
     expect(res.projected).toBe(true);
 
-    // Isolated CODEX_HOME (auth copied) so repo-configured MCP servers never
-    // load — the same hygiene the run's codex gates use.
+    // Isolated CODEX_HOME (auth LINKED, never copied) so repo-configured MCP
+    // servers never load — the same hygiene the run's codex gates use. Copying
+    // is what a throwaway home must never do: the ChatGPT refresh token rotates,
+    // so the live token would be left in this temp dir and the box's own login
+    // revoked the next time it refreshed.
     const codexHome = mkdtempSync(join(tmpdir(), "gar-codex-home-"));
-    cpSync(join(homedir(), ".codex", "auth.json"), join(codexHome, "auth.json"));
+    symlinkSync(join(homedir(), ".codex", "auth.json"), join(codexHome, "auth.json"));
 
     const out = execFileSync(
       "codex",

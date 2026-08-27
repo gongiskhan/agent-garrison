@@ -8,7 +8,7 @@
 //   { version, compositionId,
 //     kanbanLists: string[],                              // the ordered phase-list set (deriveKanbanLists)
 //     sequences: { [dutyId]: { [level]: string[] } },     // v1-compatible leaf ids
-//     duties, selectedDuties, targets,                    // Dispatcher vocabulary
+//     duties, selectedDuties, targets,                    // routing-inference vocabulary
 //     steps: { [dutyId]: { [level]: ResolvedStep[] } } }  // exact v4 execution cells
 //
 // This is additive: the board falls back to its built-in default pipeline when
@@ -67,7 +67,7 @@ export interface KanbanResolvedModel {
   // Duty flags used by the board's context controller and explicit Discuss gate.
   holds?: Record<string, boolean>;
   gates?: Record<string, string>;
-  // v2: enough of the Resolver output for the production Dispatcher to choose a
+  // v2: enough of the Resolver output for Orchestrator routing inference to choose a
   // top-level (duty, level), plus the composition targets and fully-resolved leaf
   // execution steps. Runtime/model come from the assigned target; effort comes
   // from the leaf cell (target identity deliberately does not own effort).

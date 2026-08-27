@@ -590,7 +590,7 @@
 .levelBody {
   min-width: 0;
 }
-/* The level's routing criterion - editable in place (the Dispatcher routes by
+/* The level's routing criterion - editable in place (Orchestrator routing inference uses
    it). Reads as text at rest; reveals itself as a field on hover/focus. */
 .levelDescInput {
   display: block;
@@ -1858,6 +1858,11 @@
 }
 
 .rtSecondaryCard {
+  /* A grid ITEM defaults to min-width:auto, so its intrinsic content width becomes
+     the track's floor and a 1fr column refuses to shrink below it - at 390px the
+     card measured 334px inside a 290px grid and pushed the whole page into a
+     horizontal scroll. This is what lets the track actually be 1fr. */
+  min-width: 0;
   border-top: 2px solid var(--ink);
   background: var(--surface);
   box-shadow: 0 6px 16px rgba(31, 42, 34, 0.04);
@@ -1881,6 +1886,13 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+}
+/* Long unbroken values (model ids, account names, base URLs) are the content that
+   sets the intrinsic floor above; let them wrap rather than widen the card. */
+.rtCard :is(.rtCardSummary, .rtSpecs, .rtCardHead) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .rtCardHead {
@@ -2144,5 +2156,26 @@
   .dropValue {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+}
+
+/* ── Duties & flows, one screen ──────────────────────────────────────────── */
+/* Duties are the steps, flows are the plans that compose them. Reading either
+   without the other is the legibility problem the 2026-08-09 refit exists to
+   fix, so the Orchestrator area shows them side by side and collapses to a
+   single column well before phone width. */
+.dutyFlowSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(20px, 3vw, 44px);
+  align-items: start;
+}
+.dutyFlowCol {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .dutyFlowSplit {
+    grid-template-columns: 1fr;
+    gap: 22px;
   }
 }

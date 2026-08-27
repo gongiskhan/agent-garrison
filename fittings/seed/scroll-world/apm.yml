@@ -1,0 +1,53 @@
+name: scroll-world
+version: 0.1.0
+description: Scroll-scrubbed "fly through the world" landing-page skill, vendored from cth9191/scroll-world (MIT, itself a hardened fork of oso95/scroll-world) at a pinned upstream commit.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: design
+  category: Building
+  cardinality_hint: single
+  component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+  platforms:
+    - claude-code
+  summary: >-
+    Owns the scroll-world skill as a Quarters-owned artifact: it interviews for
+    subject, story beats, brand kit, budget tier and mobile tier, generates
+    cohesive diorama scenes and seam-locked camera clips through the Higgsfield
+    CLI behind spend gates, machine-checks every seam with SSIM, and wires a
+    portable vanilla-JS scroll-scrub engine into any page. Vendored MIT from
+    cth9191/scroll-world at the commit pinned in upstream.json (that repo is
+    itself a hardened fork of oso95/scroll-world - budget tiers, previz pass,
+    SSIM verification, mobile tiers, SEO block). Run scripts/check-upstream.mjs
+    to compare the vendored copies against the pinned commit and report whether
+    upstream has moved ahead.
+  provides: []
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/scroll-world/.apm/skills/scroll-world/SKILL.md && test -f apm_modules/_local/scroll-world/.apm/skills/scroll-world/references/scrub-engine.js && echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The scroll-world skill is installed under the Claude Code skills directory.
+    Invoke it to build a scroll-scrubbed cinematic landing page: scroll drives a
+    pre-rendered camera from outside each scene into its interior and on to the
+    next with no cuts (a "3D world" / diorama / browse-through-the-industry
+    hero). It is framework-agnostic - the deliverable is a self-contained
+    vanilla-JS scrub engine plus the generated assets, droppable into plain
+    HTML, Next.js, Vue or a server-rendered page.
+
+    Prerequisites the skill checks itself in Step 0, none of which Garrison
+    provides: an authenticated `higgsfield` CLI on PATH with credits,
+    `ffmpeg`/`ffprobe`, and optionally Python 3 with Pillow for the transparent
+    scene knockout. Generations cost real money (a lean run is ~8, a showcase
+    run 17+), take 3-8 minutes each and must be launched detached; the skill
+    gates the spend itself with a budget-tier question, an anchor-still
+    approval and a previz pass, so let it run its own interview rather than
+    pre-approving a scene count.

@@ -1,9 +1,6 @@
 // autonomous-cards.mjs — D19: "EVERY task-shaped turn is a card."
 //
-// The ONE gateway↔board card client, shared by BOTH gateway entries:
-//   - gateway-pty.mjs (PTY routing mode) via the RoutedGateway wrappers in
-//     gateway-routing.mjs, and
-//   - gateway.mjs (orchestrator + souls mode) via CardRegistrar.
+// The gateway↔board card client used by the routed gateway entry.
 //
 // Every function takes its dependencies explicitly (buildPayload, logFn) and
 // resolves them at CALL time, so a RoutedGateway created off the prototype in
@@ -25,10 +22,22 @@ import path from "node:path";
 // inconsistent with isSignificantAutonomous, which already counts it as
 // significant. Plain conversation (`other`) and review verbs stay un-carded
 // ("review this diff" is an inline ask — rev-s2 finding). Matches RUN_SPEC A14.
-export const TASK_SHAPED = new Set(["code", "implement", "research", "writing", "image", "video", "ops"]);
+//
+// 2026-08-09: `code` retired into `implement` (they named the same work), so the
+// set speaks the current vocabulary and the predicate resolves a duty read off a
+// persisted record through the alias table first. Without that, a card written
+// before the merge — or any caller still saying `code` — would silently stop
+// being task-shaped and stop producing a card at all.
+export const TASK_SHAPED = new Set(["implement", "research", "writing", "image", "video", "ops", "drill"]);
+
+/** Retired duty -> its successor. Mirrors policy-core's DUTY_ALIASES; the gateway
+ *  cannot import the orchestrator fitting's lib from here. */
+const DUTY_ALIASES = { code: "implement" };
 
 export function isTaskShaped(classification) {
-  return !!classification && TASK_SHAPED.has(classification.taskType);
+  if (!classification) return false;
+  const duty = DUTY_ALIASES[classification.taskType] ?? classification.taskType;
+  return TASK_SHAPED.has(duty);
 }
 
 // Channels whose turns are already cards (the engine's own dispatches) or
@@ -37,31 +46,6 @@ export const CARD_ORIGINATED_CHANNELS = new Set(["kanban", "scheduler", "board",
 
 export function isCardOriginatedChannel(channel) {
   return CARD_ORIGINATED_CHANNELS.has(String(channel || "").toLowerCase());
-}
-
-// Deterministic fallback classifier for souls mode, which has no warm LLM
-// classifier session. Mirrors heuristicClassify in the orchestrator fitting's
-// scripts/lib/router-core.mjs (kept in sync by tests/gateway-souls-cards.test.ts).
-// The keyword-exception fast-path (classifyByKeywords, gateway-routing.mjs)
-// runs FIRST at the call site; this is the everything-else fallback.
-export function heuristicClassify(prompt) {
-  const text = String(prompt || "");
-  const lower = text.toLowerCase();
-  let taskType = "other";
-  if (/\b(review|diff|pr|pull request)\b/.test(lower)) taskType = "review";
-  else if (/\b(research|find|latest|source|cite)\b/.test(lower)) taskType = "research";
-  else if (/\b(image|photo|picture|render|illustration)\b/.test(lower)) taskType = "image";
-  else if (/\b(video|walkthrough|recording)\b/.test(lower)) taskType = "video";
-  else if (/\b(write|draft|copy|email|doc)\b/.test(lower)) taskType = "writing";
-  else if (/\b(deploy|ops|cron|incident|server|scheduler)\b/.test(lower)) taskType = "ops";
-  else if (/\b(code|implement|fix|test|bug|refactor|typescript|python|api|add|build|create|update|change)\b/.test(lower)) taskType = "code";
-  const tier =
-    text.length < 120 && !/\b(deep|architecture|migration|end-to-end|e2e|full)\b/.test(lower)
-      ? "T0-trivial"
-      : /\b(deep|architecture|migration|security|full|e2e|end-to-end|critical)\b/.test(lower) || text.length > 1200
-        ? "T2-deep"
-        : "T1-standard";
-  return { taskType, tier, matchedException: null };
 }
 
 // Resolve the board's base URL from the kanban-loop status file. Returns the
@@ -93,7 +77,7 @@ export async function createAutonomousCard({ message, classification, opts = {},
       ? buildPayload({
           brief: message,
           project: opts.project ?? null,
-          workKind: opts.workKind ?? null,
+          flow: opts.flow ?? null,
           phases: opts.phases ?? null,
           taskType: classification?.taskType,
           tier: classification?.tier,
@@ -104,6 +88,10 @@ export async function createAutonomousCard({ message, classification, opts = {},
           duty: opts.duty,
           level: opts.level,
           sequence: opts.sequence,
+          // The level EACH duty in that sequence runs at, once the flow
+          // definition's pins are applied. Absent for a duty-ladder sequence,
+          // and absence is the legacy reading (every phase runs at card.level).
+          dutyLevels: opts.dutyLevels ?? null,
           originChannel: opts.originChannel ?? null,
           // S3d (D9b): the dispatcher's clarity verdict - a needs-discuss card is
           // carded onto the interactive Discuss list (targetList) and stamped so
@@ -179,8 +167,7 @@ export async function createAutonomousCard({ message, classification, opts = {},
 // Returns true when the card reaches Done. Never throws (a stranded quick card
 // is a visible board state, not a turn failure).
 // Convert a settled routed gateway result into the small, secret-free evidence
-// object the board accepts on an engine-context quick-card completion. Null for
-// souls/non-routed turns, which keeps their historical move-only behavior.
+// object the board accepts on an engine-context quick-card completion.
 export function quickRouteEvidence(result) {
   if (!result || typeof result !== "object") return null;
   const targetId = result.route ?? result.targetId ?? null;
@@ -343,6 +330,61 @@ export async function moveCardEngine({ id, targetList, logFn = () => {} }) {
   }
 }
 
+// Raise a card's per-duty levels (the level chain's escalation, applied). The
+// board is the storage boundary that enforces raise-only, so a REFUSAL here is a
+// real answer and not a transport failure: it comes back as {ok:false, error} and
+// the caller reports it rather than retrying into the same refusal.
+//
+// Same engine-context PATCH + rev-refresh retry as every other move in this file
+// (the board bumps a card's rev under us for its own reasons). Unlike the moves,
+// this one does NOT swallow its failure: an escalation that was logged as applied
+// but never landed on the card is precisely the drift the decisions log exists to
+// make impossible.
+export async function patchCardDutyLevels({ id, dutyLevels, reason = null, logFn = () => {} }) {
+  try {
+    const base = boardBase();
+    if (!base || !id) return { ok: false, error: "board unavailable" };
+    if (!dutyLevels || typeof dutyLevels !== "object") return { ok: false, error: "dutyLevels is required" };
+    let lastError = "board PATCH failed";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let rev = 0;
+      try {
+        const fresh = await fetch(`${base}/cards/${encodeURIComponent(id)}`);
+        if (fresh.ok) {
+          const doc = await fresh.json();
+          rev = doc.card?.rev ?? doc.rev ?? 0;
+        }
+      } catch { /* fall through with rev 0 */ }
+      const patched = await fetch(`${base}/cards/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-garrison-engine": "gateway" },
+        body: JSON.stringify({ dutyLevels, ...(reason ? { escalationReason: reason } : {}), rev })
+      });
+      if (patched.ok) {
+        const doc = await patched.json().catch(() => null);
+        logFn({ kind: "card-duty-levels-raised", id, dutyLevels });
+        return { ok: true, card: doc?.card ?? null };
+      }
+      // A refusal (the raise-only guard, a bad shape, engine context missing) is
+      // FINAL - only the board's 409 "card changed under you" is worth another
+      // attempt, and only because the board bumps a card's rev for its own
+      // reasons between the read and the write.
+      if (patched.status !== 409) {
+        const body = await patched.json().catch(() => null);
+        lastError = body?.message || body?.error || `board PATCH ${patched.status}`;
+        break;
+      }
+      lastError = "card changed under the escalation";
+      await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+    }
+    logFn({ kind: "card-duty-levels-failed", id, error: lastError });
+    return { ok: false, error: lastError };
+  } catch (err) {
+    logFn({ kind: "card-duty-levels-failed", id, error: err?.message });
+    return { ok: false, error: err?.message ?? "board PATCH failed" };
+  }
+}
+
 // S3b: the board's cards for one origin (GET /cards?origin_id=…), most recent first.
 // A fetch failure / board-down returns [] (caller registers fresh).
 export async function cardsByOrigin(origin_id) {
@@ -357,6 +399,24 @@ export async function cardsByOrigin(origin_id) {
     return Array.isArray(doc.cards) ? doc.cards : [];
   } catch {
     return [];
+  }
+}
+
+// Direct card fetch by id. Discuss threads carry the card id IN the thread key
+// (the web channel thread `kanban-<cardId>`, kanban-loop's buildDiscussUrl
+// convention) and never write an origins entry, so origin lookup alone cannot
+// resolve them. Same 3s bound as cardsByOrigin: this runs on the turn path.
+export async function cardById(cardId) {
+  try {
+    const base = boardBase();
+    if (!base || !cardId) return null;
+    const r = await fetch(`${base}/cards/${encodeURIComponent(cardId)}`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return null;
+    const doc = await r.json();
+    const card = doc.card ?? doc;
+    return card && typeof card === "object" && card.id ? card : null;
+  } catch {
+    return null;
   }
 }
 
@@ -377,52 +437,5 @@ export async function cardIsLive(cardId) {
     return true;
   } catch {
     return false;
-  }
-}
-
-// Souls-mode card surface: the same D19 semantics gateway-pty implements via
-// RoutedGateway, packaged for gateway.mjs. Owns the per-conversation card
-// memory (session key → live card) with the same liveness-gated attach.
-export class CardRegistrar {
-  constructor({ buildPayload = null, logFn = () => {} } = {}) {
-    this.buildPayload = buildPayload;
-    this.logFn = logFn;
-    this._sessionCards = new Map(); // sessionKey -> { cardId, quick, taskType }
-  }
-
-  async createAutonomousCard(message, classification, opts = {}) {
-    return createAutonomousCard({ message, classification, opts, buildPayload: this.buildPayload, logFn: this.logFn });
-  }
-
-  async completeQuickCard(id, result = null) {
-    return completeQuickCard({ id, result, logFn: this.logFn });
-  }
-
-  // D19: route a failed/empty quick card to needs-attention instead of Done.
-  async parkQuickCard(id, reason) {
-    return parkQuickCard({ id, reason, logFn: this.logFn });
-  }
-
-  // D19 session→card memory, liveness-gated (S7 review F1): a stale card
-  // (done / parked / abandoned / absent) is forgotten so a genuinely new
-  // same-type turn registers fresh instead of attaching to a corpse.
-  async attachedCard(sessionKey, classification) {
-    if (!sessionKey) return null; // no conversation identity → never attach (F1c)
-    const entry = this._sessionCards.get(sessionKey);
-    if (!entry) return null;
-    if (classification && entry.taskType && entry.taskType !== classification.taskType) return null;
-    if (!(await cardIsLive(entry.cardId))) {
-      this.forgetCard(sessionKey);
-      return null;
-    }
-    return entry;
-  }
-
-  rememberCard(sessionKey, entry) {
-    if (sessionKey) this._sessionCards.set(sessionKey, entry);
-  }
-
-  forgetCard(sessionKey) {
-    if (sessionKey) this._sessionCards.delete(sessionKey);
   }
 }

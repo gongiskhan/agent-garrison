@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs routing layer
-import { RoutedGateway, createRoutedGateway, resolvePrimaryAdapter } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
+import { RoutedGateway, createRoutedGateway, resolveClassifierAdapter, resolvePrimaryAdapter } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs
 import { planSwitch } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
 // @ts-ignore — pure .mjs package
@@ -311,6 +311,54 @@ describe("S2a.2b — adapter-resume retires the old operative cleanly (codex fin
 });
 
 describe("S2a.3 — classifier resolution per primary engine", () => {
+  it("agent-sdk classifier strips the operative's fixed prompt/tool assembly and stays pure lean", () => {
+    const adapter = { id: "agent-sdk" };
+    const classifier = resolveClassifierAdapter({
+      primaryEngine: "agent-sdk",
+      primary: {
+        adapter,
+        claude: false,
+        spawnConfig: {
+          provider: "anthropic",
+          model: "sonnet",
+          compositionDir: "/work",
+          appendSystemPrompt: "operative-only sentinel",
+          leanPrompt: "operative-lean sentinel",
+          fixedAssembly: { systemPrompt: "operative-fixed sentinel" },
+          systemPrompt: "operative-system sentinel",
+          settingSources: ["project"],
+          tools: ["Read"],
+          allowedTools: ["Read"],
+          disallowedTools: ["WebSearch"],
+          mcpServers: { operative: { command: "sentinel" } },
+          strictMcpConfig: true,
+          budgetTokens: 99,
+          streamingInput: true,
+          compactEnabled: true,
+        },
+      },
+      classifierSpawnConfig: { model: "haiku" },
+      opts: {},
+    });
+
+    expect(classifier.adapter).toBe(adapter);
+    expect(classifier.spawnConfig).toMatchObject({
+      provider: "anthropic",
+      model: "haiku",
+      compositionDir: "/work",
+      promptMode: "lean",
+      maxTurns: 1,
+      thinking: { type: "disabled" },
+    });
+    for (const operativeOnly of [
+      "appendSystemPrompt", "leanPrompt", "fixedAssembly", "systemPrompt", "settingSources", "tools",
+      "allowedTools", "disallowedTools", "mcpServers", "strictMcpConfig", "budgetTokens",
+      "streamingInput", "compactEnabled",
+    ]) {
+      expect(classifier.spawnConfig).not.toHaveProperty(operativeOnly);
+    }
+  });
+
   it("agent-sdk primary → classifier runs LEAN on the same engine (no PTY), even with claude-code absent", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "gar-s2a-classifier-"));
     const fakePrimary: any = { id: "agent-sdk", spawn: async () => ({ alive: true }) };
@@ -450,6 +498,50 @@ describe("classify() drives an adapter-backed classifier session (no runTurn)", 
     expect(cls.tier).toBe("T1-standard");
     // proves the adapter path ran (the classifier session had no runTurn)
     expect(captured.length).toBe(1);
+    gw.shutdown?.();
+  });
+});
+
+// A remote agent works for minutes with nothing to show for it until it stops.
+// The secondary lane therefore hands its onChunk to the adapter: an adapter that
+// can report progress (remote-shell reads back the remote pane while the turn
+// runs) streams through the same seam the SDK lane uses, so the channel that
+// dispatched the turn shows the work happening.
+describe("runSecondaryTurn streams adapter progress", () => {
+  it("passes its onChunk to awaitResponse and forwards what the adapter emits", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gar-secondary-chunk-"));
+    let receivedOpts: any = null;
+    const fake: any = {
+      spawn: async () => ({}),
+      awaitReady: async () => {},
+      sendTurn: async () => {},
+      awaitResponse: async (_session: any, opts: any) => {
+        receivedOpts = opts;
+        opts?.onChunk?.("the remote is halfway through", true);
+        return { text: "the remote finished" };
+      },
+      teardown: async () => {},
+    };
+    const gw: any = await createRoutedGateway({
+      compositionDir: tmp,
+      primaryEngine: "agent-sdk",
+      agentSdkAdapter: { name: "fake-sdk" },
+      operativeSpawnConfig: { compositionDir: tmp, model: "sonnet" },
+      claudeCodeResolvable: false,
+      logFn: () => {},
+    });
+    // Pre-seed the adapter cache so no fitting is imported from disk.
+    gw._secondaryAdapters.set("remote-shell", fake);
+    const chunks: Array<[string, boolean]> = [];
+    const route = { targetId: "csg-work", role: "delegate", target: { runtime: "remote-shell", model: "csg" } };
+    const r = await gw.runSecondaryTurn(route, "do the thing", {
+      cwd: tmp,
+      onChunk: (text: string, replace: boolean) => { chunks.push([text, replace]); },
+    });
+    expect(typeof receivedOpts?.onChunk).toBe("function");
+    expect(chunks).toEqual([["the remote is halfway through", true]]);
+    expect(r.reply).toBe("the remote finished");
+    expect(r.runtime).toBe("remote-shell");
     gw.shutdown?.();
   });
 });

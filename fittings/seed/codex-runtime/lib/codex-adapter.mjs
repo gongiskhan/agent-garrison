@@ -90,6 +90,12 @@ function defaultRunExec({ bin, argv, env, cwd, stdin, onSpawn }) {
   });
 }
 
+/** Last ~600 chars of a stream, trimmed — where a CLI puts its failure. */
+function tailOf(text) {
+  const s = String(text ?? "").trim();
+  return s.length > 600 ? `…${s.slice(-600)}` : s;
+}
+
 export class CodexAdapter {
   constructor(opts = {}) {
     this.id = "codex";
@@ -191,7 +197,12 @@ export class CodexAdapter {
       session.cancelRequested = false;
       return { text: r.stdout ?? "", artifacts: [], stoppedReason: "cancelled" };
     }
-    if (r.code !== 0) throw new Error(`codex exec exited ${r.code}: ${r.stderr?.slice(0, 200)}`);
+    // Report the TAIL of stderr, not the head. `codex exec` opens with a ~200-char
+    // banner (workdir / model / provider / sandbox / effort) and puts the actual
+    // failure on the LAST line, so a leading slice reliably truncates away the one
+    // thing the reader needs — a real "You've hit your usage limit" turned into a
+    // bare "codex exec exited 1" with the banner attached.
+    if (r.code !== 0) throw new Error(`codex exec exited ${r.code}: ${tailOf(r.stderr) || tailOf(r.stdout) || "(no output)"}`);
     return { text: r.stdout ?? "", artifacts: [] };
   }
 

@@ -1,0 +1,28 @@
+name: caveman
+version: 0.1.0
+description: >-
+  >
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: channels
+  category: Interfaces
+  cardinality_hint: single
+  component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+  platforms:
+    - claude-code
+  summary: >-
+    >
+  provides: []
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/caveman/.apm/skills/caveman/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000

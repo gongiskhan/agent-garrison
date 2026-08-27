@@ -121,7 +121,7 @@ describe("U1 — gateway Stage-A live routing (live-route-ok)", () => {
       // run the operative turn (what gateway-pty does between preRoute/postTurn)
       const sess = gw.getOperativeSession();
       const out = await sess.runTurn({ message: `${pre.annotation}\n${msg}` });
-      const honored = await gw.postTurn(pre.route, pre.decision, out.reply);
+      const honored = await gw.postTurn(pre.route, pre.decision, out.reply, msg);
       expect(honored.honored).toBe(true);
 
       // honored → no extra misroute record appended
@@ -172,7 +172,12 @@ describe("U1 — gateway Stage-A live routing (live-route-ok)", () => {
     try {
       const pre = await gw.preRoute("fix the failing login unit test");
       // a reply with the WRONG target token
-      const honored = await gw.postTurn(pre.route, pre.decision, "done\n[route: cc-opus-high | rule: x | profile: balanced]");
+      const honored = await gw.postTurn(
+        pre.route,
+        pre.decision,
+        "done\n[route: cc-opus-high | rule: x | profile: balanced]",
+        "fix the failing login unit test",
+      );
       expect(honored.honored).toBe(false);
       const decisions = readDecisions(decisionsFile);
       expect(decisions).toHaveLength(2);
@@ -214,7 +219,12 @@ describe("U1 — gateway in-place switch (live-switch-ok)", () => {
       expect(pre1.route.targetId).toBe("cc-sonnet-med");
       const sess = gw.getOperativeSession();
       await sess.runTurn({ message: `${pre1.annotation}\nfix the failing login unit test` });
-      await gw.postTurn(pre1.route, pre1.decision, `ok\n[route: cc-sonnet-med | rule: ${pre1.route.ruleId} | profile: balanced]`);
+      await gw.postTurn(
+        pre1.route,
+        pre1.decision,
+        `ok\n[route: cc-sonnet-med | rule: ${pre1.route.ruleId} | profile: balanced]`,
+        "fix the failing login unit test",
+      );
 
       // turn 2: trivial → fast → cc-haiku-low (haiku/low): model + effort change
       const pre2 = await gw.preRoute("quick: what is 2 plus 2");

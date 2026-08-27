@@ -8,6 +8,7 @@ import {
   removeAccount,
   accountHomeDir,
   materializeAccountHome,
+  resolvePrimaryRuntimeAccount,
   resolveRuntimeAccountEnv
 } from "@/lib/accounts";
 import { parseAuthFile, credentialKindsFor, accountVaultKey } from "@/lib/account-env";
@@ -148,20 +149,84 @@ describe("subscription accounts", () => {
       credential_kind: "auth-file"
     });
     const env = await resolveRuntimeAccountEnv([
-      { id: "codex-runtime", account: "work" },
-      { id: "gemini-runtime", account: "gem" }
+      { id: "codex-runtime", account: "work", expectedPlatform: "openai", allowAuthFile: true },
+      { id: "gemini-runtime", account: "gem", expectedPlatform: "google", allowAuthFile: true }
     ]);
     expect(env.CODEX_HOME).toBe(accountHomeDir("work", "openai"));
     expect(env.GEMINI_CLI_HOME).toBe(accountHomeDir("gem", "google"));
     // The credential is a file, not a key: it must never leak into the env.
-    expect(env.OPENAI_API_KEY).toBeUndefined();
-    expect(env.GEMINI_API_KEY).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBe("");
+    expect(env.GEMINI_API_KEY).toBe("");
+    expect(env.GARRISON_ACCOUNT).toBeUndefined();
     expect(JSON.stringify(env)).not.toContain("rt");
+  });
+
+  it("strictly materializes a Codex primary subscription account", async () => {
+    await addAccount({
+      name: "primary-work",
+      token: CODEX_AUTH,
+      platform: "openai",
+      credential_kind: "auth-file"
+    });
+
+    const resolved = await resolvePrimaryRuntimeAccount(
+      "primary-work",
+      "codex-runtime",
+      "openai",
+      { allowAuthFile: true }
+    );
+
+    expect(resolved).toMatchObject({
+      name: "primary-work",
+      platform: "openai",
+      credentialKind: "auth-file"
+    });
+    expect(resolved.env.CODEX_HOME).toBe(accountHomeDir("primary-work", "openai"));
+    expect(resolved.env.OPENAI_API_KEY).toBe("");
+  });
+
+  it("refuses to send a subscription auth file to an API-shaped primary", async () => {
+    await addAccount({
+      name: "chatgpt-work",
+      token: CODEX_AUTH,
+      platform: "openai",
+      credential_kind: "auth-file"
+    });
+
+    await expect(
+      resolvePrimaryRuntimeAccount(
+        "chatgpt-work",
+        "openai-agents-runtime",
+        "openai"
+      )
+    ).rejects.toThrow(/requires an API-token account/);
+  });
+
+  it("refuses to flatten an auth-file account into a token-only secondary", async () => {
+    await addAccount({
+      name: "chatgpt-secondary",
+      token: CODEX_AUTH,
+      platform: "openai",
+      credential_kind: "auth-file"
+    });
+
+    await expect(
+      resolveRuntimeAccountEnv([
+        {
+          id: "openai-agents-runtime",
+          account: "chatgpt-secondary",
+          expectedPlatform: "openai",
+          allowAuthFile: false
+        }
+      ])
+    ).rejects.toThrow(/requires an API-token account/);
   });
 
   it("still injects plain API keys as env vars alongside", async () => {
     await addAccount({ name: "key1", token: "sk-live", platform: "openai" });
-    const env = await resolveRuntimeAccountEnv([{ id: "codex-runtime", account: "key1" }]);
+    const env = await resolveRuntimeAccountEnv([
+      { id: "codex-runtime", account: "key1", expectedPlatform: "openai", allowAuthFile: true }
+    ]);
     expect(env.OPENAI_API_KEY).toBe("sk-live");
     expect(env.CODEX_HOME).toBeUndefined();
   });

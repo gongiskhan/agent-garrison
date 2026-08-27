@@ -3,9 +3,14 @@
 // buildCoordState() so they can NEVER disagree (the UI can't show green while the
 // CLI shows red). Fully JSON-serializable (no Maps) so the UI consumes it verbatim.
 //
+// Planning leases, plans and intents come from the state service, so the picture
+// is now MESH-wide rather than machine-wide: a lease held by a session on the
+// Air is visible here. Sessions and the hook heartbeat stay node-local — they
+// describe THIS machine's Claude Code processes and this machine's hook firing.
+//
 // Cost is parameterized so the per-prompt digest stays cheap:
-//   { liveness:false, globalSessions:false } -> only this repo's locks/intents/
-//     plans/leases (cheap file reads + one bounded lease fetch) — for the digest.
+//   { liveness:false, globalSessions:false } -> only this repo's lease/intents/
+//     plans/leases (a few bounded service reads) — for the digest.
 //   { liveness:true,  globalSessions:true  } -> + bd/agent_mail liveness + the
 //     machine-wide session scan + hero verdict — for the CLI/UI.
 //
@@ -14,8 +19,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { recentIntents } from "./intent-store.mjs";
-import { recentPlans } from "./plan-store.mjs";
+import { allRecentIntents } from "./intent-store.mjs";
+import { recentPlans, readWaiters } from "./plan-store.mjs";
+import { planLeaseStatus } from "./plan-lease.mjs";
+import { asRef, repoKeyForRoot } from "./repo.mjs";
 import { agentMailLiveness, fetchActiveLeases } from "./agentmail.mjs";
 import { lookbackDays } from "./lookback.mjs";
 
@@ -23,6 +30,7 @@ const RECENT_MS = 30 * 60 * 1000; // RED "zero-write while active now" window
 const ACTIVE_WINDOW_MS = 3 * 60 * 60 * 1000; // a session counts as "active" if touched in the last 3h
 const MAX_SESSIONS = 60; // cap the payload (glanceable view, not a metrics dump)
 const HEARTBEAT_FRESH_MS = 30 * 60 * 1000;
+const MAX_LEASE_PROBES = 8; // bound the per-repo lease lookups (no list verb)
 
 function garrisonHome() {
   const o = process.env.GARRISON_HOME;
@@ -96,10 +104,23 @@ function heartbeatBySession() {
 
 // Machine-wide active sessions (mtime within lookback), each tagged by repo + a
 // plain-language flag. Expensive (scans ~/.claude/projects) — gated by opts.
+// Each session also carries the mesh repoKey, memoised per cwd, so the view can
+// line a session up with the mesh-keyed intents and leases beside it.
 function gatherSessions(now) {
   const projectsRoot = path.join(claudeHome(), "projects");
   const cutoff = now.getTime() - ACTIVE_WINDOW_MS; // "active" = touched recently, not the full lookback
   const hb = heartbeatBySession();
+  const keyCache = new Map();
+  const keyFor = (repo) => {
+    if (!keyCache.has(repo)) {
+      try {
+        keyCache.set(repo, repoKeyForRoot(repo));
+      } catch {
+        keyCache.set(repo, null);
+      }
+    }
+    return keyCache.get(repo);
+  };
   const out = [];
   let dirs = [];
   try {
@@ -136,6 +157,7 @@ function gatherSessions(now) {
       out.push({
         sessionId,
         repo,
+        repoKey: keyFor(repo),
         gitBranch,
         mtimeMs: mtime,
         ageMinutes,
@@ -150,84 +172,45 @@ function gatherSessions(now) {
   return out.slice(0, MAX_SESSIONS);
 }
 
-// All planning locks (machine-wide), each enriched with expired + waiters. Cheap.
-function gatherLocks(now, focusRepo) {
-  const dir = path.join(coordDir(), "plan-locks");
-  const locks = [];
-  let files = [];
-  try {
-    files = fs.readdirSync(dir).filter((f) => f.endsWith(".json") && !f.endsWith(".waiters.json"));
-  } catch {
-    return locks;
+// Planning leases, enriched with expired + waiters. The service exposes no
+// list-leases verb, so the set of repos to probe is the focus repo plus the
+// repos that currently have open intents — bounded, and in practice the repos
+// anyone is actually working in. A `GET /v1/leases?prefix=` would make this
+// exact rather than inferred.
+async function gatherLocks(now, focusKey, intents) {
+  const keys = [];
+  const seen = new Set();
+  for (const k of [focusKey, ...intents.map((i) => i.repo)]) {
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    keys.push(k);
+    if (keys.length >= MAX_LEASE_PROBES) break;
   }
-  for (const f of files) {
-    let lock;
-    try {
-      lock = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-    } catch {
-      continue;
-    }
-    if (!lock || !lock.repo) continue;
-    let waiters = [];
-    try {
-      const w = JSON.parse(fs.readFileSync(path.join(dir, f.replace(/\.json$/, ".waiters.json")), "utf8"));
-      waiters = Object.entries(w).map(([session, v]) => ({
-        session,
-        since: v.since,
-        summary: v.summary,
-        waitMinutes: v.since ? Math.round((now.getTime() - new Date(v.since).getTime()) / 60000) : 0
-      }));
-    } catch {
-      /* none */
-    }
-    const expired = !lock.expiresAt || new Date(lock.expiresAt).getTime() <= now.getTime();
+  const locks = [];
+  for (const key of keys) {
+    const st = await planLeaseStatus(key);
+    if (!st.lock) continue;
+    const l = st.lock;
+    const waiters = (await readWaiters(key, now, { exclude: l.session })).map((w) => ({
+      session: w.session,
+      since: w.since,
+      summary: w.summary,
+      waitMinutes: w.since ? Math.round((now.getTime() - new Date(w.since).getTime()) / 60000) : 0
+    }));
     locks.push({
-      repo: lock.repo,
-      session: lock.session,
-      summary: lock.summary || "",
-      startedAt: lock.startedAt,
-      expiresAt: lock.expiresAt,
-      heldMinutes: lock.startedAt ? Math.round((now.getTime() - new Date(lock.startedAt).getTime()) / 60000) : 0,
-      expired,
-      isFocus: focusRepo ? lock.repo === focusRepo : false,
+      repo: key,
+      session: l.session,
+      summary: l.summary || "",
+      startedAt: l.startedAt,
+      expiresAt: l.expiresAt,
+      fence: l.fence,
+      heldMinutes: l.startedAt ? Math.round((now.getTime() - new Date(l.startedAt).getTime()) / 60000) : 0,
+      expired: st.stale,
+      isFocus: focusKey ? key === focusKey : false,
       waiters
     });
   }
   return locks;
-}
-
-// All recent intents (machine-wide) within lookback, newest first.
-function gatherIntents(now) {
-  const dir = path.join(coordDir(), "intents");
-  const out = [];
-  let files = [];
-  try {
-    files = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
-  } catch {
-    return out;
-  }
-  const cutoff = now.getTime() - lookbackDays(now) * 86400_000;
-  for (const f of files) {
-    let txt = "";
-    try {
-      txt = fs.readFileSync(path.join(dir, f), "utf8");
-    } catch {
-      continue;
-    }
-    for (const line of txt.split("\n")) {
-      const t = line.trim();
-      if (!t) continue;
-      try {
-        const o = JSON.parse(t);
-        const ts = new Date(o.ts).getTime();
-        if (!Number.isNaN(ts) && ts >= cutoff) out.push(o);
-      } catch {
-        /* skip */
-      }
-    }
-  }
-  out.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
-  return out;
 }
 
 // Derive the one-second hero verdict. Honest: degraded/down dominate green.
@@ -308,22 +291,24 @@ function gatherHeartbeatSummary(now) {
   };
 }
 
-// THE source. focusRepo scopes leases + flags the primary repo; sessions/locks/
-// intents are machine-wide so the view can group by repo.
+// THE source. The focus repo scopes agent_mail leases + flags the primary repo;
+// intents and planning leases are mesh-wide so the view can group by repo.
 export async function buildCoordState(focusRepo, now = new Date(), opts = {}) {
   const { liveness = true, globalSessions = true, leases = true } = opts;
+  const ref = asRef(focusRepo);
 
   let live = null;
   if (liveness) {
     live = { agentMail: await agentMailLiveness() };
   }
   const sessions = globalSessions ? gatherSessions(now) : [];
-  const locks = gatherLocks(now, focusRepo);
-  const intents = gatherIntents(now);
+  const intents = await allRecentIntents(now);
+  const locks = await gatherLocks(now, ref.key, intents);
+  const plans = await recentPlans(ref.key, now);
   let leaseList = [];
-  if (leases) {
+  if (leases && ref.path) {
     try {
-      leaseList = await fetchActiveLeases(focusRepo);
+      leaseList = await fetchActiveLeases(ref.path);
     } catch {
       leaseList = [];
     }
@@ -331,14 +316,15 @@ export async function buildCoordState(focusRepo, now = new Date(), opts = {}) {
   const recentHeartbeat = liveness ? hasRecentHeartbeat(now) : null;
 
   const state = {
-    repo: focusRepo,
+    repo: ref.path ?? ref.key,
+    repoKey: ref.key,
     timestamp: now.toISOString(),
     lookbackDays: lookbackDays(now),
     liveness: live,
     sessions,
     locks,
     recentIntents: intents,
-    recentPlans: recentPlans(focusRepo, now),
+    recentPlans: plans,
     leases: leaseList
   };
   if (liveness && globalSessions) {

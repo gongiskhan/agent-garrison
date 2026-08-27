@@ -24,7 +24,11 @@ const ROOT = path.resolve(__dirname, "..");
 const TARGET_DIRS = ["src", "packages", "fittings", "scripts"];
 
 const BANNED: Array<{ label: string; re: RegExp }> = [
-  { label: "claude --print (headless)", re: /--print\b/ },
+  // `\b` alone also matched an unrelated flag whose name merely STARTS with
+  // print (`--print-only` in a spike script), which is not headless mode and
+  // not what this guard is about. Claude's headless flag is exactly `--print`,
+  // so require the match to end there.
+  { label: "claude --print (headless)", re: /--print(?![-\w])/ },
   { label: "claude -p (headless short flag)", re: /\bclaude['"]?,?\s+['"]?-p\b/ },
   { label: "headless stream-json output", re: /output-format[ "',]+stream-json/ },
 ];
@@ -49,11 +53,6 @@ describe("headless-mode exclusion guard (claude -p stays banned as a capability 
     expect(trackedSourceFiles().length).toBeGreaterThan(50);
   });
 
-  // The ONE sanctioned exception: outpost dispatch pipes a prompt into
-  // `claude -p` on a REMOTE outpost host, where the exec API offers no PTY.
-  // The local capability exclusion stands; this file may not grow more usages.
-  const REMOTE_DISPATCH_EXCEPTION = "fittings/seed/kanban-loop/lib/outpost-dispatch.mjs";
-
   it("contains no banned headless-invocation patterns in production source", () => {
     const offenders: string[] = [];
     for (const rel of trackedSourceFiles()) {
@@ -68,7 +67,6 @@ describe("headless-mode exclusion guard (claude -p stays banned as a capability 
         .join("\n");
       for (const { label, re } of BANNED) {
         if (!re.test(code)) continue;
-        if (rel === REMOTE_DISPATCH_EXCEPTION && label.includes("short flag")) continue;
         offenders.push(`${rel} :: ${label} (${re})`);
       }
     }

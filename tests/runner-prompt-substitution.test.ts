@@ -5,14 +5,17 @@ import { substituteCapabilitiesPlaceholder } from "@/lib/runner";
 import type { GarrisonMetadata, LibraryEntry } from "@/lib/types";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
+// The authored layer of the default composition's Orchestrator document. Since
+// the `personal-operative` seed Fitting was retired this is where the live
+// `{{capabilities}}` placeholder comes from — the retired seed prompt was a
+// template, never the document the runner substituted against.
 const ORCH_PROMPT = path.join(
   REPO_ROOT,
-  "fittings",
-  "seed",
-  "personal-operative",
-  ".apm",
+  "compositions",
+  "default",
+  ".garrison",
   "prompts",
-  "personal-operative.prompt.md"
+  "orchestrator.md"
 );
 
 function entry(
@@ -47,10 +50,16 @@ function entry(
 }
 
 describe("orchestrator prompt + {{capabilities}} substitution", () => {
-  it("the seed personal-operative prompt declares the {{capabilities}} placeholder", async () => {
+  it("the authored Orchestrator document declares the {{capabilities}} placeholder", async () => {
     const raw = await fs.readFile(ORCH_PROMPT, "utf8");
     expect(raw).toContain("{{capabilities}}");
   });
+
+  // Heartbeat-vs-Kanban precedence used to be asserted here as prose in the
+  // retired `personal-operative` seed prompt. It is now enforced mechanically by
+  // the gateway's job-ingress dedupe (suppressing a matching active Kanban card
+  // rather than asking the model not to make one) and covered by
+  // tests/gateway-job-ingress.test.ts. Prompt prose is not the guarantee.
 
   it("substituting against a Composition with Trello selected lists channel:trello", async () => {
     const raw = await fs.readFile(ORCH_PROMPT, "utf8");

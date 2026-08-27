@@ -9,6 +9,7 @@ import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
 import { facultyIds, dutyEfforts, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type DutySpec, type SoulDefinition } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
 import { z } from "zod";
+import { resolvePrimaryFromPolicy } from "./routing-primary";
 
 export const DEFAULT_COMPOSITION_ID = "default";
 
@@ -19,14 +20,14 @@ const DEFAULT_ORCHESTRATOR_PROMPT = [
   "and tests/orchestrator-integration.test.ts. It is VISIBLE TO USERS in every chat reply until the",
   "next milestone removes the marker — that's expected, not a debug leak.",
   "",
-  "Changes to this prompt only take effect on operative restart (Stop → Run). The HTTP gateway",
+  "Changes to this prompt only take effect on a session restart (Stop → Run). The HTTP gateway",
   "passes systemPrompt.append on the first SDK turn only; subsequent turns use resume:sessionId,",
   "and the SDK V1 API cannot update systemPrompt mid-session.",
   "-->",
   "",
   "# Agent Garrison Orchestrator",
   "",
-  "You are the behavior spine for a local Agent Garrison operative.",
+  "You are the behavior spine for a local Agent Garrison session.",
   "Coordinate installed Faculties, respect configured guardrails, report every meaningful action, and verify before claiming success.",
   "",
   "## Operating discipline",
@@ -36,16 +37,29 @@ const DEFAULT_ORCHESTRATOR_PROMPT = [
   "- If a request is ambiguous, ask one focused question rather than guessing.",
   "- If you cannot complete something, say so directly and explain what's blocking you.",
   "",
-  "## Tools and Faculties available in this Operative",
+  "## Tools and Faculties available in this Composition",
   "",
   "Treat this list as the authoritative inventory of what's installed in this Composition — each provider's usage guidance is indented under its line:",
   "",
   // Load-bearing: the runner substitutes the resolved providers (with their
   // for_consumers guidance) here at assembly time — the locality principle.
-  // Without it, assembleSystemPrompt warns and the Operative flies blind.
+  // Without it, assembleSystemPrompt warns and the session flies blind.
   "{{capabilities}}",
   "",
   "If a Faculty isn't in that list, the capability is not installed — say so and surface the missing Faculty as an installation suggestion. Don't fabricate tools.",
+  "",
+  "## Register",
+  "",
+  "Speak caveman in every reply. Drop articles, filler, pleasantries, hedging.",
+  "Fragments fine. Short synonyms. Technical terms, code, identifiers and error",
+  "strings stay exact. Pattern: `[thing] [action] [reason]. [next step].`",
+  "",
+  "Write normally - not caveman - for security warnings, confirmations of",
+  "irreversible actions, and any sequence where dropped conjunctions would make the",
+  "ORDER ambiguous. Code, commit messages, PR bodies and file contents are artifacts",
+  "other people read: never caveman. Resume after.",
+  "",
+  "Off only on \"stop caveman\" / \"normal mode\".",
   "",
   "## Reply contract",
   "",
@@ -54,21 +68,6 @@ const DEFAULT_ORCHESTRATOR_PROMPT = [
   "    [orchestrator-active]",
   "",
   "This is a verification marker proving this prompt reached the model. Do not omit it, even on short replies.",
-  ""
-].join("\n");
-
-const DEFAULT_SOUL_PROMPT = [
-  "# Agent Garrison Soul",
-  "",
-  "You are called **Verity**. When asked your name, identify yourself as Verity.",
-  "",
-  "Your character:",
-  "",
-  "- Direct and transparent. Prefer inspectable steps over hidden behavior.",
-  "- Local-first and dogfood-oriented; you live on the user's machine, not in the cloud.",
-  "- You do not perform enthusiasm and do not over-apologize.",
-  "- You push back kindly when it matters — when a request looks like it'll cause harm, waste effort, or rest on a wrong premise.",
-  "- You keep the user informed without theatrics.",
   ""
 ].join("\n");
 
@@ -97,7 +96,9 @@ interface CompositionManifest {
       targets?: unknown;
       prompt_sources?: {
         orchestrator: string;
-        soul: string;
+        // Read-only compatibility for pre-v4 manifests. New and rewritten v4
+        // compositions author identity inside Orchestrator and never emit it.
+        soul?: string;
       };
     };
     [key: string]: unknown;
@@ -133,6 +134,127 @@ export interface CompositionV4 extends Composition {
   duties: DutySpec[];
   selectedDuties: string[];
   targets: CompositionTarget[];
+}
+
+const LEGACY_RUNTIME_ENGINE: Record<string, string> = {
+  "agent-sdk-runtime": "agent-sdk",
+  "claude-code-runtime": "claude-code",
+  "openai-agents-runtime": "openai-agents",
+  "codex-runtime": "codex",
+  "gemini-runtime": "gemini",
+  "cursor-runtime": "cursor",
+  "opencode-runtime": "opencode"
+};
+
+const DEFAULT_DISPATCH_TARGET = {
+  runtime: "agent-sdk",
+  provider: "anthropic",
+  model: "claude-haiku-4-5"
+} as const;
+
+/**
+ * One-time compatibility migration for the retired gateway flag. The old flag
+ * meant "run routing on whatever the primary happens to be"; v4 records that
+ * choice explicitly on dispatch-fast instead. When the old primary cannot be
+ * reconstructed, migration deliberately lands on the supported Haiku target:
+ * the retired flag must never remain public just because an old composition is
+ * incomplete. A present false flag is removed without authoring a new target.
+ */
+export function migrateLegacyRoutingOnPrimaryManifest(
+  manifest: CompositionManifest,
+  opts: { primaryRuntimeId?: string | null } = {}
+): { changed: boolean; warning?: string } {
+  const block = manifest["x-garrison"]?.composition as (CompositionBlock & Record<string, unknown>) | undefined;
+  const selections = block?.selections as FittingSelectionMap | undefined;
+  const gateways = selections?.gateway ?? [];
+  const gateway = gateways.find((item) => item.id === "http-gateway");
+  if (!gateway || !block || !Object.prototype.hasOwnProperty.call(gateway.config ?? {}, "routing_on_primary")) {
+    return { changed: false };
+  }
+  const raw = gateway?.config?.routing_on_primary;
+  const enabled = raw === true || String(raw ?? "").trim().toLowerCase() === "true";
+  if (!enabled) {
+    delete gateway.config.routing_on_primary;
+    return { changed: true };
+  }
+
+  const primaryRuntimeId = typeof opts.primaryRuntimeId === "string" ? opts.primaryRuntimeId.trim() : "";
+  const runtimeSelection = primaryRuntimeId
+    ? (selections?.runtimes ?? []).find((selection) => selection.id === primaryRuntimeId)
+    : undefined;
+  const engine = runtimeSelection ? LEGACY_RUNTIME_ENGINE[runtimeSelection.id] : null;
+  const duties = Array.isArray(block.duties) ? block.duties as Array<Record<string, unknown>> : [];
+  const dispatchDuty = duties.find((duty) => duty.id === "dispatch");
+  const targetId = "dispatch-fast";
+  const targets = Array.isArray(block.targets) ? block.targets as Array<Record<string, unknown>> : [];
+  const targetIndex = targets.findIndex((target) => target.id === targetId);
+  const legacyModel = typeof runtimeSelection?.config?.model === "string" && runtimeSelection.config.model.trim()
+    ? runtimeSelection.config.model.trim()
+    : null;
+  const legacyProvider = typeof runtimeSelection?.config?.provider === "string" && runtimeSelection.config.provider.trim()
+    ? runtimeSelection.config.provider.trim()
+    : undefined;
+  const resolved = engine && legacyModel
+    ? { runtime: engine, model: legacyModel, ...(legacyProvider ? { provider: legacyProvider } : {}) }
+    : DEFAULT_DISPATCH_TARGET;
+  const warning = engine && legacyModel
+    ? undefined
+    : primaryRuntimeId
+      ? `legacy routing_on_primary=true could not resolve a model for policy primary "${primaryRuntimeId}"; migrated to dispatch-fast on Claude Haiku 4.5`
+      : "legacy routing_on_primary=true had no resolvable policy primary; migrated to dispatch-fast on Claude Haiku 4.5";
+  const replacement: Record<string, unknown> = {
+    id: targetId,
+    ...resolved,
+    params: {
+      type: "runtime-target",
+      promptMode: "lean",
+      maxTurns: 1,
+      timeoutMs: 8000,
+      ...((resolved.runtime === "agent-sdk" || ("provider" in resolved && resolved.provider === "anthropic"))
+        ? { authMode: "subscription" }
+        : {})
+    }
+  };
+  if (targetIndex >= 0) targets[targetIndex] = replacement;
+  else targets.push(replacement);
+  block.targets = targets;
+  if (!dispatchDuty) {
+    duties.push({
+      id: "dispatch",
+      title: "Dispatch",
+      description: "Read an inbound task and route it to the right duty and level.",
+      levels: [{
+        description: "Bounded routing inference on the explicitly migrated dispatch target.",
+        cell: { target: targetId, effort: "low" }
+      }]
+    });
+    block.duties = duties;
+  } else {
+    const levels = Array.isArray(dispatchDuty.levels) ? dispatchDuty.levels as Array<Record<string, unknown>> : [];
+    const first = levels[0];
+    if (first) {
+      first.cell = {
+        ...((first.cell && typeof first.cell === "object") ? first.cell as Record<string, unknown> : {}),
+        target: targetId,
+        effort: "low"
+      };
+      delete first.sequence;
+    } else {
+      dispatchDuty.levels = [{
+        description: "Bounded routing inference on the explicitly migrated dispatch target.",
+        cell: { target: targetId, effort: "low" }
+      }];
+    }
+  }
+  delete gateway.config.routing_on_primary;
+  return { changed: true, ...(warning ? { warning } : {}) };
+}
+
+function hasLegacyRoutingOnPrimary(manifest: CompositionManifest): boolean {
+  const selections = manifest["x-garrison"]?.composition?.selections;
+  const gateway = (selections?.gateway ?? []).find((item) => item.id === "http-gateway");
+  const raw = gateway?.config?.routing_on_primary;
+  return raw === true || String(raw ?? "").trim().toLowerCase() === "true";
 }
 
 // A machine-local overlay (local.yml beside apm.yml, gitignored). A partial
@@ -288,13 +410,41 @@ export async function listCompositions(): Promise<Composition[]> {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+/**
+ * Bootstrap-on-read, confined to the DEFAULT composition.
+ *
+ * `readComposition` used to call `ensureComposition(id)` for whatever id it was
+ * handed, which made every read path a WRITE path: any stale reference to a
+ * deleted composition - a fitting still holding GARRISON_COMPOSITION_ID, a
+ * scheduler job, a kanban card, an open browser tab - silently re-created it as an
+ * empty "Dogfood Operative" skeleton. Deleting a composition could therefore never
+ * stick, and the ghost reappeared in the switcher with no way to tell what had
+ * resurrected it.
+ *
+ * A fresh install still needs SOMETHING to exist, so the default id keeps its
+ * bootstrap. Every other id must already be on disk; a read of a composition that
+ * is not there is an error, not an invitation to invent one.
+ */
+async function ensureReadableComposition(id: string): Promise<void> {
+  if (id === DEFAULT_COMPOSITION_ID) await ensureComposition(id);
+}
+
 export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {
-  await ensureComposition(id);
+  await ensureReadableComposition(id);
   const manifestPath = getCompositionManifestPath(id);
   const manifest = await readYamlFile<CompositionManifest>(manifestPath);
   if (!manifest) {
-    throw new Error(`Missing manifest for composition ${id}`);
+    throw new Error(
+      `no composition "${id}" - it has no manifest at ${manifestPath}. ` +
+        `If something still points at a deleted composition, repoint it; reads never create one.`
+    );
   }
+  const policyPrimary = hasLegacyRoutingOnPrimary(manifest)
+    ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
+    : null;
+  const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
+  if (legacy.changed) await writeYamlFile(manifestPath, manifest);
+  if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   return manifestToComposition(id, applyLocalOverlay(manifest, overlay));
 }
@@ -315,6 +465,16 @@ export async function writeComposition(
   const nextSelections = normalizeSelections(update.selections ?? current.selections);
   const nextGlobalConfig = update.globalConfig ?? current.globalConfig;
   await validateCompositionSelections(nextSelections);
+
+  // Derive `unfitted` from the DESIRED set rather than asking callers to track
+  // it: the Compose grid and the Muster swap endpoint are independent writers,
+  // and any id a caller forgot to add here would silently re-station itself on
+  // the next read. A caller that sends no selections at all is not expressing an
+  // opt-out, so the stored list is preserved untouched in that case.
+  const library = await readLibrary();
+  const nextUnfitted = update.selections
+    ? deriveUnfitted(nextSelections, library)
+    : normalizeUnfitted(current.unfitted);
 
   const selectedEntries = await selectedLibraryEntries(nextSelections);
   const dependencies = authorApmDependencies(
@@ -341,9 +501,11 @@ export async function writeComposition(
       name: nextName,
       global_config: nextGlobalConfig,
       selections: nextSelections,
+      // Omit the key entirely when nothing is unfitted, so a composition that
+      // simply takes every default stays byte-clean in the diff.
+      ...(nextUnfitted.length ? { unfitted: nextUnfitted } : {}),
       prompt_sources: {
-        orchestrator: ".garrison/prompts/orchestrator.md",
-        soul: ".garrison/prompts/soul.md"
+        orchestrator: ".garrison/prompts/orchestrator.md"
       }
     }
   };
@@ -492,25 +654,18 @@ export async function ensureComposition(id: string): Promise<void> {
     await fs.writeFile(orchestratorPath, DEFAULT_ORCHESTRATOR_PROMPT, "utf8");
   }
 
-  const soulPath = path.join(compositionDir, ".garrison", "prompts", "soul.md");
-  if (!(await pathExists(soulPath))) {
-    await fs.writeFile(soulPath, DEFAULT_SOUL_PROMPT, "utf8");
-  }
-
   const manifestPath = getCompositionManifestPath(id);
   if (!(await pathExists(manifestPath))) {
     await writeYamlFile(manifestPath, createManifest(id, "Dogfood Operative"));
   }
 }
 
-export async function refreshDefaultPrompts(id: string): Promise<{ orchestratorPath: string; soulPath: string }> {
+export async function refreshDefaultPrompts(id: string): Promise<{ orchestratorPath: string }> {
   const compositionDir = getCompositionDirectory(id);
   await ensureDir(path.join(compositionDir, ".garrison", "prompts"));
   const orchestratorPath = path.join(compositionDir, ".garrison", "prompts", "orchestrator.md");
-  const soulPath = path.join(compositionDir, ".garrison", "prompts", "soul.md");
   await fs.writeFile(orchestratorPath, DEFAULT_ORCHESTRATOR_PROMPT, "utf8");
-  await fs.writeFile(soulPath, DEFAULT_SOUL_PROMPT, "utf8");
-  return { orchestratorPath, soulPath };
+  return { orchestratorPath };
 }
 
 function createManifest(id: string, name: string): CompositionManifest {
@@ -528,8 +683,7 @@ function createManifest(id: string, name: string): CompositionManifest {
         global_config: defaultGlobalConfig(),
         selections: {},
         prompt_sources: {
-          orchestrator: ".garrison/prompts/orchestrator.md",
-          soul: ".garrison/prompts/soul.md"
+          orchestrator: ".garrison/prompts/orchestrator.md"
         }
       }
     }
@@ -546,6 +700,7 @@ export function manifestToComposition(id: string, manifest: CompositionManifest)
     directory: getCompositionDirectory(id),
     manifestPath: getCompositionManifestPath(id),
     selections,
+    unfitted: normalizeUnfitted((composition as { unfitted?: unknown } | undefined)?.unfitted),
     globalConfig: composition?.global_config ?? defaultGlobalConfig(),
     souls: composition?.souls ?? [],
     // Derived Tasks disconnected (decision F4): Trello-as-tasks is retired in
@@ -561,18 +716,32 @@ export function manifestToComposition(id: string, manifest: CompositionManifest)
 }
 
 export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {
-  await ensureComposition(id);
+  await ensureReadableComposition(id);
   const manifest = await readYamlFile<CompositionManifest>(getCompositionManifestPath(id));
   if (!manifest) {
-    throw new Error(`Missing manifest for composition ${id}`);
+    throw new Error(
+      `no composition "${id}" - it has no manifest. ` +
+        `If something still points at a deleted composition, repoint it; reads never create one.`
+    );
   }
+  const policyPrimary = hasLegacyRoutingOnPrimary(manifest)
+    ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
+    : null;
+  const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
+  if (legacy.changed) await writeYamlFile(getCompositionManifestPath(id), manifest);
+  if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   const composition = manifestToComposition(id, applyLocalOverlay(manifest, overlay));
-  const entries = await selectedLibraryEntries(composition.selections);
+  // Station every default-fit Fitting the composition has not unfitted, BEFORE
+  // resolving library entries — the capability graph, the readiness rules and the
+  // runner all have to see the same set the user sees.
+  const library = await readLibrary();
+  const withDefaults = applyDefaultFit(composition.selections, library, composition.unfitted);
+  const entries = await selectedLibraryEntries(withDefaults);
   // Self-heal selections grouped under a stale faculty key (e.g. fittings
   // saved under `sessions` before the 2026-06-18 split). The UI then always
   // sees the current grouping, and the next save persists it.
-  const selections = migrateSelectionsByFaculty(composition.selections, entries);
+  const selections = migrateSelectionsByFaculty(withDefaults, entries);
   const { issues, graph } = computeCapabilityResolution(entries);
   return {
     ...composition,
@@ -633,6 +802,80 @@ export async function validateCompositionSelections(selections: FittingSelection
     });
     validateSelection(facultyId, selected.length, metadata);
   }
+}
+
+/**
+ * Fittings that station themselves in every composition (`x-garrison.default_fit`).
+ * Ordered by id so the derived `unfitted` list is stable across saves and a diff
+ * never churns.
+ */
+export function defaultFitEntries(entries: LibraryEntry[]): LibraryEntry[] {
+  return entries
+    .filter((entry) => entry.metadata.default_fit === true)
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/**
+ * Union the stored selections with every `default_fit` Fitting the composition
+ * has not explicitly unfitted.
+ *
+ * Membership in a composition is otherwise presence-based, which cannot express
+ * "deliberately not stationed" — so removing an auto-fitted Fitting would be
+ * undone by the very next read. `unfitted` is that missing vocabulary, and it is
+ * consulted ONLY for default-fit ids: for everything else absence already means
+ * absence, and honouring the list there would let a stale entry veto a Fitting
+ * the user has since re-added by hand.
+ *
+ * A stored entry always wins over the default: it carries the user's config.
+ */
+export function applyDefaultFit(
+  selections: FittingSelectionMap,
+  entries: LibraryEntry[],
+  unfitted: string[] = []
+): FittingSelectionMap {
+  const excluded = new Set(unfitted);
+  const stored = new Set(
+    Object.values(selections)
+      .flatMap((items) => items ?? [])
+      .map((item) => item.id)
+  );
+  const additions = defaultFitEntries(entries).filter(
+    (entry) => !stored.has(entry.id) && !excluded.has(entry.id)
+  );
+  if (!additions.length) return selections;
+  const next: FittingSelectionMap = {};
+  for (const [faculty, items] of Object.entries(selections)) {
+    next[faculty as FacultyId] = [...(items ?? [])];
+  }
+  for (const entry of additions) {
+    (next[entry.faculty] ??= []).push(defaultConfigForEntry(entry));
+  }
+  return next;
+}
+
+/**
+ * The `unfitted` list implied by a desired selection set: every default-fit
+ * Fitting the user did NOT ask for. Derived at save time from the full desired
+ * map rather than tracked by the UI, so the Compose grid and the Muster swap
+ * endpoint — two independent writers — cannot disagree about it.
+ */
+export function deriveUnfitted(
+  selections: FittingSelectionMap,
+  entries: LibraryEntry[]
+): string[] {
+  const selected = new Set(
+    Object.values(selections)
+      .flatMap((items) => items ?? [])
+      .map((item) => item.id)
+  );
+  return defaultFitEntries(entries)
+    .map((entry) => entry.id)
+    .filter((id) => !selected.has(id));
+}
+
+function normalizeUnfitted(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((v): v is string => typeof v === "string" && v.length > 0))].sort();
 }
 
 function normalizeSelections(selections: FittingSelectionMap): FittingSelectionMap {

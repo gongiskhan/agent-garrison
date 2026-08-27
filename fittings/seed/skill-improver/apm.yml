@@ -1,0 +1,28 @@
+name: skill-improver
+version: 0.1.0
+description: >-
+  Nightly batch reviewer that turns user feedback about Claude Code skills into improvements to those skills. EXPLICIT/SCHEDULED-INVOCATION ONLY — runs headless on a schedule (or invoked by hand), never mid-session. Scans the day's session transcripts for (A) which skills ran and (B) user messages that critique a skill — two independent streams, because feedback about a skill often lands in a sessio
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  faculty: building
+  category: Building
+  cardinality_hint: single
+  component_shape: skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+  platforms:
+    - claude-code
+  summary: >-
+    Nightly batch reviewer that turns user feedback about Claude Code skills into improvements to those skills. EXPLICIT/SCHEDULED-INVOCATION ONLY — runs headless on a schedule (or invoked by hand), never mid-session. Scans the day's session transcripts for (A) which skills ran and (B) user messages that critique a skill — two independent streams, because feedback about a skill often lands in a session that never ran it. For each real, actionable critique it improves the skill's PROSE/flow/instructions automatically (shadow-backed-up first, so every edit is revertible; committed in the skill's repo when it has one), and FLAGS what it must not auto-fix — code/script bugs (cannot verify a code fix unsupervised) and anything that would weaken a skill's gate or guarantee. Produces a morning report of every edit (with revert command) and every flag. Use to run or test the nightly skill-improvement pass.
+  provides: []
+  consumes: []
+  verify:
+    command: test -f apm_modules/_local/skill-improver/.apm/skills/skill-improver/SKILL.md && echo ok
+    expect: ok
+    timeout_ms: 10000

@@ -3,7 +3,7 @@
 // a hardcoded column set), and a card walks EXACTLY its (duty, level) resolved
 // sequence, skipping every list not on it. These tests cross-check the fitting's
 // board derivation + card-sequence flow against the Resolver (src/lib/resolver.ts).
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 
 // Policy-less mode (pure transition mechanics; the gate-evidence path is covered
 // elsewhere) + a sandboxed runs home so nothing touches the real ~/.garrison.
@@ -22,13 +22,32 @@ import { deriveKanbanLists, resolveSequence } from "../src/lib/resolver";
 import { clearKanbanResolvedModel, computeKanbanResolvedModel } from "../src/lib/kanban-model";
 import { kanbanProjectionPlan } from "../src/lib/runner";
 // @ts-ignore — pure .mjs
-import { buildBoard, loadResolvedModel, validNextForCard, nextListForCard, resolveCardSequence, reconcileBoardLists, HUMAN_HEAD, HUMAN_TAIL } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
+import { buildBoard, loadResolvedModel, validNextForCard, nextListForCard, resolveCardSequence, reconcileBoardLists, insertUserLists, isUserList, HUMAN_HEAD, HUMAN_TAIL } from "../fittings/seed/kanban-loop/lib/resolved-model.mjs";
 // @ts-ignore — pure .mjs
-import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { processCard, processBatch, parseBatchVerdicts, effectiveListForCard, getList, triggerFor, isInteractive, isGatedDiscuss, withEvent, phaseForList, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, loadAllCards } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
 import { LEGACY_DEFAULT_PHASE_PROMPTS, seedBoard, phaseTemplatesFrom, reconcileExistingBoard, relocateStrandedCards } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// The card store is shared by every test in this file now, where a fresh tmp root
+// used to isolate them; wipe it between tests so one test's cards can never show
+// up in another's sweep, batch, or board read.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
 
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-resolved-"));
 
@@ -371,7 +390,7 @@ describe("S4a codex finding #2 — effectiveListForCard skips OFF phases along t
   };
   const board = buildBoard(model, { templates: templates() });
   // A rail that turns the card's current phase (implement) OFF and keeps review ON.
-  const rail = { workKind: "k", evidence: "none", phases: [{ id: "implement", on: false }, { id: "review", on: true }] };
+  const rail = { flow: "k", evidence: "none", phases: [{ id: "implement", on: false }, { id: "review", on: true }] };
 
   it("a card whose sequence ENDS at the OFF phase fast-forwards to 'done' (its sequence), NOT 'review' (board column)", () => {
     const seqCard = { list: "implement", duty: "develop", level: 1, sequence: ["implement"] };
@@ -436,6 +455,51 @@ describe("S4a codex finding #3 — an EXISTING board is reconciled to the curren
     expect(added).toEqual([]);
     expect(removed).toEqual([]);
     expect(updated).toEqual([]);
+  });
+
+  // A human-managed list (Kanban "Add list") is NOT a duty and never appears in the
+  // model. The duty reconcile must PRESERVE it and NOT strand its cards.
+  it("preserves a user-created manual list across a duty reconcile (never in `removed`)", async () => {
+    const root = tmp();
+    const existing: any = buildBoard(makeModel(["plan", "implement"]), { templates: templates() });
+    // The operator adds a manual parking column, then puts a card on it.
+    const iceBox = { id: "ice-box", title: "Ice Box", kind: "manual", trigger: "manual", userCreated: true, order: 1.5, validNext: [] };
+    const at = existing.lists.findIndex((l: any) => l.id === "done");
+    existing.lists.splice(at, 0, iceBox);
+    const parked = await createCard(root, { title: "cold idea", project: "demo", list: "ice-box" });
+
+    // A duty is added — an unrelated model change — and reconcile runs.
+    const { board, added, removed } = reconcileBoardLists(existing, makeModel(["plan", "implement", "review"]), { templates: templates() });
+    expect(added).toContain("review");
+    expect(removed).not.toContain("ice-box"); // preserved, not stranded
+    const ib = board.lists.find((l: any) => l.id === "ice-box");
+    expect(ib).toMatchObject({ id: "ice-box", kind: "manual", userCreated: true });
+    // It sits before the fixed human tail, after the phase lists.
+    const ids = board.lists.map((l: any) => l.id);
+    expect(ids.indexOf("ice-box")).toBeGreaterThan(ids.indexOf("review"));
+    expect(ids.indexOf("ice-box")).toBeLessThan(ids.indexOf("done"));
+
+    // Its card is NOT relocated (the list still exists).
+    const kept = await loadCard(root, parked.id);
+    expect(kept.list).toBe("ice-box");
+  });
+
+  it("insertUserLists splices before the tail with fractional order, leaving existing order untouched", () => {
+    const rebuilt = buildBoard(makeModel(["plan", "implement"]), { templates: templates() });
+    const beforeOrders = rebuilt.lists.map((l: any) => `${l.id}:${l.order}`);
+    const extra = { id: "ice-box", kind: "manual", userCreated: true };
+    const out = insertUserLists(rebuilt.lists, [extra]);
+    // No existing list's order changed (idempotent reconcile).
+    expect(out.filter((l: any) => l.id !== "ice-box").map((l: any) => `${l.id}:${l.order}`)).toEqual(beforeOrders);
+    const ib = out.find((l: any) => l.id === "ice-box");
+    const done = out.find((l: any) => l.id === "done");
+    const lastPhase = out.find((l: any) => l.id === "implement");
+    expect(ib.order).toBeGreaterThan(lastPhase.order);
+    expect(ib.order).toBeLessThan(done.order);
+    // No extras → a plain copy.
+    expect(insertUserLists(rebuilt.lists, [])).toEqual(rebuilt.lists);
+    expect(isUserList(extra)).toBe(true);
+    expect(isUserList({ id: "review", kind: "agent" })).toBe(false);
   });
 
   it("migrates the immediately previous exact canonical Test prompts and preserves operator config", () => {
@@ -647,7 +711,8 @@ const GUARDED_ENGINE_EXPORTS: Record<string, unknown> = {
   withEvent,
   phaseForList,
   sweepOrphanedRuns,
-  sweepExpiredDispatchClaims
+  sweepExpiredDispatchClaims,
+  sweepDueSchedules
 };
 function symbolsImportedFromEngine(src: string): string[] {
   const m = src.match(/import\s*\{([^}]*)\}\s*from\s*["'][^"']*lib\/engine\.mjs["']/);

@@ -35,9 +35,8 @@ type Status = "loading" | "ready" | "error";
 // page is a focused single panel instead of one 13k-px scroll of everything at
 // once - and the heavy panels (orchestrator prompt, fittings, decisions feed)
 // only fetch when their tab is opened.
-type SectionId = "duties" | "runtimes" | "fittings" | "orchestrator" | "decisions" | "transfer";
+type SectionId = "runtimes" | "fittings" | "orchestrator" | "decisions" | "transfer";
 const SECTIONS: { id: SectionId; label: string }[] = [
-  { id: "duties", label: "Duties" },
   { id: "runtimes", label: "Runtimes" },
   { id: "fittings", label: "Fittings" },
   { id: "orchestrator", label: "Orchestrator" },
@@ -75,7 +74,7 @@ function patchAddLevel(model: MusterModel, dutyId: string): MusterModel {
   if (!duty || duty.levels.length === 0) return model;
   const last = duty.levels[duty.levels.length - 1];
   const n = duty.levels.length + 1;
-  const description = `level ${n}: deeper than level ${n - 1} - describe when the Dispatcher should pick this level`;
+  const description = `level ${n}: deeper than level ${n - 1} - describe when Orchestrator routing inference should pick this level`;
   const bumped = dutyEfforts[Math.min(dutyEfforts.indexOf(last.cell?.effort ?? "medium") + 1, dutyEfforts.length - 1)];
   const next = last.cell
     ? { description, cell: { ...last.cell, effort: bumped } }
@@ -115,10 +114,14 @@ export function MusterPage() {
   const [saving, setSaving] = useState(false);
   const [armed, setArmed] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
-  const [section, setSection] = useState<SectionId>("duties");
-  // The Orchestrator tab holds two surfaces: the routing policy (the composer
-  // surfaces folded in when the own-port view retired) and the system prompt.
-  const [orchSub, setOrchSub] = useState<"policy" | "prompt">("policy");
+  const [section, setSection] = useState<SectionId>("orchestrator");
+  // The Orchestrator tab holds two surfaces: routing inference and execution
+  // policy (the composer surfaces folded in when the own-port view retired),
+  // plus the system prompt.
+  // Opening the Orchestrator area lands on duties AND flows together. Duties are
+  // the steps, flows are the plans that compose them; seeing either alone is the
+  // legibility problem this refit exists to fix (brief §2.1).
+  const [orchSub, setOrchSub] = useState<"work" | "policy" | "prompt">("work");
 
   // The composition currently viewed (from ?composition=, else the active
   // pointer). Held in a ref so mutation POSTs always target the same one.
@@ -433,11 +436,12 @@ export function MusterPage() {
 
           <nav className={styles.sectionNav} role="tablist" aria-label="Muster sections">
             {SECTIONS.map((s) => {
-              // Only the Duties count is owned by this model and kept in sync by
-              // its persist. The Runtimes tab owns a separate StandingModel, so a
-              // count here would miscount (slot members vs runtime providers) and
-              // go stale after the panel mutates — the panel shows its own counts.
-              const count = s.id === "duties" ? model.selectedDuties.length : undefined;
+              // Only the duty count is owned by this model and kept in sync by its
+              // persist, and it now belongs to Orchestrator, which hosts the duty
+              // list. The Runtimes tab owns a separate StandingModel, so a count
+              // here would miscount (slot members vs runtime providers) and go
+              // stale after the panel mutates — that panel shows its own counts.
+              const count = s.id === "orchestrator" ? model.selectedDuties.length : undefined;
               return (
                 <button
                   key={s.id}
@@ -456,28 +460,6 @@ export function MusterPage() {
           </nav>
 
           <div className={styles.stage}>
-            {section === "duties" ? (
-              <div className={styles.dutiesPanel} data-testid="duties-panel">
-                <div className={styles.dutiesMain}>
-                  <div className={styles.stageHead}>
-                    <span className={styles.stageLead}>
-                      The work this composition routes. The Dispatcher picks a duty, then a level -
-                      each level&apos;s description is its routing criterion.
-                    </span>
-                    <span className={styles.stageTools}>
-                      {saving ? <span className={styles.saving}>saving…</span> : null}
-                      <AddDuty model={model} actions={actions} />
-                    </span>
-                  </div>
-                  <DutyList model={model} actions={actions} />
-                </div>
-                <aside className={styles.traySide}>
-                  <div className={styles.trayHeading}>Targets</div>
-                  <TargetsTray model={model} actions={actions} />
-                </aside>
-              </div>
-            ) : null}
-
             {section === "runtimes" ? <RuntimesPanel compositionId={model.compositionId} /> : null}
             {section === "fittings" ? <StandingFittings compositionId={model.compositionId} /> : null}
             {section === "orchestrator" ? (
@@ -490,7 +472,8 @@ export function MusterPage() {
                 >
                   {(
                     [
-                      { id: "policy", label: "Routing policy" },
+                      { id: "work", label: "Duties & flows" },
+                      { id: "policy", label: "Routing inference" },
                       { id: "prompt", label: "System prompt" }
                     ] as const
                   ).map((s) => (
@@ -507,8 +490,32 @@ export function MusterPage() {
                     </button>
                   ))}
                 </nav>
-                {orchSub === "policy" ? (
-                  <PolicyPanel compositionId={model.compositionId} />
+                {orchSub === "work" ? (
+                  <div className={styles.dutyFlowSplit} data-testid="duties-and-flows">
+                    <div className={styles.dutyFlowCol} data-testid="duties-panel">
+                      <div className={styles.stageHead}>
+                        <span className={styles.stageLead}>
+                          Duties are the steps. Routing inference picks one, then a level - each
+                          level&apos;s description is its routing criterion, and its runtime, model
+                          and effort.
+                        </span>
+                        <span className={styles.stageTools}>
+                          {saving ? <span className={styles.saving}>saving…</span> : null}
+                          <AddDuty model={model} actions={actions} />
+                        </span>
+                      </div>
+                      <DutyList model={model} actions={actions} />
+                      <aside className={styles.traySide} style={{ marginTop: 22 }}>
+                        <div className={styles.trayHeading}>Targets</div>
+                        <TargetsTray model={model} actions={actions} />
+                      </aside>
+                    </div>
+                    <div className={styles.dutyFlowCol}>
+                      <PolicyPanel compositionId={model.compositionId} only="rails" />
+                    </div>
+                  </div>
+                ) : orchSub === "policy" ? (
+                  <PolicyPanel compositionId={model.compositionId} only="rest" />
                 ) : (
                   <OrchestratorPanel compositionId={model.compositionId} />
                 )}

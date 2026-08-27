@@ -22,15 +22,15 @@ const seedIds = [
   "deepgram-voice",
   "dev-env",
   "screen-share-default",
-  "outpost-tailscale-host",
   "monitor-default",
   "browser-default",
   "file-browser",
-  "garrison-orchestrator",
+  "orchestrator",
   "taste",
   "opencode-runtime",
   "cursor-runtime",
-  "project-viewer"
+  "project-viewer",
+  "roadmaps"
 ] as const;
 
 interface RawManifest {
@@ -111,25 +111,22 @@ describe("seed Fittings", () => {
     }
   });
 
-  it("dev-env consolidates the dev-work surfaces under sessions on port 7086", async () => {
+  it("dev-env consolidates the dev-work surfaces under sessions on port 8086", async () => {
     const metadata = await loadSeed("dev-env");
     expect(metadata.faculty).toBe("sessions");
     expect(metadata.own_port).toBe(true);
-    expect(metadata.default_port).toBe(7086);
+    expect(metadata.default_port).toBe(8086);
     expect(metadata.provides).toEqual([{ kind: "dev-env", name: "dev-env" }]);
-    expect(metadata.consumes).toContainEqual({ kind: "outpost", cardinality: "any" });
     expect(metadata.setup?.[0]?.command).toContain("install-hooks");
   });
 
-  it("garrison-orchestrator provides the orchestrator capability (spawn retired)", async () => {
-    const metadata = await loadSeed("garrison-orchestrator");
+  it("the layered Orchestrator provides the canonical orchestrator and identity capabilities", async () => {
+    const metadata = await loadSeed("orchestrator");
     expect(metadata.faculty).toBe("orchestrator");
     expect(metadata.component_shape).toBe("system-prompt");
-    expect(metadata.provides).toContainEqual({ kind: "orchestrator", name: "garrison-orchestrator" });
-    // Discovers every stationed connector without hardcoding an id, so their
-    // catalogs fold into the prompt (souls dispatch + mcp-gateway consume removed).
-    expect(metadata.consumes).toEqual([{ kind: "connector", cardinality: "any" }]);
-    expect(metadata.spawn).toBeUndefined();
+    expect(metadata.provides).toContainEqual({ kind: "orchestrator", name: "orchestrator" });
+    expect(metadata.provides).toContainEqual({ kind: "identity", name: "authored" });
+    expect(metadata.provides).toContainEqual({ kind: "duty", name: "dispatch" });
   });
 
   it("the full survivor stack resolves capabilities cleanly", async () => {

@@ -652,3 +652,201 @@ Fittings, unset vault keys, the id it will land on), stages into a hidden siblin
 and renames only when complete, and refuses to overwrite an existing composition.
 **Source:** composition-transfer.ts, `tests/composition-transfer.test.ts`,
 `tests/e2e/muster-transfer.spec.ts`. **Status:** Settled.
+
+## 2026-07-31 · Memory backend migration is dated: shadow, compare, then cut over or remove by 2026-08-14
+
+Moving operative memory from the local markdown vault to a remote note vault is
+a **migration with an end**, not a second permanent backend and not a flag that
+becomes furniture. The basic-memory Fitting now ships the whole shape:
+
+- **A one-time import.** `scripts/import-vault.mjs` copies the existing vault
+  into the remote store. Each note's permalink is derived deterministically from
+  its path relative to the vault root — `Memory/2026/Session Notes.md` →
+  `vault/memory-2026-session-notes` — and the permalink IS the note's identity
+  remotely, so a re-run overwrites rather than duplicating. It refuses (loudly)
+  any two paths that slugify to the same permalink instead of letting one
+  silently overwrite the other, supports `--dry-run`, and VERIFIES after
+  importing: it re-lists the remote folder, compares the set, and reads a sample
+  back to compare content. It never writes to the vault.
+
+- **Shadow dual-write.** `shadow_write` (default false) keeps the local vault
+  written exactly as before and ALSO enqueues each capture for the remote store,
+  through the capture spool that already existed. Shadow adds a destination, it
+  never replaces one. Precedence with the tri-state spool: an explicit
+  `spool_enabled` still wins, and `auto` now resolves to on when the backend is
+  remote **or** shadow is on; `shadow_write: true` with `spool_enabled: never`
+  is an inert shadow and setup says so on every run.
+
+- **A daily comparator with a deadline in its header.**
+  `scripts/compare-backends.mjs` lists both sides, diffs them by permalink,
+  samples N notes for content, and files a dated markdown report into the
+  composition's data dir. It reports counts, missing-on-either-side and content
+  mismatches **separately**, states its own sample size beside every verdict,
+  and marks an unparseable listing or an unlocatable note body INCONCLUSIVE
+  rather than folding it into "match". It records identities, counts and
+  digests; never a note body.
+
+**The review is the point.** The first run with shadow on stamps
+`$GARRISON_HOME/basic-memory/shadow-write.json` with the first dual-write
+timestamp and a review date 14 days later, and every report carries both. The
+window is deliberately not configurable and the marker is deliberately not reset
+by toggling the config key. **On or before the review date, exactly one of three
+outcomes is chosen and appended here:** cut reads over (remote becomes the
+memory of record, shadow off), extend ONCE with a written reason, or remove
+(shadow off, local stays the memory of record, marker deleted). For the
+dual-write started on **2026-07-31** the review is due **2026-08-14**; a
+dual-write that outlives its review without one of those three entries is the
+permanent parallel implementation this process exists to prevent.
+**Source:** capability contract rule 10 (`docs/CAPABILITY_CONTRACT.md` in the
+provider repo), `fittings/seed/basic-memory/scripts/{import-vault,compare-backends}.mjs`,
+`tests/basic-memory-shadow.test.ts`. **Status:** Open — closes at the 2026-08-14
+review with one of the three outcomes above.
+
+## 2026-07-31 · A note's remote identity is its vault path, on every path that writes it
+
+Follow-up to the entry above, from its review. The shadow and the comparator did
+not agree on what a note IS. The drain shipped each capture under the spool's
+**queue key** (`capture-<session>-<ts>-<pid>`, no folder), while the comparator
+listed one folder of **path-derived permalinks** (`<remote_folder>/<slug>`). The
+two never met, with three consequences — parity was unreachable *while the
+shadow worked*, a broken drain was indistinguishable from a working one, and a
+re-import stored the same bytes twice under two identities. The third is bad; the
+second is fatal to the point of the exercise, because a signal that reads the same
+whether the migration is healthy or dead is not a signal, and a shadow nobody can
+evaluate is exactly the furniture rule 10 exists to prevent.
+
+**Decision: the permalink is derived from the note's vault-relative path, and
+every writer uses that derivation.** A queue key orders work; it does not name a
+note. The capture hook now writes an identity sidecar (`<key>.permalink`) beside
+each spooled capture carrying the permalink that note would get if it were
+imported, and the drain ships it under that. The mapping is implemented twice —
+`slugSegment`/`permalinkForRelPath` in `scripts/lib/memory-vault.mjs` and
+`_remote_permalink` in `capture-session.py` — because the hook is Python and must
+not grow a Node dependency; both carry a pointer to the other. A capture spooled
+before the sidecar existed still drains under its queue key, the drain says so on
+stdout, and the comparator's report names that as something it does not check.
+
+The same review closed six more honesty gaps in the reporting: a comparison that
+compared nothing (missing vault root, empty sample, nothing shared) is
+`inconclusive` rather than `parity-on-sample`; an unreadable directory is a
+counted, loud, non-zero outcome instead of a silent absence; a truncated remote
+listing makes the whole diff `inconclusive` and the warning names the column
+truncation actually poisons; `remote_folder` is slugified once and used for both
+the permalink and the `--folder` argument; the import's final line states what it
+actually verified; and an overdue review now exits non-zero with a loud line while
+the daily job runs `--fail-on-diff`, so the deadline can go red somewhere other
+than inside a markdown file nobody is obliged to open. A hand-edited review window
+in the marker is detected and ignored in favour of the standing 14 days.
+**Source:** G4 fresh review F1-F11; `tests/basic-memory-shadow.test.ts`.
+**Status:** Settled (the 2026-08-14 review date in the entry above is unchanged).
+
+## 2026-07-31 · The review deadline is evaluated before every exit, and the permalink mapping has exactly one implementation
+
+Third and final round on the memory migration, from its re-review.
+
+**The deadline failed open in the one state that matters.** The comparator
+evaluated the overdue review at the END of a successful comparison, so every
+early return skipped it — and the worst of those returned 0: "the remote memory
+CLI is not installed". That is precisely the furniture configuration (shadow
+switched on, the CLI never installed, nothing has ever worked), and a review 46
+days past its date exited 0 there while the report header printed OVERDUE. The
+gate is now a `finish()` every exit routes through, so the deadline is announced
+and enforced on the CLI-missing, listing-failed, unparseable-listing and
+missing-vault-root paths alike. Usage errors (exit 2) stay above it: they cannot
+fail open, and folding them in would hide which failure happened.
+
+**The permalink mapping has one implementation, not two.** The identity sidecar
+now holds the note's VAULT-RELATIVE PATH (`<key>.notepath`) rather than a
+permalink the Python hook derived itself, and `flush-spool.mjs` maps it through
+`scripts/lib/memory-vault.mjs` — the same module the import and the comparator
+use. The Python mirror was not byte-identical, only identical over the corpus it
+was tested against: it diverged on codepoints whose folding depends on the
+machine's Python-vs-Node Unicode versions, and on a trailing newline (Python `$`
+matches before one). Unreachable in practice, because the hook only ever mapped
+its own ASCII filename — but a trap laid for the next person, and no fixed test
+corpus can catch a skew that is a property of the installed interpreters. The
+claim of a byte-identical mirror is withdrawn; the structure that made it
+necessary is gone.
+
+**The orphan-sidecar sweep raced the hook.** The hook writes the sidecar, then
+the capture; a drain firing between those two renames swept the in-flight
+sidecar, and the capture then shipped under the bare queue key — permanently
+unreconcilable, and with `--fail-on-diff` on the daily job, a permanently red
+gate. Drains are spawned detached by every hook plus every 15 minutes, so two
+near-simultaneous session ends sufficed. The sweep now skips any sidecar newer
+than both the drain's start and a two-minute grace window.
+
+**Accepted risk, recorded rather than fixed:** nothing binds a sidecar to the
+capture beside it, so a well-formed but WRONG sidecar makes the drain overwrite
+an unrelated note's remote copy. The spool is a user-owned directory inside the
+single-machine, single-user trust boundary (GOVERNANCE §2) — anything able to
+write a sidecar can already rewrite the capture, the vault, or call the CLI — so
+this is not an escalation. The mitigation is a trail, not a guarantee: the drain
+logs `<capture> -> <permalink>` on EVERY flush. If the spool ever leaves that
+boundary this stops being acceptable. See this fitting's README, "Accepted risk".
+**Source:** G4 re-review N1-N4; `tests/basic-memory-shadow.test.ts`.
+**Status:** Settled (the 2026-08-14 review date stands).
+
+## 2026-08-05 · Personal is a card classification, not a fake project or a truth-promotion rule
+
+Personal work needs both a trustworthy execution context and durable continuity,
+but those are separate concerns from repository ownership. A private task may still
+change code in a real project; conversely, inventing a `personal` project would make
+project inference, cwd attribution, and memory ownership disagree.
+
+**Decision:** cards carry an explicit `personal | project | unscoped` scope that is
+independent of `workKind` and, for personal cards, independent of `project`. A selected
+real project always controls execution. An explicitly personal card with no project
+runs through one reserved `@personal` wire scope resolved server-side to the private,
+non-repository `$GARRISON_HOME/personal` directory. Setup creates that directory and
+cross-runtime root policy files; runtime resolution rejects missing, non-directory,
+or symlinked state and must not silently execute in the Garrison composition. Project
+and personal scope may be corrected before the first run, including after inference,
+but are fixed after `runId` because the evidence and handoff already belong to that
+cwd.
+
+An explicit personal card entering Done emits one immutable, bounded, provider-neutral
+packet per coordination generation. The Basic Memory fitting consumes it into
+`Personal/Kanban Completions` using a deterministic card/generation identity. This is
+a source record, not semantic fact extraction: user descriptions/checklists and agent
+closeouts stay labelled unverified; transcripts, logs, diffs, environment values,
+attachment bodies, and session identifiers are excluded, and common credential forms
+are redacted. Kanban commits never wait on a vault/provider write, and startup repair
+reconciles the narrow post-commit outbox window.
+
+The Basic Memory consumer is Scheduler-owned. When Kanban is present and personal
+completion capture is enabled, setup and verify fail if Scheduler is absent rather
+than reporting a healthy pipeline that can only accumulate packets. Compositions may
+explicitly disable the capture instead; the CSG composition now equips Scheduler.
+
+The stable cwd may give Claude or another runtime its ordinary native cwd-scoped hot
+memory, but no `.claude` directory is treated as the shared store. Cross-runtime
+personal continuity belongs to Basic Memory. Automatic fact distillation, a
+post-completion review/promote UI, and post-run in-place re-scoping are explicitly not
+part of this decision.
+
+**Source:** `fittings/seed/kanban-loop/lib/{personal-workspace,personal-memory-outbox}.mjs`,
+`fittings/seed/basic-memory/scripts/consume-kanban-completions.mjs`, and the
+personal scope/workspace/memory test suites. **Status:** Settled.
+
+## 2026-08-16 · A rotating credential is linked into a runtime home, never copied
+
+Garrison isolates each instance's `CODEX_HOME` and seeded it by COPYING the box's
+`~/.codex/auth.json` — in the codex-runtime setup hook, in `importNativeLogin`
+("adopt this box's login as an account"), and into two throwaway harness homes.
+A ChatGPT credential rotates: refreshing mints a new refresh token and kills the
+old, and presenting a superseded one reads as replay, which revokes the entire
+family. So the copies were not two logins but a race that logged the host out of
+Codex five times between 2026-07-22 and 2026-08-16.
+
+One machine, one login, one credential file. The isolated home now SYMLINKS the
+box's `auth.json` (verified against codex-cli 0.147.0: the CLI writes through the
+link, so it survives a login and a refresh) and repairs a home already holding a
+duplicate, while never clobbering a file belonging to a different identity.
+`config.toml` is still copied — it is settings, and per-instance divergence is the
+point. `importNativeLogin` refuses a rotating credential and names the honest
+alternatives: Machine login to run as this box (the default, needing no account),
+Device login to mint a named account its own credential; a bare API key stays
+importable because copying a static credential is inert.
+
+**Source:** [`docs/decisions/2026-08-16-rotating-credentials-are-linked-never-copied.md`](./decisions/2026-08-16-rotating-credentials-are-linked-never-copied.md). **Status:** Settled.

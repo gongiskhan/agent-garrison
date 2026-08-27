@@ -6,9 +6,10 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: sessions
+  category: Interfaces
   cardinality_hint: single
   own_port: true
-  default_port: 7086
+  default_port: 8086
   component_shape: plugin
   platforms:
     - claude-code
@@ -16,7 +17,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7086
+      default: 8086
       description: HTTP port the Dev Env UI binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports (installed hooks keep POSTing to the baked default).
     - key: bind_host
       type: string
@@ -42,9 +43,6 @@ x-garrison:
   provides:
     - kind: dev-env
       name: dev-env
-  consumes:
-    - kind: outpost
-      cardinality: any
   setup:
     command: node ui/build.mjs && node scripts/install-hooks.mjs
     idempotent: true

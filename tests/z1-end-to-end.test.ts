@@ -77,9 +77,9 @@ afterAll(async () => {
 
 describe("Z1 — Discuss-authored automation: open doc -> email via Vault-sealed Google -> verify, self-healing, no secret leak", () => {
   it("runs the full pipeline end-to-end and never leaks the Google token", async () => {
-    // (1) Authoring entry — the Discuss kickoff (H1) opens James mode + names the brief.
+    // (1) Authoring entry — the Discuss-duty kickoff names the brief.
     const kickoff = buildAutomationKickoff({ name: "Email the Q3 report" });
-    expect(kickoff.startsWith("James,")).toBe(true);
+    expect(kickoff).toMatch(/^Let's design/);
     expect(kickoff).toContain("briefs/email-the-q3-report.md");
 
     // (2) The automation the planner would shape from that brief.

@@ -41,6 +41,18 @@ cat >"$DATA_DIR/dream-config.json" <<JSON
 JSON
 echo "improver: dream-config.json written (memory_primary=${PRIMARY}, vault=${VAULT_DIR})"
 
+# ── persist rule sensitivity ─────────────────────────────────────────────────
+# Same reason as dream-config.json above: neither the scheduler-run CLI nor the
+# own-port server sees the composition's config directly, so the values are
+# snapshotted here and read at run time (env still wins).
+ESCALATION_THRESHOLD="${IMPROVER_ESCALATION_THRESHOLD:-3}"
+cat >"$DATA_DIR/rule-config.json" <<JSON
+{
+  "escalationThreshold": ${ESCALATION_THRESHOLD}
+}
+JSON
+echo "improver: rule-config.json written (escalation_threshold=${ESCALATION_THRESHOLD})"
+
 # ── Improver Probe hooks (GARRISON-FLOW-V2 S8) ───────────────────────────────
 # Register the Stop + PostToolUse(AskUserQuestion) hooks additively/idempotently
 # into ~/.claude/settings.json, then validate the probe-question target is

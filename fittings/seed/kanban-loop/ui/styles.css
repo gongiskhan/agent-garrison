@@ -142,16 +142,38 @@ body {
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .btn.primary:hover:not(:disabled) { background: var(--ink-2); }
-/* card-level actions: quieter rule border + a finger-sized hit area */
+/* card-level actions: quieter rule border, compact (the coarse-pointer block
+   below restores 44px touch targets on phones) */
 .btn.small {
-  font-size: 11.5px;
+  font-size: 10.5px;
   font-weight: 500;
-  padding: 6px 10px;
-  min-height: 31px;
+  gap: 5px;
+  padding: 3px 8px;
+  min-height: 24px;
   border-color: var(--rule);
   color: var(--ink-2);
   background: white;
 }
+.btn.small svg { width: 11px; height: 11px; }
+/* tiny inline affordance (section-header "edit"/"attach") */
+.btn.tiny {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 500;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--ink-2);
+  padding: 1px 7px;
+  min-height: 18px;
+  margin-left: 8px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.btn.tiny:hover { border-color: var(--ink); background: var(--paper-2); }
+.btn.tiny.disabled { opacity: 0.5; pointer-events: none; }
 .btn.small:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
 .btn.small.primary {
   border-color: var(--ink);
@@ -159,6 +181,10 @@ body {
   background: var(--ink);
 }
 .btn.small.primary:hover:not(:disabled) { background: var(--ink-2); }
+/* "Mark done": a sage-tinted affirmative, distinct from the neutral small buttons
+   without shouting like .primary. */
+.btn.small.ok { border-color: rgba(61,98,73,0.45); color: var(--sage); background: var(--sage-soft); }
+.btn.small.ok:hover:not(:disabled) { border-color: var(--sage); background: var(--sage-soft); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn svg { width: 13px; height: 13px; flex: 0 0 auto; }
 
@@ -198,10 +224,19 @@ body {
   max-height: 100%;
 }
 .list.agent { border-left-color: var(--sage); }
+.list.scheduled {
+  border-left-color: var(--brass);
+  background: color-mix(in srgb, var(--paper) 92%, var(--warn-soft));
+}
+.list.scheduled .lname-text { color: var(--brass); }
 .list.codex { border-left-color: var(--brass); }
 .list.manual { border-left-color: var(--rule-2); }
 .list.interactive { border-left-color: var(--sage); border-left-style: dashed; }
 .list.attn { border-left-color: var(--alarm); }
+/* Archived: a quiet parking column — de-emphasised so it recedes at the board's
+   right edge without hiding what it holds. */
+.list.archived { border-left-color: var(--rule-2); opacity: 0.72; }
+.list.archived:hover, .list.archived:focus-within { opacity: 1; }
 
 .list .lh {
   padding: 11px 12px 9px;
@@ -280,11 +315,11 @@ body {
   padding: 6px 2px;
 }
 
-/* ── inline Backlog quick-add (touch-first per-column affordance) ──
+/* ── inline Backlog / To Do quick-add (touch-first per-column affordance) ──
    All controls hold a ≥44px hit area so the capture flow works under a thumb at
    390px. The collapsed trigger reads as a dashed "add" tile; expanded, it is a
    compact card-sized form matching the .field input styling. */
-.backlog-add-trigger {
+.list-add-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -300,11 +335,11 @@ body {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.backlog-add-trigger:hover { border-color: var(--ink); background: var(--paper-3); color: var(--ink); }
-.backlog-add-trigger:active { transform: translateY(1px); }
-.backlog-add-trigger svg { width: 13px; height: 13px; flex: 0 0 auto; }
+.list-add-trigger:hover { border-color: var(--ink); background: var(--paper-3); color: var(--ink); }
+.list-add-trigger:active { transform: translateY(1px); }
+.list-add-trigger svg { width: 13px; height: 13px; flex: 0 0 auto; }
 
-.backlog-add {
+.list-add {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -313,10 +348,11 @@ body {
   border: 1px solid var(--rule);
   border-left: 3px solid var(--rule-2);
 }
-.backlog-add .ba-input,
-.backlog-add .ba-select {
+.list-add .ba-input,
+.list-add .ba-select {
   width: 100%;
-  font: inherit;
+  font-family: inherit;
+  line-height: inherit;
   font-size: 13.5px;
   padding: 10px 11px;
   min-height: 44px;
@@ -324,7 +360,7 @@ body {
   background: white;
   color: var(--ink);
 }
-.backlog-add .ba-textarea {
+.list-add .ba-textarea {
   width: 100%;
   font: inherit;
   font-size: 13.5px;
@@ -336,11 +372,11 @@ body {
   background: white;
   color: var(--ink);
 }
-.backlog-add .ba-input:focus,
-.backlog-add .ba-textarea:focus,
-.backlog-add .ba-select:focus { outline: none; border-color: var(--ink); }
-.backlog-add .ba-actions { display: flex; gap: 8px; }
-.backlog-add .ba-btn {
+.list-add .ba-input:focus,
+.list-add .ba-textarea:focus,
+.list-add .ba-select:focus { outline: none; border-color: var(--ink); }
+.list-add .ba-actions { display: flex; gap: 8px; }
+.list-add .ba-btn {
   flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
@@ -355,20 +391,20 @@ body {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.backlog-add .ba-btn:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
-.backlog-add .ba-btn:active:not(:disabled) { transform: translateY(1px); }
-.backlog-add .ba-btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.backlog-add .ba-btn.primary:hover:not(:disabled) { background: var(--ink-2); }
-.backlog-add .ba-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.list-add .ba-btn:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
+.list-add .ba-btn:active:not(:disabled) { transform: translateY(1px); }
+.list-add .ba-btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.list-add .ba-btn.primary:hover:not(:disabled) { background: var(--ink-2); }
+.list-add .ba-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 /* The quick-add path has no Run spec controls on purpose (RUN-SPEC-V1). Say it,
    so their absence reads as a decision rather than a missing feature. */
-.backlog-add .ba-note {
+.list-add .ba-note {
   font-family: var(--sans);
   font-size: 11.5px;
   line-height: 1.45;
   color: var(--mute);
 }
-.backlog-add .ba-err {
+.list-add .ba-err {
   font-family: var(--sans);
   font-size: 12px;
   color: var(--alarm);
@@ -381,8 +417,11 @@ body {
 .card {
   background: white;
   border: 1px solid var(--rule);
-  padding: 10px 11px;
-  font-size: 13px;
+  padding: 8px 9px;
+  font-size: 12.5px;
+  /* Item 5: the card body is clickable (opens detail). A sortable card overrides
+     this to `grab` below to signal it also drags. */
+  cursor: pointer;
   transition: border-color 120ms, transform 120ms, box-shadow 120ms;
 }
 .card:hover { border-color: var(--rule-2); }
@@ -403,6 +442,74 @@ body {
   font-weight: 600;
   font-size: 13px;
   color: var(--ink);
+}
+.card .ct .card-title-open {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.card .ct .card-title-open:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+/* The explicit pencil rename affordance, sitting after the title. A generous tap
+   target on a phone; it fades up on card hover / focus so it does not compete with
+   the title but is always reachable. */
+.card .ct .card-rename {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  margin: -3px -3px -3px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 120ms, color 120ms;
+}
+.card:hover .ct .card-rename,
+.card .ct .card-rename:focus-visible { opacity: 1; }
+.card .ct .card-rename:hover { color: var(--ink); }
+.card .ct .card-rename:focus-visible { outline: 2px solid var(--sage); outline-offset: 1px; }
+.card .ct .card-title-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.card .ct .card-title-input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--sage);
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 5px;
+}
+.card .ct .card-title-input:focus { outline: 2px solid color-mix(in srgb, var(--sage) 35%, transparent); }
+.card .ct .card-title-action {
+  min-height: 30px;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--ink-2);
+  font: 500 10px var(--sans);
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.card .ct .card-title-action.save { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.card .ct .card-title-action:disabled { opacity: 0.45; cursor: not-allowed; }
+.card .card-title-error {
+  color: var(--alarm);
+  font-size: 11px;
+  line-height: 1.35;
+  margin: -1px 0 2px 16px;
 }
 .card .ct .ct-date {
   flex: none;
@@ -437,14 +544,21 @@ body {
 }
 /* chips — sharp mono boxes (Garrison's EAGER:ON / pill idiom) */
 .chip {
-  font-size: 10px;
+  font-size: 9px;
   font-family: var(--mono);
   letter-spacing: 0.03em;
   background: var(--paper-2);
   border: 1px solid var(--rule);
-  padding: 2px 6px;
+  padding: 1px 5px;
   color: var(--ink-2);
 }
+.chip svg { width: 9px; height: 9px; vertical-align: -1px; }
+/* schedule chip: sage while held, amber once due */
+.chip.sched { border-color: var(--sage-2); background: var(--sage-soft); color: var(--sage); }
+.chip.sched.due { border-color: rgba(176,114,21,0.45); color: var(--warn-ink); background: var(--warn-soft); }
+/* checklist progress chip */
+.chip.check { color: var(--ink-2); }
+.chip.check.all-done { border-color: var(--sage-2); color: var(--sage); background: var(--sage-soft); }
 .chip.muted { color: var(--mute); font-style: italic; background: var(--paper); }
 .chip.attn { border-color: rgba(155,54,45,0.4); color: var(--alarm); background: var(--alarm-soft); }
 .chip.goal { border-color: rgba(180,134,42,0.5); color: var(--brass); background: var(--warn-soft); }
@@ -517,6 +631,30 @@ body {
   flex-wrap: wrap;
 }
 
+/* Icon-only action row (card front): the label text is kept in the accessibility
+   tree but visually collapsed, so each action is a compact icon button and the
+   card surface stops being a field of text buttons. The `title` attribute carries
+   the tooltip. The DetailSheet footer omits `.icon-only` and keeps its labels. */
+.card .btns.icon-only .btn {
+  padding: 6px 8px;
+  gap: 0;
+  /* Stay intrinsic-width even under the mobile rule that stretches labelled
+     buttons full width — icon buttons should read as compact taps, not bars. */
+  flex: 0 0 auto;
+}
+.btns.icon-only .btn-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── modal sheets — Garrison .scrim backdrop + white sharp-cornered panel ── */
 .sheet-backdrop {
   position: fixed;
@@ -558,6 +696,55 @@ body {
   line-height: 1.25;
 }
 .sheet .sh-body { padding: 16px 18px 20px; }
+
+/* ---- Opened-card section hierarchy (information-hierarchy pass) ----
+   The primary tiers — status callouts, description, checklist, attachments,
+   evidence — stay full-strength. The secondary tiers (Run configuration,
+   History & artifacts) fold behind a collapsible header so they recede until
+   wanted. Colour stays within the existing status language: neutral sections
+   read brass/ink; a parked card's config carries the alarm tone, nothing new. */
+.card-section {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  margin-bottom: 16px;
+}
+.card-section .cs-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  text-align: left;
+}
+.card-section .cs-head:hover { background: var(--paper-2); }
+.card-section .cs-head:focus-visible { outline: 2px solid var(--sage); outline-offset: -2px; }
+.card-section .cs-chev {
+  display: inline-flex;
+  color: var(--mute);
+  transition: transform 0.15s ease;
+}
+.card-section.open .cs-head .cs-chev { transform: rotate(90deg); }
+.card-section .cs-title { flex: 1 1 auto; }
+.card-section .cs-body {
+  padding: 12px 12px 4px;
+  border-top: 1px solid var(--rule);
+}
+/* The inner blocks own their own bottom margin; drop it on the last one so the
+   section body doesn't carry a double gap. */
+.card-section .cs-body > *:last-child { margin-bottom: 0; }
+/* Attention tone: a parked card opens its Run configuration and flags it. */
+.card-section.tone-attn { border-color: rgba(155, 54, 45, 0.4); }
+.card-section.tone-attn .cs-head,
+.card-section.tone-attn .cs-chev { color: var(--alarm); }
 
 .detail-meta {
   display: flex;
@@ -654,7 +841,7 @@ body {
 .field input:focus,
 .field textarea:focus,
 .field select:focus { outline: none; border-color: var(--ink); }
-.field textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
+.field textarea { resize: vertical; min-height: 72px; line-height: 1.5; overflow-wrap: anywhere; }
 .field .row { display: flex; align-items: center; gap: 9px; }
 .field .row label { margin-bottom: 0; text-transform: none; letter-spacing: 0; font-family: var(--sans); font-size: 13px; color: var(--ink); font-weight: 500; }
 .field .row input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--sage); }
@@ -762,6 +949,21 @@ body {
   background: white;
 }
 .move-list .move-opt:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-2); }
+/* Item 2: agent-list caution — moving a card onto an agent list auto-dispatches a run. */
+.move-list .move-opt .move-agent-hint {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mute);
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.move-list .move-opt .move-agent-hint.starts-run {
+  color: var(--warn, #a15c00);
+  border-color: var(--warn, #a15c00);
+}
 
 /* ── watch (log) — Garrison .term: dark green-tinted console, brass highlight ── */
 .wmeta {
@@ -1047,6 +1249,7 @@ body {
 .ev-routed { background: var(--sage-2); }
 .ev-runtime { background: var(--brass); }
 .ev-runtime-stop { background: var(--warn); }
+.ev-interrupted { background: var(--alarm); }
 .ev-moved, .ev-recovered { background: var(--mute-2); }
 .ev-parked { background: var(--alarm); }
 .ev-failed { background: var(--alarm); }
@@ -1139,11 +1342,37 @@ body {
 
 /* description / last-reply blocks in the detail */
 .detail-desc { margin-bottom: 16px; }
-.detail-desc p { margin: 0; font-size: 13.5px; color: var(--ink); line-height: 1.55; }
+/* A long unbroken string in a description (a URL, a token, a path) must wrap
+   inside the card rather than push the whole sheet wider than the viewport. */
+.detail-desc p { margin: 0; font-size: 13.5px; color: var(--ink); line-height: 1.55; overflow-wrap: anywhere; }
 .detail-desc .reply-quote { font-style: italic; color: var(--ink-2); }
 
 /* ── evidence bundle (screenshots + log) — the proof, surfaced prominently ── */
 .evidence { margin-bottom: 18px; }
+/* Drop target feedback for attach-by-drag. Outline rather than border so the
+   panel does not shift by a pixel when it lights up. */
+.evidence.drag-over {
+  outline: 2px dashed var(--accent, #6b7a4a);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+/* The card's id, shown in the opened card so it can be quoted to an agent. */
+.card-uid {
+  font-size: 11px;
+  color: var(--mute);
+  background: var(--paper-2, rgba(0, 0, 0, 0.04));
+  padding: 2px 6px;
+  border-radius: 3px;
+  user-select: all;
+  align-self: center;
+}
+/* The shared action row repeated at the bottom of the opened card. A rule above
+   it separates it from the content it acts on. */
+.detail-actions-footer {
+  border-top: 1px solid var(--rule, rgba(0, 0, 0, 0.12));
+  padding-top: 12px;
+  margin-top: 4px;
+}
 .ev-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .ev-shot {
   display: flex;
@@ -1223,6 +1452,7 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
 .art-editor { flex: 1; width: 100%; resize: none; border: 0; outline: none; padding: 16px; background: var(--paper); color: var(--ink); font: 13px/1.6 var(--mono); }
 .art-view { flex: 1; margin: 0; padding: 16px; overflow: auto; color: var(--ink); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
 .art-img { max-width: 100%; max-height: 100%; margin: auto; display: block; }
+.art-video { max-width: 100%; max-height: 100%; margin: auto; display: block; background: var(--ink); }
 .art-loading { padding: 20px; color: var(--mute); }
 .art-foot { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--rule); background: var(--paper-2); font-size: 12px; }
 .art-ok { color: var(--sage); font-weight: 600; }
@@ -1402,6 +1632,62 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
   color: var(--mute);
 }
 
+.loadout-panel {
+  grid-column: 1 / -1;
+  margin: 10px 0 2px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--sage);
+  background: var(--sage-soft);
+}
+.loadout-panel.blocked {
+  border-left-color: var(--alarm);
+  background: var(--alarm-soft);
+}
+.loadout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.loadout-panel p {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.loadout-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.loadout-editor label {
+  display: grid;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.loadout-editor input,
+.loadout-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: 12px/1.45 var(--mono);
+  color: var(--ink);
+  background: white;
+  border: 1px solid var(--rule);
+  padding: 8px;
+}
+.loadout-editor textarea { min-height: 68px; resize: vertical; }
+.loadout-editor input:focus,
+.loadout-editor textarea:focus { outline: 2px solid var(--brass); outline-offset: 1px; }
+
 /* D19 — the Done column groups quick cards (trivial-plan inline tasks the gateway
    auto-advanced to Done) under a collapsed strip so the real runs stay legible.
    Native <details>: the summary is the always-visible header; the body reveals on
@@ -1529,6 +1815,19 @@ button:active, .btn:active { transform: translateY(1px); }
   background: rgba(255, 255, 255, 0.04);
   border-radius: 1px;
 }
+/* Neutral topbar buttons (Export / Import) sit on the dark olive bar, so the base
+   ink-on-paper .btn (near-black border + near-black text) is nearly invisible.
+   `.topbar .btn` (0,2,0) beats the base `.btn` (0,1,0); `.topbar .btn.primary`
+   (0,2,1) still wins below, so New card keeps its brass fill. */
+.topbar .btn {
+  color: #f5efdf;
+  border-color: rgba(245, 239, 223, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+}
+.topbar .btn:hover:not(:disabled) {
+  border-color: #f5efdf;
+  background: rgba(255, 255, 255, 0.14);
+}
 .topbar .btn.primary {
   background: var(--brass-2);
   border-color: var(--brass-2);
@@ -1655,65 +1954,17 @@ button:active, .btn:active { transform: translateY(1px); }
 .dr-rowwrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
 .dr-rowwrap > * { min-width: 0; }
 
-/* dr-session-* block — copied verbatim from fittings/seed/drill/ui/styles.css. */
 .dr-session-viewer { min-width: 0; }
 .dr-session-tabs { margin-bottom: 8px; }
-.dr-session { border: 1px solid var(--rule-2); background: white; }
-.dr-session-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; border-bottom: 1px solid var(--rule);
-  background: var(--paper-2); color: var(--ink);
+.kanban-session-host.cc-root {
+  display: block;
+  height: auto;
+  min-height: 0;
+  padding: 10px;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
 }
-.dr-session-head b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dr-session-head svg { flex: none; color: var(--sage-2); }
-.dr-session-id { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
-.dr-session-scroll {
-  max-height: 460px; overflow-y: auto; padding: 10px;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.dr-session-turn { min-width: 0; }
-.dr-session-turn.user { border-left: 2px solid var(--rule-2); padding-left: 8px; }
-.dr-session-turn.assistant { border-left: 2px solid var(--sage-2); padding-left: 8px; }
-.dr-session-role {
-  display: block; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--mute); margin-bottom: 3px;
-}
-.dr-session-text, .dr-session-pre {
-  margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-2);
-  white-space: pre-wrap; word-break: break-word; font-family: var(--sans);
-}
-.dr-session-pre {
-  font-family: var(--mono); font-size: 10.5px;
-  background: var(--paper); border: 1px solid var(--rule);
-  padding: 6px 8px; margin-top: 4px; max-height: 240px; overflow-y: auto;
-}
-.dr-session-pre.result { border-left: 2px solid var(--sage-2); }
-.dr-session-longtext summary, .dr-session-thinking summary, .dr-session-tool summary {
-  cursor: pointer; font-size: 11px; color: var(--ink-mute);
-}
-.dr-session-longtext summary { font-style: italic; }
-.dr-session-thinking { margin: 4px 0; }
-.dr-session-thinking summary { color: var(--mute); font-style: italic; }
-.dr-session-thinking .dr-session-pre { color: var(--mute); }
-.dr-session-toolwrap { margin: 4px 0; min-width: 0; }
-.dr-session-tool summary {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 6px; border: 1px solid var(--rule); background: var(--paper-2);
-  min-width: 0;
-}
-.dr-session-tool summary b { font-size: 11px; color: var(--ink); flex: none; }
-.dr-session-tool summary svg { flex: none; color: var(--warn-ink); }
-.dr-session-tool-hint {
-  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-family: var(--mono); font-size: 9.5px; color: var(--mute);
-}
-.dr-session-img {
-  display: block; margin-top: 6px; max-width: 100%; max-height: 340px;
-  border: 1px solid var(--rule-2); background: var(--paper-2);
-}
-@media (max-width: 760px) {
-  .dr-session-scroll { max-height: 55vh; }
-}
+.kanban-session-host .cc-session-scroll { max-height: 55vh; overflow-y: auto; }
 
 /* Terminal host (copied from dev-env) + the Terminal modal shell. */
 .term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
@@ -1796,3 +2047,297 @@ button:active, .btn:active { transform: translateY(1px); }
 .drill-block .db-link:hover { color: var(--sage); }
 /* In the detail sheet the block is a section of its own, not a card footnote. */
 .drill-detail { margin-bottom: 16px; }
+
+/* ═══ Trello refit: drag-and-drop, checklists, schedule, add-list ═══ */
+
+/* Sortable card wrapper: the transform/transition ride the wrapper so the card
+   itself keeps its hover styling. The in-flight source dims to read as the
+   slot indicator (its gap is where the card will land). */
+.sortable-card { touch-action: manipulation; }
+.sortable-card.drag-source .card {
+  opacity: 0.35;
+  border-style: dashed;
+  border-color: var(--sage-2);
+  background: var(--sage-soft);
+}
+.sortable-card .card { cursor: grab; }
+.sortable-card .card:active { cursor: grabbing; }
+
+/* The floating copy under the pointer — the "held" card. A deeper shadow and a
+   slight scale-up on top of the tilt make it visibly LIFT off the board so a
+   long-press reads as "picked up", not "maybe moved". */
+.card.drag-ghost {
+  box-shadow: 0 16px 38px rgba(31, 29, 26, 0.34);
+  border-color: var(--ink);
+  transform: rotate(1.5deg) scale(1.03);
+  width: 236px;
+  pointer-events: none;
+}
+.list.drag-ghost-col {
+  box-shadow: 0 10px 28px rgba(31, 29, 26, 0.22);
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  width: 252px;
+  pointer-events: none;
+}
+
+/* A column drags from anywhere on it, so the grab cursor covers the whole
+   section - the header is only its accessible handle, not the sole grip. Its
+   own controls (gear, buttons, fields) keep their cursors via the later rules
+   and the browser default for form controls. */
+.list { touch-action: manipulation; }
+.col-drag-handle { cursor: grab; }
+.col-drag-handle:active { cursor: grabbing; }
+.list .lbody { cursor: grab; }
+.list .lbody:active { cursor: grabbing; }
+/* Text entry is exempt from the hold-to-drag rule (DRAG_EXEMPT_ANCESTORS), so it
+   must not inherit the grab cursor either. The buttons and links in here already
+   declare `cursor: pointer` of their own. */
+.list .lbody input,
+.list .lbody textarea { cursor: text; }
+.list .lbody select { cursor: pointer; }
+.list .lbody.drop-over { outline: 1px dashed var(--sage-2); outline-offset: -4px; background: var(--sage-soft); }
+.list.drag-source { opacity: 0.45; }
+
+/* "+ Add list" ghost column */
+.list.add-list {
+  background: transparent;
+  border: 1px dashed var(--rule-2);
+  display: flex;
+  align-items: flex-start;
+  padding: 10px;
+}
+.add-list-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  cursor: pointer;
+  width: 100%;
+}
+.add-list-btn:hover { color: var(--ink); background: var(--paper-2); }
+.add-list-btn svg { width: 13px; height: 13px; }
+
+/* Checklist (DetailSheet) */
+.checklist .cl-items {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.checklist .cl-items li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 2px;
+  font-size: 12.5px;
+}
+.checklist .cl-items li.done .cl-text { color: var(--mute); text-decoration: line-through; }
+.checklist .cl-box {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  cursor: pointer;
+  position: relative;
+}
+.checklist .cl-box.checked { background: var(--sage); border-color: var(--sage); }
+.checklist .cl-box.checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--paper);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.checklist .cl-text { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.checklist .cl-text-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: text;
+}
+.checklist .cl-edit {
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  padding: 0 2px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.checklist .cl-edit:hover { color: var(--ink); }
+.checklist .cl-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+/* These fields size themselves to their content (AutoTextarea), so they must NOT
+   carry a min-height: 7.5em reserved seven empty lines for a one-line item and
+   was the whole reason the box looked wrong. */
+.checklist .cl-editor textarea,
+.checklist .cl-add textarea { white-space: pre-wrap; }
+/* Full width of the card area, with the Add button on its own row underneath -
+   sharing a flex row with the button is what kept the field narrow. */
+.checklist .cl-add { display: block; }
+.checklist .cl-add textarea { width: 100%; }
+.checklist .cl-del {
+  border: none;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.checklist .cl-del:hover { color: var(--alarm); }
+.checklist .cl-del svg { width: 11px; height: 11px; }
+
+/* Card bundle + Trello JSON transfer */
+.transfer-row {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.transfer-row .dd-title { margin-bottom: 3px; }
+.import-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 76px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px dashed var(--rule-2);
+  background: var(--paper-2);
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.import-drop input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; }
+.import-archived { display: flex; gap: 8px; align-items: flex-start; margin: -3px 0 14px; font-size: 12px; }
+.import-archived input { margin-top: 2px; accent-color: var(--sage); }
+.import-preview { margin: 12px 0; padding: 12px; border: 1px solid var(--rule); background: var(--paper-2); }
+.import-preview details { margin-top: 8px; font-size: 12px; }
+.import-preview ul { margin: 6px 0 0; padding-left: 20px; }
+@media (max-width: 620px) {
+  .transfer-row { align-items: stretch; flex-direction: column; }
+  .topbar { flex-wrap: wrap; }
+  .topbar .spacer { min-width: 20px; }
+}
+
+/* Schedule rows */
+.sched-inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.sched-inline input[type="datetime-local"] { min-width: 0; }
+.sched-inline input[type="text"] { min-width: 180px; font-family: var(--mono); }
+.sched-advanced, .sched-editor { display: grid; gap: 8px; margin-top: 8px; }
+.sched-advanced { grid-template-columns: minmax(0, 1fr); font-size: 11px; }
+.sched-advanced > input, .sched-editor input[aria-label="Schedule timezone"] { font-family: var(--mono); }
+.sched-presets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sched-presets .btn.tiny { margin-left: 0; }
+.schedule-link { margin-top: 8px; font-size: 11px; }
+.schedule-card-ref {
+  color: var(--brass-2);
+  font-family: var(--mono);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.schedule-card-ref:hover { color: var(--sage-2); }
+.schedule-card-ref:focus-visible {
+  outline: 2px solid var(--brass-2);
+  outline-offset: 2px;
+}
+.schedule-occurrences { line-height: 1.75; }
+.morning-delivery { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.sched-block .row { align-items: center; }
+
+/* Attachment item: the serve link/thumbnail + a remove control for uploads */
+.ev-item { position: relative; display: inline-flex; }
+.ev-item .ev-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  border: 1px solid var(--rule-2);
+  background: white;
+  color: var(--mute);
+  cursor: pointer;
+  padding: 1px 3px;
+  line-height: 1;
+}
+.ev-item .ev-del:hover { color: var(--alarm); border-color: var(--alarm); }
+.ev-item .ev-del svg { width: 10px; height: 10px; }
+
+/* Watch Panic + parked-card rerouting. The destructive stop is visually
+   isolated from passive log navigation, and its outcome points directly at the
+   editable Run spec before Retry. */
+.panic-bar,
+.panic-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.panic-bar {
+  padding: 9px 10px;
+  border: 1px solid var(--alarm);
+  border-radius: 8px;
+  background: var(--alarm-soft);
+  color: var(--ink);
+  font-size: 12px;
+}
+.panic-bar span { color: var(--mute); }
+.panic-result .btn { flex: 0 0 auto; }
+.panic-error { margin-bottom: 10px; }
+.routing-help { margin: 0 0 8px; font-size: 11px; }
+.routing-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+@media (max-width: 640px) {
+  .panic-bar,
+  .panic-result { align-items: stretch; flex-direction: column; }
+  .panic-bar .btn,
+  .panic-result .btn { width: 100%; justify-content: center; }
+}
+
+/* ── Mobile sweep (2026-08-23, garrison-improvements card item 1) ──────────
+   Native checkboxes rendered browser-default and could be flex-squeezed to
+   1px inside label rows; textareas and inputs inside the sheet could exceed
+   the viewport. House-size the primitives once, everywhere. */
+input[type="checkbox"] {
+  appearance: auto;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--sage, #3d6249);
+}
+label.row { display: flex; align-items: center; gap: 8px; }
+.sheet textarea,
+.sheet input[type="text"],
+.sheet input[type="search"],
+.sheet select {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.cl-editor { flex: 1 1 auto; min-width: 0; }
+.cl-editor textarea { width: 100%; }
+@media (max-width: 480px) {
+  .sheet .sh-body { padding: 12px 12px 16px; }
+  .detail-actions .btn { flex: 1 1 auto; justify-content: center; }
+}

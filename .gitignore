@@ -31,14 +31,25 @@ compositions/*/.garrison/uploads/
 compositions/*/.garrison/decisions.jsonl
 compositions/*/.garrison/operative-session-id
 compositions/*/.garrison/orchestrator-session-id
+# The autonomy consult's daily ask counter (brief §7.5) — per-machine runtime
+# state written beside the decisions log, same class as decisions.jsonl.
+compositions/*/.garrison/ask-budget.json
 compositions/*/.garrison/routing.json
 compositions/*/.garrison/orchestrator-authored.json
 compositions/*/.garrison/owner.json
+compositions/*/.garrison/last-up.json
 compositions/*/.garrison/routing.json.*.bak
 compositions/*/.garrison/souls/
+# Retired identity source. No composition ships one any more, but a pre-upgrade
+# runtime still regenerates it into the working tree; the identity migration
+# deletes it on first read. Never let one be committed back in.
+compositions/*/.garrison/prompts/soul.md
 compositions/*/.garrison/switch-log.jsonl
 compositions/*/.garrison/run-evidence.json
 compositions/*/.garrison/mcp.json
+compositions/*/.garrison/basic-memory-kanban-capture
+# Written by the Improver fitting at runtime (improver/scripts/server.mjs).
+compositions/*/.garrison/knowledge-memory.md
 compositions/*/apm_modules/
 compositions/*/.claude/
 compositions/*/logs/
@@ -102,3 +113,7 @@ docs/autothing/runs/**/owner.lock.json
 
 # aborted drill-graduation e2e runs leave their temp playwright config behind
 .tmp-drill-graduation-pw-config-*.mjs
+
+# mesh evidence run artifacts (transient)
+evidence/
+.mesh-shots-*.mjs

@@ -129,7 +129,7 @@ export function InstallBanner() {
       <span className="pill verified" style={{ fontSize: 10.5 }}>
         managing ~/.claude
       </span>
-      <div style={{ flex: 1, color: "var(--mute)" }}>
+      <div style={{ flex: 1, minWidth: 0, color: "var(--mute)" }}>
         {status.grandfathered ? (
           <>
             Adopted an existing Garrison install{status.installedAt ? ` (${fmt(status.installedAt)})` : ""} —{" "}
@@ -140,7 +140,8 @@ export function InstallBanner() {
             Installed {fmt(status.installedAt)}
             {status.backupDir ? (
               <>
-                {" "}· restore point at <code>{status.backupDir}</code>
+                {" "}· restore point at{" "}
+                <code style={{ overflowWrap: "anywhere", whiteSpace: "normal" }}>{status.backupDir}</code>
               </>
             ) : null}
           </>

@@ -24,9 +24,7 @@ describe("autonomy axis (D8)", () => {
   it("an explicit autonomous marker wins (web-channel toggle / garrison doorway)", async () => {
     const mod = await core();
     expect(mod.classifyExecution({ channel: "web", explicitAutonomous: true })).toBe("autonomous");
-    expect(
-      mod.classifyExecution({ channel: "web", explicitAutonomous: true, mode: "gary" })
-    ).toBe("autonomous"); // explicit marker outranks the Gary floor
+    expect(mod.classifyExecution({ channel: "web", explicitAutonomous: true })).toBe("autonomous");
   });
 
   it("a multi-step cross-app automation shape is autonomous", async () => {
@@ -38,18 +36,6 @@ describe("autonomy axis (D8)", () => {
         classification: { taskType: "ops", tier: "T1-standard" }
       })
     ).toBe("autonomous");
-  });
-
-  it("Gary-mode conversation floors to interactive", async () => {
-    const mod = await core();
-    expect(
-      mod.classifyExecution({
-        channel: "web",
-        mode: "gary",
-        message: "what should I cook this week?",
-        classification: { taskType: "other", tier: "T0-trivial" }
-      })
-    ).toBe("interactive");
   });
 
   it("ordinary interactive work stays interactive; the CLASSIFIER's execution read decides (rev-s2 fix)", async () => {
@@ -66,11 +52,6 @@ describe("autonomy axis (D8)", () => {
     expect(
       mod.classifyExecution({ channel: "web", classification: { taskType: "code", tier: "T1-standard", execution: "autonomous" } })
     ).toBe("autonomous");
-    // ...but Gary-mode conversation still floors interactive? No — explicit
-    // classifier reads rank BELOW the Gary floor per D8 rule order.
-    expect(
-      mod.classifyExecution({ channel: "web", mode: "gary", classification: { taskType: "code", tier: "T1-standard", execution: "autonomous" } })
-    ).toBe("interactive");
   });
 
   it("the classifier prompt asks for execution and the parser clamps it", async () => {
@@ -101,7 +82,7 @@ describe("autonomy axis (D8)", () => {
     const p = mod.buildAutonomousCardPayload({
       brief: "build X",
       project: "/home/u/dev/x",
-      workKind: "full-feature",
+      flow: "feature",
       phases: { walkthrough: false },
       taskType: "implement",
       tier: "T2-deep"
@@ -166,34 +147,22 @@ describe("brain merge grep proofs (D6/D7, acceptance 10)", () => {
     }
   });
 
-  it("orchestration doctrine exists in exactly one prompt body (the merged orchestrator prompt)", () => {
-    const merged = readFileSync(
+  it("the packaged prompt is only a pointer; authored Identity is the one persona source", () => {
+    const packaged = readFileSync(
       path.join(ROOT, "fittings/seed/orchestrator/.apm/prompts/orchestrator.prompt.md"),
       "utf8"
     );
-    // the merged prompt carries all three bodies' load-bearing content
-    expect(merged).toContain("{{routing}}"); // routing duties
-    expect(merged).toContain("[route: <target-id> | rule: <rule-id> | profile: <name>]");
-    expect(merged).toContain("[orchestrator-active]");
-    expect(merged).toContain("current branch"); // garrison-orchestrator project-work flow (same-branch only, GARRISON-FLOW-V2 D10)
-    expect(merged).toContain("origin: ui-tab"); // surface awareness
-    expect(merged).toContain("Autonomous work"); // garrison disciplined-build doctrine section
-    expect(merged).toContain("5-attempt ceiling");
-    expect(merged).toContain("No voluntary deferral");
-    expect(merged).toContain("Self-unblock before blocking");
-    expect(merged).toContain("never a silent pass");
-    expect(merged).toContain("detect once, degrade gracefully");
-    // modes preserved as faces
-    expect(merged).toContain("Gary");
-    expect(merged).toContain("Joe");
-    expect(merged).toContain("James");
-    // no second prompt body carries the pipeline doctrine: the parked
-    // garrison-orchestrator prompt must NOT contain the autonomous-build section
-    const parked = readFileSync(
-      path.join(ROOT, "fittings/seed/garrison-orchestrator/.apm/prompts/garrison-orchestrator.prompt.md"),
+    expect(packaged).toContain("live system prompt is the layered Orchestrator document");
+    expect(packaged).not.toContain("{{routing}}");
+    // Retired names count too: one reappearing in the shipped prompt is the same
+    // bug as the current one leaking into it.
+    expect(packaged).not.toMatch(/\b(?:Zeca|Gary|Verity|Joe|James)\b/);
+
+    const authoredDefaults = readFileSync(
+      path.join(ROOT, "src/lib/orchestrator-authored-defaults.ts"),
       "utf8"
     );
-    expect(parked).not.toContain("5-attempt ceiling");
-    expect(parked).not.toContain("Autonomous work (the disciplined build)");
+    expect(authoredDefaults).toContain("You are Zeca");
+    expect(authoredDefaults).not.toMatch(/\b(?:Gary|Verity|Joe|James)\b/);
   });
 });

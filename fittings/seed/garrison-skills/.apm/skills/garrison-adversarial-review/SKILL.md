@@ -45,7 +45,7 @@ This review no longer folds a security-boundary rubric into every slice. That
 rubric (authorization on every touched path, injection surfaces, secret
 handling, tenant/org scoping, input validation at the boundary) now lives in
 the opt-in **garrison-security-review** phase, enabled per project
-(`projects.<label>.security_sensitive` in the policy) or by explicit work-kind
+(`projects.<label>.security_sensitive` in the policy) or by explicit flow
 inclusion - not fired automatically on a "security-boundary" heuristic. The
 universal deterministic secrets/SAST floor (`securityWall` in garrison-test)
 still runs on every slice regardless of profile.

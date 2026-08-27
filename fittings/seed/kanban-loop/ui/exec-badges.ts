@@ -66,13 +66,23 @@ export function execBadges(settled: RouteStamp | null | undefined, expected: Rou
   // in the composition directory, not the card's repo. Surface it loudly.
   const refusedProject = (r.overridesRejected || []).find((x) => x && x.field === "project");
   if (refusedProject) {
-    push(
-      "project-refused",
-      "not in",
-      "composition dir",
-      `The card's project could not be used as the turn's working directory (${refusedProject.reason}), ` +
-        "so the turn ran in the composition directory instead. A project must be a git repo directly under the dev root."
-    );
+    const personalUnavailable = refusedProject.reason === "personal-workspace-unavailable";
+    if (personalUnavailable) {
+      push(
+        "project-refused",
+        "scope",
+        "refused",
+        "The turn was refused because the fixed personal workspace was missing, invalid, or symlinked. Run Kanban setup and verify GARRISON_HOME/personal."
+      );
+    } else {
+      push(
+        "project-refused",
+        "not in",
+        "composition dir",
+        `The card's project could not be used as the turn's working directory (${refusedProject.reason}), ` +
+          "so the turn ran in the composition directory instead. A project must be a git repo directly under the dev root."
+      );
+    }
   }
   if ("account" in (r as unknown as Record<string, unknown>) && r.account !== undefined) {
     push("account", "account", r.account ?? "machine login", r.account
@@ -81,4 +91,3 @@ export function execBadges(settled: RouteStamp | null | undefined, expected: Rou
   }
   return { badges: out, expected: isExpected };
 }
-

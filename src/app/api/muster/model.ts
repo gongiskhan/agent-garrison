@@ -11,6 +11,8 @@
 // duties}; everything else in the manifest round-trips untouched.
 
 import path from "node:path";
+import { pushManifestToState } from "@/lib/composition-sync";
+import fs from "node:fs/promises";
 import {
   resolveModel,
   validateDutyGraph,
@@ -19,6 +21,8 @@ import {
   type ResolverFittingInput,
   type RuleResult
 } from "@/lib/resolver";
+import { computeKanbanResolvedModel, kanbanModelPath, writeKanbanResolvedModel } from "@/lib/kanban-model";
+import { garrisonDir } from "@/lib/claude-home";
 import {
   computeCapabilityResolution,
   defaultConfigForEntry,
@@ -32,6 +36,7 @@ import {
 } from "@/lib/compositions";
 import { resolveActiveComposition } from "@/lib/active-composition";
 import { readLibrary } from "@/lib/library";
+import { getRunnerState } from "@/lib/runner";
 import { authorApmDependencies } from "@/lib/apm-manifest";
 import { ROOT_DIR } from "@/lib/paths";
 import { cloneFitting } from "@/lib/clone";
@@ -383,7 +388,7 @@ export async function setCellTarget(
 
 // ── Level management (add / remove / describe) ────────────────────────────────
 // A duty's level ladder is editable: levels can be appended, removed, and have
-// their descriptions rewritten. The Dispatcher reads level DESCRIPTIONS to pick
+// their descriptions rewritten. Orchestrator routing inference reads level descriptions to pick
 // a depth, so the description is first-class here, not cosmetic. All three
 // writers materialise the duty spec into the composition (the composition file
 // wins, D8) exactly like setCellTarget, then write atomically.
@@ -414,7 +419,7 @@ function bumpedEffort(prev?: DutyEffort): DutyEffort {
 // Append a level to a duty. The new level clones the last one's shape (a leaf
 // cell keeps its skill + target with a bumped effort; a composite keeps its
 // sequence) under a placeholder description that tells the operator to write
-// the real routing criterion — the Dispatcher picks levels BY description.
+// the real routing criterion — Orchestrator routing inference picks levels by description.
 export async function addDutyLevel(
   compositionId: string | undefined,
   dutyId: string,
@@ -428,7 +433,7 @@ export async function addDutyLevel(
   const n = duty.levels.length + 1;
   const desc =
     description?.trim() ||
-    `level ${n}: deeper than level ${n - 1} - describe when the Dispatcher should pick this level`;
+    `level ${n}: deeper than level ${n - 1} - describe when Orchestrator routing inference should pick this level`;
   const next: DutyLevel = last?.cell
     ? { description: desc, cell: { ...structuredClone(last.cell), effort: bumpedEffort(last.cell.effort) } }
     : { description: desc, sequence: structuredClone(last?.sequence ?? []) };
@@ -476,7 +481,7 @@ export async function removeDutyLevel(
   return assembleMusterModel(id);
 }
 
-// Rewrite one level's description — the Dispatcher's routing criterion for
+// Rewrite one level's description — Orchestrator routing inference's criterion for
 // that depth. Autosaved from the Muster UI (debounced), never a Save button.
 export async function describeDutyLevel(
   compositionId: string | undefined,
@@ -486,7 +491,7 @@ export async function describeDutyLevel(
 ): Promise<MusterModel> {
   const id = await resolveCompositionId(compositionId);
   const desc = description.trim();
-  if (!desc) throw new Error("a level description cannot be empty - the Dispatcher routes by it");
+  if (!desc) throw new Error("a level description cannot be empty - Orchestrator routing inference uses it");
   const model = await assembleMusterModel(id);
   const duty = model.duties[dutyId];
   if (!duty) throw new Error(`unknown duty "${dutyId}"`);
@@ -500,6 +505,299 @@ export async function describeDutyLevel(
     levels[level - 1].description = desc;
   });
   return assembleMusterModel(id);
+}
+
+// ── Duty create / delete (Kanban board list management) ──────────────────────
+// The board's "+ Add list" / list-delete proxy POSTs {action: "create"|"delete"}
+// at /api/muster/duty. A created list IS a composition-local duty (no fitting
+// needed - resolver.ts collectDuties overlays composition duties); a deleted
+// list is a deselected duty whose composition-local definition is also removed
+// when nothing else references it. Both writers reproject model.json + poke the
+// live board when the edited composition is the one the board is projected from.
+
+// An error that carries the HTTP status the duty route should answer with.
+// Everything else thrown from this module stays a 400 at the route.
+export class DutyRouteError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "DutyRouteError";
+  }
+}
+
+// List ids the board owns (the fixed human columns) plus the two selection-time
+// duties that are not executable phase lists. A user-created list must never
+// collide with these - the board's engine hardcodes the terminal/entry edges.
+const RESERVED_DUTY_IDS = new Set(["backlog", "todo", "done", "needs-attention", "discuss", "dispatch"]);
+
+// The board reconcile counters passed through from POST /reconcile:
+// added/removed/updated are list ids, movedToAttention is parked card ids.
+export interface KanbanReconcileSummary {
+  added: string[];
+  removed: string[];
+  updated: string[];
+  movedToAttention: string[];
+}
+
+export interface DutyMutationResult {
+  ok: true;
+  dutyId: string;
+  created?: true;
+  deleted?: true;
+  // Delete only: the definition survived (fitting-provided, or referenced by
+  // another duty's sequence) - the duty was deselected, not removed.
+  selectedOnly?: true;
+  note?: string;
+  reconciled: boolean;
+  reconcile?: KanbanReconcileSummary;
+}
+
+// Kebab-case derivation for a user-supplied list name: lowercase, every run of
+// non [a-z0-9] becomes one "-", trimmed. Must then pass the metadata.ts duty-id
+// pattern (leading letter), so "3d print" is refused rather than mangled.
+const DUTY_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
+function deriveDutyId(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function titleCaseFromId(id: string): string {
+  return id
+    .split("-")
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+const asStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+
+// Reproject model.json + poke the live board, AFTER a successful manifest
+// write, when the edited composition is the ACTIVE one. "Active" = the
+// machine-global model.json is stamped with this composition's id (the board's
+// single source of truth about which composition it is projected from); when it
+// is absent or another composition's, the edit is dormant until that
+// composition's next up() projects it. Fail-closed like runner.ts up(): a graph
+// error here is a 500 (the writers validate the hypothetical model BEFORE the
+// manifest write, so it should be unreachable) and the live model is NOT
+// cleared - clearing would strand the running board's routing mid-flight.
+// A down/unreachable board is NOT an error: model.json is written, the next
+// board --setup reconciles from it, and the caller reports reconciled: false.
+async function reprojectKanbanIfActive(
+  compositionId: string
+): Promise<{ reconciled: boolean; reconcile?: KanbanReconcileSummary }> {
+  let stamped: string | null = null;
+  try {
+    const parsed = JSON.parse(await fs.readFile(kanbanModelPath(), "utf8")) as { compositionId?: unknown };
+    stamped = typeof parsed.compositionId === "string" ? parsed.compositionId : null;
+  } catch {
+    stamped = null;
+  }
+  if (stamped !== compositionId) return { reconciled: false };
+
+  const composition = await readComposition(compositionId);
+  const entries = await selectedLibraryEntries(composition.selections);
+  const resolved = resolveModel({
+    fittings: entries.map((entry) => ({ id: entry.id, metadata: entry.metadata })),
+    compositionDuties: composition.duties,
+    selectedDuties: composition.selectedDuties.length ? composition.selectedDuties : undefined
+  });
+  if (resolved.errors.length > 0) {
+    throw new DutyRouteError(
+      500,
+      `duty graph invalid after write (live model left untouched): ${resolved.errors
+        .map((error) => error.message)
+        .join("; ")}`
+    );
+  }
+  // Unlike up() (which skips the write when kanbanLists is empty), write
+  // unconditionally: this path only runs when model.json is ALREADY this
+  // composition's projection, and the board's reconcile needs the new model on
+  // disk to drop a deleted list - a skipped write would leave the stale list.
+  await writeKanbanResolvedModel(composition, entries);
+
+  let baseUrl: string | null = null;
+  try {
+    const statusRaw = await fs.readFile(path.join(garrisonDir(), "ui-fittings", "kanban-loop.json"), "utf8");
+    const status = JSON.parse(statusRaw) as { url?: unknown };
+    baseUrl = typeof status.url === "string" && status.url.length > 0 ? status.url : null;
+  } catch {
+    baseUrl = null;
+  }
+  if (!baseUrl) return { reconciled: false };
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/reconcile`, {
+      method: "POST",
+      signal: AbortSignal.timeout(3000)
+    });
+    if (!response.ok) return { reconciled: false };
+    const body = (await response.json()) as Record<string, unknown>;
+    return {
+      reconciled: true,
+      reconcile: {
+        added: asStringArray(body.added),
+        removed: asStringArray(body.removed),
+        updated: asStringArray(body.updated),
+        movedToAttention: asStringArray(body.movedToAttention)
+      }
+    };
+  } catch {
+    return { reconciled: false };
+  }
+}
+
+export interface CreateDutyArgs {
+  compositionId?: string;
+  dutyId?: string;
+  title?: string;
+  description?: string;
+  target?: string;
+  effort?: string;
+}
+
+// Create a composition-local duty (one leaf level) and select it. The id is
+// derived kebab-case from dutyId or title; reserved board ids and already-known
+// duty ids are refused. The hypothetical duty graph is validated BEFORE the
+// manifest write, so an invalid create writes nothing.
+export async function createDuty(args: CreateDutyArgs): Promise<DutyMutationResult> {
+  const id = await resolveCompositionId(args.compositionId);
+  const model = await assembleMusterModel(id);
+
+  const rawName = args.dutyId?.trim() || args.title?.trim() || "";
+  if (!rawName) throw new Error("a dutyId or title is required to create a duty");
+  const dutyId = deriveDutyId(rawName);
+  if (!dutyId || !DUTY_ID_PATTERN.test(dutyId)) {
+    throw new Error(`cannot derive a valid duty id from "${rawName}" - ids are kebab-case starting with a letter`);
+  }
+  if (RESERVED_DUTY_IDS.has(dutyId)) {
+    throw new Error(`"${dutyId}" is a reserved board list id and cannot be a duty`);
+  }
+  if (model.duties[dutyId]) {
+    throw new Error(`duty "${dutyId}" already exists (fitting-provided or composition-local)`);
+  }
+
+  // The cell's target must be a REAL composition target: the kanban projection
+  // joins the cell with its target's spec, so an unknown target would put null
+  // runtime/model into the step. An unknown PASSED target is a 400, never a
+  // silent null; when none is passed prefer cc-sonnet, else the first target.
+  let target: string;
+  if (args.target !== undefined && args.target.trim() !== "") {
+    target = args.target.trim();
+    if (!model.targets.some((t) => t.id === target)) {
+      throw new Error(`unknown target "${target}" - not defined in this composition`);
+    }
+  } else if (model.targets.some((t) => t.id === "cc-sonnet")) {
+    target = "cc-sonnet";
+  } else if (model.targets.length > 0) {
+    target = model.targets[0].id;
+  } else {
+    throw new Error("composition defines no targets - add a target before creating a duty");
+  }
+  const effort: DutyEffort = (dutyEfforts as readonly string[]).includes(args.effort ?? "")
+    ? (args.effort as DutyEffort)
+    : "medium";
+
+  const title = args.title?.trim() || titleCaseFromId(dutyId);
+  const description = args.description?.trim() || "User-created list from the Kanban board.";
+  const spec: DutySpec = {
+    id: dutyId,
+    title,
+    description,
+    levels: [
+      {
+        description: args.description?.trim() || `Default level for ${title}`,
+        cell: { target, effort }
+      }
+    ]
+  };
+
+  // Graph-validate the hypothetical model BEFORE writing (the removeDutyLevel
+  // pattern): only errors the addition INTRODUCES block it.
+  const hypothetical = structuredClone(model.duties);
+  hypothetical[dutyId] = { ...structuredClone(spec) };
+  const before = new Set(validateDutyGraph(model.duties).map((e) => e.message));
+  const broken = validateDutyGraph(hypothetical).filter((e) => !before.has(e.message));
+  if (broken.length > 0) {
+    throw new Error(`cannot create duty "${dutyId}": ${broken.map((e) => e.message).join("; ")}`);
+  }
+
+  await mutateCompositionBlock(id, (block) => {
+    const duties: unknown[] = Array.isArray(block.duties) ? (block.duties as unknown[]) : (block.duties = []);
+    duties.push(spec);
+    // Empty/absent selected_duties = select-all (resolver.ts): leave it empty so
+    // the new duty is auto-selected. Materialising [dutyId] here would silently
+    // DESELECT every other duty. Only an explicit non-empty list is appended to.
+    if (Array.isArray(block.selected_duties) && block.selected_duties.length > 0) {
+      const selected = block.selected_duties as string[];
+      if (!selected.includes(dutyId)) selected.push(dutyId);
+    }
+  });
+
+  const reconcile = await reprojectKanbanIfActive(id);
+  return { ok: true, dutyId, created: true, ...reconcile };
+}
+
+// Delete a duty from the board's vocabulary: deselect it, and remove its
+// composition-local definition when nothing else references it. A
+// fitting-provided duty is deselected only (the fitting is never unequipped).
+export async function deleteDuty(args: { compositionId?: string; dutyId: string }): Promise<DutyMutationResult> {
+  const id = await resolveCompositionId(args.compositionId);
+  const model = await assembleMusterModel(id);
+  const dutyId = args.dutyId;
+  const duty = model.duties[dutyId];
+  if (!duty) throw new Error(`unknown duty "${dutyId}"`);
+
+  const composition = await readComposition(id);
+  const isFittingProvided = duty.providerFittingId !== undefined;
+  const hasLocalDefinition = composition.duties.some((d) => d.id === dutyId);
+  // Referenced by ANY other known duty's sequence (selected or not): deleting
+  // the definition then would break the duty graph (validateDutyGraph spans all
+  // known duties), so a referenced definition survives and we deselect only.
+  const referenced = Object.values(model.duties).some(
+    (d) => d.id !== dutyId && d.levels.some((level) => (level.sequence ?? []).some((entry) => entry.duty === dutyId))
+  );
+  const removeDefinition = !isFittingProvided && hasLocalDefinition && !referenced;
+
+  if (removeDefinition) {
+    const hypothetical = structuredClone(model.duties);
+    delete hypothetical[dutyId];
+    const before = new Set(validateDutyGraph(model.duties).map((e) => e.message));
+    const broken = validateDutyGraph(hypothetical).filter((e) => !before.has(e.message));
+    if (broken.length > 0) {
+      throw new Error(`cannot delete duty "${dutyId}": ${broken.map((e) => e.message).join("; ")}`);
+    }
+  }
+
+  // Empty/absent selected_duties = select-all: deselecting ONE duty from that
+  // state must materialise an explicit list of every OTHER known duty, or the
+  // empty list would keep auto-selecting the deleted one (or, worse, a naive
+  // [dutyId]-removal no-op would change nothing at all).
+  const nextSelected =
+    composition.selectedDuties.length > 0
+      ? composition.selectedDuties.filter((selectedId) => selectedId !== dutyId)
+      : Object.keys(model.duties).filter((knownId) => knownId !== dutyId);
+
+  await mutateCompositionBlock(id, (block) => {
+    block.selected_duties = nextSelected;
+    if (removeDefinition && Array.isArray(block.duties)) {
+      block.duties = (block.duties as Array<{ id?: unknown }>).filter((d) => !(d && d.id === dutyId));
+    }
+  });
+
+  const reconcile = await reprojectKanbanIfActive(id);
+  const result: DutyMutationResult = { ok: true, dutyId, deleted: true, ...reconcile };
+  if (!removeDefinition) {
+    result.selectedOnly = true;
+    result.note = isFittingProvided
+      ? `"${dutyId}" is fitting-provided - deselected only; the fitting stays equipped`
+      : `"${dutyId}" is referenced by another duty's sequence - deselected only; the definition survives`;
+  }
+  return result;
 }
 
 export interface CompositionTargetUpdate {
@@ -681,6 +979,13 @@ export interface StandingModel {
   slots: StandingSlot[];
   runtimeTemplates: RuntimeTemplate[];
   primaryRuntime: string;
+  /**
+   * RUNTIME STATE, not composition data: the account each runtime is actually
+   * running under right now, keyed by fitting id. Absent when the operative is
+   * down. Surfaces compare it against the configured account so a pin that has
+   * not taken effect yet reads as pending rather than as done.
+   */
+  launchedAccounts?: Record<string, string>;
 }
 
 function providesKind(entry: LibraryEntry, kind: string): boolean {
@@ -693,6 +998,7 @@ export function buildStandingPayload(args: {
   composition: { id: string; name: string; selections: FittingSelectionMap; primaryRuntime: string };
   entries: LibraryEntry[];
   library: LibraryEntry[];
+  launchedAccounts?: Record<string, string>;
 }): StandingModel {
   const byId = new Map(args.entries.map((entry) => [entry.id, entry]));
   const slots: StandingSlot[] = STANDING_FACULTIES.map((facultyId) => {
@@ -742,7 +1048,8 @@ export function buildStandingPayload(args: {
     compositionName: args.composition.name,
     slots,
     runtimeTemplates,
-    primaryRuntime: args.composition.primaryRuntime
+    primaryRuntime: args.composition.primaryRuntime,
+    ...(args.launchedAccounts ? { launchedAccounts: args.launchedAccounts } : {})
   };
 }
 
@@ -755,6 +1062,11 @@ export async function assembleStandingModel(compositionId?: string): Promise<Sta
   const composition = await readComposition(id);
   const entries = await selectedLibraryEntries(composition.selections);
   const library = await readLibrary();
+  // Attached by the fs wrapper rather than threaded through the pure builder:
+  // it is live process state, and buildStandingPayload must stay fs-free.
+  const runner = getRunnerState(id);
+  const launchedAccounts =
+    runner.status === "running" || runner.status === "verifying" ? runner.launchedAccounts : undefined;
   return buildStandingPayload({
     composition: {
       id: composition.id,
@@ -766,7 +1078,8 @@ export async function assembleStandingModel(compositionId?: string): Promise<Sta
         DEFAULT_PRIMARY_RUNTIME
     },
     entries,
-    library
+    library,
+    launchedAccounts
   });
 }
 
@@ -792,6 +1105,17 @@ async function mutateManifestAtomic(
   mutate(manifest);
   const raw = dumpYaml(manifest, { lineWidth: 100, noRefs: true, sortKeys: false });
   await writeFileAtomic(manifestPath, raw);
+  // MESH: the manifest edit flows back to the state service (rev CAS). An
+  // enrolled node whose edit cannot reach shared state must hear about it —
+  // the local file already changed, so surface loudly rather than fork
+  // silently; the next up() re-syncs from the service either way.
+  try {
+    await pushManifestToState(compositionId, raw);
+  } catch (err) {
+    throw new Error(
+      `manifest saved locally but NOT to the mesh state service — another node may not see this edit (${err instanceof Error ? err.message : String(err)})`
+    );
+  }
 }
 
 // Persist a whole new selections map: validate first (cardinality + faculty

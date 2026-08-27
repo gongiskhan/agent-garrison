@@ -1,7 +1,7 @@
 import type { FacultyDefinition, FacultyId, GarrisonMetadata } from "./types";
 
 // Faculties are ROLES (the Quarters pivot). Each is a slot a Fitting fills; the
-// own-port runtime residue (dev-env, screen-share, outposts, browser, monitor,
+// own-port runtime residue (dev-env, screen-share, browser, monitor,
 // web-channel, voice) folds under sessions / channels / observability and is
 // detected via the `own_port` metadata flag.
 // Legacy faculty names map here via metadata.ts normalizeDeprecations.
@@ -55,7 +55,6 @@ export const faculties: FacultyDefinition[] = [
     // runtime belongs in "Every agent needs these". Orthogonal to the `tier`
     // axis below (essential = base-need grouping; tier = agent/dev grouping).
     essential: true,
-    // Dev-tier: the dev mode (Joe) is the only mode that activates `runtimes`.
     tier: "dev"
   },
   {
@@ -97,34 +96,22 @@ export const faculties: FacultyDefinition[] = [
     order: 8,
     name: "Surfaces",
     // Split out of sessions 2026-06-18: the auxiliary own-port live viewers
-    // (screen share, standalone browser, remote Outpost bridge) are ways to
+    // (screen share, standalone browser) are ways to
     // *see/reach* the machine, distinct from the primary dev session.
     cardinality: "multi",
     shapes: ["plugin", "script"],
     notes:
-      "Auxiliary own-port live surfaces — screen share, standalone browser, and remote Outpost bridges. Each is detected via the own_port flag and linked from the sidebar Fittings group.",
+      "Auxiliary own-port live surfaces — screen share and the standalone browser. Each is detected via the own_port flag and linked from the sidebar Fittings group.",
     tier: "dev"
-  },
-  {
-    id: "modes",
-    order: 9,
-    name: "Modes",
-    cardinality: "single",
-    shapes: ["system-prompt"],
-    notes:
-      "The operative's identity/persona layer — the souls (Gary/Joe/James) + shared voice + per-mode routing bias + name-based sticky switching, composed into the orchestrator's system prompt. One operative, three faces, one shared memory.",
-    essential: false,
-    // Agent-tier: the persona layer shapes the everyday operative.
-    tier: "agent"
   },
   // ── Optional capability faculties (2026-06-24) ──────────────────────────────
   // Homes for the promoted Claude Code primitives. Named by what the capability
   // is FOR, never by the primitive type. `cardinality: multi` — each holds many
   // promoted Fittings. `shapes` are permissive (these slots accept the shapes the
-  // promoted primitives carry). Agent vs Dev anchored on the modes config.
+  // promoted primitives carry). Agent vs Dev reflects the duties that consume them.
   {
     id: "knowledge",
-    order: 10,
+    order: 9,
     name: "Knowledge",
     cardinality: "multi",
     shapes: ["skill", "plugin", "cli", "cli-skill", "mcp"],
@@ -134,7 +121,7 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "research",
-    order: 11,
+    order: 10,
     name: "Research & Media",
     cardinality: "multi",
     shapes: ["skill", "plugin", "cli", "cli-skill", "mcp"],
@@ -144,7 +131,7 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "building",
-    order: 12,
+    order: 11,
     name: "Software Building",
     cardinality: "multi",
     shapes: ["skill", "cli-skill", "script", "plugin"],
@@ -154,7 +141,7 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "code-intelligence",
-    order: 13,
+    order: 12,
     name: "Code Intelligence",
     cardinality: "multi",
     shapes: ["mcp", "skill", "cli-skill"],
@@ -164,7 +151,7 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "design",
-    order: 14,
+    order: 13,
     name: "Design Studio",
     cardinality: "multi",
     shapes: ["skill", "plugin"],
@@ -174,7 +161,7 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "browser-qa",
-    order: 15,
+    order: 14,
     name: "Browser & QA",
     cardinality: "multi",
     shapes: ["skill", "mcp", "cli-skill"],
@@ -184,7 +171,7 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "coordination",
-    order: 16,
+    order: 15,
     name: "Coordination",
     cardinality: "multi",
     shapes: ["mcp", "hook", "script"],
@@ -194,7 +181,7 @@ export const faculties: FacultyDefinition[] = [
   },
   {
     id: "connectors",
-    order: 17,
+    order: 16,
     name: "Connectors",
     // 2026-06-26: authenticated, reusable connections to the external services
     // the operative acts on. Multi (many services coexist); agent-tier (a base
@@ -243,11 +230,7 @@ export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> =
   },
   surfaces: {
     role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",
-    fit: "Screen share, standalone browser, and remote Outpost bridges — each detected via the own_port flag and linked from the sidebar Fittings group."
-  },
-  modes: {
-    role: "Gives the operative named faces (Gary/Joe/James) over one shared memory.",
-    fit: "One modes fitting supplies the souls + shared voice + per-mode routing bias + name-based switching the orchestrator composes into its system prompt."
+    fit: "Screen share and the standalone browser — each detected via the own_port flag and linked from the sidebar Fittings group."
   },
   knowledge: {
     role: "Lets the operative create, edit, and organize documents and notes.",

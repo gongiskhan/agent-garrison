@@ -1,12 +1,25 @@
 // V1d: deleting a card removes the card's own storage (cards/<id>/ — card.json + logs).
 // The server's DELETE handler additionally removes the card's run dir + brief (confined)
 // and never touches shared transcripts; that confinement is covered by the live check.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, appendCardLog, deleteCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 describe("v1d deleteCard — removes the card's own directory + logs", () => {
   it("deletes cards/<id>/ (card.json + log files) and makes the card unloadable", async () => {

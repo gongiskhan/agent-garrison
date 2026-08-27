@@ -5,19 +5,17 @@ import { buildSessionRequest, MODE_OPTIONS, DEFAULT_MODE } from "../fittings/see
 // escape hatch is the explicit, labeled PLAIN option (plain:true, logged
 // server-side).
 describe("dev-env session request (S7/D22)", () => {
-  it("defaults to Joe; offers gary/joe/james + the labeled plain escape hatch", () => {
-    expect(DEFAULT_MODE).toBe("joe");
+  it("defaults to the one Operative and offers the labeled plain escape hatch", () => {
+    expect(DEFAULT_MODE).toBe("operative");
     const vals = MODE_OPTIONS.map((m) => m.value);
-    expect(vals).toEqual(expect.arrayContaining(["gary", "joe", "james", "plain"]));
+    expect(vals).toEqual(["operative", "plain"]);
     const plain = MODE_OPTIONS.find((m) => m.value === "plain")!;
     expect(plain.label.toLowerCase()).toContain("plain claude");
     expect(plain.label.toLowerCase()).toContain("debugging garrison");
   });
 
-  it("a mode starts THROUGH the orchestrator (orchestrated is the default — no flag needed)", () => {
-    expect(buildSessionRequest({ path: "/x", mode: "joe" })).toEqual({ path: "/x", mode: "joe" });
-    expect(buildSessionRequest({ path: "/x", mode: "james" })).toEqual({ path: "/x", mode: "james" });
-    // no mode at all → still orchestrated (server resolves the channel default)
+  it("an Operative session starts through Orchestrator without a persona flag", () => {
+    expect(buildSessionRequest({ path: "/x", mode: "operative" })).toEqual({ path: "/x" });
     expect(buildSessionRequest({ path: "/x", mode: null })).toEqual({ path: "/x" });
   });
 
@@ -27,7 +25,7 @@ describe("dev-env session request (S7/D22)", () => {
   });
 
   it("resume is the legacy --continue path and never goes orchestrated", () => {
-    expect(buildSessionRequest({ path: "/x", resume: true, mode: "joe" })).toEqual({ path: "/x", continue: true });
+    expect(buildSessionRequest({ path: "/x", resume: true, mode: "operative" })).toEqual({ path: "/x", continue: true });
   });
 
   it("trims the path", () => {

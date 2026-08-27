@@ -12,7 +12,7 @@
 // card's valid next lists (no fuzzy matching) or the card parks in
 // needs-attention. Phase progression is a list transition AND requires the
 // phase's durable gate evidence in the runDir (D9) — a transition without its
-// gate-status entry parks. The card's work kind + per-card phase toggles form
+// gate-status entry parks. The card's flow + per-card phase toggles form
 // its RAIL (D17): an OFF phase is skipped with an explicit "off" event
 // (recorded and rendered off, never a silent pass). Goal-mode injects an explicit
 // acceptance block; the convergence GUARD is the per-card iteration cap.
@@ -25,7 +25,7 @@ import path from "node:path";
 import { hostname } from "node:os";
 import { isDeepStrictEqual } from "node:util";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
-import { saveCard, saveCardCAS, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, updateCardCAS, isPidAlive } from "./board.mjs";
+import { saveCard, saveCardCAS, saveCardCASWithHooks, updateCardLockedWithHooks, appendCardLog, writeCardLog, latestCardLogNumber, loadAllCards, loadCard, createCard, updateCardCAS, withFileLock, isPidAlive, scheduleHolds, listCardAttachments, listProseLabel } from "./board.mjs";
 import { ulid } from "./ulid.mjs";
 import {
   coordinationConfig,
@@ -33,18 +33,20 @@ import {
   applyPlanCompletionCoordination,
   applyBlockerWrite,
   stabilityFields,
-  removeCardIntents,
   repoPathForProject,
   readTouchSet,
   liveSameProjectCards,
   acquireLeases,
   renewLeases,
-  releaseLeases,
+  cleanupCardCoordination,
   reregisterTouchSetIfGrown,
   claimCovers
 } from "./coordination.mjs";
 import { commitFence, attributeBreakage } from "./fences.mjs";
 import { sendCoordMail } from "./coord-mail.mjs";
+import { PERSONAL_SCOPE_TOKEN, isPersonalCard } from "./personal-workspace.mjs";
+import { projectNameForRouting, KANBAN_INFER_TIMEOUT_MS } from "./gateway-client.mjs";
+import { writeLiveSessionPointer, clearLiveSessionPointer } from "./live-session.mjs";
 
 // Gate phases whose fail edge (verdict === "implement") triggers breakage
 // attribution (Q6): a loop-back to implement from one of these, with other live
@@ -57,6 +59,7 @@ import {
   phaseForList,
   skillForPhase,
   classificationForPhase,
+  levelForPhase,
   railForCard,
   phaseOnForCard,
   gateEvidenceNextList,
@@ -85,29 +88,67 @@ import {
   resolveExecutionStep
 } from "./resolved-model.mjs";
 import { isDispatchClaimLive, isDispatchClaimExpired } from "./dispatch-lease.mjs";
-import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief } from "./notify-origin.mjs";
+import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief, routeAutonomyActed, deliverScheduleReminder } from "./notify-origin.mjs";
+import {
+  normaliseCardSchedule,
+  nextCronOccurrence,
+  latestCronOccurrence,
+  occurrenceKey as scheduleOccurrenceKey,
+  zonedMinute
+} from "./schedules.mjs";
 import { readSteeringMd, readSteeringDirective, markSteeringApplied, isEarlierPhase } from "./steering.mjs";
 
 // Exact v4 identity carried over the gateway wire. A legacy card (or v1 model)
 // returns an empty object and keeps the historical policy classification path.
-function executionContextForCard(card, phase, model) {
+//
+// TWO ways a card gets a sequence, and the identity differs between them:
+//
+//   • THE DUTY LADDER. The card's duty is a COMPOSITE whose expansion at its
+//     level IS the sequence (`steps[develop][2]` = one leaf step per phase). The
+//     identity on the wire is the composite + the phase, and the gateway picks
+//     the leaf step out of that expansion. Unchanged.
+//   • THE FLOW LIBRARY. The card's sequence is the flow's duty list, so each
+//     phase is a DUTY IN ITS OWN RIGHT, running at the level the flow resolved
+//     FOR IT (`card.dutyLevels[phase]`, which a pin or an escalation may put
+//     above the card's own level). The card's duty expansion has no entry for a
+//     phase that is not itself - a leaf duty expands to one self-step - so
+//     resolving through it returns null and the gateway then throws
+//     `v4 duty route unresolved` on a card that is perfectly well specified.
+//
+// So the identity is the DUTY CELL THAT IS ACTUALLY EXECUTING: for the flow case
+// that is (phase, its own level). This is the only shape that fits down the wire
+// - gateway-client.mjs forwards exactly {duty, level, phase, stepIndex, sequence}
+// and a per-phase level has nowhere else to ride - and it is the honest one: the
+// gateway's ruleId, its compatibility tier and its decision record all describe
+// the cell that ran, which is precisely what a per-duty level changes.
+//
+// Order matters. An explicit per-duty level is authoritative (it is the resolved
+// answer, pins and escalations included) and is tried FIRST; otherwise the card's
+// own duty expansion is tried exactly as before, so a card with no dutyLevels
+// produces a byte-identical wire identity to the one it produced before this
+// existed. `stepIndex` indexes the card's sequence, which only aligns with the
+// composite expansion, so the self-step path sends none.
+export function executionContextForCard(card, phase, model) {
   if (!card || typeof card.duty !== "string" || !Number.isInteger(card.level) || typeof phase !== "string") return {};
   const sequence = Array.isArray(card.sequence) ? card.sequence : [];
-  const stepIndex = sequence.indexOf(phase);
-  const step = resolveExecutionStep({
-    duty: card.duty,
-    level: card.level,
-    phase,
-    stepIndex: stepIndex >= 0 ? stepIndex : null
-  }, model);
-  return {
-    duty: card.duty,
-    level: card.level,
-    phase,
-    stepIndex: stepIndex >= 0 ? stepIndex : null,
-    sequence,
-    step
+  const seqIndex = sequence.indexOf(phase);
+  const stepIndex = seqIndex >= 0 ? seqIndex : null;
+  const selfLevel = levelForPhase(card, phase);
+  const perDutyLevel =
+    card.dutyLevels && typeof card.dutyLevels === "object" && Number.isInteger(card.dutyLevels[phase])
+      ? card.dutyLevels[phase]
+      : null;
+  const selfStep = () => {
+    const step = resolveExecutionStep({ duty: phase, level: selfLevel ?? card.level, phase }, model);
+    return step ? { duty: phase, level: selfLevel ?? card.level, phase, stepIndex: null, sequence, step } : null;
   };
+  if (perDutyLevel != null) {
+    const resolved = selfStep();
+    if (resolved) return resolved;
+  }
+  const step = resolveExecutionStep({ duty: card.duty, level: card.level, phase, stepIndex }, model);
+  if (step) return { duty: card.duty, level: card.level, phase, stepIndex, sequence, step };
+  return selfStep() ?? { duty: card.duty, level: card.level, phase, stepIndex, sequence, step: null };
 }
 
 // EMPTY-OUTPUT GRACE WINDOW (D19, assumption 2). An empty phase reply is often a
@@ -228,7 +269,7 @@ export function evidenceRequiredForTransition(list, next) {
 // lands in Done, a non-empty evidence/evidence.md is mandatory. Other edges keep
 // the configurable Walkthrough/transition evidence contract.
 export function evidenceContractForTransition(list, phase, next, rail = null) {
-  // An evidence-free rail (the card's work kind declares `evidence: false`)
+  // An evidence-free rail (the card's flow declares `evidence: false`)
   // owes no evidence anywhere — including the terminal Test -> Done invariant,
   // so the waiver comes first. Every seam funnels through this helper, so the
   // waiver holds for the dispatched, batched, and in-session paths alike.
@@ -292,7 +333,7 @@ export function readBriefContext(cwd, briefPath, max = 6000) {
 }
 
 // Read the CARD-OWNED Discuss brief (<root>/cards/<id>/brief.md) — the deterministic
-// location James is told (an absolute path) to write to during Discuss. Best-effort +
+// location the Discuss duty is told (an absolute path) to write to. Best-effort +
 // size-capped: a miss returns null and the prompt simply omits the brief section.
 export function readCardBrief(root, cardId, max = 6000) {
   if (!root || !cardId || typeof cardId !== "string") return null;
@@ -375,6 +416,21 @@ export function runProjectLabel(project) {
   return safe || "no-project";
 }
 
+export function runCardScopeLabel(card) {
+  const routing = card?.routing && typeof card.routing === "object" && !Array.isArray(card.routing)
+    ? card.routing
+    : {};
+  const explicitProjectPresent = typeof routing.project === "string" && routing.project.trim().length > 0;
+  const cardProjectPresent = typeof card?.project === "string" && card.project.trim().length > 0;
+  const projectWasSpecified = explicitProjectPresent || cardProjectPresent;
+  const project = projectNameForRouting(explicitProjectPresent ? routing.project : card?.project);
+  if (project) return runProjectLabel(project);
+  // A malformed explicit project is refused by the gateway; do not relabel its
+  // evidence as personal when the personal fallback was deliberately suppressed.
+  if (projectWasSpecified) return "no-project";
+  return isPersonalCard(card) ? "personal" : "no-project";
+}
+
 export function getList(board, listId) {
   return (board.lists || []).find((l) => l.id === listId) || null;
 }
@@ -403,7 +459,7 @@ export function isInteractive(list) {
 // is interactive - the discuss duty runs as a normal agent session (ask 1-3 scoping
 // questions, write the brief, advance to plan). The gate marker is card.clarity ===
 // "needs-discuss" (stamped by the gateway/API carding); it only applies on the
-// interactive Discuss list, so a HUMAN-initiated (James-mode) discuss card - no
+// interactive Discuss list, so a human-initiated discuss card - no
 // marker - stays interactive/manual with zero regression.
 export function isGatedDiscuss(card, list) {
   return Boolean(card && card.clarity === "needs-discuss" && isInteractive(list));
@@ -416,7 +472,7 @@ export function isGatedDiscuss(card, list) {
 export function mintRunFields(card, now = Date.now) {
   if (card.runId && card.runDir) return null; // already minted — idempotent
   const runId = ulid(typeof now === "function" ? now() : now);
-  return { runId, runDir: path.join(RUNS_HOME(), runProjectLabel(card.project), runId) };
+  return { runId, runDir: path.join(RUNS_HOME(), runCardScopeLabel(card), runId) };
 }
 
 // D15: per-list taskType/tier/skill/mode config is DEAD. Resolution comes from
@@ -495,7 +551,7 @@ export function replySnippet(reply, max = 280) {
 // ("· claude-code/opus (T2-deep)") appended to the event message. `phase` is the
 // engine's own phase name (always known) so the card-front chip can read "plan @ opus"
 // even when the gateway's own taskType echo is null. Returns { route: null, suffix: "" }
-// when NO routing metadata flowed (souls mode / a non-routed turn) — a run must NEVER
+// when NO routing metadata flowed (a legacy non-routed turn) — a run must NEVER
 // fail, and an event must never grow noise, for want of attribution that isn't there.
 export function routeStamp(route, phase = null) {
   if (!route || typeof route !== "object") return { route: null, suffix: "" };
@@ -559,6 +615,41 @@ export function parkFields(card, fromList, reason, eventKind = "blocked") {
     // verdict-missing / gate-evidence / requiresEvidence / waiting / infra).
     attentionKind: eventKind === "failed" ? "failed" : "blocked"
   };
+}
+
+// An explicit human Start consumes a coordination wait and/or schedule, but only
+// in the SAME CAS that acquires the run. Keeping this pure lets the server's
+// manual-list advance use the identical event contract while processCard and
+// processBatch defer consumption until status:"running" actually commits.
+export function consumeStartOverrides(card, at = new Date().toISOString()) {
+  let next = { ...card };
+  if (card.waitingOn) {
+    const w = card.waitingOn;
+    next = {
+      ...next,
+      waitingOn: null,
+      events: withEvent(next, {
+        at,
+        kind: "coordination",
+        message: `Wait overridden manually (was waiting on ${w.cardTitle || w.cardId})`,
+        detail: w.reason || null
+      })
+    };
+  }
+  if (card.scheduledFor) {
+    next = {
+      ...next,
+      scheduledFor: null,
+      scheduleAction: null,
+      scheduleNotifiedAt: null,
+      events: withEvent(next, {
+        at,
+        kind: "moved",
+        message: `Schedule cleared by manual start (was scheduled for ${card.scheduledFor})`
+      })
+    };
+  }
+  return next;
 }
 
 // Parse the router's chosen next list. Takes the last non-empty line (the
@@ -646,7 +737,7 @@ export async function reapOrphanedRuns(root, { nowMs = Date.now(), maxAgeMs = OR
 // next-list ids are injected so the router output can exact-match. D15: the per-list
 // mode line is GONE (mode is the gateway's job); the executing skill is resolved from
 // the compiled policy and named explicitly (the phase-skill binding, D3).
-export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, steeringContext = null, skill = null, phase = null, coordinationEnabled = false, briefPath = null }) {
+export function buildCardPrompt({ list, card, validNext, discussionContext = null, continuationContext = null, steeringContext = null, skill = null, phase = null, coordinationEnabled = false, briefPath = null, attachments = null }) {
   const parts = [];
   if (card.goalMode && list.kind === AGENT_KIND) {
     const acceptance = card.acceptance || card.description || "(lift acceptance from FLOW_PLAN.md)";
@@ -672,7 +763,20 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
   if (card.description && card.description.trim()) {
     parts.push("", card.description.trim());
   }
-  // The Discuss step's RESULT (the brief James wrote) — the agreed direction the
+  // Card-owned attachments (cards/<id>/attachments/): context the human attached
+  // for THIS work item. Absolute paths only — the operative Reads them itself,
+  // exactly like the ClaudeChat "Attached files:" description block.
+  if (Array.isArray(attachments) && attachments.length) {
+    parts.push("", "## Attached files (context for this card — read them with the Read tool)", "");
+    for (const a of attachments) parts.push(`- ${a.path}`);
+  }
+  // The card's checklist: human-authored sub-items. Open items are work the
+  // card's owner expects addressed; checked items are already done.
+  if (Array.isArray(card.checklist) && card.checklist.length) {
+    parts.push("", "## Checklist ([x] done, [ ] still open — address the open items that fall inside this phase)", "");
+    for (const item of card.checklist) parts.push(`- [${item.done ? "x" : " "}] ${item.text}`);
+  }
+  // The Discuss step's RESULT (the brief it wrote) — the agreed direction the
   // downstream phases must build from. Injected verbatim so plan/implement/review have
   // the decisions/approach/open-questions/acceptance the discussion settled on.
   if (discussionContext && String(discussionContext).trim()) {
@@ -720,6 +824,21 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
         `or add the same object under the "gates" key as {"gates":{"${phase}":{…}}} in ` +
         `${path.join(card.runDir, "gate-status.json")}. A top-level {"${phase}":{…}} shape is NOT accepted. ` +
         `A verdict without this record parks the card.`,
+      ""
+    );
+  }
+  // Committed-work contract (2026-08-07): two Drill-dispatched cards finished
+  // their code phase with passing gates and left every changed file uncommitted
+  // in the project tree - invisible to later phases and one reset away from
+  // lost. The scoped commit fence cannot cover this (a plan-less card has an
+  // empty touch-set), but the operative knows exactly which files it changed.
+  if (phase && list.kind === AGENT_KIND) {
+    parts.push(
+      `Committed-work contract: if this phase changed files in the project repository and its gate ` +
+        `passes, COMMIT those changes before choosing the next list - stage the specific files you ` +
+        `touched (never \`git add -A\`) and write a commit message naming this card (${card.id}) and ` +
+        `what changed. Push only if the repository's convention says work lands by pushing; otherwise ` +
+        `commit without pushing. Work left uncommitted after a passing gate counts as unfinished.`,
       ""
     );
   }
@@ -777,24 +896,56 @@ export function buildCardPrompt({ list, card, validNext, discussionContext = nul
   }
   // S3d (D9b): the DISCUSS duty session (a clarity-gated card runs this before plan).
   // Talk the scope through in the origin thread, settle, write the brief, then advance.
-  // Human (James-mode) discuss never dispatches, so this only reaches a gated card.
+  // Human Discuss never auto-dispatches, so this only reaches a gated card.
+  //
+  // The doctrine below is the SAME one the human path's kickoff carries
+  // (kanban-loop/scripts/discuss.mjs buildDiscussKickoff) - the two texts drifted
+  // once and the gated path ended up a requirements extractor that could not push
+  // back on an ask that should not exist. Whatever changes there changes here.
+  // The operative's name is never written into this block; it comes from the
+  // Identity section.
   if (phase === "discuss") {
     const briefTarget = briefPath || (card.id ? `cards/${card.id}/brief.md` : "brief.md");
+    const gatedLevel = Number.isInteger(card.level) ? card.level : 1;
     parts.push(
       "## Discuss this run's scope before it is planned",
       "",
       "This ask was judged underspecified, so it enters Discuss first - talk the scope through with the " +
         "person who asked. Do NOT start building or planning yet.",
       "",
-      "1. Ask AT MOST 1-3 focused questions PER ROUND using the AskUserQuestion tool - only what genuinely " +
+      "How to talk here: plain prose in full sentences, the way you would say it out loud - your questions " +
+        "land in the origin thread and are often read (or heard) on a phone. No bullet lists, headings or " +
+        "tables in the conversational part, never an em dash, short and direct rather than an essay, and no " +
+        "narrating what you are about to do. Answer in the language the person writes in, and switch when " +
+        "they switch. Never open by calling the question good or the idea interesting, and do not lean on " +
+        "\"genuinely\", \"honestly\" or \"straightforward\" to make a claim sound truer than it is.",
+      "",
+      "You are thinking WITH them, not extracting requirements. Argue the other side before you agree: what " +
+        "would have to be true for this to be a mistake, what it costs, the simpler and the more ambitious " +
+        "version - then commit to a position and say which way it would go. Hold a CTO and a CPO in your " +
+        "head at once, and name the disagreement between them instead of quietly splitting the difference. " +
+        "If the work is not worth doing, say so plainly - that is a legitimate outcome of Discuss.",
+      "",
+      "Look it up before you assert it: anything that may have changed, any number you are not sure of, " +
+        "anything after your training cutoff gets a web search FIRST. Report what you found, not that you " +
+        "went looking, and if you cannot search in this turn say the claim is unverified instead of stating " +
+        "it as fact." +
+        (gatedLevel >= 2
+          ? " This is a level " + gatedLevel + " discussion, so research is expected rather than optional: " +
+            "look up what the decision actually turns on before you propose the approach."
+          : ""),
+      "",
+      "1. Ask AT MOST 1-3 focused questions PER ROUND using the AskUserQuestion tool - only what really " +
         "blocks planning (the goal, the scope, hard constraints, how we will know it is done). Each question " +
         "is delivered to the origin thread and the reply comes back as the answer. Ask EARLY and keep it " +
         "tight; do NOT sit idle waiting (a discuss session that idles past the turn cap parks the card, and " +
-        "a later reply resumes it as a fresh turn).",
+        "a later reply resumes it as a fresh turn). Never write the brief in the same turn as your first " +
+        "round of questions - ask first, let the answers come back, then write.",
       `2. When you have enough to plan against, WRITE THE BRIEF to exactly this path: \`${briefTarget}\` ` +
         "(that absolute path - not a copy in the project) in the house format: what this is, the decisions " +
         "already made, assumptions flagged, the approach, and the acceptance. The brief is the handoff the " +
-        "build reads; keep it proportional to the work.",
+        "build reads; keep it proportional to the work. It is also the ONE document of this discussion - " +
+        "no side artifacts, and keep talking in prose either way.",
       "3. Then end your reply with `plan` on its own final line to advance.",
       ""
     );
@@ -961,7 +1112,7 @@ async function applyPendingRevisit(root, card, board, now = () => new Date().toI
 // Fire the gateway's duty-boundary compact check (S1b) after a card advances a
 // duty. Best-effort: onDutyBoundary is fire-and-forget-with-timeout and a failure
 // must never affect the advance. No-op when the caller wired no boundary fn (tests,
-// souls mode) or the card did not move.
+// a legacy non-routed runtime) or the card did not move.
 async function fireDutyBoundary(onDutyBoundary, card, phase, outcome) {
   if (typeof onDutyBoundary !== "function" || outcome?.status !== "moved") return;
   try {
@@ -1043,7 +1194,7 @@ function runStillOwns(fresh, base, dispatchedFrom) {
 // honest reason. A newer generation (runSeq moved on) is somebody else's live run
 // and is left strictly alone.
 async function releaseIfStillRunning(root, base, now, why) {
-  return updateCardCAS(root, base.id, (c) => {
+  const res = await updateCardLockedWithHooks(root, base.id, (c) => {
     if (c.status !== "running") return null;
     if ((c.runSeq ?? 0) !== (base.runSeq ?? 0)) return null; // a newer run owns it now
     return {
@@ -1059,16 +1210,17 @@ async function releaseIfStillRunning(root, base, now, why) {
         detail: `${why}. The card is retryable; its runDir and iteration logs are preserved.`
       })
     };
-  }).catch(() => null);
+  }, now()).catch(() => null);
+  return res?.card ?? null;
 }
 
-async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5 }) {
+export async function commitRunResult(root, { base, target: rawTarget, runRev, dispatchedFrom, now, tries = 5, afterWrite = undefined, terminalSummary = undefined }) {
   // The run is over, so its owner stamp is stale by definition — clear it here
   // (the one terminal write) rather than in each of the ~29 places that build a
   // terminal card, so a finished card can never look orphan-sweepable.
   const target = { ...rawTarget, runOwner: null };
-  let res = await saveCardCAS(root, target, runRev, now());
-  if (res.ok) return { ok: true, card: res.card, takenOver: false };
+  let res = await saveCardCASWithHooks(root, target, runRev, now(), { afterWrite, terminalSummary });
+  if (res.ok) return { ok: true, card: res.card, takenOver: false, postCommitError: res.postCommitError || null };
   // The card was DELETED mid-run. There is nothing to write, nothing to rebase and
   // nothing to release — and retrying would only re-attempt a write the store now
   // (correctly) refuses. Stop cleanly: the user threw the work away on purpose.
@@ -1089,8 +1241,8 @@ async function commitRunResult(root, { base, target: rawTarget, runRev, dispatch
       return { ok: false, card: released ?? fresh, takenOver: true };
     }
     const rebased = rebaseTerminalWrite(base, target, fresh);
-    res = await saveCardCAS(root, rebased, fresh.rev ?? 0, now());
-    if (res.ok) return { ok: true, card: res.card, takenOver: false };
+    res = await saveCardCASWithHooks(root, rebased, fresh.rev ?? 0, now(), { afterWrite, terminalSummary });
+    if (res.ok) return { ok: true, card: res.card, takenOver: false, postCommitError: res.postCommitError || null };
   }
   // Rebase exhausted (a writer is hammering this card). Still never leave it running.
   const released = await releaseIfStillRunning(root, base, now, `the terminal write lost the compare-and-swap ${tries} times running`);
@@ -1105,16 +1257,68 @@ async function commitRunResult(root, { base, target: rawTarget, runRev, dispatch
 //   • the inference's write lands mid-run, bumping the rev under the acquire.
 // Any settled state ("done" | "none" | "failed" | "skipped" | absent) proceeds
 // immediately, so a busy or missing operative can never block a dispatch.
+//
+// The ceiling has to be honest about what it is waiting FOR. The inference turn is
+// itself budgeted at KANBAN_INFER_TIMEOUT_MS (90s) precisely because it QUEUES behind a
+// busy operative, so the old flat 6s gate guaranteed the failure it existed to prevent:
+// the card advanced un-fenced at 6s under project:null, and the answer that landed at,
+// say, 20s was thrown away ("Project inference result discarded - the first run had
+// already started, so its execution scope is fixed"). While an attempt is genuinely in
+// flight the wait now tracks that budget plus a small grace for the write that records
+// the result. With nothing in flight the SHORT bound stands - waiting 95s for an
+// inference nobody started would stall every dispatch. The tier is re-derived per poll
+// from the freshest card, so an inference that starts mid-wait is waited on too, and
+// fail-open is unchanged: any settled state breaks out at once, a card that can't be
+// read returns what we have, and the bound is always finite.
+export const INFER_SETTLE_GRACE_MS = 5_000;
+const SETTLE_SHORT_BUDGET_MS = 6_000;  // nothing in flight: the pre-existing bound
+const SETTLE_FAST_POLL_MS = 250;       // snappy for the first couple of seconds...
+const SETTLE_SLOW_POLL_MS = 1_000;     // ...then a calmer beat for the long tail
+const SETTLE_FAST_POLLS = 8;
+
+// How long the in-flight attempt has ALREADY been running, read from the event the
+// inference writes when it marks the card "running". A server that dies mid-inference
+// leaves inferState "running" on disk forever (runProjectInference refuses to re-enter
+// a card that is already "running"), and without this every later dispatch of that card
+// would pay the whole budget again. The gate waits out what REMAINS of the attempt's
+// budget, never a fresh copy of it.
+function inferenceAgeMs(card, nowMs) {
+  const events = Array.isArray(card.events) ? card.events : [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i]?.kind !== "inference") continue;
+    const at = Date.parse(events[i].at);
+    return Number.isFinite(at) ? Math.max(0, nowMs - at) : 0;
+  }
+  return 0; // no attempt event to date it by - treat it as just started
+}
+
 export async function settleProjectInference(root, card, baseRev, opts = {}) {
-  const intervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : 250;
-  const checks = Number.isFinite(opts.checks) ? opts.checks : 24; // <= 6s, well under the 90s inference timeout
+  // An explicit interval/checks is a HARD cap (tests, and any caller wanting a tighter
+  // gate than the sizing below) - never a floor under it.
+  const fixedIntervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : null;
+  const maxChecks = Number.isFinite(opts.checks) ? opts.checks : null;
+  const inFlightBudgetMs = Number.isFinite(opts.inFlightBudgetMs)
+    ? opts.inFlightBudgetMs
+    : KANBAN_INFER_TIMEOUT_MS + INFER_SETTLE_GRACE_MS;
   const sleep = typeof opts.sleep === "function"
     ? opts.sleep
     : (ms) => new Promise((r) => setTimeout(r, ms));
+  const nowMs = typeof opts.nowMs === "function" ? opts.nowMs : () => Date.now();
   if (card.project || card.inferState !== "running") return { card, baseRev };
   let current = card;
-  for (let i = 0; i < checks; i++) {
+  // Two ways to measure the SAME elapsed time, and the budget is spent against the
+  // larger: the attempt's own age when the card can date it, our own accumulated sleep
+  // otherwise. Never their sum - that would halve the wait. Accounting on the sleep we
+  // ASKED FOR (not the wall clock) is what lets an injected clock drive this loop.
+  let waitedMs = 0;
+  for (let i = 0; ; i++) {
+    const inFlight = !current.project && current.inferState === "running";
+    const budgetMs = inFlight ? inFlightBudgetMs : SETTLE_SHORT_BUDGET_MS;
+    const elapsedMs = inFlight ? Math.max(waitedMs, inferenceAgeMs(current, nowMs())) : waitedMs;
+    const intervalMs = fixedIntervalMs ?? (i < SETTLE_FAST_POLLS ? SETTLE_FAST_POLL_MS : SETTLE_SLOW_POLL_MS);
+    if (maxChecks !== null ? i >= maxChecks : elapsedMs >= budgetMs) break;
     await sleep(intervalMs);
+    waitedMs += Math.max(1, intervalMs); // a 0ms interval must still exhaust the budget
     let fresh;
     try {
       fresh = await loadCard(root, card.id);
@@ -1131,12 +1335,12 @@ export async function settleProjectInference(root, card, baseRev, opts = {}) {
 // Run ONE transition for a card on an agent list. runFn dispatches the prompt
 // through the orchestrator (preRoute) and returns { reply }. Returns the updated
 // card + an outcome ({status: moved|needs-attention|skipped, ...}).
-export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, onDutyBoundary = undefined, settle = {} }) {
+export async function processCard({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, onDutyBoundary = undefined, settle = {}, manualStart = false }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, card.list);
   // S3d (D9b): a clarity-gated discuss card is dispatched THROUGH the interactive
   // Discuss list (the discuss duty session) - the exemption below lets it past both
-  // the interactive skip and the agent-kind guard; a James-mode discuss card (no
+  // the interactive skip and the agent-kind guard; a human Discuss card (no
   // gate marker) still skips.
   const gatedDiscuss = isGatedDiscuss(card, list);
   // An interactive list (Discuss — kind "agent-interactive") is never auto-dispatched:
@@ -1155,13 +1359,34 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   if (gatedDiscuss && card.discussHeld === true) {
     return { card, outcome: { status: "skipped", reason: "discuss-held" } };
   }
+  // §7.1: a card the ROUTER held below its lower autonomy threshold waits for a
+  // go - a Move on the board, or an affirmative reply on any channel. Both
+  // release it by clearing the flag inside the move's own CAS (server.mjs), so
+  // this guard is simply "the flag is still set". It sits at the single dispatch
+  // seam for the same reason the discuss-held guard does: every caller - tick,
+  // processChain, a PATCH auto-dispatch, a manual Start - comes through here, and
+  // a hold that only some of them respect is not a hold.
+  //
+  // NOT exempted by manualStart: a human pressing Start on a held card has not
+  // answered the question, they have pressed a button next to it. The answer is
+  // the move, and the move clears the flag.
+  if (card.autonomyHeld === true) {
+    return { card, outcome: { status: "skipped", reason: "autonomy-held" } };
+  }
   // Coordination waiting guard (GARRISON-FLOW-V2 Q4): a card deferred behind an
   // overlapping run SITS on its list with a waitingOn descriptor — it must not be
   // dispatched until reevaluateWaiting releases it (or a human Start override
   // clears the wait). Belt-and-suspenders here in addition to the tick/dispatch
   // skips, so no path re-dispatches a waiting card.
-  if (card.waitingOn) {
+  if (card.waitingOn && !manualStart) {
     return { card, outcome: { status: "waiting", reason: "waiting-on", waitingOn: card.waitingOn } };
+  }
+  // Card scheduling hold: a future (or unparseable — fail closed) scheduledFor
+  // keeps the card OUT of every dispatch path — tick, processChain, the PATCH
+  // auto-dispatch. Human Start / run_card authorizes an override that is consumed
+  // atomically by the eventual running-state acquire below.
+  if (scheduleHolds(card) && !manualStart) {
+    return { card, outcome: { status: "skipped", reason: "scheduled", scheduledFor: card.scheduledFor } };
   }
   // S3c pre-dispatch steering guard: a pending revisit directive re-stages the card
   // to its earlier phase BEFORE dispatching the current one (duty-boundary only;
@@ -1172,7 +1397,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   }
   // A human label for the list, used in every event/park message so the timeline reads
   // "Plan", not "plan".
-  const listTitle = list.title || card.list;
+  const listTitle = listProseLabel(list.title || card.list);
   // Every write is a compare-and-swap against the rev we read, so a concurrent tick or
   // a manual edit cannot be silently overwritten (lost update).
   let baseRev = card.rev ?? 0;
@@ -1206,7 +1431,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   const resolvedModel = model !== undefined ? model : loadResolvedModel(root);
   const validNext = validNextForCard(card, phase, resolvedModel) ?? validNextFor(board, card.list);
   const executionContext = executionContextForCard(card, phase, resolvedModel);
-  const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, card.workKind || policy?.defaultWorkKind);
+  const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, card.flow || policy?.defaultFlow);
   // Coordination is ACTIVE when the compiled policy explicitly carries a
   // `coordination` section (turned on by the composer — S6 — for production; a
   // policy that predates it, and the deliberate policy-less pure-transition mode,
@@ -1227,7 +1452,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     const offEvents = skipped.map((ph) => ({
       at: now(),
       kind: "phase-off",
-      message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+      message: `Phase ${ph} is OFF for this card (${rail.flow || "flow"}) — recorded off, not run`
     }));
     let events = card.events ? card.events.slice() : [];
     for (const ev of offEvents) events = withEvent({ events }, ev);
@@ -1258,59 +1483,43 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
       return { card: res.card, outcome: { status: "needs-attention", reason: "no-evidence", phasesOff: skipped } };
     }
-    const res = await saveCardCAS(
+    const landedTerminal = fwd === "done" || Boolean(getList(board, fwd)?.terminal);
+    const repoPath = repoPathForProject(card.project, board);
+    const res = await saveCardCASWithHooks(
       root,
-      { ...card, list: fwd, events },
+      {
+        ...card,
+        list: fwd,
+        ...(phase === "implement" || landedTerminal ? { leaseOwnerToken: null } : {}),
+        events
+      },
       baseRev,
-      now()
+      now(),
+      {
+        // Rail fast-forward is a real lifecycle edge too. Do not release the
+        // Implement lease (or terminal intent) before the move commits, and keep
+        // cleanup under the same card lock so a reopen cannot race it.
+        afterWrite: landedTerminal || phase === "implement"
+          ? () => {
+              cleanupCardCoordination({
+                root,
+                cardId: card.id,
+                repoPaths: [repoPath].filter(Boolean),
+                removeIntents: landedTerminal,
+                ownerToken: landedTerminal ? null : (card.leaseOwnerToken || null)
+              });
+            }
+          : undefined
+      }
     );
     if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
     return { card: res.card, outcome: { status: "moved", from: card.list, to: fwd, phasesOff: skipped } };
   }
-  // Exclusive-lease gate (D6): before dispatching IMPLEMENT for a card whose
-  // touch-set declares `exclusive` paths, take the local leases. Held by another
-  // live card -> the card WAITS (until:"lease", re-dispatches in place on release)
-  // WITHOUT consuming an iteration or dispatching. Checked before the acquire so a
-  // blocked card never burns a run.
-  if (coordActive && phase === "implement" && card.runDir) {
-    const ts = readTouchSet(card.runDir);
-    const excl = [...(ts?.exclusive || [])];
-    // D6: union in the policy's always-exclusive list for every path this
-    // card's claims COVER - a lockfile under a claimed dir is exclusive even
-    // when the prediction forgot to mark it.
-    for (const p of coordCfg.exclusiveLeases || []) {
-      if (!excl.includes(p) && ts && claimCovers(ts, p)) excl.push(p);
-    }
-    if (excl.length) {
-      const repoPath = repoPathForProject(card.project, board);
-      if (repoPath) {
-        const lease = acquireLeases({ repoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
-        if (!lease.ok) {
-          // Resolve the holder's title so the UI shows a name, not a bare id tail.
-          let holderTitle = null;
-          if (lease.heldBy) { try { holderTitle = (await loadCard(root, lease.heldBy))?.title || null; } catch { /* best-effort */ } }
-          const reason = `exclusive lease held by ${holderTitle ? `${holderTitle} (${String(lease.heldBy).slice(-6)})` : lease.heldBy || "another run"} on ${excl.join(", ")}`;
-          const waitingOn = {
-            cardId: lease.heldBy || null,
-            cardTitle: holderTitle,
-            grade: "lease",
-            reason,
-            until: "lease",
-            thenTo: card.list,
-            rerun: true,
-            since: now()
-          };
-          const res = await saveCardCAS(root, {
-            ...card,
-            waitingOn,
-            events: withEvent(card, { at: now(), kind: "coordination", message: `Waiting on exclusive lease before Implement: ${excl.join(", ")}`, detail: reason })
-          }, baseRev, now());
-          if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
-          return { card: res.card, outcome: { status: "waiting", reason: "lease", waitingOn } };
-        }
-      }
-    }
-  }
+  // Exclusive-lease gate (D6): acquire only in the running-state CAS hook below.
+  // The actual repo/path calculation happens after project inference settles and
+  // reloads the card; calculating from this earlier snapshot can miss contention
+  // when inference supplies the project just before the acquire.
+  let implementLease = null;
   // OUTPOST DISPATCH (pull-based): a card placed on another machine is NOT this
   // engine's to run. Leave it exactly where it is, untouched, for that machine's
   // worker to claim through the host dispatch API.
@@ -1324,10 +1533,17 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // below, which resolves the target and then falls through and runs the card
   // LOCALLY anyway — a card pinned to a connected Mac silently ran on the host.
   // Placement never does that: not-ours means not-ours.
-  const placementTarget =
+  const explicitPlacementTarget =
     card.placement && typeof card.placement.target === "string" && card.placement.target.trim()
       ? card.placement.target.trim()
       : "host";
+  // One-way migration for pre-worker cards: the older `outpost` affinity was a
+  // broken push path. Treat it as placement when no non-host placement exists;
+  // the claim API persists the migrated shape when a worker takes it.
+  const legacyOutpost = typeof card.outpost === "string" ? card.outpost.trim() : "";
+  const placementTarget = explicitPlacementTarget === "host" && legacyOutpost
+    ? legacyOutpost
+    : explicitPlacementTarget;
   if (placementTarget !== "host") {
     const held = card.dispatch && card.dispatch.state !== "done" && card.dispatch.state !== "failed";
     return {
@@ -1340,62 +1556,29 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       }
     };
   }
-  // Mint runId + runDir on the card's FIRST agent-list entry, and fold the mint into
-  // OUTPOST AFFINITY (D27): a card naming an outpost runs its phase sessions
-  // there; a NAMED-BUT-OFFLINE outpost parks the card in needs-attention with
-  // that reason (never silently runs locally against the card's affinity).
-  // The resolution seam lives in ./outpost-dispatch.mjs (single-outpost only).
-  if (card.outpost) {
-    try {
-      const { resolveOutpostDispatch } = await import("./outpost-dispatch.mjs");
-      // The daemon URL is INSTANCE-SPECIFIC (each profile shifts the port).
-      // It arrives as the composition's `outpost_host_url` for this fitting,
-      // already port-shifted by applyPortOffsetToConfig and projected as
-      // GARRISON_KANBANLOOP_OUTPOST_HOST_URL. GARRISON_OUTPOST_URL stays as a
-      // manual override. There is deliberately NO literal fallback: the old one
-      // named the codex port, so the probe always failed on dev and prod and
-      // EVERY affinity card parked with "outpost offline".
-      const daemon = (process.env.GARRISON_OUTPOST_URL
-        || process.env.GARRISON_KANBANLOOP_OUTPOST_HOST_URL
-        || "").trim();
-      if (!daemon) throw new Error("outpost affinity: no outpost_host_url configured for this instance");
-      let outposts = [];
-      try {
-        const r = await fetch(`${daemon}/outposts`, { signal: AbortSignal.timeout(3000) });
-        if (r.ok) outposts = (await r.json()).outposts || [];
-      } catch { /* daemon down → treated as offline below */ }
-      const disp = resolveOutpostDispatch(card, outposts);
-      if (!disp.ok) {
-        const reason = `Outpost affinity "${card.outpost}" is not dispatchable: ${disp.reason || "offline"}. Parked until the outpost is back (or clear the affinity from needs-attention).`;
-        const res = await saveCardCAS(root, {
-          ...card,
-          ...parkFields(card, card.list, reason),
-          events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: outpost ${card.outpost} offline`, detail: reason })
-        }, baseRev, now());
-        if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
-        return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-offline" } };
-      }
-    } catch {
-      // The seam is absent (outposts not built/installed) — an affinity card
-      // cannot honor its affinity; park honestly rather than run locally.
-      const reason = `Outpost affinity "${card.outpost}" cannot be resolved (outpost dispatch unavailable). Parked.`;
-      const res = await saveCardCAS(root, {
-        ...card,
-        ...parkFields(card, card.list, reason),
-        events: withEvent(card, { at: now(), kind: "parked", message: `Parked from ${listTitle}: outpost dispatch unavailable`, detail: reason })
-      }, baseRev, now());
-      if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
-      return { card: res.card, outcome: { status: "needs-attention", reason: "outpost-unavailable" } };
-    }
-  }
   // A card created WITHOUT a project kicks a fire-and-forget project inference, and
   // an immediate dispatch beats it: the run mints its runDir under `runs/no-project/`
   // (permanent — the literal path is baked into the prompt and the gate-record
   // instructions, so it can never be re-homed afterwards), and the inference's write
   // then lands mid-run and bumps the rev out from under the acquire. Wait for the
-  // inference to SETTLE first — it is bounded and short — then re-read the card so
-  // the acquire CAS uses the post-inference rev.
+  // inference to SETTLE first - bounded by the inference's OWN budget while an attempt
+  // is in flight, immediate when there is nothing to wait for - then re-read the card
+  // so the acquire CAS uses the post-inference rev.
   ({ card, baseRev } = await settleProjectInference(root, card, baseRev, settle));
+  if (coordActive && phase === "implement" && card.runDir) {
+    const ts = readTouchSet(card.runDir);
+    const excl = [...(ts?.exclusive || [])];
+    // D6: union in the policy's always-exclusive list for every path this
+    // card's claims COVER - a lockfile under a claimed dir is exclusive even
+    // when the prediction forgot to mark it.
+    for (const p of coordCfg.exclusiveLeases || []) {
+      if (!excl.includes(p) && ts && claimCovers(ts, p)) excl.push(p);
+    }
+    if (excl.length) {
+      const repoPath = repoPathForProject(card.project, board);
+      if (repoPath) implementLease = { repoPath, paths: excl };
+    }
+  }
   const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
   // `iterations` is the resettable convergence-cap counter. Log ordinals are a
   // separate monotonic sequence so recovery can reset the cap without reusing
@@ -1411,11 +1594,26 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     message: `Dispatched to the operative on ${listTitle}${skill ? ` (${skill})` : ""} — run ${iteration}`,
     detail: card.project ? null : "No project assigned — the operative is asked to infer it from the description."
   };
-  const acq = await saveCardCAS(
+  // A manual Start is an escape hatch, but its holds are not consumed by an
+  // earlier standalone save. Fold them into this acquire so every refusal above
+  // (placement, cap, lease, outpost, steering) and every losing CAS preserves the
+  // exact waitingOn/schedule state the human started from.
+  const acquireBase = manualStart ? consumeStartOverrides(card, dispatchAt) : card;
+  // §7.1: does this dispatch owe the origin an acting notice? Only when the
+  // router recorded an ACTING band on the card (a held card never reaches here,
+  // and a card the router never routed carries nothing) and only the first time.
+  // The stamp rides INTO the acquire write below rather than a follow-up save, so
+  // "announced" and "running" become true in the same CAS and a lost race cannot
+  // leave one without the other.
+  const autonomyBand = acquireBase.autonomy?.band ?? null;
+  const announceAutonomy =
+    (autonomyBand === "act-revert" || autonomyBand === "act-inform") && !acquireBase.autonomyNoticedAt;
+  const acq = await saveCardCASWithHooks(
     root,
     {
-      ...card,
+      ...acquireBase,
       ...(minted || {}),
+      ...(announceAutonomy ? { autonomyNoticedAt: dispatchAt } : {}),
       status: "running",
       iterations: iteration,
       logIndex,
@@ -1432,14 +1630,90 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       // is what lets commitRunResult tell "my run" from "a previous generation of my
       // run that came back late" — see runStillOwns.
       runSeq: (card.runSeq ?? 0) + 1,
-      events: withEvent(card, dispatchEvent)
+      events: withEvent(acquireBase, dispatchEvent)
     },
     baseRev,
-    now()
+    now(),
+    {
+      beforeWrite: implementLease
+        ? ({ next }) => {
+            const lease = acquireLeases({
+              repoPath: implementLease.repoPath,
+              card: next,
+              paths: implementLease.paths,
+              ttlMinutes: coordCfg.leaseTtlMinutes,
+              now
+            });
+            if (lease.ok && lease.ownerToken) next.leaseOwnerToken = lease.ownerToken;
+            if (lease.ok) return { ok: true, lease };
+            return lease.unavailable
+              ? { ok: false, code: "lease-unavailable", ...lease }
+              : { ok: false, code: "lease-held", ...lease };
+          }
+        : undefined
+    }
   );
+  if (acq.precondition && acq.detail?.code === "lease-unavailable") {
+    return {
+      card: acq.card,
+      outcome: {
+        status: "skipped",
+        reason: "lease-unavailable",
+        retryable: true,
+        paths: implementLease?.paths || []
+      }
+    };
+  }
+  if (acq.precondition && acq.detail?.code === "lease-held") {
+    const heldBy = acq.detail.heldBy || null;
+    let holderTitle = null;
+    if (heldBy) { try { holderTitle = (await loadCard(root, heldBy))?.title || null; } catch { /* best-effort */ } }
+    const reason = `exclusive lease held by ${holderTitle ? `${holderTitle} (${String(heldBy).slice(-6)})` : heldBy || "another run"} on ${implementLease.paths.join(", ")}`;
+    const waitingOn = {
+      cardId: heldBy,
+      cardTitle: holderTitle,
+      grade: "lease",
+      reason,
+      until: "lease",
+      thenTo: acq.card.list,
+      rerun: true,
+      since: now()
+    };
+    const waiting = await saveCardCAS(root, {
+      ...acq.card,
+      waitingOn,
+      events: withEvent(acq.card, {
+        at: now(),
+        kind: "coordination",
+        message: `Waiting on exclusive lease before Implement: ${implementLease.paths.join(", ")}`,
+        detail: reason
+      })
+    }, acq.card.rev ?? baseRev, now());
+    if (!waiting.ok) return { card: waiting.card, outcome: { status: "skipped", reason: "conflict" } };
+    return { card: waiting.card, outcome: { status: "waiting", reason: "lease", waitingOn } };
+  }
   if (!acq.ok) return { card: acq.card, outcome: { status: "skipped", reason: "conflict" } };
   let runningCard = acq.card;
   const runRev = runningCard.rev;
+  // §7.1: the ACTING notice, at the card's first real dispatch. The band was
+  // decided at routing time and travels on the card; this is where the work
+  // actually starts, so this is where the middle band offers its revert and the
+  // top band mentions what it is doing.
+  //
+  // POST-CAS and once. The acquire above is the write that makes the run real, so
+  // announcing before it would announce a run a losing CAS never started; and
+  // `autonomyNoticedAt` rode INTO that same write, so a re-dispatch of the same
+  // card (retry, next phase, a second tick) finds it already stamped and says
+  // nothing. One decision, one notice.
+  if (announceAutonomy) {
+    routeAutonomyActed(root, runningCard, {
+      band: runningCard.autonomy.band,
+      flow: runningCard.autonomy.flow ?? runningCard.flow ?? null,
+      duty: runningCard.autonomy.duty ?? phase ?? null,
+      level: Number.isInteger(runningCard.autonomy.level) ? runningCard.autonomy.level : runningCard.level ?? null,
+      question: runningCard.autonomy.question ?? null
+    });
+  }
   // Current-attempt durable-gate contract: snapshot this phase's records after
   // the CAS acquire but before the runtime turn. A retry keeps its runDir and
   // historical gates for audit/context, but only a file created or rewritten
@@ -1457,7 +1731,10 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
   // S3d: the absolute path the DISCUSS duty writes its brief to - the SAME card-owned
   // location readCardBrief reads (so the brief becomes the card's downstream context).
   const briefPath = path.join(root, "cards", runningCard.id, "brief.md");
-  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, steeringContext, skill, phase, coordinationEnabled: coordActive, briefPath });
+  // Card-owned attachments, read fresh per dispatch (like the brief) so a file
+  // attached between iterations reaches the next run.
+  const attachments = listCardAttachments(root, runningCard.id);
+  const prompt = buildCardPrompt({ list, card: runningCard, validNext, discussionContext, continuationContext, steeringContext, skill, phase, coordinationEnabled: coordActive, briefPath, attachments });
   // Explicit policy-derived classification (phase = taskType, card tier). A
   // missing/unreadable policy degrades to classifier routing (null) — never
   // blocks a card.
@@ -1482,6 +1759,24 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     acceptingLiveChunks = false;
     await liveLogWrites;
   };
+  // The runtime journal identity arrives on an early gateway route frame. Keep it
+  // in a generation-keyed sidecar rather than card.json: a mid-turn card save would
+  // bump `rev` and invalidate this run's terminal CAS. Writes are serialized for the
+  // same reason as live log rewrites, and the exact generation is cleared only after
+  // the terminal card write, so Watch can open throughout final gate processing.
+  let liveSessionWrites = Promise.resolve();
+  let acceptingJournal = true;
+  const onJournal = (identity) => {
+    if (!acceptingJournal) return;
+    liveSessionWrites = liveSessionWrites
+      .then(() => writeLiveSessionPointer(root, runningCard, identity, now()))
+      .catch(() => {});
+  };
+  const closeLiveSessionWrites = async () => {
+    acceptingJournal = false;
+    await liveSessionWrites;
+  };
+  const clearLiveSession = () => clearLiveSessionPointer(root, runningCard.id, runningCard.runSeq).catch(() => false);
   // S3d (D9b): AskUserQuestion tool events raised MID-TURN (the discuss duty asking
   // for scope). Route the questions to the card's ORIGIN immediately (web = numbered
   // thread message; board/skill = origin event log) so the human can answer while the
@@ -1522,6 +1817,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       suppressContinuations: true,
       onChunk,
       onTool,
+      onJournal,
       contextHold,
       dutyKey,
       ...executionContext
@@ -1543,6 +1839,7 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
     // No streamed rewrite may land after the error record below. Draining here
     // also prevents a chunk failure from escaping the run-finalization path.
     await closeLiveLog();
+    await closeLiveSessionWrites();
     // A TRANSPORT failure (gateway unreachable / restarting — err.transport from the
     // gateway client) is NOT the card's fault: REVERT the acquire (back to the prior
     // status, iteration un-consumed) so the run retries on the next tick/Start once the
@@ -1575,6 +1872,16 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
         status: card.status ?? "ok",
         iterations: card.iterations || 0,
         runningSince: null,
+        // A transport failure means the requested Start never obtained a usable
+        // runtime turn. Restore the human's holds so a failed escape hatch cannot
+        // silently turn into an unscheduled, uncoordinated retry on the next tick.
+        ...(manualStart ? {
+          waitingOn: card.waitingOn ?? null,
+          scheduledFor: card.scheduledFor ?? null,
+          scheduleAction: card.scheduleAction ?? null,
+          scheduleNotifiedAt: card.scheduleNotifiedAt ?? null
+        } : {}),
+        ...(manualStart && implementLease ? { leaseOwnerToken: null } : {}),
         lastDispatchError: {
           at: now(),
           reason: "gateway-unavailable",
@@ -1591,7 +1898,23 @@ export async function processCard({ root, board, card, runFn, cap = 10, now = ()
       };
       // Same rebase discipline as the success path: a benign concurrent write must
       // not turn "the gateway was down, retry later" into a card stranded running.
-      const res = await commitRunResult(root, { base: runningCard, target: reverted, runRev, dispatchedFrom: card.list, now });
+      const res = await commitRunResult(root, {
+        base: runningCard,
+        target: reverted,
+        runRev,
+        dispatchedFrom: card.list,
+        now,
+        afterWrite: manualStart && implementLease
+          ? () => cleanupCardCoordination({
+              root,
+              cardId: card.id,
+              repoPaths: [implementLease.repoPath],
+              removeIntents: false,
+              ownerToken: runningCard.leaseOwnerToken || null
+            })
+          : undefined
+      });
+      await clearLiveSession();
       return { card: res.card ?? runningCard, outcome: { status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err) } };
       }
       // Cap reached: stop re-occupying the gateway and PARK so a human sees it.
@@ -1625,6 +1948,7 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
       dispatchedFrom: card.list,
       now
     });
+    await clearLiveSession();
     return { card: res.card ?? runningCard, outcome: { status: "needs-attention", reason: "run-failed", error: String(err?.message || err) } };
   }
 
@@ -1632,9 +1956,10 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
   // delayed transport callback after runFn resolves is ignored, and every already
   // accepted chunk is durable before the clean final reply is written.
   await closeLiveLog();
+  await closeLiveSessionWrites();
   const reply = out?.reply ?? out?.text ?? String(out ?? "");
   // Per-turn routing attribution (the gateway's `done` event surfaces which
-  // runtime/model/tier actually served THIS phase turn; null in souls mode / a
+  // runtime/model/tier actually served THIS phase turn; null for a legacy
   // non-routed turn). Fall the tier back to the card's own tier so the stamp reflects
   // the routed tier even when the gateway omits its echo. Never load-bearing — a
   // missing route just means no attribution stamp on the routed event.
@@ -1655,6 +1980,68 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
   // target below rebuilds events via withEvent(runningCard, …)), never a racing
   // mid-turn card write that would conflict the final save.
   for (const ev of needsInputEvents) runningCard.events = withEvent(runningCard, ev);
+  // Panic is a human-authored terminal decision for THIS runtime turn. Its reply
+  // is necessarily partial, so it must never reach verdict parsing, durable-gate
+  // rescue, or the follow-up nudge: any of those could advance a card after the
+  // user explicitly stopped it. Park the card in one CAS, preserve its session and
+  // runDir for inspection/retry, and refund the interrupted iteration.
+  const parkInterruptedTurn = async (stopOut, partialReply) => {
+    const partial = String(partialReply ?? "").trim();
+    const panicReason =
+      `Panic stopped the active ${listTitle} turn. Its partial output was kept in log ${logIndex} but was not treated as a verdict. ` +
+      `Review or change the Run spec, then Retry to resume this phase with the same run context.`;
+    const stopRouteMeta = stopOut?.route
+      ? { ...stopOut.route, tier: stopOut.route.tier ?? runningCard.tier ?? null }
+      : routeMeta;
+    const { route: stopRoute } = routeStamp(stopRouteMeta, phase);
+    runningCard.sessionIds = appendSessionId(runningCard.sessionIds, stopOut?.sessionId);
+    try {
+      await writeCardLog(root, card.id, logIndex, `# iteration ${iteration}\n${partialReply ?? ""}\n`);
+      await appendCardLog(root, card.id, logIndex, "\n_(stopped by card Panic; partial output ignored for routing)_\n");
+    } catch {
+      // The card transition is the safety boundary. A log filesystem error must
+      // not leave a successfully-stopped turn stranded in status:"running".
+    }
+    const res = await commitRunResult(root, {
+      base: runningCard,
+      target: {
+        ...runningCard,
+        ...parkFields(runningCard, card.list, panicReason),
+        status: "needs-attention",
+        iterations: card.iterations || 0,
+        runningSince: null,
+        lastReply: replySnippet(partial),
+        lastDispatchError: null,
+        retryKeepsContext: true,
+        events: withEvent(runningCard, {
+          at: now(),
+          kind: "interrupted",
+          message: `Panic stopped the active turn on ${listTitle}; partial output was ignored`,
+          detail: `requestedByCard=${stopOut?.interruptedByCardId || card.id}; stoppedReason=${stopOut?.stoppedReason || "user-interrupt"}`,
+          ...(stopRoute ? { route: stopRoute } : {})
+        })
+      },
+      runRev,
+      dispatchedFrom: card.list,
+      now
+    });
+    await clearLiveSession();
+    if (!res.ok) {
+      return {
+        card: res.card ?? runningCard,
+        outcome: res.deleted
+          ? { status: "skipped", reason: "card-deleted-during-run" }
+          : res.takenOver
+            ? { status: "skipped", reason: "taken-over-during-run" }
+            : { status: "needs-attention", reason: "conflict-during-run" }
+      };
+    }
+    return { card: res.card, outcome: { status: "needs-attention", reason: "user-interrupt", interrupted: true } };
+  };
+  const stoppedByUser = out?.stoppedByUser === true || out?.stoppedReason === "user-interrupt";
+  if (stoppedByUser) {
+    return parkInterruptedTurn(out, reply);
+  }
   const stoppedAtMaxTurns = out?.stoppedReason === "max_turns";
   // A routed runtime turn is evidence in its own right, even when a later gate,
   // coordination check, or verdict check parks the card. Previously attribution
@@ -1739,6 +2126,7 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
       await appendCardLog(root, card.id, logIndex, `\n_(verdict from durable gate evidence: ${durable})_\n`);
     }
   }
+  let nudgeInterrupt = null;
   if (!next && !stoppedAtMaxTurns) {
     try {
       const nudgePrompt =
@@ -1754,16 +2142,26 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
         ...executionContext
       });
       const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
-      const nnext = parseNextList(nudgeReply, validNext);
-      if (nnext) {
-        next = nnext;
-        nudged = true;
-        if (!snippet) snippet = replySnippet(nudgeReply);
-        await appendCardLog(root, card.id, logIndex, `\n_(follow-up verdict: ${nnext})_\n`);
+      if (nout?.stoppedByUser === true || nout?.stoppedReason === "user-interrupt") {
+        nudgeInterrupt = {
+          stopOut: nout,
+          partialReply: [replyText, String(nudgeReply ?? "").trim()].filter(Boolean).join("\n\n# Partial verdict follow-up\n")
+        };
+      } else {
+        const nnext = parseNextList(nudgeReply, validNext);
+        if (nnext) {
+          next = nnext;
+          nudged = true;
+          if (!snippet) snippet = replySnippet(nudgeReply);
+          await appendCardLog(root, card.id, logIndex, `\n_(follow-up verdict: ${nnext})_\n`);
+        }
       }
     } catch {
       // Nudge failed (gateway hiccup) — fall through and park with the ORIGINAL reply.
     }
+  }
+  if (nudgeInterrupt) {
+    return parkInterruptedTurn(nudgeInterrupt.stopOut, nudgeInterrupt.partialReply);
   }
   // Resolve the ACTUAL destination before either integrity gate. A rail can skip
   // the router-named list, and the contracts bind to where the card will really
@@ -1827,6 +2225,7 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
   // doesn't leave orphaned blocker/mail state.
   let blockerWrites = [];
   let terminalIntentRemoval = null;
+  let leaseMaintenance = null;
   let mails = []; // [{ toCardId, subject, body }] sent via coord-mail after save
   let coordAllCards = null;
   let coordRepoPath = null;
@@ -1879,7 +2278,7 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
         offEvents = fwd.skipped.map((ph) => ({
           at: now(),
           kind: "phase-off",
-          message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+          message: `Phase ${ph} is OFF for this card (${rail.flow || "flow"}) — recorded off, not run`
         }));
       }
     }
@@ -1993,8 +2392,11 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
         fenceEvents = f.events || [];
         const excl = myTouchSet?.exclusive || [];
         if (coordRepoPath && excl.length) {
-          if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) releaseLeases({ repoPath: coordRepoPath, cardId: runningCard.id });
-          else if (phase === "implement") renewLeases({ repoPath: coordRepoPath, card: runningCard, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
+          if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) {
+            leaseMaintenance = { kind: "release", args: { repoPath: coordRepoPath, cardId: runningCard.id, ownerToken: runningCard.leaseOwnerToken || null } };
+          } else if (phase === "implement") {
+            leaseMaintenance = { kind: "renew", args: { repoPath: coordRepoPath, card: runningCard, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now } };
+          }
         }
       }
       // Touch-set growth (Q5): if the operative widened its touch-set during
@@ -2005,7 +2407,7 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
       }
       // Per-phase runtime/model attribution: stamp the route object + append a
       // "· claude-code/opus (T2-deep)" suffix to the human message when the gateway
-      // reported a route for this turn (inert in souls mode).
+      // reported a route for this turn (inert for legacy non-routed turns).
       const { route: routeObj, suffix: routeSuffix } = routeStamp(routeMeta, phase);
       let events = withEvent(runningCard, {
         at: now(),
@@ -2029,13 +2431,17 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
         ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
         ...(coord ? { planCompletedAt: coord.planCompletedAt } : {}),
         ...(coordActive ? { fences } : {}),
+        ...(leaseMaintenance?.kind === "release" || landedTerminal ? { leaseOwnerToken: null } : {}),
         events
       };
       outcome = { status: "moved", from: card.list, to: effectiveNext, nudged };
       // Terminal cleanup (Q1): a card reaching a terminal list drops its ledger
       // intents + leases so external sessions stop seeing its claims. After save.
-      if (coordActive && landedTerminal) {
-        terminalIntentRemoval = { repoPath: coordRepoPath, cardId: runningCard.id };
+      if (landedTerminal) {
+        terminalIntentRemoval = {
+          repoPath: coordRepoPath || repoPathForProject(runningCard.project, board),
+          cardId: runningCard.id
+        };
       }
     }
   } else if (gateEvidenceStale) {
@@ -2152,8 +2558,43 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
   // inference, steering, a coordination event) instead of abandoning the card in
   // `running`. Only a real takeover refuses it — and a takeover has already
   // cleared the running state itself.
-  const res = await commitRunResult(root, { base: runningCard, target, runRev, dispatchedFrom: card.list, now });
+  const afterLifecycleWrite = terminalIntentRemoval || leaseMaintenance
+    ? () => {
+        if (terminalIntentRemoval) {
+          cleanupCardCoordination({
+            root,
+            cardId: terminalIntentRemoval.cardId,
+            repoPaths: [terminalIntentRemoval.repoPath].filter(Boolean),
+            removeIntents: true,
+            ownerToken: null
+          });
+        } else if (leaseMaintenance?.kind === "release") {
+          cleanupCardCoordination({
+            root,
+            cardId: leaseMaintenance.args.cardId,
+            repoPaths: [leaseMaintenance.args.repoPath].filter(Boolean),
+            removeIntents: false,
+            ownerToken: leaseMaintenance.args.ownerToken || null
+          });
+        } else if (leaseMaintenance?.kind === "renew") {
+          renewLeases(leaseMaintenance.args);
+        }
+      }
+    : undefined;
+  const res = await commitRunResult(root, {
+    base: runningCard,
+    target,
+    runRev,
+    dispatchedFrom: card.list,
+    now,
+    afterWrite: afterLifecycleWrite,
+    // `lastReply` is intentionally a 280-char card-front snippet. Carry the
+    // authoritative final reply out-of-band so Web Channel completion feedback
+    // can deliver it once without bloating card.json.
+    terminalSummary: outcome?.status === "moved" && outcome.to === "done" ? replyText : undefined
+  });
   if (!res.ok) {
+    await clearLiveSession();
     return {
       card: res.card ?? runningCard,
       outcome: res.deleted
@@ -2163,6 +2604,7 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
           : { status: "needs-attention", reason: "conflict-during-run" }
     };
   }
+  if (res.postCommitError) outcome = { ...outcome, coordinationCleanupPending: true };
   // WS2 duty summary (D6): on a genuine advance the engine writes its own per-duty
   // rollup under the run dir (best-effort; skips when runDir is null).
   if (outcome?.status === "moved") {
@@ -2192,6 +2634,10 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
       });
     }
   }
+  // Keep interruption bookkeeping, but only after the final duty summary is
+  // durable. Awaiting cleanup immediately after the terminal CAS yields to the
+  // deferred handoff/outbox writers and lets them snapshot an incomplete run.
+  await clearLiveSession();
   // S1b duty boundary: the duty just completed and advanced — ask the gateway to
   // compact if needed (holds discharge here). After the CAS so the advance is
   // committed; best-effort so it never affects the outcome.
@@ -2199,10 +2645,6 @@ gateway unavailable ${deferrals}x in a row on this list — parking instead of r
   // Cross-card coordination side-writes, only after our own save committed.
   for (const bw of blockerWrites) {
     await applyBlockerWrite(root, bw, now);
-  }
-  if (terminalIntentRemoval) {
-    try { removeCardIntents(terminalIntentRemoval); } catch { /* ledger cleanup best-effort */ }
-    if (terminalIntentRemoval.repoPath) { try { releaseLeases(terminalIntentRemoval); } catch { /* best-effort */ } }
   }
   // Mail (Q9) after save, so a mail event write can't conflict with our own CAS.
   if (coordActive && mails.length && coordAllCards) {
@@ -2319,6 +2761,371 @@ export async function sweepOrphanedRuns(root, { now = () => new Date().toISOStri
   return swept;
 }
 
+// ── Card scheduling: the due-sweep ──────────────────────────────────────────
+//
+// Runs at the top of every tick (2-min cadence = the schedule's resolution).
+// A card whose scheduledFor instant has PASSED gets exactly one action:
+//   - scheduleAction "notify" (default): stamp scheduleNotifiedAt + emit a
+//     schedule-due event + push the reminder (with the tell-Zeca phrases)
+//     through the origin/omi/web chain. The hold has expired, so an
+//     agent-list card resumes normal dispatch on this same tick; a manual-
+//     list card waits for the human (or a "run card X" told to Zeca).
+//   - scheduleAction "run": clear the schedule and, on a manual list, advance
+//     into the card's rail (sequence head, else the first non-interactive
+//     agent exit) exactly like a human Start - the tick's dispatch loop then
+//     picks it up. A card with no agent exit (a manual-only rail) degrades to
+//     the notify behaviour: there is nothing to run.
+// Unparseable scheduledFor values are left alone - scheduleHolds() already
+// holds them (fail closed), and rewriting a value the human typed would hide
+// the mistake instead of surfacing it in the UI.
+function runTargetForSchedule(board, card, targetList) {
+  const target = getList(board, targetList);
+  if (target && target.kind === AGENT_KIND && !isInteractive(target)) return target.id;
+  const seqHead = Array.isArray(card.sequence) && card.sequence.length ? card.sequence[0] : null;
+  if (seqHead) {
+    const list = getList(board, seqHead);
+    if (list && list.kind === AGENT_KIND && !isInteractive(list)) return seqHead;
+  }
+  return (validNextFor(board, targetList) || []).find((id) => {
+    const list = getList(board, id);
+    return list && list.kind === AGENT_KIND && !isInteractive(list);
+  }) ?? null;
+}
+
+function occurrenceInput(template, list, key, scheduledAt) {
+  return {
+    title: template.title,
+    description: template.description ?? "",
+    project: template.project ?? null,
+    scope: template.scope ?? null,
+    list,
+    goalMode: Boolean(template.goalMode),
+    acceptance: template.acceptance ?? null,
+    flow: template.flow ?? null,
+    phases: template.phases ?? null,
+    tier: template.tier ?? null,
+    routing: template.routing ?? null,
+    origin: "scheduler",
+    originChannel: template.originChannel ?? null,
+    duty: template.duty ?? null,
+    level: template.level ?? null,
+    sequence: Array.isArray(template.sequence) ? template.sequence : null,
+    placement: template.placement ?? null,
+    checklist: template.checklist ?? null,
+    scheduleTemplateId: template.id,
+    scheduleSystemKey: template.systemKey ?? null,
+    occurrenceKey: key,
+    occurrenceAt: scheduledAt,
+    origin_id: `schedule:${template.id}`
+  };
+}
+
+function pendingScheduleDelivery(id, { started = false, at = new Date().toISOString() } = {}) {
+  return {
+    id,
+    status: "pending",
+    started: Boolean(started),
+    createdAt: at,
+    attempts: 0,
+    lastAttemptAt: null,
+    deliveredAt: null,
+    lastError: null,
+    receipts: []
+  };
+}
+
+async function flushScheduleDeliveriesUnlocked(root, {
+  now = () => new Date().toISOString(),
+  deliverReminder = deliverScheduleReminder
+} = {}) {
+  const cards = await loadAllCards(root);
+  const results = [];
+  for (const snapshot of cards) {
+    const delivery = snapshot.scheduleDelivery;
+    if (!delivery || delivery.status !== "pending" || typeof delivery.id !== "string") continue;
+    const attemptedAt = now();
+    let outcome;
+    try {
+      outcome = await deliverReminder(root, snapshot, {
+        started: delivery.started === true,
+        idempotencyKey: delivery.id
+      });
+    } catch (error) {
+      outcome = { ok: false, error: String(error?.message ?? error) };
+    }
+    const ok = outcome?.ok === true;
+    const error = ok
+      ? null
+      : String(outcome?.error ?? outcome?.reason ?? "no delivery channel accepted the reminder").slice(0, 500);
+    let acted = false;
+    const updated = await updateCardCAS(root, snapshot.id, (current) => {
+      acted = false;
+      const live = current.scheduleDelivery;
+      if (!live || live.id !== delivery.id || live.status !== "pending") return null;
+      acted = true;
+      const attempts = Math.max(0, Number(live.attempts) || 0) + 1;
+      const nextDelivery = {
+        ...live,
+        status: ok ? "delivered" : "pending",
+        attempts,
+        lastAttemptAt: attemptedAt,
+        deliveredAt: ok ? attemptedAt : null,
+        lastError: error,
+        receipts: Array.isArray(outcome?.receipts) ? outcome.receipts.slice(0, 24) : []
+      };
+      return {
+        ...current,
+        scheduleDelivery: nextDelivery,
+        scheduleNotifiedAt: ok && live.started !== true ? attemptedAt : current.scheduleNotifiedAt ?? null,
+        events: withEvent(current, {
+          at: attemptedAt,
+          kind: ok ? "schedule-delivered" : "schedule-delivery-pending",
+          message: ok
+            ? `Scheduled ${live.started ? "start notice" : "reminder"} delivered`
+            : `Scheduled ${live.started ? "start notice" : "reminder"} pending retry: ${error}`
+        })
+      };
+    });
+    if (acted) results.push({ id: snapshot.id, deliveryId: delivery.id, ok, card: updated });
+  }
+  return results;
+}
+
+// Public recovery seam for setup/startup callers. Normal ticks call the
+// unlocked variant while already holding the schedule lock.
+export async function reconcileScheduleDeliveries(root, options = {}) {
+  return withFileLock(path.join(root, ".schedule-sweep.lock"), "schedule sweep", () =>
+    flushScheduleDeliveriesUnlocked(root, options)
+  );
+}
+
+async function materialiseOccurrenceUnlocked(root, board, template, scheduledAt, key, { manual = false } = {}) {
+  const all = await loadAllCards(root);
+  const existing = all.find((card) => card.occurrenceKey === key);
+  const schedule = template.schedule;
+  const targetList = getList(board, schedule.targetList) ? schedule.targetList : "backlog";
+  const runTarget = schedule.action === "run" ? runTargetForSchedule(board, template, targetList) : null;
+  const runnable = schedule.action === "run" && Boolean(runTarget);
+  if (existing) return { card: existing, created: false, runnable };
+  const destination = runnable ? runTarget : targetList;
+  const card = await createCard(root, occurrenceInput(template, destination, key, scheduledAt));
+  const stamp = new Date().toISOString();
+  const stamped = await updateCardCAS(root, card.id, (current) => ({
+    ...current,
+    scheduleNotifiedAt: null,
+    scheduleDelivery: runnable
+      ? null
+      : pendingScheduleDelivery(`schedule:${key}:reminder`, { started: false, at: stamp }),
+    events: withEvent(current, {
+      at: stamp,
+      kind: manual ? "schedule-run-now" : "schedule-occurrence",
+      message: `${manual ? "Run now" : "Scheduled occurrence"} from ${template.id}${runnable ? ` - queued on ${destination}` : " - reminder queued"}`
+    })
+  }));
+  const result = stamped || card;
+  return { card: result, created: true, runnable };
+}
+
+// Create an extra occurrence without changing a recurring template's next regular
+// instant. This is the server/MCP/UI "Run now" seam.
+export async function runScheduleNow(root, board, templateId, { now = () => new Date().toISOString() } = {}) {
+  return withFileLock(path.join(root, ".schedule-sweep.lock"), "schedule sweep", async () => {
+    const template = await loadCard(root, templateId);
+    if (template.list !== "scheduled" || template.schedule?.kind !== "cron") {
+      throw new Error("run now is only available for recurring templates in Scheduled");
+    }
+    const stamp = now();
+    const key = `${template.id}:manual:${stamp}:${ulid()}`;
+    const materialised = await materialiseOccurrenceUnlocked(root, board, { ...template, schedule: { ...template.schedule, action: "run" } }, stamp, key, { manual: true });
+    let verified = false;
+    const updatedTemplate = await updateCardCAS(root, template.id, (current) => {
+      verified = false;
+      if (current.list !== "scheduled" || current.schedule?.kind !== "cron") return null;
+      verified = true;
+      return {
+        ...current,
+        schedule: {
+          ...current.schedule,
+          runNowVerification: {
+            occurrenceId: materialised.card.id,
+            occurrenceKey: key,
+            verifiedAt: stamp
+          }
+        },
+        events: withEvent(current, {
+          at: stamp,
+          kind: "schedule-run-now-verified",
+          message: `Run now created occurrence ${materialised.card.id}`
+        })
+      };
+    });
+    if (!updatedTemplate || !verified) throw new Error("Run now occurrence was created but its verification receipt could not be persisted");
+    return { ...materialised, template: updatedTemplate };
+  });
+}
+
+export async function sweepDueSchedules(root, board, {
+  now = () => new Date().toISOString(),
+  at = () => Date.now(),
+  deliverReminder = deliverScheduleReminder,
+  afterScheduleIntent = null
+} = {}) {
+  return withFileLock(path.join(root, ".schedule-sweep.lock"), "schedule sweep", async () => {
+    // Recovery comes first: a process may have died after committing a due
+    // transition but before (or just after) the channel accepted its stable key.
+    await flushScheduleDeliveriesUnlocked(root, { now, deliverReminder });
+    const cards = await loadAllCards(root);
+    const swept = [];
+    for (const original of cards) {
+      const schedule = original.schedule ?? normaliseCardSchedule(null, {
+        scheduledFor: original.scheduledFor,
+        scheduleAction: original.scheduleAction,
+        targetList: original.list,
+        now: original.created ?? now()
+      });
+      if (!schedule || schedule.enabled === false || !schedule.nextAt) continue;
+      const nextMs = Date.parse(schedule.nextAt);
+      if (!Number.isFinite(nextMs) || nextMs > at() || original.status === "running") continue;
+
+      if (schedule.kind === "cron") {
+        // A stale nextAt after downtime represents the schedule being behind, not a
+        // replay order. Select the latest due wall minute and create only that one.
+        const latest = latestCronOccurrence(schedule.cron, schedule.timezone, new Date(at()).toISOString());
+        const scheduledAt = latest && Date.parse(latest.at) >= nextMs ? latest.at : schedule.nextAt;
+        const key = scheduleOccurrenceKey(original.id, scheduledAt, schedule.timezone);
+        // Durable intent before creation. A crash here leaves a visible receipt;
+        // the next sweep resumes it. A crash after creation finds occurrenceKey
+        // and advances without creating a duplicate.
+        let intentWritten = false;
+        const intentCard = await updateCardCAS(root, original.id, (current) => {
+          intentWritten = false;
+          const live = current.schedule;
+          if (!live || live.kind !== "cron" || live.enabled === false || live.nextAt !== schedule.nextAt) return null;
+          intentWritten = true;
+          return { ...current, schedule: { ...live, pending: { occurrenceKey: key, at: scheduledAt } } };
+        });
+        // updateCardCAS returns the current card when the mutator opts out. The
+        // explicit flag is therefore the proof that this sweep owns the intent;
+        // without it, materialising would resurrect a just-paused/rescheduled run.
+        if (!intentCard || !intentWritten) continue;
+        if (typeof afterScheduleIntent === "function") await afterScheduleIntent({ template: intentCard, key, scheduledAt });
+        const liveIntent = await loadCard(root, original.id).catch(() => null);
+        if (
+          !liveIntent?.schedule ||
+          liveIntent.schedule.kind !== "cron" ||
+          liveIntent.schedule.enabled === false ||
+          liveIntent.schedule.nextAt !== schedule.nextAt ||
+          liveIntent.schedule.pending?.occurrenceKey !== key
+        ) continue;
+        const materialised = await materialiseOccurrenceUnlocked(root, board, { ...liveIntent, schedule: liveIntent.schedule }, scheduledAt, key);
+        const wallKey = zonedMinute(new Date(scheduledAt), schedule.timezone).key;
+        const skippedWallTimes = [];
+        const following = nextCronOccurrence(schedule.cron, schedule.timezone, scheduledAt, {
+          excludeWallKey: wallKey,
+          onSkip: (skip) => skippedWallTimes.push({ ...skip, recordedAt: now() })
+        });
+        let acted = false;
+        const updated = await updateCardCAS(root, original.id, (current) => {
+          acted = false;
+          const live = current.schedule;
+          if (!live || live.kind !== "cron" || live.enabled === false || live.nextAt !== schedule.nextAt) return null;
+          acted = true;
+          const nextSchedule = {
+            ...live,
+            lastAt: scheduledAt,
+            nextAt: following?.at ?? null,
+            pending: null,
+            snoozedUntil: null,
+            ...(skippedWallTimes.length
+              ? {
+                  skippedWallTimes: [
+                    ...(Array.isArray(live.skippedWallTimes) ? live.skippedWallTimes : []),
+                    ...skippedWallTimes
+                  ].slice(-24)
+                }
+              : {}),
+            ...(following ? { lastError: null } : { enabled: false, lastError: "no next occurrence found within 370 days" })
+          };
+          let events = withEvent(current, {
+            at: now(),
+            kind: "schedule-advanced",
+            message: `Created occurrence ${materialised.card.id}; next ${nextSchedule.nextAt ?? "disabled"}`
+          });
+          for (const skipped of skippedWallTimes) {
+            events = withEvent({ ...current, events }, {
+              at: skipped.recordedAt,
+              kind: "schedule-dst-skip",
+              message: `Skipped nonexistent wall time ${skipped.wallTime} (${skipped.timezone})`
+            });
+          }
+          return {
+            ...current,
+            schedule: nextSchedule,
+            scheduledFor: nextSchedule.nextAt,
+            scheduleAction: nextSchedule.action,
+            events
+          };
+        });
+        if (updated && acted) swept.push({
+          id: original.id,
+          action: materialised.runnable ? "run" : "notify",
+          occurrenceId: materialised.card.id,
+          recurring: true
+        });
+        continue;
+      }
+
+      const targetList = getList(board, schedule.targetList) ? schedule.targetList : "backlog";
+      // A one-shot `run` enters the normal Start path from its release target.
+      // A resolved rail/non-interactive agent exit is runnable immediately; a
+      // capture-only target such as Backlog falls back to its manual first edge
+      // (Backlog → To Do) rather than degrading into a reminder.
+      const runTarget = schedule.action === "run"
+        ? runTargetForSchedule(board, original, targetList) ?? (validNextFor(board, targetList) || [])[0]
+        : null;
+      const runnable = schedule.action === "run" && Boolean(runTarget);
+      let acted = false;
+      const updated = await updateCardCAS(root, original.id, (current) => {
+        acted = false;
+        const live = current.schedule ?? normaliseCardSchedule(null, {
+          scheduledFor: current.scheduledFor,
+          scheduleAction: current.scheduleAction,
+          targetList: current.list
+        });
+        if (!live || live.kind !== "once" || live.nextAt !== schedule.nextAt || current.status === "running") return null;
+        acted = true;
+        const stamp = now();
+        const destination = runnable ? runTarget : targetList;
+        return {
+          ...current,
+          list: destination,
+          status: "ok",
+          schedule: { ...live, enabled: false, lastAt: schedule.nextAt, nextAt: null, pending: null },
+          scheduledFor: null,
+          scheduleAction: null,
+          scheduleNotifiedAt: null,
+          scheduleDelivery: pendingScheduleDelivery(
+            `schedule:${current.id}:${schedule.nextAt}:${runnable ? "started" : "reminder"}`,
+            { started: runnable, at: stamp }
+          ),
+          events: withEvent(current, {
+            at: stamp,
+            kind: "schedule-due",
+            message: runnable
+              ? `Scheduled time reached - moved to ${destination} to run`
+              : `Scheduled time reached - moved to ${destination}; reminder sent`
+          })
+        };
+      });
+      if (updated && acted) {
+        swept.push({ id: original.id, action: runnable ? "run" : "notify" });
+      }
+    }
+    await flushScheduleDeliveriesUnlocked(root, { now, deliverReminder });
+    return swept;
+  });
+}
+
 // Reclaim cards whose remote worker went silent (Outpost Dispatch).
 //
 // The sibling of sweepOrphanedRuns, for the cross-machine case. A machine that
@@ -2407,7 +3214,7 @@ export async function recoverInterruptedRuns(root, now = () => new Date().toISOS
   return recovered;
 }
 
-export async function processChain({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), onDutyBoundary = undefined }) {
+export async function processChain({ root, board, card, runFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), onDutyBoundary = undefined, manualStart = false }) {
   let current = card;
   let lastOutcome = { status: "skipped", reason: "noop" };
   for (let hops = 0; hops < 50; hops++) {
@@ -2415,7 +3222,19 @@ export async function processChain({ root, board, card, runFn, cap = 10, now = (
     // genuine advance — so every processChain hop already covers the duty boundary
     // (no separate between-hop call needed; the controller's cooldown would skip a
     // duplicate anyway).
-    const { card: c, outcome } = await processCard({ root, board, card: current, runFn, cap, now, cwd, onDutyBoundary });
+    const { card: c, outcome } = await processCard({
+      root,
+      board,
+      card: current,
+      runFn,
+      cap,
+      now,
+      cwd,
+      onDutyBoundary,
+      // The override authorizes only the list the human explicitly started. A
+      // successful move to the next duty returns to ordinary automatic guards.
+      manualStart: manualStart && hops === 0
+    });
     current = c;
     lastOutcome = outcome;
     if (outcome.status !== "moved") break; // parked, skipped, deferred, conflict → stop
@@ -2476,7 +3295,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       offEvents = fwd.skipped.map((ph) => ({
         at: now(),
         kind: "phase-off",
-        message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+        message: `Phase ${ph} is OFF for this card (${rail.flow || "flow"}) — recorded off, not run`
       }));
     }
   }
@@ -2596,6 +3415,7 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   let target;
   let outcome;
   let terminalIntentRemoval = null;
+  let leaseMaintenance = null;
   if (coord && coord.kind === "park") {
     target = {
       ...card,
@@ -2646,8 +3466,11 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       fenceEvents = f.events || [];
       const excl = myTouchSet?.exclusive || [];
       if (coordRepoPath && excl.length) {
-        if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) releaseLeases({ repoPath: coordRepoPath, cardId: card.id });
-        else if (phase === "implement") renewLeases({ repoPath: coordRepoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now });
+        if ((phase === "implement" && effectiveNext !== "implement") || landedTerminal) {
+          leaseMaintenance = { kind: "release", args: { repoPath: coordRepoPath, cardId: card.id, ownerToken: card.leaseOwnerToken || null } };
+        } else if (phase === "implement") {
+          leaseMaintenance = { kind: "renew", args: { repoPath: coordRepoPath, card, paths: excl, ttlMinutes: coordCfg.leaseTtlMinutes, now } };
+        }
       }
     }
     if (coordActive && phase === "implement" && myTouchSet && coordRepoPath) {
@@ -2671,15 +3494,47 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
       ...(stab ? { stabilityAt: stab.stabilityAt } : {}),
       ...(coord ? { planCompletedAt: coord.planCompletedAt } : {}),
       ...(coordActive ? { fences } : {}),
+      ...(leaseMaintenance?.kind === "release" || landedTerminal ? { leaseOwnerToken: null } : {}),
       events
     };
     outcome = { status: "moved", from: card.list, to: effectiveNext };
-    if (coordActive && landedTerminal) {
-      terminalIntentRemoval = { repoPath: coordRepoPath, cardId: card.id };
+    if (landedTerminal) {
+      terminalIntentRemoval = {
+        repoPath: coordRepoPath || repoPathForProject(card.project, board),
+        cardId: card.id
+      };
     }
   }
-  const res = await saveCardCAS(root, target, card.rev ?? 0, now());
+  const res = await saveCardCASWithHooks(root, target, card.rev ?? 0, now(), {
+    terminalSummary: outcome?.status === "moved" && outcome.to === "done"
+      ? (typeof card.lastReply === "string" ? card.lastReply : undefined)
+      : undefined,
+    afterWrite: terminalIntentRemoval || leaseMaintenance
+      ? () => {
+          if (terminalIntentRemoval) {
+            cleanupCardCoordination({
+              root,
+              cardId: terminalIntentRemoval.cardId,
+              repoPaths: [terminalIntentRemoval.repoPath].filter(Boolean),
+              removeIntents: true,
+              ownerToken: null
+            });
+          } else if (leaseMaintenance?.kind === "release") {
+            cleanupCardCoordination({
+              root,
+              cardId: leaseMaintenance.args.cardId,
+              repoPaths: [leaseMaintenance.args.repoPath].filter(Boolean),
+              removeIntents: false,
+              ownerToken: leaseMaintenance.args.ownerToken || null
+            });
+          } else if (leaseMaintenance?.kind === "renew") {
+            renewLeases(leaseMaintenance.args);
+          }
+        }
+      : undefined
+  });
   if (!res.ok) return { card: res.card, outcome: { status: "skipped", reason: "conflict" } };
+  if (res.postCommitError) outcome = { ...outcome, coordinationCleanupPending: true };
   // WS2 duty summary parity: the in-session driver has no fresh reply/context, so the
   // summary falls back to the card's lastReply and the log ref to its last iteration.
   if (outcome?.status === "moved") {
@@ -2708,10 +3563,6 @@ export async function advanceCardPhase({ root, board, card, verdict, now = () =>
   await fireDutyBoundary(onDutyBoundary, res.card ?? card, phase, outcome);
   for (const bw of blockerWrites) {
     await applyBlockerWrite(root, bw, now);
-  }
-  if (terminalIntentRemoval) {
-    try { removeCardIntents(terminalIntentRemoval); } catch { /* best-effort */ }
-    if (terminalIntentRemoval.repoPath) { try { releaseLeases(terminalIntentRemoval); } catch { /* best-effort */ } }
   }
   if (coordActive && mails.length && coordAllCards) {
     const byId = new Map(coordAllCards.map((c) => [c.id, c]));
@@ -2749,15 +3600,26 @@ export function resolveBacklogInference(card, inference, threshold = PROJECT_CON
 // project, not the card: gather the project's waiting cards on the list, hand the
 // batch one prompt, and turn the ONE reply into a per-card verdict.
 
-// Group a list's eligible cards by project. A null/empty project groups under the
-// literal "(no-project)" bucket so an unclassified card is still batched (with itself).
-export function groupCardsByProject(cards, listId) {
+// Group a list's eligible cards by execution scope. Real projects retain their
+// historical keys; personal/no-project cards get the reserved personal token so
+// Test dispatch preserves their fixed workspace. An ordinary null/empty project
+// still groups under "(no-project)" and receives no cwd pin.
+export function groupCardsByProject(cards, listId, { manualStartIds = new Set() } = {}) {
+  const overrides = manualStartIds instanceof Set ? manualStartIds : new Set(manualStartIds || []);
   const byProject = {};
   for (const c of cards) {
     if (c.list !== listId) continue;
     if (c.status === "running" || c.status === "needs-attention") continue;
-    if (c.waitingOn) continue; // deferred behind an overlapping run (coordination)
-    const key = c.project || "(no-project)";
+    // A selected manual-Start card stays eligible without first clearing its
+    // holds on disk; processBatch consumes them only in that card's acquire CAS.
+    if (c.waitingOn && !overrides.has(c.id)) continue;
+    if (scheduleHolds(c) && !overrides.has(c.id)) continue;
+    const routing = c?.routing && typeof c.routing === "object" && !Array.isArray(c.routing) ? c.routing : {};
+    const explicitProjectPresent = typeof routing.project === "string" && routing.project.trim().length > 0;
+    const cardProjectPresent = typeof c?.project === "string" && c.project.trim().length > 0;
+    const projectWasSpecified = explicitProjectPresent || cardProjectPresent;
+    const project = projectNameForRouting(explicitProjectPresent ? routing.project : c?.project);
+    const key = project || (!projectWasSpecified && isPersonalCard(c) ? PERSONAL_SCOPE_TOKEN : "(no-project)");
     (byProject[key] ??= []).push(c);
   }
   return byProject;
@@ -2818,7 +3680,7 @@ export function parseBatchVerdicts(reply, cards, board, model = null) {
 // is the card's first agent-list entry): a valid verdict moves it forward; a missing /
 // non-matching verdict, or an iteration-cap breach, loops it to `implement` (the fail
 // edge) or parks it in needs-attention if implement is not a valid next.
-export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined }) {
+export async function processBatch({ root, board, listId, cards, batchRunFn, cap = 10, now = () => new Date().toISOString(), cwd = process.cwd(), emptyGrace = {}, model = undefined, manualStartIds = [] }) {
   const grace = resolveEmptyGrace(emptyGrace);
   const list = getList(board, listId);
   if (!list || list.kind !== AGENT_KIND) {
@@ -2833,7 +3695,8 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
   const resolvedModel = model !== undefined ? model : loadResolvedModel(root);
   const validNext = validNextFor(board, listId);
   const batchPhase = phaseForList(list);
-  const projectGroups = groupCardsByProject(cards, listId);
+  const manualStarts = manualStartIds instanceof Set ? manualStartIds : new Set(manualStartIds || []);
+  const projectGroups = groupCardsByProject(cards, listId, { manualStartIds: manualStarts });
   // A batch is one runtime session, so v4 cards may share it only when their
   // current leaf resolves to the same exact target/cell settings. Preserve the
   // historical one-batch-per-project behavior for all legacy cards.
@@ -2891,19 +3754,22 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       const minted = mintRunFields(card, () => Date.parse(now()) || Date.now());
       const iteration = (card.iterations || 0) + 1;
       const logIndex = latestCardLogNumber(root, card) + 1;
+      const dispatchAt = now();
+      const manualStart = manualStarts.has(card.id);
+      const acquireBase = manualStart ? consumeStartOverrides(card, dispatchAt) : card;
       const acq = await saveCardCAS(root, {
-        ...card,
+        ...acquireBase,
         ...(minted || {}),
         status: "running",
         iterations: iteration,
         logIndex,
-        runningSince: now(),
+        runningSince: dispatchAt,
         // Same owner + generation stamp as the single-card acquire, so a batched run
         // is equally sweepable when its driver dies and equally unable to clobber a
         // later generation of itself.
-        runOwner: { pid: process.pid, host: hostname(), at: now() },
+        runOwner: { pid: process.pid, host: hostname(), at: dispatchAt },
         runSeq: (card.runSeq ?? 0) + 1,
-        events: withEvent(card, { at: now(), kind: "dispatch", message: `Dispatched to the operative on ${listTitle} (batched: ${project}) — run ${iteration}`, detail: null })
+        events: withEvent(acquireBase, { at: dispatchAt, kind: "dispatch", message: `Dispatched to the operative on ${listTitle} (batched: ${project}) — run ${iteration}`, detail: null })
       }, baseRev, now());
       if (!acq.ok) { outcomes.push({ id: card.id, status: "skipped", reason: "conflict", project }); continue; }
       const gateBaseline = acq.card.runDir && batchPhase
@@ -2914,12 +3780,60 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         running: acq.card,
         iteration,
         logIndex,
+        manualStart,
         gateFreshness: gateBaseline ? { baseline: gateBaseline } : null
       });
     }
     if (acquired.length === 0) continue;
 
     const runningCards = acquired.map((a) => a.running);
+    // One batch turn serves every acquired card, so mirror its live text and
+    // journal coordinate onto every card's own Watch surfaces. Each queue is
+    // serialized independently: a slow card directory cannot reorder another
+    // member's updates, and the final writes drain before terminal CAS cleanup.
+    const liveQueues = new Map();
+    const journalQueues = new Map();
+    let acceptingBatchStreams = true;
+    let latestBatchOutput = "";
+    for (const a of acquired) {
+      await writeCardLog(
+        root,
+        a.original.id,
+        a.logIndex,
+        `# iteration ${a.iteration} (batch:${project})\n\n_dispatching batched work to the operative…_\n`
+      );
+      liveQueues.set(a.original.id, Promise.resolve());
+      journalQueues.set(a.original.id, Promise.resolve());
+    }
+    const onChunk = (full) => {
+      if (!acceptingBatchStreams) return;
+      latestBatchOutput = String(full ?? "");
+      for (const a of acquired) {
+        const text = `# iteration ${a.iteration} (batch:${project})\n${latestBatchOutput}\n`;
+        const next = liveQueues.get(a.original.id)
+          .then(() => writeCardLog(root, a.original.id, a.logIndex, text))
+          .catch(() => {});
+        liveQueues.set(a.original.id, next);
+      }
+    };
+    const onJournal = (identity) => {
+      if (!acceptingBatchStreams) return;
+      for (const a of acquired) {
+        const next = journalQueues.get(a.original.id)
+          .then(() => writeLiveSessionPointer(root, a.running, identity, now()))
+          .catch(() => {});
+        journalQueues.set(a.original.id, next);
+      }
+    };
+    const closeBatchStreams = async () => {
+      acceptingBatchStreams = false;
+      await Promise.all([...liveQueues.values(), ...journalQueues.values()]);
+    };
+    const clearBatchSessions = async () => {
+      await Promise.all(acquired.map((a) =>
+        clearLiveSessionPointer(root, a.running.id, a.running.runSeq).catch(() => false)
+      ));
+    };
     // D15: same policy-derived classification as processCard — the batched
     // Test beat resolves its skill/model/effort from the compiled policy like
     // every other phase. Tier: the group's first card's tier (a batch shares
@@ -2936,7 +3850,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     ])];
     const classification = classificationForPhase(policy, phase, runningCards[0]);
     const executionContext = executionContextForCard(runningCards[0], phase, resolvedModel);
-    const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, runningCards[0]?.workKind || policy?.defaultWorkKind);
+    const skill = executionContext.step?.skill ?? skillForPhase(policy, phase, runningCards[0]?.flow || policy?.defaultFlow);
     let out;
     try {
       out = await batchRunFn({
@@ -2946,9 +3860,12 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
         classification,
         skill,
         suppressContinuations: true,
+        onChunk,
+        onJournal,
         ...executionContext
       });
     } catch (err) {
+      await closeBatchStreams();
       if (err?.transport) {
         // A TRANSPORT failure (gateway down/restarting, stream dropped) is not
         // the cards' fault — REVERT every acquire (status + iteration restored)
@@ -2961,6 +3878,12 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
             status: a.original.status ?? "ok",
             iterations: a.original.iterations || 0,
             runningSince: null,
+            ...(a.manualStart ? {
+              waitingOn: a.original.waitingOn ?? null,
+              scheduledFor: a.original.scheduledFor ?? null,
+              scheduleAction: a.original.scheduleAction ?? null,
+              scheduleNotifiedAt: a.original.scheduleNotifiedAt ?? null
+            } : {}),
             lastDispatchError: {
               at: now(),
               reason: "gateway-unavailable",
@@ -2974,9 +3897,17 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
               detail: String(err?.message || err)
             })
           } });
-          await appendCardLog(root, a.original.id, a.logIndex, `# iteration ${a.iteration} (batch:${project})\ngateway unavailable (deferred, will retry): ${err?.message || err}\n`);
+          await writeCardLog(
+            root,
+            a.original.id,
+            a.logIndex,
+            `# iteration ${a.iteration} (batch:${project})\n` +
+              (latestBatchOutput ? `${latestBatchOutput}\n\n` : "") +
+              `gateway unavailable (deferred, will retry): ${err?.message || err}\n`
+          );
           outcomes.push({ id: a.original.id, status: "deferred", reason: "gateway-unavailable", error: String(err?.message || err), project });
         }
+        await clearBatchSessions();
         continue;
       }
       // A real (non-transport) batch failure — park every acquired card with the reason.
@@ -2989,12 +3920,81 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           lastReply: replySnippet(String(err?.message || err)),
           events: withEvent(a.running, { at: now(), kind: "failed", message: `Batch run errored on ${listTitle}`, detail: String(err?.message || err) })
         } });
-        await appendCardLog(root, a.original.id, a.logIndex, `# iteration ${a.iteration} (batch:${project})\nbatch run failed: ${err?.message || err}\n`);
+        await writeCardLog(
+          root,
+          a.original.id,
+          a.logIndex,
+          `# iteration ${a.iteration} (batch:${project})\n` +
+            (latestBatchOutput ? `${latestBatchOutput}\n\n` : "") +
+            `batch run failed: ${err?.message || err}\n`
+        );
         outcomes.push({ id: a.original.id, status: "needs-attention", reason: "run-failed", error: String(err?.message || err), project });
       }
+      await clearBatchSessions();
       continue;
     }
 
+    const parkInterruptedBatch = async (stopOut, partialReply) => {
+      const affected = Array.isArray(stopOut?.affectedCardIds) && stopOut.affectedCardIds.length
+        ? stopOut.affectedCardIds
+        : acquired.map((a) => a.original.id);
+      for (const a of acquired) {
+        a.running.sessionIds = appendSessionId(a.running.sessionIds, stopOut?.sessionId);
+        const panicReason =
+          `Panic stopped the shared ${listTitle} batch turn for ${project}. Because one runtime turn covered ${affected.length} card(s), ` +
+          `every card in that turn was parked safely; no partial verdict was used. Review or change each card's Run spec, then Retry.`;
+        const { route: stopRoute } = routeStamp(
+          stopOut?.route ? { ...stopOut.route, tier: stopOut.route.tier ?? a.running.tier ?? null } : null,
+          phase
+        );
+        try {
+          await writeCardLog(
+            root,
+            a.original.id,
+            a.logIndex,
+            `# iteration ${a.iteration} (batch:${project})\n${partialReply}\n\n_(stopped by card Panic; every partial batch verdict was ignored)_\n`
+          );
+        } catch {
+          // Still park this member. One broken log path must not strand the
+          // remainder of an interrupted shared batch in status:"running".
+        }
+        const res = await commitRunResult(root, {
+          base: a.running,
+          target: {
+            ...a.running,
+            ...parkFields(a.running, listId, panicReason),
+            status: "needs-attention",
+            iterations: a.original.iterations || 0,
+            runningSince: null,
+            lastReply: replySnippet(String(partialReply ?? "").trim()),
+            lastDispatchError: null,
+            retryKeepsContext: true,
+            events: withEvent(a.running, {
+              at: now(),
+              kind: "interrupted",
+              message: `Panic stopped the shared ${listTitle} batch; partial verdicts were ignored`,
+              detail: `requestedByCard=${stopOut?.interruptedByCardId || "unknown"}; affectedCards=${affected.join(",")}`,
+              ...(stopRoute ? { route: stopRoute } : {})
+            })
+          },
+          runRev: a.running.rev,
+          dispatchedFrom: listId,
+          now
+        });
+        outcomes.push(res.ok
+          ? { id: a.original.id, status: "needs-attention", reason: "user-interrupt", project, interrupted: true }
+          : res.takenOver
+            ? { id: a.original.id, status: "skipped", reason: "taken-over-during-run", project }
+            : { id: a.original.id, status: "needs-attention", reason: "conflict-during-run", project });
+      }
+    };
+    const stoppedByUser = out?.stoppedByUser === true || out?.stoppedReason === "user-interrupt";
+    if (stoppedByUser) {
+      await closeBatchStreams();
+      await parkInterruptedBatch(out, out?.reply ?? out?.text ?? String(out ?? ""));
+      await clearBatchSessions();
+      continue;
+    }
     const stoppedAtMaxTurns = out?.stoppedReason === "max_turns";
     // Preserve the shared batch route on every acquired card before interpreting
     // its individual verdict. That attribution must survive a per-card park just
@@ -3048,6 +4048,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
     // work but ended narrating — or returned an empty screen-scrape — leaves
     // ZERO verdict lines and would park the whole group. One bounded follow-up
     // asks for nothing but the verdict lines, in the same session.
+    let batchNudgeInterrupt = null;
     if (!Object.values(verdicts).some(Boolean) && !stoppedAtMaxTurns) {
       try {
         const nudgePrompt =
@@ -3063,17 +4064,39 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           skill,
           suppressContinuations: true,
           nudge: nudgePrompt,
+          onChunk,
+          onJournal,
           ...executionContext
         });
+        if (!out?.sessionId && nout?.sessionId) out = { ...out, sessionId: nout.sessionId };
         const nudgeReply = nout?.reply ?? nout?.text ?? String(nout ?? "");
-        const nudged = parseBatchVerdicts(nudgeReply, runningCards, board, resolvedModel);
-        if (Object.values(nudged).some(Boolean)) {
-          verdicts = nudged;
-          if (!reply.trim()) reply = nudgeReply;
+        if (nout?.stoppedByUser === true || nout?.stoppedReason === "user-interrupt") {
+          batchNudgeInterrupt = {
+            stopOut: nout,
+            partialReply: [String(reply ?? "").trim(), String(nudgeReply ?? "").trim()]
+              .filter(Boolean)
+              .join("\n\n# Partial batch verdict follow-up\n")
+          };
+        } else {
+          const nudged = parseBatchVerdicts(nudgeReply, runningCards, board, resolvedModel);
+          if (Object.values(nudged).some(Boolean)) {
+            verdicts = nudged;
+            if (!reply.trim()) reply = nudgeReply;
+          }
         }
       } catch {
         // Nudge failed — fall through and handle with the original (empty) verdicts.
       }
+    }
+    if (batchNudgeInterrupt) {
+      await closeBatchStreams();
+      await parkInterruptedBatch(batchNudgeInterrupt.stopOut, batchNudgeInterrupt.partialReply);
+      await clearBatchSessions();
+      continue;
+    }
+    await closeBatchStreams();
+    for (const a of acquired) {
+      a.running.sessionIds = appendSessionId(a.running.sessionIds, out?.sessionId);
     }
     const snippet = replySnippet(reply);
     for (const a of acquired) {
@@ -3083,7 +4106,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       // not the board's column order; a legacy card falls back to the board's set.
       const cardValidNext = validNextForCard(a.running, phase, resolvedModel) ?? validNext;
       const cardExpected = cardValidNext.join(", ");
-      await appendCardLog(
+      await writeCardLog(
         root,
         a.original.id,
         a.logIndex,
@@ -3116,7 +4139,7 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
           offEvents = fwd.skipped.map((ph) => ({
             at: now(),
             kind: "phase-off",
-            message: `Phase ${ph} is OFF for this card (${rail.workKind || "work kind"}) — recorded off, not run`
+            message: `Phase ${ph} is OFF for this card (${rail.flow || "flow"}) — recorded off, not run`
           }));
         }
       }
@@ -3290,7 +4313,27 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       // Same rebase discipline as the single-card path: the Test list is BATCHED, so a
       // concurrent write during a batch turn used to strand EVERY card in the group in
       // "running", exactly the way the incident card was stranded.
-      const res = await commitRunResult(root, { base: a.running, target, runRev: a.running.rev, dispatchedFrom: listId, now });
+      const landedTerminal = target.list === "done" || Boolean(getList(board, target.list)?.terminal);
+      const terminalHold = landedTerminal
+        ? { repoPath: repoPathForProject(a.running.project, board), cardId: a.running.id }
+        : null;
+      const res = await commitRunResult(root, {
+        base: a.running,
+        target,
+        runRev: a.running.rev,
+        dispatchedFrom: listId,
+        now,
+        terminalSummary: target.list === "done" ? snippet : undefined,
+        afterWrite: terminalHold
+          ? () => cleanupCardCoordination({
+              root,
+              cardId: terminalHold.cardId,
+              repoPaths: [terminalHold.repoPath].filter(Boolean),
+              removeIntents: true,
+              ownerToken: null
+            })
+          : undefined
+      });
       if (!res.ok) {
         outcomes.push(res.takenOver
           ? { id: a.original.id, status: "skipped", reason: "taken-over-during-run", project }
@@ -3312,8 +4355,16 @@ export async function processBatch({ root, board, listId, cards, batchRunFn, cap
       if (evidenceMissing) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: "no-evidence", project }); continue; }
       if (batchInterferenceWait) { outcomes.push({ id: a.original.id, status: "waiting", reason: "interference", project }); continue; }
       if (!next) { outcomes.push({ id: a.original.id, status: "needs-attention", reason: reply.trim() ? "no-exact-match" : "empty-reply", project }); continue; }
-      outcomes.push({ id: a.original.id, status: "moved", from: listId, to: target.list, project });
+      outcomes.push({
+        id: a.original.id,
+        status: "moved",
+        from: listId,
+        to: target.list,
+        project,
+        ...(res.postCommitError ? { coordinationCleanupPending: true } : {})
+      });
     }
+    await clearBatchSessions();
   }
   return { outcomes };
 }

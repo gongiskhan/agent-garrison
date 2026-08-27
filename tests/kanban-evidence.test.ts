@@ -3,7 +3,7 @@
 // surfaced on the finished card. These tests pin (a) the path-confinement of the new
 // served directory — the security-sensitive part — and (b) that resolveCardLinks
 // enumerates + classifies the bundle from disk.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -35,6 +35,25 @@ import { gateContractForTransition } from "../fittings/seed/kanban-loop/lib/engi
 // @ts-ignore — pure .mjs
 import { createCard, loadAllCards, loadCard, saveCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+// The card store is shared by every test in this file now, where a fresh tmp root
+// used to isolate them; wipe it between tests so one test's cards can never show
+// up in another's sweep, batch, or board read.
+beforeEach(async () => {
+  await __kanbanState?.reset();
+});
+
+
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-ev-"));
 
 async function withTestGatePolicy(root: string, run: () => Promise<any>): Promise<any> {
@@ -48,7 +67,7 @@ async function withTestGatePolicy(root: string, run: () => Promise<any>): Promis
       taskTypes: ["test"],
       tiers: ["T1-standard"],
       phaseSkills: { bindings: {}, overrides: {} },
-      workKinds: {},
+      flows: {},
       phasePlans: {}
     }),
     "utf8"
@@ -479,12 +498,12 @@ describe("terminal Test evidence — a short develop workflow still leaves user-
   });
 });
 
-// Evidence-free rails: a work kind may declare `evidence: false`, and every
+// Evidence-free rails: a flow may declare `evidence: false`, and every
 // transition seam then treats the evidence AND durable-gate contracts as
 // satisfied — the card advances with no evidence files and no gate record,
 // and never parks on evidenceMissing / no-gate-evidence. Dev kinds (no flag)
 // keep the full contract — the rest of this file is the proof.
-describe("evidence-free rails (workKind.evidence === false)", () => {
+describe("evidence-free rails (flow.evidence === false)", () => {
   // A compiled policy whose evidence-free kind still HAS a gate phase (test),
   // so the waiver — not an empty plan — is what the seams exercise.
   async function withEvidenceFreePolicy(root: string, run: () => Promise<any>): Promise<any> {
@@ -498,7 +517,7 @@ describe("evidence-free rails (workKind.evidence === false)", () => {
         taskTypes: ["test"],
         tiers: ["T1-standard"],
         phaseSkills: { bindings: {}, overrides: {} },
-        workKinds: { "no-proof": { phasePlan: "test-only", evidence: false } },
+        flows: { "no-proof": { phasePlan: "test-only", evidence: false } },
         phasePlans: { "test-only": { phases: ["test"], evidence: "none" } }
       }),
       "utf8"
@@ -517,23 +536,23 @@ describe("evidence-free rails (workKind.evidence === false)", () => {
   it("railForCard surfaces evidenceRequired: false only for the flagged kind", () => {
     const policy = {
       phases: ["test"],
-      workKinds: {
+      flows: {
         "no-proof": { phasePlan: "test-only", evidence: false },
         dev: { phasePlan: "test-only" }
       },
       phasePlans: { "test-only": { phases: ["test"], evidence: "none" } },
-      defaultWorkKind: "dev"
+      defaultFlow: "dev"
     };
-    expect(railForCard(policy, { workKind: "no-proof" }).evidenceRequired).toBe(false);
-    expect(railForCard(policy, { workKind: "dev" }).evidenceRequired).toBe(true);
+    expect(railForCard(policy, { flow: "no-proof" }).evidenceRequired).toBe(false);
+    expect(railForCard(policy, { flow: "dev" }).evidenceRequired).toBe(true);
     expect(railForCard(policy, {}).evidenceRequired).toBe(true); // default kind
-    expect(railForCard(policy, { workKind: "unknown" }).evidenceRequired).toBe(true); // forgiving all-on branch
+    expect(railForCard(policy, { flow: "unknown" }).evidenceRequired).toBe(true); // forgiving all-on branch
   });
 
   it("railIsManualOnly: empty phase plan and all-toggled-off rails are manual-only; live rails and null rails are not", () => {
     const policy = {
       phases: ["plan", "implement", "test"],
-      workKinds: {
+      flows: {
         personal: { phasePlan: "manual-only", evidence: false },
         dev: { phasePlan: "full" }
       },
@@ -541,18 +560,18 @@ describe("evidence-free rails (workKind.evidence === false)", () => {
         "manual-only": { phases: [], evidence: "none" },
         full: { phases: ["plan", "implement", "test"] }
       },
-      defaultWorkKind: "dev"
+      defaultFlow: "dev"
     };
     // Empty phase plan (the personal/channel kinds): every rail entry is off.
-    expect(railIsManualOnly(railForCard(policy, { workKind: "personal" }))).toBe(true);
+    expect(railIsManualOnly(railForCard(policy, { flow: "personal" }))).toBe(true);
     // Dev kind: live rail.
-    expect(railIsManualOnly(railForCard(policy, { workKind: "dev" }))).toBe(false);
+    expect(railIsManualOnly(railForCard(policy, { flow: "dev" }))).toBe(false);
     // Dev kind with every phase card-toggled off: nothing left to run.
     expect(
-      railIsManualOnly(railForCard(policy, { workKind: "dev", phases: { plan: false, implement: false, test: false } }))
+      railIsManualOnly(railForCard(policy, { flow: "dev", phases: { plan: false, implement: false, test: false } }))
     ).toBe(true);
     // No policy → null rail → NOT manual-only (static board behavior stays).
-    expect(railIsManualOnly(railForCard(null, { workKind: "personal" }))).toBe(false);
+    expect(railIsManualOnly(railForCard(null, { flow: "personal" }))).toBe(false);
   });
 
   it("both contracts report satisfied for an evidence-free rail, without touching disk", () => {
@@ -574,7 +593,7 @@ describe("evidence-free rails (workKind.evidence === false)", () => {
 
   it("processCard advances Test -> Done with no gate record and no evidence files", async () => {
     const root = tmp();
-    const card = await createCard(root, { title: "no-proof direct", project: "demo", list: "test", workKind: "no-proof" });
+    const card = await createCard(root, { title: "no-proof direct", project: "demo", list: "test", flow: "no-proof" });
     const { outcome } = await withEvidenceFreePolicy(root, () => processCard({
       root,
       board: legacyTerminalTestBoard,
@@ -590,7 +609,7 @@ describe("evidence-free rails (workKind.evidence === false)", () => {
 
   it("processBatch advances the same edge without proof", async () => {
     const root = tmp();
-    await createCard(root, { title: "no-proof batch", project: "demo", list: "test", workKind: "no-proof" });
+    await createCard(root, { title: "no-proof batch", project: "demo", list: "test", flow: "no-proof" });
     const cards = await loadAllCards(root);
     const { outcomes } = await withEvidenceFreePolicy(root, () => processBatch({
       root,
@@ -607,7 +626,7 @@ describe("evidence-free rails (workKind.evidence === false)", () => {
 
   it("advanceCardPhase advances in-session despite a runDir with no gate record", async () => {
     const root = tmp();
-    const created = await createCard(root, { title: "no-proof in-session", project: "demo", list: "test", workKind: "no-proof" });
+    const created = await createCard(root, { title: "no-proof in-session", project: "demo", list: "test", flow: "no-proof" });
     const runDir = join(root, "runs", created.id);
     mkdirSync(runDir, { recursive: true }); // runDir exists — but holds NO gate, NO evidence
     const card = await saveCard(root, { ...created, runId: "no-proof-in-session", runDir });
@@ -630,7 +649,7 @@ describe("evidence-free rails (workKind.evidence === false)", () => {
       title: "no-proof rail-off terminal",
       project: "demo",
       list: "test",
-      workKind: "no-proof",
+      flow: "no-proof",
       phases: { test: false }
     });
     let dispatched = false;

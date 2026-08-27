@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 // @ts-ignore - real SDK path (loads @openai/agents)
-import { OpenAiAgentsAdapter } from "../fittings/seed/openai-agents-runtime/lib/openai-adapter.mjs";
+import { OpenAiAgentsAdapter } from "../fittings/seed/openai-agents-runtime/lib/openai-agents-adapter.mjs";
 
 // S2a - openai-agents-runtime proven against real OpenAI-compatible endpoints:
 //   (b) a LIVE round trip vs local Ollama (skipped when Ollama is unreachable, so

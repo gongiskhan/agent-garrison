@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   normalizeDecision,
   readDecisionsTail,
+  readRoutingInferenceStatus,
   DECISIONS_REL,
   MAX_DECISIONS_LIMIT,
   type DecisionView
@@ -52,6 +53,7 @@ describe("normalizeDecision", () => {
       at: "2026-07-13T10:00:00.000Z",
       kind: "dispatch",
       duty: "develop",
+      flow: null,
       level: 2,
       target: null,
       reason: "→ develop L2, confidence high",
@@ -70,7 +72,12 @@ describe("normalizeDecision", () => {
       // Absent on this record: it predates session capture, which is exactly the
       // case the panel must render as "no link" rather than a dead one.
       sessionId: null,
-      sessionTitle: null
+      sessionTitle: null,
+      source: null,
+      inferenceUsed: null,
+      dispatchOk: null,
+      latencyMs: null,
+      failureCode: null
     });
   });
 
@@ -168,10 +175,15 @@ describe("normalizeDecision", () => {
     expect(Object.keys(v).sort()).toEqual([
       "at",
       "classifierSkipped",
+      "dispatchOk",
       "duty",
       "effort",
+      "failureCode",
+      "flow",
       "id",
+      "inferenceUsed",
       "kind",
+      "latencyMs",
       "level",
       "messageDigest",
       "model",
@@ -179,6 +191,7 @@ describe("normalizeDecision", () => {
       "runtime",
       "sessionId",
       "sessionTitle",
+      "source",
       "target",
       "taskType",
       "tier",
@@ -227,6 +240,23 @@ describe("readDecisionsTail", () => {
     await writeLog(dir, lines);
     const feed = await readDecisionsTail(dir, MAX_DECISIONS_LIMIT + 9999);
     expect(feed.length).toBe(3);
+  });
+});
+
+describe("readRoutingInferenceStatus", () => {
+  it("reports latest degraded reason/latency and a cumulative fallback count", async () => {
+    const dir = await tmpDir();
+    await writeLog(dir, [
+      JSON.stringify({ kind: "dispatch", at: "t1", source: "model", dispatchOk: true, latencyMs: 32, runtime: "agent-sdk", model: "claude-haiku-4-5" }),
+      JSON.stringify({ kind: "route", at: "ignored" }),
+      JSON.stringify({ kind: "dispatch", at: "t2", source: "fallback", dispatchOk: false, failureCode: "timeout", latencyMs: 8001, runtime: "agent-sdk", model: "claude-haiku-4-5" })
+    ]);
+    expect(await readRoutingInferenceStatus(dir)).toEqual({
+      total: 2,
+      fallbackCount: 1,
+      degraded: true,
+      latest: { at: "t2", source: "fallback", dispatchOk: false, latencyMs: 8001, failureCode: "timeout", runtime: "agent-sdk", model: "claude-haiku-4-5" }
+    });
   });
 });
 

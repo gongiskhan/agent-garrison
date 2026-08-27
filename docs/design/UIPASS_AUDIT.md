@@ -136,7 +136,7 @@ explanatory prose — they are the primary copy-cut targets.
 ### Kanban board · own-port Fitting (`fittings/seed/kanban-loop/ui`)
 
 - Separate Vite app. **Good pattern already**: short chip labels with
-  progressive-disclosure `title` tooltips (project, route, work-kind, fences).
+  progressive-disclosure `title` tooltips (project, route, flow, fences).
   A few tooltips are over-long (the engine-owned explanation). Uses `.btn small`
   (small touch targets) in its own CSS. Out of the shared-CSS blast radius, so
   its touch sizing is independent — noted, not changed this pass.

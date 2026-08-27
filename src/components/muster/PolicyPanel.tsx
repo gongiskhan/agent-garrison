@@ -4,7 +4,7 @@
 // own-port Orchestrator view's retirement (the targets tray lives on the
 // Duties tab, the task-type matrix was superseded by the duty ladders, the
 // decisions feed by the Decisions tab):
-//   1. WORK-KIND RAILS  - one rail per work kind; phases as toggleable,
+//   1. FLOW RAILS  - one rail per flow; phases as toggleable,
 //                         reorderable chips with a per-phase inspector
 //                         (skill override + plan evidence).
 //   2. COORDINATION     - same-branch multi-run coordination controls.
@@ -17,6 +17,7 @@
 // Autosave - no Save button. NO emoji - text marks + inline SVG only.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import {
   DndContext,
   PointerSensor,
@@ -63,12 +64,33 @@ type PhaseEntry = string | { id: string; on?: boolean };
 
 type Cfg = Omit<
   PolicyConfigV2,
-  "targets" | "workKinds" | "phasePlans" | "phaseSkills"
+  "targets" | "flows" | "phasePlans" | "phaseSkills"
 > & {
   targets: AnyTarget[];
-  workKinds: Record<string, { phasePlan: string; description?: string }>;
+  flows: Record<
+    string,
+    {
+      /** Legacy shape: one flow, one plan, whatever the level. */
+      phasePlan?: string;
+      description?: string;
+      cluster?: string;
+      examples?: string[];
+      defaultLevel?: number | string;
+      /** Levelled shape: an ordered duty list per level, with optional pins. */
+      levels?: Record<
+        string,
+        {
+          duties?: string[];
+          pins?: Record<string, number>;
+          definitionOfDone?: string;
+          evidence?: PhasePlan["evidence"];
+        }
+      >;
+    }
+  >;
   phasePlans: Record<string, PhasePlan>;
   phaseSkills: { bindings: Record<string, string>; overrides: Record<string, Record<string, string>> };
+  dispatchInference?: { timeoutMs?: number; maxTokens?: number; clarityRubric?: string };
 };
 type Producer = (draft: Cfg) => Cfg;
 
@@ -77,7 +99,13 @@ const resolveRoute = resolveRouteCore as unknown as (
   profile: string | null,
   classification: { taskType: string; tier: string; matchedException?: string | null }
 ) => RouteResolution;
-const railFor = railForCore as unknown as (config: Cfg, workKind?: string | null) => Rail;
+const railFor = railForCore as unknown as (
+  config: Cfg,
+  flow?: string | null,
+  cardToggles?: Record<string, boolean> | null,
+  /** Levelled flows resolve their duty list from the level the router chose. */
+  level?: number | string | null
+) => Rail;
 
 const EVIDENCE_KINDS = ["video", "logs", "text", "none"];
 // Severity vocabulary for the ux-qa threshold (blocker strictest → note loosest).
@@ -104,6 +132,8 @@ function glyphFor(t: AnyTarget | null | undefined): { mark: string; cls: string;
       return { mark: "GM", cls: "gGemini", title: "Gemini" };
     case "cursor":
       return { mark: "CR", cls: "gCursor", title: "Cursor Agent" };
+    case "remote-shell":
+      return { mark: "RSH", cls: "gOther", title: "Remote Shell" };
     default:
       return {
         mark: (t.runtime || "?").slice(0, 2).toUpperCase(),
@@ -280,9 +310,45 @@ function usePolicyDraft(compositionId: string) {
   };
 }
 
-// ── work-kind rails ─────────────────────────────────────────────────────────
-function planForKind(config: Cfg, kind: string): { planName: string; plan: PhasePlan } {
-  const planName = config.workKinds[kind].phasePlan;
+// ── flow rails ─────────────────────────────────────────────────────────
+/** The level a flow renders at: what was asked, else its own default, else 1. */
+function flowLevelOf(config: Cfg, kind: string, requested?: string | null): string {
+  const flow = config.flows[kind];
+  const levels = flow?.levels ? Object.keys(flow.levels) : [];
+  if (requested && levels.includes(requested)) return requested;
+  const dflt = flow?.defaultLevel != null ? String(flow.defaultLevel) : null;
+  if (dflt && levels.includes(dflt)) return dflt;
+  return levels[0] ?? "1";
+}
+
+/** True when this flow carries its duty list per level rather than naming a plan. */
+function isLevelled(config: Cfg, kind: string): boolean {
+  const l = config.flows[kind]?.levels;
+  return !!l && Object.keys(l).length > 0;
+}
+
+/**
+ * Resolve a flow to something rail-shaped.
+ *
+ * A levelled flow has no phase plan at all, so `planName` is null and the plan is
+ * synthesised from the level's duty list. Every caller must treat a null planName
+ * as "not editable through the phase-plan path" — writing to
+ * `phasePlans[undefined]` is what took this page down.
+ */
+function planForKind(
+  config: Cfg,
+  kind: string,
+  level?: string | null
+): { planName: string | null; plan: PhasePlan } {
+  const flow = config.flows[kind];
+  if (isLevelled(config, kind)) {
+    const def = flow.levels![flowLevelOf(config, kind, level)] ?? {};
+    return {
+      planName: null,
+      plan: { phases: (def.duties ?? []) as PhaseEntry[], evidence: def.evidence ?? "none" }
+    };
+  }
+  const planName = flow?.phasePlan ?? "";
   return { planName, plan: config.phasePlans[planName] };
 }
 function planPhaseIds(plan: PhasePlan): string[] {
@@ -375,7 +441,7 @@ function SortableChip(props: {
   );
 }
 
-function WorkKindRail({
+function FlowRail({
   config,
   kind,
   commit,
@@ -386,9 +452,12 @@ function WorkKindRail({
   commit: (p: Producer) => void;
   onInspect: (kind: string, phase: string) => void;
 }) {
+  const levelled = isLevelled(config, kind);
+  const [level, setLevel] = useState<string | null>(null);
+  const shownLevel = flowLevelOf(config, kind, level);
   let rail: Rail | null = null;
   try {
-    rail = railFor(config, kind);
+    rail = railFor(config, kind, null, levelled ? Number(shownLevel) : undefined);
   } catch (err) {
     return (
       <div className={styles.railError}>
@@ -396,8 +465,9 @@ function WorkKindRail({
       </div>
     );
   }
-  const { plan } = planForKind(config, kind);
+  const { plan, planName } = planForKind(config, kind, shownLevel);
   const inPlanIds = planPhaseIds(plan);
+  const levelDef = levelled ? (config.flows[kind].levels ?? {})[shownLevel] ?? {} : null;
   const inPlanSet = new Set(inPlanIds);
   const inPlanPhases = rail.phases.filter((p) => inPlanSet.has(p.id));
   const offPhases = rail.phases.filter((p) => !inPlanSet.has(p.id));
@@ -405,7 +475,12 @@ function WorkKindRail({
 
   const toggle = (phaseId: string) =>
     commit((draft) => {
-      const p = draft.phasePlans[draft.workKinds[kind].phasePlan];
+      // A levelled flow's duties are the level's list, not a phase plan; there is
+      // nothing here to toggle, and reaching for phasePlans[undefined] is exactly
+      // the crash this guard exists to prevent.
+      const name = draft.flows[kind].phasePlan;
+      if (!name) return draft;
+      const p = draft.phasePlans[name];
       const arr = p.phases as PhaseEntry[];
       const idx = arr.findIndex((e) => (typeof e === "string" ? e : e.id) === phaseId);
       if (idx === -1) {
@@ -422,12 +497,36 @@ function WorkKindRail({
     <div className={styles.rail} data-testid={`policy-rail-${kind}`}>
       <div className={styles.railHead}>
         <span className={styles.railKind}>{kind}</span>
-        {kind === config.defaultWorkKind ? <span className={styles.railBadge}>default</span> : null}
-        <span className={styles.railMeta}>plan: {config.workKinds[kind].phasePlan}</span>
+        {kind === config.defaultFlow ? <span className={styles.railBadge}>default</span> : null}
+        {levelled ? (
+          <span className={styles.railLevels}>
+            {Object.keys(config.flows[kind].levels ?? {})
+              .sort()
+              .map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={clsx(styles.railLevel, n === shownLevel && styles.railLevelOn)}
+                  onClick={() => setLevel(n)}
+                  aria-pressed={n === shownLevel}
+                  title={`level ${n}`}
+                >
+                  L{n}
+                </button>
+              ))}
+          </span>
+        ) : (
+          <span className={styles.railMeta}>plan: {planName}</span>
+        )}
         <span className={styles.railMeta}>evidence: {rail.evidence}</span>
       </div>
-      {config.workKinds[kind].description ? (
-        <div className={styles.railDesc}>{config.workKinds[kind].description}</div>
+      {config.flows[kind].description ? (
+        <div className={styles.railDesc}>{config.flows[kind].description}</div>
+      ) : null}
+      {levelDef?.definitionOfDone ? (
+        <div className={styles.railDod}>
+          <span>done when</span> {levelDef.definitionOfDone}
+        </div>
       ) : null}
       <div className={styles.railTrack}>
         <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
@@ -453,6 +552,14 @@ function WorkKindRail({
           />
         ))}
       </div>
+      {levelDef?.pins && Object.keys(levelDef.pins).length ? (
+        <div className={styles.railPins}>
+          pinned:{" "}
+          {Object.entries(levelDef.pins)
+            .map(([duty, lvl]) => `${duty} at L${lvl}`)
+            .join(", ")}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -473,21 +580,29 @@ function RailsSurface({
   commit: (p: Producer) => void;
   onInspect: (kind: string, phase: string) => void;
 }) {
-  const kinds = Object.keys(config.workKinds || {});
+  const kinds = Object.keys(config.flows || {});
   const cloneKind = () => {
     const src =
-      config.defaultWorkKind && config.workKinds[config.defaultWorkKind]
-        ? config.defaultWorkKind
+      config.defaultFlow && config.flows[config.defaultFlow]
+        ? config.defaultFlow
         : kinds[0];
     if (!src) return;
     commit((draft) => {
-      const newKind = uniqueName(src, new Set(Object.keys(draft.workKinds)));
-      const srcKind = draft.workKinds[src];
+      const newKind = uniqueName(src, new Set(Object.keys(draft.flows)));
+      const srcKind = draft.flows[src];
+      if (!srcKind.phasePlan) {
+        // Levelled flow: the levels ARE the definition, so clone them directly.
+        draft.flows[newKind] = {
+          ...structuredClone(srcKind),
+          description: srcKind.description ? `${srcKind.description} (copy)` : "Cloned flow"
+        };
+        return draft;
+      }
       const newPlan = uniqueName(srcKind.phasePlan, new Set(Object.keys(draft.phasePlans)));
       draft.phasePlans[newPlan] = structuredClone(draft.phasePlans[srcKind.phasePlan]);
-      draft.workKinds[newKind] = {
+      draft.flows[newKind] = {
         phasePlan: newPlan,
-        description: srcKind.description ? `${srcKind.description} (copy)` : "Cloned work kind"
+        description: srcKind.description ? `${srcKind.description} (copy)` : "Cloned flow"
       };
       const over = draft.phaseSkills?.overrides?.[src];
       if (over) {
@@ -499,9 +614,9 @@ function RailsSurface({
   return (
     <section className={styles.surface} data-testid="policy-rails">
       <div className={styles.surfaceHeadRow}>
-        <h3 className={styles.surfaceHead}>Work-kind rails</h3>
+        <h3 className={styles.surfaceHead}>Flow rails</h3>
         <button type="button" className={styles.ghostBtn} onClick={cloneKind}>
-          + Add work kind
+          + Add flow
         </button>
       </div>
       <p className={styles.surfaceHint}>
@@ -510,7 +625,7 @@ function RailsSurface({
         evidence.
       </p>
       {kinds.map((kind) => (
-        <WorkKindRail key={kind} config={config} kind={kind} commit={commit} onInspect={onInspect} />
+        <FlowRail key={kind} config={config} kind={kind} commit={commit} onInspect={onInspect} />
       ))}
     </section>
   );
@@ -529,8 +644,8 @@ function Inspector({
   onClose: () => void;
 }) {
   const { kind, phase } = target;
-  const planName = config.workKinds[kind]?.phasePlan;
-  const plan = planName ? config.phasePlans[planName] : undefined;
+  const planName = config.flows[kind]?.phasePlan ?? null;
+  const plan = planName ? config.phasePlans[planName] : planForKind(config, kind).plan;
   const binding = config.phaseSkills?.bindings?.[phase] || "";
   const override = config.phaseSkills?.overrides?.[kind]?.[phase];
   const skillValue = override ?? binding;
@@ -648,6 +763,76 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
         off
       </button>
     </span>
+  );
+}
+
+type InferenceStatus = {
+  target: null | { id: string; runtime: string; provider: string | null; model: string; promptMode: string | null; maxTurns: number | null; timeoutMs: number; authMode: string | null };
+  total: number;
+  fallbackCount: number;
+  degraded: boolean;
+  latest: null | { at: string | null; source: string | null; dispatchOk: boolean | null; latencyMs: number | null; failureCode: string | null };
+};
+
+function InferenceSurface({ config, commit, compositionId }: { config: Cfg; commit: (p: Producer) => void; compositionId: string }) {
+  const [status, setStatus] = useState<InferenceStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/orchestrator/routing-status?composition=${encodeURIComponent(compositionId)}`)
+      .then((r) => r.json())
+      .then((value) => { if (live) setStatus(value); })
+      .catch(() => { if (live) setStatus(null); });
+    return () => { live = false; };
+  }, [compositionId]);
+  const inference = config.dispatchInference ?? {};
+  const update = (key: "timeoutMs" | "maxTokens" | "clarityRubric", value: number | string) =>
+    commit((draft) => {
+      draft.dispatchInference = draft.dispatchInference ?? {};
+      (draft.dispatchInference as Record<string, number | string>)[key] = value;
+      return draft;
+    });
+  return (
+    <section className={styles.surface} data-testid="policy-routing-inference">
+      <div className={styles.surfaceHeadRow}>
+        <h3 className={styles.surfaceHead}>Routing inference</h3>
+        <span className={`${styles.status} ${status?.degraded ? styles.statusBad : styles.statusSaved}`}>
+          {status?.degraded ? "degraded" : "ready"}
+        </span>
+      </div>
+      <p className={styles.surfaceHint}>
+        Deterministic rules run first. Only ambiguous, unpinned human requests use the bounded one-turn target below.
+      </p>
+      <div className={styles.ctlGrid}>
+        <div className={styles.ctlRow}>
+          <span className={styles.ctlLabel}>Target</span>
+          <span className={styles.pill}>{status?.target ? `${status.target.runtime} / ${status.target.model}` : "not resolved"}</span>
+          <span className={styles.ctlNote}>
+            {status?.target ? `${status.target.provider || "default provider"}; ${status.target.promptMode || "default"}; ${status.target.authMode || "default auth"}; ${status.target.maxTurns ?? 1} turn` : "configure the dispatch duty target"}
+          </span>
+        </div>
+        <div className={styles.ctlRow}>
+          <span className={styles.ctlLabel}>Timeout</span>
+          <input className={styles.ctlNum} type="number" min={1000} max={30000} value={inference.timeoutMs ?? 8000} onChange={(e) => update("timeoutMs", Math.max(1000, Number(e.target.value) || 8000))} />
+          <span className={styles.ctlNote}>milliseconds; a timeout falls back deterministically and is recorded</span>
+        </div>
+        <div className={styles.ctlRow}>
+          <span className={styles.ctlLabel}>Max tokens</span>
+          <input className={styles.ctlNum} type="number" min={64} max={1024} value={inference.maxTokens ?? 256} onChange={(e) => update("maxTokens", Math.max(64, Number(e.target.value) || 256))} />
+          <span className={styles.ctlNote}>structured duty/level response only; no tools or extended thinking</span>
+        </div>
+        <label className={styles.ctlRow}>
+          <span className={styles.ctlLabel}>Clarity rubric</span>
+          <textarea value={inference.clarityRubric ?? ""} onChange={(e) => update("clarityRubric", e.target.value)} rows={3} />
+          <span className={styles.ctlNote}>editable policy folded into the lean dispatch prompt</span>
+        </label>
+      </div>
+      <div className={styles.tryitChain} aria-label="routing inference telemetry">
+        <span className={styles.pill}>last: {status?.latest?.source ?? "none"}</span>
+        <span className={styles.pill}>latency: {status?.latest?.latencyMs == null ? "—" : `${status.latest.latencyMs} ms`}</span>
+        <span className={styles.pill}>fallbacks: {status?.fallbackCount ?? 0}</span>
+        {status?.latest?.failureCode ? <span className={styles.pill}>reason: {status.latest.failureCode}</span> : null}
+      </div>
+    </section>
   );
 }
 
@@ -802,7 +987,7 @@ function SecuritySurface({ config, commit }: { config: Cfg; commit: (p: Producer
       <h3 className={styles.surfaceHead}>Security-sensitive projects</h3>
       <p className={styles.surfaceHint}>
         Mark a project security-sensitive to add the opt-in security-review phase to its runs
-        (boundary rubric + cross-model checks). No default work kind includes security-review
+        (boundary rubric + cross-model checks). No default flow includes security-review
         otherwise.
       </p>
       <div className={styles.projList}>
@@ -885,7 +1070,7 @@ type GateResolution = {
 type TryItRail = Omit<Rail, "phases"> & { phases: (RailPhase & { target?: AnyTarget })[] };
 type TryItResult = {
   classification?: { taskType?: string; tier?: string; execution?: string };
-  workKind?: string | null;
+  flow?: string | null;
   project?: string | null;
   rail?: TryItRail | { error: string } | null;
   gates?: GateResolution | null;
@@ -893,10 +1078,10 @@ type TryItResult = {
 };
 
 function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: string }) {
-  const kinds = Object.keys(config.workKinds || {});
+  const kinds = Object.keys(config.flows || {});
   const projectNames = Object.keys(config.projects || {}).sort();
   const [prompt, setPrompt] = useState("");
-  const [workKind, setWorkKind] = useState(config.defaultWorkKind || kinds[0] || "");
+  const [flow, setFlow] = useState(config.defaultFlow || kinds[0] || "");
   const [project, setProject] = useState("");
   const [result, setResult] = useState<TryItResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -907,7 +1092,7 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
       const r = await fetch("/api/orchestrator/simulate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ composition: compositionId, prompt, workKind, project: project || null })
+        body: JSON.stringify({ composition: compositionId, prompt, flow, project: project || null })
       });
       setResult(await r.json());
     } catch (err) {
@@ -933,7 +1118,7 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
             if (e.key === "Enter") void run();
           }}
         />
-        <select value={workKind} onChange={(e) => setWorkKind(e.target.value)} aria-label="work kind">
+        <select value={flow} onChange={(e) => setFlow(e.target.value)} aria-label="flow">
           {kinds.map((k) => (
             <option key={k} value={k}>
               {k}
@@ -954,13 +1139,13 @@ function TryItStrip({ config, compositionId }: { config: Cfg; compositionId: str
       </div>
       <p className={styles.surfaceHint}>
         Deterministic dry-run: a heuristic classifier resolves the rail here. The real live
-        classifier runs at the gateway.
+        Orchestrator inference runs in the gateway before the session&apos;s turn.
       </p>
       {result?.error ? <div className={styles.tryitError}>{result.error}</div> : null}
       {result && !result.error ? (
         <div className={styles.tryitOut}>
           <div className={styles.tryitChain}>
-            <span className={styles.pill}>kind: {result.workKind || "?"}</span>
+            <span className={styles.pill}>kind: {result.flow || "?"}</span>
             <span className={styles.pill}>tier: {result.classification?.tier || "?"}</span>
             <span className={styles.pill}>type: {result.classification?.taskType || "?"}</span>
             {result.project ? <span className={styles.pill}>project: {result.project}</span> : null}
@@ -1030,7 +1215,21 @@ function StatusPill({ state }: { state: SaveState }) {
 }
 
 // ── panel ───────────────────────────────────────────────────────────────────
-export function PolicyPanel({ compositionId }: { compositionId: string }) {
+/** Which surfaces to render.
+ *  - "rails" — only the flow rails, so the Orchestrator tab can show them beside
+ *    the duty list (duties are the steps, flows are the plans; seeing one without
+ *    the other is the legibility problem this whole refit exists to fix).
+ *  - "rest"  — everything except the rails.
+ *  - undefined — the whole panel, as before. */
+export type PolicySurfaces = "rails" | "rest";
+
+export function PolicyPanel({
+  compositionId,
+  only
+}: {
+  compositionId: string;
+  only?: PolicySurfaces;
+}) {
   const { config, loadError, saveState, errors, warnings, commit, reload, dismissErrors, dismissWarnings } =
     usePolicyDraft(compositionId);
   const [inspector, setInspector] = useState<{ kind: string; phase: string } | null>(null);
@@ -1051,7 +1250,9 @@ export function PolicyPanel({ compositionId }: { compositionId: string }) {
     if (a[1] !== o[1] || a[2] === o[2]) return;
     const kind = a[1];
     commit((draft) => {
-      const plan = draft.phasePlans[draft.workKinds[kind].phasePlan];
+      const name = draft.flows[kind].phasePlan;
+      if (!name) return draft; // levelled flow: order comes from the level's duty list
+      const plan = draft.phasePlans[name];
       const arr = plan.phases as PhaseEntry[];
       const ids = arr.map((entry) => (typeof entry === "string" ? entry : entry.id));
       const fi = ids.indexOf(a[2]);
@@ -1081,9 +1282,11 @@ export function PolicyPanel({ compositionId }: { compositionId: string }) {
     <section className={styles.section} data-testid="policy-panel">
       <div className={styles.panelHead}>
         <span className={styles.panelLead}>
-          The routing policy: which phases each work kind runs, how concurrent runs coordinate,
-          and the quality gates. Every edit autosaves and recompiles the policy the run engine
-          reads.
+          {only === "rails"
+            ? "Flows are the plans: the ordered duties a kind of work runs, per level. The duties they compose are on the left."
+            : only === "rest"
+              ? "How a request becomes a flow, a duty and a level, plus the quality gates. Every edit autosaves and recompiles the policy the gateway and run engine read."
+              : "Routing inference and execution policy: how a request becomes a duty and level, which phases each flow runs, and the quality gates. Every edit autosaves and recompiles the policy the gateway and run engine read."}
         </span>
         <StatusPill state={saveState} />
       </div>
@@ -1113,13 +1316,23 @@ export function PolicyPanel({ compositionId }: { compositionId: string }) {
         </div>
       ) : null}
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <RailsSurface config={config} commit={commit} onInspect={(kind, phase) => setInspector({ kind, phase })} />
-      </DndContext>
-      <CoordinationSurface config={config} commit={commit} />
-      <SecuritySurface config={config} commit={commit} />
-      <QaSurface config={config} commit={commit} />
-      <TryItStrip config={config} compositionId={compositionId} />
+      {only !== "rails" ? (
+        <InferenceSurface config={config} commit={commit} compositionId={compositionId} />
+      ) : null}
+
+      {only !== "rest" ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <RailsSurface config={config} commit={commit} onInspect={(kind, phase) => setInspector({ kind, phase })} />
+        </DndContext>
+      ) : null}
+      {only !== "rails" ? (
+        <>
+          <CoordinationSurface config={config} commit={commit} />
+          <SecuritySurface config={config} commit={commit} />
+          <QaSurface config={config} commit={commit} />
+          <TryItStrip config={config} compositionId={compositionId} />
+        </>
+      ) : null}
 
       {inspector ? (
         <Inspector config={config} target={inspector} commit={commit} onClose={() => setInspector(null)} />

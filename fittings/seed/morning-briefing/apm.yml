@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: sessions
+  category: Interfaces
   cardinality_hint: multi
   component_shape: cli-skill
   ui:
@@ -16,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Schedules a daily synthetic prompt that asks the Operative to compose a morning briefing (Trello + Calendar) and post it to Slack via the orchestrator's report_channel.
+  summary: Schedules a daily synthetic prompt that asks the session to compose a morning briefing (Trello + Calendar) and post it to Slack via the orchestrator's report_channel.
   config_schema:
     - key: briefing_time
       type: string
@@ -37,7 +38,7 @@ x-garrison:
     - kind: connector
       name: trello
       cardinality: optional-one
-    # Calendar reaches the Operative through the `google` connector Fitting
+    # Calendar reaches the session through the `google` connector Fitting
     # (kind: connector, name: google). There has never been an
     # automation-runner named google-calendar in the repo, so the old
     # declaration could not resolve to anything and just misreported the

@@ -1,8 +1,10 @@
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it, beforeAll, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { startStateService } from "./state-service-harness";
+import { resetStateClient } from "../src/lib/state-client";
 import {
   buildVerdictRecord,
   sanitizeCorrection,
@@ -73,6 +75,11 @@ describe("buildVerdictRecord", () => {
       at: "2026-07-29T12:00:00.000Z"
     })!;
     expect(rec).toEqual({
+      // Minted per record, so it is matched by shape rather than by value. It is
+      // the handle a tombstone names when this verdict is deleted from the
+      // Signals view — without it the record can only be addressed by hashing
+      // its own line.
+      id: expect.stringMatching(/^fq-[0-9a-z]{9}-[0-9a-f]{8}$/),
       session_id: "thread-1",
       area: "orchestrator",
       question: "decision-verdict",
@@ -83,6 +90,9 @@ describe("buildVerdictRecord", () => {
       timestamp: "2026-07-29T12:00:00.000Z",
       provenance: "decision-verdict"
     });
+    // The id's timestamp half is derived from the record's own `at`, so ids
+    // sort in the order the verdicts were actually given.
+    expect(String(rec.id)).toContain(Date.parse("2026-07-29T12:00:00.000Z").toString(36));
   });
 
   it("refuses a verdict with no decision to attach to, or an unknown verdict", () => {
@@ -115,21 +125,43 @@ describe("buildVerdictRecord", () => {
 });
 
 describe("recordDecisionVerdict", () => {
-  it("appends one line per verdict, creating the queue on first write", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "verdict-"));
-    const file = path.join(dir, "improver", "feedback-queue.jsonl");
-    expect(await recordDecisionVerdict({ decisionId: "a1", verdict: "right" }, file)).toBe(true);
-    expect(await recordDecisionVerdict({ decisionId: "a2", verdict: "wrong" }, file)).toBe(true);
-    const lines = (await fs.readFile(file, "utf8")).trim().split("\n");
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[1]).decision_id).toBe("a2");
+  // The verdict queue is the state service's `feedback_queue` since mesh phase 2
+  // (§4.5) — one shared queue for all three producers on every node, instead of
+  // one JSONL file per machine. The writer takes no file argument any more:
+  // there is no file, and no local fallback if the service is unreachable.
+  let h: Awaited<ReturnType<typeof startStateService>>;
+  const saved = { url: process.env.GARRISON_STATE_URL, token: process.env.GARRISON_STATE_TOKEN };
+
+  beforeEach(async () => {
+    h = await startStateService();
+    process.env.GARRISON_STATE_URL = h.url;
+    process.env.GARRISON_STATE_TOKEN = h.token;
+    resetStateClient();
+  });
+
+  afterEach(async () => {
+    await h?.stop();
+    if (saved.url === undefined) delete process.env.GARRISON_STATE_URL;
+    else process.env.GARRISON_STATE_URL = saved.url;
+    if (saved.token === undefined) delete process.env.GARRISON_STATE_TOKEN;
+    else process.env.GARRISON_STATE_TOKEN = saved.token;
+    resetStateClient();
+  });
+
+  it("appends one row per verdict, in order, carrying the record verbatim", async () => {
+    expect(await recordDecisionVerdict({ decisionId: "a1", verdict: "right" })).toBe(true);
+    expect(await recordDecisionVerdict({ decisionId: "a2", verdict: "wrong" })).toBe(true);
+    const rows = await h.client.listFeedback({ limit: 100 });
+    expect(rows).toHaveLength(2);
+    expect((rows[1].payload as { decision_id: string }).decision_id).toBe("a2");
+    // The minted id is the row id, which is the handle a tombstone names.
+    expect(rows[1].id).toBe((rows[1].payload as { id: string }).id);
+    expect(rows[1].kind).toBe("decision-verdict");
   });
 
   it("reports a refusal instead of silently writing nothing", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "verdict-"));
-    const file = path.join(dir, "q.jsonl");
-    expect(await recordDecisionVerdict({ decisionId: "", verdict: "right" }, file)).toBe(false);
-    await expect(fs.readFile(file, "utf8")).rejects.toThrow();
+    expect(await recordDecisionVerdict({ decisionId: "", verdict: "right" })).toBe(false);
+    expect(await h.client.listFeedback({ limit: 100 })).toHaveLength(0);
   });
 });
 
@@ -156,11 +188,11 @@ describe("the Improver consumes a verdict", () => {
 
   it("separates a plan correction from a compute one", () => {
     const proposals = analyzeFeedbackProposals({
-      records: [verdict({ workKind: "ui-change" }), verdict({ workKind: "ui-change" })],
+      records: [verdict({ flow: "ui-change" }), verdict({ flow: "ui-change" })],
       at: "2026-07-29T12:00:00.000Z"
     });
     expect(proposals[0].id).toContain("replan");
-    expect(proposals[0].decision).toContain("workKind");
+    expect(proposals[0].decision).toContain("flow");
   });
 
   it("never proposes from agreement, and never from a single correction", () => {

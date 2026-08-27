@@ -225,24 +225,8 @@ describe("substituteCapabilitiesPlaceholder", () => {
 });
 
 describe("orchestrator prompt sources keep the {{capabilities}} placeholder", () => {
-  it("the seed garrison-orchestrator prompt declares {{capabilities}}", async () => {
-    const raw = await fs.readFile(
-      path.join(
-        REPO_ROOT,
-        "fittings",
-        "seed",
-        "garrison-orchestrator",
-        ".apm",
-        "prompts",
-        "garrison-orchestrator.prompt.md"
-      ),
-      "utf8"
-    );
-    expect(raw).toContain("{{capabilities}}");
-  });
-
   it("the composition fallback orchestrator prompts declare {{capabilities}}", async () => {
-    for (const compositionId of ["default", "dogfood-orch"]) {
+    for (const compositionId of ["default"]) {
       const raw = await fs.readFile(
         path.join(REPO_ROOT, "compositions", compositionId, ".garrison", "prompts", "orchestrator.md"),
         "utf8"

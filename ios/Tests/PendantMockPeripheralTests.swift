@@ -1,0 +1,334 @@
+import CoreBluetoothMock
+import XCTest
+@testable import GarrisonApp
+
+/// Mock harness layer 2: the REAL PendantBLETransport (recompiled into this
+/// target with PENDANT_MOCK_BLE, so its CoreBluetooth surface is Nordic's
+/// CoreBluetoothMock) exercised against a scripted peripheral implementing
+/// the documented GATT profile - discovery by advertised service,
+/// connection, characteristic subscription, codec/features reads, haptic
+/// writes, framed audio notifications, and the disconnect/reconnect path.
+/// No radio involved.
+
+// MARK: - The scripted pendant
+
+final class PendantSpec {
+    static let audioService = CBMUUID(string: PendantUUID.audioService)
+
+    let audioData = CBMCharacteristicMock(
+        type: CBMUUID(string: PendantUUID.audioData),
+        properties: [.notify, .read]
+    )
+    let audioCodec = CBMCharacteristicMock(
+        type: CBMUUID(string: PendantUUID.audioCodec),
+        properties: [.read]
+    )
+    let features = CBMCharacteristicMock(
+        type: CBMUUID(string: PendantUUID.features),
+        properties: [.read]
+    )
+    let haptic = CBMCharacteristicMock(
+        type: CBMUUID(string: PendantUUID.haptic),
+        properties: [.write]
+    )
+    let battery = CBMCharacteristicMock(
+        type: CBMUUID(string: PendantUUID.batteryLevel),
+        properties: [.read, .notify]
+    )
+    let button = CBMCharacteristicMock(
+        type: CBMUUID(string: PendantUUID.buttonTrigger),
+        properties: [.notify]
+    )
+
+    let delegate: SpecDelegate
+    let spec: CBMPeripheralSpec
+
+    /// Consumer-pendant shape: codec opusFS320 (21), features 0x1EC
+    /// (haptic yes, speaker no), battery 87.
+    init(codec: UInt8 = 21, featuresValue: UInt32 = 0x1EC, batteryValue: UInt8 = 87) {
+        let delegate = SpecDelegate()
+        delegate.codecValue = Data([codec])
+        var raw = featuresValue.littleEndian
+        delegate.featuresValue = withUnsafeBytes(of: &raw) { Data($0) }
+        delegate.batteryValue = Data([batteryValue])
+        self.delegate = delegate
+        spec = CBMPeripheralSpec
+            .simulatePeripheral(proximity: .near)
+            .advertising(
+                advertisementData: [
+                    CBMAdvertisementDataLocalNameKey: "Omi",
+                    CBMAdvertisementDataServiceUUIDsKey: [Self.audioService],
+                    CBMAdvertisementDataIsConnectable: true as NSNumber
+                ],
+                withInterval: 0.05
+            )
+            .connectable(
+                name: "Omi",
+                services: [
+                    CBMServiceMock(type: Self.audioService, primary: true, characteristics: audioData, audioCodec),
+                    CBMServiceMock(
+                        type: CBMUUID(string: PendantUUID.featuresService),
+                        primary: true,
+                        characteristics: features
+                    ),
+                    CBMServiceMock(
+                        type: CBMUUID(string: PendantUUID.hapticService),
+                        primary: true,
+                        characteristics: haptic
+                    ),
+                    CBMServiceMock(
+                        type: CBMUUID(string: PendantUUID.batteryService),
+                        primary: true,
+                        characteristics: battery
+                    ),
+                    CBMServiceMock(
+                        type: CBMUUID(string: PendantUUID.buttonService),
+                        primary: true,
+                        characteristics: button
+                    )
+                ],
+                delegate: delegate,
+                connectionInterval: 0.015,
+                mtu: 251
+            )
+            .build()
+        delegate.owner = self
+    }
+
+    /// Stream fixture-shaped packets as framed notifications on the audio
+    /// characteristic (one Opus packet per notification, frame index 0).
+    func streamPackets(_ payloads: [Data], startId: UInt16 = 0) {
+        var packetId = startId
+        for payload in payloads {
+            spec.simulateValueUpdate(
+                PendantFraming.encode(packetId: packetId, frameIndex: 0, payload: payload),
+                for: audioData
+            )
+            packetId &+= 1
+        }
+    }
+
+    final class SpecDelegate: CBMPeripheralSpecDelegate {
+        weak var owner: PendantSpec?
+        var codecValue = Data([21])
+        var featuresValue = Data([0xEC, 0x01, 0x00, 0x00])
+        var batteryValue = Data([87])
+        /// Every haptic byte written, with its arrival time - the write log
+        /// the feedback tests assert against.
+        private(set) var hapticWrites: [(value: UInt8, at: Date)] = []
+        /// Fires when a subscription actually goes live. The library drops
+        /// simulateValueUpdate until this point, so streaming tests wait on
+        /// it instead of assuming .connected already means subscribed.
+        var onNotificationStateChange: ((CBMCharacteristicMock, Bool) -> Void)?
+        /// Services whose characteristic discovery should fail, exercising
+        /// the partial-profile path.
+        var failCharacteristicDiscoveryFor: Set<CBMUUID> = []
+
+        func peripheral(
+            _ peripheral: CBMPeripheralSpec,
+            didReceiveCharacteristicsDiscoveryRequest characteristicUUIDs: [CBMUUID]?,
+            for service: CBMServiceMock
+        ) -> Result<Void, Error> {
+            failCharacteristicDiscoveryFor.contains(service.uuid)
+                ? .failure(CBMATTError(.attributeNotFound))
+                : .success(())
+        }
+
+        func peripheral(_ peripheral: CBMPeripheralSpec, didReceiveReadRequestFor characteristic: CBMCharacteristicMock)
+            -> Result<Data, Error> {
+            guard let owner else { return .failure(CBMATTError(.readNotPermitted)) }
+            switch characteristic.uuid {
+            case owner.audioCodec.uuid: return .success(codecValue)
+            case owner.features.uuid: return .success(featuresValue)
+            case owner.battery.uuid: return .success(batteryValue)
+            default: return .failure(CBMATTError(.readNotPermitted))
+            }
+        }
+
+        func peripheral(
+            _ peripheral: CBMPeripheralSpec,
+            didReceiveWriteRequestFor characteristic: CBMCharacteristicMock,
+            data: Data
+        ) -> Result<Void, Error> {
+            guard let owner, characteristic.uuid == owner.haptic.uuid, let byte = data.first, (1 ... 3).contains(byte)
+            else { return .failure(CBMATTError(.writeNotPermitted)) }
+            hapticWrites.append((byte, Date()))
+            return .success(())
+        }
+
+        func peripheral(
+            _ peripheral: CBMPeripheralSpec,
+            didReceiveSetNotifyRequest enabled: Bool,
+            for characteristic: CBMCharacteristicMock
+        ) -> Result<Void, Error> {
+            .success(())
+        }
+
+        func peripheral(
+            _ peripheral: CBMPeripheralSpec,
+            didUpdateNotificationStateFor characteristic: CBMCharacteristicMock,
+            error: Error?
+        ) {
+            onNotificationStateChange?(characteristic, characteristic.isNotifying)
+        }
+    }
+}
+
+// MARK: - Transport-against-mock tests
+
+final class PendantBLETransportMockTests: XCTestCase {
+    private var pendant: PendantSpec!
+
+    override func setUp() {
+        super.setUp()
+        pendant = PendantSpec()
+        CBMCentralManagerMock.simulatePeripherals([pendant.spec])
+        CBMCentralManagerMock.simulateInitialState(.poweredOn)
+    }
+
+    override func tearDown() {
+        CBMCentralManagerMock.tearDownSimulation()
+        super.tearDown()
+    }
+
+    private func connectTransport() -> PendantBLETransport {
+        let transport = PendantBLETransport()
+        let connected = expectation(description: "connected")
+        transport.onConnectionState = { state in
+            if state == .connected { connected.fulfill() }
+        }
+        transport.connect()
+        wait(for: [connected], timeout: 10)
+        return transport
+    }
+
+    /// .connected means every characteristic was discovered, not that the
+    /// audio subscription is live - setNotifyValue completes one connection
+    /// interval later, and CBMPeripheralSpecDelegate documents that
+    /// simulateValueUpdate is dropped until then. Streaming tests wait here
+    /// so they exercise reassembly rather than a lost-notification race.
+    private func waitForAudioSubscription() {
+        let live = expectation(description: "audio subscription live")
+        live.assertForOverFulfill = false
+        pendant.delegate.onNotificationStateChange = { [weak self] characteristic, enabled in
+            if enabled, characteristic.uuid == self?.pendant.audioData.uuid { live.fulfill() }
+        }
+        if pendant.audioData.isNotifying { live.fulfill() }
+        wait(for: [live], timeout: 10)
+    }
+
+    func testDiscoversConnectsAndReadsTheProfile() {
+        let transport = connectTransport()
+        let reads = expectation(description: "reads")
+        reads.expectedFulfillmentCount = 3
+        transport.readCodec { codec in
+            XCTAssertEqual(codec, .opusFS320)
+            reads.fulfill()
+        }
+        transport.readFeatures { features in
+            XCTAssertTrue(features.contains(.haptic))
+            XCTAssertFalse(features.contains(.speaker))
+            reads.fulfill()
+        }
+        transport.readBattery { level in
+            XCTAssertEqual(level, 87)
+            reads.fulfill()
+        }
+        wait(for: [reads], timeout: 10)
+        transport.disconnect()
+    }
+
+    func testStreamsFramedAudioThroughTheRealReassembler() {
+        let transport = connectTransport()
+        waitForAudioSubscription()
+        var frames: [Data] = []
+        let got = expectation(description: "frames")
+        transport.onAudioFrame = { frame in
+            frames.append(frame.payload)
+            if frames.count == 4 { got.fulfill() }
+        }
+        pendant.streamPackets((0 ..< 5).map { Data([UInt8($0), 0xAB]) })
+        wait(for: [got], timeout: 10)
+        XCTAssertEqual(frames.prefix(2), [Data([0, 0xAB]), Data([1, 0xAB])])
+        transport.disconnect()
+    }
+
+    func testHapticWriteReachesThePeripheral() {
+        let transport = connectTransport()
+        let wrote = expectation(description: "haptic")
+        transport.writeHaptic(.long) { ok in
+            XCTAssertTrue(ok)
+            wrote.fulfill()
+        }
+        wait(for: [wrote], timeout: 10)
+        XCTAssertEqual(pendant.delegate.hapticWrites.map(\.value), [3])
+        transport.disconnect()
+    }
+
+    /// A service whose characteristic discovery FAILS must not wedge the
+    /// connection. No further callback arrives for it and the transport has
+    /// no discovery timeout, so a readiness rule that waits for every service
+    /// unconditionally would sit in .connecting forever. The transport
+    /// retires the failed service and continues with a partial profile: the
+    /// battery read returns nil rather than hanging, and audio still works.
+    func testFailedServiceDiscoveryStillReachesConnected() {
+        pendant.delegate.failCharacteristicDiscoveryFor = [CBMUUID(string: PendantUUID.batteryService)]
+        let transport = PendantBLETransport()
+        let connected = expectation(description: "connected despite failed service")
+        transport.onConnectionState = { if $0 == .connected { connected.fulfill() } }
+        transport.connect()
+        wait(for: [connected], timeout: 10)
+
+        let read = expectation(description: "battery read completes")
+        transport.readBattery { level in
+            XCTAssertNil(level, "the undiscovered battery characteristic cannot answer")
+            read.fulfill()
+        }
+        wait(for: [read], timeout: 10)
+
+        // The rest of the profile still works.
+        let codec = expectation(description: "codec")
+        transport.readCodec { value in
+            XCTAssertEqual(value, .opusFS320)
+            codec.fulfill()
+        }
+        wait(for: [codec], timeout: 10)
+        transport.disconnect()
+    }
+
+    /// A stored identifier that is no longer reachable - a pendant left at
+    /// home, or the Mac emulator used for a rehearsal, now quit - must not pin
+    /// the transport forever. CBCentralManager.connect() never times out, so
+    /// without a fallback the app retries a dead peripheral and never scans for
+    /// the real one, which is exactly what stranded a real device after an
+    /// emulator rehearsal.
+    func testUnreachableStoredIdentifierFallsBackToScanning() {
+        let stale = PendantSpec()
+        CBMCentralManagerMock.simulatePeripherals([stale.spec, pendant.spec])
+        // Known to the system (so retrieval returns it) but not actually here.
+        stale.spec.simulateCaching()
+        stale.spec.simulateProximityChange(.outOfRange)
+
+        let transport = PendantBLETransport(identifier: stale.spec.identifier)
+        let connected = expectation(description: "connected to a reachable pendant")
+        transport.onConnectionState = { if $0 == .connected { connected.fulfill() } }
+        transport.connect()
+        // Retrieval timeout is 8 s; allow it plus a scan and connect.
+        wait(for: [connected], timeout: 25)
+        transport.disconnect()
+    }
+
+    func testUnexpectedDisconnectEntersReconnectingAndRecovers() {
+        let transport = connectTransport()
+        var sawReconnecting = false
+        let recovered = expectation(description: "recovered")
+        transport.onConnectionState = { state in
+            if state == .reconnecting { sawReconnecting = true }
+            if sawReconnecting, state == .connected { recovered.fulfill() }
+        }
+        pendant.spec.simulateDisconnection(withError: CBMError(.connectionTimeout))
+        wait(for: [recovered], timeout: 10)
+        XCTAssertTrue(sawReconnecting)
+        transport.disconnect()
+    }
+}

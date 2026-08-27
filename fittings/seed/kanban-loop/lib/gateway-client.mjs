@@ -13,6 +13,8 @@
 // so the run retries once the gateway is back, instead of parking. Any other failure
 // (a real HTTP 4xx/5xx from a booted gateway) is a genuine run failure and DOES park.
 
+import { PERSONAL_SCOPE_TOKEN, isPersonalCard } from "./personal-workspace.mjs";
+
 // A real garrison-* turn (plan/implement/review/…) runs far longer than the gateway's
 // default 5-min per-turn timeout, which otherwise kills the turn → HTTP 500 → the card
 // parks. The board sends an EXPLICIT generous per-turn timeout (default 25 min, override
@@ -24,7 +26,10 @@ const KANBAN_TURN_TIMEOUT_MS = Number(process.env.KANBAN_TURN_TIMEOUT_MS) || 25 
 // garrison-* run, so it gets a tight timeout: it must never tie the operative up the
 // way a Plan turn does. If the operative is mid-run it queues behind it; the abort
 // keeps a doomed inference from hanging the card-create path forever.
-const KANBAN_INFER_TIMEOUT_MS = Number(process.env.KANBAN_INFER_TIMEOUT_MS) || 90 * 1000;
+// Exported because the dispatch-side gate (engine.settleProjectInference) has to size
+// its wait against THIS budget: a gate shorter than the turn it waits on advances the
+// card un-fenced and the inference result is discarded on arrival.
+export const KANBAN_INFER_TIMEOUT_MS = Number(process.env.KANBAN_INFER_TIMEOUT_MS) || 90 * 1000;
 
 // A blocking /chat runFn for the project-inference turn ({prompt} → { reply }). Uses a
 // hard AbortController timeout so a busy/unreachable operative fails fast (the caller
@@ -131,7 +136,7 @@ export function routeFromDone(done) {
 // D5b): { contextPct, peakContextPct, compactions:{count,last} } for the operative
 // session that ran the turn. Fold it into a compact, validated object the engine can
 // stamp onto the card's routed event, or null when NOTHING context-related flowed
-// (souls mode / a non-PTY runtime → contextPct null, no compactions). Never
+// (a non-PTY runtime → contextPct null, no compactions). Never
 // load-bearing: a missing context object just means no telemetry stamp.
 export function contextFromDone(done) {
   if (!done || typeof done !== "object") return null;
@@ -176,6 +181,35 @@ export function compactBoundaryFn(gatewayUrl) {
   };
 }
 
+// Stop the gateway turn that is provably executing this card. Kanban turns share
+// the gateway's fallback conversation key, so the card id is load-bearing: the
+// gateway rejects a mismatch instead of cancelling whichever queued turn happens
+// to be active. HTTP errors are returned (the board wants to preserve 404 vs 409);
+// only network/timeout failures throw as transport errors.
+export async function interruptCardTurn(gatewayUrl, cardId) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5000);
+  try {
+    let res;
+    try {
+      res = await fetch(`${gatewayUrl}/chat/interrupt`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
+        body: JSON.stringify({ cardId }),
+        signal: ctrl.signal
+      });
+    } catch (err) {
+      const e = new Error(`gateway interrupt unreachable: ${err?.message || err}`);
+      e.transport = true;
+      throw e;
+    }
+    const body = await res.json().catch(() => ({}));
+    return { status: res.status, body };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // A card's `project` is stored in TWO shapes in the wild: a bare slug
 // ("ekoa-code") and an absolute path ("/home/ggomes/dev/ekoa-code") — on a real
 // board, both, roughly half and half. The gateway's resolver takes NAMES only
@@ -194,6 +228,17 @@ export function projectNameForRouting(project) {
     : raw;
   if (!name || name === "." || name === ".." || name.startsWith(".")) return null;
   return name;
+}
+
+// Explicit run-spec projects are authored as names and must already satisfy the
+// gateway's path-free vocabulary. Unlike the top-level legacy card.project field,
+// never reinterpret a path/traversal spelling by taking its basename.
+export function explicitProjectNameForRouting(project) {
+  const raw = typeof project === "string" ? project.trim() : "";
+  if (!raw || raw.includes("/") || raw.includes("\\") || raw.includes("..") || raw.startsWith(".")) {
+    return null;
+  }
+  return raw;
 }
 
 /**
@@ -222,9 +267,24 @@ export function cardTurnRouting(card) {
   }
   // Normalise whichever project we end up sending: the gateway's resolveProjectName
   // refuses anything containing a slash.
-  const project = projectNameForRouting(routing.project ?? card?.project);
-  if (project) routing.project = project;
-  else delete routing.project;
+  const explicitProjectPresent = Object.hasOwn(routing, "project");
+  const cardProjectPresent = typeof card?.project === "string" && card.project.trim().length > 0;
+  const projectWasSpecified = explicitProjectPresent || cardProjectPresent;
+  const project = explicitProjectPresent
+    ? explicitProjectNameForRouting(routing.project)
+    : projectNameForRouting(card?.project);
+  if (project) {
+    routing.project = project;
+  } else if (isPersonalCard(card) && !projectWasSpecified) {
+    // Personal is a semantic card scope, not a filesystem path and not a fake
+    // project. The exact internal token is resolved by the gateway to its fixed
+    // $GARRISON_HOME/personal directory. A real/explicit project above always
+    // wins, which keeps scope and project independently editable.
+    routing.project = PERSONAL_SCOPE_TOKEN;
+    routing.projectDefaulted = true;
+  } else {
+    delete routing.project;
+  }
   return Object.keys(routing).length ? routing : null;
 }
 
@@ -243,8 +303,10 @@ export function gatewayRunFn(gatewayUrl) {
     stepIndex,
     sequence,
     onTool,
+    onJournal,
     contextHold,
-    dutyKey
+    dutyKey,
+    cardIds
   }) => {
     // Dispatch over the STREAMING endpoint, not the blocking /chat. A real garrison-*
     // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
@@ -290,6 +352,10 @@ export function gatewayRunFn(gatewayUrl) {
       if (idleTimer) clearTimeout(idleTimer);
     };
     armIdle();
+    const turnCardIds = [...new Set([
+      ...(typeof card?.id === "string" && card.id ? [card.id] : []),
+      ...(Array.isArray(cardIds) ? cardIds.filter((id) => typeof id === "string" && id) : [])
+    ])].slice(0, 100);
 
     let res;
     try {
@@ -335,7 +401,11 @@ export function gatewayRunFn(gatewayUrl) {
           // S1b: whether this duty holds off compaction + the card+phase key, so the
           // gateway's turn-boundary check honors the hold and stamps the compact log.
           contextHold: contextHold === true,
-          dutyKey: dutyKey ?? null
+          dutyKey: dutyKey ?? null,
+          // Exact ownership proof for card-level Panic. Per-card turns derive it
+          // from `card.id`; batched turns pass every member explicitly because
+          // stopping their shared runtime turn necessarily affects the group.
+          ...(turnCardIds.length ? { cardIds: turnCardIds } : {})
         })
       });
     } catch (err) {
@@ -358,19 +428,33 @@ export function gatewayRunFn(gatewayUrl) {
     }
 
     // Parse the SSE stream: blocks separated by a blank line. `done` carries the final
-    // result; `error` a turn error; `chunk` events stream the operative's GROWING reply,
-    // which we forward to onChunk (throttled) so the card's Watch shows live progress
-    // instead of nothing-until-the-result. `: keepalive` comments are ignored.
+    // result; `error` a turn error; `chunk` events are normally deltas, but PTY lanes
+    // can re-emit the whole visible answer after a screen reflow with `replace:true`.
+    // Apply the same accumulator contract as Web Channel before forwarding the growing
+    // reply to onChunk (throttled), so the card's Watch never appends a replacement as
+    // a duplicate. `: keepalive` comments are ignored.
     const decoder = new TextDecoder();
     let buf = "";
     let done = null;
     let streamErr = null;
     let live = "";
+    let journalSessionId = null;
     let lastEmit = 0;
     const emit = (force) => {
       if (!onChunk) return;
       const t = Date.now();
       if (force || t - lastEmit > 400) { lastEmit = t; try { onChunk(live); } catch { /* ignore */ } }
+    };
+    const emitJournal = (payload) => {
+      const sessionId = payload?.session_id ?? payload?.sessionId;
+      if (typeof sessionId !== "string" || !sessionId || sessionId === journalSessionId || !onJournal) return;
+      journalSessionId = sessionId;
+      try {
+        onJournal({
+          sessionId,
+          transcriptPath: payload?.transcript_path ?? payload?.transcriptPath ?? null
+        });
+      } catch { /* observability must never break a turn */ }
     };
     try {
       for await (const chunk of res.body) {
@@ -389,12 +473,22 @@ export function gatewayRunFn(gatewayUrl) {
           // comment carries no `event:` line, so it lands here as "message" and
           // deliberately does NOT count as progress — otherwise a wedged turn on a
           // healthy socket would be kept alive forever by its own heartbeat.
-          if (event === "chunk" || event === "tool" || event === "done" || event === "error") armIdle();
+          //
+          // EVERY OTHER named frame does count, not just the ones carrying prose.
+          // A phase that reads twenty files before it says anything emits only
+          // `activity` (tool/thinking) and `session_event` (canonical events) for
+          // minutes at a time; while those were left off this list a WORKING turn
+          // was abandoned as "no output" and its card bounced back to Implement,
+          // repeatedly. Naming the two frames that don't count is also the version
+          // that keeps working when the gateway grows a new one.
+          if (event !== "message" && event !== "open") armIdle();
           if (event === "chunk") {
             // `chunk` is overloaded: gateway.mjs forwards a text_delta (a DELTA),
             // gateway-pty.mjs sends the reply SO FAR with replace:true. Appending a
             // cumulative frame duplicated every reply the routed lane produced.
             try { const c = JSON.parse(data); if (typeof c.text === "string") { live = c.replace === true ? c.text : live + c.text; emit(false); } } catch { /* ignore */ }
+          } else if (event === "route") {
+            try { emitJournal(JSON.parse(data)); } catch { /* malformed route frame - ignore */ }
           } else if (event === "tool") {
             // S3d (D9b): an AskUserQuestion the operative raised MID-TURN (the discuss
             // duty asking for scope). Forward the tool payload ({tool_use_id, questions})
@@ -402,7 +496,7 @@ export function gatewayRunFn(gatewayUrl) {
             // event. Previously DROPPED - the round-trip closes E6 gap (a).
             if (onTool) { try { onTool(JSON.parse(data)); } catch { /* malformed tool frame - ignore */ } }
           } else if (event === "done") {
-            try { done = JSON.parse(data); } catch { done = { reply: "" }; }
+            try { done = JSON.parse(data); emitJournal(done); } catch { done = { reply: "" }; }
           } else if (event === "error") {
             try { streamErr = JSON.parse(data)?.error || "stream error"; } catch { streamErr = "stream error"; }
           }
@@ -430,7 +524,7 @@ export function gatewayRunFn(gatewayUrl) {
       e.transport = true;
       throw e;
     }
-    // Return the reply text, the per-turn route metadata (null in souls mode), the
+    // Return the reply text, the per-turn route metadata (null for legacy non-routed turns), the
     // per-turn context telemetry (null when none flowed), AND the operative session id
     // (WS2 — the engine appends it to card.sessionIds so transcript links resolve). The
     // shape stays an object every call site already destructures (`out?.reply`), so the
@@ -439,8 +533,16 @@ export function gatewayRunFn(gatewayUrl) {
       reply: done.reply ?? done.text ?? "",
       route: routeFromDone(done),
       context: contextFromDone(done),
-      sessionId: typeof done.session_id === "string" && done.session_id ? done.session_id : null,
-      stoppedReason: typeof done.stoppedReason === "string" ? done.stoppedReason : null
+      // A runtime may announce its journal on the early route frame but omit the
+      // coordinate from done. Preserve what Watch streamed so the terminal card
+      // still gains the durable sessionIds pointer.
+      sessionId: typeof done.session_id === "string" && done.session_id ? done.session_id : journalSessionId,
+      stoppedReason: typeof done.stoppedReason === "string" ? done.stoppedReason : null,
+      stoppedByUser: done.stoppedByUser === true,
+      interruptedByCardId: typeof done.interruptedByCardId === "string" ? done.interruptedByCardId : null,
+      affectedCardIds: Array.isArray(done.affectedCardIds)
+        ? done.affectedCardIds.filter((id) => typeof id === "string" && id).slice(0, 100)
+        : []
     };
   };
 }

@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  category: Operations
   cardinality_hint: multi
   component_shape: cli-skill
   ui:
@@ -21,7 +22,7 @@ x-garrison:
     RuntimeAdapter contract over the OpenAI Agents SDK (@openai/agents - structured
     request/response, native function-tool handling, NO PTY, NO terminal scraping)
     and ships a runtime-bridge exposing the uniform delegate(task_spec) -> {summary,
-    artifacts} tool. It is PRIMARY-CAPABLE (routable as the operative's primary
+    artifacts} tool. It is PRIMARY-CAPABLE (routable as the session's primary
     runtime) as well as a secondary delegate. The endpoint base URL is configurable
     - OpenAI cloud, a local Ollama server (http://localhost:11434/v1), or any
     OpenAI-compatible /v1/chat/completions base URL - passed per-call to the OpenAI
@@ -32,15 +33,40 @@ x-garrison:
     - key: provider
       type: string
       default: ollama-local
-      description: One of openai | ollama-local | openai-compat. `openai` is OpenAI cloud (needs OPENAI_API_KEY); `ollama-local` is a free local Ollama endpoint; `openai-compat` is any OpenAI-compatible base URL (set baseUrl).
+      description: >-
+        One of openai | chatgpt-subscription | ollama-local | openai-compat | glm.
+        `openai` is OpenAI cloud, metered per token (needs OPENAI_API_KEY).
+        `chatgpt-subscription` runs on the ChatGPT plan you already pay for: it
+        carries the OAuth credential `codex login` mints, speaks the Responses API
+        at the Codex backend, and needs NO api key - pick a ChatGPT account on the
+        Accounts page (blank uses this box's own ~/.codex login). It shares that
+        plan's usage limits, and it is not a documented OpenAI integration, so
+        treat it as best-effort rather than a supported contract.
+        `ollama-local` is a free local Ollama endpoint; `openai-compat` is any
+        OpenAI-compatible base URL (set baseUrl, key OPENAI_API_KEY); `glm` is a
+        self-hosted GLM deployment behind an OpenAI-compatible server (set baseUrl,
+        key GLM_API_KEY) - a separate slot so a real OpenAI key and a self-hosted
+        endpoint can coexist in one composition.
+      options:
+        - ollama-local
+        - chatgpt-subscription
+        - openai
+        - openai-compat
+        - glm
     - key: model
       type: string
       default: ""
-      description: Model string for delegated tasks (free-text; e.g. an Ollama tag like qwen2.5:3b, a gpt-* / o-* slot, or any model an OpenAI-compatible endpoint fronts).
+      description: >-
+        Model string for delegated tasks (free-text; e.g. an Ollama tag like
+        qwen2.5:3b, a gpt-* / o-* slot, or any model an OpenAI-compatible endpoint
+        fronts). With `chatgpt-subscription` the catalog is the Codex one, verified
+        live 2026-08-23: gpt-5.6-sol (frontier), gpt-5.6-terra (balanced everyday),
+        gpt-5.6-luna (fast/affordable), plus gpt-5.5, gpt-5.4 and gpt-5.4-mini. All
+        take a reasoning effort of low | medium | high | xhigh | max.
     - key: baseUrl
       type: string
       default: ""
-      description: For provider `openai-compat`, the OpenAI-compatible base URL (must be http(s), ending in /v1). Ignored for `openai` (SDK default) and `ollama-local` (fixed local endpoint).
+      description: For provider `openai-compat` or `glm`, the OpenAI-compatible base URL (must be http(s), ending in /v1). Ignored for `openai` (SDK default) and `ollama-local` (fixed local endpoint). This value is the TRUSTED endpoint - the runner projects it into the provider's base-URL env var, and the API key is attached only to a request that actually goes there.
     - key: promptMode
       type: string
       default: full
@@ -49,6 +75,17 @@ x-garrison:
       type: number
       default: 12
       description: Cap on the agentic loop - the loop has no natural bound, so an unbounded run would burn paid credits until stopped.
+    - key: account
+      type: string
+      default: ""
+      description: >-
+        Which provider account this runtime uses. With provider `glm`, choose a GLM
+        account; with `openai` or `openai-compat`, choose a keyed OpenAI account;
+        with `chatgpt-subscription`, choose a ChatGPT (subscription) OpenAI account -
+        the pin points this runtime at that account's config home, which is where its
+        credential is read and its rotating token re-persisted. Leave empty to use the
+        provider's plain vault key, or for `chatgpt-subscription` this box's own
+        ~/.codex login. Manage accounts on the Accounts page.
   provides:
     - kind: runtime
       name: openai-agents
@@ -57,19 +94,28 @@ x-garrison:
       cardinality: optional-one
   # The API key is resolved BY NAME from the Vault; the runner materializes it into
   # the server-side env under this exact key (secret_scope). It never reaches a
-  # browser and never enters argv.
+  # browser and never enters argv. One name per provider slot: sharing one key
+  # between OpenAI cloud and a self-hosted box would ship whichever key is present
+  # to whichever endpoint is configured.
   secret_scope:
     - OPENAI_API_KEY
+    - GLM_API_KEY
   # The OpenAI Agents engine takes provider overrides through the OpenAI-compatible
-  # env contract: the base URL, the API key, and the model. The bridge/adapter read
-  # OPENAI_API_KEY + OPENAI_BASE_URL from the server-side env (primary path), or the
-  # base URL from the composition config (secondary path). This descriptor is what
-  # the gateway's primary-runtime wiring consumes.
+  # env contract: the base URL, the API key, and the model. `base_url_env` is the
+  # DEFAULT slot (provider `openai-compat`); the `glm` provider declares its own
+  # pair (GLM_BASE_URL / GLM_API_KEY) in lib/providers.mjs. The runner projects the
+  # fitting's `baseUrl` config into the selected provider's base-URL env var - that
+  # projection is what makes a keyed configurable endpoint reachable at all, since
+  # the adapter attaches the key only to the trusted (env/vault-declared) URL.
   provider_mechanism:
     type: env
     base_url_env: OPENAI_BASE_URL
     auth_env: OPENAI_API_KEY
     model_env: GARRISON_MODEL
+    provider_env:
+      glm:
+        base_url_env: GLM_BASE_URL
+        auth_env: GLM_API_KEY
   setup:
     command: npm install --no-audit --no-fund
     idempotent: true
@@ -79,7 +125,7 @@ x-garrison:
     expect: ok
     timeout_ms: 20000
   for_consumers: |
-    OpenAI-agents runtime - routable as PRIMARY (the operative's own runtime, wired
+    OpenAI-agents runtime - routable as PRIMARY (the session's own runtime, wired
     by the gateway's primary-runtime path) or as a SECONDARY delegate. As secondary,
     when the orchestrator resolves a task to `secondary:openai-agents`, the primary
     calls this fitting's runtime-bridge tool:

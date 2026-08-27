@@ -223,6 +223,89 @@ describe("resolvePrimaryFromPolicy (S3)", () => {
     expect(await resolvePrimaryFromPolicy(dir)).toBe("claude-code-runtime");
   });
 
+  it("reads a composition-owned policy seed without mutating the composition", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    tempRoots.push(dir);
+    const seeded = JSON.stringify({ version: 2, primaryRuntime: "openai-agents-runtime" });
+    await fs.writeFile(path.join(dir, "routing.glm-only.json"), seeded);
+    const { resolvePrimaryFromPolicy } = await import("@/lib/runner");
+
+    expect(await resolvePrimaryFromPolicy(dir)).toBe("openai-agents-runtime");
+    await expect(fs.access(path.join(dir, ".garrison", "routing.json"))).rejects.toThrow();
+  });
+
+  it("atomically materializes a composition-owned policy seed at a mutating seam", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    tempRoots.push(dir);
+    const seeded = JSON.stringify({ version: 2, primaryRuntime: "openai-agents-runtime" });
+    await fs.writeFile(path.join(dir, "routing.glm-only.json"), seeded);
+    const { ensureCompositionRoutingPolicy } = await import("@/lib/routing-primary");
+
+    expect(await ensureCompositionRoutingPolicy(dir)).toBe(
+      path.join(dir, ".garrison", "routing.json")
+    );
+    expect(await fs.readFile(path.join(dir, ".garrison", "routing.json"), "utf8")).toBe(seeded);
+  });
+
+  it("does not materialize an invalid composition-owned seed", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    tempRoots.push(dir);
+    await fs.writeFile(path.join(dir, "routing.seed.json"), "{not-json");
+    const { ensureCompositionRoutingPolicy } = await import("@/lib/routing-primary");
+
+    await expect(ensureCompositionRoutingPolicy(dir)).rejects.toThrow(/composition routing seed.*invalid/);
+    await expect(fs.access(path.join(dir, ".garrison", "routing.json"))).rejects.toThrow();
+  });
+
+  it("never overwrites an existing local policy with a composition seed", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    tempRoots.push(dir);
+    await fs.mkdir(path.join(dir, ".garrison"), { recursive: true });
+    const local = JSON.stringify({ version: 2, primaryRuntime: "codex-runtime", localEdit: true });
+    await fs.writeFile(path.join(dir, ".garrison", "routing.json"), local);
+    await fs.writeFile(
+      path.join(dir, "routing.glm-only.json"),
+      JSON.stringify({ version: 2, primaryRuntime: "openai-agents-runtime" })
+    );
+    const { resolvePrimaryFromPolicy } = await import("@/lib/runner");
+
+    expect(await resolvePrimaryFromPolicy(dir)).toBe("codex-runtime");
+    expect(await fs.readFile(path.join(dir, ".garrison", "routing.json"), "utf8")).toBe(local);
+  });
+
+  it("fails loudly on an invalid local policy instead of falling back to Claude", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    tempRoots.push(dir);
+    await fs.mkdir(path.join(dir, ".garrison"), { recursive: true });
+    await fs.writeFile(path.join(dir, ".garrison", "routing.json"), "{not-json");
+    const { resolvePrimaryFromPolicy } = await import("@/lib/runner");
+
+    await expect(resolvePrimaryFromPolicy(dir)).rejects.toThrow(/routing policy.*invalid JSON/);
+  });
+
+  it("fails loudly when a local policy is valid JSON but not an object", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    tempRoots.push(dir);
+    await fs.mkdir(path.join(dir, ".garrison"), { recursive: true });
+    await fs.writeFile(path.join(dir, ".garrison", "routing.json"), "[]");
+    const { resolvePrimaryFromPolicy } = await import("@/lib/runner");
+
+    await expect(resolvePrimaryFromPolicy(dir)).rejects.toThrow(/policy must be a JSON object/);
+  });
+
+  it("fails loudly on a malformed declared provider registry", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
+    tempRoots.push(dir);
+    await fs.mkdir(path.join(dir, ".garrison"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, ".garrison", "routing.json"),
+      JSON.stringify({ version: 2, primaryRuntime: "claude-code-runtime", providers: {} })
+    );
+    const { resolveProvidersList } = await import("@/lib/runner");
+
+    await expect(resolveProvidersList(dir)).rejects.toThrow(/providers must be an array/);
+  });
+
   it("treats a blank scoped value as absent (null → caller default semantics)", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gar-primary-"));
     await fs.mkdir(path.join(dir, ".garrison"), { recursive: true });

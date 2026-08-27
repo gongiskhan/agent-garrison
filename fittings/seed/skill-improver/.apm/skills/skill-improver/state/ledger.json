@@ -1,0 +1,20 @@
+{
+  "processed": [
+    { "sessionId": "9307bb65-cf38-458d-851b-cacf41f83985", "mtime": "2026-06-15T21:10:39.881Z", "date": "2026-06-16", "disposition": "dropped: code-diff fragment, not user feedback" },
+    { "sessionId": "edb6edf1-41ab-4324-b6c0-afbe64a4e877", "mtime": "2026-06-15T21:05:50.052Z", "date": "2026-06-16", "disposition": "dropped: ekoa app feedback; walkthrough item already covered by SKILL step 4" },
+    { "sessionId": "4a57c125-1b6c-420d-bf26-30396c756243", "mtime": "2026-06-15T20:54:56.738Z", "date": "2026-06-16", "disposition": "skipped: no user feedback; friction-log historical" },
+    { "sessionId": "9bdadeb2-e474-4517-8a4f-6513b517a204", "mtime": "2026-06-15T20:34:47.966Z", "date": "2026-06-16", "disposition": "dropped: ekoa pdf/app-output feedback; walkthrough request is task brief" },
+    { "sessionId": "c20d3cb5-1490-44f0-a2ba-ff8d70ca325d", "mtime": "2026-06-15T19:06:54.931Z", "date": "2026-06-16", "disposition": "skipped: no feedback; no friction-log" },
+    { "sessionId": "2094cae9-6795-48d3-a55c-62d199f136eb", "mtime": "2026-06-15T16:55:27.621Z", "date": "2026-06-16", "disposition": "dropped: walkthrough task brief, not feedback" },
+    { "sessionId": "22e733b4-f328-4dcf-8a7a-cee770558517", "mtime": "2026-06-15T04:36:05.882Z", "date": "2026-06-16", "disposition": "flagged: autothing sub-project-scope + playwright-cli long-chain instability" },
+    { "sessionId": "e6b9cda8-c314-4471-b99f-8a57cf705ccf", "mtime": "2026-06-15T02:55:17.724Z", "date": "2026-06-16", "disposition": "dropped: autothing decompose/exhaustion already actioned (commit 11638d0)" },
+    { "sessionId": "5c172e58-6a16-4998-b50d-487bdea57b97", "mtime": "2026-06-15T02:45:36.559Z", "date": "2026-06-16", "disposition": "skipped: no feedback (claude-api session)" },
+    { "sessionId": "d9e8763d-c2b1-41c9-8ffb-3154ba40ba77", "mtime": "2026-06-24T02:13:08.078Z", "date": "2026-06-24", "disposition": "dropped: ekoa app-output + Azure-infra + Claude Code harness (compact) feedback; not skill mechanics" },
+    { "sessionId": "152350bb-0e4a-44de-8606-bc15acea4bc4", "mtime": "2026-06-24T01:51:10.037Z", "date": "2026-06-24", "disposition": "dropped: read-only exploration-agent brief, not feedback" },
+    { "sessionId": "32e32a2b-147a-447b-bcd0-f7c354d3b9c0", "mtime": "2026-06-24T01:49:47.518Z", "date": "2026-06-24", "disposition": "dropped: TestFlight GUI-automation task brief; watch ref is a false name-match" },
+    { "sessionId": "14c2b7ef-a96f-47da-9f68-f53dc69cfbe7", "mtime": "2026-06-24T01:32:23.791Z", "date": "2026-06-24", "disposition": "already-actioned (uncommitted): codex round-budget threshold + advisory-not-directive implemented in working tree; no edit" },
+    { "sessionId": "e93ec4b5-39cc-4631-9417-07cbc481dc3c", "mtime": "2026-06-23T14:11:33.391Z", "date": "2026-06-24", "disposition": "flagged: global-gate build stale-.next spurious-fail gap (garrison friction-log COORD wave)" },
+    { "sessionId": "415671f2-3369-40d9-b67f-d15fc8b004e2", "mtime": "2026-06-23T08:32:23.699Z", "date": "2026-06-24", "disposition": "dropped: construction conversation that built the autothing family + scope reframe; all already exists" },
+    { "sessionId": "c018f862-5906-45b3-9fb5-44993219bfe6", "mtime": "2026-06-23T05:17:01.462Z", "date": "2026-06-24", "disposition": "dropped: diagnostic on goal-loop/effort-pin, both already actioned (3d13622, 85635e3)" }
+  ]
+}

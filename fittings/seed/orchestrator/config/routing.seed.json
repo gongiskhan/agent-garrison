@@ -22,6 +22,8 @@
     "image",
     "video",
     "ops",
+    "discuss",
+    "drill",
     "other"
   ],
   "tiers": [
@@ -48,13 +50,6 @@
       "notes": "agent-sdk id for the Anthropic Max OAuth endpoint"
     },
     {
-      "id": "ollama-local",
-      "kind": "local",
-      "baseUrl": "http://localhost:11434",
-      "dummyToken": "ollama",
-      "notes": "local Ollama Anthropic-compatible endpoint"
-    },
-    {
       "id": "deepseek",
       "kind": "cloud-oss",
       "baseUrl": "https://api.deepseek.com/anthropic",
@@ -65,6 +60,20 @@
       "kind": "cloud-oss",
       "baseUrl": "https://api.z.ai/api/anthropic",
       "vaultKey": "ZAI_API_KEY"
+    },
+    {
+      "id": "openai",
+      "kind": "openai-compatible",
+      "baseUrl": "https://api.openai.com/v1",
+      "vaultKey": "OPENAI_API_KEY",
+      "notes": "OpenAI cloud endpoint for OpenAI-shaped runtimes"
+    },
+    {
+      "id": "openai-compat",
+      "kind": "openai-compatible",
+      "baseUrl": null,
+      "vaultKey": "OPENAI_API_KEY",
+      "notes": "configurable OpenAI-compatible endpoint; the runtime fitting must supply baseUrl"
     }
   ],
   "exceptions": [
@@ -156,24 +165,6 @@
       "authMode": "subscription"
     },
     {
-      "id": "cc-ollama-qwen",
-      "type": "runtime-target",
-      "runtime": "claude-code",
-      "provider": "ollama-local",
-      "model": "qwen2.5-coder",
-      "effort": "medium",
-      "authMode": "local"
-    },
-    {
-      "id": "cc-ollama-deepseek",
-      "type": "runtime-target",
-      "runtime": "claude-code",
-      "provider": "ollama-local",
-      "model": "deepseek-coder-v2",
-      "effort": "medium",
-      "authMode": "local"
-    },
-    {
       "id": "sec-gemini",
       "type": "secondary",
       "runtime": "gemini",
@@ -192,26 +183,6 @@
       "model": "gpt-5.5",
       "effort": "high",
       "authMode": "api-key"
-    },
-    {
-      "id": "classifier",
-      "type": "runtime-target",
-      "runtime": "claude-code",
-      "provider": "anthropic-plan",
-      "model": "haiku",
-      "effort": "low",
-      "pinned": true,
-      "authMode": "subscription"
-    },
-    {
-      "id": "sdk-ollama-probe",
-      "type": "runtime-target",
-      "runtime": "agent-sdk",
-      "provider": "ollama-local",
-      "model": "qwen2.5:3b",
-      "promptMode": "lean",
-      "effort": "low",
-      "authMode": "local"
     }
   ],
   "profiles": {
@@ -279,7 +250,7 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "sdk-ollama-probe",
+            "default": "agent-sdk-haiku-fast",
             "cells": {}
           },
           "code": {
@@ -334,10 +305,10 @@
       "preRoute": "on",
       "matrix": {
         "defaults": {
-          "target": "cc-ollama-qwen"
+          "target": "cc-haiku-low"
         },
         "columns": {
-          "T2-deep": "cc-ollama-qwen"
+          "T2-deep": "cc-haiku-low"
         },
         "rows": {
           "plan": {
@@ -345,7 +316,7 @@
             "cells": {}
           },
           "implement": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
@@ -391,17 +362,17 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "sdk-ollama-probe",
+            "default": "agent-sdk-haiku-fast",
             "cells": {}
           },
           "code": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
           },
           "research": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {}
           },
           "image": {
@@ -413,19 +384,19 @@
             "cells": {}
           },
           "writing": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
           },
           "ops": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
           },
           "other": {
-            "default": "cc-ollama-qwen",
+            "default": "cc-haiku-low",
             "cells": {
               "T0-trivial": "cc-haiku-low"
             }
@@ -434,8 +405,8 @@
       },
       "computeLadder": [
         "cc-haiku-low",
-        "cc-ollama-qwen",
-        "cc-ollama-qwen"
+        "cc-haiku-low",
+        "cc-haiku-low"
       ],
       "disciplineOverrides": {
         "T2-deep": {
@@ -510,7 +481,7 @@
             "cells": {}
           },
           "probe-question": {
-            "default": "sdk-ollama-probe",
+            "default": "agent-sdk-haiku-fast",
             "cells": {}
           },
           "code": {
@@ -675,39 +646,503 @@
       "evidence": "none"
     }
   },
-  "workKinds": {
-    "docs-change": {
-      "phasePlan": "implement-only-text",
-      "description": "Documentation or prose-only change"
+  "flows": {
+    "fix": {
+      "description": "A defect in something that already works. The dominant shape of real work and the one most likely to be done in a raw session instead, so level 1 stays cheap and fast.",
+      "cluster": "C1 - small fix / defect on a live app (280 fix commits in 4 weeks)",
+      "examples": [
+        "Drill fix: chat - 1 finding (Aug 7, 18:21)",
+        "the drill run results on garrison keeps flacking with scroll",
+        "dont show the same message with the card twice on the web channel"
+      ],
+      "defaultLevel": 1,
+      "levels": {
+        "1": {
+          "duties": [
+            "implement",
+            "test"
+          ],
+          "definitionOfDone": "The defect no longer reproduces and a committed test covers it.",
+          "evidence": "logs"
+        },
+        "2": {
+          "duties": [
+            "implement",
+            "test",
+            "review"
+          ],
+          "definitionOfDone": "As level 1, plus a review that read the diff.",
+          "evidence": "logs"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "adversarial-review"
+          ],
+          "pins": {
+            "adversarial-review": 3
+          },
+          "definitionOfDone": "As level 2, plus a decorrelated review that agrees the cause was found, not just the symptom.",
+          "evidence": "text"
+        }
+      }
     },
-    "api-change": {
-      "phasePlan": "implement-test",
-      "description": "API/backend change with tests, no walkthrough"
+    "feature": {
+      "description": "New behaviour in a project, from a bounded addition up to a whole brief. Level 3 is the full gated pipeline with adversarial passes and a walkthrough.",
+      "cluster": "C2/C3 - feature work + large brief-driven builds (218 feat commits)",
+      "examples": [
+        "Kanban Loop: scheduling support for dated human and agent tasks",
+        "on ekoa-code move the Pedidos into a tab in the settings area",
+        "Execute BRIEF-DRILL-V1.md end to end: build the Drill fitting"
+      ],
+      "defaultLevel": 2,
+      "levels": {
+        "1": {
+          "duties": [
+            "implement",
+            "test"
+          ],
+          "definitionOfDone": "It works and the tests are green.",
+          "evidence": "logs"
+        },
+        "2": {
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "validate"
+          ],
+          "definitionOfDone": "Planned before built, reviewed after, and the definition of done is checked rather than asserted.",
+          "evidence": "text"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "adversarial-review",
+            "adversarial-test",
+            "ux-qa",
+            "walkthrough",
+            "validate",
+            "report"
+          ],
+          "pins": {
+            "adversarial-review": 3,
+            "adversarial-test": 3
+          },
+          "definitionOfDone": "As level 2, plus a decorrelated cross-model review, an independent test pass, a UX judgement and a walkthrough video.",
+          "evidence": "video"
+        }
+      }
     },
-    "video-edit": {
-      "phasePlan": "implement-only-logs",
-      "description": "Video production/edit work"
+    "discussion": {
+      "description": "Thinking, not executing. Level 1 is conversation with no artefact; level 2 adds research and a written brief.",
+      "cluster": "C4 - discussion / scoping",
+      "examples": [
+        "Let's talk this work item through before it goes to planning",
+        "queria falar sobre a feature do assistente do ekoa (nova versao) nas apps"
+      ],
+      "defaultLevel": 1,
+      "levels": {
+        "1": {
+          "duties": [
+            "discuss"
+          ],
+          "definitionOfDone": "The question is answered or the decision is made. No artefact, no board traffic beyond the Discuss card.",
+          "evidence": "none"
+        },
+        "2": {
+          "duties": [
+            "discuss",
+            "research",
+            "writing"
+          ],
+          "definitionOfDone": "A written brief exists that someone who was not in the conversation could act on.",
+          "evidence": "text"
+        },
+        "3": {
+          "duties": [
+            "discuss",
+            "research",
+            "writing",
+            "review"
+          ],
+          "pins": {
+            "review": 3
+          },
+          "definitionOfDone": "As level 2, plus the brief has been argued against before it was accepted.",
+          "evidence": "text"
+        }
+      }
     },
-    "ui-change": {
-      "phasePlan": "ui-change",
-      "description": "UI change through review + UX QA + a walkthrough"
+    "research": {
+      "description": "Find something out and write down what was found. Distinct from discussion: the output is a document, not a decision.",
+      "cluster": "C5 - research / investigation",
+      "examples": [
+        "Uncaught TypeError: Cannot read properties of undefined (reading 'map')",
+        "Novo apanhado de divergencias antigo->novo"
+      ],
+      "defaultLevel": 2,
+      "levels": {
+        "1": {
+          "duties": [
+            "research"
+          ],
+          "definitionOfDone": "The question is answered in the reply.",
+          "evidence": "none"
+        },
+        "2": {
+          "duties": [
+            "research",
+            "writing"
+          ],
+          "definitionOfDone": "A document exists with the finding and its sources.",
+          "evidence": "text"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "research",
+            "writing",
+            "review"
+          ],
+          "definitionOfDone": "As level 2, and the conclusion survived a review that checked the sources.",
+          "evidence": "text"
+        }
+      }
     },
-    "full-feature": {
-      "phasePlan": "full",
-      "description": "Feature work through the full gated pipeline"
+    "qa-sweep": {
+      "description": "Drive the whole app looking for defects, then fix what was found. Garrison's own shape: Drill produces a report, the report becomes a batch of fixes.",
+      "cluster": "C7 - QA sweep -> batch fix (~8 cards, previously ZERO config support)",
+      "examples": [
+        "Correr um drill completo (Garrison) sobre o ekoa-code",
+        "Drill batch fix (report 01KXQK2VYA4XXZH3P7B1BZ2XEX)",
+        "Correr a bateria de testes automatizados completa no ekoa-code"
+      ],
+      "defaultLevel": 2,
+      "levels": {
+        "1": {
+          "duties": [
+            "drill"
+          ],
+          "definitionOfDone": "The sweep ran and its findings are recorded.",
+          "evidence": "logs"
+        },
+        "2": {
+          "duties": [
+            "drill",
+            "implement",
+            "test"
+          ],
+          "definitionOfDone": "The sweep ran and every finding is either fixed or explicitly triaged.",
+          "evidence": "logs"
+        },
+        "3": {
+          "duties": [
+            "drill",
+            "implement",
+            "test",
+            "review",
+            "walkthrough"
+          ],
+          "definitionOfDone": "As level 2, plus a review of the fixes and a walkthrough proving the sweep is clean.",
+          "evidence": "video"
+        }
+      }
+    },
+    "task": {
+      "description": "Do one thing and be done: send it, post it, file it, look it up and act. Minimal ceremony and no unnecessary board traffic.",
+      "cluster": "C10/C11 - personal admin + comms follow-up (~18 cards)",
+      "examples": [
+        "Cancelar tudo na vodafone excepto servico casa",
+        "Ekoa: responder Luciana sobre sharepoint",
+        "Follow up with Brazilian clinic on AI WhatsApp assistant requirements",
+        "Start playing Queen on Spotify"
+      ],
+      "defaultLevel": 1,
+      "levels": {
+        "1": {
+          "duties": [
+            "other"
+          ],
+          "definitionOfDone": "The thing was done.",
+          "evidence": "none"
+        },
+        "2": {
+          "duties": [
+            "other",
+            "report"
+          ],
+          "definitionOfDone": "The thing was done and the outcome was reported back.",
+          "evidence": "text"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "other",
+            "report"
+          ],
+          "definitionOfDone": "As level 2, with the steps agreed before anything irreversible happened.",
+          "evidence": "text"
+        }
+      }
+    },
+    "automation": {
+      "description": "Author, run and verify something that recurs without being asked, including the Cortex API path.",
+      "cluster": "C12 - recurring scheduled work",
+      "examples": [
+        "Morning briefing",
+        "Ekoa-code: Apify Actor",
+        "Verificar sincronizacao de memorias Garrison vs Omi"
+      ],
+      "defaultLevel": 2,
+      "levels": {
+        "1": {
+          "duties": [
+            "ops"
+          ],
+          "definitionOfDone": "The automation ran and its result is recorded.",
+          "evidence": "logs"
+        },
+        "2": {
+          "duties": [
+            "plan",
+            "implement",
+            "test"
+          ],
+          "definitionOfDone": "The automation exists, runs on its trigger, and a test proves it does what it claims.",
+          "evidence": "logs"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "validate"
+          ],
+          "definitionOfDone": "As level 2, plus a review of the failure handling and a checked definition of done.",
+          "evidence": "text"
+        }
+      }
+    },
+    "chore": {
+      "description": "Mechanical upkeep: dependency bumps, cleanups, dead-code removal, repetitive operational work. Shares a shape with `fix` at level 1 but is the prime automation candidate, so a recurring chore is a signal to build an automation instead.",
+      "cluster": "C13/C14 - maintenance + test upkeep (50 chore + 44 test commits)",
+      "examples": [
+        "web-channel: retire legacy-voice.tsx (dead code)",
+        "Correr a bateria de testes automatizados completa"
+      ],
+      "defaultLevel": 1,
+      "levels": {
+        "1": {
+          "duties": [
+            "implement",
+            "test"
+          ],
+          "definitionOfDone": "The upkeep is applied and the suite is still green.",
+          "evidence": "logs"
+        },
+        "2": {
+          "duties": [
+            "implement",
+            "test",
+            "review"
+          ],
+          "definitionOfDone": "As level 1, plus a review that the cleanup removed nothing load-bearing.",
+          "evidence": "logs"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "implement",
+            "test",
+            "review",
+            "validate"
+          ],
+          "definitionOfDone": "As level 2, with the blast radius established first.",
+          "evidence": "text"
+        }
+      }
+    },
+    "docs": {
+      "description": "Prose: documentation, site copy, a written answer. No runtime behaviour changes.",
+      "cluster": "C9 - docs / prose (134 docs commits)",
+      "examples": [
+        "Fazer alteracao de texto no site do ekoa",
+        "https://www.togai.pt/novidades"
+      ],
+      "defaultLevel": 1,
+      "levels": {
+        "1": {
+          "duties": [
+            "writing"
+          ],
+          "definitionOfDone": "The text is written and in place.",
+          "evidence": "text"
+        },
+        "2": {
+          "duties": [
+            "writing",
+            "review"
+          ],
+          "definitionOfDone": "As level 1, plus a read for accuracy.",
+          "evidence": "text"
+        },
+        "3": {
+          "duties": [
+            "research",
+            "writing",
+            "review",
+            "adversarial-review"
+          ],
+          "definitionOfDone": "As level 2, plus sources checked and an adversarial read.",
+          "evidence": "text"
+        }
+      }
+    },
+    "ops": {
+      "description": "Deploys, infrastructure, provisioning. Anything whose blast radius is the running system rather than the codebase.",
+      "cluster": "C6 - ops / deploy",
+      "examples": [
+        "deploy to production",
+        "ssh-copy-id -i ~/.ssh/id_ed25519.pub ggomes@dev-madrid"
+      ],
+      "defaultLevel": 2,
+      "levels": {
+        "1": {
+          "duties": [
+            "ops"
+          ],
+          "definitionOfDone": "The operation completed and was verified.",
+          "evidence": "logs"
+        },
+        "2": {
+          "duties": [
+            "plan",
+            "ops",
+            "validate"
+          ],
+          "definitionOfDone": "Planned before executed, and the result was checked rather than assumed.",
+          "evidence": "logs"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "ops",
+            "security-review",
+            "validate",
+            "report"
+          ],
+          "pins": {
+            "security-review": 3
+          },
+          "definitionOfDone": "As level 2, plus a security-boundary review and a reported outcome.",
+          "evidence": "text"
+        }
+      }
+    },
+    "image": {
+      "description": "Produce or edit an image.",
+      "cluster": "C8 - media production",
+      "examples": [
+        "garrison: brand icon work",
+        "Criar imagem de demonstracao"
+      ],
+      "defaultLevel": 1,
+      "levels": {
+        "1": {
+          "duties": [
+            "image"
+          ],
+          "definitionOfDone": "The image exists and is in place.",
+          "evidence": "none"
+        },
+        "2": {
+          "duties": [
+            "image",
+            "review"
+          ],
+          "definitionOfDone": "As level 1, plus a look at whether it is actually good.",
+          "evidence": "text"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "image",
+            "review",
+            "ux-qa"
+          ],
+          "definitionOfDone": "As level 2, judged in the surface it will appear in.",
+          "evidence": "text"
+        }
+      }
+    },
+    "video": {
+      "description": "Produce or edit a video.",
+      "cluster": "C8 - media production",
+      "examples": [
+        "Criar o primeiro video de demonstracao do Akoa"
+      ],
+      "defaultLevel": 2,
+      "levels": {
+        "1": {
+          "duties": [
+            "video"
+          ],
+          "definitionOfDone": "The video exists.",
+          "evidence": "logs"
+        },
+        "2": {
+          "duties": [
+            "plan",
+            "video",
+            "review"
+          ],
+          "definitionOfDone": "Scripted before shot, and watched before shipped.",
+          "evidence": "video"
+        },
+        "3": {
+          "duties": [
+            "plan",
+            "video",
+            "review",
+            "ux-qa",
+            "report"
+          ],
+          "definitionOfDone": "As level 2, judged against the audience it is for.",
+          "evidence": "video"
+        }
+      }
     },
     "personal": {
-      "phasePlan": "manual-only",
-      "evidence": false,
-      "description": "Personal task - rides backlog/todo/done by hand, no agent phases"
-    },
-    "channel": {
-      "phasePlan": "manual-only",
-      "evidence": false,
-      "description": "Channel/program work - manual for now, split from personal so reporting and rails can diverge"
+      "description": "A personal card that rides the board by hand. No agent duties at any level - kept because some things are just a note to self.",
+      "cluster": "C10 - personal admin (the manual half)",
+      "examples": [
+        "Comprar peixe",
+        "Beber cafe",
+        "Levar brinquedos para a piscina"
+      ],
+      "defaultLevel": 1,
+      "levels": {
+        "1": {
+          "duties": [
+            "other"
+          ],
+          "definitionOfDone": "Marked done by hand.",
+          "evidence": "none"
+        }
+      },
+      "manual": true
     }
   },
-  "defaultWorkKind": "full-feature",
+  "defaultFlow": "fix",
   "phaseSkills": {
     "bindings": {
       "plan": "garrison-plan",
@@ -735,6 +1170,11 @@
   },
   "uxQa": {
     "severityThreshold": "major"
+  },
+  "dispatchInference": {
+    "timeoutMs": 8000,
+    "maxTokens": 256,
+    "clarityRubric": "Judge whether the ask has a clear goal, scope, and hard constraints. If materially underspecified, mark it needs-discuss; otherwise clear."
   },
   "coordination": {
     "enabled": true,

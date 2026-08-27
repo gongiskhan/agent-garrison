@@ -9,10 +9,12 @@ describe("discuss-automation handoff (H1)", () => {
     expect(slugify("")).toBe("automation");
   });
 
-  it("kickoff opens in James mode and points at the brief path", () => {
+  it("kickoff is persona-free and points at the brief path", () => {
     const k = buildAutomationKickoff({ name: "Weekly Report" });
-    expect(k.startsWith("James,")).toBe(true); // gateway reads mode from the leading "James,"
-    expect(k).toContain("~/.garrison/automations/briefs/weekly-report.md");
+    expect(k).toMatch(/^Let's design an automation together/);
+    // The path follows GARRISON_HOME when set (the suite pins it to a temp dir
+    // so nothing resolves the real home); the literal ~ form is the fallback.
+    expect(k).toContain(`${process.env.GARRISON_HOME ?? "~/.garrison"}/automations/briefs/weekly-report.md`.replace("//", "/"));
     expect(k).toContain("What would you like to automate?");
   });
 
@@ -26,13 +28,13 @@ describe("discuss-automation handoff (H1)", () => {
     expect(k).not.toContain("think it through out loud");
   });
 
-  it("buildDiscussParams yields james mode + base64 context/kickoff for the postMessage navigate path", () => {
+  it("buildDiscussParams yields a Discuss-duty source + base64 context/kickoff", () => {
     const p = buildDiscussParams({ name: "Weekly Report" });
-    expect(p.mode).toBe("james");
+    expect(p.source).toBe("discuss");
     const ctx = JSON.parse(Buffer.from(p.context, "base64").toString("utf8"));
     expect(ctx.source).toBe("automations");
     expect(ctx.suggestedSlug).toBe("weekly-report");
-    expect(Buffer.from(p.kickoff, "base64").toString("utf8").startsWith("James,")).toBe(true);
+    expect(Buffer.from(p.kickoff, "base64").toString("utf8")).toMatch(/^Let's design/);
     // A STABLE per-automation thread key + title so reopening Discuss returns to
     // the same session; both base64 like context/kickoff.
     expect(Buffer.from(p.thread, "base64").toString("utf8")).toBe("automation-weekly-report");
@@ -64,17 +66,17 @@ describe("discuss-automation handoff (H1)", () => {
     expect(brief1).not.toContain("/automation.md");
   });
 
-  it("discuss URL targets the web-channel embed in james mode with base64 context+kickoff", () => {
+  it("discuss URL targets a duty-pinned web thread with base64 context+kickoff", () => {
     const url = buildAutomationDiscussUrl({ name: "Weekly Report" });
     expect(url.startsWith("/embed/web-channel-default?")).toBe(true);
-    expect(url).toContain("mode=james");
+    expect(url).toContain("source=discuss");
     const params = new URLSearchParams(url.split("?")[1]);
     // context decodes to JSON describing the automations source
     const ctx = JSON.parse(Buffer.from(decodeURIComponent(params.get("context")!), "base64").toString("utf8"));
     expect(ctx.source).toBe("automations");
     expect(ctx.suggestedSlug).toBe("weekly-report");
-    // kickoff decodes to the James message
+    // kickoff is persona-free; the host thread pins duty=discuss, level=1.
     const kickoff = Buffer.from(decodeURIComponent(params.get("kickoff")!), "base64").toString("utf8");
-    expect(kickoff.startsWith("James,")).toBe(true);
+    expect(kickoff).toMatch(/^Let's design/);
   });
 });

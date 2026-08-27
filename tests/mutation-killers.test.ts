@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 // @ts-ignore - pure .mjs (single line so the ignore anchors to the specifier)
-import { classifyExecution, isSignificantAutonomous, biasTarget, resolvePhaseTarget } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
+import { classifyExecution, isSignificantAutonomous, resolvePhaseTarget } from "../fittings/seed/orchestrator/lib/policy-core.mjs";
 // @ts-ignore - pure .mjs (single line so the ignore anchors to the specifier)
 import { gateKeyForPhase, hasPhaseGateEvidence, classificationForPhase, skillForPhase, railForCard, phaseOnForCard } from "../fittings/seed/kanban-loop/lib/policy.mjs";
 // @ts-ignore - pure .mjs
@@ -43,9 +43,8 @@ describe("classifyExecution boundaries (D8)", () => {
     expect(classifyExecution({ message: "archive the inbox", classification: { taskType: "ops" } })).toBe("interactive");
   });
 
-  it("gary floors to interactive BEFORE the classifier's own read", () => {
-    expect(classifyExecution({ mode: "gary", classification: { execution: "autonomous" } })).toBe("interactive");
-    expect(classifyExecution({ mode: "joe", classification: { execution: "autonomous" } })).toBe("autonomous");
+  it("the classifier's autonomous read is persona-independent", () => {
+    expect(classifyExecution({ classification: { execution: "autonomous" } })).toBe("autonomous");
     expect(classifyExecution({ classification: { execution: "AUTONOMOUS" } })).toBe("interactive"); // out-of-vocab
   });
 });
@@ -66,23 +65,6 @@ describe("isSignificantAutonomous boundaries", () => {
     expect(isSignificantAutonomous({ taskType: "ops", tier: "T2-deep" })).toBe(true);
     expect(isSignificantAutonomous({ taskType: "writing", tier: "T2-deep" })).toBe(false);
     expect(isSignificantAutonomous(null)).toBe(false);
-  });
-});
-
-describe("biasTarget ladder arithmetic", () => {
-  const ladder = ["cc-haiku-low", "cc-sonnet-med", "cc-opus-high"]; // fast, standard, expert
-
-  it("prefer only demotes FROM standard; floor always raises", () => {
-    expect(biasTarget("cc-sonnet-med", { prefer: "fast" }, ladder)).toBe("cc-haiku-low");
-    expect(biasTarget("cc-opus-high", { prefer: "fast" }, ladder)).toBe("cc-opus-high"); // not standard - prefer ignored
-    expect(biasTarget("cc-haiku-low", { floor: "expert" }, ladder)).toBe("cc-opus-high");
-    expect(biasTarget("cc-opus-high", { floor: "fast" }, ladder)).toBe("cc-opus-high"); // floor never lowers
-  });
-
-  it("unknown target or missing bias is identity; rank clamps to the ladder end", () => {
-    expect(biasTarget("not-in-ladder", { floor: "expert" }, ladder)).toBe("not-in-ladder");
-    expect(biasTarget("cc-sonnet-med", null, ladder)).toBe("cc-sonnet-med");
-    expect(biasTarget("cc-haiku-low", { floor: "expert" }, ladder.slice(0, 2))).toBe("cc-sonnet-med"); // clamp
   });
 });
 
@@ -144,8 +126,8 @@ describe("rail fallbacks (kanban policy)", () => {
     phases: ["plan", "implement", "walkthrough"],
     taskTypes: ["plan", "implement", "walkthrough"],
     tiers: ["T0-trivial", "T1-standard", "T2-deep"],
-    defaultWorkKind: "full-feature",
-    workKinds: { "full-feature": { phasePlan: "full" }, "docs-change": { phasePlan: "implement-only" } },
+    defaultFlow: "full-feature",
+    flows: { "full-feature": { phasePlan: "full" }, "docs-change": { phasePlan: "implement-only" } },
     phasePlans: {
       full: { evidence: "video", phases: ["plan", "implement", "walkthrough"] },
       "implement-only": { evidence: "none", phases: ["implement"] }
@@ -153,29 +135,29 @@ describe("rail fallbacks (kanban policy)", () => {
     phaseSkills: { bindings: { implement: "garrison-implement" }, overrides: { "docs-change": { implement: "docs-writer" } } }
   };
 
-  it("a card without a workKind falls back to the policy default", () => {
+  it("a card without a flow falls back to the policy default", () => {
     const rail = railForCard(policy, {});
-    expect(rail.workKind).toBe("full-feature");
+    expect(rail.flow).toBe("full-feature");
     expect(rail.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["plan", "implement", "walkthrough"]);
   });
 
-  it("an unknown workKind (no plan) renders EVERY pipeline phase on", () => {
-    const rail = railForCard(policy, { workKind: "mystery" });
+  it("an unknown flow (no plan) renders EVERY pipeline phase on", () => {
+    const rail = railForCard(policy, { flow: "mystery" });
     expect(rail.evidence).toBe("none");
     expect(rail.phases.every((p: { on: boolean }) => p.on)).toBe(true);
   });
 
   it("non-object card toggles are ignored; off reasons are exact", () => {
-    const rail = railForCard(policy, { workKind: "docs-change", phases: "walkthrough" });
+    const rail = railForCard(policy, { flow: "docs-change", phases: "walkthrough" });
     const off = rail.phases.find((p: { id: string }) => p.id === "walkthrough");
     expect(off.on).toBe(false);
     expect(off.off_reason).toBe("phase-plan");
-    const rail2 = railForCard(policy, { workKind: "full-feature", phases: { walkthrough: false } });
+    const rail2 = railForCard(policy, { flow: "full-feature", phases: { walkthrough: false } });
     expect(rail2.phases.find((p: { id: string }) => p.id === "walkthrough").off_reason).toBe("card-toggle");
   });
 
   it("phaseOnForCard: rail governs pipeline phases; non-pipeline columns default ON", () => {
-    const rail = railForCard(policy, { workKind: "docs-change" });
+    const rail = railForCard(policy, { flow: "docs-change" });
     expect(phaseOnForCard(rail, "implement")).toBe(true);
     expect(phaseOnForCard(rail, "walkthrough")).toBe(false);
     expect(phaseOnForCard(rail, "custom-column")).toBe(true);

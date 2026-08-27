@@ -94,7 +94,7 @@ function cardLine({ card, reason, reasons }) {
     `[${card.list}]`
   ];
   if (card.project) bits.push(`(${card.project})`);
-  if (card.workKind) bits.push(`{${card.workKind}}`);
+  if (card.flow) bits.push(`{${card.flow}}`);
   const detail = reasons ? reasons.join("; ") : reason;
   return `- ${bits.join(" ")}${detail ? ` - ${detail}` : ""}`;
 }

@@ -14,6 +14,11 @@
 // backends; production traffic goes to the real cloud.
 const DEFAULT_BASE = process.env.OMI_API_BASE_URL || "https://api.omi.me";
 const MAX_ATTEMPTS = 3;
+// Ceiling on one rate-limit wait. Long enough to clear Omi's window, short
+// enough that the caller's own path (a spoken command's confirmation) is not
+// held open indefinitely - past this the web-channel fallback is the better
+// answer than waiting longer.
+const MAX_RATE_LIMIT_WAIT_MS = 25_000;
 
 export class OmiApi {
   constructor({ appId, appSecret, importApiKey = "", baseUrl = DEFAULT_BASE, fetchImpl = fetch, sleep = defaultSleep, log = console } = {}) {
@@ -28,6 +33,58 @@ export class OmiApi {
 
   configured() {
     return Boolean(this.appId && this.appSecret);
+  }
+
+  chatConfigured() {
+    return Boolean(this.appId && this.importApiKey);
+  }
+
+  // Post a message into the user's Omi CHAT (docs/omi-api-notes.md, ChatTools
+  // "Proactive chat messages"). A different endpoint, credential and body shape
+  // from the direct notification above, so they cannot share a code path:
+  //   POST /v1/integrations/notification   Bearer <APP API KEY>   {uid, aid, message}
+  // note `aid`, not `app_id`, and a real JSON body (the direct API takes query
+  // params and no body at all).
+  //
+  // WHY THIS EXISTS: a push notification truncates, and tapping it opens the Omi
+  // chat - which until now did not contain the message, so any answer longer than
+  // the notification line was simply unreadable and unrecoverable. The chat copy
+  // is the readable one; the push is only the buzz that says look.
+  //
+  // Rate limit is the one Omi documents: 10 per hour per app per user, 429 with
+  // Retry-After. Not retried here - a chat message that is late is worse than
+  // absent, and the push already carried the alert.
+  async sendChatMessage({ uid, message }) {
+    if (!this.chatConfigured()) {
+      return { ok: false, error: "OMI_APP_ID/OMI_IMPORT_API_KEY not sealed", retriable: false, attempts: 0 };
+    }
+    if (!uid) return { ok: false, error: "no uid", retriable: false, attempts: 0 };
+    const text = String(message ?? "").trim();
+    if (!text) return { ok: false, error: "empty message", retriable: false, attempts: 0 };
+    try {
+      const res = await this.fetchImpl(`${this.baseUrl}/v1/integrations/notification`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.importApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ uid, aid: this.appId, message: text }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (res.ok) return { ok: true, attempts: 1 };
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers?.get?.("retry-after")) || null;
+        return { ok: false, status: 429, error: "chat rate limit (10/hour)", retryAfter, retriable: true, attempts: 1 };
+      }
+      if (res.status === 401 || res.status === 403) {
+        this.log.error(
+          "[omi-channel] Omi chat 401/403 - the app needs chat_messages enabled in its manifest and a valid app API key"
+        );
+      }
+      return { ok: false, status: res.status, error: `HTTP ${res.status}`, retriable: false, attempts: 1 };
+    } catch (err) {
+      return { ok: false, error: `network: ${err?.message ?? err}`, retriable: true, attempts: 1 };
+    }
   }
 
   importConfigured() {
@@ -134,13 +191,24 @@ export class OmiApi {
         }
         if (res.status === 429 || res.status >= 500) {
           lastError = { status: res.status, error: `HTTP ${res.status}`, retriable: true };
+          if (res.status === 429) {
+            // A rate limit is a WAIT instruction, not a transient blip: the
+            // doubling-from-1s schedule below covers 3 seconds, and Omi's
+            // notification window is far wider than that, so every retry burned
+            // itself against a limit that had not moved. Honour Retry-After when
+            // Omi sends one, else back off on a schedule wide enough to matter.
+            const header = Number(res.headers?.get?.("retry-after"));
+            backoffMs = Number.isFinite(header) && header > 0
+              ? Math.min(header * 1000, MAX_RATE_LIMIT_WAIT_MS)
+              : Math.min(Math.max(backoffMs, 1000) * 5, MAX_RATE_LIMIT_WAIT_MS);
+          }
         } else {
           return { ok: false, status: res.status, error: `HTTP ${res.status}`, retriable: false, attempts: attempt };
         }
       }
       if (attempt < MAX_ATTEMPTS) {
         await this.sleep(backoffMs);
-        backoffMs *= 2;
+        if (!lastError || lastError.status !== 429) backoffMs *= 2;
       }
     }
     return { ok: false, ...lastError, attempts: MAX_ATTEMPTS };

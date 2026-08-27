@@ -1,22 +1,44 @@
 // Kanban Loop board UI — responsive, phone-first (the v4 wireframe is the spec).
 // Lists are columns in a horizontally-scrollable board; each card front shows
-// title, project chip, list, iter N/cap, goalMode and the four actions:
-// Start/Advance · Move · Watch · Open. Open shows the decision-10 LINKS (plan,
-// brief, sessions, gate markers, screenshots, video) + the small decision log;
+// title, project chip, list, iter N/cap, goalMode and the actions:
+// Start/Advance · Move · Watch. Clicking the card body opens its detail sheet
+// (the decision-10 LINKS: plan, brief, sessions, gate markers, screenshots, video)
+// + the small decision log;
 // the card LINKS its artifacts, never inlines their bodies (FINDING 10). Watch
 // streams the card's log over SSE for a live run, opens the web chat for an
 // interactive list (Discuss), or shows the linked static logs when nothing is
 // live — it never tmux-attaches (the pooled gateway operative is raw node-pty).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MutableRefObject } from "react";
 import { createRoot } from "react-dom/client";
+import { SessionStream as SharedSessionStream } from "@garrison/claude-chat";
+import {
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  closestCorners,
+  pointerWithin,
+  type CollisionDetection,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent
+} from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy, horizontalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS as DndCSS } from "@dnd-kit/utilities";
 import {
   api,
   type BoardView,
   type BoardRuntime,
   type CardSummary,
+  type CardSchedule,
   type CardDetail,
   type CardEvent,
+  type ChecklistItem,
+  type CardImportPreview,
   type RouteStamp,
   type ListView,
   type ListConfig,
@@ -25,6 +47,10 @@ import {
   type PolicyView,
   type CardRouting,
   type RouteOptionsView,
+  type MachinesView,
+  type MachineOption,
+  type LoadoutReadiness,
+  type LoadoutEditorValue,
   type WaitingOn,
   type DrillStamp
 } from "./api";
@@ -32,7 +58,6 @@ import {
   PlayIcon,
   MoveIcon,
   WatchIcon,
-  OpenIcon,
   PlusIcon,
   CloseIcon,
   LinkIcon,
@@ -43,14 +68,35 @@ import {
   TerminalIcon,
   WrenchIcon,
   DrillIcon,
+  MailIcon,
+  ClockIcon,
+  CheckIcon,
+  ArchiveIcon,
+  UnarchiveIcon,
+  ChevronIcon,
+  PencilIcon,
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
+import { deriveMoveTargets, isManualImportTarget } from "./move-targets";
+import {
+  canAddCardDirectly,
+  cardTitleEditAction,
+  shouldCommitCardTitleOnBlur,
+  shouldOpenCard
+} from "./card-click";
+import { cardIdFromLocation } from "./card-location";
+import {
+  DRAG_HOLD_MS,
+  DRAG_MOUSE_DISTANCE,
+  DRAG_HOLD_TOLERANCE_TOUCH,
+  shouldActivateDrag
+} from "./drag-activation";
 // The Discuss URL contract is shared with the server (pure builder, no node
 // imports — see scripts/discuss.mjs). The board hands the generic web channel
-// the card as an OPAQUE context blob; James (the operative) reads it.
+// the card as an OPAQUE context blob; the Discuss duty reads it.
 // @ts-expect-error — plain ESM .mjs sibling, no .d.ts; esbuild bundles it.
 import { buildDiscussUrl } from "../scripts/discuss.mjs";
 
@@ -148,6 +194,8 @@ function stripAttachmentBlock(description: string): string {
 }
 
 function listClass(list: ListView): string {
+  if (list.id === "scheduled") return "list scheduled";
+  if (list.id === "archived") return "list manual archived";
   if (list.id === "needs-attention") return "list attn";
   if (list.interactive) return "list interactive";
   if (list.phase && list.phase.includes("adversarial")) return "list codex";
@@ -177,6 +225,111 @@ function fmtCardDate(id: string | null | undefined): string | null {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+
+// Decode a ULID's millisecond timestamp (the card's mint instant) - the drag
+// layer's fallback ordering value when a card has no explicit position.
+function ulidTime(id: string | null | undefined): number {
+  if (!id || id.length < 10) return 0;
+  let ts = 0;
+  for (const c of id.slice(0, 10).toUpperCase()) {
+    const v = ULID_B32.indexOf(c);
+    if (v < 0) return 0;
+    ts = ts * 32 + v;
+  }
+  return ts;
+}
+
+// A card's effective within-list position - EXACTLY the server's cardPosition
+// rule (explicit position, else the created instant) so drag midpoints land
+// where the next poll will keep them.
+function effPos(card: CardSummary): number {
+  if (typeof card.position === "number" && Number.isFinite(card.position)) return card.position;
+  const t = Date.parse(card.created ?? "");
+  if (Number.isFinite(t)) return t;
+  return ulidTime(card.id);
+}
+
+// Compact schedule label for the card chip: "today 14:30" / "Aug 2 09:00".
+function fmtSchedule(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "unparseable";
+  const d = new Date(t);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  if (sameDay) return `today ${time}`;
+  return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
+}
+
+// Is the card's schedule instant already past (due)? Unparseable counts as due
+// so the amber chip surfaces the mistake instead of hiding it.
+function scheduleAt(card: CardSummary): string | null {
+  return card.schedule?.nextAt ?? card.scheduledFor ?? null;
+}
+
+function scheduleDue(card: CardSummary): boolean {
+  const at = scheduleAt(card);
+  if (!at || card.schedule?.enabled === false) return false;
+  const t = Date.parse(at);
+  return !Number.isFinite(t) || t <= Date.now();
+}
+
+function scheduleChip(card: CardSummary): string {
+  const schedule = card.schedule;
+  if (schedule?.kind === "cron") {
+    if (!schedule.enabled) return `paused · ${schedule.cron}`;
+    return `${fmtSchedule(schedule.nextAt)} · repeats`;
+  }
+  return fmtSchedule(scheduleAt(card));
+}
+
+// Stable card-detail URL used by schedule provenance links. The click is
+// handled in-place when the board is already open, while the href keeps the
+// relationship navigable in a new tab and after a reload.
+function scheduleCardHref(cardId: string): string {
+  return `?card=${encodeURIComponent(cardId)}`;
+}
+
+// ISO from a datetime-local input value (local wall time -> instant).
+function isoFromLocalInput(value: string): string | null {
+  if (!value) return null;
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+// datetime-local input value from an ISO instant (for pre-filling the picker).
+function localInputFromIso(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// File -> base64 payload for the JSON-base64 upload wire (same shape as the
+// gateway's /attachments).
+// A clipboard image has no filename, so invent a stable, sortable, extension-
+// correct one rather than sending "" (which the server rejects).
+function pastedFileName(file: File): string {
+  const ext = (file.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "").slice(0, 5) || "png";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return `pasted-${stamp}.${ext}`;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error("could not read the file"));
+    r.onload = () => {
+      const s = String(r.result || "");
+      const comma = s.indexOf(",");
+      resolve(comma >= 0 ? s.slice(comma + 1) : s);
+    };
+    r.readAsDataURL(file);
+  });
 }
 
 // A compact "3m ago" / "just now" relative time for timeline + last-activity lines.
@@ -307,9 +460,12 @@ function waitingLabel(w: WaitingOn): string {
 // point; an exclusive-lease wait and an interference wait have their own phrasing
 // (their release point — "it releases" / "its fix fence" — folded into the clause).
 function waitingClause(w: WaitingOn): string {
-  if (w.grade === "lease") return "exclusive lease held, until it releases";
-  if (w.grade === "interference") return "broken by its commits, until its fix fence";
-  return `${w.grade} overlap, until ${w.until}`;
+  const base = w.grade === "lease"
+    ? "exclusive lease held, until it releases"
+    : w.grade === "interference"
+      ? "broken by its commits, until its fix fence"
+      : `${w.grade} overlap, until ${w.until}`;
+  return `${base}. If that card is parked, this hold stays in place; resume it or explicitly Abandon/Delete it.`;
 }
 
 // ── drill handoff (Send to Drill) ────────────────────────────────────────────
@@ -369,74 +525,504 @@ function DrillBlock({ drill, compact = false }: { drill: DrillStamp; compact?: b
   );
 }
 
+// A textarea that starts one line tall and grows with its content, and whose
+// Enter key does what the button beside it does.
+//
+// Both halves are deliberate. The fixed `rows={4}`/`rows={6}` boxes these replace
+// reserved four to six empty lines for a one-line item and still needed an inner
+// scrollbar for a long one, so the box was wrong at both ends. And requiring
+// Cmd/Ctrl+Enter to submit meant the obvious key did nothing at all - Enter just
+// inserted a newline into a field whose whole job was one item. Enter now
+// submits; Shift+Enter (and Cmd/Ctrl+Enter, which people have in their fingers)
+// still inserts a newline, so multi-paragraph text is still reachable.
+function AutoTextarea({
+  value,
+  onChange,
+  onSubmit,
+  onCancel,
+  maxRows = 16,
+  ...rest
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  onSubmit?: () => void;
+  onCancel?: () => void;
+  maxRows?: number;
+} & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange" | "rows" | "style">) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  // Measured, not counted: a soft-wrapped long line occupies several rows that
+  // splitting on "\n" would miss, which is exactly the case that used to scroll.
+  const resize = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const line = Number.parseFloat(getComputedStyle(el).lineHeight) || 18;
+    el.style.height = `${Math.min(el.scrollHeight, Math.round(line * maxRows))}px`;
+  }, [maxRows]);
+  useEffect(resize, [value, resize]);
+  return (
+    <textarea
+      {...rest}
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return;
+        if (e.key === "Escape" && onCancel) { e.preventDefault(); onCancel(); return; }
+        if (e.key !== "Enter") return;
+        if (e.shiftKey || e.metaKey || e.ctrlKey) return; // deliberate newline
+        if (!onSubmit) return;
+        e.preventDefault();
+        onSubmit();
+      }}
+      style={{ width: "100%", minWidth: 0, resize: "none", overflowY: "auto" }}
+    />
+  );
+}
+
+// Which actions a card offers, derived from the card + the list it sits on.
+//
+// Pure and shared, because the card front and the opened card both render the
+// SAME action row (CardActions). Two copies of these booleans is exactly how the
+// two surfaces would drift into offering different things for one card.
+function cardActionFlags(card: CardSummary, list: ListView) {
+  const engineOwned = list.kind === "agent" && !list.interactive;
+  const scheduled = list.id === "scheduled";
+  // Archived is a terminal parking column: cards land there via Archive and leave
+  // only via Unarchive/Move. Distinguished from Done (also terminal) by id.
+  const archived = list.id === "archived";
+  const running = card.status === "running";
+  const inferring = card.inferState === "running";
+  return {
+    engineOwned,
+    scheduled,
+    archived,
+    running,
+    inferring,
+    // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a
+    // card ENTERS the automated flow (To Do → Plan) or is re-sent after parking.
+    // Discuss (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
+    canAdvance: !scheduled && list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0,
+    startLabel: "Advance",
+    // "Mark done": a one-click finish on any human-held, non-terminal card (Backlog,
+    // To Do, Discuss, needs-attention). Engine-owned agent cards can't be moved by
+    // hand (the API rejects it), and a card already on a terminal list has nowhere to go.
+    canMarkDone: !scheduled && !engineOwned && !list.terminal,
+    // "Archive": get a card out of the way. Available on any human-held column, not
+    // just Done and needs-attention - a Backlog item you have decided against is the
+    // most common thing you want to file away, and it previously had no Archive at
+    // all. Still withheld from engine-owned cards (the API rejects a hand-move of a
+    // card an autonomous list owns) and from the Archived column itself.
+    canArchive: !scheduled && !engineOwned && !archived,
+    // A persisted dispatch failure (gateway unreachable / transport defer): a red chip +
+    // inline reason, so a failed dispatch shows on the CARD.
+    dispatchErr: card.lastDispatchError,
+    // RUN: start a card's activity on demand on ANY agent list (Plan…Validate, incl. the
+    // batched/scheduler-beat Test) — no need to wait for a trigger/tick. Shows on a
+    // non-running agent-list card that isn't parked (a parked card is recovered via the
+    // needs-attention column's Advance/Move, and the batch path skips needs-attention
+    // cards, so offering Run there would be a no-op); reads "Retry" after a dispatch error.
+    canRun: list.kind === "agent" && !list.interactive && !running && card.status !== "needs-attention",
+    // Why a parked card is in the needs-attention column.
+    parked: card.status === "needs-attention",
+    // Offer "Infer" on a no-project card that isn't mid-inference (the visible attempt
+    // the user asked for — also lets them re-try if it came back blank).
+    canInfer: !scheduled && !card.project && !card.runId && !inferring && !running
+  };
+}
+
+// Every action a card offers, in one row. Rendered by BOTH the card front and the
+// bottom of the opened card, so the two can never offer different things.
+interface CardActionHandlers {
+  onStart: (c: CardSummary) => void;
+  onMove: (c: CardSummary) => void;
+  onQuickMove: (c: CardSummary, listId: string) => void;
+  onDelete: (c: CardSummary) => void;
+  onWatch: (c: CardSummary) => void;
+  onTerminal: (c: CardSummary) => void;
+  onInfer: (c: CardSummary) => void;
+  onDiscuss: (c: CardSummary) => void;
+  onContinue: (c: CardSummary) => void;
+  onDrill: (c: CardSummary) => void;
+  onFeedback: (c: CardSummary) => void;
+  onRunSchedule: (c: CardSummary) => void;
+}
+
+function CardActions({
+  card,
+  list,
+  busy,
+  withId = false,
+  iconOnly = false,
+  handlers
+}: {
+  card: CardSummary;
+  list: ListView;
+  busy: boolean;
+  withId?: boolean;
+  // Card FRONT passes iconOnly: the labels collapse to visually-hidden text (kept
+  // for the accessibility tree) so the row reads as compact icon buttons and stops
+  // hogging the card surface. The DetailSheet footer leaves it off and keeps labels.
+  iconOnly?: boolean;
+  handlers: CardActionHandlers;
+}) {
+  const {
+    canAdvance, startLabel, archived, canMarkDone, canArchive,
+    dispatchErr, canRun, canInfer, engineOwned, scheduled
+  } = cardActionFlags(card, list);
+  const h = handlers;
+  return (
+    <div className={`btns${iconOnly ? " icon-only" : ""}`}>
+      {scheduled && card.schedule && (
+        <button className="btn primary small" disabled={busy} title={card.schedule.kind === "cron" ? "create an extra occurrence without changing the next regular run" : "release this card to run now"} onClick={() => h.onRunSchedule(card)}>
+          <PlayIcon /> <span className="btn-label">Run now</span>
+        </button>
+      )}
+      {/* Mark done: skip the pipeline and call a human-held card finished in one
+          click — the "just a button on the card" path. */}
+      {canMarkDone && (
+        <button className="btn small ok" disabled={busy} title="mark this card done" onClick={() => h.onQuickMove(card, "done")}>
+          <CheckIcon /> <span className="btn-label">Done</span>
+        </button>
+      )}
+      {canAdvance && (
+        <button className="btn primary small" disabled={busy} title={startLabel} onClick={() => h.onStart(card)}>
+          <PlayIcon /> <span className="btn-label">{startLabel}</span>
+        </button>
+      )}
+      {canRun && (
+        <button
+          className="btn primary small"
+          disabled={busy}
+          title={dispatchErr ? "re-run this card on this list" : `run ${list.title} on this card now`}
+          onClick={() => h.onStart(card)}
+        >
+          <PlayIcon /> <span className="btn-label">{dispatchErr ? "Retry" : "Run"}</span>
+        </button>
+      )}
+      {canInfer && !engineOwned && (
+        <button className="btn small" disabled={busy} title="infer the project from the description" onClick={() => h.onInfer(card)}>
+          <SparkIcon /> <span className="btn-label">Infer</span>
+        </button>
+      )}
+      {!engineOwned && !scheduled && (
+        <button className="btn small" disabled={busy} title="move this card to another list" onClick={() => h.onMove(card)}>
+          <MoveIcon /> <span className="btn-label">Move</span>
+        </button>
+      )}
+      {/* Discuss opens a thread pinned to the Discuss duty; other lists expose Watch. */}
+      {list.interactive ? (
+        <button className="btn small primary" title="open a Discuss-duty conversation seeded with this card" onClick={() => h.onDiscuss(card)}>
+          <ChatIcon /> <span className="btn-label">Discuss</span>
+        </button>
+      ) : (
+        <>
+          <button className="btn small" title="watch this card's live log" onClick={() => h.onWatch(card)}>
+            <WatchIcon /> <span className="btn-label">Watch</span>
+          </button>
+          {/* Terminal opens in the card's real project, or in the dedicated
+              personal workspace when a personal card has no project. */}
+          {(card.project || card.scope === "personal") && (
+            <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => h.onTerminal(card)}>
+              <TerminalIcon /> <span className="btn-label">Terminal</span>
+            </button>
+          )}
+        </>
+      )}
+      {/* Feedback: write a note and send THIS card back through the pipeline with the
+          same context (runDir + prior logs preserved). The "it reached the end but
+          forgot part of the feature — send it back to fix it" path. Shown once a card
+          has stopped: on Done (terminal) or parked in needs-attention. */}
+      {((list.terminal && !archived) || card.status === "needs-attention") && (
+        <button className="btn small" disabled={busy} title="write feedback and send this card back through the pipeline with the same context" onClick={() => h.onFeedback(card)}>
+          <MailIcon /> <span className="btn-label">Feedback</span>
+        </button>
+      )}
+      {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
+          seeded from this card's handoff packet. */}
+      {list.terminal && !archived && (
+        <button className="btn small primary" disabled={busy} title="create a new card that continues this one's work" onClick={() => h.onContinue(card)}>
+          <PlayIcon /> <span className="btn-label">Continue</span>
+        </button>
+      )}
+      {canArchive && (
+        <button className="btn small" disabled={busy} title="move this card to the Archived column" onClick={() => h.onQuickMove(card, "archived")}>
+          <ArchiveIcon /> <span className="btn-label">Archive</span>
+        </button>
+      )}
+      {/* Unarchive: bring an archived card back onto the board (To Do). */}
+      {archived && (
+        <button className="btn small" disabled={busy} title="move this card back to To Do" onClick={() => h.onQuickMove(card, "todo")}>
+          <UnarchiveIcon /> <span className="btn-label">Unarchive</span>
+        </button>
+      )}
+      {/* Send to Drill: plan the checks for THIS card's change, run them, and
+          notify when the verdict lands. Only on done (there is no landed change
+          to test before that) and only with a project (nothing to test in). */}
+      {list.terminal && !archived && card.project && (
+        <button
+          className="btn small"
+          disabled={busy || card.drill?.state === "planning" || card.drill?.state === "running"}
+          title={
+            card.drill?.state === "planning" || card.drill?.state === "running"
+              ? "a drill is already running for this card"
+              : "plan a test for this card's change, run it, and notify when it's done"
+          }
+          onClick={() => h.onDrill(card)}
+        >
+          <DrillIcon /> <span className="btn-label">{card.drill ? "Re-drill" : "Send to Drill"}</span>
+        </button>
+      )}
+      <ShareCardButton card={card} withId={withId} />
+      {/* Delete is last and never `primary`: it is the one irreversible action in
+          this row, so it should be the hardest to hit by accident. */}
+      <button
+        className="btn small danger"
+        disabled={busy}
+        title="delete this card and its run history"
+        onClick={() => h.onDelete(card)}
+      >
+        <CloseIcon /> <span className="btn-label">Delete</span>
+      </button>
+      {/* Item 5: the Open button is gone — clicking the card body opens it (see the
+          card root's onClick above). */}
+    </div>
+  );
+}
+
 // ── card front ──────────────────────────────────────────────────────────────
 function Card({
   card,
   list,
   onStart,
   onMove,
+  onQuickMove,
+  onDelete,
   onWatch,
   onTerminal,
   onOpen,
+  onRenamed,
   onInfer,
   onDiscuss,
   onRevert,
   onContinue,
   onDrill,
+  onFeedback,
+  onRunSchedule,
+  dragJustEnded,
   busy
 }: {
   card: CardSummary;
   list: ListView;
   onStart: (c: CardSummary) => void;
   onMove: (c: CardSummary) => void;
+  // Direct one-click move to a named list (Mark done → done, Archive → archived,
+  // Unarchive → todo). Distinct from onMove, which asks when there is a choice.
+  onQuickMove: (c: CardSummary, listId: string) => void;
+  onDelete: (c: CardSummary) => void;
   onWatch: (c: CardSummary) => void;
   onTerminal: (c: CardSummary) => void;
   onOpen: (c: CardSummary) => void;
+  onRenamed: () => Promise<void>;
   onInfer: (c: CardSummary) => void;
   onDiscuss: (c: CardSummary) => void;
   onRevert: (c: CardSummary) => void;
   onContinue: (c: CardSummary) => void;
   onDrill: (c: CardSummary) => void;
+  onFeedback: (c: CardSummary) => void;
+  onRunSchedule: (c: CardSummary) => void;
+  // Item 5: the drag-just-ended flag from App, so the card-body click handler can
+  // suppress the trailing click a completed drag synthesises.
+  dragJustEnded: MutableRefObject<boolean>;
   busy: boolean;
 }) {
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
+  const titleEditRevision = useRef<number | null>(null);
+  const titleEditJustEnded = useRef(false);
   // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
   // manual Move/edit on it (the API rejects them too). needs-attention is the one
   // human touchpoint on the autonomous side; interactive + manual lists stay
   // fully editable.
   const engineOwned = list.kind === "agent" && !list.interactive;
-  // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a card
-  // ENTERS the automated flow (To Do → Plan) or is re-sent after parking. Discuss
-  // (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
-  const canAdvance = list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0;
-  const startLabel = "Advance";
-  // A persisted dispatch failure (gateway unreachable / transport defer): a red chip +
-  // inline reason, so a failed dispatch shows on the CARD.
-  const dispatchErr = card.lastDispatchError;
-  const running = card.status === "running";
-  // RUN: start a card's activity on demand on ANY agent list (Plan…Validate, incl. the
-  // batched/scheduler-beat Test) — no need to wait for a trigger/tick. Shows on a
-  // non-running agent-list card that isn't parked (a parked card is recovered via the
-  // needs-attention column's Advance/Move, and the batch path skips needs-attention
-  // cards, so offering Run there would be a no-op); reads "Retry" after a dispatch error.
-  const canRun = list.kind === "agent" && !list.interactive && !running && card.status !== "needs-attention";
-  // Why a parked card is in the needs-attention column.
-  const parked = card.status === "needs-attention";
-  const inferring = card.inferState === "running";
-  // Offer "Infer" on a no-project card that isn't mid-inference (the visible attempt
-  // the user asked for — also lets them re-try if it came back blank).
-  const canInfer = !card.project && !inferring && !running;
+  const scheduled = list.id === "scheduled";
+
+  function markTitleEditEnded() {
+    titleEditJustEnded.current = true;
+    setTimeout(() => { titleEditJustEnded.current = false; }, 0);
+  }
+
+  function cancelTitleEdit() {
+    if (savingTitle) return;
+    markTitleEditEnded();
+    titleEditRevision.current = null;
+    setTitleDraft(null);
+    setTitleError(null);
+  }
+
+  async function saveCardTitle() {
+    if (savingTitle || titleDraft === null || engineOwned) return;
+    const title = titleDraft.trim();
+    if (!title) {
+      setTitleError("Give the card a title.");
+      return;
+    }
+    if (title === card.title) {
+      cancelTitleEdit();
+      return;
+    }
+    setSavingTitle(true);
+    setTitleError(null);
+    try {
+      // Polling can refresh `card.rev` while the editor stays open. The revision
+      // captured when editing began is the CAS token; using the newer prop here
+      // would let a stale draft overwrite an intervening rename.
+      await api.patch(card.id, { title, rev: titleEditRevision.current ?? card.rev });
+      await onRenamed();
+      markTitleEditEnded();
+      titleEditRevision.current = null;
+      setTitleDraft(null);
+    } catch (e) {
+      setTitleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+  const {
+    canAdvance, startLabel, archived, canMarkDone, canArchive,
+    dispatchErr, running, canRun, parked, inferring, canInfer
+  } = cardActionFlags(card, list);
   const lastEv = card.lastEvent;
   return (
-    <div className={`card${running ? " running" : ""}${parked ? " parked" : ""}`}>
+    <div
+      className={`card${running ? " running" : ""}${parked ? " parked" : ""}`}
+      // Item 5: click the card body to open its detail (the dedicated Open button is
+      // gone). shouldOpenCard ignores clicks on any interactive control (the card's
+      // 15+ buttons / links / fields, whose clicks bubble here) and the trailing click
+      // a drag synthesises. Placed on the card ROOT — not the sortable wrapper — so
+      // the Done-column quick-strip cards (rendered without the wrapper) open too.
+      onClick={(e) => {
+        if (titleDraft !== null || titleEditJustEnded.current) return;
+        if (shouldOpenCard(e.target as EventTarget, dragJustEnded.current)) onOpen(card);
+      }}
+    >
       <div className="ct">
         <span className={dotClass(card)} aria-hidden />
-        <span className="title">{card.title}</span>
-        {fmtCardDate(card.id) && <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>}
+        {titleDraft === null ? (
+          <>
+            <button
+              className="title card-title-open"
+              title="Open card details"
+              aria-label={`Open card details: ${card.title}`}
+              // No stopPropagation on the PRESS: the title is the widest, most
+              // natural place to grab a card, and swallowing the press here made
+              // press-and-hold do nothing across the top of every card. The hold
+              // only wins once it has actually activated a drag, and dnd-kit
+              // swallows that gesture's trailing click.
+              //
+              // The title no longer doubles as the rename affordance — tapping it
+              // opens the card (rename now lives behind the explicit pencil). Keep
+              // the button's Enter/Space activation from also reaching the sortable
+              // wrapper's keyboard sensor and starting a drag.
+              onKeyDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen(card);
+              }}
+            >
+              {card.title}
+            </button>
+            {/* Explicit rename affordance. Hidden on an engine-owned or busy card,
+                whose title is locked (the API rejects a rename there too). */}
+            {!engineOwned && !busy && (
+              <button
+                type="button"
+                className="card-rename"
+                title="Rename card"
+                aria-label={`Rename card: ${card.title}`}
+                onKeyDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTitleError(null);
+                  titleEditRevision.current = card.rev;
+                  setTitleDraft(card.title);
+                }}
+              >
+                <PencilIcon />
+              </button>
+            )}
+          </>
+        ) : (
+          <div
+            // The press is kept off the drag sensor by DRAG_EXEMPT_ANCESTORS
+            // (this class is on that list), not by stopping the event here -
+            // one rule, in one place, whichever sensor is listening.
+            className="card-title-editor"
+            onClick={(e) => e.stopPropagation()}
+            // The whole card is dnd-kit's keyboard activator. Keep ordinary
+            // editing keys (especially Space) and button activation inside the
+            // editor instead of bubbling into SortableCardWrap and starting a
+            // keyboard drag. Do not preventDefault: inputs/buttons retain their
+            // native editing and activation behavior.
+            onKeyDown={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              const staysInside = e.relatedTarget != null && e.currentTarget.contains(e.relatedTarget as Node);
+              if (shouldCommitCardTitleOnBlur(staysInside) && !titleEditJustEnded.current) {
+                void saveCardTitle();
+              }
+            }}
+          >
+            <input
+              className="card-title-input"
+              aria-label={`Edit title for ${card.title}`}
+              aria-invalid={Boolean(titleError)}
+              value={titleDraft}
+              autoFocus
+              disabled={savingTitle}
+              onChange={(e) => {
+                setTitleDraft(e.target.value);
+                if (titleError) setTitleError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                const action = cardTitleEditAction(e.key);
+                if (!action) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (action === "save") void saveCardTitle();
+                else cancelTitleEdit();
+              }}
+            />
+            <button
+              type="button"
+              className="card-title-action save"
+              aria-label="Save card title"
+              disabled={savingTitle || !titleDraft.trim()}
+              onClick={() => void saveCardTitle()}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              className="card-title-action"
+              aria-label="Cancel title editing"
+              disabled={savingTitle}
+              onClick={cancelTitleEdit}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+        {titleDraft === null && fmtCardDate(card.id) && <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>}
       </div>
+      {titleError && <div className="card-title-error" role="alert">{titleError}</div>}
       <div className="cmeta">
         {card.project
           ? <span className="chip" title="project">{card.project}</span>
           : <span className="chip muted" title="no project assigned">no project</span>}
+        {card.scope === "personal" && <span className="chip goal" title="personal task">personal</span>}
         {inferring && <span className="chip infer" title="inferring the project from the description"><SparkIcon /> inferring project…</span>}
         {parked && <span className="chip attn">needs-attention</span>}
         {card.steeringPending && <span className="chip steering" title="a mid-run revisit directive is pending — the card will re-stage at the next duty boundary">steering</span>}
@@ -449,7 +1035,29 @@ function Card({
           <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
-        {card.workKind && <span className="chip" title="work kind (the policy phase plan this run follows)">{card.workKind}</span>}
+        {(card.schedule || card.scheduledFor) && (
+          <span
+            className={`chip sched${scheduleDue(card) ? " due" : ""}`}
+            title={
+              scheduleDue(card)
+                ? `scheduled for ${scheduleAt(card)} - due${card.scheduleNotifiedAt ? ", reminder sent" : ""}`
+                : card.schedule?.kind === "cron"
+                  ? `${card.schedule.enabled ? "recurring" : "paused"}: ${card.schedule.cron} (${card.schedule.timezone})`
+                  : `held until ${scheduleAt(card)} (${card.scheduleAction === "run" ? "runs automatically" : "notifies"})`
+            }
+          >
+            <ClockIcon /> {scheduleChip(card)}{card.scheduleAction === "run" ? " · auto" : ""}
+          </span>
+        )}
+        {(card.checklistTotal ?? 0) > 0 && (
+          <span
+            className={`chip check${(card.checklistDone ?? 0) === card.checklistTotal ? " all-done" : ""}`}
+            title={`checklist: ${card.checklistDone}/${card.checklistTotal} done`}
+          >
+            {card.checklistDone}/{card.checklistTotal}
+          </span>
+        )}
+        {card.flow && <span className="chip" title="flow (the policy phase plan this run follows)">{card.flow}</span>}
         {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
         {card.fences?.sha && (
           <span className="chip fence" title={`last commit fence: ${card.fences.phase ?? "?"} @ ${card.fences.sha}`}>
@@ -552,82 +1160,53 @@ function Card({
         </div>
       )}
 
-      <div className="btns">
-        {canAdvance && (
-          <button className="btn primary small" disabled={busy} onClick={() => onStart(card)}>
-            <PlayIcon /> {startLabel}
-          </button>
-        )}
-        {canRun && (
-          <button
-            className="btn primary small"
-            disabled={busy}
-            title={dispatchErr ? "re-run this card on this list" : `run ${list.title} on this card now`}
-            onClick={() => onStart(card)}
-          >
-            <PlayIcon /> {dispatchErr ? "Retry" : "Run"}
-          </button>
-        )}
-        {canInfer && !engineOwned && (
-          <button className="btn small" disabled={busy} title="infer the project from the description" onClick={() => onInfer(card)}>
-            <SparkIcon /> Infer
-          </button>
-        )}
-        {!engineOwned && (
-          <button className="btn small" disabled={busy} onClick={() => onMove(card)}>
-            <MoveIcon /> Move
-          </button>
-        )}
-        {/* Discuss list (interactive) gets a dedicated Discuss button that opens a
-            James-mode session seeded with this card; everything else gets Watch (logs). */}
-        {list.interactive ? (
-          <button className="btn small primary" title="open a James-mode discussion seeded with this card" onClick={() => onDiscuss(card)}>
-            <ChatIcon /> Discuss
-          </button>
-        ) : (
-          <>
-            <button className="btn small" onClick={() => onWatch(card)}>
-              <WatchIcon /> Watch
-            </button>
-            {/* Terminal opens an interactive shell in the card's project cwd.
-                Only when the card resolves to a project (else the shell would
-                open at the board's own dir, which isn't what you came for). */}
-            {card.project && (
-              <button className="btn small" title="open an interactive shell in this card's project" onClick={() => onTerminal(card)}>
-                <TerminalIcon /> Terminal
-              </button>
-            )}
-          </>
-        )}
-        {/* WS2 (D7): a DONE card can spawn a continuation whose starting context is
-            seeded from this card's handoff packet. */}
-        {list.terminal && (
-          <button className="btn small primary" disabled={busy} title="create a new card that continues this one's work" onClick={() => onContinue(card)}>
-            <PlayIcon /> Continue
-          </button>
-        )}
-        {/* Send to Drill: plan the checks for THIS card's change, run them, and
-            notify when the verdict lands. Only on done (there is no landed change
-            to test before that) and only with a project (nothing to test in). */}
-        {list.terminal && card.project && (
-          <button
-            className="btn small"
-            disabled={busy || card.drill?.state === "planning" || card.drill?.state === "running"}
-            title={
-              card.drill?.state === "planning" || card.drill?.state === "running"
-                ? "a drill is already running for this card"
-                : "plan a test for this card's change, run it, and notify when it's done"
-            }
-            onClick={() => onDrill(card)}
-          >
-            <DrillIcon /> {card.drill ? "Re-drill" : "Send to Drill"}
-          </button>
-        )}
-        <button className="btn small" onClick={() => onOpen(card)}>
-          <OpenIcon /> Open
-        </button>
-      </div>
+      <CardActions
+        card={card}
+        list={list}
+        busy={busy}
+        iconOnly
+        handlers={{
+          onStart, onMove, onQuickMove, onDelete, onWatch, onTerminal,
+          onInfer, onDiscuss, onContinue, onDrill, onFeedback, onRunSchedule
+        }}
+      />
     </div>
+  );
+}
+
+// The card's stable id, shown so it can be quoted to an agent, plus a link that
+// reopens the board with this card's modal already open. One control: clicking
+// copies the link, and the id itself is selectable text for the "paste the uid
+// into a prompt" case that motivated it.
+function ShareCardButton({ card, withId = false }: { card: CardSummary; withId?: boolean }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  async function share() {
+    // Built from the CURRENT location so it is right in every context the board
+    // runs in - direct on its own port, embedded in Garrison, or over the tailnet.
+    // A hardcoded host would be unreachable from the phone that most often
+    // receives one of these links.
+    const url = new URL(window.location.href);
+    url.searchParams.set("card", card.id);
+    const link = url.toString();
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied("Link copied");
+    } catch {
+      // Clipboard is unavailable on an insecure origin or without permission;
+      // showing the link still lets it be copied by hand rather than failing mute.
+      window.prompt("Copy this card's link:", link);
+      setCopied(null);
+      return;
+    }
+    setTimeout(() => setCopied(null), 1600);
+  }
+  return (
+    <>
+      {withId && <code className="card-uid" title="this card's id — quote it to an agent">{card.id}</code>}
+      <button className="btn small" title="copy a link that opens this card" onClick={share}>
+        <LinkIcon /> <span className="btn-label">{copied ?? "Share"}</span>
+      </button>
+    </>
   );
 }
 
@@ -670,7 +1249,7 @@ function SpecSelect({
   hint: string;
   value: string;
   disabled?: string | null;
-  options: { value: string; label: string; detail?: string }[];
+  options: { value: string; label: string; detail?: string; disabled?: boolean }[];
   onChange: (v: string) => void;
 }) {
   return (
@@ -679,7 +1258,7 @@ function SpecSelect({
       <select id={id} value={value} disabled={Boolean(disabled)} onChange={(e) => onChange(e.target.value)}>
         <option value={AUTO}>Automatic{hint ? ` — ${hint}` : ""}</option>
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} disabled={o.disabled}>
             {o.label}
             {o.detail ? ` — ${o.detail}` : ""}
           </option>
@@ -695,14 +1274,16 @@ function RunSpec({
   spec,
   setSpec,
   options,
-  optionsError
+  optionsError,
+  initialOpen = false
 }: {
   spec: CardRouting;
   setSpec: (next: CardRouting) => void;
   options: RouteOptionsView | null;
   optionsError: string | null;
+  initialOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   // A pin is "in force" only when it holds a real value - null/blank both mean
   // automatic, exactly as TurnRouting defines it.
   const pinnedCount = Object.values(spec).filter((v) => v !== null && v !== undefined && v !== "").length;
@@ -714,9 +1295,10 @@ function RunSpec({
       : null;
 
   // The phases of the SELECTED plan, in plan order. Falls back to the default work
-  // kind's plan, which is what an unpinned card actually walks.
-  const kindId = spec.workKind || options?.defaultWorkKind || "";
-  const planPhases = (options?.workKinds ?? []).find((k) => k.id === kindId)?.phases ?? [];
+  // kind's plan, which is what an unpinned card actually walks. A pinned
+  // single-turn DUTY runs no phase plan at all, so the toggles hide.
+  const kindId = spec.duty ? "" : (spec.flow || options?.defaultFlow || "");
+  const planPhases = (options?.flows ?? []).find((k) => k.id === kindId)?.phases ?? [];
   const off = new Set((spec.phasesOff ?? "").split(",").map((s) => s.trim()).filter(Boolean));
   // Serialised in PLAN order, never tap order, so the same selection always
   // produces the same pin.
@@ -738,11 +1320,33 @@ function RunSpec({
       </button>
       {open && (
         <div className="spec-grid">
+          {/* Duty and flow are ONE question ("what is this work?") asked as
+              two siblings before 2026-08-07: a phased flow spans several
+              duty-named lists, so picking both read as a contradiction. One
+              selector now offers phased plans (flows) and single-turn
+              duties together; the two wire fields underneath are unchanged and
+              mutually exclusive. */}
           <SpecSelect
-            id="nc-duty" label="Duty" hint="the classifier decides"
-            value={spec.duty ?? AUTO} disabled={why}
-            options={(options?.duties ?? []).map((d) => ({ value: d.id, label: d.id, detail: d.title ?? undefined }))}
-            onChange={set("duty")}
+            id="nc-kind-of-work" label="Kind of work" hint="the classifier decides"
+            value={spec.flow ? `kind:${spec.flow}` : spec.duty ? `duty:${spec.duty}` : AUTO}
+            disabled={why}
+            options={[
+              ...(options?.flows ?? []).map((k) => ({
+                value: `kind:${k.id}`,
+                label: k.id === options?.defaultFlow ? `${k.id} (default plan)` : k.id,
+                detail: (k.phases?.length ? `plan: ${k.phases.join(" → ")}` : k.description) ?? undefined
+              })),
+              ...(options?.duties ?? []).map((d) => ({
+                value: `duty:${d.id}`,
+                label: d.id,
+                detail: d.title ? `single-turn duty — ${d.title}` : "single-turn duty"
+              }))
+            ]}
+            onChange={(v) => {
+              if (!v) setSpec({ ...spec, duty: undefined, flow: undefined, phasesOff: undefined });
+              else if (v.startsWith("kind:")) setSpec({ ...spec, flow: v.slice(5), duty: undefined, phasesOff: undefined });
+              else setSpec({ ...spec, duty: v.slice(5), flow: undefined, phasesOff: undefined });
+            }}
           />
           <SpecSelect
             id="nc-tier" label="Tier" hint="the classifier decides"
@@ -775,18 +1379,9 @@ function RunSpec({
             options={(options?.accounts ?? []).map((a) => ({ value: a.name, label: a.name, detail: a.platform ?? undefined }))}
             onChange={set("account")}
           />
-          <SpecSelect
-            id="nc-kind" label="Work kind" hint="inferred from the tier"
-            value={spec.workKind ?? AUTO} disabled={why}
-            options={(options?.workKinds ?? []).map((k) => ({
-              value: k.id,
-              label: k.id === options?.defaultWorkKind ? `${k.id} (default)` : k.id,
-              detail: k.description ?? undefined
-            }))}
-            // Switching plans invalidates the OFF set - those ids belong to the old
-            // plan, and carrying them over would disable phases never looked at.
-            onChange={(v) => setSpec({ ...spec, workKind: v || undefined, phasesOff: undefined })}
-          />
+          {/* The former separate "Flow" dropdown folded into "Kind of work"
+              above (2026-08-07). The phase toggle row below still keys off the
+              selected (or default) plan. */}
           {planPhases.length > 0 && (
             <div className="spec-field spec-field-wide">
               <label>Phases</label>
@@ -823,27 +1418,198 @@ function RunSpec({
   );
 }
 
-function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function normaliseLoadoutEditor(value: LoadoutEditorValue): LoadoutEditorValue {
+  return {
+    id: value.id,
+    repo_remote: value.repo_remote || "",
+    default_branch: value.default_branch || "",
+    ...(value.apm_manifest_path ? { apm_manifest_path: value.apm_manifest_path } : {}),
+    setup_commands: Array.isArray(value.setup_commands) ? value.setup_commands : [],
+    env_vars: Array.isArray(value.env_vars) ? value.env_vars : [],
+    verify_command: value.verify_command || "",
+    ...(value.projects_root_override ? { projects_root_override: value.projects_root_override } : {})
+  };
+}
+
+function routeRuntimeRequirement(route: RouteStamp | null | undefined) {
+  if (!route?.runtime) return null;
+  return {
+    key: `${route.runtime}:${route.provider || "unknown"}`,
+    targetId: route.targetId || "resolved target",
+    runtime: route.runtime,
+    provider: route.provider || null,
+    model: route.model || null
+  };
+}
+
+function machineSupportsRuntime(machine: MachineOption | null | undefined, requirement: { key: string } | null | undefined) {
+  if (!machine?.worker?.ready || machine.worker.stale === true) return false;
+  return Boolean(requirement && Array.isArray(machine.worker.runtimes) && machine.worker.runtimes.includes(requirement.key));
+}
+
+/** Remote placement preflight. The host resolves vault NAMES and repository
+ * facts; this form never receives or accepts a secret value. */
+function LoadoutPanel({ project, active, onReady }: {
+  project: string;
+  active: boolean;
+  onReady: (ready: boolean | null) => void;
+}) {
+  const [readiness, setReadiness] = useState<LoadoutReadiness | null>(null);
+  const [draft, setDraft] = useState<LoadoutEditorValue | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+
+  useEffect(() => {
+    let alive = true;
+    if (!active || !project.trim()) {
+      setReadiness(null);
+      setDraft(null);
+      setEditing(false);
+      setError(null);
+      onReadyRef.current(null);
+      return () => { alive = false; };
+    }
+    setLoading(true);
+    setError(null);
+    onReadyRef.current(null);
+    api.loadoutReadiness(project.trim())
+      .then((value) => {
+        if (!alive) return;
+        setReadiness(value);
+        if (value.editor) setDraft(normaliseLoadoutEditor(value.editor));
+        onReadyRef.current(value.ready);
+      })
+      .catch((reason) => {
+        if (!alive) return;
+        const message = reason instanceof Error ? reason.message : String(reason);
+        setReadiness({ project, ready: false, status: "unavailable", detail: message });
+        setDraft(null);
+        onReadyRef.current(false);
+      })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [active, project, reload]);
+
+  async function save() {
+    if (!draft) return;
+    if (!draft.repo_remote.trim() || !draft.default_branch.trim() || !draft.verify_command.trim()) {
+      setError("Repository remote, default branch, and an explicit verify command are required. Garrison will not guess them.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.saveLoadout(project, {
+        ...draft,
+        id: project,
+        repo_remote: draft.repo_remote.trim(),
+        default_branch: draft.default_branch.trim(),
+        setup_commands: draft.setup_commands.map((line) => line.trim()).filter(Boolean),
+        env_vars: draft.env_vars.map((line) => line.trim()).filter(Boolean),
+        verify_command: draft.verify_command.trim()
+      });
+      setEditing(false);
+      setReload((value) => value + 1);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!active || !project.trim()) return null;
+  return (
+    <div className={`loadout-panel ${readiness?.ready ? "ready" : "blocked"}`} aria-live="polite">
+      <div className="loadout-head">
+        <b>Project Loadout</b>
+        <span className={`chip ${readiness?.ready ? "ok" : "alarm"}`}>
+          {loading ? "checking" : readiness?.ready ? "ready" : "blocked"}
+        </span>
+      </div>
+      <p>{loading ? `Checking ${project} on the host…` : readiness?.detail || "Loadout readiness has not been proven."}</p>
+      {readiness?.missing?.length ? (
+        <div className="spec-note">Missing vault names: {readiness.missing.join(", ")}</div>
+      ) : null}
+      {draft && !editing && (
+        <button type="button" className="btn small" onClick={() => setEditing(true)}>
+          {readiness?.ready ? "Edit Loadout" : "Create / fix Loadout"}
+        </button>
+      )}
+      {editing && draft && (
+        <div className="loadout-editor">
+          <label>Repository remote
+            <input value={draft.repo_remote} onChange={(event) => setDraft({ ...draft, repo_remote: event.target.value })} />
+          </label>
+          <label>Default branch
+            <input value={draft.default_branch} onChange={(event) => setDraft({ ...draft, default_branch: event.target.value })} />
+          </label>
+          <label>Setup commands <span className="muted">(one per line; blank is allowed)</span>
+            <textarea value={draft.setup_commands.join("\n")} onChange={(event) => setDraft({ ...draft, setup_commands: event.target.value.split("\n") })} />
+          </label>
+          <label>Verify command <span className="muted">(required; never guessed)</span>
+            <input value={draft.verify_command} onChange={(event) => setDraft({ ...draft, verify_command: event.target.value })} />
+          </label>
+          <label>Vault variable names <span className="muted">(one NAME per line; never values)</span>
+            <textarea value={draft.env_vars.join("\n")} onChange={(event) => setDraft({ ...draft, env_vars: event.target.value.split("\n") })} />
+          </label>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn small primary" disabled={saving} onClick={() => void save()}>
+              {saving ? "Saving…" : "Save and recheck"}
+            </button>
+            <button type="button" className="btn small" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {error && <div className="dispatch-err">{error}</div>}
+    </div>
+  );
+}
+
+function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { board?: BoardView | null; initialPlacement?: string; onClose: () => void; onCreated: () => void }) {
   const [title, setTitle] = useState("");
   // Project picker: "auto" = leave blank (the server infers it from the description);
   // "pick" = a repo chosen from the dev-root list; "custom" = a free-typed name/path.
   const [projectMode, setProjectMode] = useState<"auto" | "pick" | "custom">("auto");
   const [project, setProject] = useState("");
   const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
+  const [personal, setPersonal] = useState(false);
   const [description, setDescription] = useState("");
   const [goalMode, setGoalMode] = useState(false);
   // RUN-SPEC-V1: ONE explicit run spec for the card, in the same shape the Web
-  // Channel's Turn Rail pins. It replaces the separate D17 work-kind select + phase
+  // Channel's Turn Rail pins. It replaces the separate D17 flow select + phase
   // toggles that used to live here (those are now two dimensions of the spec) so
   // there is one place, not two, to decide how a card runs.
   const [spec, setSpec] = useState<CardRouting>({});
   const [options, setOptions] = useState<RouteOptionsView | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  // Placement: WHERE the card runs. "" = the host. A bridge connection is not
+  // task readiness: remote options stay disabled until their pull worker has
+  // published a fresh, runtime-capable readiness pulse.
+  const [machines, setMachines] = useState<MachinesView | null>(null);
+  const [placement, setPlacement] = useState(initialPlacement);
+  const [loadoutReady, setLoadoutReady] = useState<boolean | null>(null);
+  // Card scheduling: one-time release or a timezone-aware recurring template.
+  const [scheduleKind, setScheduleKind] = useState<"none" | "once" | "cron">("none");
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [scheduleCron, setScheduleCron] = useState("0 8 * * 1-5");
+  const [scheduleTimezone, setScheduleTimezone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
+  );
+  const [scheduleTarget, setScheduleTarget] = useState("backlog");
+  const [scheduleAction, setScheduleAction] = useState<"notify" | "run">("notify");
+  // Files attached at creation: uploaded right AFTER the card exists (the
+  // upload endpoint is card-scoped), before the sheet closes.
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // The repos under the dev-root (dev-env parity). Best-effort — on failure the picker
-  // still offers "(auto-infer)" + "Custom path…".
+  // still offers "(auto-infer)" + "Custom project name…".
   useEffect(() => {
     let alive = true;
     api.projects().then((v) => { if (alive) setProjects(v.projects); }).catch(() => { /* leave empty */ });
@@ -853,6 +1619,9 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     api.routeOptions()
       .then((v) => { if (alive) setOptions(v); })
       .catch((e) => { if (alive) setOptionsError(e instanceof Error ? e.message : String(e)); });
+    // Best-effort: the endpoint already degrades to host-only with a reason, so a
+    // failure here leaves the picker on "This machine" rather than blocking.
+    api.machines().then((v) => { if (alive) setMachines(v); }).catch(() => { /* host-only */ });
     return () => { alive = false; };
   }, []);
 
@@ -871,14 +1640,82 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
     const routing = Object.fromEntries(
       Object.entries(spec).filter(([, v]) => v !== null && v !== undefined && v !== "")
     ) as CardRouting;
+    const scheduledFor = scheduleKind === "once" && scheduleAt ? isoFromLocalInput(scheduleAt) : null;
+    if (scheduleKind === "once" && (!scheduleAt || !scheduledFor)) {
+      setErr("The schedule time did not parse - pick it again.");
+      setSaving(false);
+      return;
+    }
+    if (scheduleKind === "cron" && !scheduleCron.trim()) {
+      setErr("Add a five-field cron expression for the recurring schedule.");
+      setSaving(false);
+      return;
+    }
+    const selectedMachine = placement ? machines?.machines.find((machine) => machine.name === placement) : null;
+    const selectedTarget = spec.target ? options?.targets.find((target) => target.id === spec.target) : null;
+    const requiredRuntime = selectedTarget?.runtime
+      ? { key: `${selectedTarget.runtime}:${selectedTarget.provider || "unknown"}`, targetId: selectedTarget.id }
+      : machines?.defaultRuntime ?? null;
+    if (placement && !machineSupportsRuntime(selectedMachine, requiredRuntime)) {
+      setErr(selectedMachine?.worker?.ready && requiredRuntime
+        ? `${selectedMachine.label} does not advertise ${requiredRuntime.key}, required by ${requiredRuntime.targetId}.`
+        : selectedMachine?.worker?.detail || "Enable/Repair the task runner on this Mac before assigning work to it.");
+      setSaving(false);
+      return;
+    }
+    if (placement && !proj && !personal) {
+      setErr("Choose the project explicitly before assigning this card to another node, so its Loadout can be verified.");
+      setSaving(false);
+      return;
+    }
+    if (placement && proj && loadoutReady !== true) {
+      setErr("This project is blocked from remote placement until its Loadout and vault preflight pass.");
+      setSaving(false);
+      return;
+    }
+    const schedule: Omit<CardSchedule, "nextAt" | "lastAt"> | undefined = scheduleKind === "once"
+      ? {
+          kind: "once", action: scheduleAction, at: scheduledFor!, timezone: scheduleTimezone,
+          enabled: true, targetList: scheduleTarget
+        }
+      : scheduleKind === "cron"
+        ? {
+            kind: "cron", action: scheduleAction, cron: scheduleCron.trim(), timezone: scheduleTimezone,
+            enabled: true, targetList: scheduleTarget
+          }
+        : undefined;
     try {
-      await api.create({
+      const created = await api.create({
         title: title.trim() || undefined,
         project: proj,
+        ...(personal ? { scope: "personal" as const } : {}),
         description,
         goalMode,
-        ...(Object.keys(routing).length ? { routing } : {})
+        ...(Object.keys(routing).length ? { routing } : {}),
+        // Absent placement IS "host" on the wire — never send { target: "host" },
+        // or every card carries a pin it did not ask for.
+        ...(placement ? { placement: { target: placement } } : {}),
+        ...(schedule ? { schedule } : {})
       });
+      // Upload any files picked at creation. Best-effort per file: a failed
+      // upload names the file (the card itself is already created) and keeps
+      // the sheet open so the failure is seen, not swallowed.
+      const failed: string[] = [];
+      for (const f of pendingFiles) {
+        try {
+          const b64 = await fileToBase64(f);
+          await api.uploadAttachment(created.card.id, f.name, b64);
+        } catch {
+          failed.push(f.name);
+        }
+      }
+      if (failed.length) {
+        setErr(`Card created, but attachment upload failed for: ${failed.join(", ")}. Attach them again from the card's Open sheet.`);
+        setSaving(false);
+        setPendingFiles([]);
+        onCreated();
+        return;
+      }
       onCreated();
       onClose();
     } catch (e) {
@@ -888,6 +1725,14 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
   }
 
   const selectValue = projectMode === "custom" ? PROJECT_CUSTOM : projectMode === "auto" ? "" : project;
+  const selectedProject = projectMode === "auto" ? "" : project.trim();
+  const remotePlacementBlocked = Boolean(
+    placement && ((!selectedProject && !personal) || (selectedProject && loadoutReady !== true))
+  );
+  const selectedTarget = spec.target ? options?.targets.find((target) => target.id === spec.target) : null;
+  const requiredRuntime = selectedTarget?.runtime
+    ? { key: `${selectedTarget.runtime}:${selectedTarget.provider || "unknown"}`, targetId: selectedTarget.id }
+    : machines?.defaultRuntime ?? null;
 
   return (
     <Sheet title="New card → Backlog" onClose={onClose}>
@@ -897,6 +1742,16 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
           placeholder="optional — inferred from the description if left blank"
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
+      </div>
+      <div className="field">
+        <label className="row" htmlFor="nc-personal">
+          <input id="nc-personal" type="checkbox" checked={personal}
+            onChange={(e) => setPersonal(e.target.checked)} />
+          Personal task
+        </label>
+        <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+          Personal is a label, not a run mode. The task can still use a project and run on agent lists.
+        </div>
       </div>
       <div className="field">
         <label htmlFor="nc-project">Project <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
@@ -912,14 +1767,14 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         >
           <option value="">(auto-infer from the description)</option>
           {projects.map((p) => <option key={p.path} value={p.name}>{p.name}</option>)}
-          <option value={PROJECT_CUSTOM}>Custom path…</option>
+          <option value={PROJECT_CUSTOM}>Custom project name…</option>
         </select>
         {projectMode === "custom" && (
           <input
             id="nc-project-custom"
             type="text"
             value={project}
-            placeholder="project name or absolute path"
+            placeholder="project name"
             style={{ marginTop: 8 }}
             autoFocus
             onChange={(e) => setProject(e.target.value)}
@@ -927,7 +1782,9 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
         )}
         {projectMode === "auto" && (
           <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-            Left blank — Garrison infers the project from the description (you can change it later).
+            {personal
+              ? "Left blank - personal tasks do not auto-infer a project. You can assign one now or later."
+              : "Left blank - Garrison infers the project from the description (you can change it later)."}
           </div>
         )}
       </div>
@@ -943,20 +1800,108 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
           goalMode (attach acceptance + bounded iterations)
         </label>
       </div>
+      <div className="field sched-create">
+        <label htmlFor="nc-sched-kind">Schedule <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
+        <div className="sched-inline">
+          <select id="nc-sched-kind" value={scheduleKind} onChange={(e) => setScheduleKind(e.target.value as "none" | "once" | "cron")}>
+            <option value="none">not scheduled</option>
+            <option value="once">one time</option>
+            <option value="cron">recurring</option>
+          </select>
+          {scheduleKind === "once" && (
+            <input id="nc-sched" aria-label="Scheduled time" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+          )}
+          {scheduleKind === "cron" && (
+            <input id="nc-sched-cron" aria-label="Five-field cron" type="text" value={scheduleCron} placeholder="0 8 * * 1-5" onChange={(e) => setScheduleCron(e.target.value)} />
+          )}
+          <select aria-label="Schedule action" value={scheduleAction} disabled={scheduleKind === "none"} onChange={(e) => setScheduleAction(e.target.value === "run" ? "run" : "notify")}>
+            <option value="notify">notify me (tell Zeca to run/snooze)</option>
+            <option value="run">run automatically</option>
+          </select>
+          {scheduleKind !== "none" && (
+            <select aria-label="Schedule target list" value={scheduleTarget} onChange={(e) => setScheduleTarget(e.target.value)}>
+              {(board?.lists ?? []).filter((list) => list.kind === "manual" && !list.terminal).map((list) => (
+                <option key={list.id} value={list.id}>then move to {list.title}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        {scheduleKind === "cron" && (
+          <div className="sched-advanced">
+            <div className="sched-presets" aria-label="Schedule presets">
+              <button className="btn tiny" type="button" onClick={() => setScheduleCron("0 8 * * *")}>Daily 08:00</button>
+              <button className="btn tiny" type="button" onClick={() => setScheduleCron("0 8 * * 1-5")}>Weekdays 08:00</button>
+              <button className="btn tiny" type="button" onClick={() => setScheduleCron("0 9 * * 1")}>Mondays 09:00</button>
+            </div>
+            <label htmlFor="nc-sched-timezone">Timezone</label>
+            <input id="nc-sched-timezone" type="text" value={scheduleTimezone} onChange={(e) => setScheduleTimezone(e.target.value)} />
+            <span className="muted">Five fields: minute, hour, day, month, weekday.</span>
+          </div>
+        )}
+      </div>
+      <div className="field">
+        <label htmlFor="nc-files">Attachments <span className="muted" style={{ fontWeight: 400 }}>(optional - context files the operative reads)</span></label>
+        <input
+          id="nc-files"
+          type="file"
+          multiple
+          onChange={(e) => setPendingFiles(Array.from(e.target.files ?? []))}
+        />
+        {pendingFiles.length > 0 && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            {pendingFiles.map((f) => f.name).join(", ")}
+          </div>
+        )}
+      </div>
       <RunSpec spec={spec} setSpec={setSpec} options={options} optionsError={optionsError} />
+      {/* WHERE the card runs (brief D6). Deliberately OUTSIDE <RunSpec>: routing
+          decides runtime/model/effort, placement decides the MACHINE, and they are
+          orthogonal - any card can run on any node regardless of project. */}
+      <div className="spec-grid">
+        <SpecSelect
+          id="nc-machine" label="Machine" hint="this machine (this node)"
+          value={placement}
+          disabled={machines && !machines.nodesAvailable ? (machines.reason || "no other nodes in the mesh") : null}
+          options={(machines?.machines ?? [])
+            .filter((m) => !m.isHost)
+            .map((m) => ({
+              value: m.name,
+              label: m.label,
+              detail: [
+                `bridge ${m.bridge ?? (m.connected ? "connected" : "offline")}`,
+                `worker ${m.worker?.state ?? "offline"}`,
+                m.worker?.detail,
+                requiredRuntime && !machineSupportsRuntime(m, requiredRuntime) ? `needs ${requiredRuntime.key}` : null
+              ].filter(Boolean).join(" · "),
+              disabled: !machineSupportsRuntime(m, requiredRuntime)
+            }))}
+          onChange={setPlacement}
+        />
+      </div>
+      {placement && !selectedProject && !personal && (
+        <div className="loadout-panel blocked" role="status">
+          <div className="loadout-head"><b>Project Loadout</b><span className="chip alarm">blocked</span></div>
+          <p>Choose the project explicitly before assigning this card to another node. Auto-inference happens too late to prove remote readiness.</p>
+        </div>
+      )}
+      <LoadoutPanel
+        project={selectedProject}
+        active={Boolean(placement && selectedProject)}
+        onReady={setLoadoutReady}
+      />
       {err && <div className="banner">{err}</div>}
-      <button className="btn primary" disabled={saving} onClick={() => void submit()}>
+      <button className="btn primary" disabled={saving || remotePlacementBlocked || Boolean(placement && !machineSupportsRuntime(machines?.machines.find((machine) => machine.name === placement), requiredRuntime))} onClick={() => void submit()}>
         {saving ? "Creating…" : "Create card"}
       </button>
     </Sheet>
   );
 }
 
-// ── inline Backlog quick-add (touch-first per-column affordance) ─────────────
-// A per-column "Add card" at the head of the Backlog list: tap the trigger to
+// ── inline manual-list quick-add (touch-first per-column affordance) ─────────
+// A per-column "Add card" at the head of Backlog and To Do: tap the trigger to
 // reveal a compact inline form (title required, description + project optional)
-// that POSTs straight to /cards — which always lands the card in Backlog — and
-// refreshes the board in place, no reload. Distinct from the top-bar "New card"
+// that POSTs straight to the selected list and refreshes the board in place, no
+// reload. Distinct from the top-bar "New card"
 // sheet, which carries goalMode and the full Run spec: this is the fast capture
 // path, sized for touch (≥44px controls, usable at 390px). Reuses PROJECT_CUSTOM +
 // the project-picker semantics of the New Card sheet so the two entry points behave
@@ -968,20 +1913,21 @@ function NewCardSheet({ onClose, onCreated }: { onClose: () => void; onCreated: 
 // fully automatic, which is the default anyway — and the spec stays editable on the
 // card afterwards (PATCH accepts `routing`). The form says so, so "no controls here"
 // reads as a decision rather than an omission.
-function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
+function ListAddCard({ listId, listTitle, onCreated }: { listId: string; listTitle: string; onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectMode, setProjectMode] = useState<"auto" | "pick" | "custom">("auto");
   const [project, setProject] = useState("");
   const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
+  const [personal, setPersonal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
 
   // Load the dev-root repos for the project picker only once the form is opened
   // (parity with the New Card sheet). Best-effort — on failure the picker still
-  // offers "(auto-infer)" + "Custom path…".
+  // offers "(auto-infer)" + "Custom project name…".
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -993,7 +1939,7 @@ function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
   useEffect(() => { if (open) titleRef.current?.focus(); }, [open]);
 
   function reset() {
-    setTitle(""); setDescription(""); setProjectMode("auto"); setProject(""); setErr(null); setSaving(false);
+    setTitle(""); setDescription(""); setProjectMode("auto"); setProject(""); setPersonal(false); setErr(null); setSaving(false);
   }
 
   async function submit() {
@@ -1008,7 +1954,13 @@ function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
     setErr(null);
     const proj = projectMode === "auto" ? undefined : (project.trim() || undefined);
     try {
-      await api.create({ title: t, description: description.trim() || undefined, project: proj });
+      await api.create({
+        title: t,
+        description: description.trim() || undefined,
+        project: proj,
+        ...(personal ? { scope: "personal" as const } : {}),
+        targetList: listId
+      });
       reset();
       setOpen(false);
       onCreated();
@@ -1022,14 +1974,19 @@ function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
 
   if (!open) {
     return (
-      <button type="button" className="backlog-add-trigger" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="list-add-trigger"
+        aria-label={`Add a card to ${listTitle}`}
+        onClick={() => setOpen(true)}
+      >
         <PlusIcon /> Add card
       </button>
     );
   }
 
   return (
-    <div className="backlog-add" role="group" aria-label="Add a card to Backlog">
+    <div className="list-add" role="group" aria-label={`Add a card to ${listTitle}`}>
       <input
         ref={titleRef}
         className="ba-input"
@@ -1063,17 +2020,29 @@ function BacklogAddCard({ onCreated }: { onCreated: () => void }) {
       >
         <option value="">Project: auto-infer</option>
         {projects.map((p) => <option key={p.path} value={p.name}>{p.name}</option>)}
-        <option value={PROJECT_CUSTOM}>Custom path…</option>
+        <option value={PROJECT_CUSTOM}>Custom project name…</option>
       </select>
       {projectMode === "custom" && (
         <input
           className="ba-input"
           type="text"
           value={project}
-          placeholder="project name or absolute path"
-          aria-label="Custom project path"
+          placeholder="project name"
+          aria-label="Custom project name"
           onChange={(e) => setProject(e.target.value)}
         />
+      )}
+      <label className="row" htmlFor={`ba-personal-${listId}`}>
+        <input
+          id={`ba-personal-${listId}`}
+          type="checkbox"
+          checked={personal}
+          onChange={(e) => setPersonal(e.target.checked)}
+        />
+        Personal task
+      </label>
+      {personal && projectMode === "auto" && (
+        <div className="ba-note">No project will be inferred automatically for this personal task.</div>
       )}
       <div className="ba-note">Everything about the run is automatic. Use New card to choose.</div>
       {err && <div className="ba-err" role="alert">{err}</div>}
@@ -1101,25 +2070,13 @@ function MoveSheet({
   onClose: () => void;
   onMoved: () => void;
 }) {
-  const current = board.lists.find((l) => l.id === card.list);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // A manual-only work kind (empty phase plan — personal/channel) rides the
-  // manual lists by hand: never offer the dev pipeline from here, surface the
-  // manual subset of the list's exits, or Done when the pipeline was the only
-  // exit. Mirrors the server's rail-aware Advance (railIsManualOnly).
-  const [policy, setPolicy] = useState<PolicyView | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api.policy().then((v) => { if (alive) setPolicy(v); }).catch(() => { /* no policy — static targets */ });
-    return () => { alive = false; };
-  }, []);
-  const staticTargets = current?.validNext ?? [];
-  const kind = policy && card.workKind ? policy.workKinds[card.workKind] : null;
-  const plan = kind && policy ? policy.phasePlans[kind.phasePlan] : null;
-  const manualOnly = !!plan && (plan.phases ?? []).length === 0;
-  const manualTargets = staticTargets.filter((t) => board.lists.find((l) => l.id === t)?.kind === "manual");
-  const targets = manualOnly ? (manualTargets.length ? manualTargets : ["done"]) : staticTargets;
+  // Item 2: the Move button is the MANUAL gate — it offers EVERY list except the
+  // card's current one, so a card can be moved ANYWHERE by hand. (Advance is the
+  // other control and keeps the next-list-only rail semantics: validNext.) Agent-kind
+  // targets are FLAGGED, not hidden — moving a card onto one auto-dispatches a run.
+  const targets = deriveMoveTargets(board, card);
 
   async function moveTo(listId: string) {
     setBusy(true);
@@ -1137,23 +2094,121 @@ function MoveSheet({
   return (
     <Sheet title={`Move: ${card.title}`} onClose={onClose}>
       <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-        Pick the next list yourself — this is the manual gate.
+        Move this card to any list — this is the manual gate. Advance instead to walk
+        the next step of its pipeline.
       </p>
       {targets.length === 0 ? (
-        <div className="banner info">No valid next list from {card.list}.</div>
+        <div className="banner info">No other list to move {card.title} to.</div>
       ) : (
         <div className="move-list">
-          {targets.map((t) => {
-            const target = board.lists.find((l) => l.id === t);
-            return (
-              <button key={t} className="btn move-opt" disabled={busy} onClick={() => void moveTo(t)}>
-                <MoveIcon /> {target?.title ?? t}
-              </button>
-            );
-          })}
+          {targets.map((t) => (
+            <button key={t.id} className="btn move-opt" disabled={busy} onClick={() => void moveTo(t.id)}>
+              <MoveIcon /> {t.title}
+              {t.isAgent && (
+                <span
+                  className={`move-agent-hint${t.startsRun ? " starts-run" : ""}`}
+                  title={t.startsRun ? "This agent list dispatches immediately." : "This is an agent-owned list; it does not dispatch on entry."}
+                >
+                  {t.startsRun ? "starts a run" : "agent list"}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       )}
       {err && <div className="banner" style={{ marginTop: 12 }}>{err}</div>}
+    </Sheet>
+  );
+}
+
+// ── feedback sheet ("click a letter" to send a card back through the pipeline) ─
+// A card reached the end (Done) or stopped (needs-attention) but missed part of the
+// work, or the user wants to build on it. Write the feedback, pick where it re-enters
+// the pipeline (default: the start of the queue), and the SAME card is re-staged there
+// carrying the same context — its run directory + prior iteration logs are preserved,
+// and the note is folded into every phase from that point on (steering.md). This is the
+// board-side surface of the existing steering mechanism (POST /cards/:id/steer), which
+// until now was reachable only from the web-channel chat thread.
+function FeedbackSheet({
+  card,
+  board,
+  onClose,
+  onSent
+}: {
+  card: CardSummary;
+  board: BoardView;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  // Where the card can be sent back to: its resolved sequence (the leaf phase lists it
+  // actually visits) when it carries one, else every agent phase list on the board in
+  // order. The FIRST entry is "the start of the queue".
+  const agentLists = board.lists.filter((l) => l.kind === "agent" && !l.interactive).sort((a, b) => a.order - b.order);
+  const phaseIds = ((card.sequence && card.sequence.length ? card.sequence : agentLists.map((l) => l.id)) as string[]).filter(
+    (id) => board.lists.some((l) => l.id === id)
+  );
+  const titleFor = (id: string) => board.lists.find((l) => l.id === id)?.title ?? id;
+  const [message, setMessage] = useState("");
+  const [target, setTarget] = useState(phaseIds[0] ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function send() {
+    const text = message.trim();
+    if (!text) { setErr("Write the feedback first."); return; }
+    if (!target) { setErr("This card has no pipeline phase to send it back to."); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const reason = text.length > 80 ? text.slice(0, 77) + "…" : text;
+      await api.steer(card.id, { message: text, action: "revisit", revisitDuty: target, reason });
+      onSent();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet title={`Feedback: ${card.title}`} onClose={onClose}>
+      <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+        Tell this card what to fix or add. It goes back through the pipeline from the phase
+        you pick, keeping the same context (its run directory and prior work), and folds your
+        note into every phase from there on.
+      </p>
+      <div className="field">
+        <label htmlFor="fb-message">Feedback</label>
+        <textarea
+          id="fb-message"
+          value={message}
+          autoFocus
+          rows={5}
+          placeholder="e.g. You forgot the CSV export button on the report page — add it and wire it to /api/export."
+          onChange={(e) => setMessage(e.target.value)}
+        />
+      </div>
+      {phaseIds.length > 0 ? (
+        <div className="field">
+          <label htmlFor="fb-target">Send back to</label>
+          <select id="fb-target" value={target} onChange={(e) => setTarget(e.target.value)}>
+            {phaseIds.map((id, i) => (
+              <option key={id} value={id}>
+                {titleFor(id)}{i === 0 ? " (start of the queue)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="banner info">This card has no pipeline phases to send it back through.</div>
+      )}
+      {err && <div className="banner" style={{ marginTop: 12 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={busy || !message.trim() || !target} onClick={() => void send()}>
+          <MailIcon /> {busy ? "Sending…" : "Send back"}
+        </button>
+      </div>
     </Sheet>
   );
 }
@@ -1204,6 +2259,11 @@ function LinkRow({ label, refs, onOpen }: { label: string; refs: ArtifactRef | A
 // read-only text / an editable .md·.txt), and saves edits back via PUT for the editable
 // refs (brief · plan · logs). Machine-generated JSON + transcripts + evidence are view-only.
 const ART_IMG_EXT = ["png", "jpg", "jpeg", "webp", "gif", "svg"];
+const ART_VID_EXT = ["mp4", "webm", "mov", "m4v", "ogv"];
+function isVideoName(name?: string): boolean {
+  const ext = (name ?? "").toLowerCase().split(".").pop() ?? "";
+  return ART_VID_EXT.includes(ext);
+}
 function artRefToken(ref: ArtifactRef): string | null {
   if (ref.ref) return ref.ref;
   try { return new URL(ref.url ?? "", "http://x").searchParams.get("ref"); } catch { return null; }
@@ -1214,15 +2274,16 @@ function ArtifactModal({ cardId, art, onClose }: { cardId: string; art: Artifact
   const base = (art.path ? art.path.split("/").pop() : "") || art.name || token || "artifact";
   const ext = base.toLowerCase().split(".").pop() ?? "";
   const isImage = ART_IMG_EXT.includes(ext) || Boolean(art.image);
+  const isVideo = ART_VID_EXT.includes(ext) || Boolean(art.video);
   const editable = Boolean(token && (token === "brief" || token === "plan" || /^log:\d+$/.test(token)) && (ext === "md" || ext === "txt"));
   const [content, setContent] = useState("");
-  const [loaded, setLoaded] = useState(isImage);
+  const [loaded, setLoaded] = useState(isImage || isVideo);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    if (isImage || !url) { setLoaded(true); return; }
+    if (isImage || isVideo || !url) { setLoaded(true); return; }
     let alive = true;
     fetch(url, { cache: "no-store" }).then((r) => r.text()).then((t) => { if (alive) { setContent(t); setLoaded(true); } })
       .catch((e) => { if (alive) { setErr(String(e)); setLoaded(true); } });
@@ -1241,6 +2302,12 @@ function ArtifactModal({ cardId, art, onClose }: { cardId: string; art: Artifact
     } catch (e) { setErr(String(e)); }
     setSaving(false);
   }, [cardId, token, content]);
+  // Escape closes the modal, matching the backdrop tap and the × button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div className="art-scrim" onClick={onClose}>
       <div className="art-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={base}>
@@ -1254,6 +2321,7 @@ function ArtifactModal({ cardId, art, onClose }: { cardId: string; art: Artifact
         <div className="art-body">
           {!loaded ? <div className="art-loading">Loading…</div>
             : isImage ? <img className="art-img" src={url ?? ""} alt={base} />
+            : isVideo ? <video className="art-video" src={url ?? ""} controls autoPlay playsInline />
             : editable ? <textarea className="art-editor" value={content} spellCheck={false} onChange={(e) => { setContent(e.target.value); setDirty(true); }} />
             : <pre className="art-view">{content || "(empty)"}</pre>}
         </div>
@@ -1298,7 +2366,33 @@ function TimelineEvent({ ev }: { ev: CardEvent }): React.ReactElement {
   );
 }
 
-function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { cardId: string; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void }) {
+// A collapsible detail-sheet section. Secondary groups (run configuration,
+// history) fold behind one keyboard-focusable header so the primary content —
+// status, description, checklist, evidence — reads first. `defaultOpen` seeds
+// the state (e.g. a parked card opens its Run configuration so retry controls
+// are reachable); the user can still toggle it. `tone`/`badge` express status
+// with the existing colour language, never a new one.
+function Section({ title, defaultOpen = false, tone, badge, children }: {
+  title: string;
+  defaultOpen?: boolean;
+  tone?: "attn" | "ok" | "waiting";
+  badge?: ReactNode;
+  children: ReactNode;
+}): React.ReactElement {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={`card-section${open ? " open" : ""}${tone ? " tone-" + tone : ""}`}>
+      <button type="button" className="cs-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="cs-chev" aria-hidden><ChevronIcon /></span>
+        <span className="cs-title">{title}</span>
+        {badge}
+      </button>
+      {open && <div className="cs-body">{children}</div>}
+    </section>
+  );
+}
+
+function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1314,6 +2408,46 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   // Has the poll below ever landed a detail? Read inside the poll's catch, where the
   // `detail` state would be a stale closure — hence a ref, not state.
   const loadedRef = useRef(false);
+  const [savingScope, setSavingScope] = useState(false);
+  // Routing stays editable on a human-held card even after it has run. This is
+  // the recovery seam for Panic/parked work: artifacts stay in the same runDir,
+  // while the next Retry may deliberately use a different runtime/model/effort.
+  const [routingDraft, setRoutingDraft] = useState<CardRouting | null>(null);
+  const [routeOptions, setRouteOptions] = useState<RouteOptionsView | null>(null);
+  const [routeOptionsError, setRouteOptionsError] = useState<string | null>(null);
+  const [savingRouting, setSavingRouting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [machines, setMachines] = useState<MachinesView | null>(null);
+  const [placementDraft, setPlacementDraft] = useState("host");
+  const [savingPlacement, setSavingPlacement] = useState(false);
+  const [detailLoadoutReady, setDetailLoadoutReady] = useState<boolean | null>(null);
+  // Trello-style in-place editing: title + description drafts (null = not
+  // editing), the checklist add-input, the schedule picker drafts, and the
+  // attachment upload state.
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const [descDraft, setDescDraft] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [checkText, setCheckText] = useState("");
+  const [checkDraft, setCheckDraft] = useState<{ id: string; text: string } | null>(null);
+  const [schedDraft, setSchedDraft] = useState<string | null>(null);
+  const [schedKindDraft, setSchedKindDraft] = useState<"once" | "cron">("once");
+  const [schedCronDraft, setSchedCronDraft] = useState("0 8 * * 1-5");
+  const [schedTimezoneDraft, setSchedTimezoneDraft] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
+  );
+  const [schedTargetDraft, setSchedTargetDraft] = useState("backlog");
+  const [schedActionDraft, setSchedActionDraft] = useState<"notify" | "run">("notify");
+  const [savingSched, setSavingSched] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const occurrenceCards = useMemo(() => {
+    if (!detail?.card.id) return [] as CardSummary[];
+    return (board?.cards ?? [])
+      .filter((candidate) => candidate.scheduleTemplateId === detail.card.id)
+      .sort((left, right) => Date.parse(right.occurrenceAt ?? right.created ?? "") - Date.parse(left.occurrenceAt ?? left.created ?? ""));
+  }, [board?.cards, detail?.card.id]);
 
   // Poll the detail while open so the Activity feed updates live as a run progresses
   // (the engine appends events through the run). 3s is responsive without being chatty.
@@ -1333,6 +2467,26 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   }, [cardId]);
 
   useEffect(() => { setProjectDraft(null); }, [cardId]);
+  useEffect(() => { setRoutingDraft(null); }, [cardId]);
+  useEffect(() => { setPlacementDraft("host"); }, [cardId]);
+  useEffect(() => {
+    let alive = true;
+    api.routeOptions()
+      .then((v) => { if (alive) { setRouteOptions(v); setRouteOptionsError(null); } })
+      .catch((e) => { if (alive) setRouteOptionsError(e instanceof Error ? e.message : String(e)); });
+    return () => { alive = false; };
+  }, [cardId]);
+  useEffect(() => {
+    if (detail && routingDraft === null) setRoutingDraft({ ...(detail.card.routing ?? {}) });
+  }, [detail, routingDraft]);
+  useEffect(() => {
+    if (detail) setPlacementDraft(detail.card.placement?.target || "host");
+  }, [detail?.card.id, detail?.card.placement?.target]);
+  useEffect(() => {
+    let alive = true;
+    api.machines().then((value) => { if (alive) setMachines(value); }).catch(() => { if (alive) setMachines(null); });
+    return () => { alive = false; };
+  }, [cardId]);
 
   async function saveProjectScope() {
     if (!detail) return;
@@ -1353,6 +2507,90 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
     }
   }
 
+  async function savePersonalScope(personal: boolean) {
+    if (!detail) return;
+    setSavingScope(true);
+    setActionErr(null);
+    try {
+      const scope = personal ? "personal" : detail.card.project ? "project" : "unscoped";
+      const next = await api.patch(detail.card.id, { scope, rev: detail.card.rev });
+      setDetail((d) => d ? { ...d, card: next.card } : d);
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingScope(false);
+    }
+  }
+
+  async function saveRouting(): Promise<boolean> {
+    if (!detail || routingDraft === null) return false;
+    setSavingRouting(true);
+    const clean = Object.fromEntries(
+      Object.entries(routingDraft).filter(([, value]) => value !== null && value !== undefined && value !== "")
+    ) as CardRouting;
+    const saved = await patchCard({ routing: Object.keys(clean).length ? clean : null });
+    if (saved) setRoutingDraft(clean);
+    setSavingRouting(false);
+    return saved;
+  }
+
+  async function retryWithRouting() {
+    if (!detail) return;
+    setRetrying(true);
+    setActionErr(null);
+    try {
+      if (!(await saveRouting())) return;
+      await api.start(detail.card.id);
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  async function savePlacement(target = placementDraft, retry = false) {
+    if (!detail) return;
+    if (target !== "host" && !detail.card.project && detail.card.scope !== "personal") {
+      setActionErr("Assign a project before placing this card on another node, so its Loadout can be verified.");
+      return;
+    }
+    if (target !== "host" && detail.card.project && detailLoadoutReady !== true) {
+      setActionErr("Remote placement is blocked until this project's Loadout and vault preflight pass.");
+      return;
+    }
+    const targetMachine = target === "host" ? null : machines?.machines.find((machine) => machine.name === target);
+    const targetRequirement = routeRuntimeRequirement(detail.card.expectedRoute) || machines?.defaultRuntime || null;
+    if (target !== "host" && !machineSupportsRuntime(targetMachine, targetRequirement)) {
+      setActionErr(targetMachine?.worker?.ready && targetRequirement
+        ? `${targetMachine.label} does not advertise ${targetRequirement.key}, required by ${targetRequirement.targetId}.`
+        : targetMachine?.worker?.detail || "Enable/Repair the task runner before assigning this card.");
+      return;
+    }
+    setSavingPlacement(true);
+    setActionErr(null);
+    try {
+      const next = await api.patch(detail.card.id, {
+        placement: { target: target || "host" },
+        rev: detail.card.rev
+      });
+      setDetail((current) => current ? { ...current, card: next.card } : current);
+      setPlacementDraft(target || "host");
+      if (retry) {
+        await api.start(detail.card.id);
+        await api.card(cardId).then((value) => setDetail(value));
+      }
+      onChanged();
+    } catch (error) {
+      setActionErr(error instanceof Error ? error.message : String(error));
+      await api.card(cardId).then((value) => setDetail(value)).catch(() => {});
+    } finally {
+      setSavingPlacement(false);
+    }
+  }
+
   async function doDelete() {
     setDeleting(true);
     try {
@@ -1362,6 +2600,208 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setDeleting(false);
+    }
+  }
+
+  // One CAS-carrying patch helper for the in-place edits: sends the freshest
+  // rev, folds the result back into the open detail, and surfaces a 409 as an
+  // actionable message (the 3s poll rebases the editor state).
+  async function patchCard(body: Record<string, unknown>) {
+    if (!detail) return false;
+    setActionErr(null);
+    try {
+      const next = await api.patch(detail.card.id, { ...body, rev: detail.card.rev });
+      setDetail((d) => (d ? { ...d, card: next.card } : d));
+      onChanged();
+      return true;
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+      return false;
+    }
+  }
+
+  async function saveTitle() {
+    const t = (titleDraft ?? "").trim();
+    if (!t || !detail || t === detail.card.title) { setTitleDraft(null); return; }
+    setSavingEdit(true);
+    if (await patchCard({ title: t })) setTitleDraft(null);
+    setSavingEdit(false);
+  }
+
+  async function saveDescription() {
+    if (descDraft === null || !detail) return;
+    setSavingEdit(true);
+    if (await patchCard({ description: descDraft })) setDescDraft(null);
+    setSavingEdit(false);
+  }
+
+  // Checklist writes are whole-array replaces (tiny, human-edited) and are
+  // BENIGN patches - allowed even on an engine-owned card.
+  async function saveChecklist(items: ChecklistItem[]) {
+    if (!detail) return false;
+    // Optimistic: the checkbox flips instantly; a 409 re-pulls.
+    setDetail((d) => (d ? { ...d, checklist: items } : d));
+    return patchCard({ checklist: items });
+  }
+
+  function addCheckItem() {
+    const text = checkText.trim();
+    if (!text || !detail) return;
+    const id = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.floor(Math.random() * 1e6)}`).replace(/-/g, "").slice(0, 10);
+    setCheckText("");
+    void saveChecklist([...(detail.checklist ?? []), { id, text, done: false }]);
+  }
+
+  async function saveCheckItem() {
+    if (!detail || !checkDraft) return;
+    const text = checkDraft.text.trim();
+    if (!text) {
+      setActionErr("A checklist item cannot be empty. Remove it explicitly if it is no longer needed.");
+      return;
+    }
+    const saved = await saveChecklist((detail.checklist ?? []).map((item) => item.id === checkDraft.id ? { ...item, text } : item));
+    if (saved) setCheckDraft(null);
+  }
+
+  function scheduleTarget(card: CardSummary): string {
+    return card.schedule?.targetList ?? (card.list === "scheduled" ? "backlog" : card.list);
+  }
+
+  function beginScheduleEdit(card: CardSummary) {
+    const current = card.schedule;
+    setSchedKindDraft(current?.kind === "cron" ? "cron" : "once");
+    setSchedDraft(localInputFromIso(current?.kind === "once" ? current.at ?? current.nextAt : null));
+    setSchedCronDraft(current?.cron ?? "0 8 * * 1-5");
+    setSchedTimezoneDraft(current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Lisbon");
+    setSchedTargetDraft(current?.targetList ?? (card.list === "scheduled" ? "backlog" : card.list));
+    setSchedActionDraft(current?.action ?? (card.scheduleAction === "run" ? "run" : "notify"));
+  }
+
+  async function saveScheduleDraft(card: CardSummary) {
+    const onceAt = schedKindDraft === "once" ? isoFromLocalInput(schedDraft ?? "") : null;
+    if (schedKindDraft === "once" && !onceAt) {
+      setActionErr("Pick a valid date and time.");
+      return;
+    }
+    const schedule = schedKindDraft === "once"
+      ? {
+          kind: "once", action: schedActionDraft, at: onceAt, timezone: schedTimezoneDraft,
+          enabled: true, targetList: schedTargetDraft || scheduleTarget(card)
+        }
+      : {
+          kind: "cron", action: schedActionDraft, cron: schedCronDraft.trim(), timezone: schedTimezoneDraft,
+          enabled: true, targetList: schedTargetDraft || scheduleTarget(card)
+        };
+    setSavingSched(true);
+    const saved = await patchCard({ schedule });
+    setSavingSched(false);
+    if (saved) setSchedDraft(null);
+  }
+
+  async function clearSchedule() {
+    setSavingSched(true);
+    const saved = await patchCard({ schedule: null });
+    setSavingSched(false);
+    if (saved) setSchedDraft(null);
+  }
+
+  async function snoozeSchedule(until: string, action: "notify" | "run") {
+    if (!detail) return;
+    setSavingSched(true);
+    setActionErr(null);
+    try {
+      const next = await api.snooze(detail.card.id, { until, action });
+      setDetail((d) => d ? { ...d, card: next.card } : d);
+      onChanged();
+    } catch (error) {
+      setActionErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingSched(false);
+    }
+  }
+
+  async function toggleSchedule(card: CardSummary) {
+    if (!card.schedule) return;
+    setSavingSched(true);
+    await patchCard({ schedule: { ...card.schedule, enabled: !card.schedule.enabled } });
+    setSavingSched(false);
+  }
+
+  async function runScheduledNow(card: CardSummary) {
+    setSavingSched(true);
+    setActionErr(null);
+    try {
+      const result = await api.runScheduleNow(card.id);
+      await api.card(cardId).then((d) => setDetail(d));
+      onChanged();
+      setActionErr(result.occurrence ? `Created occurrence ${result.card.id}.` : "Released the one-time schedule to run now.");
+    } catch (error) {
+      setActionErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingSched(false);
+    }
+  }
+
+  async function uploadFiles(files: File[]) {
+    if (!detail || !files.length) return;
+    setUploading(true);
+    setActionErr(null);
+    const failed: string[] = [];
+    for (const f of files) {
+      try {
+        const b64 = await fileToBase64(f);
+        // A pasted image arrives as a File with an empty name; the server rejects
+        // a blank filename, which read as "attach silently does nothing".
+        const name = f.name && f.name.trim() ? f.name : pastedFileName(f);
+        await api.uploadAttachment(detail.card.id, name, b64);
+      } catch (e) {
+        // Say WHY. This used to swallow the reason and report only the filename,
+        // so an over-cap file, a rejected name and an unreachable board were all
+        // the same unactionable "Upload failed for: x".
+        failed.push(`${f.name || "pasted image"} (${e instanceof Error ? e.message : String(e)})`);
+      }
+    }
+    if (failed.length) setActionErr(`Upload failed for: ${failed.join("; ")}`);
+    await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+    onChanged();
+    setUploading(false);
+  }
+
+  // Paste an image straight onto the open card.
+  //
+  // Bound to the document while the sheet is open rather than to a drop target,
+  // because the natural gesture is "the card is open, hit Cmd+V" without first
+  // clicking a particular box. Typing into a field still wins: a paste with any
+  // text on the clipboard, or one aimed at an input/textarea, is left alone so
+  // this can never eat a normal text paste.
+  useEffect(() => {
+    async function onPaste(e: ClipboardEvent) {
+      const cd = e.clipboardData;
+      if (!cd) return;
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("input, textarea, [contenteditable='true']")) return;
+      if (cd.getData("text")?.trim()) return;
+      const files = Array.from(cd.files ?? []).filter((f) => f.type.startsWith("image/"));
+      if (!files.length) return;
+      e.preventDefault();
+      await uploadFiles(files);
+    }
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.card.id]);
+
+  async function removeAttachment(name: string) {
+    if (!detail) return;
+    if (!window.confirm(`Remove the attachment "${name}"?`)) return;
+    setActionErr(null);
+    try {
+      await api.deleteAttachment(detail.card.id, name);
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -1425,8 +2865,14 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   const { card, links, decisionLog } = detail;
   const events = detail.events ?? [];
   const attachments = detail.attachments ?? [];
+  const checklist = detail.checklist ?? [];
   const running = card.status === "running";
   const parked = card.status === "needs-attention";
+  // D16: title/description edits are refused on an engine-owned card (the
+  // server enforces it; the UI says so instead of offering a doomed control).
+  // Schedule / checklist / attachments are benign and stay editable.
+  const cardList = board?.lists.find((l) => l.id === card.list) ?? null;
+  const lockedCard = Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
   // Evidence is expected from Walkthrough onward — so at those stages we show the
   // Evidence section even when empty, surfacing the GAP (the user looks here for proof).
   const evidence = links.evidence ?? [];
@@ -1434,12 +2880,39 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   // The description body without the ClaudeChat attachment block (which renders in
   // its own Attachments section below).
   const descBody = card.description ? stripAttachmentBlock(card.description) : "";
+  const claimActive = card.dispatch?.state === "claimed" || card.dispatch?.state === "running" || card.dispatch?.state === "cancelling";
+  const selectedMachine = placementDraft === "host"
+    ? machines?.machines.find((machine) => machine.isHost)
+    : machines?.machines.find((machine) => machine.name === placementDraft);
+  const placementProjectReady = placementDraft === "host" || (card.project ? detailLoadoutReady === true : card.scope === "personal");
+  const placementRuntime = routeRuntimeRequirement(card.expectedRoute) || machines?.defaultRuntime || null;
+  const placementReady = placementDraft === "host" || Boolean(
+    machineSupportsRuntime(selectedMachine, placementRuntime) && placementProjectReady
+  );
   return (
     <Sheet title={card.title} onClose={onClose} size="mid">
+      {/* In-place title edit (Trello-style). Locked on an engine-owned card. */}
+      {titleDraft !== null && (
+        <div className="detail-desc">
+          <div className="row" style={{ gap: 8 }}>
+            <input
+              aria-label="Card title"
+              value={titleDraft}
+              autoFocus
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void saveTitle(); if (e.key === "Escape") setTitleDraft(null); }}
+              style={{ flex: 1, minWidth: 0 }}
+            />
+            <button className="btn small primary" disabled={savingEdit || !titleDraft.trim()} onClick={() => void saveTitle()}>Save</button>
+            <button className="btn small" onClick={() => setTitleDraft(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div className="detail-meta">
         {card.project
           ? <span className="chip">proj: {card.project}</span>
           : <span className="chip muted">no project</span>}
+        {card.scope === "personal" && <span className="chip goal">personal</span>}
         <span className="chip">list: {card.list}</span>
         <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         {card.goalMode && <span className="chip goal">goalMode</span>}
@@ -1449,10 +2922,20 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
 
       {/* Header actions: open the rich Log (Watch) or an interactive Terminal. */}
       <div className="detail-actions">
+        {titleDraft === null && (
+          <button
+            className="btn small"
+            disabled={lockedCard}
+            title={lockedCard ? "engine-owned - the title is editable when the card is not on an autonomous list" : "rename this card"}
+            onClick={() => setTitleDraft(card.title)}
+          >
+            <WrenchIcon /> Rename
+          </button>
+        )}
         <button className="btn small" onClick={() => onWatch?.(card)}>
           <WatchIcon /> Watch (Log)
         </button>
-        {card.project && (
+        {(card.project || card.scope === "personal") && (
           <button className="btn small" onClick={() => onTerminal?.(card)}>
             <TerminalIcon /> Terminal
           </button>
@@ -1490,103 +2973,501 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
       {parked && card.attentionReason && (
         <div className="state-callout parked">{card.attentionReason}</div>
       )}
-      {parked && (
-        <div className="detail-desc">
-          <div className="dd-title">Project / workspace scope</div>
-          <div className="row" style={{ gap: 8 }}>
-            <input
-              aria-label="Project or workspace scope"
-              value={projectDraft ?? card.project ?? ""}
-              placeholder="project name or absolute workspace path"
-              onChange={(e) => setProjectDraft(e.target.value)}
-              style={{ flex: 1, minWidth: 0 }}
-            />
-            <button className="btn small" disabled={savingProject} onClick={() => void saveProjectScope()}>
-              {savingProject ? "Saving…" : "Save scope"}
-            </button>
-          </div>
-          <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
-            A parked card is operator-editable. Use an absolute path when the task owns an isolated workspace outside a known repository.
-          </p>
-          {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
-        </div>
-      )}
       {card.waitingOn && (
         <div className="state-callout waiting">
           Waiting on <b>{waitingLabel(card.waitingOn)}</b>: {waitingClause(card.waitingOn)}
         </div>
       )}
 
-      {/* ABANDONED (S2, Q7): the prepared revert — the exact commits to be reverted
-          (short shas), the conflict-risk count, the state tag, and the guarded
-          Confirm-revert button (disabled once applied / conflicted). */}
-      {card.preparedRevert && (
-        <div className="prepared-revert">
-          <div className="dd-title">Prepared revert</div>
-          <div className="pr-head">
-            <span className="pr-count">
-              {card.preparedRevert.commits} commit{card.preparedRevert.commits === 1 ? "" : "s"} to revert
-            </span>
-            {card.preparedRevert.conflictRisk > 0 && (
-              <span className="chip attn" title="these commits were later touched by another card — the revert may conflict">
-                {card.preparedRevert.conflictRisk} at conflict risk
-              </span>
-            )}
-            <span className={`chip ${card.preparedRevert.state === "applied" ? "ok" : card.preparedRevert.state === "conflict" ? "attn" : "muted"}`}>
-              {card.preparedRevert.state}
-            </span>
-          </div>
-          {card.preparedRevert.commitShas.length > 0 && (
-            <ul className="pr-commits">
-              {card.preparedRevert.commitShas.map((s) => <li key={s}><code>{s}</code></li>)}
-              {card.preparedRevert.commits > card.preparedRevert.commitShas.length && (
-                <li className="muted">…and {card.preparedRevert.commits - card.preparedRevert.commitShas.length} more</li>
-              )}
-            </ul>
+      {/* RUN CONFIGURATION — secondary, collapsed by default. A parked card opens
+          it so its routing/placement retry controls are reachable at a glance. */}
+      <Section
+        title="Run configuration"
+        defaultOpen={parked}
+        tone={parked ? "attn" : undefined}
+        badge={parked ? <span className="chip attn">needs attention</span> : undefined}
+      >
+      {!lockedCard && (
+        <div className="detail-desc">
+          <div className="dd-title">Task scope</div>
+          <label className="row" htmlFor={`personal-${card.id}`}>
+            <input
+              id={`personal-${card.id}`}
+              type="checkbox"
+              checked={card.scope === "personal"}
+              disabled={Boolean(card.runId) || savingScope}
+              onChange={(e) => void savePersonalScope(e.target.checked)}
+            />
+            Personal task
+          </label>
+          {!card.runId ? (
+            <>
+              <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                <input
+                  aria-label="Project"
+                  value={projectDraft ?? card.project ?? ""}
+                  placeholder="project name"
+                  onChange={(e) => setProjectDraft(e.target.value)}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                <button className="btn small" disabled={savingProject} onClick={() => void saveProjectScope()}>
+                  {savingProject ? "Saving…" : "Save project"}
+                </button>
+              </div>
+              <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
+                Personal is independent of project. A personal task without a project skips automatic inference; use Infer if you deliberately want one.
+              </p>
+            </>
+          ) : (
+            <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
+              Scope is fixed after the first run starts because its artifacts belong to that execution context. Create a fresh card to use a different project or personal scope.
+            </p>
           )}
-          <button
-            className="btn danger small"
-            disabled={reverting || card.preparedRevert.state !== "prepared"}
-            onClick={() => void doRevert()}
-          >
-            {reverting ? "Reverting…" : "Confirm revert"}
-          </button>
           {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
         </div>
       )}
-
-      {descBody.trim() && (
-        <div className="detail-desc">
-          <div className="dd-title">Description</div>
-          {/* pre-wrap: multi-line bodies (drill fix cards list one finding
-              per line with indented evidence links) keep their line structure
-              in the plain-text render. */}
-          <p style={{ whiteSpace: "pre-wrap" }}>{linkifyText(descBody)}</p>
-        </div>
-      )}
-
-      {/* ATTACHMENTS (issue #2) — files the user attached via ClaudeChat, parsed
-          out of the description. Images render inline (click to enlarge); other
-          files link out. Same-origin serve URLs. */}
-      {attachments.length > 0 && (
-        <div className="evidence">
-          <div className="dd-title">Attachments</div>
-          <div className="ev-grid">
-            {attachments.map((a) => (
-              a.image ? (
-                <button key={a.i} type="button" className="ev-shot" onClick={() => setOpenArt({ kind: "serve", url: a.url, name: a.name, image: true })} title={a.name}>
-                  <img src={a.url} alt={a.name} loading="lazy" />
-                  <span className="ev-name">{a.name}</span>
-                </button>
-              ) : (
-                <a key={a.i} className="ev-file" href={a.url} target="_blank" rel="noreferrer" title={a.name}>
-                  <LinkIcon /> {a.name}
-                </a>
-              )
+      <div className="detail-desc placement-control">
+        <div className="dd-title">Execution location</div>
+        <p className="muted routing-help">
+          Placement chooses the machine; runtime and model remain controlled by Run routing. Project work is claimed only after its Loadout and vault requirements validate.
+        </p>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select
+            aria-label="Execution location"
+            value={placementDraft}
+            disabled={claimActive || savingPlacement}
+            onChange={(event) => setPlacementDraft(event.target.value)}
+          >
+            <option value="host">This machine (Garrison host)</option>
+            {(machines?.machines ?? []).filter((machine) => !machine.isHost).map((machine) => (
+              <option
+                key={machine.name}
+                value={machine.name}
+                disabled={!machineSupportsRuntime(machine, placementRuntime)}
+              >
+                {machine.label} — bridge {machine.bridge ?? (machine.connected ? "connected" : "offline")} · worker {machine.worker?.state ?? "offline"}{placementRuntime && !machineSupportsRuntime(machine, placementRuntime) ? ` · needs ${placementRuntime.key}` : ""}
+              </option>
             ))}
+          </select>
+          {!parked && (
+            <button className="btn small" disabled={claimActive || savingPlacement || !placementReady} onClick={() => void savePlacement()}>
+              {savingPlacement ? "Saving…" : "Save location"}
+            </button>
+          )}
+          {parked && (
+            <>
+              <button className="btn small primary" disabled={claimActive || savingPlacement || !placementReady} onClick={() => void savePlacement(placementDraft, true)}>
+                {savingPlacement ? "Starting…" : placementDraft === (card.placement?.target || "host") ? "Retry here" : "Choose this location & retry"}
+              </button>
+              {placementDraft !== "host" && (
+                <button className="btn small" disabled={claimActive || savingPlacement} onClick={() => void savePlacement("host", true)}>
+                  Run on host
+                </button>
+              )}
+            </>
+          )}
+        </div>
+        {claimActive ? (
+          <div className="spec-note">Claimed by {card.dispatch?.machine || card.placement?.target}; use Stop &amp; reroute in Watch before changing placement.</div>
+        ) : placementDraft !== "host" && selectedMachine ? (
+          <div className="spec-note">
+            {selectedMachine.worker?.detail || `Worker ${selectedMachine.worker?.state ?? "offline"}`}
+            {selectedMachine.worker?.error ? ` — ${selectedMachine.worker.error}` : ""}
+          </div>
+        ) : null}
+        {placementDraft !== "host" && !card.project && card.scope !== "personal" && (
+          <div className="loadout-panel blocked" role="status">
+            <div className="loadout-head"><b>Project Loadout</b><span className="chip alarm">blocked</span></div>
+            <p>Assign the project before choosing a node. Project inference cannot substitute for a pre-placement Loadout check.</p>
+          </div>
+        )}
+        <LoadoutPanel
+          project={card.project || ""}
+          active={placementDraft !== "host" && Boolean(card.project)}
+          onReady={setDetailLoadoutReady}
+        />
+      </div>
+      {!lockedCard && !running && routingDraft !== null && (
+        <div className="detail-desc routing-recovery">
+          <div className="dd-title">Run routing</div>
+          <p className="muted routing-help">
+            Changes apply to the next Run or Retry. Existing logs and run context stay with this card.
+          </p>
+          <RunSpec
+            spec={routingDraft}
+            setSpec={setRoutingDraft}
+            options={routeOptions}
+            optionsError={routeOptionsError}
+            initialOpen={parked}
+          />
+          <div className="routing-actions">
+            {parked && (
+              <button className="btn small" disabled={savingRouting || retrying} onClick={() => void saveRouting()}>
+                {savingRouting && !retrying ? "Saving…" : "Save only"}
+              </button>
+            )}
+            <button
+              className="btn small primary"
+              disabled={savingRouting || retrying}
+              onClick={() => parked ? void retryWithRouting() : void saveRouting()}
+            >
+              {retrying ? "Retrying…" : savingRouting ? "Saving…" : parked ? "Save & Retry" : "Save routing"}
+            </button>
           </div>
         </div>
       )}
+      {/* SCHEDULE — one-time hold or recurring template. The fixed Scheduled
+          column owns placement; targetList is where an occurrence/release goes. */}
+      <div className="detail-desc sched-block">
+        <div className="dd-title">Schedule</div>
+        {(card.schedule || card.scheduledFor) && schedDraft === null && (
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span className={`chip sched${scheduleDue(card) ? " due" : ""}`}>
+              <ClockIcon /> {scheduleChip(card)}{card.scheduleAction === "run" ? " · auto-run" : " · notify"}
+            </span>
+            {card.schedule?.kind === "cron" && <span className="chip muted">{card.schedule.cron} · {card.schedule.timezone}</span>}
+            {card.schedule?.targetList && <span className="chip muted">to {card.schedule.targetList}</span>}
+            {card.schedule?.cutoverPending && (
+              <span className="chip attn" title="Verify with Run now, remove the legacy scheduler job, then rerun Kanban setup">
+                legacy cutover pending
+              </span>
+            )}
+            {card.schedule?.lastAt && <span className="chip muted" title={card.schedule.lastAt}>last {fmtSchedule(card.schedule.lastAt)}</span>}
+            {card.scheduleNotifiedAt && <span className="chip muted" title={card.scheduleNotifiedAt}>reminder sent</span>}
+            <button className="btn small" disabled={running || savingSched} onClick={() => beginScheduleEdit(card)}>
+              Change
+            </button>
+            {card.schedule?.kind === "cron" && (
+              <button
+                className="btn small"
+                disabled={running || savingSched || card.schedule.cutoverPending === true}
+                title={card.schedule.cutoverPending ? "Run now to verify; recurring activation happens after the legacy job is removed" : undefined}
+                onClick={() => void toggleSchedule(card)}
+              >
+                {card.schedule.enabled ? "Pause" : "Resume"}
+              </button>
+            )}
+            <button className="btn small primary" disabled={running || savingSched} onClick={() => void runScheduledNow(card)}>
+              Run now
+            </button>
+            <button className="btn small" disabled={running || savingSched} title="defer the next occurrence/release one hour" onClick={() => void snoozeSchedule(new Date(Date.now() + 3600_000).toISOString(), card.scheduleAction === "run" ? "run" : "notify")}>
+              +1h
+            </button>
+            <button className="btn small" disabled={running || savingSched} title="defer the next occurrence/release until tomorrow 09:00" onClick={() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); void snoozeSchedule(d.toISOString(), card.scheduleAction === "run" ? "run" : "notify"); }}>
+              Tomorrow 9
+            </button>
+            <button className="btn small" disabled={running || savingSched} onClick={() => void clearSchedule()}>
+              Clear
+            </button>
+          </div>
+        )}
+        {!card.schedule && !card.scheduledFor && schedDraft === null && (
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn small" disabled={running} title={running ? "the card is running" : "hold or repeat this card on a schedule"} onClick={() => beginScheduleEdit(card)}>
+              <ClockIcon /> Set a schedule
+            </button>
+          </div>
+        )}
+        {schedDraft !== null && (
+          <div className="sched-editor">
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <select aria-label="Schedule kind" value={schedKindDraft} onChange={(e) => setSchedKindDraft(e.target.value === "cron" ? "cron" : "once")}>
+              <option value="once">one time</option>
+              <option value="cron">recurring</option>
+            </select>
+            {schedKindDraft === "once" ? (
+              <input aria-label="Scheduled time" type="datetime-local" value={schedDraft} onChange={(e) => setSchedDraft(e.target.value)} />
+            ) : (
+              <input aria-label="Five-field cron" type="text" value={schedCronDraft} placeholder="0 8 * * 1-5" onChange={(e) => setSchedCronDraft(e.target.value)} />
+            )}
+            <select value={schedActionDraft} onChange={(e) => setSchedActionDraft(e.target.value === "run" ? "run" : "notify")}>
+              <option value="notify">notify me (tell Zeca to run/snooze)</option>
+              <option value="run">run automatically</option>
+            </select>
+            <input aria-label="Schedule timezone" type="text" value={schedTimezoneDraft} onChange={(e) => setSchedTimezoneDraft(e.target.value)} />
+            <select aria-label="Schedule target list" value={schedTargetDraft} onChange={(e) => setSchedTargetDraft(e.target.value)}>
+              {(board?.lists ?? []).filter((list) => list.kind === "manual" && !list.terminal).map((list) => (
+                <option key={list.id} value={list.id}>then move to {list.title}</option>
+              ))}
+            </select>
+            <button
+              className="btn small primary"
+              disabled={savingSched || (schedKindDraft === "once" ? !schedDraft || !isoFromLocalInput(schedDraft) : !schedCronDraft.trim())}
+              onClick={() => void saveScheduleDraft(card)}
+            >
+              {savingSched ? "Saving…" : "Set"}
+            </button>
+            <button className="btn small" onClick={() => setSchedDraft(null)}>Cancel</button>
+            </div>
+            {schedKindDraft === "cron" && (
+              <div className="sched-presets">
+                <button className="btn tiny" type="button" onClick={() => setSchedCronDraft("0 8 * * *")}>Daily 08:00</button>
+                <button className="btn tiny" type="button" onClick={() => setSchedCronDraft("0 8 * * 1-5")}>Weekdays 08:00</button>
+                <button className="btn tiny" type="button" onClick={() => setSchedCronDraft("0 9 * * 1")}>Mondays 09:00</button>
+                <span className="muted">minute · hour · day · month · weekday</span>
+              </div>
+            )}
+          </div>
+        )}
+        {card.schedule?.lastError && <div className="dispatch-err">Schedule degraded: {card.schedule.lastError}</div>}
+        {card.scheduleTemplateId && (
+          <div className="muted schedule-link">
+            Occurrence of template{" "}
+            <a
+              className="schedule-card-ref"
+              href={scheduleCardHref(card.scheduleTemplateId)}
+              onClick={(event) => {
+                if (!onOpenCard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                onOpenCard(card.scheduleTemplateId!);
+              }}
+            >
+              {board?.cards.find((candidate) => candidate.id === card.scheduleTemplateId)?.title ?? card.scheduleTemplateId}
+            </a>{" "}
+            at {card.occurrenceAt ? fmtSchedule(card.occurrenceAt) : "an unsupplied instant"}.
+          </div>
+        )}
+        {card.schedule?.kind === "cron" && (
+          <div className="schedule-link schedule-occurrences">
+            <span className="muted">Occurrences:</span>{" "}
+            {occurrenceCards.length === 0 ? (
+              <span className="muted">none yet</span>
+            ) : occurrenceCards.map((occurrence, index) => (
+              <span key={occurrence.id}>
+                {index > 0 && " · "}
+                <a
+                  className="schedule-card-ref"
+                  href={scheduleCardHref(occurrence.id)}
+                  onClick={(event) => {
+                    if (!onOpenCard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    event.preventDefault();
+                    onOpenCard(occurrence.id);
+                  }}
+                  title={occurrence.occurrenceAt ?? occurrence.created ?? undefined}
+                >
+                  {fmtSchedule(occurrence.occurrenceAt ?? occurrence.created) || occurrence.title}
+                </a>
+              </span>
+            ))}
+          </div>
+        )}
+        {card.morningBriefDelivery && (
+          <div className="morning-delivery" aria-label="Morning briefing delivery status">
+            <span className={`chip ${card.morningBriefDelivery.web?.status === "delivered" ? "ok" : "attn"}`}>Web: {card.morningBriefDelivery.web?.status ?? "pending"}</span>
+            <span className={`chip ${card.morningBriefDelivery.omi?.status === "delivered" ? "ok" : "attn"}`}>Omi: {card.morningBriefDelivery.omi?.status ?? "pending"}</span>
+            <span className={`chip ${card.morningBriefDelivery.calendar?.status === "reported" ? "ok" : "attn"}`}>Calendar: {card.morningBriefDelivery.calendar?.status ?? "pending"}</span>
+          </div>
+        )}
+      </div>
+      </Section>
+
+      {/* CONTENT — description, checklist, attachments: the primary "what this
+          card is" tier, always expanded. */}
+      {(descBody.trim() || descDraft !== null || !lockedCard) && (
+        <div className="detail-desc">
+          <div className="dd-title">
+            Description
+            {descDraft === null && !lockedCard && (
+              <button className="btn tiny" title="edit the description" onClick={() => setDescDraft(stripAttachmentBlock(card.description ?? ""))}>
+                edit
+              </button>
+            )}
+          </div>
+          {descDraft !== null ? (
+            <div>
+              <AutoTextarea
+                aria-label="Edit description"
+                value={descDraft}
+                autoFocus
+                onChange={setDescDraft}
+                onSubmit={() => void saveDescription()}
+                onCancel={() => setDescDraft(null)}
+              />
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                <button className="btn small primary" disabled={savingEdit} onClick={() => void saveDescription()}>Save</button>
+                <button className="btn small" onClick={() => setDescDraft(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : descBody.trim() ? (
+            /* pre-wrap: multi-line bodies (drill fix cards list one finding
+               per line with indented evidence links) keep their line structure
+               in the plain-text render. */
+            <p style={{ whiteSpace: "pre-wrap" }}>{linkifyText(descBody)}</p>
+          ) : (
+            <p className="muted" style={{ fontSize: 12 }}>No description yet.</p>
+          )}
+        </div>
+      )}
+
+      {/* CHECKLIST - human-first sub-items; open items are folded into the
+          operative's dispatch prompt. Benign patch, editable everywhere. */}
+      <div className="detail-desc checklist">
+        <div className="dd-title">
+          Checklist
+          {checklist.length > 0 && (
+            <span className="muted" style={{ fontWeight: 400, marginLeft: 6 }}>
+              {checklist.filter((i) => i.done).length}/{checklist.length}
+            </span>
+          )}
+        </div>
+        {checklist.length > 0 && (
+          <ul className="cl-items">
+            {checklist.map((item) => (
+              <li key={item.id} className={item.done ? "done" : ""}>
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={item.done}
+                  className={`cl-box${item.done ? " checked" : ""}`}
+                  title={item.done ? "mark as not done" : "mark as done"}
+                  onClick={() => void saveChecklist(checklist.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
+                />
+                {checkDraft?.id === item.id ? (
+                  <div className="cl-editor">
+                    <AutoTextarea
+                      aria-label="Edit checklist item"
+                      value={checkDraft.text}
+                      onChange={(text) => setCheckDraft({ id: item.id, text })}
+                      onSubmit={() => void saveCheckItem()}
+                      onCancel={() => setCheckDraft(null)}
+                    />
+                    <div className="row" style={{ gap: 6 }}>
+                      <button className="btn tiny primary" disabled={!checkDraft.text.trim()} onClick={() => void saveCheckItem()}>Save item</button>
+                      <button className="btn tiny" onClick={() => setCheckDraft(null)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="cl-text cl-text-button"
+                    title="edit checklist item"
+                    onClick={() => setCheckDraft({ id: item.id, text: item.text })}
+                  >
+                    {item.text}
+                  </button>
+                )}
+                {checkDraft?.id !== item.id && (
+                  <button
+                    type="button"
+                    className="cl-edit"
+                    title="edit this item"
+                    aria-label={`edit checklist item ${item.text.slice(0, 80)}`}
+                    onClick={() => setCheckDraft({ id: item.id, text: item.text })}
+                  >
+                    Edit
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="cl-del"
+                  title="remove this item"
+                  aria-label={`remove "${item.text}"`}
+                  onClick={() => void saveChecklist(checklist.filter((i) => i.id !== item.id))}
+                >
+                  <CloseIcon />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* The input takes the card's full width on its own row and the Add button
+            sits under it. Sharing a flex row with the button is what made it
+            narrow, and a fixed 4 rows made it tall - the opposite of what a
+            mostly-one-line field wants. */}
+        <div className="cl-add">
+          <AutoTextarea
+            aria-label="New checklist item"
+            value={checkText}
+            placeholder="Add an item. Enter adds it; Shift+Enter for a new line."
+            onChange={setCheckText}
+            onSubmit={addCheckItem}
+          />
+          <div className="row" style={{ gap: 8, marginTop: 6 }}>
+            <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
+              <PlusIcon /> Add
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ATTACHMENTS - card-owned uploads (deletable, folded into the dispatch
+          prompt as context) plus the legacy ClaudeChat description-block files.
+          Images render inline (click to enlarge); other files link out. */}
+      <div
+        className={`evidence${dragOver ? " drag-over" : ""}`}
+        onDragOver={(e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          if (!e.dataTransfer?.files?.length) return;
+          e.preventDefault();
+          setDragOver(false);
+          void uploadFiles(Array.from(e.dataTransfer.files));
+        }}
+      >
+        <div className="dd-title">
+          Attachments
+          {/* A real button that opens the picker programmatically, rather than a
+              <label> wrapping a hidden input. Implicit label activation is the
+              part that does not survive every context this board runs in - the
+              board is framed cross-origin inside Garrison, and WebKit in
+              particular declines to open a picker that way, which is what "attach
+              is not working" looked like. Clicking the input directly always
+              works. Drag-and-drop onto this panel and Cmd+V paste are the other
+              two routes in, so a blocked picker is no longer a dead end. */}
+          <button
+            type="button"
+            className="btn tiny"
+            disabled={uploading}
+            title="attach a file - the operative reads it as context when the card runs. You can also drop files here or paste an image."
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? "uploading…" : "attach"}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            // Visually hidden but STILL RENDERED: iOS/WebKit silently ignores a
+            // programmatic `.click()` on a `display:none` (or `visibility:hidden`)
+            // file input, which is what "attach does nothing" looked like on the
+            // phone. An off-screen, zero-size, rendered input takes the click.
+            style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden", pointerEvents: "none" }}
+            tabIndex={-1}
+            aria-hidden
+            disabled={uploading}
+            onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void uploadFiles(files); }}
+          />
+        </div>
+        {attachments.length > 0 ? (
+          <div className="ev-grid">
+            {attachments.map((a) => (
+              <div key={`${a.uploaded ? "u" : "d"}:${a.name}:${a.i ?? ""}`} className="ev-item">
+                {a.image ? (
+                  <button type="button" className="ev-shot" onClick={() => setOpenArt({ kind: "serve", url: a.url, name: a.name, image: true })} title={a.name}>
+                    <img src={a.url} alt={a.name} loading="lazy" />
+                    <span className="ev-name">{a.name}</span>
+                  </button>
+                ) : isVideoName(a.name) ? (
+                  <button type="button" className="ev-file" onClick={() => setOpenArt({ kind: "serve", url: a.url, name: a.name, video: true })} title={a.name}>
+                    <LinkIcon /> {a.name}
+                  </button>
+                ) : (
+                  <a className="ev-file" href={a.url} target="_blank" rel="noreferrer" title={a.name}>
+                    <LinkIcon /> {a.name}
+                  </a>
+                )}
+                {a.uploaded && (
+                  <button type="button" className="ev-del" title={`remove ${a.name}`} aria-label={`remove ${a.name}`} onClick={() => void removeAttachment(a.name)}>
+                    <CloseIcon />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>No attachments. Attached files are read by the operative as context for this card.</p>
+        )}
+      </div>
 
       {card.lastReply && (
         <div className="detail-desc">
@@ -1627,6 +3508,9 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
         </div>
       )}
 
+      {/* HISTORY & ARTIFACTS — secondary, collapsed by default: the full record
+          of what happened to this card and the pointers to its artifacts. */}
+      <Section title="History & artifacts">
       {/* The Activity timeline — the full "what happened to this card" history. */}
       <div className="timeline">
         <div className="tl-title"><ActivityIcon /> activity</div>
@@ -1649,7 +3533,6 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
         <LinkRow label="video" refs={links.video} onOpen={setOpenArt} />
         <LinkRow label="logs" refs={links.logs} onOpen={setOpenArt} />
       </div>
-      {openArt && <ArtifactModal cardId={card.id} art={openArt} onClose={() => setOpenArt(null)} />}
 
       <div className="declog">
         <div className="dl-title"><LinkIcon /> decision log</div>
@@ -1668,8 +3551,64 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
           ))
         )}
       </div>
+      </Section>
+
+      {/* The artifact viewer is hoisted out of the collapsibles above: evidence and
+          attachments (outside History) also open it, so a collapsed History section
+          must never unmount the overlay. */}
+      {openArt && <ArtifactModal cardId={card.id} art={openArt} onClose={() => setOpenArt(null)} />}
+
+      {/* The same action row the card front carries, at the bottom of the opened
+          card - so everything you can do to a card is reachable from wherever you
+          are looking at it. Literally the same component, not a copy, and it
+          brings the card's id with it (withId) for quoting into an agent prompt.
+          `list` comes from the board; without it there is nothing to derive the
+          available actions from, so the row is simply omitted. */}
+      {actions && cardList && (
+        <div className="detail-actions detail-actions-footer">
+          <CardActions card={card} list={cardList} busy={false} withId handlers={actions} />
+        </div>
+      )}
 
       <div className="danger-zone">
+        {/* Prepared revert (S2, Q7): the exact commits to be reverted (short shas),
+            the conflict-risk count, the state tag, and the guarded Confirm-revert
+            button. Clustered here with Abandon/Delete so every recovery/destructive
+            action lives in one place. */}
+        {card.preparedRevert && (
+          <div className="prepared-revert">
+            <div className="dd-title">Prepared revert</div>
+            <div className="pr-head">
+              <span className="pr-count">
+                {card.preparedRevert.commits} commit{card.preparedRevert.commits === 1 ? "" : "s"} to revert
+              </span>
+              {card.preparedRevert.conflictRisk > 0 && (
+                <span className="chip attn" title="these commits were later touched by another card — the revert may conflict">
+                  {card.preparedRevert.conflictRisk} at conflict risk
+                </span>
+              )}
+              <span className={`chip ${card.preparedRevert.state === "applied" ? "ok" : card.preparedRevert.state === "conflict" ? "attn" : "muted"}`}>
+                {card.preparedRevert.state}
+              </span>
+            </div>
+            {card.preparedRevert.commitShas.length > 0 && (
+              <ul className="pr-commits">
+                {card.preparedRevert.commitShas.map((s) => <li key={s}><code>{s}</code></li>)}
+                {card.preparedRevert.commits > card.preparedRevert.commitShas.length && (
+                  <li className="muted">…and {card.preparedRevert.commits - card.preparedRevert.commitShas.length} more</li>
+                )}
+              </ul>
+            )}
+            <button
+              className="btn danger small"
+              disabled={reverting || card.preparedRevert.state !== "prepared"}
+              onClick={() => void doRevert()}
+            >
+              {reverting ? "Reverting…" : "Confirm revert"}
+            </button>
+            {actionErr && <div className="dispatch-err" style={{ marginTop: 8 }}>{actionErr}</div>}
+          </div>
+        )}
         {/* Abandon (S2, Q7): prepare a revert of the card's committed work + park it.
             Offered on a non-running card that hasn't already been abandoned; the
             confirm() guard and the separate revert step keep it deliberate. */}
@@ -1696,188 +3635,49 @@ function DetailSheet({ cardId, onClose, onChanged, onWatch, onTerminal }: { card
   );
 }
 
-// ── watch sheet — live terminal + SSE log (never tmux) ──────────────────────
-// Two panes: TERMINAL shows the operative session's actual rendered screen
-// (the gateway's PTY render, proxied same-origin via /operative/screen) -
-// what you'd see in a real terminal, live. LOG tails the card's iteration log
-// over SSE, or replays the linked static logs when nothing is live. The
-// interactive Discuss list does NOT use this - it has its own
-// Discuss button that opens a James-mode session (see App.onDiscuss).
-// ── session transcript view (rich Log) ──────────────────────────────────────
-// Ported from the drill fitting (SessionStream / SessionViewer): the operative's
-// actual turns, tool calls and screenshots, streamed live over
-// /cards/:id/session-stream while the card runs, or replayed once when idle.
-
-interface SessionImage { mediaType: string; data: string }
-interface SessionBlock {
-  type: string;
-  text?: string;
-  name?: string;
-  input?: string;
-  toolUseId?: string | null;
-  isError?: boolean;
-  images?: SessionImage[];
-}
-interface SessionEvent {
-  id: string | null;
-  role: string;
-  ts: number | null;
-  toolResultsOnly?: boolean;
-  blocks: SessionBlock[];
-}
-
-function SessionTextBlock({ text, role }: { text: string; role: string }) {
-  // Long prompts (the routed phase instructions) collapse to their first line —
-  // the desktop-app "show more" idiom without the chrome.
-  if (role === "user" && text.length > 280) {
-    const head = text.slice(0, 140).split("\n")[0];
-    return (
-      <details className="dr-session-longtext">
-        <summary>{head}…</summary>
-        <pre className="dr-session-pre">{text}</pre>
-      </details>
-    );
+// Rich activity uses @garrison/claude-chat's canonical SessionStream — the same
+// renderer as Web Channel (grouped turns, live tool progress, screenshot modal,
+// related tasks and retry). This wrapper only supplies card-scoped stream URLs
+// and the historical/live session picker.
+function SessionViewer({
+  cardId,
+  sessionIds,
+  live,
+  dispatch,
+  dispatchRuns
+}: {
+  cardId: string;
+  sessionIds: string[];
+  live: boolean;
+  dispatch: CardSummary["dispatch"];
+  dispatchRuns: NonNullable<CardSummary["dispatchRuns"]>;
+}) {
+  const recordedRunIds = new Set(dispatchRuns.map((run) => run.runId));
+  const remoteEntries = dispatchRuns.map((run, index) => ({
+    key: `outpost-${run.runId}`,
+    label: `Remote ${index + 1}${run.phase ? ` · ${run.phase}` : ""}${run.machine ? ` · ${run.machine}` : ""}`,
+    url: `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(run.runId)}`,
+    live: false
+  }));
+  if (dispatch?.runId && !recordedRunIds.has(dispatch.runId)) {
+    const dispatchLive = live && ["claimed", "running", "cancelling"].includes(dispatch.state);
+    remoteEntries.push({
+      key: `outpost-${dispatch.runId}`,
+      label: dispatchLive ? "Live · Remote" : `Remote run${dispatch.phase ? ` · ${dispatch.phase}` : ""}`,
+      url: dispatchLive
+        ? `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`
+        : `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(dispatch.runId)}`,
+      live: dispatchLive
+    });
   }
-  return <pre className="dr-session-text">{text}</pre>;
-}
-
-function SessionToolBlock({ block, result }: { block: SessionBlock; result: SessionBlock | undefined }) {
-  const hint = (block.input ?? "").replace(/\s+/g, " ").replace(/^[{[]\s*/, "").slice(0, 90);
-  return (
-    <div className="dr-session-toolwrap">
-      <details className="dr-session-tool">
-        <summary>
-          <WrenchIcon />
-          <b>{block.name}</b>
-          <span className="dr-session-tool-hint">{hint}</span>
-          {result?.isError && <span className="chip alarm">error</span>}
-        </summary>
-        {block.input && <pre className="dr-session-pre">{block.input}</pre>}
-        {result?.text && <pre className="dr-session-pre result">{result.text}</pre>}
-      </details>
-      {(result?.images ?? []).map((image, index) => (
-        <img
-          key={index}
-          className="dr-session-img"
-          src={`data:${image.mediaType};base64,${image.data}`}
-          alt={`${block.name ?? "tool"} result image ${index + 1}`}
-          loading="lazy"
-        />
-      ))}
-    </div>
-  );
-}
-
-// One session's live/replayed transcript, consuming the default-`message` SSE
-// framing the kanban server emits (init / events / end), pairing each tool_use
-// with its later tool_result via a toolUseId map.
-function SessionStream({ cardId, i, live }: { cardId: string; i: number; live: boolean }) {
-  const [events, setEvents] = useState<SessionEvent[]>([]);
-  const [title, setTitle] = useState<string | null>(null);
-  const [status, setStatus] = useState<"connecting" | "streaming" | "ended" | "unavailable">("connecting");
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const stickRef = useRef(true);
-
-  useEffect(() => {
-    setEvents([]);
-    setTitle(null);
-    setStatus("connecting");
-    stickRef.current = true;
-    const source = new EventSource(`/cards/${encodeURIComponent(cardId)}/session-stream?i=${i}`);
-    source.onmessage = (message) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let payload: any;
-      try { payload = JSON.parse(message.data); } catch { return; }
-      if (payload.type === "init") {
-        setEvents(payload.events ?? []);
-        if (payload.title) setTitle(payload.title);
-        setStatus(payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended");
-      } else if (payload.type === "events") {
-        if (payload.title) setTitle(payload.title);
-        if (payload.events?.length) setEvents((current) => [...current, ...payload.events]);
-      } else if (payload.type === "end") {
-        setStatus((current) => (current === "unavailable" ? current : "ended"));
-        source.close();
-      }
-    };
-    source.onerror = () => {
-      // The server ends the stream itself after `end`; an earlier transport
-      // error should read as "stream over", not an eternal spinner.
-      setStatus((current) => (current === "unavailable" ? current : "ended"));
-      source.close();
-    };
-    return () => source.close();
-  }, [cardId, i]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [events]);
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-  };
-
-  const resultsByToolUse = useMemo(() => {
-    const map = new Map<string, SessionBlock>();
-    for (const event of events) {
-      for (const block of event.blocks) {
-        if (block.type === "tool_result" && block.toolUseId) map.set(block.toolUseId, block);
-      }
-    }
-    return map;
-  }, [events]);
-
-  return (
-    <div className="dr-session">
-      <div className="dr-session-head">
-        <ChatIcon />
-        <b>{title ?? `Session ${i + 1}`}</b>
-        {live && status === "streaming" && <span className="chip sage">live</span>}
-        {status === "connecting" && <span className="chip">connecting…</span>}
-        {status === "unavailable" && <span className="chip brass">transcript unavailable</span>}
-      </div>
-      <div className="dr-session-scroll" ref={scrollRef} onScroll={onScroll}>
-        {events.length === 0 && (
-          <div className="dr-empty">
-            {status === "connecting"
-              ? "Opening the session stream…"
-              : status === "unavailable"
-                ? "No transcript is available for this session — use the Raw tab for the phase log."
-                : live
-                  ? "Waiting for the first session activity…"
-                  : "No session activity was captured for this run."}
-          </div>
-        )}
-        {events.filter((event) => !event.toolResultsOnly).map((event, index) => (
-          <div key={event.id ?? `event-${index}`} className={"dr-session-turn " + (event.role === "user" ? "user" : "assistant")}>
-            <span className="dr-session-role">{event.role === "user" ? "Prompt" : "Assistant"}</span>
-            {event.blocks.map((block, blockIndex) => {
-              if (block.type === "text") return <SessionTextBlock key={blockIndex} text={block.text ?? ""} role={event.role} />;
-              if (block.type === "thinking") {
-                return (
-                  <details key={blockIndex} className="dr-session-thinking">
-                    <summary>Thinking</summary>
-                    <pre className="dr-session-pre">{block.text}</pre>
-                  </details>
-                );
-              }
-              if (block.type === "tool_use") {
-                return <SessionToolBlock key={blockIndex} block={block} result={block.toolUseId ? resultsByToolUse.get(block.toolUseId) : undefined} />;
-              }
-              return null;
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Chip-per-session picker (defaults to the LAST, most-recent session) over the
-// card's sessionIds, mounting one SessionStream for the selected index.
-function SessionViewer({ cardId, sessionIds, live }: { cardId: string; sessionIds: string[]; live: boolean }) {
-  const count = sessionIds.length;
+  const entries = [
+    ...sessionIds.map((_sessionId, index) => ({ key: `history-${index}`, label: `Session ${index + 1}`, url: `/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`, live: false })),
+    ...remoteEntries,
+    ...(!dispatch?.runId && live
+      ? [{ key: "live", label: "Live", url: `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`, live: true }]
+      : [])
+  ];
+  const count = entries.length;
   const [selected, setSelected] = useState<number>(count > 0 ? count - 1 : 0);
   useEffect(() => {
     // Default to the most-recent session; re-clamp if the count shrinks.
@@ -1890,20 +3690,29 @@ function SessionViewer({ cardId, sessionIds, live }: { cardId: string; sessionId
     <div className="dr-session-viewer">
       {count > 1 && (
         <div className="dr-rowwrap dr-session-tabs" role="tablist" aria-label="Sessions">
-          {sessionIds.map((_sid, index) => (
+          {entries.map((entry, index) => (
             <button
-              key={index}
+              key={entry.key}
               role="tab"
               aria-selected={selected === index}
               className={"chip click" + (selected === index ? " ink active" : "")}
               onClick={() => setSelected(index)}
             >
-              Session {index + 1}
+              {entry.label}
             </button>
           ))}
         </div>
       )}
-      <SessionStream key={selected} cardId={cardId} i={selected} live={live} />
+      {entries[selected] && (
+        <div className="kanban-session-host cc-root" data-theme="light">
+          <SharedSessionStream
+            key={entries[selected].key}
+            url={entries[selected].url}
+            live={entries[selected].live}
+            title={entries[selected].label === "Live" ? "Live activity" : entries[selected].label}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1964,15 +3773,20 @@ function TerminalModal({ card, onClose }: { card: CardSummary; onClose: () => vo
 // The Log tab renders the operative's rich session transcript(s); the Raw tab
 // keeps the card's phase log over SSE (the fallback for cards with no session
 // yet). The live operative TERMINAL moved to its own Terminal modal. The
-// interactive Discuss list does NOT use this — it opens a James-mode session.
+// Interactive Discuss uses its duty-pinned conversation instead.
 function WatchSheet({
   card,
-  onClose
+  onClose,
+  onChanged,
+  onReviewRouting
 }: {
   card: CardSummary;
   onClose: () => void;
+  onChanged: () => void;
+  onReviewRouting: () => void;
 }) {
-  const hasSession = (card.sessionIds?.length ?? 0) > 0;
+  const hasRemoteReplay = Boolean(card.dispatch?.runId || card.dispatchRuns?.length);
+  const hasSession = card.status === "running" || hasRemoteReplay || (card.sessionIds?.length ?? 0) > 0;
   // Default to the rich Log (session transcript) when the card has a session;
   // otherwise the Raw phase log. The live operative TERMINAL moved to its own
   // Terminal modal.
@@ -1980,7 +3794,30 @@ function WatchSheet({
   const [lines, setLines] = useState<string>("");
   const [live, setLive] = useState<boolean | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [panicking, setPanicking] = useState(false);
+  const [panicResult, setPanicResult] = useState<{ message: string; affectedCardIds: string[] } | null>(null);
+  const [panicError, setPanicError] = useState<string | null>(null);
   const scrRef = useRef<HTMLDivElement | null>(null);
+  const remoteRun = (card.placement?.target || "host") !== "host" &&
+    ["claimed", "running", "cancelling"].includes(card.dispatch?.state || "");
+
+  async function panic() {
+    if (!window.confirm(remoteRun
+      ? "Request that the remote node stop this process group? The card stays locked until the worker confirms cancellation; then its partial evidence is preserved and it returns to Needs attention."
+      : "Stop this card's active agent turn? Partial output will be kept but ignored, and the card will park in Needs attention. If this is a shared batch, every card in that runtime turn will stop."
+    )) return;
+    setPanicking(true);
+    setPanicError(null);
+    try {
+      const result = await api.panic(card.id);
+      setPanicResult({ message: result.message, affectedCardIds: result.affectedCardIds });
+      onChanged();
+    } catch (e) {
+      setPanicError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPanicking(false);
+    }
+  }
 
   useEffect(() => {
     const es = new EventSource(api.watchUrl(card.id));
@@ -2038,6 +3875,24 @@ function WatchSheet({
           </span>
         )}
       </div>
+      {card.status === "running" && !panicResult && (
+        <div className="panic-bar">
+          <div>
+            <b>Need to stop this run?</b>
+            <span>{remoteRun ? " Stop & reroute asks the worker to stop its process group. The claim stays locked until the worker acknowledges cancellation, and partial evidence is preserved." : " Panic interrupts only the active turn proven to contain this card."}</span>
+          </div>
+          <button className="btn danger small" disabled={panicking} onClick={() => void panic()}>
+            {panicking ? "Stopping…" : remoteRun ? "Stop & reroute" : "Panic"}
+          </button>
+        </div>
+      )}
+      {panicResult && (
+        <div className="state-callout parked panic-result">
+          <span>{panicResult.message} Review the routing before retrying if the runtime was wrong.</span>
+          <button className="btn small" onClick={onReviewRouting}>Review routing &amp; retry</button>
+        </div>
+      )}
+      {panicError && <div className="dispatch-err panic-error">{remoteRun ? "Stop & reroute" : "Panic"} did not stop anything: {panicError}</div>}
       <div className="watch">
         <div className="wbar">
           <span className="wtabs">
@@ -2054,7 +3909,13 @@ function WatchSheet({
           )}
         </div>
         {tab === "session" ? (
-          <SessionViewer cardId={card.id} sessionIds={card.sessionIds ?? []} live={card.status === "running"} />
+          <SessionViewer
+            cardId={card.id}
+            sessionIds={card.sessionIds ?? []}
+            live={card.status === "running" && live !== false && !done}
+            dispatch={card.dispatch}
+            dispatchRuns={card.dispatchRuns ?? []}
+          />
         ) : (
           <div className="wscr" ref={scrRef}>
             {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
@@ -2192,6 +4053,8 @@ function ListConfigSheet({
   const [rev, setRev] = useState<number | null>(null); // board-level CAS token from GET /lists
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   // Load the full list config (prompt bodies included). The board only carries
   // the lists' metadata, not the execute/router prompt text. Capture the board
@@ -2351,12 +4214,66 @@ function ListConfigSheet({
       <button className="btn primary" disabled={saving} onClick={() => void save()}>
         {saving ? "Saving…" : "Save list config"}
       </button>
+
+      <div className="transfer-row">
+        <div>
+          <div className="dd-title">Export tasks</div>
+          <div className="muted" style={{ fontSize: 11 }}>Downloads this list as a content-only JSON bundle. Run state and machine paths are excluded.</div>
+        </div>
+        <a className="btn small" href={api.exportListUrl(cfg.id)} download>Export list (JSON)</a>
+      </div>
+
+      {/* Remove list - a user-created human-managed list (dropped straight from the
+          board) OR a derived duty column (deselects its DUTY from the composition).
+          The fixed human head/tail (backlog, todo, discuss, done, needs-attention)
+          is structural and never removable. Either way, cards sitting here are
+          parked to Needs attention. */}
+      {(cfg.userCreated || (cfg.kind === "agent" && !cfg.interactive)) && !["backlog", "todo", "discuss", "done", "needs-attention"].includes(cfg.id) && (
+        <div className="danger-zone" style={{ marginTop: 16 }}>
+          <div className="dd-title">Remove list</div>
+          {!confirmRemove ? (
+            <button className="btn danger small" disabled={removing} onClick={() => setConfirmRemove(true)}>
+              Remove list…
+            </button>
+          ) : (
+            <div>
+              <p className="muted" style={{ fontSize: 12 }}>
+                {cfg.userCreated ? (
+                  <>This removes the <strong>{cfg.title}</strong> list from the board. Cards
+                  currently on it will be moved to Needs attention.</>
+                ) : (
+                  <>This removes the <strong>{cfg.id}</strong> duty from the composition as
+                  well - the operative will no longer route work through this phase. Cards
+                  currently on this list will be moved to Needs attention. Cards whose
+                  journey includes it will re-route past it.</>
+                )}
+              </p>
+              <div className="row" style={{ gap: 8 }}>
+                <button
+                  className="btn danger small"
+                  disabled={removing}
+                  onClick={() => {
+                    setRemoving(true);
+                    setErr(null);
+                    api.deleteList(cfg.id)
+                      .then(() => { onSaved(); onClose(); })
+                      .catch((e) => { setErr(e instanceof Error ? e.message : String(e)); setRemoving(false); });
+                  }}
+                >
+                  {removing ? "Removing…" : cfg.userCreated ? "Yes, remove list" : "Yes, remove list + duty"}
+                </button>
+                <button className="btn small" disabled={removing} onClick={() => setConfirmRemove(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </Sheet>
   );
 }
 
 // ── generic modal sheet ─────────────────────────────────────────────────────
-function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: React.ReactNode; size?: "default" | "mid" | "wide" }) {
+function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -2377,21 +4294,370 @@ function Sheet({ title, onClose, children, size = "default" }: { title: string; 
 
 // ── app ─────────────────────────────────────────────────────────────────────
 type Overlay =
-  | { kind: "new" }
+  | { kind: "new"; placement?: string }
   | { kind: "move"; card: CardSummary }
   | { kind: "detail"; cardId: string }
   | { kind: "watch"; card: CardSummary }
   | { kind: "terminal"; card: CardSummary }
   | { kind: "config"; listId: string }
+  | { kind: "feedback"; card: CardSummary }
+  | { kind: "addlist" }
+  | { kind: "import" }
   | null;
+
+function initialOverlayFromLocation(): Overlay {
+  if (typeof window === "undefined") return null;
+  const cardId = cardIdFromLocation(window.location);
+  if (cardId) return { kind: "detail", cardId };
+  const query = new URLSearchParams(window.location.search);
+  if (query.get("new") !== "1") return null;
+  const placement = (query.get("placement") || "").trim();
+  return { kind: "new", ...(placement ? { placement } : {}) };
+}
+
+// ── add-list sheet ──────────────────────────────────────────────────────────
+// A new column is a HUMAN-MANAGED manual list: a plain parking column with no
+// agent behaviour and no run-on-drop. It is NOT a composition duty — agent-managed
+// lists are added by selecting a DUTY in Muster, which projects its list onto the
+// board. The board owns the manual list directly (no apm.yml write).
+function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function submit() {
+    if (!title.trim()) { setErr("give the list a name"); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await api.createList({ title: title.trim() });
+      onCreated();
+      onClose();
+      void res;
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+  return (
+    <Sheet title="Add list" onClose={onClose}>
+      <div className="field">
+        <label htmlFor="al-name">Name</label>
+        <input id="al-name" autoFocus type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ideas" onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
+      </div>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
+        This creates a human-managed list - a place to park cards by hand. It does
+        not run anything. To add an agent-managed list, add a duty in Muster and its
+        column appears here automatically.
+      </div>
+      {err && <div className="banner">{err}</div>}
+      <button className="btn primary" disabled={busy || !title.trim()} onClick={() => void submit()}>
+        {busy ? "Creating…" : "Create list"}
+      </button>
+    </Sheet>
+  );
+}
+
+// ── card import sheet ───────────────────────────────────────────────────────
+// Accepts either Garrison's content-only card bundle or Trello's raw board JSON
+// export. The server owns detection, sanitisation, and preview so a future live
+// Trello connector can feed the same adapter without changing this surface.
+function ImportSheet({
+  board,
+  onClose,
+  onImported
+}: {
+  board: BoardView;
+  onClose: () => void;
+  onImported: (count: number) => void;
+}) {
+  const manualLists = board.lists.filter(isManualImportTarget);
+  const [bundle, setBundle] = useState<unknown | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [targetList, setTargetList] = useState(manualLists.find((list) => list.id === "backlog")?.id ?? manualLists[0]?.id ?? "");
+  const [sourceList, setSourceList] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const [preview, setPreview] = useState<CardImportPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!bundle || !targetList) return;
+    let alive = true;
+    setPreviewing(true);
+    setErr(null);
+    api.importCards({
+      bundle,
+      targetList,
+      preview: true,
+      sourceList: sourceList || null,
+      includeArchived
+    }).then((result) => {
+      if (alive && "preview" in result) setPreview(result);
+    }).catch((e) => {
+      if (alive) { setPreview(null); setErr(e instanceof Error ? e.message : String(e)); }
+    }).finally(() => { if (alive) setPreviewing(false); });
+    return () => { alive = false; };
+  }, [bundle, targetList, sourceList, includeArchived]);
+
+  async function pickFile(file: File | null) {
+    if (!file) return;
+    setErr(null);
+    setPreview(null);
+    setSourceList("");
+    if (file.size > 50 * 1024 * 1024) {
+      setErr("That JSON file is larger than 50 MB. Export a single Trello board or a smaller Garrison list.");
+      return;
+    }
+    try {
+      setBundle(JSON.parse(await file.text()));
+      setFileName(file.name);
+    } catch {
+      setBundle(null);
+      setFileName("");
+      setErr("The selected file is not valid JSON.");
+    }
+  }
+
+  async function confirmImport() {
+    if (!bundle || !targetList || !preview?.count) return;
+    setImporting(true);
+    setErr(null);
+    try {
+      const result = await api.importCards({
+        bundle,
+        targetList,
+        sourceList: sourceList || null,
+        includeArchived
+      });
+      if (!("imported" in result)) throw new Error("The import returned another preview instead of creating cards.");
+      onImported(result.imported);
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setImporting(false);
+    }
+  }
+
+  return (
+    <Sheet title="Import tasks" onClose={onClose} size="mid">
+      <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+        Choose a Garrison card bundle or a Trello board JSON export. For Trello:
+        Board menu → Print, Export and Share → Export as JSON. The file stays on
+        this Garrison machine; comments, members, attachments, and runtime data are not imported.
+      </p>
+      <label className="import-drop">
+        <span>{fileName || "Choose a .json file"}</span>
+        <input type="file" accept=".json,application/json" onChange={(e) => void pickFile(e.target.files?.[0] ?? null)} />
+      </label>
+
+      {preview?.sourceFormat === "trello" && (
+        <>
+          <div className="field">
+            <label htmlFor="import-source-list">Trello source list</label>
+            <select id="import-source-list" value={sourceList} onChange={(e) => setSourceList(e.target.value)}>
+              <option value="">All open lists</option>
+              {preview.sourceLists.map((list) => (
+                <option key={list.id} value={list.id}>
+                  {list.title}{list.archived ? " (archived list)" : ""} · {list.count ?? 0} open
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="check-row import-archived">
+            <input type="checkbox" checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)} />
+            Include archived Trello cards and cards on archived lists
+          </label>
+        </>
+      )}
+
+      <div className="field">
+        <label htmlFor="import-target-list">Garrison destination list</label>
+        <select id="import-target-list" value={targetList} onChange={(e) => setTargetList(e.target.value)}>
+          {manualLists.map((list) => <option key={list.id} value={list.id}>{list.title}</option>)}
+        </select>
+        <span className="muted" style={{ fontSize: 11 }}>Imported cards are inserted at the top. Agent lists are excluded so an import cannot start runs.</span>
+      </div>
+
+      {previewing && <div className="banner info">Reading and validating the import…</div>}
+      {preview && !previewing && (
+        <div className="import-preview">
+          <div><strong>{preview.count}</strong> task{preview.count === 1 ? "" : "s"} ready from {preview.sourceName}</div>
+          {preview.warnings.length > 0 && (
+            <details>
+              <summary>{preview.warnings.length} import note{preview.warnings.length === 1 ? "" : "s"}</summary>
+              <ul>{preview.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>
+            </details>
+          )}
+        </div>
+      )}
+      {err && <div className="banner">{err}</div>}
+      <button className="btn primary" disabled={importing || previewing || !preview?.count} onClick={() => void confirmImport()}>
+        {importing ? "Importing…" : preview ? `Import ${preview.count} task${preview.count === 1 ? "" : "s"}` : "Choose a file to preview"}
+      </button>
+    </Sheet>
+  );
+}
+
+// ── drag-and-drop wrappers (Trello-style) ───────────────────────────────────
+// Cards sort within a column and move across columns; columns reorder by being
+// dragged anywhere on their surface. The sortable transform provides the slot
+// gap; the floating copy rides DragOverlay. Engine-owned cards may reorder inside
+// their own column (position is a benign patch) but never change column by drag.
+
+/**
+ * Gate a sortable's activator on `shouldActivateDrag` so a press inside a text
+ * field never becomes a drag. Everything else on the surface stays live — see
+ * drag-activation.ts for why the exemption lives here and not at each control.
+ * Returns the listener map unchanged in shape, so it still spreads onto a node.
+ */
+type HoldActivators = Record<string, (event: { target: EventTarget | null }) => void>;
+
+function useHoldActivators(listeners: Record<string, Function> | undefined): HoldActivators | undefined {
+  return useMemo(() => {
+    if (!listeners) return undefined;
+    const gated: HoldActivators = {};
+    for (const [name, handler] of Object.entries(listeners)) {
+      gated[name] = (event) => {
+        if (!shouldActivateDrag(event?.target ?? null)) return;
+        (handler as (e: unknown) => void)(event);
+      };
+    }
+    return gated;
+  }, [listeners]);
+}
+
+function SortableCardWrap({ card, listId, children }: { card: CardSummary; listId: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+    data: { type: "card", card, listId },
+    disabled: listId === "scheduled"
+  });
+  const holdActivators = useHoldActivators(listeners);
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: DndCSS.Transform.toString(transform), transition }}
+      className={`sortable-card${isDragging ? " drag-source" : ""}`}
+      {...attributes}
+      {...holdActivators}
+    >
+      {children}
+    </div>
+  );
+}
+
+// The column body is itself a drop target so a card can land in an EMPTY list.
+function ListBodyDroppable({ listId, children }: { listId: string; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `body:${listId}`, data: { type: "body", listId }, disabled: listId === "scheduled" });
+  return (
+    <div ref={setNodeRef} className={`lbody${isOver ? " drop-over" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
+// A column: sortable from ANYWHERE on it, header and body alike. A card drag
+// still wins over its column's — the card's activator is the inner one, so it
+// runs first and marks the press as captured, and dnd-kit then skips the column.
+// The header keeps `attributes` (role/aria) as the column's accessible handle;
+// only the activators widen to the whole section.
+function SortableColumn({ list, className, header, children }: { list: ListView; className: string; header: ReactNode; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `col:${list.id}`,
+    data: { type: "column", listId: list.id },
+    disabled: list.id === "scheduled"
+  });
+  const holdActivators = useHoldActivators(listeners);
+  return (
+    <section
+      ref={setNodeRef}
+      style={{ transform: DndCSS.Transform.toString(transform), transition }}
+      className={`${className}${isDragging ? " drag-source" : ""}`}
+      {...holdActivators}
+    >
+      <div className="col-drag-handle" {...attributes}>
+        {header}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 function App() {
   const [board, setBoard] = useState<BoardView | null>(null);
   const [runtime, setRuntime] = useState<BoardRuntime | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [overlay, setOverlay] = useState<Overlay>(initialOverlayFromLocation);
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // ── drag state ────────────────────────────────────────────────────────────
+  // During a drag the board renders from these overrides (membership order per
+  // list / column order) so items shift live; the poll is paused (a reload
+  // mid-drag would rip the dragged node out of the DOM). Cleared after the
+  // post-drop reload lands.
+  const [cardOrderOverride, setCardOrderOverride] = useState<Record<string, string[]> | null>(null);
+  const [colOrderOverride, setColOrderOverride] = useState<string[] | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{ type: "card"; card: CardSummary } | { type: "column"; listId: string } | null>(null);
+  // A hash-only navigation does NOT reload the document, so a card link opened
+  // while the board is already up (the common case - the board is a standing
+  // tab) reaches us only through hashchange. Without this, the first card link
+  // works and every later one silently does nothing.
+  useEffect(() => {
+    const onHashCard = () => {
+      const cardId = cardIdFromLocation(window.location);
+      if (cardId) setOverlay({ kind: "detail", cardId });
+    };
+    window.addEventListener("hashchange", onHashCard);
+    return () => window.removeEventListener("hashchange", onHashCard);
+  }, []);
+  // Closing the sheet must also drop the card out of the URL, or re-clicking the
+  // SAME link fires no hashchange (the hash never changed) and nothing opens.
+  const closeCardOverlay = useCallback(() => {
+    setOverlay(null);
+    if (typeof window === "undefined") return;
+    if (!cardIdFromLocation(window.location)) return;
+    const url = new URL(window.location.href);
+    url.hash = "";
+    url.searchParams.delete("card");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }, []);
+  const dragActiveRef = useRef(false);
+  // Item 5: a completed pointer-drag synthesises a trailing click on mouse-up, which
+  // would otherwise open the card's detail sheet after every reorder. Raised on
+  // dragEnd/dragCancel and cleared on the next tick, so the card root's click handler
+  // can suppress exactly that one trailing click. (dragActiveRef is already false by
+  // the time the trailing click fires, so it can't be reused for this.)
+  const dragJustEndedRef = useRef(false);
+  const markDragJustEnded = useCallback(() => {
+    dragJustEndedRef.current = true;
+    setTimeout(() => { dragJustEndedRef.current = false; }, 0);
+  }, []);
+  // Drag activation is INPUT-SPECIFIC (see drag-activation.ts for the full why):
+  //
+  //  - Touch is a deliberate long-press: the finger must stay down (within
+  //    DRAG_HOLD_TOLERANCE_TOUCH px) for DRAG_HOLD_MS before a card or column
+  //    lifts. Move past the tolerance first and the gesture is a scroll — that is
+  //    what stops the board picking cards up when you meant to scroll the phone.
+  //  - Mouse is distance-based: press and travel DRAG_MOUSE_DISTANCE px and the
+  //    drag starts immediately (the desktop norm); a stationary press stays a
+  //    click and opens the card.
+  //
+  // MouseSensor + TouchSensor, deliberately NOT PointerSensor. On a touch device
+  // `pointerdown` beats `touchstart`, so a PointerSensor captures the gesture and
+  // then loses it: the board's lists scroll (`touch-action: manipulation`), so the
+  // moment the finger moves the browser claims the gesture for panning and fires
+  // `pointercancel` - the hold succeeded and the drag died on the first
+  // millimetre. TouchSensor owns the touch path instead and preventDefaults
+  // `touchmove` once activated, which holds the scroll off for the drag's duration.
+  const dndSensors = useSensors(
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: DRAG_MOUSE_DISTANCE }
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: DRAG_HOLD_MS, tolerance: DRAG_HOLD_TOLERANCE_TOUCH }
+    })
+  );
   // Re-render when the /host-map lands so linkifyText upgrades loopback URLs to
   // their exact serve form (serveMapRev is read only to force the dependency).
   const [, setServeRev] = useState(serveMapRev);
@@ -2461,8 +4727,12 @@ function App() {
   }, []);
 
   const load = useCallback(async () => {
+    // Never reload mid-drag: replacing the lists would rip the dragged node
+    // out of the DOM under the pointer.
+    if (dragActiveRef.current) return;
     try {
       const b = await api.board();
+      if (dragActiveRef.current) return;
       setBoard(b);
       setErr(null);
     } catch (e) {
@@ -2522,6 +4792,60 @@ function App() {
     }
   }
 
+  async function onRunSchedule(card: CardSummary) {
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      const result = await api.runScheduleNow(card.id);
+      await load();
+      setNotice(result.occurrence
+        ? `${result.created ? "Created" : "Found"} scheduled occurrence ${result.card.id.slice(-6)}`
+        : "Released the one-time schedule to run now");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyCard(null);
+    }
+  }
+
+  // One-click move to a named list (Mark done → done, Archive → archived,
+  // Unarchive → todo). A manual move: the server clears any parked status and
+  // records the move on the card's timeline; CAS on the card's rev keeps it from
+  // stepping on a concurrent tick.
+  async function onQuickMove(card: CardSummary, listId: string) {
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      await api.patch(card.id, { list: listId, rev: card.rev });
+      await load();
+      const title = board?.lists.find((l) => l.id === listId)?.title ?? listId;
+      setNotice(`Moved to ${title}`);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyCard(null);
+    }
+  }
+
+  // Delete straight from the card front. Irreversible and it takes the card's run
+  // directory with it, so it always asks first and names the card in the prompt -
+  // the board is a grid of near-identical tiles and "are you sure?" is not enough
+  // to tell you which one you are about to destroy.
+  async function onDelete(card: CardSummary) {
+    if (!window.confirm(`Delete "${card.title || card.id}"? This removes the card and its run history for good.`)) return;
+    setBusyCard(card.id);
+    setNotice(null);
+    try {
+      await api.del(card.id);
+      await load();
+      setNotice("Card deleted");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyCard(null);
+    }
+  }
+
   // WS2 (D7): continue a DONE card's work in one click — create a successor card
   // (continues=<id>, its prompt seeded from the predecessor's handoff packet) and
   // move it to plan so the run dispatches. A fresh backlog card is not engine-owned,
@@ -2551,19 +4875,31 @@ function App() {
     }
   }
 
-  // Open a James-mode Discuss session seeded with this card. buildDiscussUrl carries
+  // Open a Discuss-duty conversation seeded with this card. buildDiscussUrl carries
   // the card context + an auto-sent kickoff (analyse the description, ask questions,
   // write the brief). Crossing fittings: the board runs embedded (/embed/kanban-loop),
   // so when embedded we ask the Garrison shell to swap the embedded view (its
   // postMessage listener); standalone we navigate directly. The channel id is
   // discovered at runtime (not hardcoded) so a non-default web channel works too.
-  function onDiscuss(card: CardSummary) {
+  async function onDiscuss(card: CardSummary) {
     const channelId = runtime?.webChannelEmbedId ?? null;
     if (!channelId) {
       setNotice("No web channel is installed/running — install/start a web channel fitting to use Discuss.");
       return;
     }
-    const chatHref = buildDiscussUrl(card, { webChannelBase: `/embed/${channelId}`, cardsAbsDir: runtime?.cardsAbsDir ?? null });
+    // The board summary carries checklist COUNTS, not the items - and a card's
+    // real content is often the checklist (an empty description with six items
+    // opened a Discuss that said "the card is just a title"). Pull the detail so
+    // the kickoff can carry what the card actually says; a failed fetch still
+    // opens the conversation with what the board already has.
+    let seed: CardSummary & { checklist?: ChecklistItem[] } = card;
+    try {
+      const detail = await api.card(card.id);
+      seed = { ...card, ...detail.card, checklist: detail.checklist ?? [] };
+    } catch {
+      /* offline/board hiccup - discuss with the summary rather than not at all */
+    }
+    const chatHref = buildDiscussUrl(seed, { webChannelBase: `/embed/${channelId}`, cardsAbsDir: runtime?.cardsAbsDir ?? null });
     const u = new URL(chatHref, window.location.origin);
     const fittingId = u.pathname.split("/").filter(Boolean).pop() || channelId;
     const params: Record<string, string> = {};
@@ -2632,6 +4968,191 @@ function App() {
     }
   }
 
+  // ── drag-and-drop wiring ──────────────────────────────────────────────────
+  // The board renders from displayLists: the polled board plus any in-drag
+  // overrides. cardById spans the whole board so a card mid-move renders from
+  // whichever column the override says it is in.
+  const cardById = useMemo(() => {
+    const m = new Map<string, CardSummary>();
+    for (const c of board?.cards ?? []) m.set(c.id, c);
+    return m;
+  }, [board]);
+
+  const displayLists = useMemo(() => {
+    if (!board) return [] as ListView[];
+    let lists = board.lists;
+    if (colOrderOverride) {
+      const rank = new Map(colOrderOverride.map((id, i) => [id, i]));
+      lists = [...lists].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999));
+    }
+    if (cardOrderOverride) {
+      lists = lists.map((l) => {
+        const ids = cardOrderOverride[l.id];
+        if (!ids) return l;
+        return { ...l, cards: ids.map((id) => cardById.get(id)).filter(Boolean) as CardSummary[] };
+      });
+    }
+    return [...lists].sort((a, b) => {
+      if (a.id === "scheduled") return -1;
+      if (b.id === "scheduled") return 1;
+      return 0;
+    });
+  }, [board, colOrderOverride, cardOrderOverride, cardById]);
+
+  // A card on an autonomous agent list is engine-owned: it may REORDER inside
+  // its own column (position is a benign patch) but never change column by drag.
+  const dragLocked = useCallback((card: CardSummary): boolean => {
+    const l = board?.lists.find((x) => x.id === card.list);
+    return Boolean(l && l.kind === "agent" && !l.interactive && !card.quick);
+  }, [board]);
+
+  const containerOf = (over: DragOverEvent["over"]): string | null => {
+    if (!over) return null;
+    const data = over.data.current as { type?: string; listId?: string } | undefined;
+    if (data?.type === "card") return data.listId ?? null;
+    if (data?.type === "body" || data?.type === "column") return data.listId ?? null;
+    return null;
+  };
+
+  function onDragStart(ev: DragStartEvent) {
+    const data = ev.active.data.current as { type?: string; card?: CardSummary; listId?: string } | undefined;
+    dragActiveRef.current = true;
+    // A short haptic tick the instant a card/column lifts, so a long-press on a
+    // phone confirms itself in the hand as well as on screen. Feature-detected —
+    // a no-op on desktop and anywhere the Vibration API is absent or denied.
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      try { navigator.vibrate(10); } catch { /* some engines throw if denied */ }
+    }
+    if (data?.type === "card" && data.card) {
+      setActiveDrag({ type: "card", card: data.card });
+      // Snapshot the current per-list order as the working membership.
+      const snap: Record<string, string[]> = {};
+      for (const l of displayLists) snap[l.id] = l.cards.map((c) => c.id);
+      setCardOrderOverride(snap);
+    } else if (data?.type === "column" && data.listId) {
+      setActiveDrag({ type: "column", listId: data.listId });
+      setColOrderOverride(displayLists.map((l) => l.id));
+    }
+  }
+
+  // Collision strategy for a kanban: closestCorners alone lets a SMALL card in
+  // the next column beat a LARGE empty column body (corner-average distance),
+  // so a card could never be dropped into an empty list. Prefer what the
+  // pointer is actually INSIDE, ranked by drag kind - cards first on a card
+  // drag (precise insertion), columns first on a column drag - then fall back
+  // to closestCorners when the pointer is outside every droppable.
+  const boardCollisions = useCallback<CollisionDetection>((args) => {
+    const isColumnDrag = String(args.active?.id ?? "").startsWith("col:");
+    const within = pointerWithin(args);
+    const pool = within.length ? within : closestCorners(args);
+    const of = (prefix: string) => pool.filter((c) => String(c.id).startsWith(prefix));
+    if (isColumnDrag) {
+      const cols = of("col:");
+      return cols.length ? cols : pool;
+    }
+    const cards = pool.filter((c) => !String(c.id).startsWith("col:") && !String(c.id).startsWith("body:"));
+    if (cards.length) return cards;
+    const bodies = of("body:");
+    return bodies.length ? bodies : pool;
+  }, []);
+
+  function onDragOver(ev: DragOverEvent) {
+    if (activeDrag?.type !== "card" || !cardOrderOverride) return;
+    const card = activeDrag.card;
+    const overContainer = containerOf(ev.over);
+    if (!overContainer) return;
+    const fromContainer = Object.keys(cardOrderOverride).find((k) => cardOrderOverride[k].includes(card.id));
+    if (!fromContainer) return;
+    const overData = ev.over?.data.current as { type?: string; card?: CardSummary } | undefined;
+    if (fromContainer === overContainer) {
+      // Same-column reorder: shift the dragged id to the hovered card's slot
+      // so the gap (the slot indicator) tracks the pointer.
+      if (overData?.type === "card" && overData.card && overData.card.id !== card.id) {
+        setCardOrderOverride((prev) => {
+          if (!prev) return prev;
+          const arr = prev[fromContainer];
+          const from = arr.indexOf(card.id);
+          const to = arr.indexOf(overData.card!.id);
+          if (from < 0 || to < 0 || from === to) return prev;
+          return { ...prev, [fromContainer]: arrayMove(arr, from, to) };
+        });
+      }
+      return;
+    }
+    if (dragLocked(card)) return; // engine-owned: same-column reorder only
+    setCardOrderOverride((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, [fromContainer]: prev[fromContainer].filter((id) => id !== card.id) };
+      const target = [...(prev[overContainer] ?? [])];
+      const at = overData?.type === "card" && overData.card ? target.indexOf(overData.card.id) : target.length;
+      target.splice(at < 0 ? target.length : at, 0, card.id);
+      return { ...next, [overContainer]: target };
+    });
+  }
+
+  async function onDragEnd(ev: DragEndEvent) {
+    // Raise the click guard synchronously, before the first awaited PATCH/load.
+    // Browsers dispatch the pointer-up click immediately; doing this in finally
+    // was too late and opened the card while the network write was still running.
+    dragActiveRef.current = false;
+    markDragJustEnded();
+    const drag = activeDrag;
+    setActiveDrag(null);
+    try {
+      if (drag?.type === "column" && colOrderOverride) {
+        const overContainer = containerOf(ev.over);
+        let order = colOrderOverride;
+        if (overContainer && overContainer !== drag.listId) {
+          const from = order.indexOf(drag.listId);
+          const to = order.indexOf(overContainer);
+          if (from >= 0 && to >= 0) order = arrayMove(order, from, to);
+        }
+        setColOrderOverride(order);
+        await api.reorderLists(order);
+      } else if (drag?.type === "card" && cardOrderOverride) {
+        const card = drag.card;
+        const container = Object.keys(cardOrderOverride).find((k) => cardOrderOverride[k].includes(card.id));
+        if (container) {
+          const ids = cardOrderOverride[container];
+          const idx = ids.indexOf(card.id);
+          // Reorder inside the working membership relative to the neighbours'
+          // effective positions (midpoint), the exact rule the server sorts by.
+          const neighbour = (i: number): number | null => {
+            const c = i >= 0 && i < ids.length ? cardById.get(ids[i]) : undefined;
+            return c && c.id !== card.id ? effPos(c) : null;
+          };
+          const before = neighbour(idx - 1);
+          const after = neighbour(idx + 1);
+          let position: number | null = null;
+          if (before !== null && after !== null) position = (before + after) / 2;
+          else if (before !== null) position = before + 60_000;
+          else if (after !== null) position = after - 60_000;
+          const moved = container !== card.list;
+          if (moved || position !== null) {
+            const body: Record<string, unknown> = { rev: card.rev };
+            if (moved) body.list = container;
+            if (position !== null) body.position = position;
+            await api.patch(card.id, body);
+          }
+        }
+      }
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      await load();
+      setCardOrderOverride(null);
+      setColOrderOverride(null);
+    }
+  }
+
+  function onDragCancel() {
+    dragActiveRef.current = false;
+    markDragJustEnded();
+    setActiveDrag(null);
+    setCardOrderOverride(null);
+    setColOrderOverride(null);
+  }
+
   if (err && !board) {
     return (
       <>
@@ -2643,133 +5164,206 @@ function App() {
 
   return (
     <>
-      <TopBar onNew={() => setOverlay({ kind: "new" })} status={board ? `${board.cards.length} cards` : "loading…"} />
+      <TopBar
+        onNew={() => setOverlay({ kind: "new" })}
+        onImport={board ? () => setOverlay({ kind: "import" }) : undefined}
+        status={board ? `${board.cards.length} cards` : "loading…"}
+      />
       {runtime?.noGateway && (
         <div className="banner" role="status">
           No gateway running - agent lists won&apos;t dispatch. Bring the composition up (Run / `npm start`).
         </div>
       )}
       {notice && <div className="banner info" onClick={() => setNotice(null)}>{notice}</div>}
-      <div
-        className="board-scroll"
-        ref={boardScrollRef}
-        onPointerDown={onBoardPointerDown}
-        onPointerMove={onBoardPointerMove}
-        onPointerUp={endBoardDrag}
-        onPointerCancel={endBoardDrag}
-        onClickCapture={onBoardClickCapture}
-      >
-        <div className="board">
-          {board?.lists.map((list) => (
-            <section key={list.id} className={listClass(list)}>
-              <div className="lh">
-                <div className="lname">
-                  <span className="lname-text">{list.title}</span>
-                  <span className="count">{list.cards.length}</span>
-                  <button
-                    className="gear"
-                    title={`Configure ${list.title}`}
-                    aria-label={`Configure ${list.title}`}
-                    onClick={() => setOverlay({ kind: "config", listId: list.id })}
-                  >
-                    <GearIcon />
-                  </button>
-                </div>
-                <div className="lkind">
-                  {list.kind === "agent" && !list.interactive ? (
-                    <span className={list.phase?.includes("adversarial") ? "cdx" : "sk"} title="the pipeline phase this list runs; skill/model/effort come from the Orchestrator policy">
-                      phase: {list.phase ?? list.id}
-                    </span>
-                  ) : list.interactive ? (
-                    "interactive · web chat"
-                  ) : (
-                    `${list.kind} · ${list.trigger}`
-                  )}
-                </div>
-              </div>
-              <div className="lbody">
-                {/* Backlog leads with the inline quick-add affordance (its own empty
-                    state), so it never shows the bare "empty" label. */}
-                {list.id === "backlog" && <BacklogAddCard onCreated={() => void load()} />}
-                {list.cards.length === 0 && list.id !== "backlog" && <div className="lempty">empty</div>}
-                {(() => {
-                  const renderCard = (card: CardSummary) => (
-                    <Card
-                      key={card.id}
-                      card={card}
-                      list={list}
-                      busy={busyCard === card.id}
-                      onStart={onStart}
-                      onInfer={onInfer}
-                      onDiscuss={onDiscuss}
-                      onRevert={onRevert}
-                      onMove={(c) => {
-                        // One valid next list → just move (the server auto-dispatches if
-                        // it's an immediate agent list); only ASK when there's a choice.
-                        const tgts = list.validNext;
-                        if (tgts.length === 1) {
-                          // Surface a failed move (e.g. a CAS rev conflict) instead of
-                          // silently swallowing it — the card would otherwise appear stuck.
-                          void api.patch(c.id, { list: tgts[0], rev: c.rev }).then(() => load()).catch((e) => {
-                            setNotice(e instanceof Error ? e.message : String(e));
-                            void load();
-                          });
-                        } else {
-                          setOverlay({ kind: "move", card: c });
-                        }
-                      }}
-                      onWatch={(c) => setOverlay({ kind: "watch", card: c })}
-                      onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
-                      onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
-                      onContinue={onContinue}
-                      onDrill={onDrill}
-                    />
-                  );
-                  // D19: the Done column groups quick cards (trivial-plan inline tasks)
-                  // under a collapsed "quick tasks" strip so the real runs stay legible.
-                  if (list.id !== "done") return list.cards.map(renderCard);
-                  const quickCards = list.cards.filter((c) => c.quick);
-                  const mainCards = list.cards.filter((c) => !c.quick);
-                  return (
-                    <>
-                      {mainCards.map(renderCard)}
-                      {quickCards.length > 0 && (
-                        <details className="quick-strip">
-                          <summary className="quick-strip-head">
-                            <span className="quick-strip-title">quick tasks</span>
-                            <span className="count">{quickCards.length}</span>
-                          </summary>
-                          <div className="quick-strip-body">{quickCards.map(renderCard)}</div>
-                        </details>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
+      <div className="board-scroll">
+        <DndContext
+          sensors={dndSensors}
+          collisionDetection={boardCollisions}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={(e) => void onDragEnd(e)}
+          onDragCancel={onDragCancel}
+        >
+          <div className="board">
+            <SortableContext items={displayLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
+              {displayLists.map((list) => (
+                <SortableColumn
+                  key={list.id}
+                  list={list}
+                  className={listClass(list)}
+                  header={
+                    <div className="lh">
+                      <div className="lname">
+                        <span className="lname-text">{list.title}</span>
+                        <span className="count">{list.cards.length}</span>
+                        {!list.system && (
+                          <button
+                            className="gear"
+                            title={`Configure ${list.title}`}
+                            aria-label={`Configure ${list.title}`}
+                            onClick={() => setOverlay({ kind: "config", listId: list.id })}
+                          >
+                            <GearIcon />
+                          </button>
+                        )}
+                      </div>
+                      <div className="lkind">
+                        {list.id === "scheduled" ? (
+                          "system · schedules"
+                        ) : list.kind === "agent" && !list.interactive ? (
+                          <span className={list.phase?.includes("adversarial") ? "cdx" : "sk"} title="the pipeline phase this list runs; skill/model/effort come from the Orchestrator policy">
+                            phase: {list.phase ?? list.id}
+                          </span>
+                        ) : list.interactive ? (
+                          "interactive · web chat"
+                        ) : (
+                          `${list.kind} · ${list.trigger}`
+                        )}
+                      </div>
+                    </div>
+                  }
+                >
+                  <ListBodyDroppable listId={list.id}>
+                    {/* Backlog and To Do lead with direct-create affordances. The
+                        server inserts into that list under the same top-order lock,
+                        so there is no transient Backlog card or create-then-move
+                        activity. These controls replace the bare empty state. */}
+                    {canAddCardDirectly(list.id) && (
+                      <ListAddCard
+                        listId={list.id}
+                        listTitle={list.title}
+                        onCreated={() => void load()}
+                      />
+                    )}
+                    {list.cards.length === 0 && !canAddCardDirectly(list.id) && (
+                      <div className="lempty">{list.id === "scheduled" ? "No scheduled tasks" : "empty"}</div>
+                    )}
+                    {(() => {
+                      const renderCard = (card: CardSummary, sortable = true) => {
+                        const inner = (
+                          <Card
+                            key={sortable ? undefined : card.id}
+                            card={card}
+                            list={list}
+                            busy={busyCard === card.id}
+                            onStart={onStart}
+                            onInfer={onInfer}
+                            onDiscuss={onDiscuss}
+                            onRevert={onRevert}
+                            onMove={(c) => {
+                              // Item 2: Move is the MANUAL gate — it ALWAYS opens the sheet, which
+                              // now offers every list (not just validNext). Advance is the separate
+                              // next-list-only control. No single-target short-circuit: even a
+                              // one-exit list shows the picker so a card can be moved anywhere.
+                              setOverlay({ kind: "move", card: c });
+                            }}
+                            onQuickMove={onQuickMove}
+                            onDelete={onDelete}
+                            onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+                            onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
+                            onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
+                            onRenamed={load}
+                            onContinue={onContinue}
+                            onDrill={onDrill}
+                            onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
+                            onRunSchedule={onRunSchedule}
+                            dragJustEnded={dragJustEndedRef}
+                          />
+                        );
+                        return sortable ? (
+                          <SortableCardWrap key={card.id} card={card} listId={list.id}>
+                            {inner}
+                          </SortableCardWrap>
+                        ) : inner;
+                      };
+                      // D19: the Done column groups quick cards (trivial-plan inline tasks)
+                      // under a collapsed "quick tasks" strip so the real runs stay legible.
+                      // Quick cards are not drag-sortable (they are archive, not queue).
+                      const mainCards = list.id === "done" ? list.cards.filter((c) => !c.quick) : list.cards;
+                      const quickCards = list.id === "done" ? list.cards.filter((c) => c.quick) : [];
+                      return (
+                        <SortableContext items={mainCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                          {mainCards.map((c) => renderCard(c))}
+                          {quickCards.length > 0 && (
+                            <details className="quick-strip">
+                              <summary className="quick-strip-head">
+                                <span className="quick-strip-title">quick tasks</span>
+                                <span className="count">{quickCards.length}</span>
+                              </summary>
+                              <div className="quick-strip-body">{quickCards.map((c) => renderCard(c, false))}</div>
+                            </details>
+                          )}
+                        </SortableContext>
+                      );
+                    })()}
+                  </ListBodyDroppable>
+                </SortableColumn>
+              ))}
+            </SortableContext>
+            {/* Trello-style "+ Add list": a new column IS a new composition-local
+                duty; the sheet says so and the shell owns the write. */}
+            <section className="list add-list">
+              <button className="add-list-btn" onClick={() => setOverlay({ kind: "addlist" })}>
+                <PlusIcon /> Add list
+              </button>
             </section>
-          ))}
-        </div>
+          </div>
+          <DragOverlay>
+            {activeDrag?.type === "card" ? (
+              <div className="card drag-ghost">
+                <div className="ct">
+                  <span className="title">{activeDrag.card.title}</span>
+                </div>
+                {activeDrag.card.project && <div className="cmeta"><span className="chip">{activeDrag.card.project}</span></div>}
+              </div>
+            ) : activeDrag?.type === "column" ? (
+              <div className="list drag-ghost-col">
+                <div className="lh"><div className="lname"><span className="lname-text">{displayLists.find((l) => l.id === activeDrag.listId)?.title ?? activeDrag.listId}</span></div></div>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {overlay?.kind === "new" && (
-        <NewCardSheet onClose={() => setOverlay(null)} onCreated={() => void load()} />
+        <NewCardSheet board={board} initialPlacement={overlay.placement} onClose={() => setOverlay(null)} onCreated={() => void load()} />
       )}
       {overlay?.kind === "move" && board && (
         <MoveSheet card={overlay.card} board={board} onClose={() => setOverlay(null)} onMoved={() => void load()} />
       )}
       {overlay?.kind === "detail" && (
         <DetailSheet
+          key={overlay.cardId}
           cardId={overlay.cardId}
-          onClose={() => setOverlay(null)}
+          board={board}
+          onClose={closeCardOverlay}
           onChanged={() => void load()}
           onWatch={(c) => setOverlay({ kind: "watch", card: c })}
           onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
+          onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
+          actions={{
+            onStart,
+            onMove: (c) => setOverlay({ kind: "move", card: c }),
+            onQuickMove,
+            // The sheet is showing the card that just went away, so close it.
+            onDelete: async (c) => { await onDelete(c); setOverlay(null); },
+            onWatch: (c) => setOverlay({ kind: "watch", card: c }),
+            onTerminal: (c) => setOverlay({ kind: "terminal", card: c }),
+            onInfer,
+            onDiscuss,
+            onContinue,
+            onDrill,
+            onFeedback: (c) => setOverlay({ kind: "feedback", card: c }),
+            onRunSchedule
+          }}
         />
       )}
       {overlay?.kind === "watch" && (
         <WatchSheet
           card={overlay.card}
           onClose={() => setOverlay(null)}
+          onChanged={() => void load()}
+          onReviewRouting={() => setOverlay({ kind: "detail", cardId: overlay.card.id })}
         />
       )}
       {overlay?.kind === "terminal" && (
@@ -2778,11 +5372,24 @@ function App() {
       {overlay?.kind === "config" && board && (
         <ListConfigSheet listId={overlay.listId} board={board} onClose={() => setOverlay(null)} onSaved={() => void load()} />
       )}
+      {overlay?.kind === "feedback" && board && (
+        <FeedbackSheet card={overlay.card} board={board} onClose={() => setOverlay(null)} onSent={() => void load()} />
+      )}
+      {overlay?.kind === "addlist" && (
+        <AddListSheet onClose={() => setOverlay(null)} onCreated={() => void load()} />
+      )}
+      {overlay?.kind === "import" && board && (
+        <ImportSheet
+          board={board}
+          onClose={() => setOverlay(null)}
+          onImported={(count) => { setNotice(`Imported ${count} task${count === 1 ? "" : "s"}`); void load(); }}
+        />
+      )}
     </>
   );
 }
 
-function TopBar({ onNew, status }: { onNew: () => void; status: string }) {
+function TopBar({ onNew, onImport, status }: { onNew: () => void; onImport?: () => void; status: string }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -2794,6 +5401,8 @@ function TopBar({ onNew, status }: { onNew: () => void; status: string }) {
       </div>
       <span className="status">{status}</span>
       <div className="spacer" />
+      <a className="btn" href={api.exportBoardUrl()} download>Export</a>
+      {onImport && <button className="btn" onClick={onImport}>Import</button>}
       <button className="btn primary" onClick={onNew}><PlusIcon /> New card</button>
     </header>
   );

@@ -14,7 +14,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // beatCron). Any list with its own beatCron uses that instead. KANBAN_LOOP_* is
 // the runner's setupConfigEnv projection of the composition's test_beat_cron.
 const DEFAULT_TEST_CRON =
-  process.env.KANBAN_TEST_BEAT_CRON || process.env.KANBAN_LOOP_TEST_BEAT_CRON || "0 */5 * * *";
+  process.env.KANBAN_TEST_BEAT_CRON || process.env.KANBAN_LOOP_TEST_BEAT_CRON || "0 */2 * * *";
 
 // The installed scheduler CLI (sibling fitting), overridable for tests.
 export function schedulerCli() {

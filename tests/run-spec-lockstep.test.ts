@@ -1,7 +1,20 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 // The board's modules are untyped .mjs inside a fitting (tsconfig sets
 // allowJs:false), so they load through pathToFileURL exactly as
@@ -52,8 +65,10 @@ const RUN_SPEC_FIELDS = [
   "project",
   "account",
   "tier",
-  "workKind",
+  "flow",
   "phasesOff",
+  // 2026-08-22 (routing modal): phases ADDED beyond the resolved flow's plan.
+  "phasesOn",
 ] as const;
 
 describe("RUN-SPEC-V1: every whitelist knows every dimension", () => {
@@ -158,13 +173,13 @@ describe("RUN-SPEC-V1: a card's spec becomes exactly one routing pin", () => {
     expect(
       cardTurnRouting({
         project: "garrison",
-        routing: { target: "cc-opus-high", effort: "high", tier: "T2-deep", workKind: "ui-change", phasesOff: "walkthrough" },
+        routing: { target: "cc-opus-high", effort: "high", tier: "T2-deep", flow: "ui-change", phasesOff: "walkthrough" },
       })
     ).toEqual({
       target: "cc-opus-high",
       effort: "high",
       tier: "T2-deep",
-      workKind: "ui-change",
+      flow: "ui-change",
       phasesOff: "walkthrough",
       project: "garrison",
     });

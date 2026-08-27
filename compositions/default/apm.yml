@@ -1,4 +1,4 @@
-name: dogfood-operative
+name: default
 version: 0.1.0
 target: claude
 dependencies:
@@ -7,11 +7,13 @@ dependencies:
     - path: ../../fittings/seed/automations
     - path: ../../fittings/seed/basic-memory
     - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/capture-service
     - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/codex-runtime
+    - path: ../../fittings/seed/cortex-automations
+    - path: ../../fittings/seed/cortex-client
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
-    - path: ../../fittings/seed/dispatcher
     - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
@@ -20,35 +22,34 @@ dependencies:
     - path: ../../fittings/seed/google
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/huggingface-runtime
-    - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/improver-nightly
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
-    - path: ../../fittings/seed/morning-briefing
     - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/opencode-runtime
+    - path: ../../fittings/seed/remote-shell-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
-    - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
+    - path: ../../fittings/seed/roadmaps
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
+    - path: ../../fittings/seed/scroll-world
     - path: ../../fittings/seed/slack-channel
     - path: ../../fittings/seed/snapshots-default
     - path: ../../fittings/seed/taste
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
-    - path: ../../fittings/seed/whatsapp-web
 x-garrison:
   composition:
     schema: 4
     id: default
-    name: Dogfood Operative
+    name: default
     global_config:
       projects_root: ~/dev
       vault: default
@@ -64,44 +65,73 @@ x-garrison:
       orchestrator:
         - id: orchestrator
           config:
-            port: 7087
+            port: 8087
             bind_host: 127.0.0.1
       channels:
         - id: slack-channel
           config:
             slack_port: 9512
-            gateway_url: http://127.0.0.1:4777
+            gateway_url: http://127.0.0.1:5777
             chat_timeout_ms: 600000
         - id: web-channel-default
           config:
-            port: 7083
+            port: 8083
             bind_host: 127.0.0.1
             gateway_url: ''
         - id: omi-channel
           config:
-            port: 7094
+            port: 8094
             bind_host: 127.0.0.1
-        - id: whatsapp-web
+            public_base_url: https://dev-madrid.tail31efa.ts.net:8443
+            enabled: true
+            triage_enabled: true
+            wake_enabled: true
+            chat_enabled: true
+            notify_enabled: true
+            wake_silence_close_ms: 15000
+            wake_min_capture_ms: 0
+            wake_max_capture_ms: 45000
+            wake_command_window_ms: 45000
+            wake_context_segments: 6
+            wake_context_max_age_ms: 120000
+        - id: capture-service
           config:
-            port: 7080
+            port: 8097
             bind_host: 127.0.0.1
-            session_dir: ~/.config/garrison/whatsapp-web
-            min_send_delay_ms: 1200
-            max_send_delay_ms: 3500
+            enabled: true
+            transcribe_enabled: true
+            wake_enabled: true
+            notify_enabled: true
+            speak_enabled: true
+            pendant_enabled: true
+            capture_policy: wake_only
+            # The same wake windows omi-channel above already runs. The shipped
+            # DEFAULTS (silence 4000 / max 20000) are what the pendant path was
+            # started on, and they are the reason a spoken command lost its last
+            # word: speech reaches the wake bus in bursts - across 22 pendant wake
+            # hits only 2 follow-on segments ever landed inside the window - so a
+            # 4s close means the command is whatever the wake-word segment itself
+            # carried, and "Zeca, vamos comer morangos e chocolate mais logo" was
+            # assembled without the "logo" that was the entire time reference.
+            # 15000 is not a guess: it is the value the omi path was raised to
+            # after the same truncation, and it also brings wake_settled_close_ms
+            # (5000) back into play, so a sentence that ends in punctuation still
+            # closes fast.
+            wake_silence_close_ms: 15000
+            wake_min_capture_ms: 0
+            wake_max_capture_ms: 45000
+            wake_command_window_ms: 45000
+            wake_context_segments: 6
+            wake_context_max_age_ms: 120000
       gateway:
         - id: http-gateway
           config:
-            port: 4777
+            port: 5777
             bind_host: 127.0.0.1
             compact_enabled: true
             compact_threshold_pct: 60
         - id: mcp-gateway
           config: {}
-        - id: dispatcher
-          config:
-            dispatch_provider: ollama-local
-            dispatch_shape: ollama
-            dispatch_model: qwen2.5:3b
       runtimes:
         - id: claude-code-runtime
           config:
@@ -109,18 +139,23 @@ x-garrison:
         - id: garrison-call
           config: {}
         - id: codex-runtime
-          config: {}
+          config:
+            account: pro-ekoa
         - id: gemini-runtime
           config: {}
         - id: opencode-runtime
           config: {}
+        - id: remote-shell-runtime
+          config:
+            port: 8098
+            transports: '{"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","label":"CSG work","routingTarget":"csg-work"}}'
         - id: agent-sdk-runtime
           config:
             provider: anthropic
             model: ''
             promptMode: coding
             maxTurns: 500
-            account: ''
+            account: auto
         - id: openrouter-runtime
           config:
             model: anthropic/claude-sonnet-5
@@ -140,17 +175,17 @@ x-garrison:
       observability:
         - id: monitor-default
           config:
-            port: 7077
+            port: 8077
             bind_host: 127.0.0.1
             poll_interval_ms: 1000
             log_retention_hours: 24
         - id: automations
           config:
-            port: 7090
+            port: 8090
             bind_host: 127.0.0.1
         - id: improver
           config:
-            port: 7093
+            port: 8093
             bind_host: 127.0.0.1
             cron: 30 3 * * *
             vault_dir: ~/ObsidianVault
@@ -161,10 +196,10 @@ x-garrison:
           config:
             jobs_file: ~/.garrison/scheduler-jobs.json
             log_file: ~/.garrison/scheduler.log
-            health_port: 7099
+            health_port: 8099
         - id: kanban-loop
           config:
-            port: 7089
+            port: 8089
             bind_host: 127.0.0.1
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
@@ -172,23 +207,22 @@ x-garrison:
             tick_cron: '*/2 * * * *'
             review_cron: 0 8 * * 1
             review_stall_hours: 2
-            outpost_host_url: http://127.0.0.1:3702
         - id: loop-heartbeat
           config:
             cadence_minutes: 40
-            gateway_url: http://127.0.0.1:4777/jobs
+            gateway_url: http://127.0.0.1:5777/jobs
       sessions:
         - id: garrison-assistant
           config:
-            port: 7095
+            port: 8095
             bind_host: 127.0.0.1
         - id: dev-env
           config:
-            port: 7086
+            port: 8086
             bind_host: 127.0.0.1
         - id: file-browser
           config:
-            port: 7091
+            port: 8091
             bind_host: 127.0.0.1
             root: ~/.garrison/files
         - id: vault-git-sync
@@ -200,23 +234,19 @@ x-garrison:
             projects_root: ~/dev
         - id: improver-nightly
           config:
-            autonomy_mode: manual
+            autonomy_mode: enabled
             schedule_cron: 17 3 * * *
             state_dir: data/improver
             proposal_namespace: improver
             require_unlocked_vault: true
-        - id: morning-briefing
-          config:
-            briefing_time: '08:00'
-            weekdays_only: true
       surfaces:
         - id: screen-share-default
           config:
-            port: 7079
+            port: 8079
             bind_host: 127.0.0.1
         - id: browser-default
           config:
-            port: 7084
+            port: 8084
             bind_host: 127.0.0.1
             viewport_width: 1600
             viewport_height: 1200
@@ -224,36 +254,32 @@ x-garrison:
             every_nth_frame: 1
         - id: ports-default
           config:
-            port: 7088
+            port: 8088
             bind_host: 127.0.0.1
             scan_interval_ms: 5000
         - id: power-default
           config:
-            port: 7092
+            port: 8092
             bind_host: 127.0.0.1
             idle_minutes: 30
             load_threshold: 1
-        - id: outpost-tailscale-host
-          config:
-            port: 7082
-            bind_host: 127.0.0.1
-            outpost_host_url: http://127.0.0.1:3702
-      modes:
-        - id: identity-gary
-          config:
-            user_name: the user
+      knowledge:
+        - id: roadmaps
+          config: {}
       building:
         - id: drill
           config:
-            port: 7096
+            port: 8096
             bind_host: 127.0.0.1
       design:
         - id: taste
           config: {}
+        - id: scroll-world
+          config: {}
       connectors:
         - id: deepgram-voice
           config:
-            port: 7085
+            port: 8085
             bind_host: 127.0.0.1
             stt_model: nova-2
             tts_model: aura-asteria-en
@@ -262,39 +288,70 @@ x-garrison:
             board_id: vl1Z8KFH
         - id: google
           config: {}
+        - id: cortex-automations
+          config:
+            base_url: http://127.0.0.1:4111
+        - id: cortex-client
+          config:
+            repo_url: https://github.com/gongiskhan/ekoa-code.git
+            git_ref: 8b7d5812f581b06930ec8ce3023e7a21c2d00467
+            base_url: http://127.0.0.1:4111
+            bin_dir: ''
+            clone_dir: ''
+            package_subdir: clients/cortex-cli
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
-      soul: .garrison/prompts/soul.md
     duties:
-      - id: code
-        title: Code
-        description: 'Write or change code: features, fixes, refactors.'
+      - id: implement
+        title: Implement
+        description: 'Write or change code: features, fixes, refactors, carried end to end.'
         levels:
           - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
             cell:
-              target: cc-sonnet
-              effort: high
+              target: opus
+              effort: medium
           - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
             cell:
-              target: cc-opus
+              target: opus
               effort: high
           - description: >-
               deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
               security-sensitive or multi-subsystem work
             cell:
-              target: cc-opus
-              effort: max
-      - id: other
-        title: Other
-        description: Anything that fits no other duty.
+              target: opus
+              effort: xhigh
+        context_hold: true
+      - id: test
+        title: Test
+        description: Write and run the checks that prove a change works.
         levels:
-          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
+          - description: 'trivial: assert one obvious thing'
             cell:
               target: cc-sonnet
+              effort: low
+          - description: 'standard: cover the change and its edges'
+            cell:
+              target: opus
               effort: medium
-          - description: 'involved: unclassified work that still needs real thought or multiple steps'
+          - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
             cell:
               target: cc-opus
+              effort: high
+      - id: review
+        title: Review
+        description: Read a change against what it claimed to do.
+        levels:
+          - description: 'trivial: a skim for obvious mistakes'
+            cell:
+              target: cc-opus
+              effort: low
+          - description: 'standard: read the diff against its acceptance'
+            cell:
+              target: cc-opus
+              effort: medium
+          - description: 'deep: argue with it - assume it is wrong and try to show how'
+            cell:
+              target: sol
               effort: high
       - id: research
         title: Research
@@ -302,280 +359,300 @@ x-garrison:
         levels:
           - description: 'lookup: a fact check or a single-source answer'
             cell:
-              target: cc-sonnet
-              effort: high
+              target: cc-opus
+              effort: low
           - description: 'focused: survey a topic or compare a few options, with sources'
             cell:
               target: cc-opus
-              effort: high
+              effort: medium
           - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
             cell:
               target: cc-opus
-              effort: max
+              effort: high
       - id: discuss
         title: Discuss
         description: Talk a problem through and write a brief when the thinking settles.
         levels:
-          - description: >-
-              level 1: quick discussion - talk a focused question or tradeoff through in prose, then
-              write the brief when the thinking settles.
+          - description: 'level 1: talk a focused question or tradeoff through in prose'
+            cell:
+              target: fable
+              effort: low
+          - description: 'level 2: research it mid-conversation and write the brief when it settles'
             cell:
               target: fable
               effort: medium
-          - description: 'level 2: deeper than level 1 - describe when the Dispatcher should pick this level'
+          - description: 'level 3: argue both sides properly before converging, then write it up'
             cell:
               target: fable
               effort: high
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
-            cell:
-              target: fable
-              effort: xhigh
       - id: plan
         title: Plan
-        description: Design an implementation plan before building.
+        description: Decide what to build and in what order before building it.
         levels:
-          - description: 'design the implementation plan for the work at hand: explore, decide, write the plan'
+          - description: 'sketch: the shape of the change in a few lines'
             cell:
-              target: fable
+              target: opus
               effort: high
-          - description: 'level 2: deeper than level 1 - describe when the Dispatcher should pick this level'
-            cell:
-              target: fable
-              effort: xhigh
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
-            cell:
-              target: fable
-              effort: max
-      - id: implement
-        title: Implement
-        description: Execute a planned change end to end.
-        context_hold: true
-        levels:
-          - description: 'carry a planned change end to end: code, verify, evidence'
+          - description: 'standard: a slice plan with acceptance per slice'
             cell:
               target: opus
               effort: xhigh
-      - id: review
-        title: Review
-        description: Review a change for correctness and quality.
-        levels:
-          - description: 'light: sanity-pass a small, low-risk diff'
-            cell:
-              target: cc-sonnet
-              effort: low
-          - description: 'standard: review a focused diff for correctness and style'
-            cell:
-              target: cc-sonnet
-              effort: medium
-          - description: 'deep: review a large or risky change; hunt for real defects, not nits'
-            cell:
-              target: cc-opus
-              effort: high
-      - id: test
-        title: Test
-        description: Exercise a change with tests.
-        levels:
-          - description: 'smoke: run the existing suite and confirm it stays green'
-            cell:
-              target: cc-sonnet
-              effort: low
-          - description: 'standard: run and extend the tests that cover the change'
-            cell:
-              target: cc-opus
-              effort: high
-          - description: 'thorough: build out missing coverage, e2e included'
-            cell:
-              target: cc-opus
-              effort: xhigh
-      - id: image
-        title: Image
-        description: Create or edit images.
-        levels:
-          - description: generate or edit an image
-            cell:
-              target: sec-gemini
-      - id: video
-        title: Video
-        description: Create or edit videos.
-        levels:
-          - description: generate or edit a video
-            cell:
-              target: sec-gemini
-      - id: writing
-        title: Writing
-        description: 'Write prose: notes, docs, posts, specs.'
-        levels:
-          - description: 'short-form: a note, a summary, an announcement, a doc tweak'
-            cell:
-              target: cc-sonnet
-              effort: medium
-          - description: 'long-form: a document, a spec, a post with structure and polish'
-            cell:
-              target: cc-sonnet
-              effort: high
-      - id: ops
-        title: Ops
-        description: 'Operate the system: run, restart, configure, deploy.'
-        levels:
-          - description: 'routine: restart a service, check a status, run a known command'
-            cell:
-              target: cc-sonnet
-              effort: high
-          - description: 'careful: config changes, migrations, anything with blast radius'
-            cell:
-              target: cc-opus
-              effort: high
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
-            cell:
-              target: cc-opus
-              effort: xhigh
-      - id: drill
-        title: Drill
-        description: >-
-          Plan-driven, page-level QA: author or update the Drill Book for changed pages, gate for
-          approval (configurable), then run the plan (vision or graduated e2e) per selected viewport
-          and report findings. One duty, two internal stages (plan, then run) with a gate between
-          (R7). Replaces the Walkthrough evidence job and the separate Validate phase (D8); absorbs
-          Adversarial Test as a second, blind, vision-forced run (R12).
-        gate: explicit
-        levels:
-          - description: >-
-              standard drill pass: plan/update the plan for changed pages, gate for approval, then
-              run and report findings.
-            cell:
-              target: cc-opus
-              effort: high
-          - description: >-
-              deep: the same stages at maximum reasoning, for an unfamiliar or large surface, or a
-              page whose checks keep coming back ambiguous.
+          - description: 'deep: design alternatives weighed, risks named, sequencing argued'
             cell:
               target: cc-opus
               effort: max
-          - description: >-
-              frontier: the hardest surfaces, where even a maximum-effort pass cannot settle what
-              the page is supposed to prove.
+      - id: image
+        title: Image
+        description: Produce or edit an image.
+        levels:
+          - description: 'quick: one image to a clear description'
             cell:
-              target: fable
+              target: opus
+              effort: medium
+          - description: 'standard: iterate on composition and detail'
+            cell:
+              target: opus
+              effort: high
+          - description: 'deep: art-direct it against where it will actually appear'
+            cell:
+              target: opus
+              effort: xhigh
+      - id: video
+        title: Video
+        description: Produce or edit a video.
+        levels:
+          - description: 'quick: assemble what is already shot'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'standard: script, assemble and check it plays'
+            cell:
+              target: opus
+              effort: high
+          - description: 'deep: direct it for the audience it is for'
+            cell:
+              target: opus
+              effort: xhigh
+      - id: ux-qa
+        title: UX QA
+        description: Walk the running UI and judge whether it is actually good.
+        levels:
+          - description: 'quick: the obvious breakages on one surface'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'standard: the six-section checklist on desktop and mobile'
+            cell:
+              target: opus
+              effort: high
+          - description: 'deep: contrast, tap targets and states measured, not eyeballed'
+            cell:
+              target: opus
+              effort: xhigh
+      - id: writing
+        title: Writing
+        description: 'Prose: docs, site copy, a written answer.'
+        levels:
+          - description: 'quick: a short passage or a correction'
+            cell:
+              target: opus
+              effort: medium
+          - description: 'standard: a full piece with structure'
+            cell:
+              target: opus
+              effort: high
+          - description: 'deep: researched, sourced and argued'
+            cell:
+              target: opus
+              effort: xhigh
+      - id: ops
+        title: Ops
+        description: Deploys, infrastructure, provisioning.
+        levels:
+          - description: 'routine: a known operation with a known outcome'
+            cell:
+              target: cc-opus
+              effort: low
+          - description: 'standard: plan it, run it, verify it'
+            cell:
+              target: cc-opus
+              effort: medium
+          - description: 'deep: blast radius established first, rollback rehearsed'
+            cell:
+              target: cc-opus
+              effort: high
+      - id: drill
+        title: Drill
+        description: Drive the whole app looking for defects.
+        levels:
+          - description: 'targeted: one area or one reported finding'
+            cell:
+              target: cc-opus
+              effort: xhigh
+          - description: 'standard: a full sweep of the app'
+            cell:
+              target: cc-opus
+              effort: max
+          - description: 'deep: a sweep plus the judgement of what the findings mean'
+            cell:
+              target: opus
               effort: max
       - id: adversarial-review
         title: Adversarial Review
-        description: Independent cross-model review that tries to refute the change.
+        description: A decorrelated second read whose job is to find what the first one missed.
         levels:
-          - description: 'standard: an independent cross-model pass over the change'
+          - description: 'quick: the diff against its stated invariants'
             cell:
               target: sol
               effort: medium
-          - description: 'deep: decorrelated scrutiny of a risky or security-adjacent change'
+          - description: 'standard: hunt for violations, cite each one'
             cell:
               target: sol
               effort: xhigh
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
+          - description: 'deep: assume it is broken and prove it'
             cell:
               target: sol
               effort: max
       - id: adversarial-test
         title: Adversarial Test
-        description: Independent cross-model attempt to break the change.
+        description: An independent functional pass that has not seen the diff.
         levels:
-          - description: 'standard: an independent attempt to break the change'
+          - description: 'quick: drive the happy path independently'
             cell:
               target: sol
               effort: medium
-          - description: 'deep: sustained adversarial testing of a critical path'
+          - description: 'standard: drive the acceptance criteria and try to break them'
             cell:
               target: sol
               effort: high
-      - id: ux-qa
-        title: UX QA
-        description: Walk the UI like a picky end user and flag what looks off.
-        levels:
-          - description: 'spot-check: a quick pass over the changed surface'
+          - description: 'deep: probe the failure modes the implementer would not think of'
             cell:
-              target: fable
-              effort: medium
-          - description: 'full pass: a pixel-level UX audit of the whole flow'
-            cell:
-              target: fable
-              effort: high
-          - description: 'level 3: deeper than level 2 - describe when the Dispatcher should pick this level'
-            cell:
-              target: fable
+              target: sol
               effort: xhigh
+      - id: security-review
+        title: Security Review
+        description: >-
+          The security-boundary rubric: authorization, injection, secrets, tenancy, input
+          validation.
+        levels:
+          - description: 'quick: the boundary checklist on the diff'
+            cell:
+              target: sol
+              effort: high
+          - description: 'standard: the checklist plus the surfaces the change touches'
+            cell:
+              target: sol
+              effort: xhigh
+          - description: 'deep: adversarial, whole-surface, assume a motivated attacker'
+            cell:
+              target: sol
+              effort: max
       - id: walkthrough
         title: Walkthrough
-        description: Record a self-verified evidence walkthrough (video) of a working flow.
+        description: Record self-verified evidence that the change works.
         levels:
-          - description: record and self-verify an evidence walkthrough of a working flow
+          - description: 'quick: capture the flow end to end'
             cell:
-              target: opus
+              target: cc-opus
+              effort: low
+          - description: 'standard: a narrated walkthrough of the acceptance path'
+            cell:
+              target: cc-opus
               effort: high
       - id: validate
         title: Validate
-        description: Run the validation pipeline over the work.
+        description: Check the definition of done from the durable gate markers.
         levels:
-          - description: run the validation gates over the current work
+          - description: 'standard: read the gate records and decide done or not'
             cell:
               target: cc-sonnet
+              effort: low
+          - description: 'strict: re-run what the markers claim rather than trusting them'
+            cell:
+              target: cc-opus
               effort: low
       - id: codex-checkpoint
         title: Codex Checkpoint
-        description: Run the decorrelated codex checkpoint over the run.
+        description: A cross-model pass over the security-critical surfaces.
         levels:
-          - description: run the cross-model codex checkpoint
+          - description: 'standard: the named invariants, narrowly scoped'
+            cell:
+              target: sol
+              effort: high
+      - id: report
+        title: Report
+        description: Say what happened, to whoever needs to know.
+        levels:
+          - description: 'quick: a one-line outcome'
             cell:
               target: cc-sonnet
               effort: low
-      - id: report
-        title: Report
-        description: Compose and deliver the run report.
-        levels:
-          - description: compose and deliver the end-of-run report
+          - description: 'standard: what changed, what was proven, what is still open'
             cell:
-              target: cc-sonnet
+              target: cc-opus
+              effort: low
+      - id: other
+        title: Other
+        description: Anything that fits no other duty.
+        levels:
+          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
+            cell:
+              target: cc-haiku
+              effort: low
+          - description: 'involved: unclassified work that still needs real thought or multiple steps'
+            cell:
+              target: cc-opus
               effort: low
       - id: probe-question
         title: Probe Question
-        description: Answer a health-probe question with one short reply.
+        description: The improver asking one question worth asking.
         levels:
-          - description: answer a routing probe with a single short reply
+          - description: 'standard: one short, high-information question'
             cell:
               target: cc-sonnet
               effort: low
       - id: dispatch
         title: Dispatch
-        description: Read an inbound task and route it to the right duty and level.
+        description: Decide which flow, duty and level an ambiguous request needs.
         levels:
-          - description: >-
-              Single-shot structured classification of the task into (duty, level) on a small fast
-              model — the default dispatch cell.
+          - description: 'standard: a bounded, tool-free, one-turn classification'
             cell:
               target: dispatch-fast
-              effort: medium
+              effort: low
     selected_duties:
-      - code
-      - other
+      - implement
+      - test
+      - review
       - research
       - discuss
       - plan
-      - implement
-      - review
-      - drill
-      - test
       - image
       - video
+      - ux-qa
       - writing
       - ops
+      - drill
       - adversarial-review
-      - ux-qa
+      - adversarial-test
+      - security-review
+      - walkthrough
+      - validate
+      - codex-checkpoint
+      - report
+      - other
       - probe-question
       - dispatch
     targets:
       - id: dispatch-fast
-        runtime: garrison-call
-        model: qwen2.5:3b
-        provider: ollama-local
+        runtime: agent-sdk
+        model: claude-haiku-4-5
+        provider: anthropic
         params:
-          type: single-shot
+          type: runtime-target
+          authMode: subscription
+          promptMode: lean
+          maxTurns: 1
+          timeoutMs: 8000
       - id: cc-haiku
         runtime: agent-sdk
         model: haiku
@@ -583,18 +660,6 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-      - id: cc-ollama-qwen
-        runtime: agent-sdk
-        model: qwen2.5-coder
-        provider: ollama-local
-        params:
-          type: runtime-target
-      - id: cc-ollama-deepseek
-        runtime: agent-sdk
-        model: deepseek-coder-v2
-        provider: ollama-local
-        params:
-          type: runtime-target
       - id: sec-gemini
         runtime: gemini
         model: gemini-2.5-flash
@@ -605,43 +670,11 @@ x-garrison:
         model: gpt-5-codex
         params:
           type: secondary
-      - id: classifier
-        runtime: agent-sdk
-        model: haiku
-        provider: anthropic
+      - id: csg-work
+        runtime: remote-shell
+        model: csg
         params:
-          type: runtime-target
-          pinned: true
-      - id: sdk-ollama-chat
-        runtime: agent-sdk
-        model: qwen3:0.6b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
-      - id: sdk-ollama-build
-        runtime: agent-sdk
-        model: qwen2.5-coder:7b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
-          maxTurns: 2
-          leanPrompt: >-
-            You output JavaScript source code ONLY, as a single fenced code block. Example request:
-            "a function add that sums two numbers". Example reply (this exact shape, nothing else):
-
-            ```js
-
-            export function add(a, b) {
-              return a + b;
-            }
-
-            ```
-
-            Rules: reply with ONLY one ```js fenced block containing the implementation. Never
-            output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a
-            tool. No prose before or after. No imports unless explicitly requested.
+          type: secondary
       - id: cc-opus
         runtime: agent-sdk
         model: opus
@@ -649,7 +682,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 100
+          maxTurns: 500
       - id: cc-sonnet
         runtime: agent-sdk
         model: sonnet
@@ -657,7 +690,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 100
+          maxTurns: 500
       - id: sdk-haiku
         runtime: agent-sdk
         model: claude-haiku-4-5
@@ -665,13 +698,6 @@ x-garrison:
         params:
           type: runtime-target
           authMode: api-key
-      - id: sdk-ollama-probe
-        runtime: agent-sdk
-        model: qwen2.5:3b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
       - id: sol
         runtime: codex
         model: gpt-5.6-sol
@@ -681,13 +707,13 @@ x-garrison:
           authMode: api-key
       - id: fable
         runtime: agent-sdk
-        model: claude-fable-5
+        model: claude-opus-5
         provider: anthropic
         params:
           type: runtime-target
           authMode: subscription
           promptMode: coding
-          maxTurns: 100
+          maxTurns: 500
       - id: opus
         runtime: agent-sdk
         model: claude-opus-4-8
@@ -696,4 +722,4 @@ x-garrison:
           type: runtime-target
           authMode: subscription
           promptMode: coding
-          maxTurns: 100
+          maxTurns: 500

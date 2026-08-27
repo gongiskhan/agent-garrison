@@ -1,0 +1,87 @@
+name: merge-agent
+version: 0.1.0
+description: >-
+  The Merge duty — merge another Garrison node's branch into this node's checkout
+  of a project, under a pre-merge revert tag and a decision card. Owns the
+  garrison-merge skill.
+target: claude
+type: skill
+includes: auto
+x-garrison:
+  # A per-duty work Fitting: provides exactly one duty, owns its skill. Faculty
+  # `building` rather than `coordination` because the work is a repository
+  # operation (the coordination faculty accepts only mcp/hook/script shapes, and
+  # every other duty-* Fitting lives under building).
+  faculty: building
+  category: Building
+  cardinality_hint: single
+  component_shape: cli-skill
+  ui:
+    views:
+      - id: skill
+        placement: sidebar-surface
+        entry: garrison:skill
+        route: /
+  platforms:
+    - claude-code
+  summary: >-
+    Provides the `merge` duty and owns the garrison-merge skill. Cross-node
+    merges run autonomously, which is only acceptable because of two rails: a
+    pre-merge tag `garrison/premerge/<project>/<node>/<stamp>` that makes
+    `git reset --hard <tag>` the one-command revert, and a decision card on
+    needs-attention for every non-trivial merge carrying the tag, both shas, the
+    conflict list and each resolution. A trivial fast-forward files nothing.
+    Lockfiles are regenerated and binaries escalated — never merged — and a
+    blanket `-X ours`/`-X theirs` is forbidden outright.
+  provides:
+    - kind: duty
+      name: merge
+  consumes: []
+  duties:
+    - id: merge
+      title: Merge
+      description: >-
+        Merge a peer node's branch into this node's checkout of a project, tag the
+        pre-merge HEAD, resolve conflicts file-by-file, and file a decision card
+        for anything non-trivial.
+      levels:
+        - description: >-
+            Standard merge — fetch, decide trivial vs not, tag, `git merge --no-ff`,
+            resolve each conflict with both sides in full, refuse lockfiles and
+            binaries, verify the result parses, then file the decision card.
+          cell:
+            skill: garrison-merge
+            target: cc-sonnet
+            effort: medium
+  verify:
+    command: >-
+      git --version >/dev/null 2>&1 &&
+      test -f apm_modules/_local/merge-agent/.apm/skills/garrison-merge/SKILL.md &&
+      test -f apm_modules/_local/merge-agent/lib/merge.mjs &&
+      node --check apm_modules/_local/merge-agent/lib/merge.mjs &&
+      echo ok
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    The `merge` duty owns the garrison-merge skill. A merge card filed by the
+    Workspace fitting's push-to-others (placement target = this node, duty
+    `merge`) carries the project, the source node, the source branch and the
+    source sha; the duty runs the doctrine in that project's checkout.
+
+    Two rails are not optional:
+
+    - **Pre-merge tag** `garrison/premerge/<project>/<node>/<stamp>` at the
+      pre-merge HEAD. The revert is `git reset --hard <tag>`.
+    - **Decision card** on `needs-attention` for every non-trivial merge (any
+      conflict resolved, or any file both sides changed), carrying the tag, both
+      shas, the conflict list and each resolution. A trivial fast-forward files
+      nothing.
+
+    Never `-X ours` or `-X theirs`. Lockfiles (`package-lock.json`,
+    `apm.lock.yaml`, …) are REGENERATED, never merged; binaries and the
+    never-travels list (`.env`, `vault.json`, `local.yml`, `apm_modules/`,
+    `.claude/`) are refused and escalated.
+
+    The deterministic parts are functions, not prose: `premergeTag()`,
+    `isTrivialFastForward()`, `conflictPaths()` and `refusalList()` in
+    `lib/merge.mjs`.

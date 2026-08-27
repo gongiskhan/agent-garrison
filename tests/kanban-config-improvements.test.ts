@@ -4,7 +4,7 @@
 //   - project + skill discovery (dev-env parity) — listProjects / listSkills
 //   - the dispatch routes through the orchestrator (no per-list {taskType,tier} hint)
 //     and leads the prompt with the list's mode — buildCardPrompt + processCard
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 // S4: the run engine reads the compiled Orchestrator policy for gate-evidence
 // enforcement + phase classification. These tests exercise the PURE transition
@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // @ts-ignore — pure .mjs
-import { deriveTitle, applyListConfig } from "../fittings/seed/kanban-loop/scripts/server.mjs";
+import { deriveTitle, applyListConfig, applyProjectMapping, isValidProjectLabel } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 // @ts-ignore — pure .mjs
 import { cronForList, beatIdFor } from "../fittings/seed/kanban-loop/lib/scheduler-beats.mjs";
 // @ts-ignore — pure .mjs
@@ -34,6 +34,19 @@ import { buildCardPrompt, processCard } from "../fittings/seed/kanban-loop/lib/e
 import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // @ts-ignore — pure .mjs
 import { createCard, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
+
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 
@@ -98,7 +111,7 @@ describe("scheduler-beats — cronForList / beatIdFor", () => {
     expect(cronForList({ id: "x", beatCron: "15 8 * * *" })).toBe("15 8 * * *");
   });
   it("falls back to the legacy default only for the seed Test list", () => {
-    expect(cronForList({ id: "test" })).toBe("0 */5 * * *");
+    expect(cronForList({ id: "test" })).toBe("0 */2 * * *");
     expect(cronForList({ id: "other" })).toBeNull();
   });
   it("derives a stable beat id per list", () => {
@@ -159,5 +172,38 @@ describe("processCard — routes through the orchestrator (no per-list classific
     expect(outcome.status).toBe("moved");
     expect(seen).toBeNull(); // NOT { taskType, tier } — the orchestrator owns classification
     expect((await loadCard(root, card.id)).list).toBe("implement");
+  });
+});
+
+describe("applyProjectMapping — the board.projects writer (F7)", () => {
+  // Until PUT /projects/:label existed, board.projects had readers and no
+  // writer: repoPathForProject consulted it FIRST and found it empty on every
+  // box, so any card whose project label differed from its dev-root DIRECTORY
+  // name (agent-garrison vs garrison) ran unfenced with no revert target.
+  it("sets a mapping without touching the rest of the board", () => {
+    const board = fakeBoard();
+    const out = applyProjectMapping(board, "agent-garrison", "/home/u/dev/garrison");
+    expect(out.projects["agent-garrison"]).toEqual({ path: "/home/u/dev/garrison" });
+    expect(out.lists).toBe(board.lists);
+  });
+  it("null removes exactly that label", () => {
+    const withTwo = applyProjectMapping(
+      applyProjectMapping(fakeBoard(), "a", "/x"), "b", "/y");
+    const out = applyProjectMapping(withTwo, "a", null);
+    expect(out.projects).toEqual({ b: { path: "/y" } });
+  });
+  it("overwrites in place and preserves unknown mapping fields", () => {
+    const seeded = { ...fakeBoard(), projects: { a: { path: "/old", note: "kept" } } };
+    const out = applyProjectMapping(seeded, "a", "/new");
+    expect(out.projects.a).toEqual({ path: "/new", note: "kept" });
+  });
+  it("label discipline: path-ish and traversal-ish labels are refused as keys", () => {
+    expect(isValidProjectLabel("agent-garrison")).toBe(true);
+    expect(isValidProjectLabel("ekoa.code_2")).toBe(true);
+    expect(isValidProjectLabel("/abs/path")).toBe(false);
+    expect(isValidProjectLabel("../up")).toBe(false);
+    expect(isValidProjectLabel(".hidden")).toBe(false);
+    expect(isValidProjectLabel(" padded")).toBe(false);
+    expect(isValidProjectLabel("")).toBe(false);
   });
 });

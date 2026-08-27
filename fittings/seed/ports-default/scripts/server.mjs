@@ -197,7 +197,7 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0
 // A host/IP is TRUSTED when it is loopback, an RFC1918 private address, a tailnet
 // CGNAT address (100.64.0.0/10 - the block `tailscale` assigns), an IPv6 ULA /
 // link-local literal, or a *.ts.net MagicDNS name. Kept behaviourally identical
-// across the guarded fittings (ports-default, power-default, outpost-tailscale-host).
+// across the guarded fittings (ports-default, power-default) and src/lib/mesh/peer-auth.ts.
 export function isTrustedHost(value) {
   const h = String(value || "").replace(/^\[|\]$/g, "").replace(/^::ffff:/i, "").toLowerCase();
   if (!h) return true;

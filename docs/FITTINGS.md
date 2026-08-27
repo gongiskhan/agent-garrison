@@ -1,19 +1,24 @@
 # Agent Garrison Seed Fittings
 
-Seed Fittings are local APM packages under `fittings/seed/`. They are
-local-path dependencies during bootstrap and can be split into standalone
-git repos after the runner flow is proven. Capability wiring (`provides` /
-`consumes`) is summarised in `fittings/seed/README.md`.
+Seed Fittings are local APM packages under `fittings/seed/`. The authoritative
+live inventory is `data/library.json`; a directory preserved below is not proof
+that the Fitting remains selectable. Capability wiring (`provides` / `consumes`)
+is summarised in `fittings/seed/README.md`.
 
 The original six Fittings below are catalogued in detail; later additions
 are inventoried at the end under "Later additions". See
 [GARRISON_ROADMAP.md](./GARRISON_ROADMAP.md) for stage context.
 
-> **2026-06-07 Quarters pivot:** Faculties are now 6 roles. Faculty names
+> **Historical catalogue:** most detailed entries below describe the original
+> pre-pivot packages and metadata and are retained as design evidence, not as a
+> live inventory. Faculties are now 16 roles: 8 core, 7 optional capability
+> roles, and `connectors`. Faculty names
 > like `classifier`, `heartbeat`, `automations`, `data-sources` in the
-> original catalogue below are **deprecated aliases** still accepted by the
-> parser with a warning. Current role names: `orchestrator`, `channels`,
-> `gateway`, `memory`, `observability`, `sessions`.
+> original catalogue below are retired, not selectable roles. Routing
+> inference and Zeca's editable Identity are owned by Orchestrator; no
+> Dispatcher, Identity Zeca, modes, or Soul Fitting contributes to the live
+> prompt. Morning briefing is a Kanban Scheduled template rather than a Fitting
+> or per-template scheduler job.
 
 ## Tier Classifier
 
@@ -143,17 +148,19 @@ Each one lives at `fittings/seed/<id>/` with an `apm.yml`,
 config schema, `provides`/`consumes` wiring, and `for_consumers`
 text where applicable.
 
-### Stage 1 / original PA shape
+### Historical Stage 1 / original PA shape
 
 - `personal-operative` — orchestrator Fitting that owns global config
   (`projects_root`, `personas`, hat-detection rules, memory usage discipline).
   Composition-aware via `cardinality: any` consumes on every capability kind.
 - `soul` / `soul-engineer` / `soul-architect` / `soul-assistant` / `soul-researcher` / `soul-companion`
-  — persona Fittings with different hats. All project to the orchestrator
-  assembly via `soul` shape.
+  — retired persona Fittings from the original shape. Their prompts are never
+  injected into current Orchestrator assembly.
 - `slack-channel` — webhook-based inbound channel. Provides `channel:slack`.
-- `morning-briefing` — scheduled cron Fitting that posts the day's plan to
-  the report channel. Provides `automation-runner:morning-briefing`.
+- Morning briefing is an enabled recurring template in Kanban's fixed
+  **Scheduled** column. Each due time creates a normal occurrence card and
+  records independent Web/Omi delivery receipts; it is not a Fitting or a raw
+  scheduler job.
 - `google-calendar` — bidirectional calendar sync. Provides
   `data-source:google-calendar`.
 - `projects-index` — shallow index of `projects_root` for dev-hat context.
@@ -173,8 +180,11 @@ text where applicable.
 
 - `model-router` — fills the singleton `orchestrator` Faculty; adds
   two-stage routing (gateway pre-route → act), profile-based policy,
-  compiled `{{routing}}` section, own-port view + simulator. Supersedes
-  `garrison-orchestrator` + `tier-classifier` (both parked).
+  compiled `{{routing}}` section, own-port view + simulator. The current
+  layered `orchestrator` absorbed that work; the runnable
+  `garrison-orchestrator`/`tier-classifier` seed and `dogfood-orch`
+  composition have been retired. Their historical evidence remains under
+  `docs/autothing/` and the decision log, outside the selectable runtime tree.
 - `improver` — nightly Improver Fitting: reviews skill/fitting quality against
   the live codebase and emits improvement proposals. Provides
   `automation-runner:improver`. Runs under `observability`.
@@ -197,6 +207,20 @@ with the live browser pane, which consumes the separate `browser`
 Fitting. The Workbench shell area was dissolved 2026-05-17; the
 own-port UIs that survive it are surfaced by the sidebar Fittings
 section.
+
+### Roadmaps (2026-07-31)
+
+- `roadmaps` — a roadmap per project, stored as `roadmap.json` at the root of
+  the project repo itself (never in Garrison state). Ordered categories, tasks
+  with stable ids, and notes recording the decisions behind them. `knowledge`
+  role, `cli` shape, no config, no own port: the view is an embedded
+  sidebar-surface (`src/components/fitting-views/RoadmapView.tsx`) over
+  `/api/roadmaps/*`, and any task can be handed to the Kanban board's Backlog
+  or To Do (one-way; finishing the card does not tick the roadmap). Agents are
+  the expected main authors and edit the file directly — the two invariants
+  that keeps honest (ids never renumber, done is never removed) are enforced in
+  both halves, and `tests/roadmaps.test.ts` runs the fitting's CLI against
+  `src/lib/roadmaps.ts` so they cannot drift.
 
 The Monitor Faculty (2026-05-16) adds `monitor-default`, which is the
 first Fitting to ship with its own React UI on its own port (default

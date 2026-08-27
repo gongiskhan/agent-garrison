@@ -1,14 +1,21 @@
 // Repo-scoped coordination digest injected by the SessionStart/UserPromptSubmit
-// hook. Surfaces (a) the planning-lock state, (b) recent conflicting/active intents
-// (channel 1), and (c) active agent_mail FILE LEASES (channel 2) — so a session
-// that coordinates ONLY by taking a lease still shows up to others. Plus a standing
-// NUDGE. Capped at a few hundred tokens. Async because leases are fetched live
-// (graceful: leases degrade to [] if agent_mail is down — never an error path).
+// hook. Surfaces (a) the planning-lease state, (b) recent conflicting/active
+// intents (channel 1), and (c) active agent_mail FILE LEASES (channel 2) — so a
+// session that coordinates ONLY by taking a lease still shows up to others. Plus
+// a standing NUDGE. Capped at a few hundred tokens.
+//
+// Takes a repo REF ({ key, path }) because the two channels key differently: the
+// coordination state is keyed by the mesh repo key, while agent_mail's project
+// slug is the local checkout path. A bare string is accepted as a key.
 //
 // Shares the SAME readers as coord-state.mjs (recentIntents/conflictsFor,
-// lockStatus, fetchActiveLeases) so the digest can never disagree with the CLI/UI.
+// planLeaseStatus, fetchActiveLeases) so the digest can never disagree with the
+// CLI/UI. Channel 2 degrades to [] when agent_mail is down; channel 1 does NOT
+// degrade — an unreachable state service throws, and the caller decides (the
+// tool surfaces the error, the hook stays silent).
 import { conflictsFor, recentIntents } from "./intent-store.mjs";
-import { lockStatus } from "./plan-lock.mjs";
+import { planLeaseStatus } from "./plan-lease.mjs";
+import { asRef } from "./repo.mjs";
 import { fetchActiveLeases } from "./agentmail.mjs";
 
 const MAX_BYTES = 1200; // a few hundred tokens
@@ -29,19 +36,20 @@ export function leaseOverlaps(lease, mine) {
 // (overlapping intents OR leases); without one, surfaces recent intents + active
 // leases as AWARENESS.
 export async function buildDigest(repo, mine, now = new Date()) {
+  const ref = asRef(repo);
   const session = mine && mine.session;
-  const lock = lockStatus(repo, now);
+  const lock = await planLeaseStatus(ref.key);
   const hasWorkingSet = Boolean(mine && (mine.area || (mine.files && mine.files.length)));
-  const conflicts = hasWorkingSet ? conflictsFor(repo, mine, now) : [];
+  const conflicts = hasWorkingSet ? await conflictsFor(ref.key, mine, now) : [];
   const conflictKeys = new Set(conflicts.map((c) => `${c.session}|${c.ts}`));
-  const awareness = recentIntents(repo, now)
+  const awareness = (await recentIntents(ref.key, now))
     .filter((i) => i.session !== session && !conflictKeys.has(`${i.session}|${i.ts}`))
     .slice(0, 5);
 
   // Channel 2: active file leases (graceful — [] if agent_mail is down).
   let leases = [];
   try {
-    leases = await fetchActiveLeases(repo);
+    leases = ref.path ? await fetchActiveLeases(ref.path) : [];
   } catch {
     leases = [];
   }

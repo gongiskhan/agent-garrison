@@ -67,51 +67,68 @@ describe("orchestrator policy core (S1)", () => {
     expect(a).toBe(b);
     // key order independent of input insertion order
     const reordered = JSON.parse(JSON.stringify(cfg));
-    const { workKinds, ...rest } = reordered;
-    const c = mod.stableStringify(mod.compilePolicy({ ...rest, workKinds }));
+    const { flows, ...rest } = reordered;
+    const c = mod.stableStringify(mod.compilePolicy({ ...rest, flows }));
     expect(c).toBe(a);
   });
 
-  it("work kinds resolve to rails with bound skills (D2/D3)", async () => {
+  it("flows resolve to rails with bound skills (D2/D3)", async () => {
     const mod = await core();
     const cfg = seedConfig();
-    // A phase plan is an ordered SUBSET: phases outside the plan stay in the
-    // rail rendered OFF (honesty, never hidden).
-    const docs = mod.railFor(cfg, "docs-change");
-    expect(docs.phases.length).toBe(12);
-    expect(docs.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["implement"]);
+    // A level's duty list is an ordered SUBSET: pipeline phases outside it stay
+    // in the rail rendered OFF (honesty, never hidden). Each flow is read at
+    // its OWN default level, which is what an unlevelled card resolves through.
+    const docs = mod.railFor(cfg, "docs");
+    expect(docs.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["writing"]);
     expect(docs.phases.find((p: { id: string }) => p.id === "walkthrough").off_reason).toBe("phase-plan");
     expect(docs.evidence).toBe("text");
-    const api = mod.railFor(cfg, "api-change");
-    expect(api.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["implement", "test"]);
-    expect(api.evidence).toBe("logs");
-    const full = mod.railFor(cfg, "full-feature");
-    expect(full.phases.length).toBe(12);
-    // every phase in the full plan is ON; the opt-in security-review phase is the one OFF chip.
-    expect(full.phases.filter((p: { on: boolean }) => p.on).length).toBe(11);
-    expect(full.phases.find((p: { id: string }) => p.id === "security-review").on).toBe(false);
-    expect(full.evidence).toBe("video");
-    expect(full.phases.find((p: { id: string }) => p.id === "review").skill).toBe("garrison-review");
-    // default kind
-    expect(mod.railFor(cfg, null).workKind).toBe("full-feature");
+    // `writing` is a duty, not one of the 12 pipeline phases, so it rides at the
+    // head of the rail and the 12 stay behind it, all off.
+    expect(docs.phases.length).toBe(13);
+    const fix = mod.railFor(cfg, "fix");
+    expect(fix.phases.length).toBe(12);
+    expect(fix.phases.filter((p: { on: boolean }) => p.on).map((p: { id: string }) => p.id)).toEqual(["implement", "test"]);
+    expect(fix.evidence).toBe("logs");
+    // The deepest rail the library ships. Two pipeline phases stay off even
+    // here: security-review is opt-in per project, and codex-checkpoint is a
+    // run-level gate no flow level schedules.
+    const deep = mod.railFor(cfg, "feature", null, 3);
+    expect(deep.phases.length).toBe(12);
+    expect(deep.phases.filter((p: { on: boolean }) => p.on).length).toBe(10);
+    expect(
+      deep.phases.filter((p: { on: boolean }) => !p.on).map((p: { id: string }) => p.id)
+    ).toEqual(["security-review", "codex-checkpoint"]);
+    expect(deep.evidence).toBe("video");
+    expect(deep.phases.find((p: { id: string }) => p.id === "review").skill).toBe("garrison-review");
+    // default flow, and its own default level
+    expect(mod.railFor(cfg, null).flow).toBe("fix");
+    expect(mod.railFor(cfg, null).phases.filter((p: { on: boolean }) => p.on).length).toBe(2);
   });
 
   it("per-card phase toggles render off, never hidden (D17 honesty)", async () => {
     const mod = await core();
-    const rail = mod.railFor(seedConfig(), "full-feature", { walkthrough: false });
+    // Level 3 of `feature` is the rail that RUNS walkthrough — a toggle against
+    // a phase the level never runs would prove nothing.
+    const rail = mod.railFor(seedConfig(), "feature", { walkthrough: false }, 3);
     const wt = rail.phases.find((p: { id: string }) => p.id === "walkthrough");
     expect(wt.on).toBe(false);
     expect(wt.off_reason).toBe("card-toggle");
     expect(rail.phases.length).toBe(12); // still present
   });
 
-  it("per-kind skill overrides win over global bindings (D3)", async () => {
+  it("per-flow skill overrides win over global bindings (D3)", async () => {
     const mod = await core();
     const cfg = seedConfig();
-    cfg.phaseSkills.overrides["docs-change"] = { implement: "my-docs-writer" };
+    // An override is keyed by FLOW, and `implement` is bound globally to
+    // garrison-implement — so this is the override beating the binding, on the
+    // first duty the default flow's default level runs.
+    cfg.phaseSkills.overrides["fix"] = { implement: "my-fix-implementer" };
     expect(mod.validateRoutingConfig(cfg)).toEqual([]);
-    const rail = mod.railFor(cfg, "docs-change");
-    expect(rail.phases[0].skill).toBe("my-docs-writer");
+    const rail = mod.railFor(cfg, "fix");
+    expect(rail.phases[0].id).toBe("implement");
+    expect(rail.phases[0].skill).toBe("my-fix-implementer");
+    // …and only for that flow: `chore` runs implement too, unoverridden.
+    expect(mod.railFor(cfg, "chore").phases[0].skill).toBe("garrison-implement");
   });
 
   it("vocabulary is extensible without code change (D1/D2)", async () => {
@@ -120,7 +137,7 @@ describe("orchestrator policy core (S1)", () => {
     cfg.taskTypes.push("data-migration");
     cfg.profiles.balanced.matrix.rows["data-migration"] = { default: "cc-opus-high", cells: {} };
     cfg.phasePlans["migrate"] = { phases: ["plan", "implement", "test"], evidence: "logs" };
-    cfg.workKinds["schema-migration"] = { phasePlan: "migrate" };
+    cfg.flows["schema-migration"] = { phasePlan: "migrate" };
     expect(mod.validateRoutingConfig(cfg)).toEqual([]);
     const policy = mod.compilePolicy(cfg);
     expect(policy.matrix["data-migration"]["T1-standard"].targetId).toBe("cc-opus-high");
@@ -138,7 +155,7 @@ describe("orchestrator policy core (S1)", () => {
     const bad = seedConfig();
     bad.profiles.balanced.matrix.rows["implement"].cells["T2-deep"] = "no-such-target";
     bad.phasePlans["broken"] = { phases: ["not-a-phase"], evidence: "logs" };
-    bad.workKinds["orphan"] = { phasePlan: "missing-plan" };
+    bad.flows["orphan"] = { phasePlan: "missing-plan" };
     const errors = mod.validateRoutingConfig(bad);
     expect(errors.join("\n")).toMatch(/no-such-target/);
     expect(errors.join("\n")).toMatch(/not-a-phase/);
@@ -161,19 +178,6 @@ describe("orchestrator policy core (S1)", () => {
     });
     expect(exception.targetId).toBe("sec-gemini");
     expect(exception.via).toBe("exception");
-  });
-
-  it("computeLadder bias preserves v1 routingBias behavior", async () => {
-    const mod = await core();
-    const ladder = ["cc-haiku-low", "cc-sonnet-med", "cc-opus-high"];
-    // Joe: expert floor raises everything on the ladder
-    expect(mod.biasTarget("cc-haiku-low", { floor: "expert", prefer: "expert" }, ladder)).toBe("cc-opus-high");
-    // Gary: standard-toward-fast dials the standard resolution down
-    expect(mod.biasTarget("cc-sonnet-med", { floor: "fast", prefer: "fast" }, ladder)).toBe("cc-haiku-low");
-    // A genuinely hard task keeps its tier (never lowered by floor)
-    expect(mod.biasTarget("cc-opus-high", { floor: "standard", prefer: "expert" }, ladder)).toBe("cc-opus-high");
-    // Off-ladder targets are never biased
-    expect(mod.biasTarget("sec-gemini", { floor: "expert", prefer: "expert" }, ladder)).toBe("sec-gemini");
   });
 
   it("v1 configs migrate to v2 preserving effective routes", async () => {
@@ -225,7 +229,10 @@ describe("orchestrator policy core (S1)", () => {
     const md = mod.compileRouting(seedConfig(), "balanced");
     expect(md).toContain("garrison:routing v2 profile=balanced");
     expect(md).toContain("task-type × tier → target");
-    expect(md).toContain("full-feature");
+    // One rail line per flow, and the default flow is marked as such — the
+    // Orchestrator reads this to know what it runs when nothing was pinned.
+    expect(md).toContain("**fix** (default)");
+    expect(md).toContain("**feature**");
     expect(md.endsWith("\n")).toBe(true);
   });
 
@@ -395,6 +402,13 @@ describe("primaryRuntime in the policy (P3/D4)", () => {
   it("compiled policy carries the providers section alongside (P2+P3 coherence)", async () => {
     const mod = await core();
     const pol = mod.compilePolicy(seedConfig());
-    expect(pol.providers.map((x: { id: string }) => x.id)).toEqual(["anthropic-plan", "anthropic", "ollama-local", "deepseek", "zai-glm"]);
+    expect(pol.providers.map((x: { id: string }) => x.id)).toEqual([
+      "anthropic-plan",
+      "anthropic",
+      "deepseek",
+      "zai-glm",
+      "openai",
+      "openai-compat"
+    ]);
   });
 });

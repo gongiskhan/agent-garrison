@@ -4,16 +4,18 @@
 // with ".git" required — the precedent from the Kanban loop's listProjects.
 // Read-only + best-effort: a missing dir just yields the default.
 //
-// Two resolvers, two trust levels, and the difference matters:
+// Three resolvers, and the trust boundary matters:
 //   resolveProjectPath  - legacy, trusted callers only. Any absolute existing
 //                         path passes through unchanged.
 //   resolveProjectName  - dev-root child names ONLY. Use this for anything a
 //                         channel body can set (decision
 //                         2026-07-25-web-channel-run-context §8).
+//   resolveRunScope     - the wire resolver: resolveProjectName plus ONE exact,
+//                         fixed @personal scope under GARRISON_HOME.
 // listProjectNames is the matching enumerator, so a picker can only offer names
 // the resolver would accept.
 
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -22,6 +24,13 @@ import { logEvent } from "./log.mjs";
 const HOME = os.homedir();
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
 const DEV_ROOT_FILE = path.join(GARRISON_HOME, "dev-root");
+
+// The one non-project execution scope accepted from a channel. It is a reserved
+// wire token rather than a path or ordinary project name, so a real repo named
+// "personal" remains addressable and no card can choose an arbitrary cwd.
+export const PERSONAL_SCOPE_TOKEN = "@personal";
+export const PERSONAL_SCOPE_LABEL = "personal";
+const PERSONAL_WORKSPACE_DIRNAME = "personal";
 
 // Expand a leading ~ to the home dir (the dev-root file may store "~/dev").
 export function expandHome(p) {
@@ -102,6 +111,37 @@ export function resolveProjectName(label, { devRoot = readDevRoot() } = {}) {
   try { if (!statSync(real).isDirectory()) return null; } catch { return null; }
   if (!existsSync(path.join(real, ".git"))) return null;
   return real;
+}
+
+// Resolve the exact personal-scope token to the fixed, server-derived
+// $GARRISON_HOME/personal directory. The entry itself must be a real directory,
+// never a symlink: otherwise a local `personal -> /somewhere` replacement would
+// widen this narrow exception into arbitrary cwd access.
+export function resolvePersonalScope({ garrisonHome = GARRISON_HOME } = {}) {
+  let realHome;
+  try { realHome = realpathSync(expandHome(garrisonHome)); } catch { return null; }
+  const candidate = path.join(realHome, PERSONAL_WORKSPACE_DIRNAME);
+  let entry;
+  try { entry = lstatSync(candidate); } catch { return null; }
+  if (entry.isSymbolicLink() || !entry.isDirectory()) return null;
+  let real;
+  try { real = realpathSync(candidate); } catch { return null; }
+  if (path.dirname(real) !== realHome) return null;
+  return real;
+}
+
+// Wire-safe execution-scope resolver. Normal project names retain the exact
+// dev-root/git confinement contract above; only the exact reserved token takes
+// the fixed GARRISON_HOME path. Never replace this with resolveProjectPath,
+// which deliberately accepts trusted absolute paths.
+export function resolveRunScope(
+  label,
+  { devRoot = readDevRoot(), garrisonHome = GARRISON_HOME } = {}
+) {
+  if (typeof label !== "string") return null;
+  const scope = label.trim();
+  if (scope === PERSONAL_SCOPE_TOKEN) return resolvePersonalScope({ garrisonHome });
+  return resolveProjectName(scope, { devRoot });
 }
 
 // The dev-root child names that resolveProjectName would accept, sorted - the

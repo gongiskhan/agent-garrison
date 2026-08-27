@@ -1,15 +1,22 @@
 // GARRISON-FLOW-V2 S7 (D20) — the conversational-override feedback record.
 //
 // The gateway records ONE override event per real override into the Improver
-// evidence queue (~/.garrison/improver/feedback-queue.jsonl): the operator's
-// words + BOTH the prior and applied resolution. Agreement is never recorded.
-// These tests pin the pure lib (phrase detection, record shape, atomic append)
-// and the /feedback/override endpoint behaviour end-to-end against a sandbox home.
+// evidence queue: the operator's words + BOTH the prior and applied resolution.
+// Agreement is never recorded. These tests pin the pure lib (phrase detection,
+// record shape, the append) and the /feedback/override endpoint behaviour
+// end-to-end.
+//
+// Since mesh phase 2 (§4.5) that queue is the state service's `feedback_queue`
+// table rather than ~/.garrison/improver/feedback-queue.jsonl, so the append is
+// asserted against a real service on an ephemeral port. The record shape did not
+// move: the payload is the record verbatim.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { startStateService } from "./state-service-harness";
 
 const ROOT = path.resolve(__dirname, "..");
 const LIB = pathToFileURL(
@@ -21,19 +28,31 @@ async function lib() {
 }
 
 let home: string;
-beforeEach(() => {
+let h: Awaited<ReturnType<typeof startStateService>>;
+const savedState = { url: process.env.GARRISON_STATE_URL, token: process.env.GARRISON_STATE_TOKEN };
+
+beforeEach(async () => {
   home = mkdtempSync(path.join(tmpdir(), "improver-home-"));
   process.env.GARRISON_HOME = home;
+  h = await startStateService();
+  process.env.GARRISON_STATE_URL = h.url;
+  process.env.GARRISON_STATE_TOKEN = h.token;
+  (await lib()).resetFeedbackClient();
 });
-afterEach(() => {
+afterEach(async () => {
+  await h?.stop();
   delete process.env.GARRISON_HOME;
+  if (savedState.url === undefined) delete process.env.GARRISON_STATE_URL;
+  else process.env.GARRISON_STATE_URL = savedState.url;
+  if (savedState.token === undefined) delete process.env.GARRISON_STATE_TOKEN;
+  else process.env.GARRISON_STATE_TOKEN = savedState.token;
+  (await lib()).resetFeedbackClient();
   rmSync(home, { recursive: true, force: true });
 });
 
-function readQueue(): any[] {
-  const f = path.join(home, "improver", "feedback-queue.jsonl");
-  if (!existsSync(f)) return [];
-  return readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+async function readQueue(): Promise<any[]> {
+  const rows = await h.client.listFeedback({ limit: 500 });
+  return rows.map((r: { payload: unknown }) => r.payload);
 }
 
 describe("detectOverride — the three example phrases + close variants", () => {
@@ -87,17 +106,20 @@ describe("buildOverrideRecord — the D20 schema", () => {
     const rec = buildOverrideRecord({
       session_id: "thread-7",
       answer: "full pipeline",
-      original: { taskType: "code", tier: "T0-trivial", workKind: null, plan: "quick" },
-      applied: { taskType: "code", tier: "T0-trivial", workKind: null, plan: "full" },
+      original: { taskType: "code", tier: "T0-trivial", flow: null, plan: "quick" },
+      applied: { taskType: "code", tier: "T0-trivial", flow: null, plan: "full" },
       at: "2026-07-11T00:00:00.000Z",
     });
     expect(rec).toEqual({
+      // Every producer now mints a stable id (tombstone deletes target it);
+      // sortable-by-mint-time, format owned by improver/lib/feedback-signals.mjs.
+      id: expect.stringMatching(/^fq-[0-9a-z]{9}-[0-9a-f]{8}$/),
       session_id: "thread-7",
       area: "orchestrator",
       question: "override",
       answer: "full pipeline",
-      original: { taskType: "code", tier: "T0-trivial", workKind: null, plan: "quick" },
-      applied: { taskType: "code", tier: "T0-trivial", workKind: null, plan: "full" },
+      original: { taskType: "code", tier: "T0-trivial", flow: null, plan: "quick" },
+      applied: { taskType: "code", tier: "T0-trivial", flow: null, plan: "full" },
       timestamp: "2026-07-11T00:00:00.000Z",
       provenance: "override",
     });
@@ -110,20 +132,28 @@ describe("buildOverrideRecord — the D20 schema", () => {
   });
 });
 
-describe("appendFeedback — atomic JSONL append to the improver queue", () => {
-  it("creates the queue (and its dir) and appends one record per call", async () => {
+describe("appendFeedback — one record, one transaction, into the shared queue", () => {
+  it("appends one row per call, in order, with the record carried verbatim", async () => {
     const { appendFeedback, buildOverrideRecord } = await lib();
-    await appendFeedback(buildOverrideRecord({ answer: "a", original: null, applied: null, at: "t1" }));
+    const first = buildOverrideRecord({ answer: "a", original: null, applied: null, at: "t1" });
+    const appended = await appendFeedback(first);
     await appendFeedback(buildOverrideRecord({ answer: "b", original: null, applied: null, at: "t2" }));
-    const recs = readQueue();
+    // The id the gateway minted IS the row id — that is what makes the record
+    // tombstonable from the Signals view later.
+    expect(appended.id).toBe(first.id);
+    const recs = await readQueue();
     expect(recs).toHaveLength(2);
-    expect(recs[0].answer).toBe("a");
+    expect(recs[0]).toEqual(first);
     expect(recs[1].answer).toBe("b");
     expect(recs.every((r) => r.provenance === "override")).toBe(true);
   });
-  it("targets ~/.garrison (GARRISON_HOME)/improver/feedback-queue.jsonl", async () => {
-    const { improverQueuePath } = await lib();
+  it("writes NOTHING to the pre-mesh file — there is no local fallback queue", async () => {
+    const { appendFeedback, buildOverrideRecord, improverQueuePath } = await lib();
+    await appendFeedback(buildOverrideRecord({ answer: "a", original: null, applied: null, at: "t1" }));
+    // The path is still resolved the way it always was (GARRISON_HOME), because
+    // it is still the honest answer to "where did this live before".
     expect(improverQueuePath()).toBe(path.join(home, "improver", "feedback-queue.jsonl"));
+    expect(existsSync(improverQueuePath())).toBe(false);
   });
 });
 
@@ -137,11 +167,11 @@ describe("/feedback/override endpoint records the override", () => {
       buildOverrideRecord({
         session_id: "s1",
         answer,
-        original: { taskType: "code", tier: "T1-standard", workKind: null, plan: "quick" },
-        applied: { taskType: "code", tier: "T1-standard", workKind: null, plan: "full" },
+        original: { taskType: "code", tier: "T1-standard", flow: null, plan: "quick" },
+        applied: { taskType: "code", tier: "T1-standard", flow: null, plan: "full" },
       })
     );
-    const recs = readQueue();
+    const recs = await readQueue();
     expect(recs).toHaveLength(1);
     expect(recs[0].answer).toBe(answer);
     expect(recs[0].original.plan).toBe("quick");

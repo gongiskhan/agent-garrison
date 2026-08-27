@@ -6,14 +6,15 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: observability
+  category: Operations
   cardinality_hint: single
   component_shape: script
   # Own-port board UI (the kanban-board-ui slice). Garrison surfaces it at
   # /embed/kanban-loop from the status file scripts/server.mjs writes under
-  # ~/.garrison/ui-fittings/kanban-loop.json. operative-bound = the runner starts
+  # ~/.garrison/ui-fittings/kanban-loop.json. composition-bound = the runner starts
   # it during `up` and stops it during `down`.
   own_port: true
-  default_port: 7089
+  default_port: 8089
   platforms:
     - claude-code
   summary: >-
@@ -32,11 +33,15 @@ x-garrison:
     EXACTLY name one of the card's valid next lists AND the phase's durable
     gate-status entry must exist in the runDir (D9), or the card parks in
     needs-attention. Cards on autonomous lists are engine-owned (D16). The card's
-    work kind + per-card phase toggles form its rail (D17): OFF phases are skipped
+    flow + per-card phase toggles form its rail (D17): OFF phases are skipped
     with explicit off events, never silent. The Test list runs batched per project
     on its own scheduler beat (default every 5h). Goal-mode carries a
     runtime-neutral acceptance block; the convergence guard is the per-card
-    iteration cap.
+    iteration cap. Cards carry an independently editable personal/project/unscoped
+    scope before their first run. A personal card may still belong to a real
+    project; without one it runs in the confined $GARRISON_HOME/personal workspace.
+    Personal Done cards emit bounded provider-neutral completion packets for the
+    Basic Memory fitting to retain as provenance-marked source notes.
   config_schema:
     - key: board_dir
       type: path
@@ -48,7 +53,7 @@ x-garrison:
       description: Per-card iteration cap; a breach parks the card in needs-attention (the convergence guard).
     - key: test_beat_cron
       type: string
-      default: 0 */5 * * *
+      default: 0 */2 * * *
       description: Cron cadence for the Test list's own scheduler beat (override via KANBAN_TEST_BEAT_CRON). Not the global heartbeat.
     - key: tick_cron
       type: string
@@ -62,10 +67,6 @@ x-garrison:
       type: integer
       default: 2
       description: Hours before a running or waiting card counts as stalled in the weekly review (override via KANBAN_REVIEW_STALL_HOURS).
-    - key: outpost_host_url
-      type: string
-      default: http://127.0.0.1:3702
-      description: Outpost host daemon this instance probes for a card's `outpost` affinity. Base-family value; the loopback port is shifted per profile (dev 3702 / prod 4702). Override via GARRISON_OUTPOST_URL.
   provides:
     - kind: automation-runner
       name: kanban-loop
@@ -99,4 +100,4 @@ x-garrison:
     them (one skill-decider per list, one effort/model decider in the router, no
     overlap). Goal-mode cards carry a runtime-neutral acceptance block; the guard is the
     iteration cap, not a host-specific slash command or goal hook. The two adversarial
-    lists are cross-model Codex passes via the codex CLI — the operative stays modest.
+    lists are cross-model Codex passes via the codex CLI — the session stays modest.

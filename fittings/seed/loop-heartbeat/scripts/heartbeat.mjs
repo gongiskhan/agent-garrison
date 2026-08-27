@@ -10,6 +10,8 @@
 //   node heartbeat.mjs --once    # fire one tick, exit
 //   node heartbeat.mjs daemon    # tick every cadence_minutes until killed
 
+import { randomUUID } from "node:crypto";
+
 const cadenceMinutes = Number(process.env.GARRISON_HEARTBEAT_MINUTES ?? "40");
 // NO port literal fallback, deliberately. This value is another process's
 // address, and defaulting it is a guess about which instance we belong to: the
@@ -42,34 +44,58 @@ const TICK_PAYLOAD = {
   ].join(" ")
 };
 
+const POST_ATTEMPTS = 3;
+const POST_RETRY_BASE_MS = 250;
+const configuredPostTimeoutMs = Number(process.env.GARRISON_JOB_POST_TIMEOUT_MS);
+const POST_TIMEOUT_MS = Number.isFinite(configuredPostTimeoutMs) && configuredPostTimeoutMs > 0
+  ? configuredPostTimeoutMs
+  : 10_000;
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function tick() {
   const startedAt = new Date().toISOString();
-  try {
-    const res = await fetch(gatewayUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(TICK_PAYLOAD)
-    });
-    const txt = await res.text();
-    process.stdout.write(
-      JSON.stringify({
-        ts: startedAt,
-        kind: "heartbeat-tick",
-        status: res.status,
-        ack: txt.slice(0, 120)
-      }) + "\n"
-    );
-    return res.status;
-  } catch (err) {
-    process.stderr.write(
-      JSON.stringify({
-        ts: startedAt,
-        kind: "heartbeat-error",
-        error: err.message
-      }) + "\n"
-    );
-    return -1;
+  // One occurrence id per cadence tick: all retries share it (at-most-once at
+  // ingress), while the next legitimate 40-minute tick remains distinct instead
+  // of being suppressed by the gateway's multi-hour replay window.
+  const payload = { ...TICK_PAYLOAD, occurrence_id: randomUUID() };
+  let lastStatus = -1;
+  for (let attempt = 1; attempt <= POST_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await fetch(gatewayUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(POST_TIMEOUT_MS)
+      });
+      const txt = await res.text();
+      lastStatus = res.status;
+      process.stdout.write(
+        JSON.stringify({
+          ts: startedAt,
+          kind: "heartbeat-tick",
+          status: res.status,
+          attempt,
+          ack: txt.slice(0, 120)
+        }) + "\n"
+      );
+      // 5xx (including ingress backpressure 503) is explicitly retryable. A
+      // 4xx is a bad payload/config and must not be amplified.
+      if (res.status < 500 || attempt === POST_ATTEMPTS) return res.status;
+    } catch (err) {
+      process.stderr.write(
+        JSON.stringify({
+          ts: startedAt,
+          kind: "heartbeat-error",
+          attempt,
+          error: err.message
+        }) + "\n"
+      );
+      if (attempt === POST_ATTEMPTS) return -1;
+    }
+    await wait(POST_RETRY_BASE_MS * (2 ** (attempt - 1)));
   }
+  return lastStatus;
 }
 
 async function daemon() {

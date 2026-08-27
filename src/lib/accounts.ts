@@ -59,6 +59,14 @@ export interface AccountMeta {
    * say why without re-probing.
    */
   last_verify?: { outcome: string; detail: string; at: string };
+  /**
+   * The account's own identity as the PROVIDER reports it (an email or a
+   * username), captured best-effort at login for the providers that expose it
+   * cheaply (Hugging Face, OpenRouter). Absent for providers with no free
+   * identity endpoint - the roster falls back to the account name there. Never
+   * a secret: this is the public handle, not the token.
+   */
+  identity?: string;
   /** PAYMASTER D7: absent = true. Disabled accounts are never picked by auto. */
   enabled?: boolean;
   /**
@@ -211,6 +219,11 @@ function ageDaysOf(createdAt: string): number | null {
  * missing. Never returns token values.
  */
 export async function listAccounts(): Promise<AccountInfo[]> {
+  // Learn any identity the stored credentials already reveal, so an account
+  // captured before this existed shows its email without a re-login. Costs a
+  // file read per identity-less account and writes only when it learns
+  // something, so the steady state is free.
+  await backfillAccountIdentities().catch(() => { /* labels are never load-bearing */ });
   const registry = await readRegistry();
   const vaultKeys = await vaultAccountKeys();
   const out: AccountInfo[] = registry.accounts.map((meta) => {
@@ -512,16 +525,103 @@ export function setAccountVerdict(
 }
 
 /**
+ * The identity a stored credential already reveals, or null.
+ *
+ * No network and no provider API: the credential file an account is built from
+ * often already names its owner, and reading it costs nothing. Today that is the
+ * OpenAI/Codex `auth.json`, whose OIDC `id_token` carries an `email` claim.
+ *
+ * Anthropic subscription accounts are deliberately absent: they are an opaque
+ * setup token with no per-account home and no free identity endpoint, so their
+ * roster label stays the name the user gave them. Better an honest name than a
+ * guessed identity.
+ *
+ * The JWT is READ, never verified - this is a display label lifted from a
+ * credential we already trust enough to run with, not an authorization decision.
+ */
+export async function identityFromCredential(name: string, platform: AccountPlatform): Promise<string | null> {
+  const spec = PLATFORM_SPECS[platform].authFile;
+  if (!spec || platform !== "openai") return null;
+  try {
+    const file = path.join(accountHomeDir(name, platform), spec.relPath);
+    const raw = await fs.readFile(file, "utf8");
+    const token = (JSON.parse(raw) as { tokens?: { id_token?: unknown } })?.tokens?.id_token;
+    if (typeof token !== "string") return null;
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const claims = JSON.parse(json) as Record<string, unknown>;
+    for (const key of ["email", "preferred_username", "name"]) {
+      const value = claims[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return null;
+  } catch {
+    // A missing, unreadable or reshaped credential simply has no identity to
+    // show. It must never break the roster.
+    return null;
+  }
+}
+
+/**
+ * Fill in any identity we can read for free, for accounts that have none.
+ *
+ * Called when the roster is built so an account captured before this existed
+ * gets its label without the user re-logging in. Writes only when it learns
+ * something new, so a roster read stays a no-op in the normal case.
+ */
+export async function backfillAccountIdentities(): Promise<void> {
+  const registry = await readRegistry();
+  const missing = registry.accounts.filter((account) => !account.identity?.trim());
+  if (!missing.length) return;
+  for (const account of missing) {
+    const identity = await identityFromCredential(account.name, normalizePlatform(account.platform));
+    if (identity) await setAccountIdentity(account.name, identity);
+  }
+}
+
+/**
+ * Record the provider-reported identity (email/username) for an account. Called
+ * best-effort after a login captures a token; a blank value is ignored so a
+ * failed identity fetch never clears an identity we already had.
+ */
+export function setAccountIdentity(name: string, identity: string): Promise<void> {
+  return withRegistryLock(async () => {
+    if (!isValidAccountName(name)) return;
+    const trimmed = identity.trim();
+    if (!trimmed) return;
+    const registry = await readRegistry();
+    const existing = registry.accounts.find((a) => a.name === name);
+    const base: AccountMeta = existing ?? { name, created_at: "" };
+    registry.accounts = [
+      ...registry.accounts.filter((a) => a.name !== name),
+      { ...base, identity: trimmed }
+    ];
+    await writeRegistry(registry);
+  });
+}
+
+/**
  * D5: flag/unflag an account after an observed auth failure (session 401 or
  * Paymaster probe 401). Flagging a vault-only account (no metadata row yet)
  * CREATES its row - a silently unflaggable account would stay a deterministic
  * dead pick for auto selection.
  */
-export function setAccountNeedsRelogin(name: string, needsRelogin: boolean): Promise<void> {
-  return withRegistryLock(() => setAccountNeedsReloginLocked(name, needsRelogin));
+export function setAccountNeedsRelogin(
+  name: string,
+  needsRelogin: boolean,
+  platform: AccountPlatform = "anthropic"
+): Promise<void> {
+  return withRegistryLock(() =>
+    setAccountNeedsReloginLocked(name, needsRelogin, normalizePlatform(platform))
+  );
 }
 
-async function setAccountNeedsReloginLocked(name: string, needsRelogin: boolean): Promise<void> {
+async function setAccountNeedsReloginLocked(
+  name: string,
+  needsRelogin: boolean,
+  platform: AccountPlatform
+): Promise<void> {
   if (!isValidAccountName(name)) return;
   const registry = await readRegistry();
   let changed = false;
@@ -534,7 +634,15 @@ async function setAccountNeedsReloginLocked(name: string, needsRelogin: boolean)
     return next;
   });
   if (needsRelogin && !registry.accounts.some((a) => a.name === name)) {
-    registry.accounts = [...registry.accounts, { name, created_at: "", needs_relogin: true }];
+    registry.accounts = [
+      ...registry.accounts,
+      {
+        name,
+        ...(platform !== "anthropic" ? { platform } : {}),
+        created_at: "",
+        needs_relogin: true
+      }
+    ];
     changed = true;
   }
   if (changed) await writeRegistry(registry);
@@ -578,52 +686,212 @@ export async function accountTokenForSpawn(
   return token;
 }
 
+export interface ResolvedPrimaryRuntimeAccount {
+  name: string;
+  platform: AccountPlatform;
+  credentialKind: CredentialKind;
+  env: Record<string, string>;
+}
+
+async function resolveNamedRuntimeAccount(
+  name: string,
+  consumer: string,
+  expectedPlatform: AccountPlatform,
+  options: { allowAuthFile?: boolean },
+  subject: string
+): Promise<ResolvedPrimaryRuntimeAccount> {
+  const accountName = String(name ?? "").trim();
+  if (!accountName || accountName === "auto") {
+    throw new Error(
+      `${subject} ${consumer} requires an explicit named account; "auto" is supported only for Anthropic plan accounts.`
+    );
+  }
+  const meta = (await listAccounts()).find((account) => account.name === accountName);
+  if (!meta) {
+    throw new Error(
+      `${subject} ${consumer} names account "${accountName}", but it is not in the account registry.`
+    );
+  }
+  const platform = normalizePlatform(meta.platform);
+  const credentialKind = normalizeCredentialKind(meta.credential_kind);
+  if (platform !== expectedPlatform) {
+    throw new Error(
+      `${subject} ${consumer} provider expects a ${expectedPlatform} account, but "${accountName}" is ${platform}.`
+    );
+  }
+  if (credentialKind === "auth-file" && !options.allowAuthFile) {
+    throw new Error(
+      `${subject} ${consumer} provider requires an API-token account, but "${accountName}" is an auth-file credential.`
+    );
+  }
+  const credential = await accountTokenForSpawn(accountName, consumer, platform);
+  const env = credentialKind === "auth-file"
+    ? accountHomeEnv(
+        accountName,
+        platform,
+        await materializeAccountHome(accountName, platform, credential)
+      )
+    : accountAuthEnv(accountName, credential, platform, meta.env_keys);
+  return {
+    name: accountName,
+    platform,
+    credentialKind,
+    env
+  };
+}
+
 /**
- * RUNTIME-ACCOUNTS-V2: build the spawn-env for every composed runtime's pinned,
- * NON-ANTHROPIC account. Anthropic is deliberately excluded here — it flows
- * through the dedicated primary path (buildPrimaryRuntimeEnv + the auto/Paymaster
- * resolution), and its env var is process-wide so a secondary Anthropic delegate
- * must ride the operative's token, never clobber it. OpenAI/Google/custom use
- * disjoint env vars, so injecting them into the operative env lets a Codex/Gemini
- * runtime authenticate whether it is the primary or a secondary delegate target
- * (the bridge inherits process.env). Missing tokens are logged, never fatal —
- * the delegate fails loudly at call time with its own vault-locked/absent error.
+ * Resolve a named NON-ANTHROPIC primary account strictly, before the provider
+ * launch env is built. Missing registry metadata, a platform mismatch, an
+ * unsupported credential kind, or an absent credential all fail the launch
+ * loudly. Token delivery remains vault-audited through accountTokenForSpawn().
+ * Codex/Gemini primaries may opt into their native auth-file homes;
+ * API-shaped runtimes must stay token-only.
+ */
+export async function resolvePrimaryRuntimeAccount(
+  name: string,
+  consumer: string,
+  expectedPlatform: AccountPlatform,
+  options: { allowAuthFile?: boolean } = {}
+): Promise<ResolvedPrimaryRuntimeAccount> {
+  return resolveNamedRuntimeAccount(
+    name,
+    consumer,
+    expectedPlatform,
+    options,
+    "primary runtime"
+  );
+}
+
+export interface RuntimeAccountRequest {
+  id: string;
+  account?: string;
+  expectedPlatform: AccountPlatform;
+  allowAuthFile?: boolean;
+}
+
+export interface RuntimeAccountEnvOptions {
+  log?: (message: string) => void;
+  /** Process-wide values already owned by the primary/provider launch. */
+  reservedEnv?: Record<string, string>;
+  /** Platforms whose ambient/home/token rail is already owned by the primary. */
+  reservedPlatforms?: Array<{
+    platform: AccountPlatform;
+    /** Exact named owner may be reused; absent means an ambient/default rail. */
+    account?: string;
+    owner: string;
+  }>;
+}
+
+/**
+ * Build the process-wide spawn env for explicitly pinned secondary runtimes.
+ * Every request carries the platform derived from the runtime+provider, and is
+ * resolved strictly: a missing/wrong credential or an env collision aborts the
+ * launch instead of silently selecting an ambient identity. GARRISON_ACCOUNT is
+ * deliberately omitted because one process cannot truthfully advertise several
+ * secondary identities as its active primary account.
+ *
+ * This is a conservative boundary until runtime bridges receive isolated env
+ * blocks. Two different accounts that need the same platform rail are rejected.
  */
 export async function resolveRuntimeAccountEnv(
-  runtimes: { id: string; account?: string }[],
-  opts?: { log?: (message: string) => void }
+  runtimes: RuntimeAccountRequest[],
+  opts: RuntimeAccountEnvOptions = {}
 ): Promise<Record<string, string>> {
   const log = opts?.log ?? (() => undefined);
-  const accounts = await listAccounts();
-  const byName = new Map(accounts.map((a) => [a.name, a]));
   const env: Record<string, string> = {};
+  const reservedNamedOwner = (opts.reservedPlatforms ?? []).find(
+    (item) => item.account
+  );
+  const reservedEnvOwnerId = reservedNamedOwner
+    ? `${reservedNamedOwner.platform}:${reservedNamedOwner.account}`
+    : "reserved:primary-runtime-provider";
+  const values = new Map<
+    string,
+    { value: string; owner: string; ownerId: string }
+  >();
+  const platformOwners = new Map<
+    AccountPlatform,
+    { account: string | null; owner: string; ownerId: string }
+  >();
+  for (const [key, value] of Object.entries(opts.reservedEnv ?? {})) {
+    values.set(key, {
+      value,
+      owner: "primary runtime/provider",
+      ownerId: reservedEnvOwnerId
+    });
+  }
+  for (const item of opts.reservedPlatforms ?? []) {
+    platformOwners.set(item.platform, {
+      account: item.account ?? null,
+      owner: item.owner,
+      ownerId: item.account
+        ? `${item.platform}:${item.account}`
+        : `reserved:${item.platform}:${item.owner}`
+    });
+  }
   for (const runtime of runtimes) {
     const account = String(runtime.account ?? "").trim();
-    if (!account || account === "auto") continue; // "" = machine login; auto = anthropic-only
-    const meta = byName.get(account);
-    if (!meta) {
-      log(`runtime ${runtime.id}: account "${account}" is not in the registry — ignored.`);
-      continue;
+    if (!account) continue;
+    if (account === "auto") {
+      throw new Error(
+        `runtime ${runtime.id} cannot use account "auto" on ${runtime.expectedPlatform}; Auto is Anthropic-primary only.`
+      );
     }
-    if (meta.platform === "anthropic") continue; // handled by the primary/auto path
-    try {
-      const secret = await accountTokenForSpawn(account, runtime.id, meta.platform);
-      if (meta.credential_kind === "auth-file") {
-        // Subscription credential: hand the CLI a private config home instead of
-        // an env token. This OVERRIDES the launcher's instance-wide CODEX_HOME /
-        // GEMINI_CLI_HOME for the pinned account.
-        const home = await materializeAccountHome(account, meta.platform, secret);
-        Object.assign(env, accountHomeEnv(account, meta.platform, home));
-        const spec = PLATFORM_SPECS[meta.platform].authFile!;
-        log(`runtime ${runtime.id}: injected ${meta.platform} account "${account}" (${spec.homeEnvKey}=${home}).`);
-      } else {
-        Object.assign(env, accountAuthEnv(account, secret, meta.platform, meta.env_keys));
-        const keys = meta.platform === "custom" ? meta.env_keys ?? [] : PLATFORM_SPECS[meta.platform].envKeys;
-        log(`runtime ${runtime.id}: injected ${meta.platform} account "${account}" (${keys.join(", ")}).`);
+
+    const resolved = await resolveNamedRuntimeAccount(
+      account,
+      runtime.id,
+      runtime.expectedPlatform,
+      { allowAuthFile: runtime.allowAuthFile },
+      "runtime"
+    );
+    const ownerId = `${resolved.platform}:${resolved.name}`;
+    const platformOwner = platformOwners.get(resolved.platform);
+    if (platformOwner && platformOwner.ownerId !== ownerId) {
+      throw new Error(
+        `runtime ${runtime.id} cannot pin ${resolved.platform} account "${resolved.name}" because ${platformOwner.owner} already owns that process-wide credential rail. Per-runtime env isolation is required for two accounts on one platform.`
+      );
+    }
+    if (!platformOwner) {
+      platformOwners.set(resolved.platform, {
+        account: resolved.name,
+        owner: `runtime ${runtime.id} account "${resolved.name}"`,
+        ownerId
+      });
+    }
+    const accountEnv = { ...resolved.env };
+    if (accountEnv.GARRISON_ACCOUNT !== resolved.name) {
+      throw new Error(
+        `runtime ${runtime.id} account "${account}" declares reserved env key GARRISON_ACCOUNT; account env keys cannot replace Garrison's identity marker.`
+      );
+    }
+    delete accountEnv.GARRISON_ACCOUNT;
+    for (const [key, value] of Object.entries(accountEnv)) {
+      const prior = values.get(key);
+      if (prior && prior.ownerId !== ownerId) {
+        throw new Error(
+          `runtime ${runtime.id} account "${account}" conflicts on ${key} with ${prior.owner}; process-wide runtime credentials cannot be flattened safely.`
+        );
       }
-    } catch (error) {
-      log(`runtime ${runtime.id}: account "${account}" token unavailable — ${error instanceof Error ? error.message : String(error)}`);
+      if (prior && prior.value !== value) {
+        throw new Error(
+          `runtime ${runtime.id} account "${account}" resolved inconsistent values for ${key}; refusing an ambiguous process-wide credential.`
+        );
+      }
+      if (!prior) {
+        values.set(key, {
+          value,
+          owner: `runtime ${runtime.id} account "${account}"`,
+          ownerId
+        });
+      }
+      env[key] = value;
     }
+    const keys = Object.keys(accountEnv);
+    log(
+      `runtime ${runtime.id}: injected ${resolved.platform} account "${account}" (${keys.join(", ")}).`
+    );
   }
   return env;
 }

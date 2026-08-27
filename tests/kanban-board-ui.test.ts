@@ -17,6 +17,19 @@ import { realpathSync, symlinkSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 // The server imports @garrison/claude-pty (paths helper). Point the transcript
 // dir at a sandbox so the resolver is deterministic and never touches ~/.claude.
 const TMP = path.join(os.tmpdir(), `kanban-ui-test-${process.pid}-${Date.now()}`);
@@ -141,7 +154,7 @@ describe("buildBoardView", () => {
     };
     const s = cardSummary(card);
     expect(s).toMatchObject({
-      id: "Z".repeat(26), title: "t", project: "p", list: "plan", status: "running",
+      id: "Z".repeat(26), title: "t", project: "p", scope: "project", list: "plan", status: "running",
       iterations: 3, goalMode: true, rev: 5, runId: "RUN1", sliceId: "slice-x",
       videoUrl: "https://example/v"
     });
@@ -157,6 +170,13 @@ describe("buildBoardView", () => {
       effortApplied: true,
       phase: "plan"
     });
+  });
+
+  it("derives canonical scope for legacy cards and preserves an explicit personal label", () => {
+    expect(cardSummary({ id: "legacy-project", list: "backlog", project: "garrison" }).scope).toBe("project");
+    expect(cardSummary({ id: "legacy-empty", list: "backlog" }).scope).toBe("unscoped");
+    expect(cardSummary({ id: "personal-project", list: "backlog", project: "garrison", scope: "personal" }).scope)
+      .toBe("personal");
   });
 });
 

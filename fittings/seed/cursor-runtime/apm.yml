@@ -6,6 +6,7 @@ type: hybrid
 includes: auto
 x-garrison:
   faculty: runtimes
+  category: Operations
   # Cursor's own native login — a browser OAuth flow that lands a credential in
   # Cursor's config dir. There is no Garrison account plane for Cursor yet (no
   # AccountPlatform, so this fitting deliberately declares NO `account` config

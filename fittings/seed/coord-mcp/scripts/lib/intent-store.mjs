@@ -2,61 +2,65 @@
 // for <reason>") so overlapping work by other sessions surfaces as a conflict in
 // the digest. Repo-scoped: a session only ever sees its own repo's intents.
 //
-// Ledger: ~/.garrison/coord/intents/<repoSlug>.jsonl (append-only)
-//   { repo, session, area, files, reason, ts }
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { repoSlug } from "./repo.mjs";
+// Ledger: the state service's append-only `intents` table, keyed by the mesh
+// repo key. Release is SET-ONCE (`released_at`), never a delete, so the ledger
+// stays append-only and a release can never race a concurrent declare.
+//
+// The bakery-ticket file lock this module used to carry is GONE with the file
+// ledger it protected. Its whole job was serialising append and
+// read-modify-write against one file; the service does that in a transaction,
+// and its liveness check (process.kill(pid, 0)) was meaningless across hosts
+// anyway.
+import { stateClient } from "./state.mjs";
 import { withinLookback } from "./lookback.mjs";
 
-function garrisonHome() {
-  const o = process.env.GARRISON_HOME;
-  return o && o.trim().length > 0 ? o : path.join(os.homedir(), ".garrison");
-}
-function intentDir() {
-  return path.join(garrisonHome(), "coord", "intents");
-}
-function intentPath(repo) {
-  return path.join(intentDir(), `${repoSlug(repo)}.jsonl`);
+// Service rows -> the legacy row shape the digest, the CLI and the Coordination
+// view already read. `repo` is now the mesh repo KEY, not a filesystem path.
+export function normalizeIntent(row) {
+  return {
+    seq: row.seq,
+    repo: row.repoKey,
+    session: row.session,
+    area: row.area || "",
+    files: Array.isArray(row.files) ? row.files : [],
+    reason: row.reason || "",
+    ts: row.at
+  };
 }
 
-export function declareIntent(repo, entry) {
-  fs.mkdirSync(intentDir(), { recursive: true });
+export async function declareIntent(repoKey, entry) {
   const row = {
-    repo,
+    repo: repoKey,
     session: entry.session || "unknown",
     area: entry.area || "",
     files: Array.isArray(entry.files) ? entry.files : [],
-    reason: entry.reason || "",
+    // The service requires a reason — an intent nobody can read is not an intent.
+    // Fall back to the area so a reason-less caller still records something true.
+    reason: entry.reason || entry.area || "unspecified",
     ts: entry.ts || new Date().toISOString()
   };
-  fs.appendFileSync(intentPath(repo), JSON.stringify(row) + "\n");
-  return row;
+  const { seq } = await stateClient().declareIntent({
+    repoKey,
+    session: row.session,
+    area: row.area,
+    files: row.files,
+    reason: row.reason
+  });
+  return { ...row, seq };
 }
 
-export function readIntents(repo) {
-  let txt = "";
-  try {
-    txt = fs.readFileSync(intentPath(repo), "utf8");
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const line of txt.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    try {
-      out.push(JSON.parse(t));
-    } catch {
-      /* partial trailing line — skip */
-    }
-  }
-  return out;
+// Open (unreleased) intents for a repo, newest first.
+export async function readIntents(repoKey) {
+  return (await stateClient().listIntents(repoKey)).map(normalizeIntent);
 }
 
-export function recentIntents(repo, now = new Date()) {
-  return readIntents(repo).filter((i) => withinLookback(i.ts, now));
+export async function recentIntents(repoKey, now = new Date()) {
+  return (await readIntents(repoKey)).filter((i) => withinLookback(i.ts, now));
+}
+
+// Every open intent on the mesh, newest first — the machine-wide view.
+export async function allRecentIntents(now = new Date()) {
+  return (await stateClient().listIntents(undefined)).map(normalizeIntent).filter((i) => withinLookback(i.ts, now));
 }
 
 function norm(s) {
@@ -85,13 +89,11 @@ export function intentsOverlap(a, b) {
 
 // Recent intents by OTHER sessions whose area/files overlap the given intent —
 // i.e. potential conflicts the caller should know about before proceeding.
-export function conflictsFor(repo, mine, now = new Date()) {
-  return recentIntents(repo, now).filter((i) => i.session !== mine.session && intentsOverlap(i, mine));
+export async function conflictsFor(repoKey, mine, now = new Date()) {
+  return (await recentIntents(repoKey, now)).filter((i) => i.session !== mine.session && intentsOverlap(i, mine));
 }
 
-// Cleanup (used by the canary to remove its synthetic intents).
-export function removeIntentsBySession(repo, session) {
-  const kept = readIntents(repo).filter((i) => i.session !== session);
-  fs.mkdirSync(intentDir(), { recursive: true });
-  fs.writeFileSync(intentPath(repo), kept.map((i) => JSON.stringify(i)).join("\n") + (kept.length ? "\n" : ""));
+// Release this session's intents for a repo. Set-once tombstone, not a delete.
+export async function removeIntentsBySession(repoKey, session) {
+  return stateClient().releaseIntents({ repoKey, session });
 }

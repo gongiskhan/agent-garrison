@@ -1,7 +1,7 @@
 // routing-telemetry.mjs — route telemetry (BRIEF v4 §2 "Route telemetry").
 //
 // The gateway is the SOURCE OF TRUTH for routing decisions (it made them), so it
-// writes every Stage-A decision to decisions.jsonl AT RESOLUTION TIME — no
+// writes every pre-session routing decision to decisions.jsonl AT RESOLUTION TIME — no
 // transcript scraping (MR0e: jsonl-verdict=absent). The operative still ends
 // each reply with a [route: …] token; because the gateway also captures the
 // reply text, it diff-checks the token against the resolved route and logs

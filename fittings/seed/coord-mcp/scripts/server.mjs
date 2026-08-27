@@ -5,20 +5,32 @@
 //
 // Tools:
 //   begin_planning(repo?, summary)  -> WAIT (held by another) | GRANTED + read-bundle
-//   end_planning(repo?)             -> release the lock (records the released plan)
-//   plan_heartbeat(repo?)           -> extend the lock TTL
+//   end_planning(repo?)             -> release the lease (records the released plan)
+//   plan_heartbeat(repo?)           -> extend the lease TTL
 //   plan_status(repo?)              -> holder + waiters (observability layer 5)
 //   declare_intent(repo?, area, files?, reason)  -> record an intent (drift signal)
-//   release_intents(repo?)          -> clear this session's intents
+//   release_intents(repo?)          -> release this session's intents
 //   coord_digest(repo?, area?, files?) -> the repo-scoped digest (same as the hook)
 //
-// All work is mechanical (file scans + a bd query) — NO model call (stays in PTY).
+// All coordination state lives in the Garrison STATE SERVICE, keyed by the mesh
+// repo key, so the planning gate serializes planners across every node — not
+// just this box. There is NO local fallback: when the service is unreachable
+// every tool returns a loud error naming it. A file lock one machine believes in
+// is worse than no lock at all.
+//
+// All work is mechanical (service reads + a bd query) — NO model call (stays in PTY).
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
-import { repoRoot } from "./lib/repo.mjs";
-import { acquireLock, releaseLock, heartbeat, lockStatus, recordWaiter, clearWaiter, readWaiters } from "./lib/plan-lock.mjs";
-import { recordPlan } from "./lib/plan-store.mjs";
+import { repoRef } from "./lib/repo.mjs";
+import { StateUnavailableError } from "./lib/state.mjs";
+import {
+  acquirePlanLease,
+  releasePlanLease,
+  renewPlanLease,
+  planLeaseStatus
+} from "./lib/plan-lease.mjs";
+import { recordPlan, recordWaiter, readWaiters } from "./lib/plan-store.mjs";
 import { declareIntent, removeIntentsBySession } from "./lib/intent-store.mjs";
 import { buildReadBundle } from "./lib/read-bundle.mjs";
 import { buildDigest } from "./lib/digest.mjs";
@@ -28,88 +40,89 @@ const SESSION =
   (process.env.COORD_SESSION && process.env.COORD_SESSION.trim()) ||
   `${os.hostname().split(".")[0]}-${randomUUID().slice(0, 8)}`;
 
+// A tool's `repo` argument may be an absolute checkout path, an already
+// normalized mesh key (the Coordination view round-trips the key it displayed),
+// or omitted — in which case the server's own cwd decides.
 function resolveRepo(args) {
-  const r = args && args.repo;
-  if (r && String(r).trim()) return String(r).trim();
-  return repoRoot(process.cwd());
+  return repoRef(args && args.repo, process.cwd());
 }
 
 // ---- tool implementations (exported for tests) ----
-export function beginPlanning(args, session = SESSION, now = new Date()) {
-  const repo = resolveRepo(args);
+export async function beginPlanning(args, session = SESSION, now = new Date()) {
+  const ref = resolveRepo(args);
   const summary = String((args && args.summary) || "");
-  const acq = acquireLock(repo, session, summary, now);
+  const acq = await acquirePlanLease(ref.key, session, summary, now);
   if (!acq.acquired) {
-    recordWaiter(repo, session, summary, now);
+    await recordWaiter(ref.key, session, summary);
     const h = acq.holder;
     return {
       status: "WAIT",
-      repo,
-      message: `Another session is planning ${repo}. WAIT and re-check; do not start planning.`,
-      // holder is unknown for a "contended" loss (a concurrent acquirer mid-write).
+      repo: ref.key,
+      message: `Another session is planning ${ref.key}. WAIT and re-check; do not start planning.`,
       holder: h ? { session: h.session, summary: h.summary, startedAt: h.startedAt, expiresAt: h.expiresAt } : null,
       reason: acq.reason
     };
   }
-  clearWaiter(repo, session);
   return {
     status: "GRANTED",
-    repo,
-    lock: { session, startedAt: acq.lock.startedAt, expiresAt: acq.lock.expiresAt },
+    repo: ref.key,
+    lock: { session, startedAt: acq.lock.startedAt, expiresAt: acq.lock.expiresAt, fence: acq.lock.fence },
     recoveredStaleLock: Boolean(acq.recovered),
-    readBundle: buildReadBundle(repo, now)
+    readBundle: await buildReadBundle(ref.key, now)
   };
 }
 
-export function endPlanning(args, session = SESSION, now = new Date()) {
-  const repo = resolveRepo(args);
-  const st = lockStatus(repo, now);
-  // Record the released plan if THIS session is the lock's attributed owner — even
-  // if the lock has since expired, the planner's plan is still valuable to the next.
+export async function endPlanning(args, session = SESSION, now = new Date()) {
+  const ref = resolveRepo(args);
+  const st = await planLeaseStatus(ref.key);
+  // Record the released plan if THIS session is the lease's attributed owner — even
+  // if the lease has since expired, the planner's plan is still valuable to the next.
   if (st.lock && st.lock.session === session) {
-    recordPlan(repo, {
+    await recordPlan(ref.key, {
       session,
       summary: st.lock.summary,
       startedAt: st.lock.startedAt,
       releasedAt: now.toISOString()
     });
   }
-  const rel = releaseLock(repo, session, now);
-  return { status: rel.released ? "RELEASED" : "NOT-HELD", repo, detail: rel };
+  const rel = await releasePlanLease(ref.key, session);
+  return { status: rel.released ? "RELEASED" : "NOT-HELD", repo: ref.key, detail: rel };
 }
 
-export function planHeartbeat(args, session = SESSION, now = new Date()) {
-  const repo = resolveRepo(args);
-  return { repo, ...heartbeat(repo, session, now) };
+export async function planHeartbeat(args, session = SESSION) {
+  const ref = resolveRepo(args);
+  return { repo: ref.key, ...(await renewPlanLease(ref.key, session)) };
 }
 
-export function planStatus(args, _session = SESSION, now = new Date()) {
-  const repo = resolveRepo(args);
-  return { repo, lock: lockStatus(repo, now), waiters: readWaiters(repo, now) };
+export async function planStatus(args, _session = SESSION, now = new Date()) {
+  const ref = resolveRepo(args);
+  const lock = await planLeaseStatus(ref.key);
+  const waiters = await readWaiters(ref.key, now, { exclude: lock.lock ? lock.lock.session : null });
+  return { repo: ref.key, lock, waiters };
 }
 
-export function declareIntentTool(args, session = SESSION, now = new Date()) {
-  const repo = resolveRepo(args);
-  const row = declareIntent(repo, {
+export async function declareIntentTool(args, session = SESSION, now = new Date()) {
+  const ref = resolveRepo(args);
+  const row = await declareIntent(ref.key, {
     session,
     area: (args && args.area) || "",
     files: (args && args.files) || [],
     reason: (args && args.reason) || "",
     ts: now.toISOString()
   });
-  return { status: "DECLARED", repo, intent: row };
+  return { status: "DECLARED", repo: ref.key, intent: row };
 }
 
-export function releaseIntentsTool(args, session = SESSION) {
-  const repo = resolveRepo(args);
-  removeIntentsBySession(repo, session);
-  return { status: "RELEASED", repo, session };
+export async function releaseIntentsTool(args, session = SESSION) {
+  const ref = resolveRepo(args);
+  const res = await removeIntentsBySession(ref.key, session);
+  return { status: "RELEASED", repo: ref.key, session, released: res.released };
 }
 
 export async function coordDigestTool(args, session = SESSION, now = new Date()) {
-  const repo = resolveRepo(args);
-  const d = await buildDigest(repo, { session, area: (args && args.area) || "", files: (args && args.files) || [] }, now);
-  return { repo, text: d.text, bytes: d.bytes, hasConflicts: d.hasConflicts, conflicts: d.conflicts, leaseConflicts: d.leaseConflicts };
+  const ref = resolveRepo(args);
+  const d = await buildDigest(ref, { session, area: (args && args.area) || "", files: (args && args.files) || [] }, now);
+  return { repo: ref.key, text: d.text, bytes: d.bytes, hasConflicts: d.hasConflicts, conflicts: d.conflicts, leaseConflicts: d.leaseConflicts };
 }
 
 const TOOLS = [
@@ -149,9 +162,23 @@ export async function handle(msg) {
     const fn = DISPATCH[name];
     if (!fn) return send({ jsonrpc: "2.0", id, error: { code: -32601, message: `unknown tool ${name}` } });
     try {
-      const result = await fn(args || {}); // tools may be async (e.g. coord_digest fetches leases)
+      const result = await fn(args || {}); // every tool is async (state-service reads)
       return send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
     } catch (e) {
+      // FAILURE HONESTY: an unreachable state service is an operational fact the
+      // agent must read and act on, not a protocol bug — so it comes back as an
+      // isError tool result naming the service. There is NO local fallback: a
+      // file lock only this machine believes in would report a mesh-wide
+      // guarantee it cannot make.
+      if (e instanceof StateUnavailableError) {
+        const payload = {
+          status: "ERROR",
+          error: "state-unavailable",
+          service: e.url,
+          message: `Coordination is UNAVAILABLE: the Garrison state service at ${e.url} could not be reached (${e.cause?.message ?? e.cause}). coord-mcp has no local fallback — planning locks and intents are mesh state. Say so rather than assuming you hold a lock.`
+        };
+        return send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(payload) }], isError: true } });
+      }
       return send({ jsonrpc: "2.0", id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } });
     }
   }

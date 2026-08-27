@@ -27,13 +27,19 @@ declare module "*/web-channel-default/scripts/threads.mjs" {
     messages: ThreadMessage[];
     claudeSessionId?: string | null;
     routing?: unknown;
+    messageKeys?: string[];
   }
   export function safeThreadId(raw: unknown): string | null;
   export function newThreadId(): string;
   export function listThreads(): Promise<ThreadMeta[]>;
   export function getThread(id: string): Promise<Thread | null>;
+  export function getThreadSnapshot(id: string): Promise<{
+    thread: Thread;
+    pendingInputs: Array<Record<string, unknown>>;
+    inputRevision: number;
+  } | null>;
   export function ensureThread(opts: { id?: string; title?: string; source?: string; mode?: string; context?: unknown; nowIso?: string }): Promise<Thread>;
-  export function appendMessages(id: string, messages: ThreadMessage[], opts?: { nowIso?: string }): Promise<ThreadMeta>;
+  export function appendMessages(id: string, messages: ThreadMessage[], opts?: { nowIso?: string; idempotencyKey?: string }): Promise<ThreadMeta>;
   export function deleteThread(id: string): Promise<boolean>;
   export function threadExistsSync(id: string): boolean;
   export function setThreadSession(id: string, sessionId: string): Promise<ThreadMeta | null>;
@@ -49,4 +55,58 @@ declare module "*/web-channel-default/ui/pwa-assets.mjs" {
   export function iconSvg(size?: number): string;
   export function emitPwaAssets(opts: { srcDir: string; distDir: string }): Promise<string[]>;
   export const PWA_DIST_ASSETS: string[];
+}
+
+declare module "*/web-channel-default/lib/webpush.mjs" {
+  export function b64url(buf: Uint8Array | Buffer): string;
+  export function unb64url(str: string): Buffer;
+  export function generateVapidKeys(): { publicKey: string; privateKey: string };
+  export function vapidAuthorization(args: {
+    audience: string;
+    subject: string;
+    publicKey: string;
+    privateKey: string;
+    expirySeconds?: number;
+    now?: () => number;
+  }): string;
+  export function encryptPayload(args: {
+    payload: string;
+    p256dh: string;
+    auth: string;
+    salt?: Buffer;
+    senderKeys?: { privateKey: string } | null;
+  }): Buffer;
+  export function decryptPayload(args: {
+    body: Buffer;
+    uaPrivateKey: string;
+    uaPublicKey: string;
+    auth: string;
+  }): string;
+  export function sendPush(args: {
+    subscription: { endpoint: string; keys?: { p256dh?: string; auth?: string } };
+    payload: string;
+    vapid: { subject: string; publicKey: string; privateKey: string };
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+  }): Promise<{ ok: boolean; status: number; gone: boolean; error?: string }>;
+}
+
+declare module "*/web-channel-default/lib/push-store.mjs" {
+  interface PushSubscriptionRow {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    label: string | null;
+    createdAt: string;
+  }
+  export function subscriptionsFile(env?: Record<string, string | undefined>): string;
+  export function readSubscriptions(env?: Record<string, string | undefined>): PushSubscriptionRow[];
+  export function saveSubscription(
+    subscription: { endpoint?: string; keys?: { p256dh?: string; auth?: string } },
+    env?: Record<string, string | undefined>,
+    opts?: { label?: string | null; at?: string }
+  ): PushSubscriptionRow[];
+  export function removeSubscription(endpoint: string, env?: Record<string, string | undefined>): number;
+  export function vapidFromEnv(
+    env?: Record<string, string | undefined>
+  ): { publicKey: string; privateKey: string; subject: string } | null;
 }

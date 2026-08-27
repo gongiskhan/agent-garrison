@@ -4,9 +4,12 @@ import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
 
-export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    return NextResponse.json({ state: await up(params.id) });
+    // {full: true} forces install + setup hooks + verify even when the
+    // composition is unchanged (the fast path skips them otherwise).
+    const body = await request.json().catch(() => ({}));
+    return NextResponse.json({ state: await up(params.id, { full: body?.full === true }) });
   } catch (error) {
     return jsonError(error, 400);
   }

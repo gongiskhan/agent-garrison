@@ -1,10 +1,21 @@
-// Kanban Loop storage (V1a): file-per-card under ~/.garrison/kanban-loop.
-//   board.json            — list defs + order + per-list config (NEVER membership)
-//   cards/<ulid>/card.json — title, project, list, status, iterations, goalMode, ts
-//   cards/<ulid>/log-N.md  — per-session logs (written by the engine)
-// List membership is DERIVED by scanning cards (brief §3) — never stored on disk.
-// Every mutation is read-immediately-before-write + atomic (temp file then rename).
-import { promises as fs, readdirSync } from "node:fs";
+// Kanban Loop storage: the GARRISON STATE SERVICE owns the cards and the board
+// layout. This module keeps every name and signature its callers already use —
+// engine.mjs, coordination.mjs and the board server are untouched — and only its
+// bodies moved off the filesystem.
+//
+//   cards                  — `cards` rows in the state service. rev CAS via
+//                            If-Match, coordination_seq as a monotonic floor,
+//                            no resurrection, occurrence_key UNIQUE, and an
+//                            unparseable schedule refused at the door.
+//   board layout           — config doc `board.layout` / scope `global`.
+//   cards/<id>/brief.md,
+//   attachments/, log-N.md — still node-local files.
+//
+// The `root` argument every function still accepts selects where those
+// node-local SIDE FILES live (kanbanRoot()); it no longer selects a card store.
+//
+// List membership is still DERIVED from the cards, never stored.
+import { promises as fs, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
@@ -12,6 +23,18 @@ import { routeTerminalTransition } from "./notify-origin.mjs";
 import { generateHandoffIfDone } from "./handoff.mjs";
 import { deriveOriginId } from "./origins.mjs";
 import { markSteeringApplied } from "./steering.mjs";
+import { adoptFlowKeys } from "./policy.mjs";
+import { emitPersonalCompletionAfterDone, isPersonalDoneTransition } from "./personal-memory-outbox.mjs";
+import {
+  SCHEDULE_ACTIONS,
+  normaliseScheduleAction,
+  normaliseScheduledFor,
+  normaliseCardSchedule,
+  scheduleNextAt
+} from "./schedules.mjs";
+import { createStateClient, StateApiError } from "./state-client.mjs";
+
+export { SCHEDULE_ACTIONS, normaliseScheduleAction, normaliseScheduledFor, normaliseCardSchedule } from "./schedules.mjs";
 
 export function kanbanRoot() {
   const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -27,30 +50,349 @@ export async function atomicWriteJSON(file, obj) {
   await fs.rename(tmp, file);
 }
 
-async function readJSON(file) {
-  return JSON.parse(await fs.readFile(file, "utf8"));
+// ── the state service seam ─────────────────────────────────────────
+// ONE client per process, memoised on the discovery inputs so a token rotation
+// — or a test pointing this process at its own ephemeral service — is picked up
+// without a restart. The client throws loudly when the node is not enrolled;
+// there is deliberately NO fallback to a local card store, no cache and no write
+// queue. A stale read is worse than a clear stop.
+let stateClientCache = null;
+let stateClientKey = null;
+
+function stateDiscoveryKey(env) {
+  return [
+    env.GARRISON_STATE_URL ?? "",
+    env.GARRISON_STATE_TOKEN ?? "",
+    env.GARRISON_HOME ?? "",
+    env.GARRISON_NODE_NAME ?? ""
+  ].join("|");
 }
 
-// One-shot board migration (D15): v2 boards carried per-list skill/taskType/
-// tier/mode pins — the dead config GARRISON-UNIFY-V1 deletes. Strip them,
-// stamp each agent list's phase (its id), bump to v3. Idempotent; unknown
-// fields survive.
+export function boardStateClient() {
+  const key = stateDiscoveryKey(process.env);
+  if (stateClientCache && stateClientKey === key) return stateClientCache;
+  stateClientCache = createStateClient({ readFileSync });
+  stateClientKey = key;
+  return stateClientCache;
+}
+
+function isStatus(err, status) {
+  return err instanceof StateApiError && err.status === status;
+}
+
+// How many times a lock-scoped (recovery) write re-reads and re-runs its mutator
+// after losing the CAS. The lifecycle lock used to make that impossible; the
+// service transaction plus a bounded retry is the same guarantee without a pid.
+const LOCKED_WRITE_TRIES = 6;
+
+// This node's name. `host` placement resolves through it (see below), so an
+// unnamed node is a hard, loud error rather than a card that quietly lands
+// nowhere.
+function localNodeName() {
+  const client = boardStateClient();
+  const name = String(client.node || process.env.GARRISON_NODE_NAME || "").trim();
+  if (!name) {
+    throw new Error(
+      "kanban: this node has no name — set GARRISON_NODE_NAME (or `node` in $GARRISON_HOME/state.json) so placement can resolve \"host\""
+    );
+  }
+  return name;
+}
+
+// `host` means \"run where Garrison runs\" — a phrase with no referent once
+// several machines all run Garrison, so the store never holds it (the service
+// rejects it outright). It is WRITTEN as this node's name and READ BACK as
+// `host` when the target IS this node, which is exactly what \"mine to run\"
+// means locally. A target naming another node crosses both ways verbatim, so
+// the engine's local/remote split and dispatch claimability are unchanged.
+function placementToStore(placement) {
+  if (!placement || typeof placement !== "object") return placement ?? null;
+  if (placement.target !== HOST_PLACEMENT_TARGET) return placement;
+  return { ...placement, target: localNodeName() };
+}
+
+function placementFromStore(placement) {
+  if (!placement || typeof placement !== "object") return placement ?? null;
+  let self = null;
+  try { self = localNodeName(); } catch { self = null; }
+  if (!self || placement.target !== self) return placement;
+  return { ...placement, target: HOST_PLACEMENT_TARGET };
+}
+
+// A NULL promoted column comes back as an absent key; the board's card shape
+// uses explicit nulls, and a reader that wrote `null` must read `null`.
+const NULLABLE_PROMOTED = [
+  "position", "project", "scheduledFor", "schedule", "occurrenceKey", "systemKey", "origin_id", "placement"
+];
+
+// `compat` mirrors exactly where the file store applied its read-time fixups:
+// loadCard did, and a write's return value did NOT. Relocating a retired list on
+// the way OUT of a write would rename the caller's own card under it.
+function cardFromStore(row, { compat = false } = {}) {
+  if (!row) return null;
+  const card = { ...row };
+  // The service's own bookkeeping; the card carries `created` / `updated`.
+  delete card.created_at;
+  delete card.updated_at;
+  for (const field of NULLABLE_PROMOTED) {
+    if (card[field] === undefined) card[field] = null;
+  }
+  card.placement = placementFromStore(card.placement);
+  if (!compat) return card;
+  // Compat on read, exactly as the file store did: adopt the pre-rename flow key
+  // and relocate a card left in a list the v6 migration retired.
+  return relocateRetiredListCards(adoptFlowKeys(card));
+}
+
+function cardToStore(card) {
+  const out = { ...card };
+  delete out.created_at;
+  delete out.updated_at;
+  if (out.placement) out.placement = placementToStore(out.placement);
+  return out;
+}
+
+// Position allocation happens inside the write transaction now — that was the
+// whole job of withCardOrderLock. An explicit finite number is honoured; anything
+// else lands at the BOTTOM, which is the order a null `position` already had when
+// it fell back to the creation instant.
+function positionHint(card) {
+  return typeof card?.position === "number" && Number.isFinite(card.position) ? card.position : "bottom";
+}
+
+// ── node-local card mirror (batch-one bridge) ─────────────────────────
+// The service is the source of truth and nothing in this module ever READS the
+// mirror. It exists because three callers have not been migrated yet and still
+// open cards/<id>/card.json on the node that wrote it:
+//   * src/lib/board-summary.ts               (the Next app's board summary)
+//   * coordination.mjs readCardStateForCleanup (the durable cleanup guard)
+//   * personal-memory-outbox.mjs reconcilePersonalCompletionOutbox
+// It is write-only and best-effort, and it goes away with those three.
+async function mirrorCard(root, card) {
+  if (!card || !card.id) return card;
+  try {
+    await atomicWriteJSON(cardFile(root, card.id), card);
+  } catch (err) {
+    console.error(`[kanban] card mirror failed for ${card.id}: ${err?.message ?? err}`);
+  }
+  return card;
+}
+
+// The current on-disk board schema version. Bumped whenever a migration below
+// must run once on load for EVERY existing board (not just model-driven ones).
+export const BOARD_VERSION = 9;
+
+// A duty-backed list's display title. The board is the thing Gonçalo looks at all
+// day, so a list that runs a duty must SAY it runs a duty (brief §2.4) — otherwise
+// the board shows a column called "Review" with no hint that it is a routed agent
+// step rather than a place to park things.
+//
+// Only the ids that title-case badly are listed; everything else derives.
+const DUTY_TITLE_OVERRIDES = {
+  "ux-qa": "UX QA",
+  "adversarial-review": "Adversarial Review",
+  "adversarial-test": "Adversarial Test",
+  "codex-checkpoint": "Codex Checkpoint",
+  "security-review": "Security Review",
+  "probe-question": "Probe Question"
+};
+
+export const DUTY_TITLE_PREFIX = "duty: ";
+
+// Every duty a flow level can name needs a list, or a card entering that level
+// has nowhere to run and stalls. `feature` level 3 alone runs walkthrough,
+// validate and report, none of which had a column before the 2026-08-09 library
+// landed. Ordered as the pipeline runs, and inserted before the terminal manual
+// columns so the board still reads left to right.
+const REQUIRED_DUTY_LISTS = [
+  "adversarial-test",
+  "security-review",
+  "walkthrough",
+  "validate",
+  "codex-checkpoint",
+  "report"
+];
+
+// Discuss is deliberately NOT prefixed. It is a DESTINATION where a card sits
+// across many turns of conversation, not a step a card passes through, so
+// "duty: Discuss" would misdescribe it — and the brief lists it among the plain
+// lists in §2.4 even while §2.1 calls it a duty (ORCHESTRATOR_COHERENCE.md A1).
+const UNPREFIXED_AGENT_LISTS = new Set(["discuss"]);
+
+/** A list's name for use INSIDE a sentence. The `duty:` prefix is a column-header
+ *  device — it tells you at a glance which columns are routed agent steps. In prose
+ *  it reads as noise ("advanced Needs attention → duty: Plan"), so strip it. */
+export function listProseLabel(listOrTitle) {
+  const title =
+    typeof listOrTitle === "string" ? listOrTitle : listOrTitle?.title ?? listOrTitle?.id ?? "";
+  return String(title).startsWith(DUTY_TITLE_PREFIX)
+    ? String(title).slice(DUTY_TITLE_PREFIX.length)
+    : String(title);
+}
+
+export function dutyListTitle(id) {
+  const base =
+    DUTY_TITLE_OVERRIDES[id] ??
+    String(id)
+      .split("-")
+      .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
+  return `${DUTY_TITLE_PREFIX}${base}`;
+}
+
+// One-shot board migration. Idempotent; unknown fields survive.
+//   v2→v3 (D15): strip dead per-list skill/taskType/tier/mode pins and stamp each
+//     agent list's phase (its id).
+//   v3→v4 (2026-08-04): ensure the fixed `archived` tail column exists. This runs
+//     for boards that predate the resolved-model reconcile too (a composition with
+//     no model.json is otherwise never rebuilt), so every live board picks up the
+//     Archived column on the next load regardless of how it was seeded.
+//   v4→v5 (2026-08-05): add the fixed Scheduled system column at the far left.
 export function migrateBoard(board) {
   if (!board || typeof board !== "object") return board;
-  if ((board.version || 0) >= 3) return board;
-  const lists = (board.lists || []).map((l) => {
-    const { skill, taskType, tier, mode, ...rest } = l;
-    if (rest.kind === "agent" && !rest.phase) rest.phase = rest.id;
-    return rest;
-  });
-  return { ...board, version: 3, lists };
+  if ((board.version || 0) >= BOARD_VERSION) return board;
+  let lists = board.lists || [];
+  if ((board.version || 0) < 3) {
+    lists = lists.map((l) => {
+      const { skill, taskType, tier, mode, ...rest } = l;
+      if (rest.kind === "agent" && !rest.phase) rest.phase = rest.id;
+      return rest;
+    });
+  }
+  if (!lists.some((l) => l.id === "archived")) {
+    const maxOrder = lists.reduce((m, l) => Math.max(m, Number.isFinite(l.order) ? l.order : 0), 0);
+    lists = [
+      ...lists,
+      { id: "archived", title: "Archived", order: maxOrder + 1, kind: "manual", trigger: "manual", terminal: true, archived: true, validNext: [] }
+    ];
+  }
+  if (!lists.some((l) => l.id === "scheduled")) {
+    lists = [
+      {
+        id: "scheduled", title: "Scheduled", order: -1, userOrder: -1,
+        kind: "scheduled", trigger: "scheduler-beat", system: true,
+        validNext: []
+      },
+      ...lists
+    ];
+  } else {
+    lists = lists.map((list) => list.id === "scheduled"
+      ? { ...list, order: -1, userOrder: -1, kind: "scheduled", trigger: "scheduler-beat", system: true, validNext: [] }
+      : list);
+  }
+  if ((board.version || 0) < 7) {
+    // v5→v7 (2026-08-09, ORCHESTRATOR_COHERENCE.md §5.1):
+    // (Numbered 7, not 6: a live kanban process re-read this module mid-edit — after
+    // BOARD_VERSION became 6 but before this block existed — and stamped both live
+    // boards v6 with nothing applied. Gating on <7 heals those boards; a board that
+    // legitimately reached 6 is unchanged by re-running an idempotent migration.)
+    //   (a) the `code` duty was retired into `implement` — they named the same
+    //       work — so its list is dropped. Any card still sitting in it (there
+    //       were none on the live boards) moves to `implement` rather than being
+    //       stranded in a list that no longer routes.
+    //   (b) every duty-backed list gets the `duty:` prefix so the board says which
+    //       lists are routed agent steps. List IDS ARE NOT TOUCHED — cards
+    //       reference them and persisted references must keep resolving.
+    // (c) add a column for every duty a flow level can name.
+    const terminalIds = new Set(["done", "needs-attention", "archived"]);
+    const firstTerminal = lists.findIndex((l) => terminalIds.has(l.id));
+    const missing = REQUIRED_DUTY_LISTS.filter((id) => !lists.some((l) => l.id === id)).map((id) => ({
+      id,
+      title: dutyListTitle(id),
+      kind: "agent",
+      phase: id,
+      trigger: "manual",
+      validNext: []
+    }));
+    if (missing.length) {
+      const at = firstTerminal === -1 ? lists.length : firstTerminal;
+      // Fractional orders between the last agent column and the first terminal
+      // one. Renumbering every list instead would silently reshuffle a board the
+      // user had reordered by hand — the new columns must slot in WITHOUT
+      // touching the position of anything already there.
+      const before = at === 0 ? 0 : Number(lists[at - 1]?.order ?? at - 1);
+      const after = at < lists.length ? Number(lists[at]?.order ?? before + 1) : before + 1;
+      const step = (after - before) / (missing.length + 1);
+      const placed = missing.map((l, i) => ({ ...l, order: before + step * (i + 1) }));
+      lists = [...lists.slice(0, at), ...placed, ...lists.slice(at)];
+    }
+
+    const hasImplement = lists.some((l) => l.id === "implement");
+    lists = lists
+      .filter((l) => !(l.id === "code" && hasImplement))
+      .map((list) => {
+        if (list.kind !== "agent" && list.kind !== "agent-interactive") return list;
+        if (UNPREFIXED_AGENT_LISTS.has(list.id)) return list;
+        // Idempotent: a title already prefixed is left exactly as the user left it.
+        if (typeof list.title === "string" && list.title.startsWith(DUTY_TITLE_PREFIX)) return list;
+        return { ...list, title: dutyListTitle(list.id) };
+      })
+      .map((list) => ({
+        ...list,
+        validNext: Array.isArray(list.validNext)
+          ? list.validNext.map((n) => (n === "code" && hasImplement ? "implement" : n))
+          : list.validNext
+      }));
+  }
+  if ((board.version || 0) < 9) {
+    // v7→v9 (2026-08-15): the Kanban "Add list" affordance used to create a
+    // composition DUTY — an agent list carrying the `duty:` prefix that starts a
+    // run when a card lands on it. It now creates a human-managed manual list.
+    // The one list created under the old flow on the live boards is `ice-box`,
+    // explicitly described "human managed"; convert it to what the user intended:
+    // a manual, human-managed parking column, no `duty:` prefix, no agent
+    // behaviour. Its ID is NOT touched — cards reference it. Marking it
+    // `userCreated` makes the duty reconcile PRESERVE it (resolved-model.mjs) once
+    // the composition drops the ice-box duty, instead of stranding its cards.
+    //   (Numbered 9, not 8: a live process re-read this module mid-edit — after
+    //   BOARD_VERSION became 8 but before this block existed — and stamped the prod
+    //   board v8 with nothing applied, exactly the v6→v7 window above. Gating on <9
+    //   heals it; the conversion is idempotent, and a board with no ice-box list is
+    //   untouched.)
+    lists = lists.map((list) => {
+      if (list.id !== "ice-box") return list;
+      const { phase, executePrompt, routerPrompt, beatCron, interactive, surface, ...rest } = list;
+      return {
+        ...rest,
+        title: "Ice Box",
+        kind: "manual",
+        trigger: "manual",
+        userCreated: true,
+        validNext: []
+      };
+    });
+  }
+  return { ...board, version: BOARD_VERSION, lists };
+}
+
+/** Cards stranded in a list this migration removed. The board file only holds the
+ *  list definitions; membership lives on each card, so the caller relocates them. */
+export function relocateRetiredListCards(card) {
+  if (card && card.list === "code") return { ...card, list: "implement" };
+  return card;
+}
+
+// The board layout is ONE shared document, not a per-root file: config doc
+// `board.layout` at scope `global`.
+export const BOARD_NAMESPACE = "board.layout";
+export const BOARD_SCOPE = "global";
+
+// An absent layout stays an ENOENT-shaped throw — the seeding paths
+// (kanban.mjs --setup) catch exactly that and seed, and a silent default here
+// would clobber the seed-or-migrate-never-clobber rule.
+function missingBoardError() {
+  const err = new Error("kanban: no board layout — the board has not been seeded");
+  err.code = "ENOENT";
+  return err;
 }
 
 export async function loadBoard(root = kanbanRoot()) {
-  const board = await readJSON(path.join(root, "board.json"));
-  // v2→v3 migration on read, persisted back so it runs once; a fresh board is
-  // already v3.
-  if (board && (board.version || 0) < 3) {
+  const doc = await boardStateClient().getConfig(BOARD_NAMESPACE, BOARD_SCOPE);
+  const board = doc?.body ?? null;
+  if (!board || typeof board !== "object") throw missingBoardError();
+  // Migration on read, persisted back so it runs once; a fresh board is already at
+  // BOARD_VERSION.
+  if (board && (board.version || 0) < BOARD_VERSION) {
     const migrated = migrateBoard(board);
     await saveBoard(migrated, root);
     return migrated;
@@ -59,18 +401,49 @@ export async function loadBoard(root = kanbanRoot()) {
 }
 
 export async function saveBoard(board, root = kanbanRoot()) {
-  await atomicWriteJSON(path.join(root, "board.json"), board);
+  const client = boardStateClient();
+  // saveBoard carries no precondition of its own (that is saveBoardCAS's job), so
+  // a concurrent writer just means re-reading the document rev and writing again.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const doc = await client.getConfig(BOARD_NAMESPACE, BOARD_SCOPE);
+    try {
+      await client.putConfig(BOARD_NAMESPACE, BOARD_SCOPE, board, { ifMatchRev: doc?.rev ?? 0 });
+      return;
+    } catch (err) {
+      if (!isStatus(err, 409)) throw err;
+    }
+  }
+  throw new Error("kanban: the board layout write lost the race 5 times");
 }
 
 const cardFile = (root, id) => path.join(root, "cards", id, "card.json");
 
 // The card-owned Discuss brief: a markdown file next to the card's card.json. This is
-// the DETERMINISTIC, card-scoped brief location — James writes it here (told the absolute
+// the DETERMINISTIC, card-scoped brief location — the Discuss duty writes it here (told the absolute
 // path in the Discuss kickoff), the web-channel Brief editor reads/writes it, and the
 // engine folds it into the build prompt. Decoupled from any project working dir, so the
 // three never disagree on where the brief lives.
 export const cardBriefFile = (root, id) => path.join(root, "cards", id, "brief.md");
 export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanbanRoot (card.briefPath marker)
+
+// Card-owned attachments: uploaded files under cards/<id>/attachments/. The
+// LISTING is derived by readdir (like list membership — never stored on the
+// card, so a stray file delete can't desync a manifest). The engine folds the
+// absolute paths into the dispatch prompt; the operative Reads them itself.
+export const cardAttachmentsDir = (root, id) => path.join(root, "cards", id, "attachments");
+export function listCardAttachments(root, id) {
+  const dir = cardAttachmentsDir(root, id);
+  let names;
+  try {
+    names = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return names
+    .filter((e) => e.isFile() && !e.name.startsWith("."))
+    .map((e) => ({ name: e.name, path: path.join(dir, e.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
 // Outpost Dispatch placement — WHERE a card runs.
 //
@@ -83,21 +456,75 @@ export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanba
 // the fleet". `not_before` is carried verbatim so the claim path can decide (and
 // refuse an unparseable value) rather than this silently dropping a schedule.
 export const HOST_PLACEMENT_TARGET = "host";
-export function normalisePlacement(raw) {
-  if (!raw || typeof raw !== "object") return { target: HOST_PLACEMENT_TARGET };
+export function normalisePlacement(raw, legacyOutpost = null) {
+  const legacy = typeof legacyOutpost === "string" ? legacyOutpost.trim() : "";
+  if (!raw || typeof raw !== "object") return { target: legacy || HOST_PLACEMENT_TARGET };
   const target = typeof raw.target === "string" ? raw.target.trim() : "";
   const notBefore = typeof raw.not_before === "string" ? raw.not_before.trim() : "";
   return {
-    target: target || HOST_PLACEMENT_TARGET,
+    target: target && target !== HOST_PLACEMENT_TARGET ? target : legacy || target || HOST_PLACEMENT_TARGET,
     ...(notBefore ? { not_before: notBefore } : {})
   };
+}
+
+// ── Card scheduling ────────────────────────────────────────────────────────
+// `scheduledFor` (ISO instant) holds the card OUT of every dispatch path until
+// the instant passes; the tick's due-sweep then either notifies ("notify", the
+// default — the reminder carries the tell-Zeca phrases) or auto-starts ("run").
+// An unparseable value HOLDS the card (same fail-closed rule as placement
+// not_before in claimability): a scheduled card that runs early is worse than
+// one that waits for a human.
+// True when the card is held by a future (or unparseable — fail closed)
+// schedule. Every dispatch seam funnels through this one predicate.
+export function scheduleHolds(card, now = Date.now()) {
+  const at = scheduleNextAt(card);
+  if (!at) return false;
+  const t = Date.parse(at);
+  if (!Number.isFinite(t)) return true; // unparseable holds, never releases early
+  return t > now;
+}
+
+// ── Checklist ──────────────────────────────────────────────────────────────
+// Human-first task list inside a card ({id, text, done, doneAt}); the engine
+// folds open items into the dispatch prompt so the operative sees them too.
+// Whole-array replace on PATCH — items are tiny and human-edited.
+export function normaliseChecklist(raw) {
+  if (!Array.isArray(raw)) return null;
+  const items = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    const text = typeof it.text === "string" ? it.text.trim() : "";
+    if (!text) continue;
+    const done = it.done === true;
+    items.push({
+      id: typeof it.id === "string" && /^[0-9A-Za-z_-]{1,32}$/.test(it.id) ? it.id : ulid().slice(-10),
+      // Preserve the authored body verbatim (after surrounding whitespace). A
+      // checklist item is allowed to be a small multi-paragraph task brief; the
+      // former silent 500-character slice lost later paragraphs on every save.
+      text,
+      done,
+      doneAt: done && typeof it.doneAt === "string" ? it.doneAt : done ? new Date().toISOString() : null
+    });
+    if (items.length >= 100) break;
+  }
+  return items.length ? items : [];
+}
+
+// Within-list ordering: a card's effective position is its explicit `position`
+// (set by drag-reorder) or its creation instant in ms — so legacy cards keep
+// their historical created order and a drag only has to write ONE card.
+export function cardPosition(card) {
+  const p = card?.position;
+  if (typeof p === "number" && Number.isFinite(p)) return p;
+  const t = Date.parse(card?.created ?? "");
+  return Number.isFinite(t) ? t : 0;
 }
 
 /**
  * The card's explicit run spec (RUN-SPEC-V1) — the `TurnRouting` pin, stored whole.
  *
  * STRUCTURAL sanitising only: the exact field list, and scalars-or-nothing. The
- * SEMANTIC check (is this tier/work kind/phase in the compiled policy's
+ * SEMANTIC check (is this tier/flow/phase in the compiled policy's
  * vocabulary?) belongs to the gateway's sanitizeRouting and is deliberately not
  * mirrored here — the board is a different process with no policy of its own, and a
  * second copy of that vocabulary is exactly the drift this whole change is removing.
@@ -108,7 +535,7 @@ export function normalisePlacement(raw) {
  * rather than an empty object — the two read identically, and null is what every
  * pre-existing card already has.
  */
-export const CARD_ROUTING_FIELDS = ["target", "model", "effort", "duty", "level", "project", "account", "tier", "workKind", "phasesOff"];
+export const CARD_ROUTING_FIELDS = ["target", "model", "effort", "duty", "level", "project", "account", "tier", "flow", "phasesOff", "phasesOn"];
 export function sanitiseCardRouting(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const out = {};
@@ -127,8 +554,26 @@ export function sanitiseCardRouting(raw) {
   return Object.keys(out).length ? out : null;
 }
 
-export async function createCard(root, { title, description = "", project = null, list, goalMode = false, acceptance = null, workKind = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+// What kind of ownership/context a card has. This is deliberately independent of
+// `flow`: personal is a task classification, while flow chooses an execution
+// rail. A personal card can therefore still be moved onto an agent list and run.
+export const CARD_SCOPES = ["personal", "project", "unscoped"];
+export function cardScope(card) {
+  if (card?.scope === "personal") return "personal";
+  const project = typeof card?.project === "string" ? card.project.trim() : "";
+  if (project) return "project";
+  return "unscoped";
+}
+
+export async function createCard(root, { title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   const id = ulid();
+  // Personal is an independent label and may coexist with a project (for example,
+  // a private task whose implementation still belongs to a real repository).
+  // Every non-personal legacy/new shape derives project vs unscoped from the
+  // actual project field.
+  // The HTTP boundary rejects malformed scope values; this lower-level constructor
+  // remains tolerant for imports/tests and old callers.
+  scope = cardScope({ scope, project });
   // WS2 (D7): a continuation card references its predecessor by ULID. When set and
   // no explicit origin was given, the card's origin is "continuation".
   const validContinues = typeof continues === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(continues) ? continues : null;
@@ -138,7 +583,7 @@ export async function createCard(root, { title, description = "", project = null
   // creation door (Continue button, create_continuation tool, gateway) gets it.
   if (validContinues && !duty && !sequence) {
     try {
-      const prev = JSON.parse(await fs.readFile(cardFile(root, validContinues), "utf8"));
+      const prev = await loadCard(root, validContinues);
       duty = prev.duty ?? null;
       level = prev.level ?? null;
       sequence = Array.isArray(prev.sequence) && prev.sequence.length ? [...prev.sequence] : null;
@@ -146,11 +591,18 @@ export async function createCard(root, { title, description = "", project = null
       /* unknown predecessor - the successor stays bare */
     }
   }
+  const cardSchedule = normaliseCardSchedule(schedule, {
+    scheduledFor: normaliseScheduledFor(scheduledFor),
+    scheduleAction,
+    targetList: list,
+    now: at
+  });
   const card = {
     id,
     title: title ?? "(untitled)",
     description,
     project,
+    scope,
     list,
     status: "ok",
     iterations: 0,
@@ -159,11 +611,11 @@ export async function createCard(root, { title, description = "", project = null
     goalMode: Boolean(goalMode),
     acceptance,
     // ── run-policy fields (S4: D2/D8/D17) ─────────────────────────────────
-    // workKind names the policy work kind whose phase plan is this card's
+    // flow names the policy flow whose phase plan is this card's
     // rail; phases is the per-card toggle map merged OVER the plan (an OFF
     // phase renders off, never hidden); tier rides classification (the phase
     // is the task type); origin records who registered the run.
-    workKind: typeof workKind === "string" && workKind ? workKind : null,
+    flow: typeof flow === "string" && flow ? flow : null,
     phases: phases && typeof phases === "object" ? phases : null,
     tier: typeof tier === "string" && tier ? tier : null,
     // ── the card's explicit run spec (RUN-SPEC-V1) ────────────────────────
@@ -197,21 +649,45 @@ export async function createCard(root, { title, description = "", project = null
     duty: typeof duty === "string" && duty ? duty : null,
     level: Number.isInteger(level) ? level : null,
     sequence: Array.isArray(sequence) && sequence.every((s) => typeof s === "string") ? sequence : null,
-    // S3d (D9b): the dispatcher's specification-clarity verdict. A "needs-discuss"
+    // S3d (D9b): routing inference's specification-clarity verdict. A "needs-discuss"
     // card is dispatched through the Discuss duty first (the engine's gated-discuss
     // exemption keys on this); anything else is null (a clear card runs straight).
     clarity: clarity === "needs-discuss" ? "needs-discuss" : null,
-    // D27: single-outpost affinity — the run engine dispatches this card's
-    // phase sessions to the named outpost; offline → needs-attention.
-    outpost: typeof outpost === "string" && outpost ? outpost : null,
+    // Legacy `outpost` is migrated into the worker-owned placement below. New
+    // cards never retain two contradictory remote-routing fields.
+    outpost: null,
     // ── Outpost Dispatch (pull-based) ─────────────────────────────────────
-    // WHERE this card runs. Defaults to the host, i.e. exactly the behaviour
-    // every card had before dispatch existed. Distinct from `outpost` above:
-    // that is the older PUSH affinity (host relays an RPC to a Mac), this is
-    // the machine a WORKER pulls the card to. `dispatch` is the claim ledger,
-    // written only by the dispatch API — never by a human edit.
-    placement: normalisePlacement(placement),
+    // WHERE this card runs. The older `outpost` create input is accepted only
+    // as a compatibility alias and immediately materialized here.
+    placement: normalisePlacement(placement, outpost),
     dispatch: null,
+    // ── scheduling (see scheduleHolds above) ──────────────────────────────
+    // scheduledFor holds dispatch until the instant passes; scheduleAction
+    // decides what the due-sweep does (notify = reminder with tell-Zeca
+    // phrases, run = auto-start); scheduleNotifiedAt makes the reminder
+    // fire once (cleared by snooze/reschedule). position orders the card
+    // within its list (null = created order); checklist is the in-card
+    // task list. All new keys — pre-existing cards read them as undefined.
+    schedule: cardSchedule,
+    // Compatibility aliases for existing clients and Omi/MCP commands. The
+    // schedule object is authoritative; aliases always mirror its next action.
+    scheduledFor: cardSchedule?.nextAt ?? null,
+    scheduleAction: cardSchedule?.action ?? null,
+    scheduleNotifiedAt: null,
+    scheduleTemplateId: typeof scheduleTemplateId === "string" && scheduleTemplateId ? scheduleTemplateId : null,
+    scheduleSystemKey: typeof scheduleSystemKey === "string" && scheduleSystemKey ? scheduleSystemKey : null,
+    occurrenceKey: typeof occurrenceKey === "string" && occurrenceKey ? occurrenceKey : null,
+    occurrenceAt: typeof occurrenceAt === "string" && Number.isFinite(Date.parse(occurrenceAt))
+      ? new Date(occurrenceAt).toISOString()
+      : null,
+    systemKey: typeof systemKey === "string" && systemKey ? systemKey : null,
+    // Within-list float order. A finite `position` (from drag-reorder, or a
+    // creation asking to land at the top of a list) wins; null = created order.
+    // Threaded through createCard so the single creation door can stamp a
+    // top-of-list position atomically at create time (no rev-churning
+    // stamp-after-create write).
+    position: typeof position === "number" && Number.isFinite(position) ? position : null,
+    checklist: normaliseChecklist(checklist),
     // A literal command for a stub/no-model dispatched run. Present so the
     // transport can be proven end-to-end without spending model tokens; a
     // duty-driven remote run replaces it rather than extending it.
@@ -237,7 +713,7 @@ export async function createCard(root, { title, description = "", project = null
     runDir: null,       // docs/autothing/runs/<runId>, project-relative
     sliceId: null,      // the FLOW_PLAN slice this card is building
     sessionIds: [],     // Claude Code transcript ids for each run (pointers)
-    briefPath: null,    // James-mode brief produced in Discuss (under briefs_path)
+    briefPath: null,    // brief produced by the interactive Discuss duty
     videoUrl: null,     // walkthrough gallery link (set by the Walkthrough list)
     // ── coordination fields (GARRISON-FLOW-V2 S1, Q4) ──────────────────────
     // Same-branch multi-run coordination. waitingOn holds the wait descriptor
@@ -252,6 +728,11 @@ export async function createCard(root, { title, description = "", project = null
     stabilityAt: null,
     planCompletedAt: null,
     blocking: [],
+    // Monotonic coordination-lifecycle generation. This advances only when the
+    // card changes coordination ownership state (list, run generation, or
+    // abandonment), not for benign annotation edits. Durable cleanup sidecars
+    // use it to distinguish a harmless later revision from a reopened successor.
+    coordinationSeq: 0,
     // S2 (Q5/Q7): git fence anchors this run has committed ({phase, sha, at,
     // empty}) and a prepared-revert descriptor after abandonment. New keys; a
     // pre-S2 card reads them as undefined.
@@ -265,19 +746,55 @@ export async function createCard(root, { title, description = "", project = null
   // is kept in sync for back-compat (notify-origin's web delivery reads it).
   card.origin_id =
     typeof explicitOriginId === "string" && explicitOriginId ? explicitOriginId : deriveOriginId(card);
-  await atomicWriteJSON(cardFile(root, id), card);
-  return card;
+  const row = await boardStateClient().createCard(cardToStore({ ...card, position: positionHint(card) }));
+  return mirrorCard(root, cardFromStore(row));
 }
 
+// Missing card throws (ENOENT-shaped), as reading a missing file did — every
+// caller already funnels that through a try/catch.
 export async function loadCard(root, id) {
-  return readJSON(cardFile(root, id));
+  const row = await boardStateClient().getCard(id);
+  if (!row) {
+    const err = new Error(`kanban: no such card ${id}`);
+    err.code = "ENOENT";
+    throw err;
+  }
+  return cardFromStore(row, { compat: true });
 }
 
-// Read-immediately-before-write then atomic-write the mutated card. Bumps rev.
+function coordinationSeqForWrite(disk, candidate) {
+  const current = Number.isSafeInteger(disk?.coordinationSeq) && disk.coordinationSeq >= 0
+    ? disk.coordinationSeq
+    : 0;
+  if (!disk) return current;
+  const changed =
+    (disk.list || null) !== (candidate?.list || null) ||
+    (disk.runId || null) !== (candidate?.runId || null) ||
+    (Number.isInteger(disk.runSeq) ? disk.runSeq : null) !==
+      (Number.isInteger(candidate?.runSeq) ? candidate.runSeq : null) ||
+    (disk.leaseOwnerToken || null) !== (candidate?.leaseOwnerToken || null) ||
+    (disk.abandoned === true) !== (candidate?.abandoned === true);
+  return changed ? current + 1 : current;
+}
+
+// Read-immediately-before-write, then write the mutated card. Bumps rev.
 export async function saveCard(root, card, at = new Date().toISOString()) {
-  const next = { ...card, rev: (card.rev ?? 0) + 1, updated: at };
-  await atomicWriteJSON(cardFile(root, card.id), next);
-  return next;
+  // saveCard is primarily a setup/test helper, but it must preserve the same
+  // lifecycle-generation semantics as the production CAS path below. It carries
+  // no precondition of its own and, exactly as the write-through file store did,
+  // it CREATES the card when it does not exist yet.
+  const client = boardStateClient();
+  const disk = cardFromStore(await client.getCard(card.id), { compat: true });
+  const next = {
+    ...card,
+    coordinationSeq: coordinationSeqForWrite(disk, card),
+    rev: (card.rev ?? 0) + 1,
+    updated: at
+  };
+  const row = disk
+    ? await client.patchCard(card.id, cardToStore(next), { ifMatchRev: disk.rev ?? 0 })
+    : await client.createCard(cardToStore({ ...next, position: positionHint(next) }));
+  return mirrorCard(root, cardFromStore(row));
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -293,80 +810,250 @@ export function isPidAlive(pid) {
   catch (e) { return e.code === "EPERM"; }
 }
 
-// Per-card EXCLUSIVE lock via O_EXCL create (`wx`) — atomic across PROCESSES, so two
-// concurrent ticks (or a tick + the scheduler beat) cannot both enter a card's
-// read-compare-write critical section. The lock file records the holder's pid so a
-// lock is broken ONLY when its owner is provably gone (a crashed worker) — never
-// because a live holder ran long. Age (LOCK_STALE_MS) is a last-resort fallback used
-// only when the owner pid is unreadable (e.g. a cross-host or corrupt lock).
 // Generic cross-process exclusive lock around a critical section, keyed by a lock
-// file path. O_EXCL create + owner-pid + dead-owner/stale breaking — the substrate
-// withCardLock and withBoardLock both build on so the check-and-set logic lives in
-// exactly one place.
-export async function withFileLock(lockPath, label, fn) {
-  await fs.mkdir(path.dirname(lockPath), { recursive: true });
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
-  for (;;) {
+// path. Each contender owns TWO unique files in `<lockPath>.tickets`: a short-lived
+// bakery "choosing" ticket, then its numbered ownership ticket. Lamport's bakery
+// ordering means simultaneous contenders deterministically choose one winner; the
+// filename's unguessable generation means stale cleanup and finally-release remove
+// ONLY the generation they observed. The elected ticket owner also holds a
+// PID-prefixed legacy bridge at `lockPath` so an already-running pre-ticket writer
+// participates during a rolling upgrade; new code removes that bridge only when
+// its full PID+token record still matches.
+//
+// A pre-ticket implementation used `lockPath` itself. The elected ticket owner
+// therefore reuses it only as the compatibility bridge described above.
+const LOCK_CHOOSING_PREFIX = "choosing-";
+const LOCK_TICKET_PREFIX = "ticket-";
+const LOCK_RECORD_SUFFIX = ".json";
+
+function lockTicketDir(lockPath) {
+  return `${lockPath}.tickets`;
+}
+
+function lockToken() {
+  return `${process.pid}-${ulid()}`;
+}
+
+function lockRecordName(prefix, token) {
+  return `${prefix}${token}${LOCK_RECORD_SUFFIX}`;
+}
+
+function lockTokenFromName(name, prefix) {
+  if (!name.startsWith(prefix) || !name.endsWith(LOCK_RECORD_SUFFIX)) return null;
+  const token = name.slice(prefix.length, -LOCK_RECORD_SUFFIX.length);
+  return /^[0-9]+-[0-9A-HJKMNP-TV-Z]{26}$/.test(token) ? token : null;
+}
+
+async function activeLockRecords(dir, prefix) {
+  let names;
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const active = [];
+  for (const name of names) {
+    const token = lockTokenFromName(name, prefix);
+    if (!token) continue;
+    const file = path.join(dir, name);
+    let row = null;
+    let stat = null;
     try {
-      // Create the lock AND write the owner pid in ONE atomic exclusive op (flag 'wx'
-      // = O_CREAT|O_EXCL|O_WRONLY) — so the lock file is never observed pid-less by a
-      // racing breaker (no post-create pre-pid window).
-      await fs.writeFile(lockPath, String(process.pid), { flag: "wx" });
-      break;
-    } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      let broke = false;
-      // Break the lock only if its owner process is provably dead.
+      const [raw, currentStat] = await Promise.all([fs.readFile(file, "utf8"), fs.stat(file)]);
+      row = JSON.parse(raw);
+      stat = currentStat;
+    } catch {
+      try { stat = await fs.stat(file); } catch { continue; }
+    }
+    const valid =
+      row &&
+      row.token === token &&
+      Number.isInteger(row.pid) &&
+      row.pid > 0 &&
+      (prefix !== LOCK_TICKET_PREFIX || Number.isSafeInteger(row.number) && row.number > 0);
+    if (valid && isPidAlive(row.pid)) {
+      active.push(row);
+      continue;
+    }
+    // A valid record whose owner is provably dead is abandoned immediately. A
+    // torn/corrupt record gets the age fallback. `file` includes the unique token,
+    // so even two delayed breakers can never target a successor generation.
+    if (valid || stat && Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
       try {
-        const owner = parseInt(await fs.readFile(lockPath, "utf8"), 10);
-        if (Number.isInteger(owner) && !isPidAlive(owner)) {
-          await fs.rm(lockPath, { force: true });
-          broke = true;
-        }
-      } catch { /* owner unreadable — fall through to the age fallback */ }
-      // Fallback: an owner-less lock older than LOCK_STALE_MS is treated as abandoned.
-      if (!broke) {
-        try {
-          const st = await fs.stat(lockPath);
-          const owner = parseInt(await fs.readFile(lockPath, "utf8").catch(() => ""), 10);
-          if (!Number.isInteger(owner) && Date.now() - st.mtimeMs > LOCK_STALE_MS) {
-            await fs.rm(lockPath, { force: true }); broke = true;
-          }
-        } catch { broke = true; /* lock vanished between checks — retry the acquire */ }
+        await fs.rm(file, { force: true });
+        continue;
+      } catch {
+        active.push({ token, invalid: true });
+        continue;
       }
-      if (broke) continue;
+    }
+    // A fresh partially-written record is a blocker until it becomes readable or
+    // stale. This closes the O_EXCL-create -> write visibility window fail-closed.
+    active.push({ token, invalid: true });
+  }
+  return active;
+}
+
+async function legacyLockBlocks(lockPath) {
+  let raw;
+  let stat;
+  try {
+    [raw, stat] = await Promise.all([fs.readFile(lockPath, "utf8"), fs.stat(lockPath)]);
+  } catch {
+    return false;
+  }
+  const owner = Number.parseInt(raw, 10);
+  if (Number.isInteger(owner) && isPidAlive(owner)) return true;
+  if (Number.isInteger(owner) || Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+    // The elected ticket owner may reuse this pathname only after this observed
+    // legacy owner is provably dead/stale. Ticket generations remain separate.
+    try {
+      await fs.rm(lockPath, { force: true });
+      return false;
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
+function legacyBridgeRecord(token) {
+  // The PID prefix keeps this readable by the pre-ticket implementation's
+  // `parseInt(raw, 10)` owner probe; the token lets new code avoid removing a
+  // legacy-path generation it no longer owns.
+  return `${process.pid}:${token}`;
+}
+
+async function tryAcquireLegacyBridge(lockPath, token) {
+  const record = legacyBridgeRecord(token);
+  try {
+    await fs.writeFile(lockPath, record, { flag: "wx" });
+    return record;
+  } catch (err) {
+    if (err?.code === "EEXIST") return null;
+    throw err;
+  }
+}
+
+async function releaseLegacyBridge(lockPath, record) {
+  if (!record) return;
+  try {
+    if ((await fs.readFile(lockPath, "utf8")) !== record) return;
+    await fs.rm(lockPath, { force: true });
+  } catch {
+    // Missing/replaced bridge: this generation no longer owns the shared path.
+  }
+}
+
+export async function withFileLock(lockPath, label, fn) {
+  const dir = lockTicketDir(lockPath);
+  await fs.mkdir(dir, { recursive: true });
+  const token = lockToken();
+  const choosingFile = path.join(dir, lockRecordName(LOCK_CHOOSING_PREFIX, token));
+  const ticketFile = path.join(dir, lockRecordName(LOCK_TICKET_PREFIX, token));
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  let ticketCreated = false;
+  let legacyBridge = null;
+  try {
+    await fs.writeFile(choosingFile, JSON.stringify({ pid: process.pid, token }), { flag: "wx" });
+    const existing = await activeLockRecords(dir, LOCK_TICKET_PREFIX);
+    const number = existing.reduce((max, row) => Number.isSafeInteger(row.number) ? Math.max(max, row.number) : max, 0) + 1;
+    await fs.writeFile(ticketFile, JSON.stringify({ pid: process.pid, token, number }), { flag: "wx" });
+    ticketCreated = true;
+    await fs.rm(choosingFile, { force: true });
+
+    for (;;) {
+      const choosing = await activeLockRecords(dir, LOCK_CHOOSING_PREFIX);
+      const tickets = await activeLockRecords(dir, LOCK_TICKET_PREFIX);
+      const owner = tickets
+        .filter((row) => Number.isSafeInteger(row.number))
+        .sort((a, b) => a.number - b.number || a.token.localeCompare(b.token))[0];
+      const ownTicketPresent = tickets.some((row) => row.token === token);
+      const everyTicketReadable = tickets.every((row) => Number.isSafeInteger(row.number));
+      if (choosing.length === 0 && everyTicketReadable && ownTicketPresent && owner?.token === token && !(await legacyLockBlocks(lockPath))) {
+        // Hold the pre-ticket pathname too. An already-running old process only
+        // understands this O_EXCL PID file; without the bridge it could enter
+        // while this ticket owner was already inside the critical section.
+        legacyBridge = await tryAcquireLegacyBridge(lockPath, token);
+        if (legacyBridge) return await fn();
+      }
       if (Date.now() > deadline) throw new Error(`kanban: ${label} lock timeout after ${LOCK_TIMEOUT_MS}ms`);
       await sleep(10 + Math.floor(Math.random() * 15)); // jittered backoff
     }
-  }
-  try {
-    return await fn();
   } finally {
-    await fs.rm(lockPath, { force: true });
+    await releaseLegacyBridge(lockPath, legacyBridge);
+    // These paths include this acquisition's unique generation. If a stale breaker
+    // already removed either one, force is a no-op; it can never name a successor.
+    await fs.rm(choosingFile, { force: true }).catch(() => {});
+    if (ticketCreated) await fs.rm(ticketFile, { force: true }).catch(() => {});
   }
 }
 
+// ── what the store's CAS replaced, and what it did not ───────────────
+// The store's rev CAS is now the cross-node guarantee for a single card's
+// read→mutate→write, and no-resurrection is structural (a PATCH never upserts).
+// That is strictly stronger than a file lock, which cannot mean anything on
+// another machine.
+//
+// It is NOT, however, a substitute for every one of these locks, because a
+// service transaction is per REQUEST and two of them span more than one card:
+//
+//   * withCardLock still serialises NODE-LOCAL lifecycle edges. coordination.mjs
+//     reads the BLOCKER and writes the WAITER inside one section, and the board
+//     server orders a save against a delete; neither is one request, so the CAS
+//     cannot cover it. The lock is only ever taken by processes on this box, so
+//     its pid-liveness probe is sound where it is used.
+//   * withCardOrderLock still serialises the position ALLOCATOR (below): the
+//     caller picks the float, and the store honours the number it is handed.
+//
+// withBoardLock is the one whose job did move: the board layout is a single
+// document with its own rev, so saveBoardCAS's precondition is the critical
+// section and re-reads on conflict.
 export async function withCardLock(root, id, fn) {
-  const dir = path.join(root, "cards", id);
-  await fs.mkdir(dir, { recursive: true });
-  return withFileLock(path.join(dir, ".lock"), `card ${id}`, fn);
+  // The lock MUST live outside cards/<id>. Delete removes that whole directory;
+  // when the lock lived inside it, a delete could unlink an acquired lock and a
+  // late CAS writer could then recreate the card from its stale in-memory copy.
+  // A stable external lock serializes every lifecycle edge (save/delete/reopen)
+  // without creating the card directory as a side effect of merely locking it.
+  return withFileLock(path.join(root, ".card-locks", `${id}.lock`), `card ${id}`, fn);
 }
 
-// Board-level exclusive lock (board.json is one shared file). Serializes the
-// whole-board read→mutate→write so a board-rev CAS is a true critical section:
-// two concurrent writers cannot both read the same rev and both save.
 export async function withBoardLock(root, fn) {
-  return withFileLock(path.join(root, ".board.lock"), "board", fn);
+  return fn();
 }
 
-// Compare-and-swap whole-board save. Runs the read→check-rev→mutate→write inside
-// withBoardLock, so simultaneous writers can't lost-update board.json. `mutate`
-// receives the fresh board and returns { board } (or { error } to abort). On rev
-// mismatch returns { ok:false, conflict:true, rev }. Bumps board.rev on success.
+// The ORDER lock is NOT a pass-through, because its job did not move. Choosing a
+// new top position still happens in the CALLER: it reads every card in the
+// destination list and picks a float below the current top, then hands the store
+// an explicit number the store must honour verbatim. Two concurrent allocators
+// would otherwise read the same top and pick the same position. (Node-local
+// only; the cross-node form of this is a lease, which is not batch-one work.)
+export async function withCardOrderLock(root, fn) {
+  return withFileLock(path.join(root, ".card-order.lock"), "card order", fn);
+}
+
+// Compare-and-swap whole-board save. `mutate` receives the fresh board and
+// returns { board } (or { error } to abort). On rev mismatch returns
+// { ok:false, conflict:true, rev }. Bumps board.rev on success.
+//
+// TWO revs are in play and they are not the same thing: `board.rev` is the
+// caller-visible CAS this contract has always exposed, and the config document's
+// own rev is the service-side precondition. Losing the document race means
+// another writer landed between the read and the write, so re-read and redo —
+// which is what the board lock used to make impossible.
 export async function saveBoardCAS(root, expectedRev, mutate) {
-  return withBoardLock(root, async () => {
-    const board = await loadBoard(root);
+  const client = boardStateClient();
+  let lastRev = 0;
+  for (let attempt = 0; attempt < LOCKED_WRITE_TRIES; attempt += 1) {
+    const doc = await client.getConfig(BOARD_NAMESPACE, BOARD_SCOPE);
+    const stored = doc?.body ?? null;
+    if (!stored || typeof stored !== "object") throw missingBoardError();
+    // Migrate in memory; this very write persists it. Calling loadBoard here
+    // would persist the migration separately and invalidate the doc rev we just
+    // read, turning every migrating board write into a self-inflicted conflict.
+    const board = (stored.version || 0) < BOARD_VERSION ? migrateBoard(stored) : stored;
     const currentRev = Number.isInteger(board.rev) ? board.rev : 0;
+    lastRev = currentRev;
     if (Number.isInteger(expectedRev) && expectedRev !== currentRev) {
       return { ok: false, conflict: true, rev: currentRev };
     }
@@ -374,9 +1061,15 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
     if (result && result.error) return { ok: false, error: result.error };
     const nextBoard = result.board;
     nextBoard.rev = currentRev + 1;
-    await saveBoard(nextBoard, root);
+    try {
+      await client.putConfig(BOARD_NAMESPACE, BOARD_SCOPE, nextBoard, { ifMatchRev: doc?.rev ?? 0 });
+    } catch (err) {
+      if (isStatus(err, 409)) continue;
+      throw err;
+    }
     return { ok: true, board: nextBoard, list: result.list, rev: nextBoard.rev };
-  });
+  }
+  return { ok: false, conflict: true, rev: lastRev };
 }
 
 // Compare-and-swap save: only write when the on-disk rev still matches what the
@@ -385,51 +1078,191 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
 // prevent). The read-compare-write runs inside a per-card O_EXCL lock, so the
 // check-and-set is atomic across processes — two concurrent ticks cannot both observe
 // the same rev and both succeed (no double-acquire, no double-mint of runId).
-// Returns { ok, conflict?, card }.
-export async function saveCardCAS(root, card, expectedRev, at = new Date().toISOString()) {
-  return withCardLock(root, card.id, async () => {
-    let disk = null;
-    try {
-      disk = await loadCard(root, card.id);
-    } catch {
-      disk = null;
+// Returns { ok, conflict?, deleted?, precondition?, card }. `hooks` provides the
+// narrow transaction seam used by lifecycle-sensitive callers:
+//   beforeWrite({disk,next}) — runs only AFTER existence + rev validation while
+//     the card lock is held; returning {ok:false,...} aborts without a card write.
+//   afterWrite({disk,next,prepared}) — runs after the atomic card write, still
+//     under the same lock (closure cleanup cannot race a reopen/delete).
+// A post-commit hook failure is reported as `postCommitError` but never turns a
+// committed card write into a false CAS failure.
+async function writeCardWithHooks(root, { id, card = null, expectedRev = null, mutate = null, at, hooks = {} }) {
+  // Snapshot the terminal edge while the CAS owns the authoritative before/after
+  // pair, then perform the neutral outbox I/O only after the write commits.
+  // Vault/provider work is never done by this module at all.
+  let personalCompletionEdge = null;
+  let doneHandoffEdge = null;
+  const client = boardStateClient();
+  // A `mutate` caller is a recovery path: it must see the authoritative card and
+  // its write must land, which is what holding the lifecycle lock across the
+  // read→mutate→write used to guarantee. Losing the service CAS therefore means
+  // re-read and re-run the mutator. A `card` + `expectedRev` caller owns its own
+  // precondition, so a conflict is REPORTED, never retried.
+  const attempts = typeof mutate === "function" ? LOCKED_WRITE_TRIES : 1;
+  const result = await withCardLock(root, id, async () => {
+    let outcome = { ok: false, conflict: true, card: null };
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      personalCompletionEdge = null;
+      doneHandoffEdge = null;
+      let disk = null;
+      try {
+        disk = await loadCard(root, id);
+      } catch {
+        disk = null;
+      }
+      // The card is GONE — it was deleted while this writer held its in-memory
+      // copy. Writing would RESURRECT it, and the old code did exactly that: the
+      // missing-disk case skipped the rev check ("first write of a brand-new card")
+      // and wrote anyway. Observed live — a deleted card reappeared, parked, a minute
+      // later when the run that was still in flight committed its result. The store
+      // now refuses structurally too (a PATCH never upserts), so this is belt and
+      // braces rather than the only guard.
+      //
+      // saveCardCAS never legitimately CREATES: createCard writes the first version,
+      // and every other caller is updating a card it just read. So a missing card is
+      // always a delete, and always a refusal.
+      if (!disk) {
+        return { ok: false, deleted: true, card: null };
+      }
+      if (typeof mutate !== "function" && (disk.rev ?? 0) !== expectedRev) {
+        return { ok: false, conflict: true, card: disk };
+      }
+      const candidate = typeof mutate === "function" ? await mutate(disk) : card;
+      if (!candidate) return { ok: false, skipped: true, card: disk };
+      const next = {
+        ...candidate,
+        coordinationSeq: coordinationSeqForWrite(disk, candidate),
+        rev: (disk.rev ?? 0) + 1,
+        updated: at
+      };
+      let prepared = null;
+      if (typeof hooks.beforeWrite === "function") {
+        prepared = await hooks.beforeWrite({ disk, next });
+        if (prepared && prepared.ok === false) {
+          return { ok: false, precondition: true, detail: prepared, card: disk };
+        }
+      }
+      // A beforeWrite hook may enrich the candidate. Recompute from the final
+      // candidate so a future hook that changes a coordination identity field
+      // cannot accidentally preserve the old epoch. (The store applies the same
+      // value as a monotonic FLOOR, so a stale client can never rewind it.)
+      next.coordinationSeq = coordinationSeqForWrite(disk, next);
+      // A card claimed under a lease records the FENCE it was claimed with. Every
+      // write from that claim carries it, so a holder that stalled past its lease
+      // and woke up still holding the old card is refused — which a TTL alone
+      // cannot do. A card with no claim carries no fence and no precondition.
+      const fence = Number.isFinite(Number(next.leaseFence)) ? Number(next.leaseFence) : undefined;
+      let written;
+      try {
+        written = cardFromStore(await client.patchCard(id, cardToStore(next), {
+          ifMatchRev: disk.rev ?? 0,
+          ...(fence !== undefined ? { fence } : {})
+        }));
+      } catch (err) {
+        if (isStatus(err, 404)) return { ok: false, deleted: true, card: null };
+        if (isStatus(err, 409) && err.body?.error === "fenced") {
+          // Reported as a conflict so every existing caller's !ok branch still
+          // does the right thing, and flagged so a caller that cares can say why.
+          return { ok: false, conflict: true, fenced: true, card: disk };
+        }
+        if (isStatus(err, 409) && err.body?.error === "conflict") {
+          // The 409 carries the CURRENT card, so the caller can merge without a
+          // second round trip — and a retrying mutator re-reads it next pass.
+          outcome = { ok: false, conflict: true, card: cardFromStore(err.body?.card, { compat: true }) ?? disk };
+          continue;
+        }
+        throw err;
+      }
+      await mirrorCard(root, written);
+      if (isPersonalDoneTransition(disk, written)) personalCompletionEdge = { prev: disk, next: written };
+      if (written.list === "done" && (disk?.list ?? null) !== "done") {
+        doneHandoffEdge = { prev: disk, next: written, summary: hooks.terminalSummary ?? null };
+      }
+      // Feedback to the originating channel on a terminal transition (done /
+      // needs-attention). saveCardCAS is the one write path every mover uses
+      // (engine, server PATCH, batch), so the edge fires exactly once per
+      // outcome. Fire-and-forget — never delays or fails the write.
+      // S3a lifecycle router: on the terminal edge (into done / needs-attention) route
+      // a finished | blocked | failed event — appends to the origin's durable event log
+      // for ALL transports, and posts the (legacy) web text to the originating thread.
+      routeTerminalTransition(root, disk, written, { summary: hooks.terminalSummary });
+      // The Done handoff is scheduled only after this loop returns. If it were
+      // queued here, its callback could run before processCard writes its final
+      // duty-summary.
+      // S3c: a card reaching a terminal list strands any unapplied revisit directive
+      // (the boundary guard early-returns before it) — clear it so the chip resolves and
+      // it can never fire on a reopened card. No-op when there is no pending directive.
+      if ((written.list === "done" || written.list === "needs-attention") && (disk?.list ?? null) !== written.list) {
+        markSteeringApplied(root, written.id, "obsolete-terminal");
+      }
+      let postCommitError = null;
+      if (typeof hooks.afterWrite === "function") {
+        try {
+          await hooks.afterWrite({ disk, next: written, prepared });
+        } catch (err) {
+          postCommitError = err;
+        }
+      }
+      outcome = { ok: true, card: written, ...(postCommitError ? { postCommitError } : {}) };
+      break;
     }
-    // The card file is GONE — it was deleted while this writer held its in-memory
-    // copy. Writing would RESURRECT it, and the old code did exactly that: the
-    // missing-disk case skipped the rev check ("first write of a brand-new card")
-    // and wrote anyway. Observed live — a deleted card reappeared, parked, a minute
-    // later when the run that was still in flight committed its result.
-    //
-    // saveCardCAS never legitimately CREATES: createCard writes the first version
-    // with atomicWriteJSON directly, and every other caller is updating a card it
-    // just read. So a missing file is always a delete, and always a refusal.
-    if (!disk) {
-      return { ok: false, deleted: true, card: null };
-    }
-    if ((disk.rev ?? 0) !== expectedRev) {
-      return { ok: false, conflict: true, card: disk };
-    }
-    const next = { ...card, rev: expectedRev + 1, updated: at };
-    await atomicWriteJSON(cardFile(root, card.id), next);
-    // Feedback to the originating channel on a terminal transition (done /
-    // needs-attention). saveCardCAS is the one write path every mover uses
-    // (engine, server PATCH, batch), so the edge fires exactly once per
-    // outcome. Fire-and-forget — never delays or fails the write.
-    // S3a lifecycle router: on the terminal edge (into done / needs-attention) route
-    // a finished | blocked | failed event — appends to the origin's durable event log
-    // for ALL transports, and posts the (legacy) web text to the originating thread.
-    routeTerminalTransition(root, disk, next);
-    // WS2 handoff packet: on the done edge, compose + write cards/<id>/handoff.json
-    // (deferred to the next tick, fully guarded — never blocks or fails this write).
-    generateHandoffIfDone(root, disk, next);
-    // S3c: a card reaching a terminal list strands any unapplied revisit directive
-    // (the boundary guard early-returns before it) — clear it so the chip resolves and
-    // it can never fire on a reopened card. No-op when there is no pending directive.
-    if ((next.list === "done" || next.list === "needs-attention") && (disk?.list ?? null) !== next.list) {
-      markSteeringApplied(root, next.id, "obsolete-terminal");
-    }
-    return { ok: true, card: next };
+    return outcome;
   });
+
+  if (!result?.ok) return result;
+  // Register the handoff first and personal packet second. Both are deferred,
+  // fail-open side effects outside the lifecycle lock; the engine continuation
+  // therefore writes its final duty summary before either callback runs, and
+  // FIFO immediate ordering lets the packet snapshot the finished handoff.
+  if (doneHandoffEdge) {
+    generateHandoffIfDone(root, doneHandoffEdge.prev, doneHandoffEdge.next);
+    // Morning occurrences have an explicit dual-channel completion contract.
+    // Load it lazily to keep the neutral board store independent of channel
+    // implementations and outside the card lifecycle lock.
+    void import("./morning-briefing.mjs")
+      .then(({ scheduleMorningBriefDelivery }) => scheduleMorningBriefDelivery(
+        root,
+        doneHandoffEdge.next,
+        { summary: doneHandoffEdge.summary }
+      ))
+      .catch((err) => console.error(`[kanban] Morning briefing delivery bootstrap failed: ${err?.message ?? err}`));
+  }
+  if (!personalCompletionEdge) return result;
+  try {
+    const memoryCapture = emitPersonalCompletionAfterDone(
+      root,
+      personalCompletionEdge.prev,
+      personalCompletionEdge.next
+    );
+    return { ...result, ...(memoryCapture ? { memoryCapture } : {}) };
+  } catch (err) {
+    // Only synchronous scheduling/identity failures reach here; asynchronous
+    // outbox I/O is fail-open inside the scheduler. The card is already
+    // committed and startup reconciliation repairs either window.
+    const message = String(err?.message || err).slice(0, 300);
+    console.error(`[kanban] personal completion outbox enqueue failed for ${id}: ${message}`);
+    return {
+      ...result,
+      memoryCapture: { status: "pending-reconciliation", error: message }
+    };
+  }
+}
+
+export async function saveCardCASWithHooks(root, card, expectedRev, at = new Date().toISOString(), hooks = {}) {
+  return writeCardWithHooks(root, { id: card.id, card, expectedRev, at, hooks });
+}
+
+// Lock-scoped read -> mutate -> write for the rare recovery paths where a
+// bounded optimistic CAS would defeat the recovery guarantee itself. The
+// mutator sees the authoritative card while its lifecycle lock is held; the
+// resulting write still goes through every normal revision, coordination,
+// terminal-routing, handoff, and personal-memory hook above.
+export async function updateCardLockedWithHooks(root, id, mutate, at = new Date().toISOString(), hooks = {}) {
+  return writeCardWithHooks(root, { id, mutate, at, hooks });
+}
+
+export async function saveCardCAS(root, card, expectedRev, at = new Date().toISOString()) {
+  return saveCardCASWithHooks(root, card, expectedRev, at);
 }
 
 // Read-immediately, mutate, CAS-write a card by id — retrying a few times when a
@@ -458,26 +1291,15 @@ export async function updateCardCAS(root, id, mutate, tries = 6) {
   return null; // lost the CAS race `tries` times
 }
 
+// An unreachable store is a LOUD failure, not an empty board: swallowing it into
+// "no cards" is precisely the stale read the mesh design refuses. An empty list
+// from a reachable service is a real empty board.
 export async function listCardIds(root = kanbanRoot()) {
-  try {
-    const entries = await fs.readdir(path.join(root, "cards"), { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
-    return [];
-  }
+  return (await boardStateClient().listCards()).map((row) => row.id);
 }
 
 export async function loadAllCards(root = kanbanRoot()) {
-  const ids = await listCardIds(root);
-  const cards = [];
-  for (const id of ids) {
-    try {
-      cards.push(await loadCard(root, id));
-    } catch {
-      // skip an unreadable/partial card dir
-    }
-  }
-  return cards;
+  return (await boardStateClient().listCards()).map((row) => cardFromStore(row, { compat: true }));
 }
 
 // Derive list membership from the cards (pure) — never stored.
@@ -494,20 +1316,56 @@ export function deriveMembership(cards) {
 // the card itself + its iteration logs; it never touches the run dir, brief, or shared
 // transcripts (the server's delete handler decides those). Idempotent: a missing dir is
 // a no-op. Returns true if a directory was removed.
-export async function deleteCard(root, id) {
-  const dir = path.join(root, "cards", id);
-  try {
-    await fs.rm(dir, { recursive: true, force: true });
+export async function deleteCard(root, id, expectedRev = null, hooks = {}) {
+  return withCardLock(root, id, async () => {
+    const dir = path.join(root, "cards", id);
+    let disk;
+    try {
+      disk = await loadCard(root, id);
+    } catch {
+      return false; // idempotent missing-card no-op
+    }
+    if (Number.isInteger(expectedRev) && (disk.rev ?? 0) !== expectedRev) {
+      return false; // caller must re-authorize against the fresh lifecycle state
+    }
+    try {
+      // The store's delete is the commit: it tombstones the row under an If-Match,
+      // so even a writer on another node either lost the CAS or is refused as a
+      // resurrection.
+      await boardStateClient().deleteCard(id, { ifMatchRev: disk.rev ?? 0 });
+    } catch (err) {
+      if (isStatus(err, 404) || isStatus(err, 409)) return false;
+      throw err;
+    }
+    // The card's own node-local directory goes with it — the mirror, every
+    // log-<n>.md, the brief and the attachments. Never the run dir or the shared
+    // transcripts; the server's delete handler decides those.
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    if (typeof hooks.afterDelete === "function") {
+      try { await hooks.afterDelete({ disk }); }
+      catch (err) {
+        // Deletion is committed, but post-commit cleanup failures must remain
+        // observable. Coordination cleanup journals its retry before throwing.
+        console.error(`[kanban] post-delete cleanup failed for ${id}:`, err?.message || err);
+      }
+    }
     return true;
-  } catch {
-    return false;
-  }
+  });
 }
 
 export async function appendCardLog(root, id, n, text) {
   const file = path.join(root, "cards", id, `log-${n}.md`);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.appendFile(file, text.endsWith("\n") ? text : text + "\n", "utf8");
+  // The LIVE stream stays node-local — writeCardLog rewrites the whole file on
+  // every chunk, which is a write storm over HTTP. The DURABLE per-turn text is
+  // mirrored into the card's docs so a peer can read the record. Best effort by
+  // construction: a failed mirror is logged and NEVER fails the append.
+  try {
+    await boardStateClient().putCardDoc(id, `log-${n}.md`, await fs.readFile(file, "utf8"));
+  } catch (err) {
+    console.error(`[kanban] log mirror failed for ${id} log-${n}: ${err?.message ?? err}`);
+  }
   return file;
 }
 

@@ -1,0 +1,7 @@
+source "https://rubygems.org"
+
+# Pinned to the version the ios-thing lanes last ran green with (2026-06-24).
+# 2.238.0 broke produce under API-key auth ("No value found for 'username'"
+# despite set_spaceship_token) - verified against run 31665298898.
+gem "fastlane", "2.236.1"
+gem "xcodeproj"

@@ -1,7 +1,6 @@
-// Chat-to-build authoring. Reuses the verified Kanban Discuss -> web-channel
-// handoff (mode=james; the gateway reads the mode from the leading "James," and
-// IGNORES body.context, so the kickoff message itself carries everything
-// load-bearing). "Discuss an automation" opens a James conversation that settles
+// Chat-to-build authoring. Reuses the Kanban Discuss -> web-channel handoff.
+// The thread pins the explicit Discuss duty and the kickoff carries everything
+// load-bearing. "Discuss an automation" opens a conversation that settles
 // the design and writes a brief to ~/.garrison/automations/briefs/<slug>.md; the
 // planner (Router-routed) then turns the brief into reviewable steps.
 
@@ -71,7 +70,7 @@ export function buildAutomationKickoff({ name, slug } = {}) {
   // classifier. The fix is on the routing side: interactive Discuss turns carry a
   // no-thinking classification hint (see web-channel createOrchestratorTransport).
   return [
-    "James, let's design an automation together. Match your effort to the work — a simple one needs a light touch, not an interrogation.",
+    "Let's design an automation together. Match your effort to the work — a simple one needs a light touch, not an interrogation.",
     "",
     name ? `# Automation: ${name}` : "# New automation",
     "",
@@ -85,7 +84,7 @@ export function buildAutomationKickoff({ name, slug } = {}) {
   ].join("\n");
 }
 
-// The query params the web channel reads (mode + base64 context + kickoff). Used
+// The query params the web channel reads (source + base64 context + kickoff). Used
 // for the postMessage("garrison:navigate-fitting") path so the embedded UI can
 // ask Garrison's top window to open /embed/<channel>?<params> — a relative or
 // own-port URL would resolve against the automations server, not Garrison.
@@ -102,7 +101,7 @@ export function buildDiscussParams({ name, slug } = {}) {
     briefAbsPath: automationBriefPath(s)
   };
   return {
-    mode: "james",
+    source: "discuss",
     context: b64(JSON.stringify(context)),
     kickoff: b64(buildAutomationKickoff({ name, slug: s })),
     // Stable thread key per automation so reopening Discuss returns to the same
@@ -131,7 +130,7 @@ export function buildAutomationDiscussUrl({ name, slug, webChannelBase = "/embed
   };
   const base = webChannelBase.replace(/\/+$/, "");
   const parts = [
-    `mode=james`,
+    `source=discuss`,
     `context=${encodeURIComponent(b64(JSON.stringify(context)))}`,
     `kickoff=${encodeURIComponent(b64(buildAutomationKickoff({ name, slug: s })))}`,
     `thread=${encodeURIComponent(b64(`automation-${s}`))}`,

@@ -101,7 +101,12 @@ export function commitFence({ repoPath, card, phase, touchSet, otherClaims = [],
   if (!repoPath) {
     return {
       record: null,
-      events: [{ at, kind: "fence", message: `Fence skipped for ${phase}: could not resolve a repo path for project ${card.project || "(none)"} - changes on this branch stay unattributable.` }]
+      // Name the fix, not just the failure: the label resolves through
+      // board.projects first (PUT /projects/<label> {path}), then an absolute-path
+      // label, then a dev-root DIRECTORY name - so a project labelled by its git
+      // repo name (agent-garrison) misses a directory named otherwise (garrison)
+      // until the mapping is set. That mismatch ran unfenced for weeks (F7).
+      events: [{ at, kind: "fence", message: `Fence skipped for ${phase}: could not resolve a repo path for project ${card.project || "(none)"} - changes on this branch stay unattributable. Fix: map the label once via PUT /projects/${encodeURIComponent(card.project || "<label>")} {"path":"/abs/repo"} on the board.` }]
     };
   }
   try {

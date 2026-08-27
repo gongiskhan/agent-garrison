@@ -7,11 +7,24 @@ import { Play, Square } from "lucide-react";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { PageSkeleton } from "@/components/chrome/PageSkeleton";
 import { RunConsole } from "@/components/run/RunPanel";
+import { SessionLogPanel } from "@/components/garrison/SessionLogPanel";
 import { faculties } from "@/lib/faculties";
 import type { BoardSummary } from "@/lib/board-summary";
 import type { RunnerState } from "@/lib/types";
 import styles from "./GarrisonHome.module.css";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
+import type { Correction, CorrectionField, Verdict } from "@/lib/decision-verdicts";
+import {
+  fetchRouteOptions,
+  postVerdict,
+  verdictPayload,
+  type FeedbackDecision,
+  type RouteOptionsResponse
+} from "@/lib/decision-feedback";
+import { RouterFeedbackCard } from "./RouterFeedbackCard";
+import { OutboxStrip } from "./OutboxStrip";
+import { Panel } from "./Panel";
+import { MeshPanel } from "@/components/mesh/MeshPanel";
 
 export function GarrisonHome() {
   const {
@@ -74,27 +87,35 @@ export function GarrisonHome() {
               {greeting}
             </h1>
             <p>
-              {operativeSummary(status, verifyTotal, verifyOk)}
+              {sessionSummary(status, verifyTotal, verifyOk)}
             </p>
           </div>
           <div className={styles.commandControls}>
             <div className={styles.commandReadout}>
-              <span>operative state</span>
+              <span>composition state</span>
               <strong>{status}</strong>
               <small>
                 {verifyTotal ? `${verifyOk}/${verifyTotal} verified` : "verification pending"}
               </small>
             </div>
             <div className={styles.commandActions}>
-              <button data-testid="operative-run" className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
+              <button data-testid="composition-run" className="btn primary" onClick={() => void runAction("up")} disabled={Boolean(busy)}>
                 <span className="ic"><Play size={14} aria-hidden /></span>
-                {isRunning ? "Restart operative" : "Run operative"}
+                {isRunning ? "Restart session" : "Run session"}
               </button>
               {isRunning ? (
                 <button className="btn danger" onClick={() => void runAction("down")} disabled={Boolean(busy)}>
                   <span className="ic"><Square size={13} aria-hidden /></span>Stop
                 </button>
               ) : null}
+              <button
+                className="btn"
+                title="Force apm install + setup hooks + verify even when the composition is unchanged"
+                onClick={() => void runAction("up-full")}
+                disabled={Boolean(busy)}
+              >
+                Full verify run
+              </button>
             </div>
           </div>
         </section>
@@ -105,7 +126,7 @@ export function GarrisonHome() {
             <div>
               <h5>Orchestrator station is empty</h5>
               <p>
-                The Operative needs a single governing Fitting to assemble its system prompt. Until one is
+                The session needs a single governing Fitting to assemble its system prompt. Until one is
                 stationed, the runner falls back to a stub orchestrator.
               </p>
               <div className="actions">
@@ -115,7 +136,12 @@ export function GarrisonHome() {
           </div>
         ) : null}
 
-        <article className={styles.operativeDossier}>
+        {/* Above the dossier on purpose: a cancel window is 60 seconds long, so
+            it has to be the first thing on the page, not a panel below the
+            fold. Renders nothing at all when nothing is parked. */}
+        <OutboxStrip />
+
+        <article className={styles.sessionDossier}>
           <div className={styles.dossierHead}>
             <div>
               <span className={styles.eyebrow}>Active composition</span>
@@ -190,6 +216,8 @@ export function GarrisonHome() {
           </Panel>
 
           <BoardPanel />
+          <MeshPanel compact />
+          <RouterPanel />
 
           {composition.derivedTasks ? (
             <Panel title={`Tasks · ${prettySource(composition.derivedTasks.source)}`}>
@@ -210,6 +238,7 @@ export function GarrisonHome() {
             <small>runner · local ring buffer</small>
           </div>
           <RunConsole />
+          <SessionLogPanel />
         </section>
       </div>
     </main>
@@ -254,34 +283,190 @@ function Stat({
 
 const ATTENTION_TITLES_SHOWN = 5;
 
-function BoardPanel() {
-  const [summary, setSummary] = useState<BoardSummary | null>(null);
+// ── The router, and the one question worth asking about it ──────────────────
+//
+// The improver has been invisible for two concrete reasons: its review queue is
+// an own-port view nobody visits, and its Probe asks questions by blocking a
+// Claude Code Stop hook — so the only place it could ever speak was the raw
+// terminal session this whole run exists to make unnecessary. Zero verdicts had
+// ever been recorded.
+//
+// So the question comes to the page he already opens, and answering it is one
+// tap. The panel also shows WHY the router is trusted or not: the bands, and the
+// signals that produced them, because an autonomy level you cannot interrogate
+// is just an assertion.
+function RouterPanel() {
+  const [tracks, setTracks] = useState<RouterTracks | null>(null);
+  const [latest, setLatest] = useState<FeedbackDecision | null>(null);
+  const [answered, setAnswered] = useState<Verdict | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [options, setOptions] = useState<RouteOptionsResponse | null>(null);
+  const [openField, setOpenField] = useState<CorrectionField | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await fetch("/api/board/summary");
-        if (!res.ok) return;
-        const data = (await res.json()) as BoardSummary;
-        if (!cancelled) setSummary(data);
+        const [a, d] = await Promise.all([
+          fetch("/api/orchestrator/autonomy").then((r) => (r.ok ? r.json() : null)),
+          fetch("/api/orchestrator/decisions?limit=1").then((r) => (r.ok ? r.json() : null))
+        ]);
+        if (cancelled) return;
+        if (a) setTracks(a as RouterTracks);
+        const row = (d?.decisions ?? d?.rows ?? [])[0] ?? null;
+        if (row) setLatest(row as FeedbackDecision);
       } catch {
-        // Keep the last known state; the panel stays quiet on a fetch failure.
+        // Quiet on failure, like every other panel here: a dashboard should not
+        // shout about a feed that simply is not there.
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), 30_000);
+    const timer = window.setInterval(() => void load(), 60_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
   }, []);
 
+  // The routing vocabulary costs a gateway round trip and almost every visit to
+  // this page never opens a menu, so it is read on the first correction rather
+  // than on the 60s poll.
+  const openDimension = (field: CorrectionField) => {
+    setOpenField((prev) => (prev === field ? null : field));
+    if (!options) void fetchRouteOptions().then(setOptions);
+  };
+
+  const answer = async (verdict: Verdict, correction?: Correction) => {
+    if (!latest?.id) return;
+    setAnswered(verdict); // optimistic: the answer is recorded, the panel moves on
+    setOpenField(null);
+    setFailed(false);
+    try {
+      await postVerdict(verdictPayload(latest, verdict, correction));
+    } catch {
+      // Put the card back rather than leaving a "thanks" over a verdict that
+      // never landed.
+      setAnswered(null);
+      setFailed(true);
+    }
+  };
+
+  const asking = tracks?.asking ?? 0;
+  const autonomous = tracks?.autonomous ?? 0;
+  const total = tracks?.tracks?.length ?? 0;
+
+  return (
+    <Panel title="Router">
+      {total === 0 ? (
+        <p className={styles.panelNote}>
+          No routing decisions judged yet. The router asks before acting until it has a
+          track record.
+        </p>
+      ) : (
+        <p className={styles.panelNote}>
+          {autonomous} of {total} work shapes run unattended; {asking} still ask first.
+        </p>
+      )}
+
+      {latest && !answered ? (
+        <RouterFeedbackCard
+          decision={latest}
+          options={options}
+          openField={openField}
+          failed={failed}
+          onOpenField={openDimension}
+          onConfirm={() => void answer("right")}
+          onWrong={() => void answer("wrong")}
+          onCorrect={(field, value) => void answer("wrong", { [field]: value } as Correction)}
+        />
+      ) : null}
+      {answered ? <p className={styles.panelNote}>Recorded. Thanks.</p> : null}
+
+      <ul className={styles.routerBands}>
+        {(tracks?.tracks ?? []).slice(0, 5).map((t) => (
+          <li key={`${t.category}:${t.shape}`}>
+            <span className={styles.routerShape}>
+              {t.shape} <em>{t.category}</em>
+            </span>
+            <span className={styles.routerBand} data-band={t.band.band}>
+              {t.band.band}
+            </span>
+            <span className={styles.routerObs}>{t.observations} obs</span>
+          </li>
+        ))}
+      </ul>
+      <Link className={styles.panelMore} href="/muster?section=decisions">
+        Decisions log
+      </Link>
+    </Panel>
+  );
+}
+
+interface RouterTracks {
+  asking: number;
+  autonomous: number;
+  tracks: {
+    category: string;
+    shape: string;
+    observations: number;
+    signals: Record<string, number>;
+    band: { band: string; confidence: number };
+  }[];
+}
+
+function BoardPanel() {
+  const [summary, setSummary] = useState<BoardSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    // A failed fetch used to wait the full poll interval before trying again,
+    // and until it succeeded the panel rendered "Board idle" - a state
+    // indistinguishable from a genuinely quiet board. So one slow first response
+    // showed the reader a confidently wrong dashboard for thirty seconds. Retry
+    // quickly instead, backing off to the steady cadence, so a transient failure
+    // costs seconds rather than half a minute.
+    let retryMs = 2_000;
+    const schedule = (ms: number) => {
+      if (cancelled) return;
+      timer = window.setTimeout(() => void load(), ms);
+    };
+    const load = async () => {
+      try {
+        const res = await fetch("/api/board/summary");
+        if (!res.ok) throw new Error(String(res.status));
+        const data = (await res.json()) as BoardSummary;
+        if (cancelled) return;
+        setSummary(data);
+        retryMs = 2_000;
+        schedule(30_000);
+      } catch {
+        // Keep the last known state; the panel stays quiet on a fetch failure.
+        schedule(retryMs);
+        retryMs = Math.min(retryMs * 2, 30_000);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   // Loading and fetch-failure render the idle state — a dashboard panel
   // should never show an error banner for a board that simply isn't there.
   const active = summary && !summary.idle ? summary : null;
-  const shownTitles = active?.needsAttentionCards.slice(0, ATTENTION_TITLES_SHOWN) ?? [];
-  const extraTitles = (active?.needsAttentionCards.length ?? 0) - shownTitles.length;
+  const allTitles = active?.needsAttentionCards ?? [];
+  const shownTitles = allTitles.slice(0, ATTENTION_TITLES_SHOWN);
+  const extraTitles = allTitles.length - shownTitles.length;
+  // Resolve against the host the reader actually reached Garrison on. Linking
+  // active.boardUrl verbatim sent a remote browser to its OWN 127.0.0.1 - a dead
+  // link everywhere except on the box itself. "" means no route from here, so
+  // callers fall through to an unlinked row rather than a broken one.
+  const boardHref = resolveViewUrl({
+    url: active?.boardUrl ?? null,
+    tailnetUrl: active?.boardTailnetUrl ?? null
+  });
 
   return (
     <Panel title="Board">
@@ -325,15 +510,6 @@ function BoardPanel() {
                   const bullet = (
                     <span aria-hidden style={{ width: 6, height: 6, background: "var(--alarm)", flexShrink: 0, alignSelf: "center" }} />
                   );
-                  // Resolve against the host the reader actually reached
-                  // Garrison on. Linking active.boardUrl verbatim sent a remote
-                  // browser to its OWN 127.0.0.1 - a dead link everywhere
-                  // except on the box itself. "" means no route from here, so
-                  // fall through to the unlinked row rather than a broken one.
-                  const boardHref = resolveViewUrl({
-                    url: active.boardUrl,
-                    tailnetUrl: active.boardTailnetUrl
-                  });
                   return boardHref ? (
                     <a key={card.id} href={boardHref} target="_blank" rel="noreferrer" title={card.reason ?? card.title} style={rowStyle}>
                       {bullet}
@@ -347,9 +523,27 @@ function BoardPanel() {
                   );
                 })}
                 {extraTitles > 0 ? (
-                  <div className="font-mono" style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}>
-                    +{extraTitles} more
-                  </div>
+                  // The panel is one of several on a dashboard, so it stays
+                  // capped rather than growing without bound - but the overflow
+                  // must not be a dead end. It said "+3 more" and offered no way
+                  // to see them; now it is the way. Unlinked only when no route
+                  // to the board exists from where this page was opened.
+                  boardHref ? (
+                    <a
+                      className="font-mono"
+                      data-testid="board-attention-more"
+                      href={boardHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ display: "inline-block", fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}
+                    >
+                      +{extraTitles} more on the board
+                    </a>
+                  ) : (
+                    <div className="font-mono" data-testid="board-attention-more" style={{ fontSize: 10.5, color: "var(--mute)", marginTop: 4 }}>
+                      +{extraTitles} more
+                    </div>
+                  )
                 ) : null}
               </div>
             ) : null}
@@ -366,33 +560,6 @@ function BoardPanel() {
         )}
       </div>
     </Panel>
-  );
-}
-
-function Panel({
-  title,
-  children,
-  tight,
-  feature
-}: {
-  title: string;
-  children: React.ReactNode;
-  tight?: boolean;
-  feature?: boolean;
-}) {
-  return (
-    <section
-      className={clsx(
-        styles.panel,
-        tight && styles.panelTight,
-        feature && styles.panelFeature
-      )}
-    >
-      <h4 className={styles.panelTitle}>
-        {title}
-      </h4>
-      {children}
-    </section>
   );
 }
 
@@ -478,14 +645,14 @@ function prettySource(source: string): string {
   return source.charAt(0).toUpperCase() + source.slice(1);
 }
 
-function operativeSummary(status: string, verifyTotal: number, verifyOk: number): string {
+function sessionSummary(status: string, verifyTotal: number, verifyOk: number): string {
   if (status === "running") {
     return verifyTotal && verifyOk === verifyTotal
-      ? "One operative running. Verify clean. Heartbeat keeps the loop ticking."
-      : "One operative running. Verify partial — see the run console below for hook-by-hook detail.";
+      ? "One session running. Verify clean. Heartbeat keeps the loop ticking."
+      : "One session running. Verify partial — see the run console below for hook-by-hook detail.";
   }
   if (status === "starting" || status === "verifying") {
-    return "Bringing the operative up. APM install in progress, verify pending.";
+    return "Bringing the session up. APM install in progress, verify pending.";
   }
   if (status === "stopping") {
     return "Tearing down. Materialised .env will be wiped when this completes.";
@@ -493,7 +660,7 @@ function operativeSummary(status: string, verifyTotal: number, verifyOk: number)
   if (status === "failed") {
     return "Last run ended in failure. See the run console below for the runtime log.";
   }
-  return "Operative is idle. Press Run to install Fittings, verify, and start it.";
+  return "This node is idle. Press Run to install Fittings, verify, and start a session.";
 }
 function shortTime(iso: string): string {
   try {

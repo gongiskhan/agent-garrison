@@ -31,7 +31,15 @@
 // A single fitting's failure NEVER aborts the run — every cell is captured as
 // {status: pass|degraded|fail|verify-only, note}. The bar is ZERO unexplained
 // failures: every non-pass carries a cause.
-import { readFileSync, writeFileSync, existsSync, mkdtempSync, mkdirSync, cpSync, rmSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync
+} from "node:fs";
 import { spawnSync, execFileSync } from "node:child_process";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
@@ -430,14 +438,18 @@ async function bootAndServe(primary, tmp) {
 async function runColumn(primary, fittings, budget) {
   process.stderr.write(`\n=== column: ${primary} ===\n`);
   const tmp = mkdtempSync(path.join(tmpdir(), `gar-matrix-${primary}-`));
-  // Isolated CODEX_HOME (auth copied) for the codex column — the same hygiene the
-  // run's codex gates use, so repo-global MCP servers never load into the turn.
+  // Isolated CODEX_HOME (auth LINKED, never copied) for the codex column — the
+  // same hygiene the run's codex gates use, so repo-global MCP servers never
+  // load into the turn. The link matters more here than anywhere: this home is a
+  // temp dir. A copied ChatGPT credential rotates its refresh token on first
+  // refresh, so the only live token would end up inside a directory the harness
+  // throws away — logging the box out of Codex for good.
   const prevCodexHome = process.env.CODEX_HOME;
   let codexEnv = process.env;
   if (primary === "codex") {
     try {
       const ch = mkdtempSync(path.join(tmpdir(), "gar-codex-home-"));
-      cpSync(path.join(homedir(), ".codex", "auth.json"), path.join(ch, "auth.json"));
+      symlinkSync(path.join(homedir(), ".codex", "auth.json"), path.join(ch, "auth.json"));
       process.env.CODEX_HOME = ch;
       codexEnv = { ...process.env, CODEX_HOME: ch };
     } catch (e) {

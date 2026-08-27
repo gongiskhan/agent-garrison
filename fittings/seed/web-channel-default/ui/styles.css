@@ -137,7 +137,7 @@ html, body {
 /* assistant - editorial column with a faint mono label + hairline, no bubble */
 .cc-assistant { margin-top: 14px; max-width: 100%; }
 .cc-assistant::before {
-  content: "OPERATIVE";
+  content: "SESSION";
   display: block;
   font-family: var(--cc-mono);
   font-size: 9.5px;
@@ -316,8 +316,15 @@ html, body {
 /* per-message actions - visible but subtle (mobile has no hover) */
 .cc-msgactions { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; opacity: 0.55; transition: opacity 0.12s; }
 .cc-assistant:hover .cc-msgactions, .cc-msgactions:focus-within { opacity: 1; }
-.cc-msgcopy { font-family: var(--cc-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; background: transparent; border: 1px solid var(--cc-border); color: var(--cc-fg-dim); border-radius: 0; padding: 3px 8px; cursor: pointer; }
-.cc-msgcopy:hover { border-color: var(--cc-fg); color: var(--cc-fg); }
+/* The per-message actions are icons in this skin too - square, quiet, and the
+   same size as each other so the row under a reply reads as one set. */
+.cc-msgcopy, .cc-msgroute {
+  display: inline-flex; align-items: center; justify-content: center; line-height: 0;
+  background: transparent; border: 1px solid var(--cc-border); color: var(--cc-fg-dim);
+  border-radius: 0; padding: 4px 7px; cursor: pointer;
+}
+.cc-msgcopy:hover, .cc-msgroute:hover { border-color: var(--cc-fg); color: var(--cc-fg); }
+.cc-msgroute-open { border-color: var(--cc-fg); color: var(--cc-fg); }
 
 /* jump-to-latest */
 .cc-jumplatest {
@@ -390,6 +397,24 @@ html, body {
 }
 .wc-new:hover { background: #e0ebdb; }
 
+.wc-sidebar-collapse {
+  display: none;                 /* wide layouts only - see the rail block below */
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: #66695f;                /* mute */
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.wc-sidebar-collapse:hover { color: #2f3128; border-color: #d6cdba; }
+.wc-sidebar-collapse svg { transform: rotate(90deg); transition: transform .14s ease; }
+.wc-shell--rail .wc-sidebar-collapse svg { transform: rotate(0deg); }
+
 .wc-thread-list {
   flex: 1;
   min-height: 0;
@@ -413,9 +438,23 @@ html, body {
   border-bottom: 1px solid #ece2cc; /* paper-3 hairline */
   border-left: 3px solid transparent;
   padding: 10px 10px 10px 13px;
-  cursor: pointer;
+  cursor: default;
   color: #18211c;               /* ink */
   font-family: inherit;
+}
+.wc-thread-open {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .wc-thread:hover { background: #efe7d6; }
 .wc-thread--active {
@@ -459,6 +498,9 @@ html, body {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   line-height: 20px;
   text-align: center;
   font-size: 17px;
@@ -575,6 +617,30 @@ html, body {
   height: 100%;
   color: #7d8077;
   font-size: 14px;
+}
+
+
+/* ── Collapsed rail (wide layouts only) ──────────────────────────────────────
+   The session list is navigation, not the work, so it starts collapsed and the
+   chat gets the width. Below 900px the sidebar is already a slide-over drawer,
+   so the rail is deliberately scoped out of that range - two collapse
+   mechanisms on one element would contradict each other. */
+@media (min-width: 901px) {
+  .wc-sidebar-collapse { display: inline-flex; }
+  .wc-sidebar-head { justify-content: flex-start; }
+  .wc-sidebar-title { flex: 1 1 auto; }
+  .wc-sidebar { transition: width .16s ease; }
+  .wc-shell--rail .wc-sidebar { width: 42px; }
+  /* Hidden, not merely narrow: leaving them in a 42px column produces clipped
+     text rather than a clean rail. */
+  .wc-shell--rail .wc-sidebar-title,
+  .wc-shell--rail .wc-new,
+  .wc-shell--rail .wc-thread-list { display: none; }
+  .wc-shell--rail .wc-sidebar-head {
+    justify-content: center;
+    padding: 14px 0 10px;
+    border-bottom-color: transparent;
+  }
 }
 
 /* ── Mobile / tablet toggle + scrim (wide: sidebar inline, these hidden) ──
@@ -797,6 +863,11 @@ html, body {
      chrome; the #7a7568 fallback was 3.3:1 on the brief head/foot bars. */
   --wc-fg-dim: #465348;
   --wc-brass: #b1954e;
+  --wc-term-bg: #10140f;      /* same-family darkening of olive-950 */
+  --wc-term-fg: #e2ddd0;      /* 13.9:1 on term-bg */
+  --wc-brass-bright: #c8ae66; /* ~7:1 on olive-950 */
+  --wc-sage-bright: #8aa688;  /* 6.4:1 on olive-950; IDLE on dark */
+  --wc-alarm-bright: #d08a7e; /* 6.2:1 on olive-950; DETACHED/OFFLINE on dark */
   --wc-brass-deep: #746232;
   --wc-sage: #6f8e6d;
   --wc-alarm: #963f35;
@@ -913,6 +984,15 @@ body {
 
 .wc-thread-del:hover {
   background: rgba(150,63,53,.22);
+}
+.wc-thread-del:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
+.wc-thread-del:disabled {
+  color: var(--wc-fg-dim);
+  cursor: not-allowed;
 }
 
 .wc-main {
@@ -1179,6 +1259,53 @@ body {
 /* Loading placeholder on the stone-50 chat pane (was #7d8077 at 3.5:1). */
 .wc-loading { color: var(--wc-olive-700); }
 
+/* Push permission notices are informational once the browser has denied or
+   withheld the API. Keep a separate close target so dismissal never retries or
+   mutates browser permission state.
+
+   Every pill rides ABOVE the composer (--wc-composer-inset, measured by
+   PushEnroller). Pinned to the raw viewport bottom they sat ON the composer:
+   at phone width that hid the message box and its Send button entirely, so the
+   app could not be used until the notice was dismissed. */
+.wc-push-notice,
+.wc-push-toast,
+.wc-push-pill {
+  position: fixed; left: 12px; z-index: 41; display: flex; align-items: center; gap: 10px;
+  padding: 8px 9px 8px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
+  background: rgba(20,24,28,.94); color: #d7dde3; font: 500 12px/1.25 system-ui, sans-serif;
+  box-shadow: 0 8px 26px rgba(0,0,0,.22);
+  bottom: calc(var(--wc-composer-inset, 0px) + 12px);
+  max-width: calc(100vw - 24px);
+  /* Informational and dismissible: it may OVERLAP the transcript, but it must
+     never intercept a click meant for what is underneath. Moving it clear of the
+     composer only relocated the problem onto the message action bar that now
+     sits there. Only its own close button takes pointer events. */
+  pointer-events: none;
+}
+.wc-push-notice > button,
+.wc-push-toast > button,
+.wc-push-pill { pointer-events: auto; }
+.wc-push-pill { padding: 8px 12px; cursor: pointer; }
+.wc-push-pill:disabled { cursor: default; }
+.wc-push-toast { left: auto; right: 12px; border-radius: 10px; font-size: 13px; }
+.wc-push-notice > span,
+.wc-push-toast > span { min-width: 0; }
+.wc-push-notice > button,
+.wc-push-toast > button {
+  flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: inherit; font: 18px/1 system-ui, sans-serif; cursor: pointer;
+}
+.wc-push-notice > button:hover,
+.wc-push-notice > button:focus-visible,
+.wc-push-toast > button:hover,
+.wc-push-toast > button:focus-visible { background: rgba(255,255,255,.12); outline: none; }
+@media (pointer: coarse) {
+  .wc-push-notice > button,
+  .wc-push-toast > button {
+    width: 44px; height: 44px; margin: -10px -6px -10px 0;
+  }
+}
+
 /* ── Scrollbars — near-invisible, still scrollable ────────────────────────
    Dark ink thumb by default (the app's scrollable panes are warm stone); the
    light variant is re-declared on the olive sidebar and the ink code cards. */
@@ -1298,11 +1425,19 @@ body {
   color: var(--wc-olive-700); font-size: 20px; line-height: 1;
 }
 .wc-xscript-close:hover { color: var(--wc-ink); }
+.wc-xscript-close:focus-visible {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
 /* SessionStream expects an ANCESTOR to own the scrolling (inside the chat that is
    .cc-scroll); its own .cc-session-scroll sets no overflow. */
 .wc-xscript-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
 .wc-xscript-body .cc-session { min-width: 0; }
 @media (max-width: 720px) { .wc-xscript { width: 100%; } }
+@media (any-pointer: coarse) {
+  .wc-xscript-close { min-width: 44px; min-height: 44px; }
+  .wc-thread-del { min-width: 44px; min-height: 44px; line-height: 42px; opacity: .75; }
+}
 
 /* ── Resumed-turn notice ─────────────────────────────────────────────────────
    Shown when a thread is reopened while its turn is still running server-side.
@@ -1374,4 +1509,367 @@ body {
   .cc-attach { min-width: 36px; padding: 0 6px; }
   .cc-send, .cc-stop { padding: 0 11px; }
   .cc-composerrow { gap: 5px; }
+}
+
+/* ── Remote-shell terminal pane + sidebar entries ────────────────────────── */
+.wc-rsh {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 55%;
+  min-height: 260px;
+  border-bottom: 1px solid var(--line, #d9d2c2);
+  background: #0e0e0e;
+}
+.wc-rsh-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #171717;
+  color: #cfcfcf;
+  font-size: 12px;
+}
+.wc-rsh-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5c8a5c;
+  flex: none;
+}
+.wc-rsh-dot--running {
+  background: #d8b04a;
+  animation: wc-rsh-pulse 1.2s ease-in-out infinite;
+}
+@keyframes wc-rsh-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.wc-rsh-status { color: #ecd9a8; margin-left: auto; }
+.wc-rsh-reconnect {
+  border: 1px solid #3c4a38;
+  background: #24301f;
+  color: #cfe3c4;
+  border-radius: 5px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.wc-rsh-term { flex: 1; min-height: 0; padding: 4px 6px; }
+.wc-rsh-term .xterm { height: 100%; }
+.wc-rsh-error {
+  padding: 8px 12px;
+  background: #3a1414;
+  color: #f0b0b0;
+  font-size: 12px;
+}
+/* The rail lives in the DARK sidebar; inherited colors here come from the
+   page's light-skin body and read dark-on-dark, so every color is explicit. */
+.wc-rsh-rail { border-top: 1px solid #4b584d; padding: 8px; }
+.wc-rsh-rail-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9fa69a;
+  margin: 2px 0 6px;
+}
+.wc-rsh-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid #4b584d;
+  border-radius: 7px;
+  padding: 7px 9px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  color: #e6e9df;
+  font: inherit;
+}
+.wc-rsh-entry:hover { background: rgba(255, 255, 255, 0.06); }
+.wc-rsh-entry-via { font-size: 11px; color: #9fa69a; }
+
+/* ── Routing console (.cc-rm) in the Garrison skin: serif display, brass
+   accent, olive nav strip against the paper detail pane. ─────────────────── */
+.cc-rm {
+  --cc-rm-accent: var(--wc-brass-deep, #746232);
+  --cc-rm-accent-fg: #fdf8ec;
+  --cc-rm-nav: rgba(32, 41, 32, 0.05);
+  --cc-rm-display: var(--wc-serif, Georgia, serif);
+}
+.cc-rm-head h2 { font-weight: 500; font-size: 20px; }
+
+/* ── Remote-shell COMMAND-DECK WORKBENCH ─────────────────────────────────────
+   Appended after the base .wc-rsh block: same-specificity re-declarations here
+   win (house layering rule). Desktop: deck over terminal | seam | dispatch
+   ledger. Narrow (<1024px): stacked console with a bottom dispatch dock whose
+   transcript reveals as a sheet. Motion budget: lamp pulse, lamp blink, sheet
+   slide - nothing else moves. */
+.wc-workbench {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.wc-wb-head {
+  flex: none;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 12px;
+  background: linear-gradient(180deg, rgba(177, 149, 78, 0.08), transparent), var(--wc-olive-900);
+  border-left: 3px solid var(--wc-brass);
+  border-bottom: 1px solid #4b584d;
+}
+.wc-wb-lamp {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  background: var(--wc-stone-300, #c9c2b2);
+}
+.wc-wb-lamp--running { background: var(--wc-brass); animation: wc-rsh-pulse 1.2s ease-in-out infinite; }
+.wc-wb-lamp--idle { background: var(--wc-sage-bright); }
+.wc-wb-lamp--linking { animation: wc-wb-blink 1s steps(2, end) infinite; }
+.wc-wb-lamp--detached, .wc-wb-lamp--offline { background: var(--wc-alarm-bright); }
+@keyframes wc-wb-blink { 50% { opacity: 0.25; } }
+.wc-wb-state {
+  font: 600 10px/1 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.wc-wb-state--running { color: var(--wc-brass-bright); }
+.wc-wb-state--idle { color: var(--wc-sage-bright); }
+.wc-wb-state--linking { color: #c9c2b2; }
+.wc-wb-state--detached, .wc-wb-state--offline { color: var(--wc-alarm-bright); }
+.wc-wb-elapsed { color: #9aa392; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+.wc-wb-div { width: 1px; height: 16px; background: #4b584d; flex: none; }
+.wc-wb-title {
+  font: 500 15px/1.2 var(--wc-serif);
+  color: #f0ead9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wc-wb-crumb {
+  margin-left: 12px;
+  font: 9.5px/1 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9aa392;
+  white-space: nowrap;
+}
+.wc-wb-spacer { flex: 1; }
+.wc-wb-reattach {
+  border: 1px solid #4b584d;
+  border-radius: 2px;
+  background: none;
+  color: #c8ccbf;
+  font: 9.5px/1 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 5px 12px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.wc-wb-reattach:hover { background: rgba(255, 255, 255, 0.06); }
+.wc-wb-reattach--loud {
+  background: var(--wc-brass);
+  border-color: var(--wc-brass-bright);
+  color: #171b17; /* 6.7:1 on brass */
+}
+.wc-wb-reattach--loud:hover { background: var(--wc-brass-bright); }
+.wc-wb-body { display: flex; flex: 1; min-height: 0; }
+.wc-wb-body--dragging { user-select: none; cursor: col-resize; }
+.wc-wb-terminal {
+  flex: 1 1 auto;
+  min-width: 480px;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  background: var(--wc-term-bg);
+  /* The xterm canvas keeps its last-fit size until the debounced refit lands;
+     without clipping it forces this cell wider and paints under the seam. */
+  overflow: hidden;
+}
+/* Kill the old sandwich: inside the workbench the pane fills its stage. */
+.wc-wb-terminal .wc-rsh {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border-bottom: none;
+  background: var(--wc-term-bg);
+  overflow: hidden;
+}
+.wc-wb-terminal .wc-rsh-term { padding: 10px 12px; }
+.wc-wb-veil {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 26, 21, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+}
+.wc-wb-plaque {
+  background: var(--wc-olive-900);
+  border: 1px solid #4b584d;
+  border-radius: 2px;
+  padding: 16px 20px;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wc-wb-plaque-title { font: 500 15px/1.3 var(--wc-serif); color: #f0ead9; }
+.wc-wb-plaque-sub { font-size: 12.5px; line-height: 1.5; color: #cbbda3; }
+.wc-wb-plaque .wc-wb-reattach { align-self: flex-start; margin-top: 4px; }
+.wc-wb-seam {
+  flex: 0 0 7px;
+  cursor: col-resize;
+  position: relative;
+}
+.wc-wb-seam::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: #4b584d;
+}
+.wc-wb-seam:hover::before,
+.wc-wb-body--dragging .wc-wb-seam::before { left: 2px; width: 3px; background: var(--wc-brass); }
+.wc-wb-seam:focus-visible { outline: none; }
+.wc-wb-seam:focus-visible::before { left: 2px; width: 3px; background: var(--wc-brass-bright); }
+.wc-wb-delegate {
+  flex: 0 0 clamp(300px, 32%, 440px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background:
+    linear-gradient(var(--wc-grid-line, rgba(61, 74, 62, 0.055)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--wc-grid-line, rgba(61, 74, 62, 0.055)) 1px, transparent 1px),
+    var(--wc-stone-50, #f7f3e8);
+  background-size: 30px 30px, 30px 30px, auto;
+}
+.wc-wb-paneh {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font: 600 9.5px/1 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--wc-fg-dim, #465348);
+  border-bottom: 1px solid var(--wc-stone-200, #e7e0cf);
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  width: 100%;
+  text-align: left;
+}
+.wc-wb-paneh-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--wc-muted, #6f7a6c);
+  font-variant-numeric: tabular-nums;
+}
+.wc-wb-chevron { transition: transform 140ms ease; }
+.wc-wb-chevron--open { transform: rotate(180deg); }
+.wc-wb-empty { padding: 22px 16px 8px; }
+.wc-wb-empty-lead { margin: 0 0 6px; font: 400 15px/1.4 var(--wc-serif); color: var(--wc-ink, #22271f); }
+.wc-wb-empty-sub { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--wc-fg-dim, #465348); }
+/* ClaudeChat reframed inside the ledger: the paneh replaces its header; the
+   stock empty line would double our prose. */
+.wc-workbench .cc-header { display: none; }
+.wc-workbench .cc-empty { display: none; }
+.wc-workbench .cc-root { flex: 1 1 auto; min-height: 0; height: auto; }
+.wc-wb-delegate .cc-scroll { padding: 12px; }
+.wc-wb-delegate .cc-turn { margin-bottom: 12px; }
+.wc-wb-delegate .cc-user {
+  background: rgba(177, 149, 78, 0.10);
+  border: 1px solid rgba(177, 149, 78, 0.28);
+  border-left: 2px solid var(--wc-brass-deep);
+  border-radius: 2px;
+  font-size: 13px;
+  max-width: 100%;
+}
+.wc-wb-delegate .cc-assistant { font-size: 13px; max-width: 100%; }
+.wc-wb-delegate .cc-md { line-height: 1.5; overflow-wrap: anywhere; }
+.wc-wb-delegate .cc-user, .wc-wb-delegate .cc-assistant { overflow-wrap: anywhere; min-width: 0; }
+.wc-wb-delegate { overflow: hidden; }
+.wc-wb-delegate .cc-working-label {
+  font-family: var(--wc-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--wc-brass-deep);
+}
+.wc-wb-delegate .cc-composer { padding: 8px 10px 10px; }
+/* Error strip, instrument voice. */
+.wc-rsh-error {
+  background: #2a1512;
+  color: var(--wc-alarm-bright);
+  border-left: 3px solid var(--wc-alarm, #b0604f);
+  font-family: var(--wc-mono);
+  font-size: 11px;
+  padding: 8px 12px;
+}
+/* ── Narrow (<1024px): stacked console with the dispatch sheet ── */
+@media (max-width: 1023px) {
+  .wc-wb-head { height: 40px; }
+  .wc-wb-body { flex-direction: column; }
+  .wc-wb-terminal { min-width: 0; min-height: 160px; }
+  .wc-wb-seam { display: none; }
+  .wc-wb-delegate { flex: 0 0 auto; }
+  .wc-wb-paneh--btn { height: 36px; cursor: pointer; }
+  .wc-workbench .cc-root { flex: 0 0 auto; position: relative; overflow: visible; }
+  .wc-wb-delegate .cc-scroll { display: none; }
+  .wc-wb-delegate--open .cc-scroll {
+    display: block;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    height: min(46dvh, 420px);
+    background: var(--wc-stone-50, #f7f3e8);
+    border-top: 1px solid var(--wc-stone-300, #d9d2c2);
+    box-shadow: 0 -18px 40px rgba(20, 26, 21, 0.28);
+    z-index: 5;
+    overflow-y: auto;
+    padding: 12px;
+    animation: wc-wb-sheet 160ms ease-out;
+  }
+  .wc-wb-delegate--open .cc-empty {
+    display: block;
+    font: 400 14px/1.5 var(--wc-serif);
+    color: var(--wc-muted, #6f7a6c);
+  }
+  @keyframes wc-wb-sheet {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+@media (max-width: 720px) {
+  .wc-wb-crumb { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wc-wb-lamp--running, .wc-wb-lamp--linking { animation: none; }
+  .wc-wb-delegate--open .cc-scroll { animation: none; }
+  .wc-wb-chevron { transition: none; }
+}
+
+/* The fixed sidebar toggle sits over the deck's left edge on narrow screens -
+   the same clearance the skin gives .cc-header. */
+@media (max-width: 899px) {
+  .wc-wb-head { padding-left: 52px; }
 }

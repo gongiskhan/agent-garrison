@@ -5,11 +5,13 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeGatewayV4ExecutionModel } from "./helpers/gateway-v4-fixture";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GATEWAY = path.join(REPO_ROOT, "fittings", "seed", "http-gateway", "scripts", "gateway-pty.mjs");
 const CODEX_ADAPTER = path.join(REPO_ROOT, "fittings", "seed", "codex-runtime", "lib", "codex-adapter.mjs");
 const CLAUDE_STUB = path.join(REPO_ROOT, "tests", "fixtures", "gateway-runtime-stub.mjs");
+const AGENT_SDK_STUB = path.join(REPO_ROOT, "tests", "fixtures", "gateway-agent-sdk-runtime");
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -39,6 +41,8 @@ describe("gateway with a Codex primary", () => {
     const compositionDir = fs.mkdtempSync(path.join(os.tmpdir(), "garrison-codex-health-"));
     const runtimeDir = path.join(compositionDir, "codex-runtime-fixture");
     fs.mkdirSync(path.join(compositionDir, ".garrison"), { recursive: true });
+    const kanbanRoot = path.join(compositionDir, "kanban-loop");
+    writeGatewayV4ExecutionModel(compositionDir, kanbanRoot);
     fs.mkdirSync(path.join(runtimeDir, "lib"), { recursive: true });
     fs.mkdirSync(path.join(runtimeDir, "scripts"), { recursive: true });
     // Use the production CodexAdapter session shape ({alive, config}, no Claude
@@ -58,9 +62,12 @@ describe("gateway with a Codex primary", () => {
         GARRISON_MODEL: "gpt-5.6-sol",
         GARRISON_PRIMARY_ENGINE: "codex",
         GARRISON_CODEX_DIR: runtimeDir,
-        // The non-primary classifier stays deterministic and does not call a
-        // live Claude model; the primary itself is the real Codex adapter.
+        // Routing inference is the real schema-v4 Orchestrator path, backed by
+        // a hermetic dispatch-fast Agent SDK adapter. The primary itself is the
+        // production Codex adapter shape.
         GARRISON_GATEWAY_RUNTIME_STUB: CLAUDE_STUB,
+        GARRISON_KANBAN_DIR: kanbanRoot,
+        GARRISON_AGENT_SDK_DIR: AGENT_SDK_STUB,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

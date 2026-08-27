@@ -26488,6 +26488,32 @@ var X = createLucideIcon("X", [
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 
+// ui/plan-wait.ts
+async function waitForPlanStatus({
+  getStatus,
+  onPhase,
+  onJob,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  pollMs = 3e3
+}) {
+  for (; ; ) {
+    const status = await getStatus();
+    onJob?.(status.job);
+    if (status.job?.status === "done" || status.job?.status === "canceled") {
+      onPhase(null);
+      return status;
+    }
+    if (status.job?.status === "failed") {
+      throw new Error(status.job.error || "planning failed");
+    }
+    if (!status.job) {
+      throw new Error("plan job lost (drill server restarted?) - retry");
+    }
+    onPhase(status.job.mode === "update" ? "Planning the Book update - an agent session is authoring the pages and steps this change touches\u2026" : "Planning the Drill Book - an agent session is exploring the app and authoring pages, steps, and states\u2026");
+    await sleep(pollMs);
+  }
+}
+
 // ui/page-normalize.ts
 var asArray = (value) => Array.isArray(value) ? value : [];
 function normalizePage(page) {
@@ -26657,6 +26683,32 @@ function useMediaQuery(query) {
   }, [query]);
   return matches;
 }
+var MEDIA_EVENT = "garrison-drill:open-media";
+function openMedia(url, kind, alt) {
+  window.dispatchEvent(new CustomEvent(MEDIA_EVENT, { detail: { url, kind, alt } }));
+}
+function MediaLightbox() {
+  const [target, setTarget] = (0, import_react4.useState)(null);
+  (0, import_react4.useEffect)(() => {
+    const onOpen = (event) => setTarget(event.detail);
+    window.addEventListener(MEDIA_EVENT, onOpen);
+    return () => window.removeEventListener(MEDIA_EVENT, onOpen);
+  }, []);
+  (0, import_react4.useEffect)(() => {
+    if (!target) return;
+    const onKey = (event) => {
+      if (event.key === "Escape") setTarget(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [target]);
+  if (!target) return null;
+  const close = () => setTarget(null);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-media-scrim", onClick: close, role: "dialog", "aria-modal": "true", "aria-label": target.alt || target.kind, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dr-media-close", "aria-label": "Close", onClick: close, children: "\xD7" }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-media-frame", onClick: (event) => event.stopPropagation(), children: target.kind === "video" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", { className: "dr-media-el", src: target.url, controls: true, autoPlay: true, playsInline: true }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-media-el", src: target.url, alt: target.alt || "" }) })
+  ] });
+}
 async function ensureAppUp(onPhase) {
   let st = await apiGet("/api/app/status");
   if (st.reachable) return st;
@@ -26693,24 +26745,11 @@ async function ensurePlanned({ brief = null, join = false, rootHint = null }, on
   } else if (brief) {
     throw new Error("a plan is already running for this project - wait for it to finish before planning an update");
   }
-  const deadline = Date.now() + 186e4;
-  for (; ; ) {
-    st = await apiGet(`/api/plan/status?root=${encodeURIComponent(root2)}`);
-    onJob?.(st.job);
-    if (st.job && st.job.status === "done") {
-      onPhase(null);
-      return st;
-    }
-    if (st.job && st.job.status === "canceled") {
-      onPhase(null);
-      return st;
-    }
-    if (st.job && st.job.status === "failed") throw new Error(st.job.error || "planning failed");
-    if (!st.job) throw new Error("plan job lost (drill server restarted?) - retry");
-    if (Date.now() > deadline) throw new Error("timed out waiting for planning to finish - see the plan log");
-    onPhase(st.job.mode === "update" ? "Planning the Book update - an agent session is authoring the pages and steps this change touches\u2026" : "Planning the Drill Book - an agent session is exploring the app and authoring pages, steps, and states\u2026");
-    await new Promise((r) => setTimeout(r, 3e3));
-  }
+  return waitForPlanStatus({
+    getStatus: () => apiGet(`/api/plan/status?root=${encodeURIComponent(root2)}`),
+    onPhase,
+    onJob
+  });
 }
 function ProjectBar({ info, onOpenPicker }) {
   const [switching, setSwitching] = (0, import_react4.useState)(false);
@@ -26938,6 +26977,7 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
   const [planOpen, setPlanOpen] = (0, import_react4.useState)(false);
   const [planBusy, setPlanBusy] = (0, import_react4.useState)(false);
   const [planJob, setPlanJob] = (0, import_react4.useState)(null);
+  const [planSessionOpen, setPlanSessionOpen] = (0, import_react4.useState)(false);
   const [canceling, setCanceling] = (0, import_react4.useState)(false);
   const [canceledNotice, setCanceledNotice] = (0, import_react4.useState)(null);
   const [planWarnings, setPlanWarnings] = (0, import_react4.useState)(null);
@@ -26957,9 +26997,18 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
     setError(null);
     setCanceledNotice(null);
     setPlanJob(null);
+    if (!join) setPlanSessionOpen(true);
     setPlanBusy(true);
     try {
-      const st = await ensurePlanned({ brief, join, rootHint: pinnedRootRef.current }, setPlanPhase, setPlanJob);
+      const st = await ensurePlanned(
+        { brief, join, rootHint: pinnedRootRef.current },
+        setPlanPhase,
+        (job) => {
+          setPlanJob(job);
+          if (job?.status === "planning") setPlanSessionOpen(true);
+        }
+      );
+      setPlanJob(st.job);
       setPlanWarnings(st.job?.warnings?.length ? st.job.warnings : null);
       if (st.job && st.job.status === "canceled") {
         setCanceledNotice(`Planning canceled - ${st.pages} page${st.pages === 1 ? "" : "s"} on disk. Plan book to retry.`);
@@ -26979,6 +27028,10 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       const freshBook = b.book;
       if (freshPages.length === 0) throw new Error("planning finished but the Book still has no pages - see the plan log");
       if (thenRun) {
+        if (st.job?.needsAttention) {
+          setError("Planning finished with integrity warnings. Review the warnings and Drill Book, then start the run explicitly when it is ready.");
+          return;
+        }
         const ticked = freshBook.pages.filter((pg) => pg.selected).map((pg) => pg.id);
         const ids = freshBook.fullDrill || ticked.length === 0 ? freshPages.map((pg) => pg.id) : ticked;
         onRunSelected(ids, freshBook.viewports.length ? freshBook.viewports : ["desktop"]);
@@ -26987,7 +27040,6 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
       setError(e.message);
     } finally {
       setPlanPhase(null);
-      setPlanJob(null);
       setPlanBusy(false);
     }
   };
@@ -27135,6 +27187,22 @@ function BookView({ onRunSelected, projInfo, onOpenPicker, onGoAuthoring }) {
         planActivity.stale && " \xB7 no output recently - the plan may be stuck, Cancel to stop it"
       ] })
     ] }),
+    planJob?.sessionId && pinnedRootRef.current && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      "details",
+      {
+        className: "dr-sec dr-plan-session",
+        open: planSessionOpen,
+        onToggle: (event) => setPlanSessionOpen(event.currentTarget.open),
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+            "Plan session",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip" + (planJob.status === "planning" ? " sage" : ""), children: planJob.status }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-help-inline", children: "tool calls and inspected screenshots stream here" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PlanSessionStream, { root: pinnedRootRef.current, job: planJob })
+        ]
+      }
+    ),
     canceledNotice && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-notice", role: "status", children: canceledNotice }),
     planWarnings && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-notice", role: "status", style: { borderColor: "var(--brass)" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "The plan finished, but some of it will not run:" }),
@@ -28255,10 +28323,18 @@ function tierTone(tier) {
 function EvidenceImage({ src, alt, compact = false }) {
   const [failed, setFailed] = (0, import_react4.useState)(false);
   if (failed) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-evidence-missing", children: "Evidence image unavailable" });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "dr-evidence-link" + (compact ? " compact" : ""), href: src, target: "_blank", rel: "noreferrer", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-evidence-image", src, alt, loading: "lazy", onError: () => setFailed(true) }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Open full evidence" })
-  ] });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+    "button",
+    {
+      type: "button",
+      className: "dr-evidence-link" + (compact ? " compact" : ""),
+      onClick: () => openMedia(src, "image", alt),
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { className: "dr-evidence-image", src, alt, loading: "lazy", onError: () => setFailed(true) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Open full evidence" })
+      ]
+    }
+  );
 }
 function evidenceFileUrl(runId, name) {
   return `/api/runs/${encodeURIComponent(runId)}/evidence-file/${encodeURIComponent(name)}`;
@@ -28961,10 +29037,11 @@ function DebriefView({
     setReel(null);
     setReelMissing(false);
     let cancelled = false;
-    fetch(evidenceFileUrl(run.id, "reel.json")).then((r) => r.ok ? r.json() : null).then((j) => {
+    fetch(`/api/runs/${encodeURIComponent(run.id)}/reel`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`reel lookup ${r.status}`))).then((payload) => {
       if (!cancelled) {
-        setReel(j);
-        setReelMissing(!j);
+        const next = payload?.reel ?? null;
+        setReel(next);
+        setReelMissing(!next);
       }
     }).catch(() => {
       if (!cancelled) setReelMissing(true);
@@ -29135,6 +29212,28 @@ function DebriefView({
               unprovenCount > 0 ? ` \xB7 ${unprovenCount} unproven` : ""
             ] })
           ] }),
+          pageGroups.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+            "select",
+            {
+              className: "dr-db-scope-select",
+              "aria-label": "Show results for page",
+              value: scope.kind === "all" ? "" : scope.pageId,
+              onChange: (e) => setScope(e.target.value ? { kind: "page", pageId: e.target.value } : { kind: "all" }),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", { value: "", children: [
+                  "All pages (",
+                  steps.length,
+                  " checks)"
+                ] }),
+                pageGroups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", { value: group.pageId, children: [
+                  group.title,
+                  " (",
+                  group.checks.length,
+                  ")"
+                ] }, group.pageId))
+              ]
+            }
+          ),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
             "button",
             {
@@ -29548,10 +29647,25 @@ function RunResultsPanel({
             if (!row || !row.screenshot && !row.trace && !row.failureScreenshot) return null;
             const videoName = run.evidence?.video;
             return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 5, gap: 6 }, children: [
-              row.screenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, row.screenshot), target: "_blank", rel: "noreferrer", children: "full-page shot" }),
-              row.failureScreenshot && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip alarm", href: evidenceFileUrl(run.id, row.failureScreenshot), target: "_blank", rel: "noreferrer", children: "failure shot" }),
+              row.screenshot && (() => {
+                const shot = evidenceFileUrl(run.id, row.screenshot);
+                return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: shot, onClick: (e) => {
+                  e.preventDefault();
+                  openMedia(shot, "image", "full-page shot");
+                }, children: "full-page shot" });
+              })(),
+              row.failureScreenshot && (() => {
+                const shot = evidenceFileUrl(run.id, row.failureScreenshot);
+                return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip alarm", href: shot, onClick: (e) => {
+                  e.preventDefault();
+                  openMedia(shot, "image", "failure shot");
+                }, children: "failure shot" });
+              })(),
               row.trace && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, row.trace), title: "Playwright trace chunk - open with npx playwright show-trace", children: "trace" }),
-              videoName && Number.isFinite(row.startMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, target: "_blank", rel: "noreferrer", children: [
+              videoName && Number.isFinite(row.startMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, onClick: (e) => {
+                e.preventDefault();
+                openMedia(`${evidenceFileUrl(run.id, videoName)}#t=${Math.floor((row.startMs ?? 0) / 1e3)}`, "video", "run video");
+              }, children: [
                 "video @",
                 fmtOffset(row.startMs ?? 0)
               ] }),
@@ -29736,10 +29850,16 @@ function RunResultsPanel({
               ),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-rowwrap", style: { marginTop: 4, gap: 6 }, children: [
                 f.evidence.trace && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "chip", href: evidenceFileUrl(run.id, f.evidence.trace), title: "Playwright trace chunk - open with npx playwright show-trace", children: "trace" }),
-                run.evidence?.video && Number.isFinite(f.evidence.videoMs) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: `${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1e3)}`, target: "_blank", rel: "noreferrer", children: [
-                  "video @",
-                  fmtOffset(f.evidence.videoMs ?? 0)
-                ] })
+                run.evidence?.video && Number.isFinite(f.evidence.videoMs) && (() => {
+                  const at = `${evidenceFileUrl(run.id, run.evidence.video)}#t=${Math.floor((f.evidence.videoMs ?? 0) / 1e3)}`;
+                  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", { className: "chip", href: at, onClick: (e) => {
+                    e.preventDefault();
+                    openMedia(at, "video", "run video");
+                  }, children: [
+                    "video @",
+                    fmtOffset(f.evidence.videoMs ?? 0)
+                  ] });
+                })()
               ] })
             ] })
           ) : f.stepId && run.pages.filter(
@@ -29826,7 +29946,7 @@ function SessionToolBlock({ block, result }) {
     ))
   ] });
 }
-function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }) {
+function TranscriptStream({ sourceUrl, sessionId, live, fallbackTitle, emptyEndedText, compact = false }) {
   const [events, setEvents] = (0, import_react4.useState)([]);
   const [title, setTitle] = (0, import_react4.useState)(null);
   const [status, setStatus] = (0, import_react4.useState)("connecting");
@@ -29837,10 +29957,7 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
     setTitle(null);
     setStatus("connecting");
     stickRef.current = true;
-    const params = new URLSearchParams({ session: sessionId });
-    if (Number.isFinite(windowFrom)) params.set("from", String(Math.floor(windowFrom)));
-    if (Number.isFinite(windowTo)) params.set("to", String(Math.ceil(windowTo)));
-    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`);
+    const source = new EventSource(sourceUrl);
     source.onmessage = (message) => {
       let payload;
       try {
@@ -29865,7 +29982,7 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
       source.close();
     };
     return () => source.close();
-  }, [runId, sessionId, windowFrom, windowTo]);
+  }, [sourceUrl, sessionId]);
   (0, import_react4.useEffect)(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
@@ -29883,18 +30000,17 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
     }
     return map;
   }, [events]);
-  const windowed = Number.isFinite(windowFrom) || Number.isFinite(windowTo);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session" + (compact ? " compact" : ""), children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-head", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquare, { size: 13, "aria-hidden": "true" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: title ?? "Verify session" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: title ?? fallbackTitle }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "mono dr-session-id", children: sessionId.slice(0, 8) }),
       live && status === "streaming" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip sage", children: "live" }),
       status === "connecting" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "connecting\u2026" }),
       status === "unavailable" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip brass", children: "transcript unavailable" })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-scroll", ref: scrollRef, onScroll, children: [
-      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : windowed ? "No session activity fell inside this check's window." : "No session activity fell inside this run's window." }),
+      events.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "dr-empty", children: status === "connecting" ? "Opening the session stream\u2026" : status === "unavailable" ? "No transcript was captured for this session (the gateway did not report one)." : live ? "Waiting for the first session activity\u2026" : emptyEndedText }),
       events.filter((event) => !event.toolResultsOnly).map((event, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dr-session-turn " + (event.role === "user" ? "user" : "assistant"), children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dr-session-role", children: event.role === "user" ? "Prompt" : "Assistant" }),
         event.blocks.map((block, blockIndex) => {
@@ -29913,6 +30029,36 @@ function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact =
       ] }, event.id ?? `event-${index}`))
     ] })
   ] });
+}
+function SessionStream({ runId, sessionId, live, windowFrom, windowTo, compact = false }) {
+  const params = new URLSearchParams({ session: sessionId });
+  if (Number.isFinite(windowFrom)) params.set("from", String(Math.floor(windowFrom)));
+  if (Number.isFinite(windowTo)) params.set("to", String(Math.ceil(windowTo)));
+  const windowed = Number.isFinite(windowFrom) || Number.isFinite(windowTo);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    TranscriptStream,
+    {
+      sourceUrl: `/api/runs/${encodeURIComponent(runId)}/session-stream?${params.toString()}`,
+      sessionId,
+      live,
+      fallbackTitle: "Verify session",
+      emptyEndedText: windowed ? "No session activity fell inside this check's window." : "No session activity fell inside this run's window.",
+      compact
+    }
+  );
+}
+function PlanSessionStream({ root: root2, job }) {
+  const params = new URLSearchParams({ root: root2, session: job.sessionId });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    TranscriptStream,
+    {
+      sourceUrl: `/api/plan/session-stream?${params.toString()}`,
+      sessionId: job.sessionId,
+      live: job.status === "planning",
+      fallbackTitle: "Plan session",
+      emptyEndedText: "No session activity was captured for this plan. The raw plan log remains available on failures."
+    }
+  );
 }
 function SessionViewer({ runId, sessions, live }) {
   const [selected, setSelected] = (0, import_react4.useState)(sessions[0]?.id ?? null);
@@ -29976,7 +30122,7 @@ function LiveCheckThumb({ src, alt }) {
     };
   }, [src]);
   if (!imageUrl) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { className: "dr-live-check-shot", href: src, target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: imageUrl, alt }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "dr-live-check-shot", onClick: () => openMedia(imageUrl, "image", alt), children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: imageUrl, alt }) });
 }
 function LiveRunPanel({ runId, startedAt, onFinished }) {
   const [planned, setPlanned] = (0, import_react4.useState)(null);
@@ -31076,7 +31222,8 @@ function App() {
         }
       )
     ] }, view) }),
-    pickerOpen && projInfo && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectPickerDialog, { info: projInfo, onClose: () => setPickerOpen(false) })
+    pickerOpen && projInfo && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ProjectPickerDialog, { info: projInfo, onClose: () => setPickerOpen(false) }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MediaLightbox, {})
   ] });
 }
 var root = document.getElementById("root");

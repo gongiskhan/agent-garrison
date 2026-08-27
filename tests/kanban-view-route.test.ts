@@ -21,6 +21,19 @@ import path, { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import http from "node:http";
 
+// The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
+// Boot one for this file and project its discovery env before anything reads a
+// card; side files still live under the kanban root this file already pins.
+import { setupKanbanState } from "./kanban-state-env";
+let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
+}, 30_000);
+afterAll(async () => {
+  await __kanbanState?.stop();
+});
+
+
 const ROOT = path.resolve(__dirname, "..");
 const KANBAN_DIR = mkdtempSync(join(tmpdir(), "kvr-kanban-"));
 const GARRISON_HOME = mkdtempSync(join(tmpdir(), "kvr-home-"));

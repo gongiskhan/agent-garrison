@@ -5,10 +5,10 @@
 # dir. Every writable control-plane surface is projected per profile here; a bare
 # `next dev` bypasses this and will scribble on whichever home it inherits.
 #
-#   profile  offset   app     gateway  outpost  fittings  scheduler  home
-#   dev          0    7777     4777     3702     70xx      7099      ~/.garrison-dev
-#   prod     +1000    8777     5777     4702     80xx      8099      ~/.garrison   (+ real ~/.claude)
-#   codex   +20000   27777    24777    23702    270xx     27099      ~/.garrison-codex
+#   profile  offset   app     gateway  fittings  scheduler  home
+#   node         0    8777     5777     80xx      8099      ~/.garrison   (+ real ~/.claude)
+#   dev     +10000   18777    15777    180xx     18099     ~/.garrison-dev
+#   codex   +20000   28777    25777    280xx     28099     ~/.garrison-codex
 #
 # Fitting and gateway ports are NOT set here — they come from the composition's
 # single committed port map, shifted by src/lib/instance-profile.ts. This script
@@ -20,7 +20,7 @@
 # kept apart deliberately (a shared .next silently breaks the dev server's
 # dynamic routes; friction-log 2026-06-10).
 #
-# Usage:  scripts/garrison-instance.sh <prod|dev|codex> <start|dev|next|mobile|build|env>
+# Usage:  scripts/garrison-instance.sh <node|dev|codex> <start|dev|next|mobile|build|env>  (prod = alias)
 
 set -euo pipefail
 
@@ -30,10 +30,16 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 profile="${1:-}"
 mode="${2:-start}"
 
+# Mesh re-axis (2026-08-24): "node" is the full-node profile (offset 0, the
+# 8xxx committed map — exactly the ports the old prod profile served, so
+# nothing live changed ports). "prod" survives as an alias for one release.
+if [ "$profile" = "prod" ]; then
+  profile="node"
+fi
 case "$profile" in
-  prod|dev|codex) ;;
+  node|dev|codex) ;;
   *)
-    echo "usage: $0 {prod|dev|codex} {start|dev|next|mobile|build|env}" >&2
+    echo "usage: $0 {node|dev|codex} {start|dev|next|mobile|build|env}  (prod = alias for node)" >&2
     exit 2
     ;;
 esac
@@ -42,19 +48,20 @@ esac
 # Offsets MUST match PROFILE_PORT_OFFSET in src/lib/instance-profile.ts.
 # tests/instance-isolation.test.ts pins both sides against each other.
 case "$profile" in
-  dev)
+  node)
     PORT_OFFSET=0
+    DEFAULT_HOME="$HOME/.garrison"
+    # The node profile on EVERY machine owns that machine's real ~/.claude —
+    # on a mesh there is no lesser instance; each box's node IS its control
+    # plane. Sandboxes (dev/codex) must never point here.
+    DEFAULT_CLAUDE_HOME="$HOME/.claude"
+    KEYCHAIN_SUFFIX=""
+    ;;
+  dev)
+    PORT_OFFSET=10000
     DEFAULT_HOME="$HOME/.garrison-dev"
     DEFAULT_CLAUDE_HOME="$HOME/.claude-garrison-dev"
     KEYCHAIN_SUFFIX="-dev"
-    ;;
-  prod)
-    PORT_OFFSET=1000
-    DEFAULT_HOME="$HOME/.garrison"
-    # Prod is the real control plane: it owns the user's actual ~/.claude.
-    # That is the whole point of Garrison — dev must never point here.
-    DEFAULT_CLAUDE_HOME="$HOME/.claude"
-    KEYCHAIN_SUFFIX=""
     ;;
   codex)
     PORT_OFFSET=20000
@@ -70,9 +77,12 @@ export GARRISON_HOME="${GARRISON_HOME_OVERRIDE:-$DEFAULT_HOME}"
 export GARRISON_CLAUDE_HOME="${GARRISON_CLAUDE_HOME_OVERRIDE:-$DEFAULT_CLAUDE_HOME}"
 
 # --- process-level ports ----------------------------------------------------
-export GARRISON_APP_PORT="${GARRISON_APP_PORT:-$((7777 + PORT_OFFSET))}"
-export GARRISON_OUTPOST_PORT="${GARRISON_OUTPOST_PORT:-$((3702 + PORT_OFFSET))}"
-export GARRISON_SCHEDULER_HEALTH_PORT="${GARRISON_SCHEDULER_HEALTH_PORT:-$((7099 + PORT_OFFSET))}"
+export GARRISON_APP_PORT="${GARRISON_APP_PORT:-$((8777 + PORT_OFFSET))}"
+# DEPRECATED — the outpost WS bridge daemon it addressed was retired with the
+# mesh (phase 3E). Still exported for one release so a stale process or an old
+# fitting config reads a per-instance value rather than colliding on 4702.
+export GARRISON_OUTPOST_PORT="${GARRISON_OUTPOST_PORT:-$((4702 + PORT_OFFSET))}"
+export GARRISON_SCHEDULER_HEALTH_PORT="${GARRISON_SCHEDULER_HEALTH_PORT:-$((8099 + PORT_OFFSET))}"
 # Next reads PORT; the runner's self-URL prefers GARRISON_APP_PORT but falls
 # back to it, so keep them in lockstep.
 export PORT="$GARRISON_APP_PORT"
@@ -189,7 +199,7 @@ export PATH="$GARRISON_HOME/bin:$UV_TOOL_BIN_DIR:$REPO_ROOT/node_modules/.bin:$H
 
 # Prod builds and serves from its own dist dir so `next build` never clobbers a
 # running dev server's .next (and vice versa).
-if [ "$profile" = "prod" ]; then
+if [ "$profile" = "node" ]; then
   export NEXT_DIST_DIR="${NEXT_DIST_DIR:-.next-prod}"
 else
   # ...and a dev/codex boot launched from a shell that already ran a prod
@@ -204,9 +214,9 @@ else
   unset NODE_ENV
 fi
 
-# The host daemon sweep is a single-owner job: only prod runs it, so a dev or
-# codex boot can never reap prod's fittings.
-if [ "$profile" != "prod" ]; then
+# The host daemon sweep is a single-owner job: only the node profile runs it,
+# so a dev or codex boot can never reap the node's fittings.
+if [ "$profile" != "node" ]; then
   export GARRISON_DISABLE_HOST_DAEMONS=1
 fi
 
@@ -244,33 +254,29 @@ fi
 cd "$REPO_ROOT"
 
 scheduler_cmd="node \"$GARRISON_SCHEDULER_SCRIPT\" daemon --health-port $GARRISON_SCHEDULER_HEALTH_PORT"
-outpost_cmd="node scripts/outpost-host.mjs"
 
 case "$mode" in
   build)
     exec next build
     ;;
   start)
-    if [ "$profile" = "prod" ]; then
+    if [ "$profile" = "node" ]; then
       # Serve the built artifact, not the working tree.
       if [ ! -d "$REPO_ROOT/$NEXT_DIST_DIR" ]; then
-        echo "prod: $NEXT_DIST_DIR missing — run '$0 prod build' first" >&2
+        echo "node: $NEXT_DIST_DIR missing — run '$0 node build' first" >&2
         exit 1
       fi
-      exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
+      exec concurrently --kill-others-on-fail --names next,scheduler \
         "next start -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
-        "$outpost_cmd" \
         "$scheduler_cmd"
     fi
-    exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
+    exec concurrently --kill-others-on-fail --names next,scheduler \
       "next dev -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
-      "$outpost_cmd" \
       "$scheduler_cmd"
     ;;
   dev)
-    exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
+    exec concurrently --kill-others-on-fail --names next,scheduler \
       "next dev -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
-      "$outpost_cmd" \
       "$scheduler_cmd"
     ;;
   next)
@@ -285,9 +291,8 @@ case "$mode" in
     # you control, and prefer a `tailscale serve` mapping where you can.
     echo "[garrison-instance] WARNING: 'mobile' binds 0.0.0.0 - the unauthenticated" >&2
     echo "[garrison-instance] shell and its cleartext vault are reachable from every NIC." >&2
-    exec concurrently --kill-others-on-fail --names next,outpost,scheduler \
+    exec concurrently --kill-others-on-fail --names next,scheduler \
       "next dev -H 0.0.0.0 -p $GARRISON_APP_PORT" \
-      "$outpost_cmd" \
       "$scheduler_cmd"
     ;;
   env)
@@ -316,7 +321,7 @@ case "$mode" in
     done
     ;;
   *)
-    echo "usage: $0 {prod|dev|codex} {start|dev|next|mobile|build|env}" >&2
+    echo "usage: $0 {node|dev|codex} {start|dev|next|mobile|build|env}" >&2
     exit 2
     ;;
 esac

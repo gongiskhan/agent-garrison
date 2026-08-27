@@ -5,6 +5,8 @@ declare module "*/omi-channel/lib/config.mjs" {
   export const FITTING_ID: string;
   export const CHANNEL_ID: string;
   export const DEFAULT_PORT: number;
+  export const DEFAULT_WAKE_VARIANTS: string[];
+  export function isRetiredWakeVariantSet(variants: unknown): boolean;
   export function garrisonDir(env?: Record<string, string | undefined>): string;
   export function omiDir(env?: Record<string, string | undefined>): string;
   export function statusFilePath(env?: Record<string, string | undefined>): string;
@@ -13,6 +15,11 @@ declare module "*/omi-channel/lib/config.mjs" {
     port: number;
     bindHost: string;
     gatewayUrl: string | null;
+    // Resolved instance paths carried ON the config, so a consumer never
+    // re-reads process.env behind its caller's back (see config.mjs).
+    home: string;
+    stateDir: string;
+    statusFile: string;
     enabled: boolean;
     triageEnabled: boolean;
     wakeEnabled: boolean;
@@ -27,6 +34,7 @@ declare module "*/omi-channel/lib/config.mjs" {
     blockedFolders: string[];
     dropDiscarded: boolean;
     wakeVariants: string[];
+    wakeVariantsRetiredFallback: boolean;
     wakeSilenceCloseMs: number;
     wakeMaxCaptureMs: number;
     notifyMaxPerDay: number;
@@ -37,6 +45,27 @@ declare module "*/omi-channel/lib/config.mjs" {
 }
 
 declare module "*/omi-channel/scripts/server.mjs" {
+  export type OmiGatewayProbe = {
+    state: "ready" | "offline" | "degraded" | "missing" | "configured";
+    label: string;
+    tone: "ok" | "alarm" | "warning" | "neutral";
+    detail: string;
+    latencyMs?: number;
+  };
+  export function probeGateway(
+    cfg: unknown,
+    opts?: { fetchImpl?: typeof fetch; timeoutMs?: number }
+  ): Promise<OmiGatewayProbe>;
+  export function statusPage(
+    cfg: unknown,
+    counters?: Record<string, unknown>,
+    state?: { pinnedUid?: string | null; gateway?: OmiGatewayProbe | null }
+  ): string;
+  export function repairDoubleEncodedQuery(
+    query: Record<string, unknown>,
+    counters?: unknown,
+    expectedSecret?: string
+  ): Record<string, string>;
   import type { Server } from "node:http";
   export function makeRequestHandler(ctx: unknown): (req: unknown, res: unknown) => Promise<void>;
   export function startServer(cfg?: unknown): Promise<Server>;
@@ -48,7 +77,7 @@ interface OmiCaptureEvent {
   uid: string | null;
   received_at: string;
   occurred_at: string;
-  kind: "conversation" | "day_summary" | "wake_command";
+  kind: "conversation" | "day_summary" | "wake_command" | "session";
   day_key?: string;
   normalized: {
     title: string | null;
@@ -106,14 +135,38 @@ declare module "*/omi-channel/lib/store.mjs" {
     getEvent(id: string): OmiCaptureEvent | null;
     listEvents(status?: string | null): OmiCaptureEvent[];
     updateEvent(id: string, mutate: (ev: OmiCaptureEvent) => OmiCaptureEvent): OmiCaptureEvent | null;
+    ensureThread(args: { id: string; title?: string | null; source?: string | null }): Record<string, unknown>;
+    threadDelivery(id: string, idempotencyKey: string): Record<string, unknown> | null;
+    completeThreadDelivery(id: string, idempotencyKey: string, receipts: Array<Record<string, unknown>>): Record<string, unknown> | null;
+    appendThreadMessages(
+      id: string,
+      messages: Array<{ role?: string; text?: string }>,
+      options?: { cap?: number; idempotencyKey?: string | null }
+    ): Array<{ role: string; text: string; at: string }>;
+  }
+  export class EventsDirStore {
+    constructor(root: string);
+    root: string;
+    eventsDir: string;
+    listEvents(status?: string | null): OmiCaptureEvent[];
+    updateEvent(id: string, mutate: (ev: OmiCaptureEvent) => OmiCaptureEvent): OmiCaptureEvent | null;
   }
 }
 
 declare module "*/omi-channel/lib/ingress.mjs" {
   export function secretMatches(presented: string | undefined, expected: string | undefined): boolean;
   export class Ingress {
-    constructor(opts: { cfg: unknown; store: unknown; counters: unknown; log?: unknown });
-    authorize(query: Record<string, unknown>): { ok: true; uid: string } | { ok: false; status: number; reason: string };
+    constructor(opts: {
+      cfg: unknown;
+      store: unknown;
+      counters: unknown;
+      wakeBus?: unknown;
+      log?: unknown;
+    });
+    authorize(
+      query: Record<string, unknown>,
+      pathname?: string
+    ): { ok: true; uid: string } | { ok: false; status: number; reason: string };
     accept(entry: { kind: string; uid: string; bodyText: string; sessionId?: string | null }): void;
     acceptRealtime(entry: { bodyText: string; sessionId?: string | null }): void;
     scheduleDrain(): Promise<void>;
@@ -130,10 +183,14 @@ declare module "*/omi-channel/lib/normalize.mjs" {
 }
 
 declare module "*/omi-channel/lib/triage.mjs" {
+  export const HOLD_MAX_MS: number;
+  export const TRIAGE_SOURCES: Record<string, Record<string, unknown>>;
+  export function sourceIdentity(event: unknown): Record<string, unknown> & { originPrefix: string; label: string };
   export function ruleFilter(
     event: unknown,
-    cfg: unknown
-  ): { action: "drop"; reason: string } | { action: "keep"; taskPath: boolean };
+    cfg: unknown,
+    now?: Date
+  ): { action: "drop"; reason: string } | { action: "hold"; reason: string } | { action: "keep"; taskPath: boolean };
   export function buildTriagePrompt(args: { batch: unknown[]; projects: string[] }): string;
   export function parseTriageReply(reply: string): {
     cards: Array<Record<string, unknown> & { event_id?: string }>;
@@ -151,9 +208,13 @@ declare module "*/omi-channel/lib/triage.mjs" {
     notifier?: unknown;
     log?: unknown;
     now?: Date;
+    extraStores?: unknown[];
+    memoryWriterFor?: (event: unknown) => unknown;
+    notifierFor?: (event: unknown) => unknown;
   }): Promise<{
     modelCalls: number;
     dropped: number;
+    held: number;
     cardsCreated: number;
     cardsDeduped: number;
     cardsSuppressed: number;
@@ -191,7 +252,7 @@ declare module "*/omi-channel/lib/memory-writer.mjs" {
   export function vaultMemoryDir(env?: Record<string, string | undefined>): { vault: string; dir: string };
   export function redactSecrets(text: string): string;
   export class MemoryWriter {
-    constructor(opts?: { dir?: string | null; env?: Record<string, string | undefined> });
+    constructor(opts?: { dir?: string | null; env?: Record<string, string | undefined>; prefix?: string; label?: string });
     vault: string;
     dir: string;
     available(): boolean;
@@ -285,14 +346,38 @@ declare module "*/omi-channel/lib/notify.mjs" {
     });
     cardUrl(cardId: string | null): Promise<string | null>;
     sentToday(): number;
-    send(args: { template: string; params?: Record<string, unknown> }): Promise<OmiNotifyReceipt[]>;
+    send(args: { template: string; params?: Record<string, unknown>; suppressWebFallback?: boolean }): Promise<OmiNotifyReceipt[]>;
     drainTips(): Promise<Array<{ tip: string; receipts: OmiNotifyReceipt[] }>>;
+  }
+  export class RelayNotifier extends Notifier {
+    sendOmi(message: string): Promise<OmiNotifyReceipt>;
   }
 }
 
 declare module "*/omi-channel/lib/wake.mjs" {
   export function wakeRegex(variants: string[]): RegExp | null;
-  export function buildWakePrompt(command: string, projects: string[]): string;
+  export function normalizeTitle(title: unknown): string;
+  export function buildRevisionPrompt(args: {
+    command: string;
+    title: string;
+    description: string;
+    conversation: string;
+  }): string;
+  export function parseRevisionReply(reply: string): {
+    action: "none" | "revise";
+    title: string;
+    description: string;
+    note: string;
+  } | null;
+  export function buildWakePrompt(
+    command: string,
+    projects: string[],
+    context?: Array<{ text: string; isUser: boolean }>,
+    trailing?: string,
+    now?: Date
+  ): string;
+  export function vagueTimeAnchors(now?: Date): Array<{ phrases: string[]; iso: string }>;
+  export function buildDelegatePrompt(request: string, opts?: { boardUrl?: string | null }): string;
   export function parseWakeReply(reply: string): {
     intent: "create_task" | "create_event" | "query" | "note" | "unknown";
     title: string;
@@ -307,6 +392,7 @@ declare module "*/omi-channel/lib/wake.mjs" {
       store: unknown;
       counters: unknown;
       runFn: ((args: { prompt: string }) => Promise<{ reply: string }>) | null;
+      operativeFn?: ((args: { prompt: string; sessionId?: string | null; sessionTitle?: string | null }) => Promise<{ reply: string }>) | null;
       board: unknown;
       memoryWriter: unknown;
       notifier: unknown;
@@ -315,12 +401,28 @@ declare module "*/omi-channel/lib/wake.mjs" {
     });
     sessions: Map<string, unknown>;
     handleSegments(args: { sessionId: string; segments: unknown[] }): void;
+    handleCommand(args: {
+      command: string;
+      eventId: string;
+      context?: Array<{ text: string; isUser: boolean; at: number }>;
+      trailing?: string;
+      sessionId?: string | null;
+    }): Promise<{ confirmation: string; cardUrl: string | null; result: Record<string, unknown> }>;
+    scheduleRevision(args: {
+      sessionId: string | null;
+      cardId: string | null;
+      command: string;
+      title: string;
+      description: string;
+    }): unknown;
+    runRevision(sessionId: string): Promise<{ action: string } | null>;
     close(sessionId: string, reason: string): Promise<unknown>;
   }
 }
 
 declare module "*/omi-channel/lib/chat.mjs" {
   export const ASK_DEADLINE_MS: number;
+  export function buildAskDelegatePrompt(query: string, opts?: { boardUrl?: string | null }): string;
   export function buildManifest(cfg: unknown): {
     tools: Array<{
       name: string;
@@ -340,6 +442,8 @@ declare module "*/omi-channel/lib/chat.mjs" {
       store: unknown;
       counters: unknown;
       runFn: ((args: { prompt: string }) => Promise<{ reply: string }>) | null;
+      operativeFn?: ((args: { prompt: string; sessionId?: string | null; sessionTitle?: string | null }) => Promise<{ reply: string }>) | null;
+      notifier?: unknown;
       deadlineMs?: number;
       log?: unknown;
     });

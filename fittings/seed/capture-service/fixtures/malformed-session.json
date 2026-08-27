@@ -1,0 +1,11 @@
+{
+  "note": "A session_start the ingress must refuse (close 1008, sessions_malformed counted, no state created): the mode names the one thing this app must never be.",
+  "message": {
+    "type": "session_start",
+    "session_id": "01MALFORMED00001",
+    "mode": "always_on",
+    "device_name": "Test iPhone",
+    "consent": "shown",
+    "started_at": "2026-08-13T10:00:00.000Z"
+  }
+}

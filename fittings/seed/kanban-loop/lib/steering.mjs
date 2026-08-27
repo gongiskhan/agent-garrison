@@ -17,12 +17,23 @@ export const STEER_ACTIONS = ["absorb", "revisit", "acknowledge"];
 // in its sequence, so a re-stage never marches a card FORWARD past gates. Only
 // enforceable when the card carries a sequence; without one (legacy card) we cannot
 // validate and allow it (the classifier already validated against the sequence).
+//
+// A card whose CURRENT list is off the sequence — a TERMINAL card (done /
+// needs-attention) is the important case — is re-ENTERING the pipeline: every phase
+// in its sequence sits "earlier" than being finished/parked, so any valid in-sequence
+// target is allowed. This is exactly the human-feedback path (a card reached the end,
+// the user sends it back to plan/implement to fold in what was missed); without it the
+// endpoint would reject every revisit on a done card (cur = -1). The target must still
+// name a real phase in the sequence, so a typo can never re-stage the card nowhere.
 export function isEarlierPhase(card, revisitDuty) {
   const seq = Array.isArray(card?.sequence) ? card.sequence : null;
   if (!seq || !seq.length) return true;
-  const cur = seq.indexOf(card?.list);
   const tgt = seq.indexOf(revisitDuty);
-  return tgt >= 0 && cur >= 0 && tgt < cur;
+  if (tgt < 0) return false;
+  const cur = seq.indexOf(card?.list);
+  // Off-sequence (terminal / parked) → re-entry: any in-sequence phase is earlier.
+  if (cur < 0) return true;
+  return tgt < cur;
 }
 
 export function steeringMdFile(root, id) {

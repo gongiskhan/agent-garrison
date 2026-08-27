@@ -1,0 +1,28 @@
+{
+  "origin": "https://dev-madrid.tail31efa.ts.net:8483",
+  "checks": {
+    "streamedTurn": {
+      "hittable": {
+        "send": "self",
+        "input": "self",
+        "notice": true
+      },
+      "terminals": [
+        "completed"
+      ],
+      "replyPersisted": true,
+      "reply": "parity smoke ok\n\n[route: cc-haiku | rule: other-L1 | profile: personal]\n[orchestrator-active]"
+    },
+    "permissionTurn": {
+      "permissionsAnswered": 1,
+      "toolCards": 1,
+      "terminals": [
+        "completed",
+        "completed"
+      ],
+      "reply": "`cksum` didn't print a number — `/etc/hostname` doesn't exist on this box:\n\n```\ncksum: /etc/hostname: No such file or directory\n```\n\nExit code 1. Want me to check another path (`/proc/sys/kernel/hostn"
+    }
+  },
+  "consoleErrors": [],
+  "threadId": "chat-msyl7pea-kekia0"
+}
