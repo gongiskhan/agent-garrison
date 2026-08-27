@@ -19,6 +19,7 @@ import {
   sessionEventText,
   sessionThinkingSummary,
   sessionToolSummary,
+  stripHandoffFence,
   type ConversationActivity,
   type FailureInfo,
   type PermissionAnswer,
@@ -998,6 +999,7 @@ function ActivityTimeline({
   permissionGenerationId,
   renderTerminalResult = false,
   conversationTurn = false,
+  omittedText = null,
 }: {
   events: SessionEvent[];
   includeText: boolean;
@@ -1018,6 +1020,11 @@ function ActivityTimeline({
    * Errors and cancellations keep their notice: a failure must never be the
    * thing this hides. */
   conversationTurn?: boolean;
+  /** The prose already shown as this turn's primary text. The tee can carry
+   * the same reply under TWO event ids (the streamed revision and the final
+   * message), and the index-based omission only catches one of them - any text
+   * beat matching this string is skipped. */
+  omittedText?: string | null;
 }) {
   const beats = sessionActivityBeats(events);
   return (
@@ -1030,7 +1037,10 @@ function ActivityTimeline({
         const eventKey = sourceEvent?.id ?? `event-${beat.eventIndex}`;
         const key = `${eventKey}:${beat.blockIndex}:${beat.type}`;
         if (beat.type === "text") {
-          if (!includeText || beat.eventIndex === omittedTextEventIndex || !beat.text.trim()) return null;
+          if (!includeText || beat.eventIndex === omittedTextEventIndex) return null;
+          const text = conversationTurn ? stripHandoffFence(beat.text) : beat.text;
+          if (!text.trim()) return null;
+          if (omittedText && text.trim() === omittedText.trim()) return null;
           return (
             <div
               key={key}
@@ -1038,7 +1048,7 @@ function ActivityTimeline({
               data-session-event-id={sourceEvent?.id ?? undefined}
               data-session-block-index={beat.blockIndex}
             >
-              <TextBlock text={beat.text} role="assistant" renderMarkdown={renderMarkdown} />
+              <TextBlock text={text} role="assistant" renderMarkdown={renderMarkdown} />
             </div>
           );
         }
@@ -1063,10 +1073,11 @@ function ActivityTimeline({
             block.type === "turn_end" &&
             String(block.status ?? "completed") === "completed"
           ) {
-            const resultText =
+            const raw =
               !terminalResultDuplicated && typeof block.result === "string" && block.result.trim()
-                ? block.result
+                ? stripHandoffFence(block.result)
                 : null;
+            const resultText = raw && raw.trim() ? raw : null;
             if (!resultText) return null;
             return (
               <div
@@ -1784,6 +1795,9 @@ export function SessionStream({
           const turnIsStretch = turn.assistantEvents.some((event) =>
             event.blocks.some((block) => block.type === "stretch")
           );
+          const primaryText = turnIsStretch && presentation.primaryText
+            ? stripHandoffFence(presentation.primaryText)
+            : presentation.primaryText;
           const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
           const hasSettlementNotice = turn.assistantEvents.some((event) => event.blocks.some((block) =>
             // A stretch boundary is a settlement, not interim chatter: it carries
@@ -1827,7 +1841,7 @@ export function SessionStream({
               {(turn.assistantEvents.length > 0 || turnLive) && (
                 <div className="cc-session-turn assistant">
                   <span className="cc-session-role">Assistant</span>
-                  {!turnLive && presentation.primaryText && <TextBlock text={presentation.primaryText} role="assistant" />}
+                  {!turnLive && Boolean(primaryText?.trim()) && <TextBlock text={primaryText!} role="assistant" />}
                   {turnLive && (
                     <>
                       <ActivityTimeline
@@ -1851,7 +1865,7 @@ export function SessionStream({
                     <InterimDetails
                       count={interimCount}
                       openByDefault={
-                        !presentation.primaryText || hasSettlementNotice ||
+                        !primaryText?.trim() || hasSettlementNotice ||
                         // The turn just finished under the reader's eyes: leave
                         // open what they were already watching.
                         watchedLiveTurns.current.has(turn.key)
@@ -1867,6 +1881,7 @@ export function SessionStream({
                         progressByToolUse={progressByToolUse}
                         onImage={(image, label) => setModalImage({ image, label })}
                         conversationTurn={turnIsStretch}
+                        omittedText={primaryText}
                       />
                     </InterimDetails>
                   )}

@@ -580,7 +580,8 @@ export async function runExitGate(gateway, {
     : { ok: false, errors: ["handoff absent (no file, no fenced block)"], resolved: [] };
 
   if (!verdict.ok && typeof reAsk === "function") {
-    const prompt = `Your handoff is invalid: ${verdict.errors.join("; ")}.\nRewrite the handoff JSON at ${file} (or reply with ONLY a \`\`\`handoff fenced block). Fix every error. Reply with nothing else.`;
+    const allowedNext = [...(selectedDuties ?? []), "done", "needs-input"].join(", ");
+    const prompt = `Your handoff is invalid: ${verdict.errors.join("; ")}.\nRewrite the handoff JSON at ${file} (or reply with ONLY a \`\`\`handoff fenced block). Fix every error. Use the EXACT schema from your brief's exit contract - do not invent fields. "nextSteps.next" must be one of: ${allowedNext}. Reply with nothing else.`;
     try {
       const reAskReply = await reAsk(prompt);
       const again = store.readHandoff(ordinal) ?? parseFencedHandoff(reAskReply);
@@ -597,7 +598,10 @@ export async function runExitGate(gateway, {
   if (!verdict.ok && typeof repair === "function") {
     repairs = 1;
     const spill = store.spillPayload({ stretchId, reply: String(reply ?? "").slice(0, 200_000) });
-    const prompt = `A work stretch (duty: ${duty}) ended without a valid handoff. Errors: ${verdict.errors.join("; ")}.\nFrom the stretch's reply below, write the most honest handoff JSON you can (schema in the fenced block contract). Do NOT invent evidence: if the reply names no verifiable evidence, evidenceRefs stays []. If the work seems incomplete, status is "partial" and failedApproaches says what fell short. Reply with ONLY a \`\`\`handoff fenced block.\n\nSTRETCH REPLY (may be truncated; full copy at ${spill.ref}):\n${String(reply ?? "").slice(0, 20_000)}`;
+    // A FRESH session repairs this - it has never seen the brief, so the
+    // contract travels with the prompt or the repairer cannot know the schema.
+    const allowedNext = [...(selectedDuties ?? []), "done", "needs-input"].join(", ");
+    const prompt = `A work stretch (duty: ${duty}) ended without a valid handoff. Errors: ${verdict.errors.join("; ")}.\nFrom the stretch's reply below, write the most honest handoff JSON you can. Do NOT invent evidence: if the reply names no verifiable evidence, evidenceRefs stays []. If the work seems incomplete, status is "partial" and failedApproaches says what fell short. "nextSteps.next" must be one of: ${allowedNext}. Reply with ONLY a \`\`\`handoff fenced block.\n\n${HANDOFF_CONTRACT}\n\nSTRETCH REPLY (may be truncated; full copy at ${spill.ref}):\n${String(reply ?? "").slice(0, 20_000)}`;
     try {
       const repairReply = await repair(prompt);
       const again = parseFencedHandoff(repairReply);

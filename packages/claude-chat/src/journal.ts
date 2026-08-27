@@ -843,6 +843,18 @@ export function collectRelatedTasks(events: SessionEvent[], live = false): Relat
   return [...byKey.values()];
 }
 
+/**
+ * Drop the exit contract's \`\`\`handoff fence (and everything after it) from a
+ * conversation stretch's displayed prose. The fence is protocol addressed to
+ * the exit gate - already extracted, validated and preserved in the store - and
+ * by contract it is the TAIL of the reply, so cutting from the opener is also
+ * exactly right mid-stream (the partial fence never flashes raw JSON).
+ */
+export function stripHandoffFence(text: string): string {
+  const index = text.indexOf("```handoff");
+  return index === -1 ? text : text.slice(0, index).trimEnd();
+}
+
 // ── Conversation activity ───────────────────────────────────────────────────
 
 /**

@@ -4683,3 +4683,14 @@ body {
 .wc-thread--working .wc-row-dot { animation: wc-working-pulse 1.3s ease-in-out infinite; }
 .wc-thread-working-label { color: var(--cc-fg); font-weight: 600; }
 
+
+/* The conversation's id, visible and copyable in the header - the coordinate
+   for logs, the store directory, and the kanban card that shares it. */
+.wc-conv-id {
+  flex: 0 0 auto; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 8px; border: 1px solid var(--cc-border-strong, #c4bba6); border-radius: 999px;
+  background: transparent; color: var(--cc-fg-dim, #565a50); cursor: copy;
+  font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.wc-conv-id:hover { color: var(--cc-fg, #18211c); border-color: var(--cc-fg, #18211c); }
+

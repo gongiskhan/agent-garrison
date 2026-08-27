@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   conversationActivity,
+  stripHandoffFence,
   type SessionBlock,
   type SessionEvent,
 } from "../packages/claude-chat/src/journal";
@@ -187,6 +188,30 @@ describe("adapter: the ended stretch carries its handoff", () => {
     expect(row?.type).toBe("ledger");
     expect(row?.kind).toBe("approval-requested");
     expect(row?.title).toContain("go-ahead");
+  });
+});
+
+describe("handoff-fence stripping", () => {
+  it("cuts the fence and its tail from prose, and leaves fence-free text alone", () => {
+    const reply = "All done here.\n\n```handoff\n{\"v\":1,\"status\":\"complete\"}\n```\n";
+    expect(stripHandoffFence(reply)).toBe("All done here.");
+    expect(stripHandoffFence("plain reply")).toBe("plain reply");
+    // Mid-stream, the fence opener may be all that has arrived - the cut is
+    // still exactly right because the fence is the reply's tail by contract.
+    expect(stripHandoffFence("working…\n```handoff\n{\"v\"")).toBe("working…");
+  });
+
+  it("never renders the protocol fence inside a stretch turn", () => {
+    const html = renderToStaticMarkup(
+      h(SessionEventTimeline, {
+        events: [
+          assistant("e1", [stretch("started")], { turnId: "01S" }),
+          assistant("t1", [{ type: "text", text: "Replied warmly.\n\n```handoff\n{\"v\":1,\"duty\":\"responder\"}\n```" }], { turnId: "01S" }),
+        ],
+      })
+    );
+    expect(html).toContain("Replied warmly.");
+    expect(html).not.toContain("handoff");
   });
 });
 
