@@ -598,8 +598,8 @@ function cardActionFlags(card: CardSummary, list: ListView) {
     // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a
     // card ENTERS the automated flow (To Do → Plan) or is re-sent after parking.
     // Discuss (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
-    canAdvance: !scheduled && !launcherHeld && !list.terminal && list.validNext.length > 0,
-    startLabel: "Advance",
+    canAdvance: false, // retired: Start kicks the conversation; moves are drag/Move
+    startLabel: "Start",
     // "Mark done": a one-click finish on any human-held, non-terminal card (Backlog,
     // To Do, Discuss, needs-attention). Engine-owned agent cards can't be moved by
     // hand (the API rejects it), and a card already on a terminal list has nowhere to go.
@@ -692,10 +692,10 @@ function CardActions({
         <button
           className="btn primary small"
           disabled={busy}
-          title={dispatchErr ? "re-run this card on this list" : `run ${list.title} on this card now`}
+          title={dispatchErr ? "start this card's conversation again" : "start this card's conversation"}
           onClick={() => h.onStart(card)}
         >
-          <PlayIcon /> <span className="btn-label">{dispatchErr ? "Retry" : "Run"}</span>
+          <PlayIcon /> <span className="btn-label">{dispatchErr ? "Retry" : "Start"}</span>
         </button>
       )}
       {canInfer && !engineOwned && (
@@ -1030,6 +1030,11 @@ function Card({
           <span className="chip" title="the duty the current stretch is running">duty: {card.duty}</span>
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
+        {card.autonomous && (
+          <span className="chip chip-toggle on" title="Autonomous — runs end to end without asking. Toggle it in the card.">
+            autonomous
+          </span>
+        )}
         {(card.schedule || card.scheduledFor) && (
           <span
             className={`chip sched${scheduleDue(card) ? " due" : ""}`}
@@ -2544,6 +2549,20 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     return () => { alive = false; };
   }, [cardId]);
 
+  async function toggleAutonomous() {
+    if (!detail) return;
+    try {
+      const next = await api.patch(detail.card.id, {
+        autonomous: !detail.card.autonomous,
+        rev: detail.card.rev
+      });
+      setDetail((d) => d ? { ...d, card: next.card } : d);
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function saveProjectScope() {
     if (!detail) return;
     setSavingProject(true);
@@ -2984,6 +3003,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         </div>
       )}
       <div className="detail-meta">
+        <button
+          className="chip mono chip-id"
+          title="card id — click to copy"
+          onClick={() => { void navigator.clipboard?.writeText(card.id); }}
+        >
+          {card.id}
+        </button>
         {card.project
           ? <span className="chip">proj: {card.project}</span>
           : <span className="chip muted">no project</span>}
@@ -2991,6 +3017,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         <span className="chip">list: {card.list}</span>
         <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         {card.goalMode && <span className="chip goal">goalMode</span>}
+        {!frozenAt && (
+          <button
+            className={`chip chip-toggle${card.autonomous ? " on" : ""}`}
+            title={card.autonomous
+              ? "Autonomous ON — runs end to end without asking. Click to turn off."
+              : "Autonomous OFF — pauses after planning and asks before doing the work. Click to turn on."}
+            onClick={() => { void toggleAutonomous(); }}
+          >
+            autonomous: {card.autonomous ? "on" : "off"}
+          </button>
+        )}
         {card.runId && <span className="chip">run: {card.runId.slice(0, 8)}</span>}
         {card.sliceId && <span className="chip">slice: {card.sliceId}</span>}
       </div>
@@ -3057,7 +3094,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       {running && (
         <div className="state-callout running">
           <span className="run-spin" aria-hidden />
-          <span>Running on <b>{card.list}</b> · <Elapsed since={card.runningSince} /> — open Watch for the live stream.</span>
+          <span>Running · <Elapsed since={card.runningSince} /> — the conversation below streams live.</span>
         </div>
       )}
       {parked && card.attentionReason && (

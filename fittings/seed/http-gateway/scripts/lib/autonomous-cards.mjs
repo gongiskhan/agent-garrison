@@ -418,7 +418,12 @@ export async function cardById(cardId) {
     if (!r.ok) return null;
     const doc = await r.json();
     const card = doc.card ?? doc;
-    return card && typeof card === "object" && card.id ? card : null;
+    if (!card || typeof card !== "object" || !card.id) return null;
+    // The summary carries only checklist COUNTS; the items ride as a sibling.
+    // The launcher's brief needs the items — they are the card's concrete asks.
+    if (Array.isArray(doc.checklist)) card.checklist = doc.checklist;
+    if (typeof doc.acceptance === "string") card.acceptance = doc.acceptance;
+    return card;
   } catch {
     return null;
   }

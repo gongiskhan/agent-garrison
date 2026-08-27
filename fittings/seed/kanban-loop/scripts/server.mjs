@@ -554,6 +554,9 @@ export function cardSummary(card) {
     // current run started (the live elapsed timer). The full `events` array is NOT
     // in this projection (it can be long) — GET /cards/:id carries it for the detail.
     description: typeof card.description === "string" ? card.description : "",
+    // Autonomy: OFF means the launcher pauses after planning and asks before
+    // doing the work; ON runs the conversation end to end unattended.
+    autonomous: card.autonomous === true,
     lastReply: card.lastReply ?? null,
     // The terminal handoff's summary — written by the launcher's done
     // transition; absent from this projection it read as never-written.
@@ -1611,8 +1614,11 @@ async function handleGetCard(req, res, opts, id) {
   const links = resolveCardLinks(card, { root, cwd: opts.cwd });
   jsonRes(res, 200, {
     card: cardSummary(card),
-    // The full checklist items (the summary carries only the counts).
+    // The full checklist items (the summary carries only the counts), and the
+    // acceptance body (deliberately NOT in cardSummary - the board front ships
+    // every card to the browser; bodies ride only on the single-card read).
     checklist: Array.isArray(card.checklist) ? card.checklist : [],
+    acceptance: typeof card.acceptance === "string" ? card.acceptance : null,
     links,
     // Two attachment sources, one list: card-owned uploads (cards/<id>/
     // attachments/, served by opaque artifact ref, deletable) and the legacy
@@ -1937,6 +1943,7 @@ async function handleCreateCard(req, res, opts) {
     scope: requestedScope,
     list: storageListId,
     goalMode: body.goalMode === true,
+    autonomous: body.autonomous === true,
     acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
     // S4 (D2/D8/D17): the flow naming the card's phase plan, the per-card
     // phase toggles merged over it, the tier (direct field or the D8 payload's
@@ -2836,6 +2843,7 @@ async function handlePatchCard(req, res, opts, id) {
     }
   }
   if (typeof body.goalMode === "boolean") next.goalMode = body.goalMode;
+  if (typeof body.autonomous === "boolean") next.autonomous = body.autonomous;
   if (typeof body.sliceId === "string") {
     const s = body.sliceId.trim();
     if (s && !isValidSliceId(s)) return jsonRes(res, 400, { error: "invalid sliceId (no path separators or ..)" });

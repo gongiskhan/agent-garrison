@@ -947,11 +947,12 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-session-thinking-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cc-fg-dim); font-style: italic; }
 .cc-session-thinking > .cc-session-pre { margin-top: 8px; }
-.cc-session-activity { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cc-session-activity { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .cc-session-interim {
   margin-top: 2px; padding-left: 9px; border-left: 2px solid var(--cc-border);
   color: var(--cc-fg-dim);
 }
+.cc-session-activity.is-live { border-left-color: color-mix(in srgb, var(--cc-accent) 50%, transparent); }
 .cc-session-interim > summary {
   cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 3px 0;
   color: var(--cc-fg-dim); font-size: 12px;
@@ -962,27 +963,58 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-inline .cc-session-interim-text { color: var(--cc-fg); }
 .cc-session-markdown { min-width: 0; }
 .cc-session-activity.is-live > .cc-session-interim-text { color: var(--cc-fg); }
-.cc-session-toolwrap { display: flex; flex-direction: column; gap: 7px; }
-.cc-session-tool { border: 1px solid var(--cc-border); border-radius: 8px; background: var(--cc-bg-sunk); }
-.cc-session-tool.is-live { border-color: var(--cc-border-strong); }
+/* ── The activity stream, FLAT (2026-08-27 refit) ───────────────────────────
+   Thirty boxed cards in a row read as wallpaper; a flat ledger reads as a
+   story. Each tool row is one line — colored family glyph, name, the INPUT in
+   monospace (the "what is it actually doing"), status at the right — with a
+   hover wash instead of borders, and the open body indented under a colored
+   rail. Family colors are fixed hues mixed against the theme's fg so they
+   survive both schemes without a second palette. */
+.cc-session-toolwrap { display: flex; flex-direction: column; }
+.cc-session-tool { border: 0; border-radius: 6px; background: transparent; }
 .cc-session-tool > summary {
-  cursor: pointer; display: flex; align-items: center; gap: 7px; min-width: 0;
-  padding: 7px 9px; font-size: 13px; list-style-position: outside;
+  cursor: pointer; display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 3px 6px; font-size: 12.5px; list-style: none; border-radius: 6px;
 }
-.cc-session-tool-ico { width: 7px; height: 7px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 2px; color: var(--cc-fg-dim); }
+.cc-session-tool > summary::-webkit-details-marker { display: none; }
+.cc-session-tool > summary:hover { background: var(--cc-bg-sunk); }
+.cc-session-tool[open] > summary { background: var(--cc-bg-sunk); border-radius: 6px 6px 0 0; }
+.cc-session-tool-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; flex: 0 0 auto; border: 0; border-radius: 4px;
+  color: var(--cc-fg-dim);
+}
+.cc-session-tool-ico.fam-command { color: var(--cc-tool-command, #7f9f68); }
+.cc-session-tool-ico.fam-file { color: var(--cc-tool-file, #997fb8); }
+.cc-session-tool-ico.fam-search { color: var(--cc-tool-search, #4f8fae); }
+.cc-session-tool-ico.fam-web { color: var(--cc-tool-web, #b8875f); }
+.cc-session-tool-ico.fam-agent { color: var(--cc-tool-agent, #ba7f96); }
 .cc-session-tool-name {
-  min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 0 0 auto; max-width: 12ch; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-weight: 600; font-size: 11.5px;
 }
-.cc-session-tool.is-live .cc-session-tool-ico { color: var(--cc-accent); background: color-mix(in srgb, var(--cc-accent) 20%, transparent); }
+.cc-session-tool.is-live .cc-session-tool-ico { animation: cc-tool-pulse 1.2s ease-in-out infinite; }
+@keyframes cc-tool-pulse { 50% { opacity: .35; } }
 .cc-session-tool-hint {
   min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--cc-fg-dim); font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--cc-fg-dim); font: 11px/1.4 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
-.cc-session-state { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; color: var(--cc-fg-dim); font-size: 10px; text-transform: uppercase; }
-.cc-session-state.live { color: var(--cc-accent); }
-.cc-session-state.error { color: var(--cc-danger-border); }
-.cc-session-toolbody { display: flex; flex-direction: column; gap: 8px; padding: 0 9px 9px; }
+.cc-session-state { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; color: var(--cc-fg-faint); font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; }
+.cc-session-state.live { color: var(--cc-accent); font-weight: 700; }
+.cc-session-state.done::before { content: "✓"; font-size: 10px; color: color-mix(in srgb, var(--cc-tool-command, #7f9f68) 80%, var(--cc-fg)); }
+.cc-session-state.error { color: var(--cc-danger-border); font-weight: 700; }
+.cc-session-tool.is-failed > summary { background: color-mix(in srgb, var(--cc-danger-border) 8%, transparent); }
+.cc-session-toolbody {
+  display: flex; flex-direction: column; gap: 8px; margin: 0 0 2px 7px;
+  padding: 6px 8px 8px; border-left: 2px solid var(--cc-border-strong);
+  background: var(--cc-bg-sunk); border-radius: 0 0 6px 6px;
+}
+.cc-session-tool.fam-command > .cc-session-toolbody { border-left-color: var(--cc-tool-command, #7f9f68); }
+.cc-session-tool.fam-file > .cc-session-toolbody { border-left-color: var(--cc-tool-file, #997fb8); }
+.cc-session-tool.fam-search > .cc-session-toolbody { border-left-color: var(--cc-tool-search, #4f8fae); }
+.cc-session-tool.fam-web > .cc-session-toolbody { border-left-color: var(--cc-tool-web, #b8875f); }
+.cc-session-tool.fam-agent > .cc-session-toolbody { border-left-color: var(--cc-tool-agent, #ba7f96); }
+.cc-session-tool.is-failed > .cc-session-toolbody { border-left-color: var(--cc-danger-border); }
 .cc-session-section-label { display: block; margin: 0 0 4px 2px; color: var(--cc-fg-dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 /* ── Conversation spine (stretch rules + ledger rows) ────────────────────────
    A stretch is STRUCTURAL, so it reads as a rule across the column rather than

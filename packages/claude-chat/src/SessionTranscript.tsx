@@ -25,6 +25,7 @@ import {
   type SessionBlock,
   type SessionEvent,
   type SessionImage,
+  isFanoutTool,
 } from "./journal";
 
 // Rich activity-journal renderer. Claude/Agent SDK JSONL is today's producer,
@@ -190,25 +191,36 @@ function TextBlock({
 /** Opens while an activity is live, then collapses on its completed transition. */
 function ActivityDetails({
   active,
+  forceOpen = false,
   className,
   id,
   summary,
   children,
 }: {
   active: boolean;
+  /** Open regardless of live state and keep it open when live ends — a failed
+   *  row's error IS its content; a collapsed failure reads as success. */
+  forceOpen?: boolean;
   className: string;
   id?: string;
   summary: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(active);
+  const [open, setOpen] = useState(active || forceOpen);
   const wasActive = useRef(active);
+  const wasForced = useRef(forceOpen);
   useEffect(() => {
     if (active !== wasActive.current) {
-      setOpen(active);
+      setOpen(active || forceOpen);
       wasActive.current = active;
     }
-  }, [active]);
+  }, [active, forceOpen]);
+  useEffect(() => {
+    if (forceOpen && !wasForced.current) {
+      setOpen(true);
+      wasForced.current = true;
+    }
+  }, [forceOpen]);
   return (
     <details
       id={id}
@@ -237,6 +249,57 @@ function toolAnchorId(toolUseId: string | null | undefined): string | undefined 
   return `cc-tool-${toolUseId.replace(/[^A-Za-z0-9_-]/g, "")}`;
 }
 
+/** The tool's FAMILY — drives the row glyph and its color. Scanning a stream
+ *  of thirty rows by shape beats reading thirty identical labels. */
+function toolFamily(name: string | undefined): "command" | "file" | "search" | "web" | "agent" | "tool" {
+  const leaf = String(name ?? "").split(/[.:/]/).pop()?.toLowerCase() ?? "";
+  if (/^(bash|shell|exec|exec_command|terminal)$/.test(leaf)) return "command";
+  if (/^(read|write|edit|multiedit|notebookedit)$/.test(leaf)) return "file";
+  if (/^(grep|glob|search|toolsearch|ls|find)$/.test(leaf)) return "search";
+  if (/^(webfetch|websearch|fetch)$/.test(leaf)) return "web";
+  if (isFanoutTool(name)) return "agent";
+  return "tool";
+}
+
+const TOOL_FAMILY_ICONS: Record<ReturnType<typeof toolFamily>, React.ReactNode> = {
+  command: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <path d="M2 3l3 3-3 3M6.5 9H10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  file: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <path d="M3 1.5h4L9.5 4v6.5h-6.5z M7 1.5V4h2.5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  ),
+  search: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <circle cx="5" cy="5" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M7.5 7.5L10.5 10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  ),
+  web: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M1.5 6h9M6 1.5c1.6 1.4 1.6 7.6 0 9c-1.6-1.4-1.6-7.6 0-9z" fill="none" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  ),
+  agent: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <path d="M6 1.8v3M6 4.8L2.5 8M6 4.8L9.5 8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="6" cy="1.8" r="1.2" fill="currentColor" />
+      <circle cx="2.5" cy="9" r="1.2" fill="currentColor" />
+      <circle cx="9.5" cy="9" r="1.2" fill="currentColor" />
+    </svg>
+  ),
+  tool: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <circle cx="6" cy="6" r="1.8" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M6 1v1.6M6 9.4V11M1 6h1.6M9.4 6H11M2.5 2.5l1.1 1.1M8.4 8.4l1.1 1.1M9.5 2.5L8.4 3.6M3.6 8.4L2.5 9.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  ),
+};
+
 function ToolBlock({
   block,
   result,
@@ -257,18 +320,21 @@ function ToolBlock({
   const elapsed = elapsedLabel(progress?.elapsedMs);
   const status = result?.isError ? "failed" : result ? "done" : active ? "running" : progress?.status || "pending";
   const isCommand = /(?:^|[.:/])(bash|shell|exec|exec_command)$/i.test(block.name ?? "");
+  const family = toolFamily(block.name);
+  const failed = Boolean(result?.isError);
   return (
     <div className="cc-session-toolwrap">
       <ActivityDetails
         active={active}
-        className={`cc-session-tool${isCommand ? " cc-session-command" : ""}`}
+        forceOpen={failed}
+        className={`cc-session-tool fam-${family}${isCommand ? " cc-session-command" : ""}${failed ? " is-failed" : ""}`}
         id={toolAnchorId(block.toolUseId)}
         summary={
           <>
-            <span className="cc-session-tool-ico" aria-hidden="true" />
+            <span className={`cc-session-tool-ico fam-${family}`} aria-hidden="true">{TOOL_FAMILY_ICONS[family]}</span>
             <b className="cc-session-tool-name" title={block.name || "Tool"}>{block.name || "Tool"}</b>
             {hint && <span className="cc-session-tool-hint">{hint}</span>}
-            <span className={`cc-session-state ${result?.isError ? "error" : active ? "live" : ""}`}>
+            <span className={`cc-session-state ${failed ? "error" : result ? "done" : active ? "live" : ""}`}>
               {active && <span className="cc-session-live-dot" aria-hidden="true" />}
               {status}{elapsed ? ` · ${elapsed}` : ""}
             </span>

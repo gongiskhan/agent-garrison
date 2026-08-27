@@ -445,8 +445,10 @@ describe("the frozen card modal (browser)", () => {
   });
 
   it("offers Delete and Close, and no other control at all", () => {
-    // "History & artifacts" is the collapsible section's own toggle, not an action.
-    expect(probe.buttons).toEqual(["History & artifacts", "Delete card"]);
+    // "History & artifacts" is the collapsible section's own toggle, not an
+    // action, and the id chip is a COPY affordance - reading an id out of the
+    // frozen record is exactly what an archive is for. Neither mutates.
+    expect(probe.buttons.filter((b: string) => !/^[A-Z0-9]{20,}$/.test(b))).toEqual(["History & artifacts", "Delete card"]);
     expect(probe.close).toBe(true);
     expect(probe.headerActions).toBe(false);
     expect(probe.footerActions).toBe(false);

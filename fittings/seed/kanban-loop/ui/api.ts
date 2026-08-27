@@ -141,6 +141,7 @@ export interface DispatchRunProvenance {
 }
 
 export interface CardSummary {
+  autonomous?: boolean;
   id: string;
   title: string;
   project: string | null;

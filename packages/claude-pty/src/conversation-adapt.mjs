@@ -70,6 +70,9 @@ const LEDGER_KIND_MAP = {
   escalation: "escalation",
   "policy-rewrite": "policy-rewrite",
   "summary-trimmed": "policy-rewrite",
+  // The Autonomous gate's ask — rendered so the pause is visible IN the
+  // conversation, not only as the card's attention reason.
+  "approval-requested": "policy-rewrite",
 };
 
 const DETAIL_CAP = 4000;
@@ -248,6 +251,16 @@ function buildTitleAndDetail(record, payload) {
         payload?.nextSteps?.why ? `Next: ${next} - ${payload.nextSteps.why}` : "",
       ].filter(Boolean).join("\n\n");
       return { title, detail: [head, safeJson(payload)].filter(Boolean).join("\n\n") };
+    }
+    case "approval-requested": {
+      const next = text(payload.next) || "the next step";
+      const items = Array.isArray(payload.items) && payload.items.length
+        ? "\n\nPlanned:\n" + payload.items.slice(0, 12).map((i) => `- ${text(i)}`).join("\n")
+        : "";
+      return {
+        title: `Waiting for your go-ahead - next: ${next}`,
+        detail: [text(payload.plan), items.trim()].filter(Boolean).join("\n\n") || null,
+      };
     }
     case "delegation-dispatched": {
       const who = [payload.runtime, payload.model].filter(Boolean).join(" / ") || "a secondary runtime";

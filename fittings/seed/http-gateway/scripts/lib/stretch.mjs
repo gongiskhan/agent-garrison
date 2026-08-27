@@ -249,6 +249,7 @@ export function buildStretchBrief({
   dutyDescription = null,
   skill = null,
   task = null,
+  card = null,
   steering = [],
   userMessages = [],
   handoffPath,
@@ -262,6 +263,27 @@ export function buildStretchBrief({
   parts.push(`Conversation store: ${conversationDir} (log.jsonl is the full record; grep it when you need history)`);
   parts.push("");
   parts.push(summaryText?.trim() || "(no summary yet — you are the first stretch; write the objective into your handoff summary)");
+  if (card) {
+    // The card IS the task. The first live run inferred the whole purpose from
+    // the TITLE alone and went off to do something else entirely — every brief
+    // carries the full card so no stretch ever works from a headline.
+    parts.push("", "## The card");
+    parts.push(`Title: ${String(card.title ?? "(untitled)").slice(0, 300)}`);
+    if (typeof card.description === "string" && card.description.trim()) {
+      parts.push("", String(card.description).slice(0, 8000));
+    }
+    if (typeof card.acceptance === "string" && card.acceptance.trim()) {
+      parts.push("", `Acceptance: ${String(card.acceptance).slice(0, 2000)}`);
+    }
+    const items = Array.isArray(card.checklist) ? card.checklist.slice(0, 100) : [];
+    if (items.length) {
+      parts.push("", "Checklist — the card's concrete asks. Every unchecked item is in scope; do not invent work outside them:");
+      for (const it of items) {
+        const text = typeof it?.text === "string" ? it.text.slice(0, 1000) : "";
+        if (text) parts.push(`- [${it?.done === true ? "x" : " "}] ${text}`);
+      }
+    }
+  }
   if (lastHandoffs.length) {
     parts.push("", "## Recent handoffs (newest last)");
     for (const { ordinal, handoff } of lastHandoffs) {
@@ -357,18 +379,31 @@ export function makeStretchEventTee(store, { stretchId, duty, syntheticFromChunk
       /* the transcript tee must never kill the stretch */
     }
   };
+  // A block's SHAPE — which blocks exist, whether each has its input yet,
+  // whether it failed. Text GROWTH stays throttled (the serve poll hides
+  // sub-second deltas anyway), but a shape change must land immediately: the
+  // live viewer watching "Bash" with no command for a whole stretch was this
+  // throttle holding the completed-input revision until the final flush.
+  const shapeOf = (event) =>
+    event.blocks
+      .map((b) => (b && typeof b === "object"
+        ? `${b.type}:${String(b.input ?? "").length > 0 ? 1 : 0}:${b.isError ? 1 : 0}:${b.status ?? ""}:${b.name ?? ""}`
+        : "?"))
+      .join("|");
   const admit = (event) => {
     if (!event || typeof event !== "object" || typeof event.id !== "string" || !event.id || !Array.isArray(event.blocks)) return;
     // -Infinity so the FIRST snapshot of every event always lands immediately —
-    // only subsequent revisions ride the throttle.
-    const entry = state.get(event.id) ?? { latest: null, dirty: false, lastAppendedAt: -Infinity };
+    // only subsequent same-shape revisions ride the throttle.
+    const entry = state.get(event.id) ?? { latest: null, dirty: false, lastAppendedAt: -Infinity, shape: null };
     entry.latest = event;
     entry.dirty = true;
     const at = now();
-    if (at - entry.lastAppendedAt >= throttleMs) {
+    const shape = shapeOf(event);
+    if (shape !== entry.shape || at - entry.lastAppendedAt >= throttleMs) {
       record(event);
       entry.lastAppendedAt = at;
       entry.dirty = false;
+      entry.shape = shape;
     }
     state.set(event.id, entry);
   };
@@ -719,6 +754,32 @@ function pinnedRungFor(messages, ladder) {
   return null;
 }
 
+// Duties that OPEN or STEER work rather than doing it. A non-autonomous card
+// may run these freely; the first duty outside this set is the moment the
+// conversation starts changing things, and that is where the approval gate sits.
+export const PLANNING_DUTIES = new Set(["triage", "plan", "responder", "dispatch"]);
+
+/** The Autonomous gate, as a pure predicate over (store, card, duty). */
+export function shouldPauseForApproval(store, card, duty) {
+  if (!card || card.autonomous === true) return false;
+  if (PLANNING_DUTIES.has(duty)) return false;
+  return !approvalState(store).approved;
+}
+
+/** Has the user approved going ahead since the launcher last asked?
+ *  Approval is a user message AFTER the newest approval-requested record —
+ *  the original task text (recorded before any ask) never auto-approves. */
+export function approvalState(store) {
+  const tail = store.tail(400, { kinds: ["user-message", "approval-requested"] });
+  let lastAsk = -1;
+  let lastMsg = -1;
+  for (const e of tail) {
+    if (e.kind === "approval-requested") lastAsk = e.index;
+    else lastMsg = e.index;
+  }
+  return { asked: lastAsk >= 0, approved: lastAsk >= 0 && lastMsg > lastAsk };
+}
+
 function nextDutyFor(store, selectedDuties) {
   const handoffs = store.tail(1, { kinds: ["handoff"] });
   if (!handoffs.length) {
@@ -817,6 +878,33 @@ export async function runConversation(gateway, {
         store.append({ kind: "policy-rewrite", duty, payload: { from: duty, to: "needs-input", reason: "duty-not-selected" } });
         terminal = "needs-input";
         break;
+      }
+
+      // The Autonomous gate. OFF (the default) means: plan freely, but STOP
+      // before the first duty that changes things and ask. Any reply in the
+      // conversation approves (Start alone re-asks); the gate asks ONCE per
+      // conversation — after an approval it never re-arms.
+      if (shouldPauseForApproval(store, card, duty)) {
+        {
+          const lastHandoff = store.tail(1, { kinds: ["handoff"] })[0]?.payload ?? null;
+          store.append({
+            kind: "approval-requested",
+            duty,
+            payload: { next: duty, plan: lastHandoff?.summary ?? null, items: lastHandoff?.nextSteps?.items ?? [] },
+          });
+          await patchCardEngine({
+            id: card.id,
+            patch: {
+              list: "needs-attention",
+              status: "needs-attention",
+              attentionReason: `Plan ready — next step is ${duty}. Reply in the conversation to approve and continue, or flip Autonomous on the card to skip this gate.`,
+            },
+            logFn: (e) => gateway.logFn?.(e),
+          });
+          onFrame("approval-requested", { next: duty });
+          terminal = "awaiting-approval";
+          break;
+        }
       }
 
       const level = Number(card?.level) >= 1 ? Number(card.level) : 1;
@@ -926,6 +1014,7 @@ export async function runConversation(gateway, {
         level,
         dutyDescription: model?.duties?.[duty]?.description ?? null,
         skill: route.skill ?? baseRoute?.skill ?? null,
+        card,
         userMessages: pendingMessages,
         handoffPath,
         stretchId,
@@ -1008,7 +1097,7 @@ export async function runConversation(gateway, {
         kind: "handoff",
         duty,
         stretch: stretchId,
-        payload: { ...gate.handoff, _gate: { valid: gate.valid, repairs: gate.repairs, synthesized: gate.synthesized, source: gate.source, resolved: gate.resolved } },
+        payload: { ...gate.handoff, ordinal, _gate: { valid: gate.valid, repairs: gate.repairs, synthesized: gate.synthesized, source: gate.source, resolved: gate.resolved } },
       });
       onFrame("handoff", { ordinal, duty, status: gate.handoff.status, next: gate.handoff.nextSteps.next, synthesized: gate.synthesized });
 

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — pure .mjs
 import { openConversation } from "../packages/claude-pty/src/conversation-store.mjs";
 // @ts-ignore — pure .mjs
-import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, recordUserMessage, makeStretchEventTee, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
+import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, recordUserMessage, makeStretchEventTee, shouldPauseForApproval, approvalState, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
 
 let tmp: string;
 let env: Record<string, string>;
@@ -508,4 +508,76 @@ describe("message routing pin — the Turn Rail reaches the rung", () => {
     expect(last.payload.chosenBy).toBe("pin");
     expect(last.payload.rung.id).toBe("middle");
   }, 20000);
+});
+
+// The Autonomous gate: OFF pauses before the first duty that changes things;
+// a reply after the ask approves; planning duties always run free.
+describe("shouldPauseForApproval — the Autonomous gate", () => {
+  function storeWith(events: Array<{ kind: string; index: number }>) {
+    return { tail: () => events } as any;
+  }
+
+  it("a non-autonomous card pauses before implement, never before triage/plan/responder", () => {
+    const store = storeWith([{ kind: "user-message", index: 1 }]);
+    const card = { id: "c1", autonomous: false };
+    expect(shouldPauseForApproval(store, card, "triage")).toBe(false);
+    expect(shouldPauseForApproval(store, card, "plan")).toBe(false);
+    expect(shouldPauseForApproval(store, card, "responder")).toBe(false);
+    expect(shouldPauseForApproval(store, card, "implement")).toBe(true);
+    expect(shouldPauseForApproval(store, card, "test")).toBe(true);
+  });
+
+  it("autonomous ON, or no card at all, never pauses", () => {
+    const store = storeWith([]);
+    expect(shouldPauseForApproval(store, { id: "c", autonomous: true }, "implement")).toBe(false);
+    expect(shouldPauseForApproval(store, null, "implement")).toBe(false);
+  });
+
+  it("the ORIGINAL task message never auto-approves; a reply AFTER the ask does", () => {
+    const before = storeWith([
+      { kind: "user-message", index: 1 },
+      { kind: "approval-requested", index: 5 },
+    ]);
+    expect(approvalState(before).approved).toBe(false);
+    expect(shouldPauseForApproval(before, { id: "c" }, "implement")).toBe(true);
+
+    const after = storeWith([
+      { kind: "user-message", index: 1 },
+      { kind: "approval-requested", index: 5 },
+      { kind: "user-message", index: 9 },
+    ]);
+    expect(approvalState(after).approved).toBe(true);
+    expect(shouldPauseForApproval(after, { id: "c" }, "implement")).toBe(false);
+  });
+});
+
+describe("buildStretchBrief — the card rides in full", () => {
+  it("renders title, description, acceptance and every checklist item", () => {
+    const brief = buildStretchBrief({
+      conversationId: "c-brief",
+      conversationDir: "/tmp/x",
+      summaryText: "",
+      duty: "triage",
+      handoffPath: "/tmp/x/handoffs/0001.json",
+      stretchId: "st_b",
+      card: {
+        id: "01CARD",
+        title: "Garrison: more impros",
+        description: "A batch of UX improvements.",
+        acceptance: "every checklist item addressed",
+        checklist: [
+          { text: "web channel response should not collapse", done: false },
+          { text: "organize sessions into groups", done: true },
+        ],
+      },
+    });
+    expect(brief).toContain("## The card");
+    expect(brief).toContain("Garrison: more impros");
+    expect(brief).toContain("A batch of UX improvements.");
+    expect(brief).toContain("Acceptance: every checklist item addressed");
+    expect(brief).toContain("- [ ] web channel response should not collapse");
+    expect(brief).toContain("- [x] organize sessions into groups");
+    // The instruction that closes the title-only failure mode.
+    expect(brief).toContain("concrete asks");
+  });
 });
