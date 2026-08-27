@@ -69,12 +69,19 @@ final class SpeechSink {
     private let utterer: Utterer
     private let defaults: UserDefaults?
     private let now: () -> Date
+    private let clipPlayer: ClipPlaying?
     private var queue: [AckPayload] = []
     private var speaking = false
     var onReceipt: ((Receipt) -> Void)?
 
-    init(utterer: Utterer = SpeechUtterer(), defaults: UserDefaults? = AppGroup.defaults, now: @escaping () -> Date = Date.init) {
+    init(
+        utterer: Utterer = SpeechUtterer(),
+        clipPlayer: ClipPlaying? = ClipPlayer(),
+        defaults: UserDefaults? = AppGroup.defaults,
+        now: @escaping () -> Date = Date.init
+    ) {
         self.utterer = utterer
+        self.clipPlayer = clipPlayer
         self.defaults = defaults
         self.now = now
     }
@@ -141,6 +148,28 @@ final class SpeechSink {
         guard !speaking, !queue.isEmpty else { return }
         let ack = queue.removeFirst()
         speaking = true
+        // Zeca's own voice when the service rendered one, the on-device
+        // synthesizer otherwise - and ALSO whenever the clip fails to fetch or
+        // play. The nicer voice must never be able to cost an acknowledgement:
+        // a wearer who hears nothing cannot tell "no clip" from "not listening",
+        // and that ambiguity is exactly what this app is bad at.
+        if let clipPlayer, let audioPath = ack.audioPath, !audioPath.isEmpty {
+            clipPlayer.play(path: audioPath, volume: volume) { [weak self] played in
+                guard let self else { return }
+                if played {
+                    self.speaking = false
+                    self.onReceipt?(Receipt(ackId: ack.id, ok: true, reason: nil))
+                    self.pump()
+                } else {
+                    self.speakLocally(ack)
+                }
+            }
+            return
+        }
+        speakLocally(ack)
+    }
+
+    private func speakLocally(_ ack: AckPayload) {
         utterer.utter(ack.text, rate: rate, volume: volume, voiceId: voiceId) { [weak self] finished in
             guard let self else { return }
             self.speaking = false
@@ -154,6 +183,7 @@ final class SpeechSink {
             onReceipt?(Receipt(ackId: pending.id, ok: false, reason: "sink-off"))
         }
         queue.removeAll()
+        clipPlayer?.stop()
         utterer.stop()
     }
 }

@@ -128,6 +128,10 @@ struct AckPayload: Codable {
     let cardId: String?
     let idempotencyKey: String?
     let emittedAt: String?
+    /// Server-relative path to a pre-rendered clip of Zeca's voice
+    /// (`/speak/<hash>.mp3`), when the service could render one. Absent means
+    /// speak `text` with the on-device synthesizer, exactly as before.
+    let audioPath: String?
 }
 
 /// One pendant feedback lifecycle event (wake_detected, segment_captured,

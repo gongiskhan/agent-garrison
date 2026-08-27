@@ -105,6 +105,12 @@ x-garrison:
             speak_enabled: true
             pendant_enabled: true
             capture_policy: wake_only
+            # Zeca speaks in an ElevenLabs voice instead of the phone's
+            # synthesizer. Diogo is a NATIVE European Portuguese library voice:
+            # the 28-palavras forensics found premade voices drift to pt-BR on
+            # exactly the short lines Zeca speaks. Falls back to the phone's own
+            # voice on any failure, so this cannot cost an acknowledgement.
+            tts_enabled: true
             # The same wake windows omi-channel above already runs. The shipped
             # DEFAULTS (silence 4000 / max 20000) are what the pendant path was
             # started on, and they are the reason a spoken command lost its last

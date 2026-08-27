@@ -246,3 +246,21 @@ declare module "*/capture-service/lib/opus-normalize.mjs" {
   // to unwrap.
   export function normalizeOpusPacket(bytes: Uint8Array): Uint8Array;
 }
+
+declare module "*/capture-service/lib/tts.mjs" {
+  export function textSeed(text: string): number;
+  export function clipId(args: { text: string; voiceId: string; model: string }): string;
+  export function looksPortuguese(text: unknown): boolean;
+  export class ZecaVoice {
+    constructor(deps: {
+      cfg: Record<string, unknown>;
+      counters: unknown;
+      log?: unknown;
+      fetchImpl?: (url: string, init: never) => Promise<unknown>;
+      now?: () => number;
+    });
+    available(): { ok: boolean; reason?: string };
+    readClip(id: unknown): Buffer | null;
+    clipFor(text: unknown): Promise<{ id: string; cached?: boolean } | null>;
+  }
+}

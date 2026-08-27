@@ -129,6 +129,19 @@ export function loadConfig(env = process.env) {
       const v = parseCsv(env.GARRISON_CAPTURESERVICE_STT_KEYTERMS);
       return v.length > 0 ? v : ["Zeca", "companion"];
     })(),
+    // Zeca's voice (ADR: ElevenLabs over iOS AVSpeechSynthesizer). OFF by
+    // default like every other pipe (I9); with it off, or with no key, the
+    // phone keeps speaking in its own synthesizer and nothing else changes.
+    ttsEnabled: parseBool(env.GARRISON_CAPTURESERVICE_TTS_ENABLED, false),
+    // Diogo - a NATIVE European Portuguese library voice, warm and
+    // conversational. The 28-palavras forensics are unambiguous that a native
+    // pt voice beats any premade voice plus prompting: premade voices drift to
+    // pt-BR on short clips, which is the shape of everything Zeca says.
+    ttsVoiceId: (env.GARRISON_CAPTURESERVICE_TTS_VOICE_ID || "").trim() || "RlGHmE2fztwdBDat0jYf",
+    // multilingual_v2, NOT v3: v3 rejects previous_text/next_text, and those
+    // unspoken pt-PT anchors are the accent fix.
+    ttsModel: (env.GARRISON_CAPTURESERVICE_TTS_MODEL || "").trim() || "eleven_multilingual_v2",
+    ttsCacheMaxClips: parseIntOr(env.GARRISON_CAPTURESERVICE_TTS_CACHE_MAX_CLIPS, 500),
     // Zombie-socket watchdog: reconnect the STT socket when we have been
     // feeding it audio this recently and NOTHING has come back for this long.
     // Generous on purpose - Deepgram is legitimately silent through a quiet
@@ -201,7 +214,8 @@ export function loadConfig(env = process.env) {
       captureToken: (env.CAPTURE_TOKEN || "").trim(),
       apnsTeamId: (env.APNS_TEAM_ID || "").trim(),
       apnsKeyId: (env.APNS_KEY_ID || "").trim(),
-      apnsP8: (env.APNS_P8 || "").trim()
+      apnsP8: (env.APNS_P8 || "").trim(),
+      elevenLabsApiKey: (env.ELEVENLABS_API_KEY || "").trim()
     }
   };
 }

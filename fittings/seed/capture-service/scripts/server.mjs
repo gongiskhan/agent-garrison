@@ -30,6 +30,7 @@ import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
 import { CompanionNotifier, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
 import { AckSink } from "../lib/ack-sink.mjs";
+import { ZecaVoice } from "../lib/tts.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
 import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 
@@ -276,12 +277,30 @@ function authorizeHttp(cfg, req, counters) {
 }
 
 export function makeRequestHandler(ctx) {
-  const { cfg, store, counters } = ctx;
+  const { cfg, store, counters, voice } = ctx;
   return async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
     const p = url.pathname;
 
     try {
+      // Spoken clips. Unauthenticated like the other own-port surfaces, and
+      // safe to be: the id is a content hash of text the phone was just told to
+      // say, it is validated as hex before it touches a path, and guessing one
+      // requires already knowing the sentence.
+      const speakMatch = p.match(/^\/speak\/([0-9a-f]{8,64})\.mp3$/);
+      if (req.method === "GET" && speakMatch) {
+        const audio = voice?.readClip(speakMatch[1]) ?? null;
+        if (!audio) return json(res, 404, { error: "no such clip" });
+        counters.bump("tts_clips_served");
+        res.writeHead(200, {
+          "content-type": "audio/mpeg",
+          "content-length": audio.length,
+          // Content-addressed: the bytes for an id can never change.
+          "cache-control": "public, max-age=31536000, immutable"
+        });
+        res.end(audio);
+        return;
+      }
       if (req.method === "GET" && (p === "/health" || p === "/api/health")) {
         return json(res, 200, {
           ok: true,
@@ -603,7 +622,8 @@ export async function startServer(cfg = loadConfig()) {
     // capture_event for the shared triage tick (dedupe by session id).
     onSessionEnd: (record) => emitSessionEvent({ record, store, counters, cfg: live })
   });
-  const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier });
+  const voice = new ZecaVoice({ cfg: live, counters });
+  const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier, voice });
   ingress.onSpokenReceipt = (msg) => ackSink.handleSpokenReceipt(msg);
 
   // Feedback delivery: every event goes to the live pendant session's socket
@@ -644,6 +664,7 @@ export async function startServer(cfg = loadConfig()) {
       feedbackBus,
       echoGuard,
       notifier,
+      voice,
       ackSink
     })
   );
@@ -694,6 +715,7 @@ export async function startServer(cfg = loadConfig()) {
     feedbackBus,
     echoGuard,
     notifier,
+    voice,
     ackSink
   };
 }

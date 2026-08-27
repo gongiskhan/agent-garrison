@@ -53,11 +53,19 @@ export function ulid(now = Date.now()) {
   return ts + rand.map((v) => B32[v]).join("");
 }
 
-export function atomicWriteJSON(file, value) {
+// Write-then-rename, for bytes. A reader can only ever see a whole file: the
+// TTS cache is read by an HTTP handler while another request may be generating
+// the same clip, and a half-written mp3 served once would be cached as broken
+// audio by the phone.
+export function atomicWrite(file, data) {
   mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2));
+  writeFileSync(tmp, data);
   renameSync(tmp, file);
+}
+
+export function atomicWriteJSON(file, value) {
+  atomicWrite(file, JSON.stringify(value, null, 2));
 }
 
 export function readJSON(file, fallback = null) {

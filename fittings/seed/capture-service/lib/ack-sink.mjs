@@ -36,7 +36,7 @@ const BURST_WINDOW_MS = 5 * 60_000;
 const BURST_CEILING = 3; // distinct error pushes per window before collapsing
 
 export class AckSink {
-  constructor({ cfg, store, counters, echoGuard, ingress, notifier, log = console, now = () => Date.now() }) {
+  constructor({ cfg, store, counters, echoGuard, ingress, notifier, voice = null, log = console, now = () => Date.now() }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -45,6 +45,7 @@ export class AckSink {
     this.notifier = notifier;
     this.log = log;
     this.now = now;
+    this.voice = voice;
     this.pendingSpeaks = new Map(); // ack id -> {sentAt, sessionId, timer}
     // In-memory on purpose: a restart is exactly when the operator should hear
     // the next failure again, and the window is minutes, not days.
@@ -117,7 +118,13 @@ export class AckSink {
   speakableSession() {
     if (!this.cfg.speakEnabled) return null;
     for (const session of this.ingress.sessions.values()) {
-      if (session.record.mode === "audio" && session.socket && session.socket.readyState === session.socket.OPEN) {
+      // "audio" is the companion mic; "pendant" is the wearable. Both are the
+      // same phone with the same speaker, and the wearer of a pendant is
+      // exactly who wants to be answered out loud - excluding it meant Zeca
+      // could not talk to the one session that listens all day. screen_audio
+      // is still excluded (ADR section 6).
+      const speakableMode = session.record.mode === "audio" || session.record.mode === "pendant";
+      if (speakableMode && session.socket && session.socket.readyState === session.socket.OPEN) {
         return session;
       }
     }
@@ -136,7 +143,16 @@ export class AckSink {
     const session = this.speakableSession();
     if (session) {
       try {
-        session.socket.send(JSON.stringify({ type: "speak", ack }));
+        // Zeca's own voice when one can be rendered, the phone's synthesizer
+        // otherwise. clipFor NEVER throws and returns null on any failure, so
+        // the acknowledgement is never held hostage to the nicety - the phone
+        // just speaks it itself, exactly as it always did.
+        const clip = this.voice ? await this.voice.clipFor(ack.text) : null;
+        // RELATIVE on purpose: the phone reaches this service over the tailnet,
+        // never on localhost, so an absolute machine-local URL would be
+        // unreachable AND mixed content (the standing house rule).
+        const speak = clip ? { ...ack, audioPath: `/speak/${clip.id}.mp3` } : ack;
+        session.socket.send(JSON.stringify({ type: "speak", ack: speak }));
         this.counters.bump("speaks_forwarded");
         const timer = setTimeout(() => {
           if (this.pendingSpeaks.delete(ack.id)) this.counters.bump("speak_receipt_timeouts");

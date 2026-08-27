@@ -35,14 +35,78 @@ final class SpeechSinkTests: XCTestCase {
         receipts = []
     }
 
-    private func makeSink(now: Date = Date()) -> SpeechSink {
-        let sink = SpeechSink(utterer: utterer, defaults: defaults, now: { now })
+    /// A recorder standing in for the clip player. `outcome` is what a fetch
+    /// or a playback attempt reports back: false is every real failure mode
+    /// collapsed into one - no key, no network, 404, undecodable audio.
+    final class RecordingClipPlayer: ClipPlaying {
+        var played: [String] = []
+        var outcome = true
+        var stopped = 0
+        func play(path: String, volume: Float, completion: @escaping (Bool) -> Void) {
+            played.append(path)
+            completion(outcome)
+        }
+        func stop() { stopped += 1 }
+    }
+
+    private func makeSink(now: Date = Date(), clipPlayer: ClipPlaying? = nil) -> SpeechSink {
+        let sink = SpeechSink(utterer: utterer, clipPlayer: clipPlayer, defaults: defaults, now: { now })
         sink.onReceipt = { [weak self] receipt in self?.receipts.append(receipt) }
         return sink
     }
 
-    private func ack(_ id: String, severity: String = "info", text: String = "Created a task, test.", emittedAt: String? = nil) -> AckPayload {
-        AckPayload(id: id, kind: "created", severity: severity, templateId: "card.created", text: text, cardId: nil, idempotencyKey: nil, emittedAt: emittedAt)
+    private func ack(
+        _ id: String,
+        severity: String = "info",
+        text: String = "Created a task, test.",
+        emittedAt: String? = nil,
+        audioPath: String? = nil
+    ) -> AckPayload {
+        AckPayload(
+            id: id,
+            kind: "created",
+            severity: severity,
+            templateId: "card.created",
+            text: text,
+            cardId: nil,
+            idempotencyKey: nil,
+            emittedAt: emittedAt,
+            audioPath: audioPath
+        )
+    }
+
+    // Zeca's own voice, when the service managed to render one.
+    func testPlaysTheRenderedClipInsteadOfSynthesizing() {
+        let clips = RecordingClipPlayer()
+        let sink = makeSink(clipPlayer: clips)
+        sink.handle(ack("v1", audioPath: "/speak/abc123.mp3"))
+        XCTAssertEqual(clips.played, ["/speak/abc123.mp3"])
+        XCTAssertEqual(utterer.spoken, [], "the on-device voice must stay quiet when a clip played")
+        XCTAssertEqual(receipts.map(\.ok), [true])
+    }
+
+    // ...and the whole point of the fallback: a nicer voice must never be able
+    // to COST an acknowledgement. A wearer who hears nothing cannot tell "the
+    // clip failed" from "it never heard me", and that ambiguity is the one this
+    // app has already been bitten by.
+    func testFallsBackToTheOnDeviceVoiceWhenTheClipFails() {
+        let clips = RecordingClipPlayer()
+        clips.outcome = false
+        let sink = makeSink(clipPlayer: clips)
+        sink.handle(ack("v2", text: "Criei a tarefa.", audioPath: "/speak/dead.mp3"))
+        XCTAssertEqual(clips.played, ["/speak/dead.mp3"])
+        XCTAssertEqual(utterer.spoken, ["Criei a tarefa."])
+        utterer.finishNext()
+        XCTAssertEqual(receipts.map(\.ok), [true])
+    }
+
+    // No clip offered is the old path, unchanged.
+    func testSynthesizesWhenNoClipWasRendered() {
+        let clips = RecordingClipPlayer()
+        let sink = makeSink(clipPlayer: clips)
+        sink.handle(ack("v3", text: "On it."))
+        XCTAssertEqual(clips.played, [])
+        XCTAssertEqual(utterer.spoken, ["On it."])
     }
 
     func testSpeaksTextVerbatimAndReportsReceipt() {

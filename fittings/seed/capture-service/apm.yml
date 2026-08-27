@@ -117,6 +117,31 @@ x-garrison:
       type: integer
       default: 60000
       description: How much post-wake speech counts as THE COMMAND; later speech is trailing context for the classifier.
+    - key: tts_enabled
+      type: boolean
+      default: false
+      description: >-
+        Speak Zeca's acknowledgements in an ElevenLabs voice instead of the
+        phone's built-in synthesizer. Off, or with no ELEVENLABS_API_KEY, the
+        phone speaks in its own voice and nothing else changes.
+    - key: tts_voice_id
+      type: string
+      default: RlGHmE2fztwdBDat0jYf
+      description: >-
+        ElevenLabs voice. Default is Diogo, a native European Portuguese
+        library voice - native pt voices hold the accent that premade voices
+        lose on the short lines Zeca speaks.
+    - key: tts_model
+      type: string
+      default: eleven_multilingual_v2
+      description: >-
+        Keep multilingual_v2 unless you know why. eleven_v3 rejects the
+        previous_text/next_text anchors that stop short Portuguese clips
+        drifting into Brazilian.
+    - key: tts_cache_max_clips
+      type: integer
+      default: 500
+      description: Cached spoken clips kept on disk, oldest evicted first. 0 disables pruning.
     - key: transcribe_mute_timeout_ms
       type: integer
       default: 120000
@@ -178,6 +203,7 @@ x-garrison:
       description: Pendant sessions only — "wake_only" (default) persists nothing but the wake path (no media log, no transcript, no capture_event; counters only), "ambient" persists pendant session transcripts and feeds them into the shared triage tick. Mic sessions are unaffected either way.
   secret_scope:
     - DEEPGRAM_API_KEY
+    - ELEVENLABS_API_KEY
     - CAPTURE_TOKEN
     - APNS_TEAM_ID
     - APNS_KEY_ID
