@@ -35,8 +35,30 @@ export const CATALOG = {
       description: "Send an email (optionally with attachments) via Gmail."
     },
     { name: "drive.list", args: ["query", "page_size"], mutates: false, description: "List Drive files (most-recently-modified first)." },
-    { name: "calendar.create_event", args: ["summary", "start", "end", "calendar_id"], mutates: true, description: "Create a calendar event." },
-    { name: "calendar.list_events", args: ["calendar_id", "time_min", "max"], mutates: false, description: "List upcoming calendar events." }
+    {
+      name: "calendar.create_event",
+      args: ["summary", "start", "end", "calendar_id", "description", "private_properties"],
+      mutates: true,
+      description: "Create a calendar event."
+    },
+    {
+      name: "calendar.update_event",
+      args: ["event_id", "summary", "start", "end", "calendar_id", "description", "private_properties"],
+      mutates: true,
+      description: "Patch an existing calendar event. Only the fields supplied are changed."
+    },
+    {
+      name: "calendar.delete_event",
+      args: ["event_id", "calendar_id"],
+      mutates: true,
+      description: "Delete a calendar event. Deleting an already-absent event succeeds."
+    },
+    {
+      name: "calendar.list_events",
+      args: ["calendar_id", "time_min", "time_max", "max", "updated_min", "private_extended_property", "show_deleted", "page_token"],
+      mutates: false,
+      description: "List calendar events. Returns each event's `updated` stamp, private extended properties and a nextPageToken (pass it back as page_token), so a caller can sync against the FULL listing."
+    }
   ]
 };
 
@@ -110,6 +132,32 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
     if (!res.ok) throw new Error(`google ${res.status}: ${await res.text()}`);
     return res.json();
   };
+  // Calendar's delete returns 204 with an empty body, so it cannot go through
+  // `call` (res.json() on no body throws). 410 Gone means the event was already
+  // deleted — the caller asked for it to be absent and it is, so that is a
+  // success, not an error. Making delete idempotent is what lets a sync retry
+  // safely after a crash between the API call and persisting the receipt.
+  const callNoBody = async (url, opts = {}) => {
+    const res = await fetchImpl(url, { ...opts, headers: { ...authHeader, ...(opts.headers ?? {}) } });
+    if (!res.ok && res.status !== 404 && res.status !== 410) {
+      throw new Error(`google ${res.status}: ${await res.text()}`);
+    }
+    return { deleted: true, alreadyAbsent: res.status === 404 || res.status === 410 };
+  };
+  // Google rejects an unknown/null field in an event body, so only the keys the
+  // caller actually supplied are sent. That is also what makes update_event a
+  // genuine PATCH: omitting `summary` leaves the remote summary alone rather
+  // than blanking it.
+  const eventBody = (a) => ({
+    ...(a.summary !== undefined ? { summary: a.summary } : {}),
+    ...(a.description !== undefined ? { description: a.description } : {}),
+    ...(a.start !== undefined ? { start: { dateTime: a.start } } : {}),
+    ...(a.end !== undefined ? { end: { dateTime: a.end } } : {}),
+    ...(a.private_properties && typeof a.private_properties === "object"
+      ? { extendedProperties: { private: a.private_properties } }
+      : {})
+  });
+  const EVENT_FIELDS = "id,status,summary,description,updated,start,end,extendedProperties,htmlLink";
   switch (action) {
     case "gmail.send": {
       const raw = base64url(buildMime(args));
@@ -129,23 +177,60 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
     }
     case "calendar.create_event": {
       const calId = encodeURIComponent(args.calendar_id ?? "primary");
-      return call(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events`, {
+      const params = new URLSearchParams({ fields: EVENT_FIELDS });
+      return call(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events?${params}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          summary: args.summary,
-          start: { dateTime: args.start },
-          end: { dateTime: args.end }
-        })
+        body: JSON.stringify(eventBody(args))
       });
+    }
+    case "calendar.update_event": {
+      if (!args.event_id) throw new Error("calendar.update_event requires event_id");
+      const calId = encodeURIComponent(args.calendar_id ?? "primary");
+      const params = new URLSearchParams({ fields: EVENT_FIELDS });
+      return call(
+        `https://www.googleapis.com/calendar/v3/calendars/${calId}/events/${encodeURIComponent(args.event_id)}?${params}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(eventBody(args))
+        }
+      );
+    }
+    case "calendar.delete_event": {
+      if (!args.event_id) throw new Error("calendar.delete_event requires event_id");
+      const calId = encodeURIComponent(args.calendar_id ?? "primary");
+      return callNoBody(
+        `https://www.googleapis.com/calendar/v3/calendars/${calId}/events/${encodeURIComponent(args.event_id)}`,
+        { method: "DELETE" }
+      );
     }
     case "calendar.list_events": {
       const calId = encodeURIComponent(args.calendar_id ?? "primary");
       const params = new URLSearchParams();
       params.set("timeMin", args.time_min ?? new Date(0).toISOString());
+      if (args.time_max) params.set("timeMax", args.time_max);
+      if (args.updated_min) params.set("updatedMin", args.updated_min);
+      // Repeatable parameter: each entry is a literal "key=value" match against
+      // the event's private extended properties. This is how a caller finds the
+      // events it owns without scanning the whole calendar.
+      const props = args.private_extended_property;
+      for (const prop of Array.isArray(props) ? props : props ? [props] : []) {
+        params.append("privateExtendedProperty", String(prop));
+      }
       params.set("maxResults", String(args.max ?? 10));
       params.set("singleEvents", "true");
-      params.set("orderBy", "startTime");
+      if (args.show_deleted) params.set("showDeleted", "true");
+      // Pagination: the fields mask already requests nextPageToken; without
+      // accepting the token back, a caller could only ever read page one — and
+      // a SYNC reading a truncated listing treats every event past the cut as
+      // deleted. The board's calendar sync loops on this until exhausted.
+      if (args.page_token) params.set("pageToken", String(args.page_token));
+      // orderBy=startTime is invalid alongside updatedMin's incremental
+      // semantics, and showDeleted only makes sense unordered — in both cases
+      // the caller is syncing, not reading a chronological agenda.
+      if (!args.updated_min && !args.show_deleted) params.set("orderBy", "startTime");
+      params.set("fields", `nextPageToken,items(${EVENT_FIELDS})`);
       return call(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events?${params}`);
     }
     default:

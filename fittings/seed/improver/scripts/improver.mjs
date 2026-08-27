@@ -407,7 +407,11 @@ async function runSkills() {
   // misses on the kanban cards and proposes threshold / lease-list / prediction
   // edits into the SAME queue — rendered as composer ghost edits, never auto-applied.
   try {
-    const coordRule = runCoordinationRule({ now });
+    // The queue is an INPUT here: a resolved predict-batch generation tells the
+    // rule which paths the human has already decided on, so the next delta
+    // becomes its own pending record instead of being absorbed into (or
+    // suppressed by) the frozen one.
+    const coordRule = runCoordinationRule({ now, queue });
     for (const p of coordRule.proposals) {
       writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
       queue = upsertQueue(queue, p);

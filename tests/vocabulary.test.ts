@@ -399,9 +399,11 @@ describe("vocabulary — a conversation is not a session", () => {
   });
 
   it("the Kanban UI does not name a column the board no longer has", () => {
+    // .ts is included alongside .tsx: user-facing copy lives in plain modules
+    // too (run-spec.ts carried a retired word invisibly until this widened).
     const { files, hits } = sweep(
       [path.join(ROOT, "fittings/seed/kanban-loop/ui")],
-      (name) => name.endsWith(".tsx"),
+      (name) => name.endsWith(".tsx") || name.endsWith(".ts"),
       RETIRED_BOARD_WORDS,
       (file, value) => boardLiteralExcluded.has(literalKey(file, value))
     );

@@ -81,6 +81,33 @@ const SECTION_OF_FIELD: Partial<Record<PinField, SectionId>> = {
   flow: "flow", phasesOff: "phases", phasesOn: "phases",
 };
 
+/** The inverse of SECTION_OF_FIELD — which pins a section speaks for. */
+const FIELDS_OF_SECTION: Record<SectionId, PinField[]> = {
+  work: ["duty", "level"],
+  tier: ["tier"],
+  execution: ["target", "model", "effort"],
+  account: ["account"],
+  project: ["project"],
+  flow: ["flow"],
+  phases: ["phasesOff", "phasesOn"],
+};
+
+/**
+ * Why a whole section cannot be edited right now, or "" when it can.
+ *
+ * A dimension can be spoken for: the host owns it (the Kanban board decides a
+ * card's working directory through the card's own Project field, so a second
+ * picker here would silently WIN), or its vocabulary is unreachable. A section
+ * whose EVERY field carries a reason offers that reason instead of controls
+ * that would be refused. A section only PARTLY blocked keeps its own inline
+ * gate — which is how `effort` alone has always behaved, and must keep behaving.
+ */
+export function blockedSection(options: RailOptions | null | undefined, id: SectionId): string {
+  const fields = FIELDS_OF_SECTION[id];
+  const reasons = fields.map((f) => str(options?.unavailable?.[f])).filter(Boolean);
+  return reasons.length === fields.length ? reasons[0] : "";
+}
+
 export interface RoutingModalProps {
   pins?: TurnRouting | null;
   options?: RailOptions | null;
@@ -161,6 +188,7 @@ export function RoutingModal({ pins, options, onPin, onClose, focusField, muster
   const beyondPlan = catalog.filter((p) => !(plan?.phases ?? []).includes(p));
   const tierGated = Boolean(tier);
   const effortBlocked = str(options?.unavailable?.effort);
+  const sectionBlocked = useCallback((id: SectionId) => blockedSection(options, id), [options]);
   const projects = (options?.projects ?? []).filter((p) =>
     !projectQuery.trim() || p.toLowerCase().includes(projectQuery.trim().toLowerCase())
   );
@@ -200,6 +228,11 @@ export function RoutingModal({ pins, options, onPin, onClose, focusField, muster
       pinned: Boolean(phasesOff.length || phasesOn.length),
     },
   };
+  // A section that is spoken for wears the lock in the nav too, so the reason is
+  // discoverable without opening the pane to find an explanation.
+  for (const id of Object.keys(navValue) as SectionId[]) {
+    if (sectionBlocked(id)) navValue[id] = { ...navValue[id], gated: true };
+  }
 
   const NAV: { id: SectionId; label: string }[] = [
     { id: "work", label: "Duty & level" },
@@ -230,6 +263,14 @@ export function RoutingModal({ pins, options, onPin, onClose, focusField, muster
   const hint = (text: string) => <p className="cc-rm-hint">{text}</p>;
 
   const detail = (() => {
+    const blocked = sectionBlocked(active);
+    if (blocked) {
+      return (
+        <div className="cc-rm-pane" data-section={active}>
+          <p className="cc-rm-gate">{blocked}</p>
+        </div>
+      );
+    }
     switch (active) {
       case "work":
         return (

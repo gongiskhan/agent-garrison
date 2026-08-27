@@ -1416,6 +1416,22 @@ export function SessionStream({
     [events]
   );
   const turns = useMemo(() => groupSessionTurns(visibleEvents), [visibleEvents]);
+  // A turn the viewer WATCHED run must not snap shut the moment it settles. The
+  // live branch renders an open ActivityTimeline; when the turn completes that
+  // branch unmounts and a fresh InterimDetails takes its place, so without this
+  // the activity being read collapses itself out from under the reader at the
+  // exact moment the answer arrives. Remember which turn was live in THIS
+  // mounted transcript and keep that one open once it settles; turns that were
+  // already complete when the transcript opened stay collapsed, so replaying a
+  // long history is still tidy.
+  const watchedLiveTurns = useRef<Set<string>>(new Set());
+  const liveTurnKey = streamLive && turns.length ? turns[turns.length - 1].key : null;
+  useEffect(() => {
+    // Runs on the commit of the LIVE render, i.e. strictly before the render
+    // that flips the turn complete and mounts InterimDetails — so the key is
+    // already recorded by the time that mount reads its initial open state.
+    if (liveTurnKey) watchedLiveTurns.current.add(liveTurnKey);
+  }, [liveTurnKey]);
   const activeThinkingBlock = useMemo(() => {
     if (!streamLive) return null;
     let last: SessionBlock | null = null;
@@ -1518,7 +1534,15 @@ export function SessionStream({
                     <div className="cc-session-awaiting" role={announceLiveUpdates ? "status" : undefined}>Working…</div>
                   )}
                   {!turnLive && interimCount > 0 && (
-                    <InterimDetails count={interimCount} openByDefault={!presentation.primaryText || hasSettlementNotice}>
+                    <InterimDetails
+                      count={interimCount}
+                      openByDefault={
+                        !presentation.primaryText || hasSettlementNotice ||
+                        // The turn just finished under the reader's eyes: leave
+                        // open what they were already watching.
+                        watchedLiveTurns.current.has(turn.key)
+                      }
+                    >
                       <ActivityTimeline
                         events={turn.assistantEvents}
                         includeText

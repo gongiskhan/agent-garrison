@@ -34,6 +34,71 @@ describe("Improver core proposals (MR5a — improver-proposal-ok)", () => {
     expect(q).toHaveLength(1);
     expect(q[0].status).toBe("pending");
   });
+
+  it("upsertQueue refreshes evidence on a pending record as the run's evidence grows", () => {
+    const base = { id: "batch-1", rule: "coordination", targetClass: "orchestrator/policy", claim: "1 path", evidence: { files: ["a.ts"] }, at: "t1" };
+    let q = upsertQueue([], base);
+    expect(q[0].evidence.files).toEqual(["a.ts"]);
+    // a later run adds a newly-qualifying path to the SAME batch id — still
+    // pending, so the reviewer must see the grown set, not the stale one.
+    const grown = { ...base, claim: "2 paths", evidence: { files: ["a.ts", "b.ts"] }, at: "t2" };
+    q = upsertQueue(q, grown);
+    expect(q).toHaveLength(1);
+    expect(q[0].evidence.files).toEqual(["a.ts", "b.ts"]);
+    expect(q[0].claim).toBe("2 paths");
+  });
+
+  it("upsertQueue freezes the ENTIRE content generation once a record is resolved — a rejected batch never silently absorbs newly-qualifying paths or changed decision scope", () => {
+    const base = {
+      id: "batch-1",
+      rule: "coordination",
+      targetClass: "orchestrator/policy",
+      claim: "1 path",
+      diff: "protect a.ts",
+      decision: "Protect this 1 path?",
+      applyVia: "PUT /routing",
+      evidence: { files: ["a.ts"] },
+      at: "t1"
+    };
+    let q = upsertQueue([], base);
+    q = q.map((r: any) => (r.id === "batch-1" ? { ...r, status: "rejected", rejectedAt: "t1.5" } : r));
+    const grown = {
+      ...base,
+      claim: "2 paths",
+      diff: "protect a.ts and b.ts",
+      decision: "Protect these 2 paths?",
+      evidence: { files: ["a.ts", "b.ts"] },
+      at: "t2"
+    };
+    q = upsertQueue(q, grown);
+    expect(q[0].status).toBe("rejected");
+    // the whole decision the human made is frozen — content never drifts
+    // out from under a resolved record, only lifecycle fields do
+    expect(q[0].evidence.files).toEqual(["a.ts"]);
+    expect(q[0].claim).toBe("1 path");
+    expect(q[0].diff).toBe("protect a.ts");
+    expect(q[0].decision).toBe("Protect this 1 path?");
+    expect(q[0].at).toBe("t1");
+  });
+
+  it("upsertQueue preserves the reapply-failure reason and timestamp when a later run proposes over a reapply-failed record", () => {
+    const base = { id: "skill-1", rule: "skills", targetClass: "skill", claim: "1 hit", evidence: { hits: 1 }, at: "t1" };
+    let q = upsertQueue([], base);
+    // review-queue.markReapplyFailed stamps BOTH of these; the UI renders the
+    // reason on the card. A nightly proposal for the same id must not erase
+    // the human-facing explanation of why the applied edit could not be
+    // restored.
+    q = q.map((r: any) =>
+      r.id === "skill-1"
+        ? { ...r, status: "reapply-failed", reapplyFailureReason: "marked block missing", reapplyFailedAt: "t1.5" }
+        : r
+    );
+    q = upsertQueue(q, { ...base, claim: "4 hits", evidence: { hits: 4 }, at: "t2" });
+    expect(q).toHaveLength(1);
+    expect(q[0].status).toBe("reapply-failed");
+    expect(q[0].reapplyFailureReason).toBe("marked block missing");
+    expect(q[0].reapplyFailedAt).toBe("t1.5");
+  });
 });
 
 describe("Improver skip behaviour (MR5a — improver-skip-ok)", () => {

@@ -11,7 +11,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MutableRefObject } from "react";
 import { createRoot } from "react-dom/client";
-import { SessionStream as SharedSessionStream } from "@garrison/claude-chat";
+import { SessionStream as SharedSessionStream, RoutingModal, type TurnRouting } from "@garrison/claude-chat";
+import { applyPinPatch, pinnedSummary, railOptionsFor } from "./run-spec";
+import {
+  scheduleUrgency,
+  urgencyClass,
+  dueInstant,
+  releaseInstant,
+  hasSplitDeadline,
+  dueOffsetFromInstants,
+  type ScheduleUrgency
+} from "./schedule-urgency";
+import { DateTimePicker, RecurrenceBuilder, defaultRecurrence, type RecurrenceRule } from "./date-picker";
+// @ts-ignore — pure .mjs, bundled by esbuild alongside the UI
+import { describeRecurrence, nextRecurrenceOccurrence } from "../lib/recurrence.mjs";
 import {
   DndContext,
   DragOverlay,
@@ -258,26 +271,58 @@ function fmtSchedule(iso: string | null | undefined): string {
   return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
 }
 
-// Is the card's schedule instant already past (due)? Unparseable counts as due
-// so the amber chip surfaces the mistake instead of hiding it.
+// The RELEASE instant — when the card stops being held and lands on its list.
 function scheduleAt(card: CardSummary): string | null {
-  return card.schedule?.nextAt ?? card.scheduledFor ?? null;
+  return releaseInstant(card);
 }
 
+// The colour on the card front tracks the DEADLINE, not the release: a card that
+// landed on To Do this morning and is due tonight should sit there quietly until
+// tonight. With no deadline offset the two instants are the same value, so a
+// card that predates the split reads exactly as it always did.
+function cardUrgency(card: CardSummary): ScheduleUrgency {
+  return scheduleUrgency(dueInstant(card), Date.now(), { enabled: card.schedule?.enabled });
+}
+
+// The rule's NEXT release from now — the baseline a deadline offset is
+// measured from. Same walker the sweep uses (single authority), so an aged
+// rule's baseline is its coming occurrence, never its months-old start day.
+// Measuring against the start was the corruption: editing a January rule in
+// September computed an offset carrying eight months of drift.
+function recurrenceNextInstant(rule: RecurrenceRule, timeZone: string): string | null {
+  try {
+    return (nextRecurrenceOccurrence(rule, timeZone, new Date()) as { at: string } | null)?.at ?? null;
+  } catch {
+    return null;
+  }
+}
+
+
 function scheduleDue(card: CardSummary): boolean {
-  const at = scheduleAt(card);
-  if (!at || card.schedule?.enabled === false) return false;
-  const t = Date.parse(at);
-  return !Number.isFinite(t) || t <= Date.now();
+  return cardUrgency(card) === "due";
+}
+
+// How a recurring schedule reads when there is no cron string to quote — a
+// calendar rule has to say itself in words, or the chip prints "undefined".
+function repeatLabel(schedule: CardSchedule): string {
+  if (schedule.recurrence) return describeRecurrence(schedule.recurrence);
+  return schedule.cron ?? "repeats";
 }
 
 function scheduleChip(card: CardSummary): string {
   const schedule = card.schedule;
   if (schedule?.kind === "cron") {
-    if (!schedule.enabled) return `paused · ${schedule.cron}`;
+    if (!schedule.enabled) return `paused · ${repeatLabel(schedule)}`;
     return `${fmtSchedule(schedule.nextAt)} · repeats`;
   }
   return fmtSchedule(scheduleAt(card));
+}
+
+// The DEADLINE chip, shown only when it is a different moment from the release.
+// This is the one the card asked to "turn yellow a few minutes before due and
+// red when due, in a big highlighted fashion".
+function dueChip(card: CardSummary): string {
+  return `due ${fmtSchedule(dueInstant(card))}`;
 }
 
 // Stable card-detail URL used by schedule provenance links. The click is
@@ -1030,14 +1075,30 @@ function Card({
             autonomous
           </span>
         )}
+        {/* With a deadline offset the front carries TWO chips: when the card
+            LANDS (quiet — it is only placement) and when it is DUE (the one
+            that goes amber then red). Without one, the single chip below keeps
+            the urgency colour exactly as it always did. */}
+        {hasSplitDeadline(card) && (
+          <span
+            className={`chip sched due-chip${urgencyClass(cardUrgency(card))}`}
+            title={`due ${dueInstant(card)} — landed on this list at ${scheduleAt(card)}`}
+          >
+            <ClockIcon /> {dueChip(card)}
+          </span>
+        )}
         {(card.schedule || card.scheduledFor) && (
           <span
-            className={`chip sched${scheduleDue(card) ? " due" : ""}`}
+            className={`chip sched${hasSplitDeadline(card) ? " muted" : urgencyClass(cardUrgency(card))}`}
             title={
-              scheduleDue(card)
+              hasSplitDeadline(card)
+                ? `lands on its list at ${scheduleAt(card)}; the deadline is the chip beside it`
+                : scheduleDue(card)
                 ? `scheduled for ${scheduleAt(card)} - due${card.scheduleNotifiedAt ? ", reminder sent" : ""}`
+                : cardUrgency(card) === "soon"
+                ? `scheduled for ${scheduleAt(card)} - due in minutes`
                 : card.schedule?.kind === "cron"
-                  ? `${card.schedule.enabled ? "recurring" : "paused"}: ${card.schedule.cron} (${card.schedule.timezone})`
+                  ? `${card.schedule.enabled ? "recurring" : "paused"}: ${repeatLabel(card.schedule)} (${card.schedule.timezone})`
                   : `held until ${scheduleAt(card)} (${card.scheduleAction === "run" ? "runs automatically" : "notifies"})`
             }
           >
@@ -1272,144 +1333,51 @@ function RunSpec({
   setSpec,
   options,
   optionsError,
-  initialOpen = false
+  emphasise = false
 }: {
   spec: CardRouting;
   setSpec: (next: CardRouting) => void;
   options: RouteOptionsView | null;
   optionsError: string | null;
-  initialOpen?: boolean;
+  /** A card parked in Needs Attention wants its routing looked at — the summary
+   *  is drawn to the eye rather than a dialog being opened over the card the
+   *  user just asked to read. */
+  emphasise?: boolean;
 }) {
-  const [open, setOpen] = useState(initialOpen);
-  // A pin is "in force" only when it holds a real value - null/blank both mean
-  // automatic, exactly as TurnRouting defines it.
-  const pinnedCount = Object.values(spec).filter((v) => v !== null && v !== undefined && v !== "").length;
-  const down = options && options.sources?.gateway === false;
-  const why = down
-    ? "the operative is not running — start it to choose a runtime"
-    : optionsError
-      ? `could not load the options (${optionsError})`
-      : null;
-
-  // The phases of the SELECTED plan, in plan order. Falls back to the default work
-  // kind's plan, which is what an unpinned card actually walks. A pinned
-  // single-turn DUTY runs no phase plan at all, so the toggles hide.
-  const kindId = spec.duty ? "" : (spec.flow || options?.defaultFlow || "");
-  const planPhases = (options?.flows ?? []).find((k) => k.id === kindId)?.phases ?? [];
-  const off = new Set((spec.phasesOff ?? "").split(",").map((s) => s.trim()).filter(Boolean));
-  // Serialised in PLAN order, never tap order, so the same selection always
-  // produces the same pin.
-  const setOff = (next: Set<string>) => {
-    const csv = planPhases.filter((p) => next.has(p)).join(",");
-    setSpec({ ...spec, phasesOff: csv || undefined });
-  };
-
-  const set = (field: keyof CardRouting) => (v: string) =>
-    setSpec({ ...spec, [field]: v || undefined });
-
+  const [open, setOpen] = useState(false);
+  // The SAME console the Web Channel edits a conversation's pins with, fed the
+  // SAME gateway vocabulary. Everything board-specific lives in the two pure
+  // translations in ./run-spec — nothing is re-implemented here.
+  const rail = useMemo(() => railOptionsFor(options, optionsError), [options, optionsError]);
+  const pins = useMemo(() => pinnedSummary(spec), [spec]);
   return (
-    <div className="field">
-      <button type="button" className="spec-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        {open ? "▾" : "▸"} Run spec
+    <div className={`field spec-console${emphasise ? " spec-console-emph" : ""}`}>
+      <button
+        type="button"
+        className="spec-toggle"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+      >
+        Run spec
         <span className="muted">
-          {pinnedCount === 0 ? "everything automatic" : `${pinnedCount} chosen, the rest automatic`}
+          {pins.length === 0 ? "everything automatic" : `${pins.length} chosen, the rest automatic`}
         </span>
       </button>
-      {open && (
-        <div className="spec-grid">
-          {/* Duty and flow are ONE question ("what is this work?") asked as
-              two siblings before 2026-08-07: a phased flow spans several
-              duty-named lists, so picking both read as a contradiction. One
-              selector now offers phased plans (flows) and single-turn
-              duties together; the two wire fields underneath are unchanged and
-              mutually exclusive. */}
-          <SpecSelect
-            id="nc-kind-of-work" label="Kind of work" hint="the classifier decides"
-            value={spec.flow ? `kind:${spec.flow}` : spec.duty ? `duty:${spec.duty}` : AUTO}
-            disabled={why}
-            options={[
-              ...(options?.flows ?? []).map((k) => ({
-                value: `kind:${k.id}`,
-                label: k.id === options?.defaultFlow ? `${k.id} (default plan)` : k.id,
-                detail: (k.phases?.length ? `plan: ${k.phases.join(" → ")}` : k.description) ?? undefined
-              })),
-              ...(options?.duties ?? []).map((d) => ({
-                value: `duty:${d.id}`,
-                label: d.id,
-                detail: d.title ? `single-turn duty — ${d.title}` : "single-turn duty"
-              }))
-            ]}
-            onChange={(v) => {
-              if (!v) setSpec({ ...spec, duty: undefined, flow: undefined, phasesOff: undefined });
-              else if (v.startsWith("kind:")) setSpec({ ...spec, flow: v.slice(5), duty: undefined, phasesOff: undefined });
-              else setSpec({ ...spec, duty: v.slice(5), flow: undefined, phasesOff: undefined });
-            }}
-          />
-          <SpecSelect
-            id="nc-tier" label="Tier" hint="the classifier decides"
-            value={spec.tier ?? AUTO} disabled={why}
-            options={(options?.tiers ?? []).map((t) => ({ value: t, label: t }))}
-            onChange={set("tier")}
-          />
-          <SpecSelect
-            id="nc-target" label="Runtime + model" hint="the composition's routing"
-            value={spec.target ?? AUTO} disabled={why}
-            // A target picks runtime+provider+model COHERENTLY. They are not
-            // separate menus on purpose: there is no model catalog in the repo, so
-            // independent dropdowns would happily produce gemini + opus.
-            options={(options?.targets ?? []).map((t) => ({
-              value: t.id,
-              label: t.id,
-              detail: [t.runtime, t.model].filter(Boolean).join(" / ") || undefined
-            }))}
-            onChange={set("target")}
-          />
-          <SpecSelect
-            id="nc-effort" label="Effort" hint="the duty's effort"
-            value={spec.effort ?? AUTO} disabled={why}
-            options={(options?.efforts ?? []).map((e) => ({ value: e, label: e }))}
-            onChange={set("effort")}
-          />
-          <SpecSelect
-            id="nc-account" label="Account" hint="the composition's account"
-            value={spec.account ?? AUTO} disabled={why}
-            options={(options?.accounts ?? []).map((a) => ({ value: a.name, label: a.name, detail: a.platform ?? undefined }))}
-            onChange={set("account")}
-          />
-          {/* The former separate "Flow" dropdown folded into "Kind of work"
-              above (2026-08-07). The phase toggle row below still keys off the
-              selected (or default) plan. */}
-          {planPhases.length > 0 && (
-            <div className="spec-field spec-field-wide">
-              <label>Phases</label>
-              <div className="rail-toggles">
-                {planPhases.map((ph) => (
-                  <label
-                    key={ph}
-                    className={`chip toggle${off.has(ph) ? " off" : ""}`}
-                    title={off.has(ph) ? `${ph} is recorded OFF for this run (never a silent pass)` : `${ph} runs; tap to turn it off`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!off.has(ph)}
-                      onChange={(e) => {
-                        const next = new Set(off);
-                        if (e.target.checked) next.delete(ph);
-                        else next.add(ph);
-                        setOff(next);
-                      }}
-                    />
-                    {ph}
-                  </label>
-                ))}
-              </div>
-              <div className="spec-note">
-                {kindId ? `The ${kindId} plan, in order.` : "The default plan, in order."} A phase turned off stays on the
-                rail, recorded off — never silently skipped.
-              </div>
-            </div>
-          )}
+      {pins.length > 0 && (
+        <div className="spec-pins">
+          {pins.map((p) => (
+            <span key={p.field} className="chip mono" title={p.field}>{p.label}</span>
+          ))}
         </div>
+      )}
+      {open && (
+        <RoutingModal
+          pins={spec as TurnRouting}
+          options={rail}
+          onPin={(patch) => setSpec(applyPinPatch(spec, patch))}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   );
@@ -1595,7 +1563,10 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
   const [placement, setPlacement] = useState(initialPlacement);
   const [loadoutReady, setLoadoutReady] = useState<boolean | null>(null);
   // Card scheduling: one-time release or a timezone-aware recurring template.
-  const [scheduleKind, setScheduleKind] = useState<"none" | "once" | "cron">("none");
+  const [scheduleKind, setScheduleKind] = useState<"none" | "once" | "cron" | "repeat">("none");
+  const [scheduleRec, setScheduleRec] = useState<RecurrenceRule>(() => defaultRecurrence());
+  // The DEADLINE, as a local-wall value; "" means due == release, as before.
+  const [scheduleDue, setScheduleDue] = useState("");
   const [scheduleAt, setScheduleAt] = useState("");
   const [scheduleCron, setScheduleCron] = useState("0 8 * * 1-5");
   const [scheduleTimezone, setScheduleTimezone] = useState(
@@ -1674,17 +1645,25 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
       setSaving(false);
       return;
     }
+    // The deadline is picked as a date but stored as an offset from the release
+    // instant, so a recurring card keeps its deadline on every occurrence.
+    const releaseForDue = scheduledFor
+      ?? (scheduleKind === "repeat" ? recurrenceNextInstant(scheduleRec, scheduleTimezone) : null);
+    const dueOffsetMinutes = dueOffsetFromInstants(releaseForDue, isoFromLocalInput(scheduleDue));
+    const scheduleCommon = {
+      action: scheduleAction,
+      timezone: scheduleTimezone,
+      enabled: true,
+      targetList: scheduleTarget,
+      ...(dueOffsetMinutes ? { dueOffsetMinutes } : {})
+    };
     const schedule: Omit<CardSchedule, "nextAt" | "lastAt"> | undefined = scheduleKind === "once"
-      ? {
-          kind: "once", action: scheduleAction, at: scheduledFor!, timezone: scheduleTimezone,
-          enabled: true, targetList: scheduleTarget
-        }
-      : scheduleKind === "cron"
-        ? {
-            kind: "cron", action: scheduleAction, cron: scheduleCron.trim(), timezone: scheduleTimezone,
-            enabled: true, targetList: scheduleTarget
-          }
-        : undefined;
+      ? { kind: "once", at: scheduledFor!, ...scheduleCommon }
+      : scheduleKind === "repeat"
+        ? { kind: "cron", recurrence: scheduleRec, ...scheduleCommon }
+        : scheduleKind === "cron"
+          ? { kind: "cron", cron: scheduleCron.trim(), ...scheduleCommon }
+          : undefined;
     try {
       const created = await api.create({
         title: title.trim() || undefined,
@@ -1825,13 +1804,14 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
       <div className="field sched-create">
         <label htmlFor="nc-sched-kind">Schedule <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
         <div className="sched-inline">
-          <select id="nc-sched-kind" value={scheduleKind} onChange={(e) => setScheduleKind(e.target.value as "none" | "once" | "cron")}>
+          <select id="nc-sched-kind" value={scheduleKind} onChange={(e) => setScheduleKind(e.target.value as "none" | "once" | "cron" | "repeat")}>
             <option value="none">not scheduled</option>
             <option value="once">one time</option>
-            <option value="cron">recurring</option>
+            <option value="repeat">repeats…</option>
+            <option value="cron">cron (advanced)</option>
           </select>
           {scheduleKind === "once" && (
-            <input id="nc-sched" aria-label="Scheduled time" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+            <DateTimePicker id="nc-sched" label="Scheduled time" value={scheduleAt} onChange={setScheduleAt} />
           )}
           {scheduleKind === "cron" && (
             <input id="nc-sched-cron" aria-label="Five-field cron" type="text" value={scheduleCron} placeholder="0 8 * * 1-5" onChange={(e) => setScheduleCron(e.target.value)} />
@@ -1848,6 +1828,21 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
             </select>
           )}
         </div>
+        {scheduleKind === "repeat" && <RecurrenceBuilder value={scheduleRec} onChange={setScheduleRec} />}
+        {/* cron (advanced) has NO release baseline until the schedule is armed,
+            so offering the Due picker there silently discarded the input —
+            the deadline rides once/repeat schedules, where a baseline exists. */}
+        {(scheduleKind === "once" || scheduleKind === "repeat") && (
+          <div className="rec-row sched-due-row">
+            <span className="rec-label">Due</span>
+            <DateTimePicker label="Due time" value={scheduleDue} onChange={setScheduleDue} />
+            <span className="muted rec-note">
+              {scheduleDue
+                ? "the card lands at the time above and turns amber, then red, as this deadline arrives"
+                : "optional — leave empty and the card is due the moment it lands"}
+            </span>
+          </div>
+        )}
         {scheduleKind === "cron" && (
           <div className="sched-advanced">
             <div className="sched-presets" aria-label="Schedule presets">
@@ -2505,8 +2500,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const [checkText, setCheckText] = useState("");
   const [checkDraft, setCheckDraft] = useState<{ id: string; text: string } | null>(null);
   const [schedDraft, setSchedDraft] = useState<string | null>(null);
-  const [schedKindDraft, setSchedKindDraft] = useState<"once" | "cron">("once");
+  // "repeat" is the calendar rule; "cron" remains for the schedules already
+  // written as cron strings, which keep editing exactly as they did.
+  const [schedKindDraft, setSchedKindDraft] = useState<"once" | "cron" | "repeat">("once");
   const [schedCronDraft, setSchedCronDraft] = useState("0 8 * * 1-5");
+  const [schedRecDraft, setSchedRecDraft] = useState<RecurrenceRule>(() => defaultRecurrence());
+  // The DEADLINE, as a local-wall value; "" means due == release, as before.
+  const [schedDueDraft, setSchedDueDraft] = useState("");
   const [schedTimezoneDraft, setSchedTimezoneDraft] = useState(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
   );
@@ -2767,8 +2767,16 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
 
   function beginScheduleEdit(card: CardSummary) {
     const current = card.schedule;
-    setSchedKindDraft(current?.kind === "cron" ? "cron" : "once");
+    // A recurring schedule opens in the mode it was written in: the calendar
+    // builder for a rule, the cron box for the strings already on the board.
+    setSchedKindDraft(current?.kind === "cron" ? (current.cron ? "cron" : "repeat") : "once");
     setSchedDraft(localInputFromIso(current?.kind === "once" ? current.at ?? current.nextAt : null));
+    setSchedRecDraft((current?.recurrence as RecurrenceRule | undefined) ?? defaultRecurrence());
+    setSchedDueDraft(
+      current?.dueOffsetMinutes
+        ? localInputFromIso(new Date(Date.parse(current.nextAt ?? current.at ?? new Date().toISOString()) + current.dueOffsetMinutes * 60_000).toISOString())
+        : ""
+    );
     setSchedCronDraft(current?.cron ?? "0 8 * * 1-5");
     setSchedTimezoneDraft(current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Lisbon");
     setSchedTargetDraft(current?.targetList ?? (card.list === "scheduled" ? "todo" : card.list));
@@ -2781,15 +2789,25 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       setActionErr("Pick a valid date and time.");
       return;
     }
+    // The deadline is picked as a date but stored as an offset from the release
+    // instant, so it stays correct for every occurrence of a recurring card.
+    const releaseForDue = onceAt
+      ?? (schedKindDraft === "repeat"
+        ? recurrenceNextInstant(schedRecDraft, schedTimezoneDraft)
+        : card.schedule?.nextAt ?? null);
+    const dueOffsetMinutes = dueOffsetFromInstants(releaseForDue, isoFromLocalInput(schedDueDraft));
+    const common = {
+      action: schedActionDraft,
+      timezone: schedTimezoneDraft,
+      enabled: true,
+      targetList: schedTargetDraft || scheduleTarget(card),
+      ...(dueOffsetMinutes ? { dueOffsetMinutes } : {})
+    };
     const schedule = schedKindDraft === "once"
-      ? {
-          kind: "once", action: schedActionDraft, at: onceAt, timezone: schedTimezoneDraft,
-          enabled: true, targetList: schedTargetDraft || scheduleTarget(card)
-        }
-      : {
-          kind: "cron", action: schedActionDraft, cron: schedCronDraft.trim(), timezone: schedTimezoneDraft,
-          enabled: true, targetList: schedTargetDraft || scheduleTarget(card)
-        };
+      ? { kind: "once", at: onceAt, ...common }
+      : schedKindDraft === "repeat"
+        ? { kind: "cron", recurrence: schedRecDraft, ...common }
+        : { kind: "cron", cron: schedCronDraft.trim(), ...common };
     setSavingSched(true);
     const saved = await patchCard({ schedule });
     setSavingSched(false);
@@ -3250,7 +3268,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             setSpec={setRoutingDraft}
             options={routeOptions}
             optionsError={routeOptionsError}
-            initialOpen={parked}
+            emphasise={parked}
           />
           <div className="routing-actions">
             {parked && (
@@ -3274,10 +3292,16 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         <div className="dd-title">Schedule</div>
         {(card.schedule || card.scheduledFor) && schedDraft === null && (
           <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <span className={`chip sched${scheduleDue(card) ? " due" : ""}`}>
+            {/* Quiet when a separate deadline chip carries the colour. */}
+            <span className={`chip sched${hasSplitDeadline(card) ? " muted" : urgencyClass(cardUrgency(card))}`}>
               <ClockIcon /> {scheduleChip(card)}{card.scheduleAction === "run" ? " · auto-run" : " · notify"}
             </span>
-            {card.schedule?.kind === "cron" && <span className="chip muted">{card.schedule.cron} · {card.schedule.timezone}</span>}
+            {hasSplitDeadline(card) && (
+              <span className={`chip sched due-chip${urgencyClass(cardUrgency(card))}`} title={dueInstant(card) ?? undefined}>
+                {dueChip(card)}
+              </span>
+            )}
+            {card.schedule?.kind === "cron" && <span className="chip muted">{repeatLabel(card.schedule)} · {card.schedule.timezone}</span>}
             {card.schedule?.targetList && <span className="chip muted">to {card.schedule.targetList}</span>}
             {card.schedule?.cutoverPending && (
               <span className="chip attn" title="Verify with Run now, remove the legacy scheduler job, then rerun Kanban setup">
@@ -3323,13 +3347,15 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         {schedDraft !== null && (
           <div className="sched-editor">
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <select aria-label="Schedule kind" value={schedKindDraft} onChange={(e) => setSchedKindDraft(e.target.value === "cron" ? "cron" : "once")}>
+            <select aria-label="Schedule kind" value={schedKindDraft} onChange={(e) => setSchedKindDraft(e.target.value as "once" | "cron" | "repeat")}>
               <option value="once">one time</option>
-              <option value="cron">recurring</option>
+              <option value="repeat">repeats…</option>
+              <option value="cron">cron (advanced)</option>
             </select>
-            {schedKindDraft === "once" ? (
-              <input aria-label="Scheduled time" type="datetime-local" value={schedDraft} onChange={(e) => setSchedDraft(e.target.value)} />
-            ) : (
+            {schedKindDraft === "once" && (
+              <DateTimePicker label="Scheduled time" value={schedDraft} onChange={(next) => setSchedDraft(next)} />
+            )}
+            {schedKindDraft === "cron" && (
               <input aria-label="Five-field cron" type="text" value={schedCronDraft} placeholder="0 8 * * 1-5" onChange={(e) => setSchedCronDraft(e.target.value)} />
             )}
             <select value={schedActionDraft} onChange={(e) => setSchedActionDraft(e.target.value === "run" ? "run" : "notify")}>
@@ -3344,13 +3370,38 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             </select>
             <button
               className="btn small primary"
-              disabled={savingSched || (schedKindDraft === "once" ? !schedDraft || !isoFromLocalInput(schedDraft) : !schedCronDraft.trim())}
+              disabled={savingSched || (
+                schedKindDraft === "once" ? !schedDraft || !isoFromLocalInput(schedDraft)
+                  : schedKindDraft === "cron" ? !schedCronDraft.trim()
+                  : false
+              )}
               onClick={() => void saveScheduleDraft(card)}
             >
               {savingSched ? "Saving…" : "Set"}
             </button>
             <button className="btn small" onClick={() => setSchedDraft(null)}>Cancel</button>
             </div>
+            {schedKindDraft === "repeat" && (
+              <RecurrenceBuilder value={schedRecDraft} onChange={setSchedRecDraft} />
+            )}
+            {/* THE DEADLINE. Optional, and separate from the release instant
+                above: the card lands on its list at the release time and is DUE
+                here. Left empty, the two are the same moment — today's rule. */}
+            {(schedKindDraft !== "cron" || card.schedule?.nextAt) ? (
+              <div className="rec-row sched-due-row">
+                <span className="rec-label">Due</span>
+                <DateTimePicker label="Due time" value={schedDueDraft} onChange={setSchedDueDraft} />
+                <span className="muted rec-note">
+                  {schedDueDraft
+                    ? "the card lands at the time above and turns amber, then red, as this deadline arrives"
+                    : "optional — leave empty and the card is due the moment it lands"}
+                </span>
+              </div>
+            ) : (
+              <span className="muted rec-note">
+                A due time needs a release baseline — arm this cron schedule first, or use once/repeat.
+              </span>
+            )}
             {schedKindDraft === "cron" && (
               <div className="sched-presets">
                 <button className="btn tiny" type="button" onClick={() => setSchedCronDraft("0 8 * * *")}>Daily 08:00</button>

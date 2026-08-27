@@ -10,8 +10,6 @@
 
 import { spawn } from "node:child_process";
 import os from "node:os";
-import path from "node:path";
-import { readFileSync } from "node:fs";
 import { interpolate, interpolateDeep } from "./template-vars.mjs";
 import { saveRun, getAutomation, writeStepEvidence, saveMatrixRun } from "./store.mjs";
 import { ulid } from "./ulid.mjs";
@@ -20,6 +18,12 @@ import { makeBrowserClient, makeAssertionEvaluator, browserBaseUrl } from "./bro
 import { runBrowserStep } from "./browser-orchestrator.mjs";
 import { REHEARSAL_BUDGET, detectHumanActionable, applyPatch, proposePatch, validatePatch } from "./fixer.mjs";
 import { shapeForStep, isShapeApproved, approveShape } from "./command-shape.mjs";
+import {
+  internalToken,
+  defaultConnectorAuthEnv,
+  defaultRunConnector,
+  connectorScriptPath
+} from "./connector-invoke.mjs";
 
 const BROWSER_STEP_TYPES = new Set(["browser", "verify", "navigate"]);
 
@@ -62,65 +66,11 @@ function nowIso() {
 }
 
 // ── default executors (overridable via deps for tests) ──────────────────────
-
-// Resolve a connector's scoped auth env from the Garrison backend (which owns the
-// Vault). api_key connectors get their scoped secrets; oauth2 connectors get a
-// freshly-refreshed <SERVICE>_ACCESS_TOKEN. The token never returns to a log.
-function internalToken() {
-  try {
-    const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
-    const file = process.env.GARRISON_INTERNAL_TOKEN_PATH || path.join(home, "internal-token");
-    return readFileSync(file, "utf8").trim();
-  } catch {
-    return "";
-  }
-}
-
-async function defaultConnectorAuthEnv(connectorId, fetchImpl) {
-  const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:27777";
-  const res = await fetchImpl(`${base}/api/connectors/${encodeURIComponent(connectorId)}/auth-env`, {
-    method: "POST",
-    headers: { "x-garrison-internal": internalToken() }
-  });
-  if (!res.ok) {
-    if (res.status === 409) return { __awaiting_connector: true };
-    throw new Error(`connector auth-env ${connectorId}: ${res.status}`);
-  }
-  const json = await res.json();
-  return json.env ?? {};
-}
-
-// Spawn the connector Fitting's uniform connector.mjs with the scoped auth env.
 //
-// GARRISON_AUTOMATION_ENGINE marks every connector.mjs child spawned from
-// here — i.e. every call that did NOT originate from a direct, attended
-// invocation (the Operative's own bash/tool path). It exists so a connector
-// whose action catalog includes something that must only ever happen with a
-// live human in the loop (e.g. whatsapp-web's send_text — see its
-// connector.mjs) can refuse that action outright when it sees this flag,
-// rather than relying on the automation's author having left it out of a
-// hand-authored automation. Unset by default; harmless to every connector
-// that doesn't check it.
-function defaultRunConnector({ scriptPath, action, args, authEnv }) {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [scriptPath, "call", action, JSON.stringify(args ?? {})], {
-      env: { ...process.env, ...authEnv, GARRISON_AUTOMATION_ENGINE: "1" },
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (c) => (out += c.toString()));
-    child.stderr.on("data", (c) => (err += c.toString()));
-    child.on("close", () => {
-      try {
-        resolve(JSON.parse(out.trim()));
-      } catch {
-        resolve({ ok: false, error: err.trim() || out.trim() || "connector produced no JSON" });
-      }
-    });
-    child.on("error", (e) => resolve({ ok: false, error: e.message }));
-  });
-}
+// The connector-invocation trio (internalToken / defaultConnectorAuthEnv /
+// defaultRunConnector / connectorScriptPath) now lives in the leaf module
+// ./connector-invoke.mjs so a second fitting can reuse it without importing this
+// whole engine. Behaviour is unchanged — the code moved, it did not change.
 
 function defaultRunCommand({ command, argv, cwd, timeoutMs = 300000, onChunk }) {
   return new Promise((resolve) => {
@@ -701,14 +651,6 @@ async function execApiCall(step, { fetchImpl, connectorAuthEnv, collect }) {
   let parsed;
   try { parsed = JSON.parse(text); } catch { parsed = undefined; }
   return { status: res.status, ok: res.ok, body: parsed ?? text.slice(0, 100000), isJson: parsed !== undefined };
-}
-
-// Default connector.mjs path for a connector id (mirrors the installed layout).
-function connectorScriptPath(connectorId) {
-  const base = process.env.GARRISON_COMPOSITION_DIR || process.cwd();
-  // installed connectors live at apm_modules/_local/<id>/scripts/connector.mjs
-  const id = connectorId === "google" ? "google" : connectorId === "slack" ? "slack-channel" : connectorId === "deepgram" ? "deepgram-voice" : connectorId;
-  return `${base}/apm_modules/_local/${id}/scripts/connector.mjs`;
 }
 
 // Run the SAME automation once per viewport (delta 6) and group the results.

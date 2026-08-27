@@ -77,6 +77,7 @@ import {
 } from "../lib/engine.mjs";
 import { runScheduleNow } from "../lib/engine.mjs";
 import { scheduleValidationError, normaliseCardSchedule, nextCronOccurrence } from "../lib/schedules.mjs";
+import { describeRecurrence } from "../lib/recurrence.mjs";
 import {
   kanbanModelFile,
   loadResolvedModel,
@@ -2965,6 +2966,18 @@ async function handlePatchCard(req, res, opts, id) {
         targetList: releaseTarget
       });
       if (!schedule) return jsonRes(res, 400, { error: "schedule could not be normalised" });
+      // The Google Calendar link is sync bookkeeping, and it comes from the CARD
+      // — never from the request body. Carrying it across an edit is what stops
+      // every schedule change stranding its event on the calendar; refusing the
+      // body's copy is what stops a caller pointing a card at an arbitrary
+      // event id and having the next sweep rewrite or delete it.
+      delete schedule.calendar;
+      if (card.schedule?.calendar) schedule.calendar = card.schedule.calendar;
+      // Stamped at the ONE door a human edits a schedule through. This is the
+      // local half of the last-write-wins comparison against Calendar's own
+      // `updated`, so a schedule edited here beats a concurrent edit made in
+      // Google Calendar before it.
+      schedule.updatedAt = new Date().toISOString();
       next.schedule = schedule;
       next.scheduledFor = schedule.enabled ? schedule.nextAt : null;
       next.scheduleAction = schedule.action;
@@ -2976,7 +2989,9 @@ async function handlePatchCard(req, res, opts, id) {
         at: new Date().toISOString(),
         kind: schedule.kind === "cron" ? "schedule-recurring" : "schedule-set",
         message: schedule.kind === "cron"
-          ? `Recurring schedule ${schedule.cron} (${schedule.timezone}); next ${schedule.nextAt ?? "paused"}`
+          // A rule-driven schedule has no cron string to quote; read the rule
+          // back in words instead of printing "undefined" into the ledger.
+          ? `Recurring schedule ${schedule.recurrence ? describeRecurrence(schedule.recurrence) : schedule.cron} (${schedule.timezone}); next ${schedule.nextAt ?? "paused"}`
           : `Scheduled for ${schedule.nextAt} (${schedule.action === "run" ? "auto-run" : "notify"})`
       });
     }

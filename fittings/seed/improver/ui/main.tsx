@@ -15,7 +15,7 @@ type Proposal = {
   diff?: string;
   decision?: string;
   status: "pending" | "applied" | "rejected" | "reapply-failed" | "retired";
-  evidence?: { bytes: number; sha: string; targetFile: string };
+  evidence?: { bytes: number; sha: string; targetFile: string } | { files: string[]; misses?: Record<string, number> };
   reapplyFailureReason?: string;
   // shadcn/improve pattern 1 — file:line evidence + a confidence grade.
   citations?: Array<{ file: string; line: number; snippet?: string }>;
@@ -160,7 +160,26 @@ function ProposalCard({ p, onApply, onReject }: { p: Proposal; onApply: (id: str
         {open ? "Hide diff" : "Show diff"}
       </button>
       {open && <DiffView diff={p.diff} />}
-      {p.evidence && (
+      {p.evidence && "files" in p.evidence && (() => {
+        // The batch shapes (e.g. coordination-predict-batch) name every
+        // qualifying path here — the claim only previews the first 5, and a
+        // reviewer approving/rejecting the whole batch must see all of them,
+        // not just the preview.
+        const { files, misses } = p.evidence;
+        return (
+          <div className="evidence" data-testid={`evidence-files-${p.id}`}>
+            {files.length} path{files.length === 1 ? "" : "s"}:{" "}
+            {files.map((f, i) => (
+              <code key={f}>
+                {f}
+                {misses?.[f] !== undefined ? ` (${misses[f]})` : ""}
+                {i < files.length - 1 ? ", " : ""}
+              </code>
+            ))}
+          </div>
+        );
+      })()}
+      {p.evidence && "targetFile" in p.evidence && (
         <div className="evidence" data-testid={`evidence-${p.id}`}>
           applied → {p.evidence.targetFile} · {p.evidence.bytes} bytes
           {/* The flow-apply path reports the shell's new baselineSha here; a

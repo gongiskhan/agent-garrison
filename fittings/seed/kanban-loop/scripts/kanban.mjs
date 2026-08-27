@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { kanbanRoot, atomicWriteJSON, loadBoard, saveBoard, loadAllCards, createCard, updateCardCAS } from "../lib/board.mjs";
 import { normaliseCardSchedule } from "../lib/schedules.mjs";
 import { getList, withEvent, sweepOrphanedRuns, sweepExpiredDispatchClaims, sweepDueSchedules } from "../lib/engine.mjs";
+import { syncCalendar } from "../lib/calendar-sync.mjs";
 import { isDispatchClaimLive } from "../lib/dispatch-lease.mjs";
 import { conversationKickFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
@@ -528,6 +529,27 @@ async function tick() {
     return [];
   });
   for (const d of due) console.log(`kanban-loop: scheduled card ${d.id} came due → ${d.action}${d.occurrenceId ? ` (${d.occurrenceId})` : ""}`);
+  // Two-way Google Calendar sync rides the same beat. It is a no-op — not an
+  // error — when Google is not connected, so an unconnected box just never sees
+  // this line.
+  const calendar = await syncCalendar(root, { log: (line) => console.log(line) }).catch((error) => ({
+    skipped: null,
+    errors: [{ cardId: null, error: String(error?.message ?? error) }]
+  }));
+  if (!calendar.skipped) {
+    const moved = (calendar.pushed ?? 0) + (calendar.updated ?? 0) + (calendar.deleted ?? 0)
+      + (calendar.pulled ?? 0) + (calendar.cancelled ?? 0) + (calendar.refused ?? 0);
+    if (moved) {
+      console.log(
+        `kanban-loop: calendar sync — ${calendar.pushed ?? 0} added, ${calendar.updated ?? 0} moved, ` +
+        `${calendar.deleted ?? 0} removed, ${calendar.pulled ?? 0} pulled back, ` +
+        `${calendar.cancelled ?? 0} paused by deletion, ${calendar.refused ?? 0} refused`
+      );
+    }
+    for (const failure of calendar.errors ?? []) {
+      console.log(`kanban-loop: calendar sync failed for ${failure.cardId ?? "the listing"}: ${failure.error}`);
+    }
+  }
   const morning = await reconcileMorningBriefDeliveries(root).catch((error) => ({
     checked: 0,
     completed: 0,

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { build } from "esbuild";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
@@ -116,6 +116,14 @@ beforeAll(async () => {
           window.__sessionSource.onmessage({ data: JSON.stringify(payload) });
           return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         };
+        // page.setContent rewrites the DOCUMENT but keeps the JS realm, so a
+        // tree left mounted keeps running: a live stream that has ended
+        // reschedules its reconnect every 900ms forever and pushes a fresh
+        // EventSource into the NEXT test's window.__sessionSources. Tear the
+        // root down between cases so no case can pollute a later one.
+        window.__unmountSession = () => {
+          if (root) { root.unmount(); root = undefined; }
+        };
       `,
     },
     bundle: true,
@@ -145,6 +153,13 @@ beforeEach(async () => {
   // though the control remains keyboard focusable.
   await page.keyboard.press("Tab");
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+});
+
+afterEach(async () => {
+  // Before the next case rewrites the document: stop the tree this case left
+  // behind. Without it a still-mounted live stream reconnects on a timer into
+  // the shared realm and a later case counts EventSources that are not its own.
+  await page?.evaluate(() => (window as any).__unmountSession?.()).catch(() => {});
 });
 
 afterAll(async () => {
@@ -278,6 +293,55 @@ describe("claude-chat canonical timeline in a real browser", () => {
       { events }
     );
     expect(await page.locator('.cc-session [role="status"]').count()).toBe(1);
+  });
+
+  // A turn the reader WATCHED run used to collapse itself the instant it
+  // settled: the live timeline unmounts and a fresh, closed "Interim activity"
+  // disclosure takes its place, so the work disappeared at the exact moment the
+  // answer arrived. A turn that was already complete when the transcript opened
+  // must still start collapsed, or replaying a long history is unreadable.
+  const watchedTurn = [
+    { id: "watched-prompt", role: "user", ts: 1, revision: 1, blocks: [{ type: "text", text: "Do the thing" }] },
+    {
+      id: "watched-activity",
+      role: "assistant",
+      ts: 2,
+      revision: 1,
+      blocks: [
+        { type: "thinking", text: "Considering the approach." },
+        { type: "tool_use", id: "tool-watched", name: "Read", input: { file_path: "/tmp/a.txt" } },
+      ],
+    },
+    { id: "watched-answer", role: "assistant", ts: 3, revision: 1, blocks: [{ type: "text", text: "Done — the thing is done." }] },
+  ];
+
+  it("leaves a turn that settled under the reader's eyes expanded", async () => {
+    await page.evaluate(
+      ({ events }) => (window as any).__mountStream(events, false),
+      { events: watchedTurn }
+    );
+    // While live there is no interim disclosure at all — the timeline is open.
+    expect(await page.locator(".cc-session-interim").count()).toBe(0);
+
+    // The real settlement path: the producer ends the stream, the props do not
+    // change and the component does not remount.
+    await page.evaluate(() => (window as any).__emitSession({ type: "end" }));
+
+    const interim = page.locator(".cc-session-interim");
+    await expect.poll(() => interim.count(), { timeout: 2_000 }).toBe(1);
+    expect(await interim.evaluate((node: HTMLDetailsElement) => node.open)).toBe(true);
+    // The final answer still renders as the turn's own text, not buried inside.
+    expect(await page.locator(".cc-session-turn.assistant").innerText()).toContain("the thing is done");
+  });
+
+  it("still collapses a turn that was already complete when the transcript opened", async () => {
+    await page.evaluate(
+      ({ events }) => (window as any).__mountIdleStream(events),
+      { events: watchedTurn }
+    );
+    const interim = page.locator(".cc-session-interim");
+    await expect.poll(() => interim.count(), { timeout: 2_000 }).toBe(1);
+    expect(await interim.evaluate((node: HTMLDetailsElement) => node.open)).toBe(false);
   });
 
   it("keeps typed settlement notices chronological, wrapped, and non-assertive at 320px", async () => {

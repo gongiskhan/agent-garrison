@@ -550,7 +550,30 @@ body {
 .chip svg { width: 9px; height: 9px; vertical-align: -1px; }
 /* schedule chip: sage while held, amber once due */
 .chip.sched { border-color: var(--sage-2); background: var(--sage-soft); color: var(--sage); }
-.chip.sched.due { border-color: rgba(176,114,21,0.45); color: var(--warn-ink); background: var(--warn-soft); }
+/* Three states, not two: quiet while the instant is far off, AMBER for the last
+   few minutes before it, ALARM once it has arrived. Both loud states are larger
+   and heavier than the surrounding chips on purpose — the card asked for a due
+   time you cannot miss while scanning a column, and a chip that only changes hue
+   is exactly what gets scanned past. */
+.chip.sched.soon,
+.chip.sched.due {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 3px 8px;
+}
+.chip.sched.soon {
+  border-color: rgba(176,114,21,0.55);
+  color: var(--warn-ink);
+  background: var(--warn-soft);
+  box-shadow: 0 0 0 1px rgba(176,114,21,0.28);
+}
+.chip.sched.due {
+  border-color: rgba(155,54,45,0.6);
+  color: var(--alarm);
+  background: var(--alarm-soft);
+  box-shadow: 0 0 0 1px rgba(155,54,45,0.3);
+}
 /* checklist progress chip */
 .chip.check { color: var(--ink-2); }
 .chip.check.all-done { border-color: var(--sage-2); color: var(--sage); background: var(--sage-soft); }
@@ -1519,6 +1542,24 @@ button.ev-shot, button.ev-file { cursor: pointer; text-align: left; font-family:
   letter-spacing: 0;
   font-weight: 400;
 }
+/* The pins in force, under the summary line. The EDITOR is now the shared
+   routing console (@garrison/claude-chat's RoutingModal, whose own .cc-rm-*
+   styles arrive with the chat base layer) — what the board still owns is this
+   at-a-glance strip, so an unopened console is never a mystery. */
+.spec-pins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 0 8px;
+}
+/* A parked card wants its routing looked at; the block is drawn to the eye
+   rather than a dialog opening over the card the user just asked to read. */
+.spec-console-emph .spec-toggle {
+  color: var(--warn, var(--ink));
+}
+.spec-console-emph .spec-toggle .muted {
+  color: inherit;
+}
 /* Two columns on a laptop, one on a phone: the sheet is used from both, and a
    two-column grid at 390px produces unreadable half-width select labels. */
 .spec-grid {
@@ -2426,3 +2467,96 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .chip-toggle { cursor: pointer; border: 1px dashed var(--line, #c9c2b2); }
 .chip-toggle.on { border-style: solid; background: var(--accent-soft, #dfe8df); color: var(--ink, #1c211c); font-weight: 600; }
 .chip-toggle:hover { filter: brightness(0.97); }
+
+/* ── date picker + repeat builder ──────────────────────────────────────────
+   The schedule editors used to be a bare datetime-local box and a raw cron
+   field. The card asked for "a proper calendar for setting the date and time"
+   and for repeats "similar to google calendar instead of a cron expression",
+   so both are now real controls. Palette and chrome follow the surrounding
+   chips rather than the browser's native widgets. */
+.dtp { position: relative; display: inline-block; }
+.dtp-trigger {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dtp-trigger:hover { border-color: var(--sage-2); }
+.dtp-pop {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 232px;
+  padding: 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule-2);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(24,33,28,0.18);
+}
+.dtp-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+.dtp-month { font-size: 12px; font-weight: 650; color: var(--ink); }
+.dtp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.dtp-dow {
+  font-size: 10px;
+  text-align: center;
+  color: var(--mute);
+  padding-bottom: 2px;
+}
+.dtp-day {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.dtp-day:hover { background: var(--paper-2); }
+/* The padding days from the neighbouring months stay legible but clearly
+   subordinate — they are reachable, just not the month you are looking at. */
+.dtp-day.out { color: var(--mute-2); opacity: 0.55; }
+.dtp-day.today { border-color: var(--brass); font-weight: 650; }
+.dtp-day.on { background: var(--sage); color: var(--paper); border-color: var(--sage); font-weight: 650; }
+.dtp-foot { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.dtp-foot input[type="time"] { font-family: var(--mono); font-size: 12px; flex: 1; min-width: 0; }
+
+.rec-builder {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper-2);
+}
+.rec-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rec-label { font-size: 12px; color: var(--ink-mute); }
+.rec-note { font-size: 11px; }
+.rec-interval { width: 62px; font-family: var(--mono); font-size: 12px; }
+.rec-builder select, .rec-builder input[type="time"] { font-size: 12px; }
+/* The weekday toggles: seven small squares, the shape every calendar app uses,
+   so "every 2 weeks on Mon and Wed" is two clicks rather than a cron field. */
+.rec-dow {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--rule-2);
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.rec-dow:hover { border-color: var(--sage-2); }
+.rec-dow.on { background: var(--sage); border-color: var(--sage); color: var(--paper); }
+.sched-due-row { margin-top: 8px; }

@@ -2,6 +2,7 @@
 // from. The React component is presentation; these are the semantics.
 import { describe, expect, it } from "vitest";
 import {
+  blockedSection,
   joinPhasesOn,
   resolvedPlanForPins,
   runtimeGroups,
@@ -57,5 +58,39 @@ describe("joinPhasesOn", () => {
     expect(joinPhasesOn(["walkthrough", "security-review"], catalog)).toBe("security-review,walkthrough");
     expect(joinPhasesOn(["mystery", "walkthrough"], catalog)).toBe("walkthrough,mystery");
     expect(joinPhasesOn([], catalog)).toBeNull();
+  });
+});
+
+// A HOST may own a dimension outright (the Kanban board decides a card's working
+// directory through the card's own Project field, and `cardTurnRouting` lets
+// routing.project WIN over it — so a second picker here would not be a duplicate,
+// it would be an override the user never saw). `unavailable` is how a host says so.
+describe("blockedSection", () => {
+  it("is open when nothing is unavailable", () => {
+    for (const id of ["work", "tier", "execution", "account", "project", "flow", "phases"] as const) {
+      expect(blockedSection(options, id), id).toBe("");
+    }
+    expect(blockedSection(null, "project")).toBe("");
+  });
+
+  it("blocks a section whose every field carries a reason", () => {
+    const owned = { ...options, unavailable: { project: "the card decides" } };
+    expect(blockedSection(owned, "project")).toBe("the card decides");
+    expect(blockedSection(owned, "work")).toBe("");
+  });
+
+  it("leaves a PARTLY blocked section open — effort alone keeps its own inline gate", () => {
+    const effortOnly = { ...options, unavailable: { effort: "this provider has no effort control" } };
+    expect(blockedSection(effortOnly, "execution")).toBe("");
+  });
+
+  it("blocks execution only when target, model AND effort are all spoken for", () => {
+    const down = { ...options, unavailable: { target: "down", model: "down", effort: "down" } };
+    expect(blockedSection(down, "execution")).toBe("down");
+  });
+
+  it("needs BOTH phase pins blocked before the phases section closes", () => {
+    expect(blockedSection({ ...options, unavailable: { phasesOff: "down" } }, "phases")).toBe("");
+    expect(blockedSection({ ...options, unavailable: { phasesOff: "down", phasesOn: "down" } }, "phases")).toBe("down");
   });
 });

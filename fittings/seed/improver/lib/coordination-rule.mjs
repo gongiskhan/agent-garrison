@@ -140,6 +140,50 @@ function bump(map, key, by = 1) {
   map.set(key, (map.get(key) || 0) + by);
 }
 
+// Generated/lock/log paths recur outside the touch-set prediction constantly
+// (a build writes them, a tool regenerates them) and are noise for this
+// proposal: they were never something the plan phase should have predicted,
+// and leasing/predicting them would just paper over churn. Drop them before
+// the batch is built.
+const NOISE_FILE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|\.gitignore|RUN_LOG\.md|next-env\.d\.ts)$/;
+const NOISE_LOCK_EXT = /\.lock$/i;
+const NOISE_SCRATCH = /(^|\/)__verify-[^/]*$/;
+const NOISE_DIR = /(^|\/)(dist|build|node_modules|\.next|coverage|\.garrison)\//;
+const NOISE_EXT = /\.log$/i;
+function isNoisePath(file) {
+  return (
+    NOISE_FILE.test(file) ||
+    NOISE_LOCK_EXT.test(file) ||
+    NOISE_SCRATCH.test(file) ||
+    NOISE_DIR.test(file) ||
+    NOISE_EXT.test(file)
+  );
+}
+
+// The touch-set-prediction batch is emitted in GENERATIONS. The first one uses
+// the bare id; every later one is keyed by the set of paths already reviewed,
+// which is stable while that generation is pending and changes exactly when
+// the previous generation is resolved.
+export const PREDICT_BATCH_ID = "coordination-predict-batch";
+function predictBatchId(reviewed) {
+  const list = [...reviewed].sort();
+  return list.length === 0 ? PREDICT_BATCH_ID : `${PREDICT_BATCH_ID}-${shortHash(list.join(","))}`;
+}
+
+// Paths already covered by a RESOLVED (non-pending) predict-batch generation
+// in the review queue. A pending generation is deliberately NOT counted: it is
+// still the record the analyzer refreshes, so its members must stay candidates.
+export function reviewedPredictPathsFromQueue(queue = []) {
+  const out = new Set();
+  for (const p of Array.isArray(queue) ? queue : []) {
+    if (!p || p.rule !== "coordination") continue;
+    if (typeof p.id !== "string" || !p.id.startsWith(PREDICT_BATCH_ID)) continue;
+    if (!p.status || p.status === "pending") continue;
+    for (const f of Array.isArray(p?.evidence?.files) ? p.evidence.files : []) out.add(String(f).trim());
+  }
+  return [...out].sort();
+}
+
 // ── Pure analysis (D17 heuristics) ───────────────────────────────────────────
 // Three conservative, min-sample proposal kinds:
 //  1. lease-list add — a file that caused >= minInterference attributed
@@ -158,7 +202,8 @@ export function analyzeCoordinationProposals({
   minInterference = 2,
   minMisses = 2,
   minThresholdSignal = 3,
-  heavyFilesFloor = 2
+  heavyFilesFloor = 2,
+  reviewedPredictPaths: reviewedPaths = []
 } = {}) {
   const heavyFiles = Number.isFinite(current.heavyFiles) ? current.heavyFiles : 3;
   const leased = new Set((Array.isArray(current.exclusiveLeases) ? current.exclusiveLeases : []).map((p) => String(p).trim()));
@@ -237,20 +282,44 @@ export function analyzeCoordinationProposals({
     });
   }
 
-  // 3. touch-set-prediction improvements (chronic out-of-touch-set files).
-  for (const [file, misses] of [...outOfSetHits.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
-    if (misses < minMisses) continue;
-    if (leased.has(file)) continue; // already protected — no prediction proposal needed
+  // 3. touch-set-prediction improvements (chronic out-of-touch-set files),
+  // batched into ONE pending proposal per generation. Every qualifying file
+  // changes the SAME record (the id is keyed on what has already been
+  // reviewed, NOT on the qualifying set) so the queue holds one reviewable
+  // decision that grows/shrinks with the evidence instead of a fresh record —
+  // and a fresh Approve/Reject pair — every time membership shifts by one path.
+  //
+  // A generation only ever covers paths the human has NOT already decided on.
+  // Paths carried by a resolved generation are dropped from the candidate set
+  // (that decision stands and must not be re-asked), and the remaining delta
+  // is emitted under an id derived from the resolved set — so it is the SAME
+  // record for as long as it stays pending (membership may still grow), and a
+  // DISTINCT record the moment the previous generation is resolved. Without
+  // that, a single literal id meant resolving the first batch suppressed every
+  // future path forever: the frozen record was truthful, but newly qualifying
+  // paths could never obtain an Approve/Reject decision at all.
+  const reviewed = new Set((Array.isArray(reviewedPaths) ? reviewedPaths : []).map((p) => String(p).trim()));
+  const predictCandidates = [...outOfSetHits.entries()]
+    .filter(([file, misses]) => misses >= minMisses && !leased.has(file) && !isNoisePath(file) && !reviewed.has(file))
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  if (predictCandidates.length > 0) {
+    const files = predictCandidates.map(([file]) => file);
+    const misses = Object.fromEntries(predictCandidates);
+    const preview = files.slice(0, 5);
+    const more = files.length - preview.length;
     proposals.push({
-      id: `coordination-predict-${shortHash(file)}`,
+      id: predictBatchId(reviewed),
       rule: "coordination",
       targetClass: "orchestrator/policy",
       claim:
-        `${file} was modified outside the predicted touch-set in ${misses} fences — the plan phase keeps under-predicting it, ` +
-        `so concurrent runs can't order around it.`,
-      evidence: { file, misses },
-      diff: `plan-phase touch-set prediction — teach it to predict "${file}", or add "${file}" to coordination.exclusiveLeases so runs serialize on it regardless (composer › Coordination)`,
-      decision: `Protect "${file}" (predict it, or add it to the exclusive-lease list)?`,
+        `${files.length} path${files.length === 1 ? "" : "s"} ${files.length === 1 ? "was" : "were"} modified outside the predicted ` +
+        `touch-set (≥${minMisses} misses each) — the plan phase keeps under-predicting ${files.length === 1 ? "it" : "them"}, so concurrent ` +
+        `runs can't order around ${files.length === 1 ? "it" : "them"}: ${preview.join(", ")}${more > 0 ? ` and ${more} more` : ""}.`,
+      evidence: { files, misses },
+      diff:
+        `plan-phase touch-set prediction — teach it to predict, or add to coordination.exclusiveLeases so runs serialize regardless, ` +
+        `each of:\n` + files.map((f) => `+ ${f} (${misses[f]} misses)`).join("\n") + `\n(composer › Coordination)`,
+      decision: `Protect these ${files.length} path${files.length === 1 ? "" : "s"} (predict them, or add them to the exclusive-lease list)?`,
       applyVia: "PUT /routing (baselineSha, Orchestrator fitting)",
       at
     });
@@ -260,11 +329,16 @@ export function analyzeCoordinationProposals({
 }
 
 // Convenience: collect + analyze in one call (the improver run path).
-export function runCoordinationRule({ now, cardsDir } = {}) {
+export function runCoordinationRule({ now, cardsDir, queue = [] } = {}) {
   const cards = collectCards(cardsDir);
   const current = readPolicyCoordination();
   return {
-    proposals: analyzeCoordinationProposals({ cards, current, at: now }),
+    proposals: analyzeCoordinationProposals({
+      cards,
+      current,
+      at: now,
+      reviewedPredictPaths: reviewedPredictPathsFromQueue(queue)
+    }),
     inputs: { cards: cards.length }
   };
 }

@@ -34,8 +34,8 @@ import { isDispatchClaimLive, isDispatchClaimExpired } from "./dispatch-lease.mj
 import { routeOriginEvent, dutySummaryMessage, routeNeedsInput, routeBrief, routeAutonomyActed, deliverScheduleReminder } from "./notify-origin.mjs";
 import {
   normaliseCardSchedule,
-  nextCronOccurrence,
-  latestCronOccurrence,
+  nextScheduleOccurrence,
+  latestScheduleOccurrence,
   occurrenceKey as scheduleOccurrenceKey,
   zonedMinute
 } from "./schedules.mjs";
@@ -754,7 +754,7 @@ export async function sweepDueSchedules(root, board, {
       if (schedule.kind === "cron") {
         // A stale nextAt after downtime represents the schedule being behind, not a
         // replay order. Select the latest due wall minute and create only that one.
-        const latest = latestCronOccurrence(schedule.cron, schedule.timezone, new Date(at()).toISOString());
+        const latest = latestScheduleOccurrence(schedule, new Date(at()).toISOString());
         const scheduledAt = latest && Date.parse(latest.at) >= nextMs ? latest.at : schedule.nextAt;
         const key = scheduleOccurrenceKey(original.id, scheduledAt, schedule.timezone);
         // Durable intent before creation. A crash here leaves a visible receipt;
@@ -784,7 +784,7 @@ export async function sweepDueSchedules(root, board, {
         const materialised = await materialiseOccurrenceUnlocked(root, board, { ...liveIntent, schedule: liveIntent.schedule }, scheduledAt, key);
         const wallKey = zonedMinute(new Date(scheduledAt), schedule.timezone).key;
         const skippedWallTimes = [];
-        const following = nextCronOccurrence(schedule.cron, schedule.timezone, scheduledAt, {
+        const following = nextScheduleOccurrence(schedule, scheduledAt, {
           excludeWallKey: wallKey,
           onSkip: (skip) => skippedWallTimes.push({ ...skip, recordedAt: now() })
         });

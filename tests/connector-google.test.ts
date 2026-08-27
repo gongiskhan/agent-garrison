@@ -97,3 +97,104 @@ describe("google connector (C2)", () => {
     ).rejects.toMatchObject({ awaiting_connector: true });
   });
 });
+
+// Calendar write + sync surface (checklist item 6): the actions the kanban
+// board's two-way Google Calendar sync drives.
+describe("google connector — calendar sync surface", () => {
+  it("catalog declares the update/delete actions as mutating", () => {
+    const names = CATALOG.actions.map((a: any) => a.name);
+    expect(names).toEqual(expect.arrayContaining(["calendar.update_event", "calendar.delete_event"]));
+    expect(CATALOG.actions.find((a: any) => a.name === "calendar.update_event")?.mutates).toBe(true);
+    expect(CATALOG.actions.find((a: any) => a.name === "calendar.delete_event")?.mutates).toBe(true);
+  });
+
+  it("create_event carries the private extended properties that mark ownership", async () => {
+    const cap: { url?: string; opts?: any } = {};
+    await runAction({
+      action: "calendar.create_event",
+      args: { summary: "Ship", start: "2026-05-04T09:00:00Z", end: "2026-05-04T09:30:00Z", private_properties: { garrisonKanban: "1", garrisonCardId: "C1" } },
+      env: ENV,
+      fetchImpl: mockFetch(cap, { id: "ev1" })
+    });
+    const body = JSON.parse(cap.opts!.body);
+    expect(body.extendedProperties.private).toEqual({ garrisonKanban: "1", garrisonCardId: "C1" });
+    expect(body.start).toEqual({ dateTime: "2026-05-04T09:00:00Z" });
+  });
+
+  it("update_event PATCHes ONLY the fields supplied", async () => {
+    // A PUT-shaped body would blank the summary of every event moved by the
+    // sync, which only ever sends the fields it means to change.
+    const cap: { url?: string; opts?: any } = {};
+    await runAction({
+      action: "calendar.update_event",
+      args: { event_id: "ev1", start: "2026-05-05T09:00:00Z", end: "2026-05-05T09:30:00Z" },
+      env: ENV,
+      fetchImpl: mockFetch(cap, { id: "ev1" })
+    });
+    expect(cap.opts!.method).toBe("PATCH");
+    expect(cap.url).toContain("/events/ev1");
+    const body = JSON.parse(cap.opts!.body);
+    expect(Object.keys(body).sort()).toEqual(["end", "start"]);
+  });
+
+  it("update_event and delete_event refuse to run without an event id", async () => {
+    await expect(runAction({ action: "calendar.update_event", args: {}, env: ENV, fetchImpl: mockFetch({}, {}) })).rejects.toThrow(/event_id/);
+    await expect(runAction({ action: "calendar.delete_event", args: {}, env: ENV, fetchImpl: mockFetch({}, {}) })).rejects.toThrow(/event_id/);
+  });
+
+  it("delete_event tolerates a 204 with no body", async () => {
+    // res.json() on an empty body throws — the DELETE path must not go through
+    // the JSON reader at all.
+    const res = await runAction({
+      action: "calendar.delete_event",
+      args: { event_id: "ev1" },
+      env: ENV,
+      fetchImpl: (async () => ({ ok: true, status: 204, json: async () => { throw new Error("no body"); }, text: async () => "" })) as any
+    });
+    expect(res).toEqual({ deleted: true, alreadyAbsent: false });
+  });
+
+  it("deleting an already-absent event SUCCEEDS", async () => {
+    // Idempotent delete is what lets the sync retry after a crash between the
+    // API call and persisting the receipt.
+    for (const status of [404, 410]) {
+      const res = await runAction({
+        action: "calendar.delete_event",
+        args: { event_id: "gone" },
+        env: ENV,
+        fetchImpl: (async () => ({ ok: false, status, json: async () => ({}), text: async () => "Not Found" })) as any
+      });
+      expect(res).toEqual({ deleted: true, alreadyAbsent: true });
+    }
+  });
+
+  it("a real delete failure still throws", async () => {
+    await expect(runAction({
+      action: "calendar.delete_event",
+      args: { event_id: "ev1" },
+      env: ENV,
+      fetchImpl: (async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => "boom" })) as any
+    })).rejects.toThrow(/google 500/);
+  });
+
+  it("list_events forwards the ownership filter and asks for the sync fields", async () => {
+    const cap: { url?: string; opts?: any } = {};
+    await runAction({
+      action: "calendar.list_events",
+      args: { private_extended_property: ["garrisonKanban=1"], show_deleted: true },
+      env: ENV,
+      fetchImpl: mockFetch(cap, { items: [] })
+    });
+    expect(cap.url).toContain("privateExtendedProperty=garrisonKanban%3D1");
+    expect(cap.url).toContain("showDeleted=true");
+    expect(decodeURIComponent(cap.url!)).toContain("updated");
+    // orderBy=startTime is invalid alongside a sync-shaped listing.
+    expect(cap.url).not.toContain("orderBy");
+  });
+
+  it("list_events still orders a plain agenda read by start time", async () => {
+    const cap: { url?: string; opts?: any } = {};
+    await runAction({ action: "calendar.list_events", args: {}, env: ENV, fetchImpl: mockFetch(cap, { items: [] }) });
+    expect(cap.url).toContain("orderBy=startTime");
+  });
+});

@@ -1,9 +1,30 @@
 // Card schedule primitives. Kept dependency-free so the board, engine, HTTP
 // server and MCP surface share one validator and one timezone-aware cron clock.
 
+import {
+  normaliseRecurrence,
+  recurrenceValidationError,
+  nextRecurrenceOccurrence,
+  latestRecurrenceOccurrence
+} from "./recurrence.mjs";
+
 export const SCHEDULE_KINDS = ["once", "cron"];
 export const SCHEDULE_ACTIONS = ["notify", "run"];
 export const DEFAULT_SCHEDULE_TIMEZONE = "Europe/Lisbon";
+
+// RELEASE vs DUE. `nextAt` is the RELEASE instant: the moment the card stops
+// being held and lands on its target list. The DEADLINE is a separate thing —
+// the card asked for a card to arrive on To Do at one time and to be *due* at
+// another, with the due time colouring the card front as it approaches.
+//
+// The deadline is stored as an OFFSET from the release instant, not as a second
+// absolute instant, and that is deliberate: a recurring schedule recomputes
+// `nextAt` on every occurrence, so an absolute second instant would go stale the
+// first time the template fired. An offset stays correct for every occurrence
+// without the engine touching it, and reads the same for a one-time card ("due
+// four hours after it lands"). Absent or 0 means due == release, which is
+// exactly today's behaviour — so every existing card is unchanged.
+export const MAX_DUE_OFFSET_MINUTES = 525600; // one year, a sane upper bound
 
 export function normaliseScheduleAction(raw) {
   return SCHEDULE_ACTIONS.includes(raw) ? raw : "notify";
@@ -226,13 +247,62 @@ export function scheduleValidationError(raw) {
   if (raw.kind === "once") {
     if (typeof raw.at !== "string" || !Number.isFinite(Date.parse(raw.at))) return "schedule.at must be a parseable ISO date-time for a once schedule";
   } else {
-    if (typeof raw.cron !== "string" || !raw.cron.trim()) return "schedule.cron is required for a recurring schedule";
-    try { parseCron(raw.cron); } catch (error) { return error instanceof Error ? error.message : String(error); }
+    // A recurring schedule is described EITHER by a calendar rule or by a cron
+    // string. The rule is the one a person picks in the UI; cron stays for every
+    // schedule already written that way, and for the system jobs that use it.
+    const hasRecurrence = raw.recurrence !== undefined && raw.recurrence !== null;
+    const hasCron = typeof raw.cron === "string" && raw.cron.trim();
+    if (hasRecurrence && hasCron) return "a recurring schedule carries schedule.recurrence or schedule.cron, not both";
+    if (hasRecurrence) {
+      const error = recurrenceValidationError(raw.recurrence);
+      if (error) return `schedule.${error}`;
+    } else {
+      if (!hasCron) return "schedule.cron or schedule.recurrence is required for a recurring schedule";
+      try { parseCron(raw.cron); } catch (error) { return error instanceof Error ? error.message : String(error); }
+    }
   }
   if (raw.nextAt != null && (typeof raw.nextAt !== "string" || !Number.isFinite(Date.parse(raw.nextAt)))) {
     return "schedule.nextAt must be a parseable ISO date-time";
   }
+  if (raw.dueOffsetMinutes != null) {
+    if (!Number.isInteger(raw.dueOffsetMinutes) || raw.dueOffsetMinutes < 0 || raw.dueOffsetMinutes > MAX_DUE_OFFSET_MINUTES) {
+      return `schedule.dueOffsetMinutes must be a whole number of minutes between 0 and ${MAX_DUE_OFFSET_MINUTES}`;
+    }
+  }
+  if (raw.updatedAt != null && (typeof raw.updatedAt !== "string" || !Number.isFinite(Date.parse(raw.updatedAt)))) {
+    return "schedule.updatedAt must be a parseable ISO date-time";
+  }
   return null;
+}
+
+// ── Google Calendar sync receipt ───────────────────────────────────────────
+// The synced fields of a schedule, as ONE value. Two schedules with the same
+// signature describe the same calendar event, so the sync can decide whether a
+// push is needed by comparing signatures rather than by diffing field by field
+// (and can therefore never forget to compare a field it also pushes).
+export function scheduleSyncSignature({ title, releaseAt, dueAt }) {
+  return JSON.stringify([title ?? "", releaseAt ?? "", dueAt ?? ""]);
+}
+
+export function normaliseCalendarLink(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (typeof raw.eventId !== "string" || !raw.eventId.trim()) return null;
+  const iso = (value) =>
+    typeof value === "string" && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
+  const syncedAt = iso(raw.syncedAt);
+  const remoteUpdated = iso(raw.remoteUpdated);
+  return {
+    eventId: raw.eventId.trim().slice(0, 1024),
+    calendarId: typeof raw.calendarId === "string" && raw.calendarId.trim() ? raw.calendarId.trim().slice(0, 512) : "primary",
+    // The signature of what we last PUSHED. A mismatch against the card's
+    // current signature is the whole push trigger.
+    signature: typeof raw.signature === "string" ? raw.signature.slice(0, 2000) : "",
+    ...(syncedAt ? { syncedAt } : {}),
+    // Calendar's own `updated` stamp at the moment we last agreed with it. The
+    // pull side treats a NEWER remote stamp as "a human edited it in Calendar".
+    ...(remoteUpdated ? { remoteUpdated } : {}),
+    ...(typeof raw.lastError === "string" && raw.lastError ? { lastError: raw.lastError.slice(0, 500) } : {})
+  };
 }
 
 export function normaliseCardSchedule(raw, {
@@ -265,12 +335,21 @@ export function normaliseCardSchedule(raw, {
   let nextAt = typeof value.nextAt === "string" && Number.isFinite(Date.parse(value.nextAt)) ? new Date(value.nextAt).toISOString() : null;
   let at = null;
   let cron = null;
+  let recurrence = null;
   const discoveredSkips = [];
   if (kind === "once") {
     const candidate = value.at ?? scheduledFor;
     if (typeof candidate !== "string" || !Number.isFinite(Date.parse(candidate))) return null;
     at = new Date(candidate).toISOString();
     nextAt = nextAt ?? at;
+  } else if (value.recurrence !== undefined && value.recurrence !== null) {
+    recurrence = normaliseRecurrence(value.recurrence);
+    if (!recurrence) return null;
+    if (!nextAt && enabled) {
+      // A rule whose end condition has already passed simply has no next
+      // instant; that is a finished schedule, not a broken one.
+      nextAt = nextRecurrenceOccurrence(recurrence, timezone, now)?.at ?? null;
+    }
   } else {
     if (typeof value.cron !== "string") return null;
     cron = value.cron.trim();
@@ -293,6 +372,14 @@ export function normaliseCardSchedule(raw, {
             : {})
         }))
     : [];
+  // A deadline offset only survives if it is a whole, sane number of minutes.
+  // Anything else is dropped rather than clamped: a card whose deadline was
+  // silently invented is worse than one that simply has none.
+  const dueOffsetMinutes = Number.isInteger(value.dueOffsetMinutes)
+    && value.dueOffsetMinutes > 0
+    && value.dueOffsetMinutes <= MAX_DUE_OFFSET_MINUTES
+    ? value.dueOffsetMinutes
+    : 0;
   const skippedWallTimes = [...priorSkips, ...discoveredSkips]
     .filter((entry, index, all) => all.findIndex((candidate) => candidate.wallTime === entry.wallTime && candidate.timezone === entry.timezone) === index)
     .slice(-24);
@@ -301,11 +388,21 @@ export function normaliseCardSchedule(raw, {
     action,
     ...(at ? { at } : {}),
     ...(cron ? { cron } : {}),
+    ...(recurrence ? { recurrence } : {}),
     timezone,
     enabled,
     targetList: target,
     nextAt,
     lastAt,
+    ...(dueOffsetMinutes ? { dueOffsetMinutes } : {}),
+    // Last-write-wins needs a local stamp to compare against Calendar's
+    // `updated`. It is only ever carried through here — bumping it is the
+    // caller's job (touchScheduleUpdatedAt), because only the caller knows
+    // whether a write actually changed anything a human would see.
+    ...(typeof value.updatedAt === "string" && Number.isFinite(Date.parse(value.updatedAt))
+      ? { updatedAt: new Date(value.updatedAt).toISOString() }
+      : {}),
+    ...(normaliseCalendarLink(value.calendar) ? { calendar: normaliseCalendarLink(value.calendar) } : {}),
     ...(value.pending && typeof value.pending === "object" ? { pending: value.pending } : {}),
     ...(typeof value.lastError === "string" && value.lastError ? { lastError: value.lastError.slice(0, 500) } : {}),
     ...(typeof value.snoozedUntil === "string" && Number.isFinite(Date.parse(value.snoozedUntil))
@@ -336,6 +433,46 @@ export function normaliseCardSchedule(raw, {
 export function scheduleNextAt(card) {
   const value = card?.schedule?.enabled !== false ? card?.schedule?.nextAt : null;
   return value || card?.scheduledFor || null;
+}
+
+// ── recurring-schedule clock, whichever kind of rule it carries ────────────
+// A recurring schedule is described by a calendar rule OR a cron string. Every
+// caller that advances one goes through this pair rather than reaching for
+// `schedule.cron`, which is undefined on a rule-driven schedule and would take
+// parseCron straight into a throw mid-sweep.
+
+/** The first occurrence strictly after `after`, or null when the rule is spent. */
+export function nextScheduleOccurrence(schedule, after, { excludeWallKey = null, onSkip = null } = {}) {
+  if (!schedule) return null;
+  if (schedule.recurrence) {
+    // No exclusion is needed for a calendar rule: it yields exactly one instant
+    // per calendar day, so a repeated wall hour cannot produce a duplicate.
+    return nextRecurrenceOccurrence(schedule.recurrence, schedule.timezone, after);
+  }
+  if (typeof schedule.cron !== "string" || !schedule.cron) return null;
+  return nextCronOccurrence(schedule.cron, schedule.timezone, after, { excludeWallKey, onSkip });
+}
+
+/** The most recent occurrence at or before `at` — how a schedule that fell
+ *  behind catches up with one occurrence instead of a replay burst. */
+export function latestScheduleOccurrence(schedule, at) {
+  if (!schedule) return null;
+  if (schedule.recurrence) return latestRecurrenceOccurrence(schedule.recurrence, schedule.timezone, at);
+  if (typeof schedule.cron !== "string" || !schedule.cron) return null;
+  return latestCronOccurrence(schedule.cron, schedule.timezone, at);
+}
+
+// The DEADLINE instant — release plus the card's deadline offset. With no
+// offset this is the release instant itself, so every caller that used to read
+// the release instant as "the time on the card" keeps reading the same value.
+export function scheduleDueAt(card) {
+  const release = scheduleNextAt(card);
+  if (!release) return null;
+  const offset = card?.schedule?.dueOffsetMinutes;
+  if (!Number.isInteger(offset) || offset <= 0) return release;
+  const t = Date.parse(release);
+  if (!Number.isFinite(t)) return release; // keep the unparseable value visible
+  return new Date(t + offset * 60000).toISOString();
 }
 
 export function occurrenceKey(templateId, scheduledAt, timezone) {

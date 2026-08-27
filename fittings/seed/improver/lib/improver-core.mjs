@@ -135,31 +135,73 @@ export function runImprover({ decisions = [], memoryEntries = [], vaultLocked = 
 // and for the apply paths that write through an API rather than an idempotent
 // marked block, approving twice writes twice.
 //
+// CONTENT (claim, diff, decision, evidence, ...) is refreshed from the newest
+// run while the record is still `pending`: a batched proposal (e.g. the
+// coordination touch-set-prediction batch) grows its evidence.files as more
+// paths qualify run over run, and a reviewer must see the current set, not
+// the set from the first run that created the record.
+//
+// Once a record is resolved (applied/rejected/reapply-failed — anything but
+// pending), its ENTIRE content generation freezes at the state the human
+// actually decided on. A rejected 1-path batch must go on describing that
+// same 1 path forever, even after a later run's proposal for the same id
+// would describe 2 paths — otherwise the visible claim/diff/decision drift
+// out from under a decision the human already made, changing its scope
+// without another review. Only the LIFECYCLE fields — status and whatever the
+// mark* helpers stamp alongside it (appliedAt, rejectedAt, rejectionReason,
+// reapplyFailureReason, reapplyFailedAt) — belong to the human's decision and
+// are never touched here.
+//
+// Those lifecycle fields are carried by EXCLUSION (everything on the existing
+// record that is not generated CONTENT) rather than by an allowlist: an
+// allowlist silently dropped the reapply-failure reason and timestamp the
+// moment review-queue.markReapplyFailed grew them, so a reapply-failed card
+// lost the human-facing conflict explanation on the next nightly run.
+//
 // `pinEdit` / `appliable` ride along for the same reason review-queue.enqueue
 // carries them: they are the machine-readable half of a proposal whose apply path
 // is an API call, and dropping them here would make a nightly-produced proposal
 // silently unappliable.
+const CONTENT_FIELDS = new Set([
+  "id",
+  "rule",
+  "targetClass",
+  "claim",
+  "diff",
+  "decision",
+  "applyVia",
+  "confidence",
+  "citations",
+  "pinEdit",
+  "appliable",
+  "evidence",
+  "at"
+]);
+
 export function upsertQueue(queue, proposal) {
   const existing = (queue || []).find((p) => p.id === proposal.id) || null;
   const next = (queue || []).filter((p) => p.id !== proposal.id);
+  const resolved = existing != null && existing.status !== "pending";
+  const content = resolved ? existing : proposal;
+  const lifecycle = Object.fromEntries(
+    Object.entries(existing || {}).filter(([k]) => !CONTENT_FIELDS.has(k))
+  );
   next.push({
     id: proposal.id,
     rule: proposal.rule,
     targetClass: proposal.targetClass,
-    claim: proposal.claim,
-    ...(proposal.diff !== undefined ? { diff: proposal.diff } : {}),
-    ...(proposal.decision !== undefined ? { decision: proposal.decision } : {}),
-    ...(proposal.applyVia !== undefined ? { applyVia: proposal.applyVia } : {}),
-    ...(proposal.confidence !== undefined ? { confidence: proposal.confidence } : {}),
-    ...(proposal.citations !== undefined ? { citations: proposal.citations } : {}),
-    ...(proposal.pinEdit !== undefined ? { pinEdit: proposal.pinEdit } : {}),
-    ...(proposal.appliable !== undefined ? { appliable: proposal.appliable } : {}),
-    status: existing?.status ?? "pending",
-    ...(existing?.evidence !== undefined ? { evidence: existing.evidence } : {}),
-    ...(existing?.appliedAt !== undefined ? { appliedAt: existing.appliedAt } : {}),
-    ...(existing?.rejectedAt !== undefined ? { rejectedAt: existing.rejectedAt } : {}),
-    ...(existing?.rejectionReason !== undefined ? { rejectionReason: existing.rejectionReason } : {}),
-    at: proposal.at
+    claim: content.claim,
+    ...(content.diff !== undefined ? { diff: content.diff } : {}),
+    ...(content.decision !== undefined ? { decision: content.decision } : {}),
+    ...(content.applyVia !== undefined ? { applyVia: content.applyVia } : {}),
+    ...(content.confidence !== undefined ? { confidence: content.confidence } : {}),
+    ...(content.citations !== undefined ? { citations: content.citations } : {}),
+    ...(content.pinEdit !== undefined ? { pinEdit: content.pinEdit } : {}),
+    ...(content.appliable !== undefined ? { appliable: content.appliable } : {}),
+    ...(content.evidence !== undefined ? { evidence: content.evidence } : {}),
+    at: content.at,
+    status: "pending",
+    ...lifecycle
   });
   return next;
 }
