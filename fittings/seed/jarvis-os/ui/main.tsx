@@ -584,7 +584,7 @@ function hostOf(urlish: string): string {
 // ── component ────────────────────────────────────────────────────────────────
 
 // DEV vs NODE at a glance. The HUD binds the offset-shifted fitting port
-// (node 8093 / dev 18093 / codex 28093), so the port the page was LOADED from
+// (node 8082 / dev 18082 / codex 28082), so the port the page was LOADED from
 // already carries the instance - no server round-trip needed. Only the dev
 // sandbox is badged: the node is the always-on wall surface and stays clean.
 // The offset is the ten-thousands digit: a node sits at offset 0, so any port

@@ -93,7 +93,7 @@ x-garrison:
             max_send_delay_ms: 3500
         - id: jarvis-os
           config:
-            port: 8093
+            port: 8082
             bind_host: 127.0.0.1
             gateway_url: ''
             vad_redemption_ms: 550

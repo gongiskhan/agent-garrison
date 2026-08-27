@@ -1014,7 +1014,7 @@
     "name": "Jarvis Agentic OS",
     "repo": "local:fittings/seed/jarvis-os",
     "localPath": "fittings/seed/jarvis-os",
-    "summary": "Voice-first Jarvis-style HUD on port 8093. Central audio-reactive core (DitherCore), hold-to-talk → Orchestrator (via the gateway) → reply read aloud. Consumes a kind:voice Fitting. Visual layer reused from the Fable jarvis-hud reference.",
+    "summary": "Voice-first Jarvis-style HUD on port 8082. Central audio-reactive core (DitherCore), hold-to-talk → Orchestrator (via the gateway) → reply read aloud. Consumes a kind:voice Fitting. Visual layer reused from the Fable jarvis-hud reference.",
     "platforms": [
       "claude-code"
     ],
