@@ -1957,6 +1957,32 @@ button:active, .btn:active { transform: translateY(1px); }
   .conv-rawlog { min-height: 44px; }
 }
 
+/* ── focused conversation modal ─────────────────────────────────────────────
+   The sheet is a fixed-height COLUMN and the conversation fills it, so the
+   composer stays pinned at the bottom like the web channel; the generic
+   sheet's own overflow scrolling is turned off (the stream scrolls itself). */
+.sheet.conv { height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+.sheet.conv .sh-body {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+  padding: 10px 14px 12px;
+}
+.sheet.conv .conv-meta {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.sheet.conv .conv-meta-spacer { flex: 1 1 auto; }
+.sheet.conv .conv-focus { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.sheet.conv .conv-focus .kanban-conversation { height: 100%; flex: 1 1 auto; min-height: 0; }
+.conv-empty { padding: 24px 4px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+@media (max-width: 780px) {
+  .sheet.conv { height: 92vh; }
+}
+
+/* Segmented pick (New card: To do / Backlog). Plain button row; the active
+   side carries the primary tone. */
+.seg { display: flex; gap: 6px; }
+
 /* Terminal host (copied from dev-env) + the Terminal modal shell. */
 .term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .term-host.hidden { display: none; }

@@ -97,9 +97,10 @@ describe("board migration guard (Conversations)", () => {
   it("heals an old board to AT MOST v9 and never self-stamps v10 (guard, not transform)", () => {
     const old = { version: 4, lists: [{ id: "backlog", title: "Backlog", order: 0, kind: "manual" }] };
     const migrated = migrateBoard(old as any);
-    // v10 is the Conversations five-state board, written ONLY by the one-pass
+    // v10 is the Conversations state board, written ONLY by the one-pass
     // migration script — migrate-on-read heals legacy layouts but stamps 9.
-    expect(BOARD_VERSION).toBe(10);
+    // (Versions past 10 are additive layout steps and DO apply on read.)
+    expect(BOARD_VERSION).toBeGreaterThanOrEqual(10);
     expect(migrated.version).toBe(9);
     expect(migrated.lists[0]).toMatchObject({
       id: "scheduled", order: -1, userOrder: -1, kind: "scheduled", system: true
@@ -108,9 +109,15 @@ describe("board migration guard (Conversations)", () => {
     // idempotent: a second pass changes nothing material
     const again = migrateBoard(migrated);
     expect(again.version).toBe(9);
-    // a v10 board passes through untouched
+    // a v10 board crosses the guard and takes only the additive v11 step:
+    // Backlog appears, nothing legacy (Archived, Scheduled re-slot) fires.
     const v10 = { version: 10, lists: [] };
-    expect(migrateBoard(v10 as any)).toBe(v10);
+    const stepped = migrateBoard(v10 as any);
+    expect(stepped.version).toBe(BOARD_VERSION);
+    expect(stepped.lists.map((list: any) => list.id)).toEqual(["backlog"]);
+    // …and a current board passes through untouched.
+    const current = { version: BOARD_VERSION, lists: [] };
+    expect(migrateBoard(current as any)).toBe(current);
   });
 });
 

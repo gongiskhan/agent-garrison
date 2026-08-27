@@ -90,6 +90,7 @@ import {
   shouldOpenCard
 } from "./card-click";
 import { cardIdFromLocation } from "./card-location";
+import { hiddenListCount, visibleLists } from "./list-visibility";
 import {
   DRAG_HOLD_MS,
   DRAG_MOUSE_DISTANCE,
@@ -708,24 +709,18 @@ function CardActions({
           <MoveIcon /> <span className="btn-label">Move</span>
         </button>
       )}
-      {/* Discuss opens the card ON its conversation; other lists expose the raw log. */}
-      {list.interactive ? (
-        <button className="btn small primary" title="open this card's conversation" onClick={() => h.onDiscuss(card)}>
-          <ChatIcon /> <span className="btn-label">Discuss</span>
+      {/* The conversation is the way into a card's activity: ONE button opening
+          the focused conversation modal. The raw log moved into that surface's
+          header, so the card front carries no log button. */}
+      <button className="btn small primary" title="open this card's conversation" onClick={() => h.onDiscuss(card)}>
+        <ChatIcon /> <span className="btn-label">Discuss</span>
+      </button>
+      {/* Terminal opens in the card's real project, or in the dedicated
+          personal workspace when a personal card has no project. */}
+      {(card.project || card.scope === "personal") && (
+        <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => h.onTerminal(card)}>
+          <TerminalIcon /> <span className="btn-label">Terminal</span>
         </button>
-      ) : (
-        <>
-          <button className="btn small" title="this card's raw phase log, live while it runs" onClick={() => h.onWatch(card)}>
-            <WatchIcon /> <span className="btn-label">Raw log</span>
-          </button>
-          {/* Terminal opens in the card's real project, or in the dedicated
-              personal workspace when a personal card has no project. */}
-          {(card.project || card.scope === "personal") && (
-            <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => h.onTerminal(card)}>
-              <TerminalIcon /> <span className="btn-label">Terminal</span>
-            </button>
-          )}
-        </>
       )}
       {/* Feedback: write a note and send THIS card back through the pipeline with the
           same context (runDir + prior logs preserved). The "it reached the end but
@@ -1095,7 +1090,9 @@ function Card({
         <div className="run-live">
           <div className="run-head">
             <span className="run-spin" aria-hidden />
-            <span>running on {list.title}</span>
+            {/* The list IS "Running", so naming it here read "running on Running".
+                The pill says what matters: work is live, for this long. */}
+            <span>running</span>
             <span className="run-elapsed"><Elapsed since={card.runningSince} /></span>
           </div>
           {card.liveTail
@@ -1580,6 +1577,10 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
   const [personal, setPersonal] = useState(false);
   const [description, setDescription] = useState("");
   const [goalMode, setGoalMode] = useState(false);
+  // Where the card lands: To do is immediate work, Backlog is the human shelf
+  // for later. A scheduled card ignores this — its release target is the
+  // schedule's own targetList.
+  const [destination, setDestination] = useState<"todo" | "backlog">("todo");
   // RUN-SPEC-V1: ONE explicit run spec for the card, in the same shape the Web
   // Channel's Turn Rail pins. It replaces the separate D17 flow select + phase
   // toggles that used to live here (those are now two dimensions of the spec) so
@@ -1691,6 +1692,9 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
         ...(personal ? { scope: "personal" as const } : {}),
         description,
         goalMode,
+        // Only a plain card names its landing list; a scheduled card's release
+        // target is the schedule's targetList and sending both would conflict.
+        ...(destination === "backlog" && scheduleKind === "none" ? { targetList: "backlog" as const } : {}),
         ...(Object.keys(routing).length ? { routing } : {}),
         // Absent placement IS "host" on the wire — never send { target: "host" },
         // or every card carries a pin it did not ask for.
@@ -1743,6 +1747,24 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
       </div>
+      {scheduleKind === "none" && (
+        <div className="field">
+          <label>List</label>
+          <div className="seg" role="radiogroup" aria-label="landing list">
+            <button type="button" className={`btn small${destination === "todo" ? " primary" : ""}`}
+              aria-pressed={destination === "todo"} onClick={() => setDestination("todo")}>
+              To do
+            </button>
+            <button type="button" className={`btn small${destination === "backlog" ? " primary" : ""}`}
+              aria-pressed={destination === "backlog"} onClick={() => setDestination("backlog")}>
+              Backlog
+            </button>
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            To do is immediate work; Backlog is the shelf for work you want to keep for later.
+          </div>
+        </div>
+      )}
       <div className="field">
         <label className="row" htmlFor="nc-personal">
           <input id="nc-personal" type="checkbox" checked={personal}
@@ -4328,8 +4350,93 @@ function ListConfigSheet({
   );
 }
 
+// ── focused conversation modal ──────────────────────────────────────────────
+// The card's conversation as the WHOLE surface: what the web channel is to a
+// thread, this sheet is to a card - stream on top, composer pinned at the
+// bottom, everything else one click deeper. Card fronts open THIS (the log
+// buttons are gone from the front; the raw log lives in the conversation's own
+// header), and the full detail sheet is behind the Card details button.
+function ConversationSheet({ cardId, onClose, onOpenCard, onWatch, onStart, busy = false }: {
+  cardId: string;
+  onClose: () => void;
+  onOpenCard: (cardId: string) => void;
+  onWatch: (c: CardSummary) => void;
+  onStart?: (c: CardSummary) => void;
+  busy?: boolean;
+}) {
+  const [detail, setDetail] = useState<CardDetail | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [openTranscript, setOpenTranscript] = useState<{ sessionId: string; index: number } | null>(null);
+  // Same 3s pull the detail sheet uses: the stream renders itself over SSE, but
+  // the modal still needs the card's own state (list, conversation id, autonomy)
+  // live - a Start pressed here materialises the conversation into this poll.
+  useEffect(() => {
+    let alive = true;
+    const pull = () => api.card(cardId).then((d) => { if (alive) { setDetail(d); setErr(null); } }).catch((e) => {
+      if (alive && !detail) setErr(e instanceof Error ? e.message : String(e));
+    });
+    void pull();
+    const t = setInterval(pull, 3000);
+    return () => { alive = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardId]);
+  const card = detail?.card ?? null;
+  const frozen = Boolean(card?.frozen?.at);
+  const conversationId = card?.conversationId ?? null;
+  return (
+    <Sheet title={card?.title ?? "Conversation"} onClose={onClose} size="conv">
+      {err && !card && <div className="banner">Could not load the card: {err}</div>}
+      {card && (
+        <div className="conv-meta">
+          <button className="chip mono chip-id" title="copy the card id" onClick={() => { void navigator.clipboard?.writeText(card.id); }}>{card.id}</button>
+          <span className="chip">{card.list}</span>
+          {card.autonomous && <span className="chip">autonomous</span>}
+          {card.project && <span className="chip">{card.project}</span>}
+          <span className="conv-meta-spacer" />
+          <button className="btn small" title="the full card - description, checklist, run configuration, history" onClick={() => onOpenCard(card.id)}>
+            Card details
+          </button>
+        </div>
+      )}
+      {card && conversationId && (
+        <div className="conv-focus">
+          <CardConversation
+            conversationId={conversationId}
+            title={card.title}
+            generation={`${card.rev}:${card.status}`}
+            frozen={frozen}
+            onRawLog={() => onWatch(card)}
+            onOpenRuntimeTranscript={(sessionId) => setOpenTranscript({
+              sessionId,
+              index: (card.sessionIds ?? []).indexOf(sessionId)
+            })}
+          />
+        </div>
+      )}
+      {card && !conversationId && (
+        <div className="conv-empty">
+          <p className="muted">No conversation yet - this card has not been started.</p>
+          {!frozen && onStart && (
+            <button className="btn primary" disabled={busy || card.status === "running"} onClick={() => onStart(card)}>
+              <PlayIcon /> Start
+            </button>
+          )}
+        </div>
+      )}
+      {openTranscript && (
+        <RuntimeTranscriptModal
+          cardId={cardId}
+          sessionId={openTranscript.sessionId}
+          index={openTranscript.index}
+          onClose={() => setOpenTranscript(null)}
+        />
+      )}
+    </Sheet>
+  );
+}
+
 // ── generic modal sheet ─────────────────────────────────────────────────────
-function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" }) {
+function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" | "conv" }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -4337,7 +4444,7 @@ function Sheet({ title, onClose, children, size = "default" }: { title: string; 
   }, [onClose]);
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : size === "conv" ? " wide conv" : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="sh-head">
           <h3>{title}</h3>
           <button className="btn small" onClick={onClose} aria-label="Close"><CloseIcon /></button>
@@ -4353,6 +4460,7 @@ type Overlay =
   | { kind: "new"; placement?: string }
   | { kind: "move"; card: CardSummary }
   | { kind: "detail"; cardId: string; focus?: "conversation" }
+  | { kind: "conversation"; cardId: string }
   | { kind: "watch"; card: CardSummary }
   | { kind: "terminal"; card: CardSummary }
   | { kind: "config"; listId: string }
@@ -4621,6 +4729,15 @@ function App() {
   const [cardOrderOverride, setCardOrderOverride] = useState<Record<string, string[]> | null>(null);
   const [colOrderOverride, setColOrderOverride] = useState<string[] | null>(null);
   const [activeDrag, setActiveDrag] = useState<{ type: "card"; card: CardSummary } | { type: "column"; listId: string } | null>(null);
+  // Empty autonomous columns are hidden so the human scrolls past phases that
+  // hold work, not phases that could. The preference is per-browser and sticky:
+  // someone who wants the whole rail wants it on the next visit too.
+  const [showAllLists, setShowAllLists] = useState<boolean>(() => {
+    try { return window.localStorage.getItem("garrison.kanban.showAllLists") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem("garrison.kanban.showAllLists", showAllLists ? "1" : "0"); } catch { /* private mode: the session-only default is fine */ }
+  }, [showAllLists]);
   // A hash-only navigation does NOT reload the document, so a card link opened
   // while the board is already up (the common case - the board is a standing
   // tab) reaches us only through hashchange. Without this, the first card link
@@ -4822,12 +4939,14 @@ function App() {
     }
   }
 
-  // Talking about a card IS its conversation now, so this no longer navigates to
-  // a separate chat surface seeded with a copy of the card: it opens the card and
-  // lands on the ledger the card already has. A card whose first stretch has not
-  // run yet still opens - the surface appears the moment a conversation exists.
+  // Talking about a card IS its conversation, and the conversation deserves the
+  // whole modal: Discuss opens the focused conversation sheet (the web-channel
+  // experience, straight on the board). The full card detail stays one click
+  // away inside it. A card whose first stretch has not run yet still opens -
+  // the sheet offers Start and the surface appears the moment a conversation
+  // exists.
   function onDiscuss(card: CardSummary) {
-    setOverlay({ kind: "detail", cardId: card.id, focus: "conversation" });
+    setOverlay({ kind: "conversation", cardId: card.id });
   }
 
   // Apply a card's prepared revert (S2, Q7). A guarded, deliberate press: a native
@@ -4917,6 +5036,19 @@ function App() {
       return 0;
     });
   }, [board, colOrderOverride, cardOrderOverride, cardById]);
+
+  // What the rail actually renders. displayLists stays the COMPLETE ordered set
+  // (drag snapshots order from it, so a hidden column keeps its place); this is
+  // that set minus the empty autonomous phases. A drag reveals everything again
+  // - a column that disappeared when you picked a card up cannot be dropped on.
+  const boardLists = useMemo(
+    () => visibleLists(displayLists, { showAll: showAllLists, dragging: Boolean(activeDrag) }),
+    [displayLists, showAllLists, activeDrag]
+  );
+  const hiddenCount = useMemo(
+    () => hiddenListCount(displayLists, { showAll: showAllLists, dragging: Boolean(activeDrag) }),
+    [displayLists, showAllLists, activeDrag]
+  );
 
   // A card on an autonomous agent list is engine-owned: it may REORDER inside
   // its own column (position is a benign patch) but never change column by drag.
@@ -5090,6 +5222,10 @@ function App() {
         // only from the board - one way in, one way out, never two live toggles.
         onHistory={view === "board" ? () => setView("history") : undefined}
         status={board ? `${board.cards.length} cards` : "loading…"}
+        // The rail only exists on the board, so its control is offered there.
+        hiddenLists={view === "board" ? hiddenCount : 0}
+        showAllLists={showAllLists}
+        onToggleAllLists={view === "board" ? () => setShowAllLists((v) => !v) : undefined}
       />
       {runtime?.noGateway && (
         <div className="banner" role="status">
@@ -5114,8 +5250,8 @@ function App() {
             onDragCancel={onDragCancel}
           >
             <div className="board">
-              <SortableContext items={displayLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
-                {displayLists.map((list) => (
+              <SortableContext items={boardLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
+                {boardLists.map((list) => (
                   <SortableColumn
                     key={list.id}
                     list={list}
@@ -5278,6 +5414,17 @@ function App() {
           }}
         />
       )}
+      {overlay?.kind === "conversation" && (
+        <ConversationSheet
+          key={overlay.cardId}
+          cardId={overlay.cardId}
+          onClose={closeCardOverlay}
+          onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
+          onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+          onStart={onStart}
+          busy={busyCard === overlay.cardId}
+        />
+      )}
       {overlay?.kind === "watch" && (
         <WatchSheet
           card={overlay.card}
@@ -5306,7 +5453,13 @@ function App() {
   );
 }
 
-function TopBar({ onNew, onImport, onHistory, status }: { onNew: () => void; onImport?: () => void; onHistory?: () => void; status: string }) {
+function TopBar({ onNew, onImport, onHistory, status, hiddenLists, showAllLists, onToggleAllLists }: {
+  onNew: () => void; onImport?: () => void; onHistory?: () => void; status: string;
+  /** How many empty autonomous columns the rail is holding back right now. */
+  hiddenLists?: number;
+  showAllLists?: boolean;
+  onToggleAllLists?: () => void;
+}) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -5318,6 +5471,20 @@ function TopBar({ onNew, onImport, onHistory, status }: { onNew: () => void; onI
       </div>
       <span className="status">{status}</span>
       <div className="spacer" />
+      {/* Offered only when it would change something: either columns are hidden
+          right now, or every column is showing BECAUSE the human asked. */}
+      {onToggleAllLists && (showAllLists || (hiddenLists ?? 0) > 0) && (
+        <button
+          className="btn"
+          aria-pressed={Boolean(showAllLists)}
+          title={showAllLists
+            ? "hide autonomous phases that hold no cards"
+            : `show ${hiddenLists} empty autonomous phase${hiddenLists === 1 ? "" : "s"}`}
+          onClick={onToggleAllLists}
+        >
+          {showAllLists ? "Hide empty" : `Show all (${hiddenLists})`}
+        </button>
+      )}
       {onHistory && <button className="btn" onClick={onHistory}>History</button>}
       <a className="btn" href={api.exportBoardUrl()} download>Export</a>
       {onImport && <button className="btn" onClick={onImport}>Import</button>}

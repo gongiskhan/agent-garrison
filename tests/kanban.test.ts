@@ -222,24 +222,34 @@ describe("kanban CAS (s5 cross-model gate — lost-update guard)", () => {
   });
 });
 
-// The five-state board. Not a pipeline: a card's LIST is where the work stands,
+// The state-column board. Not a pipeline: a card's LIST is where the work stands,
 // and validNext is the human move-affordance (the Move menu / drag targets),
 // never a routing edge. Sequencing lives in the stretch handoff's nextSteps.
-describe("kanban seed board — the five state columns", () => {
+describe("kanban seed board — the six state columns", () => {
   const seeded = seedBoard();
   const byId = Object.fromEntries(seeded.lists.map((l: any) => [l.id, l]));
 
-  it("is exactly five lists, in order, with the exact ids", () => {
+  it("is exactly six lists, in order, with the exact ids", () => {
     expect(seeded.lists.map((l: any) => l.id)).toEqual([
-      "todo", "running", "needs-attention", "scheduled", "done"
+      "backlog", "todo", "running", "needs-attention", "scheduled", "done"
     ]);
     expect(seeded.version).toBe(BOARD_VERSION);
   });
 
-  it("carries no duty column, no backlog, no discuss, no archived — the pipeline is gone", () => {
+  it("Backlog is a purely human shelf — manual, no trigger hooks, no automation", () => {
+    // Work parked for later. The engine never picks from it: no onEnter, no
+    // notify, not system-owned — a card sits there until a human moves it.
+    expect(byId.backlog).toMatchObject({ kind: "manual", trigger: "manual" });
+    expect(byId.backlog.onEnter).toBeUndefined();
+    expect(byId.backlog.system).toBeUndefined();
+    expect(byId.backlog.terminal).toBeUndefined();
+    expect(byId.backlog.validNext).toEqual(["todo", "done"]);
+  });
+
+  it("carries no duty column, no discuss, no archived — the pipeline is gone", () => {
     const ids = new Set(seeded.lists.map((l: any) => l.id));
     for (const retired of [
-      "backlog", "discuss", "plan", "implement", "review", "adversarial-review",
+      "discuss", "plan", "implement", "review", "adversarial-review",
       "test", "adversarial-test", "walkthrough", "validate", "archived", "ice-box"
     ]) {
       expect(ids.has(retired), `${retired} is still on the board`).toBe(false);
@@ -265,19 +275,19 @@ describe("kanban seed board — the five state columns", () => {
     expect(byId.scheduled).toMatchObject({ kind: "scheduled", trigger: "scheduler-beat", system: true });
     expect(byId.scheduled.validNext).toEqual(["todo"]);
     expect(byId.done).toMatchObject({ kind: "manual", terminal: true });
-    // Done is not a dead end: reopening a card puts it back on To do.
-    expect(byId.done.validNext).toEqual(["todo"]);
+    // Done is not a dead end: reopening a card puts it back on To do or the shelf.
+    expect(byId.done.validNext).toEqual(["todo", "backlog"]);
   });
 
   it("Needs input notifies on entry and hands the card back to a human", () => {
     expect(byId["needs-attention"].title).toBe("Needs input");
     expect(byId["needs-attention"].notifyOnEntry).toBe(true);
-    expect(byId["needs-attention"].validNext).toEqual(["todo", "done"]);
+    expect(byId["needs-attention"].validNext).toEqual(["todo", "backlog", "done"]);
   });
 
   it("To do infers title + project on entry and is the default landing list", () => {
     expect(byId.todo).toMatchObject({ kind: "manual", trigger: "manual", onEnter: "infer-title-and-project" });
-    expect(byId.todo.validNext).toEqual(["done"]);
+    expect(byId.todo.validNext).toEqual(["backlog", "done"]);
   });
 
   it("every validNext token is a real list id", () => {
@@ -287,13 +297,38 @@ describe("kanban seed board — the five state columns", () => {
     }
   });
 
-  it("nothing but the migration script stamps BOARD_VERSION", () => {
+  it("nothing but the migration script crosses the v10 guard", () => {
     // migrateBoard heals a legacy board on read but leaves it stamped at most 9
     // (the v9→v10 step is a CARD migration, run once by
-    // scripts/migrate-conversations.mjs). A fresh seed is already at 10.
+    // scripts/migrate-conversations.mjs). A fresh seed is already current.
     const healed = migrateBoard({ version: 5, lists: [{ id: "todo", title: "To Do", kind: "manual" }] });
     expect(healed.version).toBe(9);
     expect(seedBoard().version).toBe(BOARD_VERSION);
+  });
+
+  it("migrateBoard adds Backlog to a v10 board on read (v10→v11 is additive)", () => {
+    const v10 = {
+      version: 10,
+      lists: [
+        { id: "todo", title: "To do", kind: "manual", order: 0, validNext: ["done"] },
+        { id: "running", title: "Running", kind: "system", order: 1, validNext: ["needs-attention", "todo"] },
+        { id: "needs-attention", title: "Needs input", kind: "manual", order: 2, validNext: ["todo", "done"] },
+        { id: "scheduled", title: "Scheduled", kind: "scheduled", order: 3, validNext: ["todo"] },
+        { id: "done", title: "Done", kind: "manual", terminal: true, order: 4, validNext: ["todo"] }
+      ]
+    };
+    const migrated = migrateBoard(v10);
+    expect(migrated.version).toBe(BOARD_VERSION);
+    const ordered = [...migrated.lists].sort((a: any, b: any) => a.order - b.order).map((l: any) => l.id);
+    expect(ordered).toEqual(["backlog", "todo", "running", "needs-attention", "scheduled", "done"]);
+    const backlog = migrated.lists.find((l: any) => l.id === "backlog");
+    expect(backlog).toMatchObject({ kind: "manual", trigger: "manual", validNext: ["todo", "done"] });
+    // The five existing columns keep their exact positions; edges gain the shelf.
+    const todo = migrated.lists.find((l: any) => l.id === "todo");
+    expect(todo.order).toBe(0);
+    expect(todo.validNext).toEqual(["backlog", "done"]);
+    // Idempotent: a second pass changes nothing.
+    expect(migrateBoard(migrated)).toEqual(migrated);
   });
 });
 
@@ -303,7 +338,7 @@ describe("kanban board helpers the server still reads", () => {
   it("getList / validNextFor resolve a list and its move affordances", () => {
     expect(getList(seeded, "running").id).toBe("running");
     expect(getList(seeded, "nope")).toBeNull();
-    expect(validNextFor(seeded, "needs-attention")).toEqual(["todo", "done"]);
+    expect(validNextFor(seeded, "needs-attention")).toEqual(["todo", "backlog", "done"]);
     expect(validNextFor(seeded, "nope")).toEqual([]); // unknown list = no affordances, never a throw
   });
 

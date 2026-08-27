@@ -26,12 +26,13 @@ import path from "node:path";
 import os from "node:os";
 import { isDeepStrictEqual } from "node:util";
 
-// The FIVE fixed board lists (Conversations, 2026-08-26). Lists ARE the card
-// states — To do, Running, Needs input, Scheduled, Done — and nothing else.
-// Duty lists, Discuss, Backlog, Archived and the phase spine are gone: a
-// card's current duty is a FIELD rendered as a chip, sequencing is the stretch
+// The SIX fixed board lists (Conversations, 2026-08-26; Backlog restored
+// 2026-08-27 as a human shelf). Lists ARE the card states — Backlog, To do,
+// Running, Needs input, Scheduled, Done — and nothing else.
+// Duty lists, Discuss, Archived and the phase spine are gone: a card's
+// current duty is a FIELD rendered as a chip, sequencing is the stretch
 // handoff's job, and history is frozen cards behind the History view.
-export const BOARD_LISTS = ["todo", "running", "needs-attention", "scheduled", "done"];
+export const BOARD_LISTS = ["backlog", "todo", "running", "needs-attention", "scheduled", "done"];
 
 export function kanbanModelFile(root) {
   const garrisonHome = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -288,7 +289,7 @@ export function dutyGateExplicit(model, dutyId) {
 // because the gateway's inbound dispatch consult and garrison-control still
 // read a card's duty sequence.
 
-// Build the board: the FIVE fixed state columns, in order. The resolved model
+// Build the board: the SIX fixed state columns, in order. The resolved model
 // no longer shapes the list set at all (duty lists are gone — the launcher
 // reads duties/ladders from the model directly); the `model` parameter stays
 // for caller compatibility and future per-list config. Pure: no fs, no I/O.
@@ -301,13 +302,23 @@ export function buildBoard(_model = null, _opts = {}) {
   let order = 0;
   const push = (list) => lists.push({ ...list, order: order++ });
 
+  // Backlog is purely human-managed shelf space — work parked for later. The
+  // engine never picks from it, no trigger fires on entry, and nothing counts
+  // it as in-flight; To do is the "immediate work" list it feeds.
+  push({
+    id: "backlog",
+    title: "Backlog",
+    kind: "manual",
+    trigger: "manual",
+    validNext: ["todo", "done"]
+  });
   push({
     id: "todo",
     title: "To do",
     kind: "manual",
     trigger: "manual",
     onEnter: "infer-title-and-project",
-    validNext: ["done"]
+    validNext: ["backlog", "done"]
   });
   // `kind: "system"` is NEW and ON PURPOSE: every legacy `kind === "agent"`
   // branch anywhere is FALSE for it, so a stray dispatch path cannot fire on
@@ -328,7 +339,7 @@ export function buildBoard(_model = null, _opts = {}) {
     kind: "manual",
     trigger: "manual",
     notifyOnEntry: true,
-    validNext: ["todo", "done"]
+    validNext: ["todo", "backlog", "done"]
   });
   push({
     id: "scheduled",
@@ -338,9 +349,9 @@ export function buildBoard(_model = null, _opts = {}) {
     system: true,
     validNext: ["todo"]
   });
-  push({ id: "done", title: "Done", kind: "manual", trigger: "manual", terminal: true, validNext: ["todo"] });
+  push({ id: "done", title: "Done", kind: "manual", trigger: "manual", terminal: true, validNext: ["todo", "backlog"] });
 
-  return { version: 10, lists, projects: {} };
+  return { version: 11, lists, projects: {} };
 }
 
 // Reconcile an EXISTING board's phase-list SET to the current resolved model

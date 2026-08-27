@@ -5443,15 +5443,15 @@ export function makeRequestHandler(opts, distDir) {
       }
 
       // The Add-list affordance died with the duty lists (Conversations,
-      // 2026-08-26): the five-state board is FIXED — buildBoard creates no
-      // user lists and reconcileBoardLists removes anything outside the five.
-      // Both list-mutation endpoints answer 410 so a stale client gets an
+      // 2026-08-26): the state-column board is FIXED — buildBoard creates no
+      // user lists and reconcileBoardLists removes anything outside the fixed
+      // set. Both list-mutation endpoints answer 410 so a stale client gets an
       // honest refusal instead of a silently ignored write.
       if (pathname === "/lists" && method === "POST") {
-        return jsonRes(res, 410, { error: "the board's five lists are fixed — lists can no longer be created" });
+        return jsonRes(res, 410, { error: "the board's lists are fixed — lists can no longer be created" });
       }
       if (listMatch && method === "DELETE") {
-        return jsonRes(res, 410, { error: "the board's five lists are fixed — lists can no longer be deleted" });
+        return jsonRes(res, 410, { error: "the board's lists are fixed — lists can no longer be deleted" });
       }
 
       // GET /origins/:originId[/events] (S3e) - the durable per-origin event log +

@@ -144,7 +144,7 @@ afterAll(async () => {
 
 describe.sequential("gateway registration lands on the real board", () => {
   it("the board under test is the five-column one, with no pipeline lists left", () => {
-    expect(BOARD_LIST_IDS).toEqual(["todo", "running", "needs-attention", "scheduled", "done"]);
+    expect(BOARD_LIST_IDS).toEqual(["backlog", "todo", "running", "needs-attention", "scheduled", "done"]);
   });
 
   it("registration never opens a model turn — the board does not drive any more", async () => {

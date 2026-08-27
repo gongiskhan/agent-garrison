@@ -346,10 +346,11 @@ const SESSION_LITERALS: ReadonlyArray<{ file: string; literal: string; why: stri
 ];
 
 /**
- * Board words the five-list board does not have. `duty:` was the chip that
+ * Board words the state-column board does not have. `duty:` was the chip that
  * announced a card's next duty list, which the conversation flow replaced.
+ * (Backlog is NOT retired: it returned 2026-08-27 as the human-managed shelf.)
  */
-const RETIRED_BOARD_WORDS = /\b(Backlog|Ice Box|Archived)\b|\bduty:\s/;
+const RETIRED_BOARD_WORDS = /\b(Ice Box|Archived)\b|\bduty:\s/;
 
 const BOARD_LITERALS: ReadonlyArray<{ file: string; literal: string; why: string }> = [
   {
@@ -407,7 +408,7 @@ describe("vocabulary — a conversation is not a session", () => {
     expect(files.length).toBeGreaterThan(0);
     expect(
       hits,
-      `The board is five lists — To do, Running, Needs input, Scheduled, Done. Backlog, Ice Box, Archived and the duty chip are gone.\n${hits.join("\n")}`
+      `The board is six lists — Backlog, To do, Running, Needs input, Scheduled, Done. Ice Box, Archived and the duty chip are gone.\n${hits.join("\n")}`
     ).toEqual([]);
   });
 

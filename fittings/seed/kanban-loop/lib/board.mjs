@@ -184,7 +184,7 @@ async function mirrorCard(root, card) {
 
 // The current on-disk board schema version. Bumped whenever a migration below
 // must run once on load for EVERY existing board (not just model-driven ones).
-export const BOARD_VERSION = 10;
+export const BOARD_VERSION = 11;
 
 // A duty-backed list's display title. The board is the thing Gonçalo looks at all
 // day, so a list that runs a duty must SAY it runs a duty (brief §2.4) — otherwise
@@ -255,6 +255,35 @@ export function dutyListTitle(id) {
 export function migrateBoard(board) {
   if (!board || typeof board !== "object") return board;
   if ((board.version || 0) >= BOARD_VERSION) return board;
+  // A ≥v10 (Conversations) board takes ONLY the explicit version-gated steps
+  // below — the legacy healing further down would re-add the Archived tail and
+  // re-slot Scheduled to the far left, columns/positions the five-state cut
+  // removed on purpose (caught by tests/kanban.test.ts the day v11 landed).
+  if ((board.version || 0) >= 10) {
+    let lists = board.lists || [];
+    // v10→v11 (2026-08-27): the Backlog column returns as a HUMAN-MANAGED
+    // shelf — work parked for later, with To do as the immediate-work list.
+    // Purely additive (no card moves, no kind changes), so unlike v10 it IS
+    // safe to do on read. Slotted leftmost via a below-minimum order so the
+    // five existing columns keep the exact positions the board already has.
+    if (!lists.some((l) => l.id === "backlog")) {
+      const minOrder = lists.reduce((m, l) => Math.min(m, Number.isFinite(l.order) ? l.order : 0), 0);
+      lists = [
+        {
+          id: "backlog", title: "Backlog", kind: "manual", trigger: "manual",
+          order: minOrder - 1, validNext: ["todo", "done"]
+        },
+        ...lists
+      ];
+      lists = lists.map((list) => {
+        if (list.id === "todo") return { ...list, validNext: ["backlog", "done"] };
+        if (list.id === "needs-attention") return { ...list, validNext: ["todo", "backlog", "done"] };
+        if (list.id === "done") return { ...list, validNext: ["todo", "backlog"] };
+        return list;
+      });
+    }
+    return { ...board, version: BOARD_VERSION, lists };
+  }
   let lists = board.lists || [];
   if ((board.version || 0) < 3) {
     lists = lists.map((l) => {
@@ -376,12 +405,11 @@ export function migrateBoard(board) {
   // get wrong, which is the point: the two live boards recorded above (v6,
   // v8) were stamped by a migration that shipped a version bump ahead of its
   // transform.
-  if ((board.version || 0) < 10) {
-    console.warn("[kanban] board is pre-Conversations — run scripts/migrate-conversations.mjs; serving the legacy layout");
-    // The pre-v9 blocks above still heal an old board; it is stamped AT MOST 9.
-    return { ...board, version: 9, lists };
-  }
-  return { ...board, version: BOARD_VERSION, lists };
+  // Every board on this path is pre-Conversations (the ≥v10 branch above
+  // returned already): heal it, warn, and leave it stamped AT MOST 9 — the
+  // v9→v10 step is a CARD migration run once by scripts/migrate-conversations.mjs.
+  console.warn("[kanban] board is pre-Conversations — run scripts/migrate-conversations.mjs; serving the legacy layout");
+  return { ...board, version: 9, lists };
 }
 
 // list ⟷ status coherence (Conversations): lists ARE the states, `card.list`

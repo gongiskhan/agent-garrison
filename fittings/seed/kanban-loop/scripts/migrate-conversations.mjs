@@ -128,10 +128,12 @@ export async function verify(root) {
   const copies = live.filter((c) => c.migratedFrom);
   const templates = live.filter((c) => isScheduleTemplate(c));
 
-  // 1. board shape
-  if (board.version !== 10) failures.push(`board version is ${board.version}, wanted 10`);
+  // 1. board shape — v10 was the Conversations cut; later versions are additive
+  // layout steps applied on read (v11 added the Backlog shelf), so the migrated
+  // board legitimately reads AT OR ABOVE 10.
+  if (!(board.version >= 10)) failures.push(`board version is ${board.version}, wanted >= 10`);
   const ids = (board.lists ?? []).map((l) => l.id);
-  const wanted = ["todo", "running", "needs-attention", "scheduled", "done"];
+  const wanted = ["backlog", "todo", "running", "needs-attention", "scheduled", "done"];
   if (JSON.stringify(ids) !== JSON.stringify(wanted)) failures.push(`board lists are [${ids}], wanted [${wanted}]`);
   // 2. live census: every live card is a copy, a template, or born after the stamp
   const stamp = board.conversationsMigrated ?? null;
@@ -189,13 +191,13 @@ export async function run({ dryRun = false, force = false } = {}) {
 
   // Preflight — refuse loudly.
   const board = await loadBoard(root);
-  if (board.version === 10 && !force) {
+  if (board.version >= 10 && !force) {
     const report = await verify(root);
-    console.log(`already migrated (board v10). verify: ${report.failures.length ? report.failures.join("; ") : "OK"}`);
+    console.log(`already migrated (board v${board.version}). verify: ${report.failures.length ? report.failures.join("; ") : "OK"}`);
     console.log(JSON.stringify(report.counts));
     return report.failures.length ? 1 : 0;
   }
-  if (board.version !== 9 && board.version !== 10) {
+  if (board.version !== 9 && !(board.version >= 10)) {
     console.error(`REFUSING: board version is ${board.version}; run the board once on current code first (it heals to 9)`);
     return 1;
   }
@@ -270,7 +272,7 @@ export async function run({ dryRun = false, force = false } = {}) {
     conversationsMigrated: new Date().toISOString(),
   };
   await saveBoard(rebuilt, root);
-  console.log("board saved: five state columns, v10");
+  console.log("board saved: state columns rebuilt from buildBoard()");
 
   // Retire the stale test beat (its list is gone); best-effort.
   try {

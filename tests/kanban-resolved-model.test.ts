@@ -259,7 +259,7 @@ describe("orphaned duty flags — context_hold / gate: explicit (projected, no r
 // converges an INSTALLED board (any older shape) onto the five columns without
 // losing the board's own non-structural state. scripts/kanban.mjs --setup runs
 // it on every `up`, and relocateStrandedCards rescues any card left behind.
-describe("reconcileBoardLists — an installed board converges on the five columns", () => {
+describe("reconcileBoardLists — an installed board converges on the fixed columns", () => {
   const legacyBoard = () => ({
     version: 4,
     rev: 17,
@@ -272,12 +272,12 @@ describe("reconcileBoardLists — an installed board converges on the five colum
     ]
   });
 
-  it("removes every list outside the five and adds the missing state columns", () => {
+  it("removes every list outside the fixed set and adds the missing state columns", () => {
     const { board, removed, added } = reconcileBoardLists(legacyBoard());
     expect(board.lists.map((l: { id: string }) => l.id)).toEqual(BOARD_LISTS);
     expect(board.version).toBe(buildBoard().version);
     expect(removed.sort()).toEqual(["implement", "plan"]);
-    expect(added.sort()).toEqual(["needs-attention", "running", "scheduled"]);
+    expect(added.sort()).toEqual(["backlog", "needs-attention", "running", "scheduled"]);
   });
 
   it("preserves the board's projects map and its optimistic-concurrency rev", () => {
@@ -291,12 +291,12 @@ describe("reconcileBoardLists — an installed board converges on the five colum
     // list. Both are engine-owned, so the reconcile rewrites them in place.
     const { board, updated } = reconcileBoardLists(legacyBoard());
     const todo = board.lists.find((l: { id: string }) => l.id === "todo");
-    expect(todo.validNext).toEqual(["done"]);
+    expect(todo.validNext).toEqual(["backlog", "done"]);
     expect(todo.onEnter).toBe("infer-title-and-project");
     expect(updated).toContain("todo");
   });
 
-  it("a board already at the five columns reports nothing added or removed", () => {
+  it("a board already at the fixed columns reports nothing added or removed", () => {
     const { removed, added } = reconcileBoardLists(buildBoard());
     expect(removed).toEqual([]);
     expect(added).toEqual([]);

@@ -12,7 +12,7 @@ process.env.GARRISON_HOME = GARRISON_HOME;
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 
 // @ts-ignore — pure .mjs
-import { createCard, loadBoard, saveBoard, boardStateClient, BOARD_NAMESPACE, BOARD_SCOPE } from "../fittings/seed/kanban-loop/lib/board.mjs";
+import { createCard, loadBoard, saveBoard, boardStateClient, BOARD_NAMESPACE, BOARD_SCOPE, BOARD_VERSION } from "../fittings/seed/kanban-loop/lib/board.mjs";
 
 import { setupKanbanState } from "./kanban-state-env";
 let state: Awaited<ReturnType<typeof setupKanbanState>>;
@@ -72,15 +72,15 @@ describe("classifyCards", () => {
 });
 
 describe("run + verify + rollback", () => {
-  it("migrates: five-list v10 board, 3 copies on To do, 6 frozen, template untouched", async () => {
+  it("migrates: state-column board, 3 copies on To do, 6 frozen, template untouched", async () => {
     const code = await migration.run
       ? await (migration.run as any)({})
       : 1;
     expect(code).toBe(0);
 
     const board = await loadBoard(KANBAN_DIR);
-    expect(board.version).toBe(10);
-    expect(board.lists.map((l: any) => l.id)).toEqual(["todo", "running", "needs-attention", "scheduled", "done"]);
+    expect(board.version).toBe(BOARD_VERSION);
+    expect(board.lists.map((l: any) => l.id)).toEqual(["backlog", "todo", "running", "needs-attention", "scheduled", "done"]);
     expect(board.projects).toEqual({ demo: "/tmp/demo" }); // preserved
     expect(board.conversationsMigrated).toBeTruthy();
 
