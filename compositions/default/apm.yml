@@ -513,7 +513,7 @@ x-garrison:
               effort: max
       - id: adversarial-review
         title: Adversarial Review
-        description: A decorrelated second read whose job is to find what the first one missed.
+        description: A decorrelated second read whose job is to find what the first one missed. Cite only violations that materially change correctness or safety; when your PREVIOUS findings have been addressed and nothing substantive remains, hand off complete with next=done - endless re-refutation is a failure mode, not rigor.
         levels:
           - description: 'quick: the diff against its stated invariants'
             cell:

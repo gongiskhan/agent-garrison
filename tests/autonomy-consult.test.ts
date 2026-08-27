@@ -446,11 +446,13 @@ describe("autonomyHoldPlan - a quick turn is held exactly like a significant one
     });
   });
   it("holds a QUICK turn instead of running it inline", () => {
+    // Five-state board: there is one place work waits — To do. The sequence
+    // names DUTIES now, never a resume column.
     expect(autonomyHoldPlan(asking, { significant: false, sequence: ["implement"] })).toEqual({
       hold: true,
-      resumeList: "implement"
+      resumeList: "todo"
     });
-    expect(autonomyHoldPlan(asking, { significant: false })).toEqual({ hold: true, resumeList: "implement" });
+    expect(autonomyHoldPlan(asking, { significant: false })).toEqual({ hold: true, resumeList: "todo" });
   });
   it("never holds an acting band, and never holds when there was no consult", () => {
     expect(autonomyHoldPlan({ ask: false, band: "act-revert" }, { significant: true }).hold).toBe(false);

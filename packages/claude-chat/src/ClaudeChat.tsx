@@ -974,69 +974,6 @@ const nextClientRequestId = () => {
 };
 
 // m:ss elapsed for the working indicator (e.g. 7 → "0:07", 75 → "1:15").
-/**
- * A bottom sheet for one group of controls.
- *
- * The composer used to stack a badge rail, a chip row and the input on top of
- * each other, and every one of them was permanently on screen for a choice the
- * user makes occasionally. A sheet costs one tap to open and gives the controls
- * room to breathe; the transcript keeps saying what was actually chosen.
- *
- * Native <dialog> so Escape, the backdrop and focus containment are the
- * platform's job rather than ours.
- */
-function RouteSheet({
-  onClose,
-  busy,
-  saving,
-  error,
-  onRetry,
-  children,
-}: {
-  onClose: () => void;
-  busy: boolean;
-  saving?: boolean;
-  error?: string | null;
-  onRetry?: () => void;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDialogElement | null>(null);
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (!dialog.open) dialog.showModal();
-    const onCancel = (event: Event) => { event.preventDefault(); onClose(); };
-    dialog.addEventListener("cancel", onCancel);
-    return () => dialog.removeEventListener("cancel", onCancel);
-  }, [onClose]);
-  return (
-    <dialog
-      ref={ref}
-      className="cc-sheet"
-      aria-label="Run context"
-      onClick={(event) => { if (event.target === ref.current) onClose(); }}
-    >
-      <div className="cc-sheet-card">
-        <div className="cc-sheet-head">
-          <h2 className="cc-sheet-title">Route</h2>
-          <button type="button" className="cc-sheet-close" onClick={onClose} aria-label="Close route sheet">×</button>
-        </div>
-        <p className="cc-sheet-sub">
-          {busy
-            ? "A response is running - these apply to your next message."
-            : "Applies to your next message. Anything left on auto is chosen for you."}
-        </p>
-        <div className="cc-sheet-body">{children}</div>
-        {(saving || error) && (
-          <div className={`cc-pin-save${error ? " cc-pin-save-error" : ""}`}>
-            <span>{error ?? "Saving route choices…"}</span>
-            {error && onRetry && <button type="button" onClick={onRetry}>Retry save</button>}
-          </div>
-        )}
-      </div>
-    </dialog>
-  );
-}
 
 function fmtElapsed(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -1551,7 +1488,6 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const [railOpen, setRailOpen] = useState(false);
   /** The generated thread edits its run context in a sheet rather than in a
    *  standing row of badges above the composer. */
-  const [routeSheetOpen, setRouteSheetOpen] = useState(false);
   const [routeModal, setRouteModal] = useState<{ open: boolean; focus?: PinField }>({ open: false });
   /** Which replies have their run-context rail expanded. Collapsed by default:
    *  the rail is a record you consult, not something to read on every message. */
@@ -3361,28 +3297,6 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         {/* The flight rail: live badges for the turn in flight plus the pin
             dropdowns, mounted while busy, while anything is pinned, or on demand
             from the toolbar's Route chip. */}
-        {routeSheetOpen && generatedMode && (
-          <RouteSheet
-            onClose={() => setRouteSheetOpen(false)}
-            busy={busy}
-            saving={pinSavePending}
-            error={pinSaveError?.message ?? null}
-            onRetry={pinSaveError ? retryPinSave : undefined}
-          >
-            <AttributionRail
-              variant="flight"
-              route={rewriteRouteForHost(latestAssistant?.route, hostCtx())}
-              pins={pins}
-              pendingFields={pendingPins}
-              options={routeOptions ?? undefined}
-              onPin={applyPin}
-              onOpenTranscript={onOpenTranscript}
-              label="Run context for your next message"
-              musterUrl={musterUrl}
-              onOpenModal={(field) => { setRouteSheetOpen(false); setRouteModal({ open: true, focus: field }); }}
-            />
-          </RouteSheet>
-        )}
         {showFlightRail && !generatedMode && (
           <>
             <AttributionRail
@@ -3406,7 +3320,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             the modal CLOSES the sheet - so a banner living inside a rail meant a
             rejected save had nowhere to appear and failed silently. */}
         {(pinSavePending || pinSaveError) && (
-          <div className={`cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`}>
+          <div className={`cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`} role="status" aria-live="polite">
             <span>{pinSaveError?.message ?? "Saving route choices…"}</span>
             {pinSaveError && (
               <button type="button" onClick={retryPinSave}>Retry save</button>
@@ -3486,9 +3400,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           {railOn && generatedMode && (
             <button
               type="button"
-              className={`cc-mic cc-routebtn${routeSheetOpen ? " cc-routebtn-active" : ""}`}
+              className={`cc-mic cc-routebtn${routeModal.open ? " cc-routebtn-active" : ""}`}
               aria-haspopup="dialog"
-              aria-expanded={routeSheetOpen}
+              aria-expanded={routeModal.open}
               aria-label="Run context for your next message"
               title="Route: duty, level, tier, runtime, model, effort, account, project, flow or phases for your next message"
               onClick={() => setRouteModal({ open: true })}
