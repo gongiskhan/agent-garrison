@@ -16,10 +16,16 @@ import { messageDigest, appendEvidence } from "./dispatch-core.mjs";
 export const STEER_ACTIONS = ["absorb", "revisit", "acknowledge"];
 const CONFIDENCE = new Set(["low", "medium", "high"]);
 
-// The current phase index within the card's ordered sequence.
+// The current phase index within the card's ordered sequence. Conversations:
+// lists are STATES, so the current phase is the card's DUTY chip (the list is
+// the legacy fallback for pre-Conversations records).
 function currentPhaseIndex(card) {
   const seq = Array.isArray(card?.sequence) ? card.sequence : [];
-  const idx = seq.indexOf(card?.list);
+  // Duty first, list fallback: a legacy card's duty names its FLOW (develop),
+  // not a leaf phase, and its list was the phase; a Conversations card is the
+  // reverse.
+  let idx = seq.indexOf(card?.duty);
+  if (idx < 0) idx = seq.indexOf(card?.list);
   return { seq, idx };
 }
 
@@ -70,7 +76,7 @@ export function buildSteeringPrompt(message, card, dutyVocab = null) {
     "A run is mid-flight and the user just sent a message about it. Classify how the run should respond. Respond with ONLY a single-line JSON object — no prose, no code fence."
   );
   lines.push("");
-  lines.push(`Run: "${String(card?.title ?? "").slice(0, 200)}" — currently on the "${card?.list ?? "?"}" duty.`);
+  lines.push(`Run: "${String(card?.title ?? "").slice(0, 200)}" — currently on the "${card?.duty ?? card?.list ?? "?"}" duty.`);
   lines.push(`Pipeline (in order): ${seq.length ? seq.join(" → ") : "(unknown)"}.`);
   lines.push(`Earlier phases it could go BACK to: ${earlier.length ? earlier.join(", ") : "(none)"}.`);
   if (dutyVocab && typeof dutyVocab === "object") {

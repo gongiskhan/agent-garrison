@@ -178,7 +178,7 @@ describe("syncListBeat — the Test beat never downgrades either", () => {
 });
 
 describe("kanban.mjs --setup — the apm.yml hook actually completes", () => {
-  it("exits 0 and registers both the tick and the Test beat with this instance's identity", async () => {
+  it("exits 0 and registers the tick with this instance's identity", async () => {
     const { spawnSync } = await import("node:child_process");
     const { fileURLToPath } = await import("node:url");
     const cli = fileURLToPath(new URL("../fittings/seed/kanban-loop/scripts/kanban.mjs", import.meta.url));
@@ -203,9 +203,11 @@ describe("kanban.mjs --setup — the apm.yml hook actually completes", () => {
     expect(jobs.find((j) => j.id === "kanban-tick")?.command).toContain(
       "GARRISON_GATEWAY_URL='http://127.0.0.1:5777'"
     );
-    // The Test list is scheduler-beat: its beat must carry the same instance identity.
-    expect(jobs.find((j) => j.id === "kanban-test-beat")?.command).toContain(
-      "GARRISON_GATEWAY_URL='http://127.0.0.1:5777'"
-    );
+    // Conversations: the five-state board has no beat-driven duty list left (the
+    // Test column and its `kanban-test-beat` went out with the duty lists), so
+    // setup registers the TICK and nothing else. Scheduled is swept by that same
+    // tick, not by a beat of its own. syncListBeat itself is still exercised
+    // above — the mechanism survives, the seed board just no longer uses it.
+    expect(jobs.map((j) => j.id)).not.toContain("kanban-test-beat");
   }, 120_000);
 });

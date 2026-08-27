@@ -14,6 +14,13 @@
 //     distinguishes "vault locked" from "secret absent".
 //   - return schema-validated (retry once, then fail loudly / non-zero).
 //   - every delegation appended to decisions.jsonl.
+//
+// Conversations (2026-08-26): a caller that belongs to a conversation injects
+// `recordEvent` / `writePayloadCopy` and the delegation ALSO lands in that
+// conversation's ledger as dispatched -> returned | failed. Both are optional —
+// a caller that injects neither gets the pre-conversation behaviour byte for
+// byte, and no ledger failure can ever fail a delegation.
+import { randomUUID } from "node:crypto";
 
 export class DelegationError extends Error {
   constructor(code, message, extra = {}) {
@@ -75,8 +82,46 @@ export function validateDelegationResult(result) {
 //   secrets        — materialized vault (key->value) or null (locked); used only
 //                    to surface a loud locked-vs-absent error when a key is needed
 //   now            — () -> ISO string (passed in for determinism)
+//   recordEvent    — OPTIONAL (evt) -> void; conversation-ledger sink
+//   writePayloadCopy — OPTIONAL (name, content) -> {ref, bytes, truncated}
+//
+// opts additionally accepts `conversationId`, `stretchId` and `briefRef`, which
+// only tag the ledger events (the artifact store stays the canonical output).
 export async function delegate(spec, deps, opts = {}) {
+  // The ledger is OBSERVATION, never control flow: a sink that throws, or one
+  // that is simply absent, must leave the delegation identical.
+  const recordEvent = typeof deps?.recordEvent === "function" ? deps.recordEvent : null;
+  const emit = (kind, payload) => {
+    if (!recordEvent) return;
+    try {
+      recordEvent({ kind, stretch: opts.stretchId ?? null, payload });
+    } catch {
+      /* a broken ledger sink never fails a delegation */
+    }
+  };
+  const delegationId = randomUUID();
+  const startedAt = Date.now();
+  // ONE funnel so no throw path escapes unrecorded — a delegation that fails is
+  // exactly the thing the repeated-failure metric is counting, and an
+  // unrecorded failure is invisible to it. Includes the pre-dispatch guards
+  // (invalid spec, missing key): they failed the delegation too.
+  try {
+    return await runDelegation(spec, deps, opts, { delegationId, startedAt, emit });
+  } catch (err) {
+    emit("delegation-failed", {
+      delegationId,
+      code: err?.code ?? "unknown",
+      message: err?.message ?? String(err),
+      durationMs: Date.now() - startedAt
+    });
+    throw err;
+  }
+}
+
+async function runDelegation(spec, deps, opts, ctx) {
+  const { delegationId, startedAt, emit } = ctx;
   const { adapter, spawnConfig, writeArtifact, logDecision, now } = deps;
+  const writePayloadCopy = typeof deps?.writePayloadCopy === "function" ? deps.writePayloadCopy : null;
   const errors = validateTaskSpec(spec, opts);
   if (errors.length) throw new DelegationError("invalid-task-spec", errors.join("; "), { errors });
 
@@ -109,6 +154,15 @@ export async function delegate(spec, deps, opts = {}) {
     }
   };
 
+  emit("delegation-dispatched", {
+    delegationId,
+    runtime: adapter.id,
+    model: spec.model ?? null,
+    task: redactForLog(spec.task),
+    paths: spec.paths ?? null,
+    briefRef: opts.briefRef ?? null
+  });
+
   // retry once, then fail loudly
   let resp;
   try {
@@ -133,6 +187,17 @@ export async function delegate(spec, deps, opts = {}) {
     );
   }
   const artifactPath = await writeArtifact("delegations", `${adapter.id}-${(now ? now() : "0").replace(/[:.]/g, "-")}.md`, fullOutput);
+  // A COPY of the raw output beside the ledger (default 1MB cap, `truncated`
+  // flag) so L3 is one greppable directory. The artifact store above stays
+  // canonical; this copy failing must not fail the delegation.
+  let payloadRef = null;
+  if (writePayloadCopy) {
+    try {
+      payloadRef = writePayloadCopy(`delegation-${delegationId}.md`, fullOutput)?.ref ?? null;
+    } catch {
+      payloadRef = null;
+    }
+  }
   const result = {
     summary: summarize(fullOutput),
     artifacts: [artifactPath, ...(resp?.artifacts ?? [])],
@@ -154,6 +219,17 @@ export async function delegate(spec, deps, opts = {}) {
     task: redactForLog(spec.task),
     model: spec.model ?? null,
     artifacts: result.artifacts
+  });
+  emit("delegation-returned", {
+    delegationId,
+    ok: true,
+    summary: result.summary,
+    artifacts: result.artifacts,
+    payloadRef,
+    // Not every runtime reports usage (codex only started to with `--json`).
+    // Absent usage is null, NEVER a fabricated zero.
+    usedTokens: result.usedTokens ?? null,
+    durationMs: Date.now() - startedAt
   });
   return result;
 }

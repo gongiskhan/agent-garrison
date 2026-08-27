@@ -1,4 +1,4 @@
-// S1a — the SERVER contract behind the Backlog / To Do inline quick-add UI. Boots the REAL
+// S1a — the SERVER contract behind the To Do inline quick-add UI. Boots the REAL
 // own-port board server (makeRequestHandler over an ephemeral port) against a
 // sandboxed, freshly-seeded board and exercises POST /cards exactly the way the
 // board UI's ListAddCard does: { title, description?, project?, targetList? } → a card
@@ -28,7 +28,7 @@ process.env.GARRISON_KANBAN_DIR = KANBAN_DIR;
 process.env.GARRISON_HOME = GARRISON_HOME;
 process.env.GARRISON_RUNS_DIR = RUNS_DIR;
 // Policy-less: loadPolicy() → null, so the create path skips the coordination /
-// flow branches and is a pure Backlog insert.
+// flow branches and is a pure To Do insert.
 process.env.GARRISON_POLICY_PATH = "/nonexistent/garrison-policy.json";
 
 // @ts-ignore — pure ESM .mjs, no .d.ts
@@ -162,13 +162,13 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
   it("validates cron and timezone instead of storing a permanently broken template", async () => {
     const badCron = await jsend("POST", "/cards", {
       title: "Bad cron", project: "garrison",
-      schedule: { kind: "cron", action: "run", cron: "tomorrow", timezone: "Europe/Lisbon", enabled: true, targetList: "backlog" }
+      schedule: { kind: "cron", action: "run", cron: "tomorrow", timezone: "Europe/Lisbon", enabled: true, targetList: "todo" }
     });
     expect(badCron.status).toBe(400);
     expect(String(badCron.body.error)).toMatch(/5 fields/);
     const badTimezone = await jsend("POST", "/cards", {
       title: "Bad timezone", project: "garrison",
-      schedule: { kind: "cron", action: "run", cron: "0 8 * * *", timezone: "Moon/Base", enabled: true, targetList: "backlog" }
+      schedule: { kind: "cron", action: "run", cron: "0 8 * * *", timezone: "Moon/Base", enabled: true, targetList: "todo" }
     });
     expect(badTimezone.status).toBe(400);
     expect(String(badTimezone.body.error)).toMatch(/IANA timezone/);
@@ -395,7 +395,7 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
     expect(detail.body.card).toMatchObject({ project: null, scope: "personal", runId: stamped.runId });
   });
 
-  it("creates a card in Backlog from title + description + project, and it shows on the board", async () => {
+  it("creates a card in To do from title + description + project, and it shows on the board", async () => {
     const create = await jsend("POST", "/cards", {
       title: "Wire the export button",
       description: "the toolbar export needs a real handler",
@@ -406,27 +406,28 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
     expect(card.title).toBe("Wire the export button");
     expect(card.description).toBe("the toolbar export needs a real handler");
     expect(card.project).toBe("garrison");
-    expect(card.list).toBe("backlog");
+    // Conversations: Backlog is gone and the default create list is To do.
+    expect(card.list).toBe("todo");
 
-    // The UI refreshes via GET /board — the new card must be nested under Backlog
+    // The UI refreshes via GET /board — the new card must be nested under To do
     // there (membership is derived from the card, never stored).
     const board = await jget("/board");
     expect(board.status).toBe(200);
-    const backlog = board.body.lists.find((l: any) => l.id === "backlog");
-    expect(backlog.cards.map((c: any) => c.id)).toContain(card.id);
-    const onBoard = backlog.cards.find((c: any) => c.id === card.id);
+    const todo = board.body.lists.find((l: any) => l.id === "todo");
+    expect(todo.cards.map((c: any) => c.id)).toContain(card.id);
+    const onBoard = todo.cards.find((c: any) => c.id === card.id);
     expect(onBoard.title).toBe("Wire the export button");
     expect(onBoard.project).toBe("garrison");
   });
 
-  it("accepts a title-only card (description optional) into Backlog", async () => {
+  it("accepts a title-only card (description optional) into To do", async () => {
     const create = await jsend("POST", "/cards", { title: "Just a title", project: "garrison" });
     expect(create.status).toBe(201);
     expect(create.body.card.title).toBe("Just a title");
-    expect(create.body.card.list).toBe("backlog");
+    expect(create.body.card.list).toBe("todo");
   });
 
-  it("creates directly at the TOP of To Do without a transient Backlog card", async () => {
+  it("creates directly at the TOP of To Do with no intermediate move event", async () => {
     const older = await jsend("POST", "/cards", {
       title: "Older direct To Do card",
       project: "garrison",
@@ -443,10 +444,7 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
     expect(newer.body.card.list).toBe("todo");
 
     const board = await jget("/board");
-    const backlog = board.body.lists.find((l: any) => l.id === "backlog");
     const todo = board.body.lists.find((l: any) => l.id === "todo");
-    expect(backlog.cards.map((c: any) => c.id)).not.toContain(older.body.card.id);
-    expect(backlog.cards.map((c: any) => c.id)).not.toContain(newer.body.card.id);
     expect(todo.cards[0].id).toBe(newer.body.card.id);
     expect(todo.cards.findIndex((c: any) => c.id === newer.body.card.id))
       .toBeLessThan(todo.cards.findIndex((c: any) => c.id === older.body.card.id));
@@ -455,8 +453,11 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
     expect(detail.body.events?.some((event: any) => event.kind === "moved")).toBe(false);
   });
 
-  it("refuses unknown, autonomous, interactive, and terminal direct-create targets", async () => {
-    for (const targetList of ["missing", "plan", "discuss", "done", "archived"]) {
+  // Conversations: the only creatable list is `todo`. `running` is the launcher's
+  // (engine-only, covered below), `scheduled` is reached via a schedule block, and
+  // `done` is terminal; the retired duty lists are simply unknown now.
+  it("refuses unknown, system, and terminal direct-create targets", async () => {
+    for (const targetList of ["missing", "plan", "discuss", "archived", "done", "scheduled", "running"]) {
       const create = await jsend("POST", "/cards", {
         title: `Unsafe target ${targetList}`,
         project: "garrison",
@@ -538,7 +539,7 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
     });
     expect(create.status).toBe(201);
     expect(create.body.card.title).toBe("First line becomes the title");
-    expect(create.body.card.list).toBe("backlog");
+    expect(create.body.card.list).toBe("todo");
   });
 
   it("rejects a card with neither a title nor a description (400)", async () => {
@@ -548,28 +549,28 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
   });
 
   // Item 1 — a new card lands at the TOP of the list, not the bottom. Create A
-  // then B and prove B (the later create) sorts BEFORE A in Backlog, with a
+  // then B and prove B (the later create) sorts BEFORE A in To do, with a
   // strictly-lower effective position. Membership + order come from GET /board,
   // exactly as the UI renders it.
-  it("adds a new card to the TOP of Backlog (later card sorts first)", async () => {
+  it("adds a new card to the TOP of To do (later card sorts first)", async () => {
     const a = await jsend("POST", "/cards", { title: "Top test A", project: "garrison" });
     const b = await jsend("POST", "/cards", { title: "Top test B", project: "garrison" });
     expect(a.status).toBe(201);
     expect(b.status).toBe(201);
 
     const board = await jget("/board");
-    const backlog = board.body.lists.find((l: any) => l.id === "backlog");
-    const ids = backlog.cards.map((c: any) => c.id);
+    const todo = board.body.lists.find((l: any) => l.id === "todo");
+    const ids = todo.cards.map((c: any) => c.id);
     const iA = ids.indexOf(a.body.card.id);
     const iB = ids.indexOf(b.body.card.id);
     // B was created after A, so B must appear ABOVE A (lower index) — top, not bottom.
     expect(iB).toBeLessThan(iA);
-    // And B must be the very first card in Backlog.
+    // And B must be the very first card in To do.
     expect(iB).toBe(0);
 
     // The order is float-position driven: B's effective position is strictly below A's.
-    const cardB = backlog.cards[iB];
-    const cardA = backlog.cards[iA];
+    const cardB = todo.cards[iB];
+    const cardA = todo.cards[iA];
     expect(typeof cardB.position).toBe("number");
     expect(typeof cardA.position).toBe("number");
     expect(cardB.position).toBeLessThan(cardA.position);
@@ -578,19 +579,19 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
   // Item 2 — the Move button is the MANUAL gate: PATCH can move a card to ANY real
   // list, not just its validNext. This pins the server contract the UI's move sheet
   // now leans on (deriveMoveTargets offers every list; there is no validNext gate on
-  // PATCH). backlog.validNext is ["todo"], so a move straight to "done" proves it.
+  // PATCH). todo.validNext is ["done"], so a move straight to "needs-attention" proves it.
   it("move: PATCH can move a card to an arbitrary list outside its validNext", async () => {
     const create = await jsend("POST", "/cards", { title: "Move me anywhere", project: "garrison" });
     expect(create.status).toBe(201);
     const { id, rev } = create.body.card;
 
-    const moved = await jsend("PATCH", `/cards/${id}`, { list: "done", rev });
+    const moved = await jsend("PATCH", `/cards/${id}`, { list: "needs-attention", rev });
     expect(moved.status).toBe(200);
-    expect(moved.body.card.list).toBe("done");
+    expect(moved.body.card.list).toBe("needs-attention");
 
     const board = await jget("/board");
-    const done = board.body.lists.find((l: any) => l.id === "done");
-    expect(done.cards.map((c: any) => c.id)).toContain(id);
+    const attention = board.body.lists.find((l: any) => l.id === "needs-attention");
+    expect(attention.cards.map((c: any) => c.id)).toContain(id);
   });
 
   it("moves without an explicit drag position land at the TOP of the destination", async () => {
@@ -626,8 +627,8 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
     expect(created.every((r) => r.status === 201)).toBe(true);
     const ids = new Set(created.map((r) => r.body.card.id));
     const board = await jget("/board");
-    const backlog = board.body.lists.find((l: any) => l.id === "backlog");
-    const positions = backlog.cards
+    const todo = board.body.lists.find((l: any) => l.id === "todo");
+    const positions = todo.cards
       .filter((card: any) => ids.has(card.id))
       .map((card: any) => card.position);
     expect(positions).toHaveLength(8);
@@ -640,7 +641,7 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
       jsend("POST", "/cards", { title: `Concurrent move ${i}`, project: "garrison" })
     ));
     const moved = await Promise.all(created.map((response) =>
-      jsend("PATCH", `/cards/${response.body.card.id}`, { list: "archived", rev: response.body.card.rev })
+      jsend("PATCH", `/cards/${response.body.card.id}`, { list: "done", rev: response.body.card.rev })
     ));
     expect(moved.every((response) => response.status === 200)).toBe(true);
     const positions = moved.map((response) => response.body.card.position);
@@ -651,14 +652,14 @@ describe("POST /cards — the direct manual-list quick-add contract", () => {
   it("resolves a concurrent create versus explicit drag-to-top collision", async () => {
     const dragCard = await jsend("POST", "/cards", { title: "Concurrent dragged top", project: "garrison" });
     const before = await jget("/board");
-    const backlog = before.body.lists.find((list: any) => list.id === "backlog");
-    const oldMin = Math.min(...backlog.cards.map((card: any) => card.position));
+    const todo = before.body.lists.find((list: any) => list.id === "todo");
+    const oldMin = Math.min(...todo.cards.map((card: any) => card.position));
     const requestedTop = oldMin - 60_000;
 
     const [created, moved] = await Promise.all([
       jsend("POST", "/cards", { title: "Concurrent created top", project: "garrison" }),
       jsend("PATCH", `/cards/${dragCard.body.card.id}`, {
-        list: "backlog",
+        list: "todo",
         position: requestedTop,
         rev: dragCard.body.card.rev
       })

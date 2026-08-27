@@ -30,8 +30,14 @@ export function isEarlierPhase(card, revisitDuty) {
   if (!seq || !seq.length) return true;
   const tgt = seq.indexOf(revisitDuty);
   if (tgt < 0) return false;
-  const cur = seq.indexOf(card?.list);
-  // Off-sequence (terminal / parked) → re-entry: any in-sequence phase is earlier.
+  // Conversations: lists are STATES, the current phase is the card's DUTY.
+  // A terminal-list card (done / needs-attention) is re-ENTERING, so any
+  // in-sequence phase qualifies regardless of the duty it stopped on.
+  if (card?.list === "done" || card?.list === "needs-attention" || card?.list === "archived") return true;
+  // Duty first, list fallback (a legacy card's duty names its FLOW, not a leaf).
+  let cur = seq.indexOf(card?.duty);
+  if (cur < 0) cur = seq.indexOf(card?.list);
+  // Off-sequence (parked / no duty) → re-entry: any in-sequence phase is earlier.
   if (cur < 0) return true;
   return tgt < cur;
 }

@@ -1,7 +1,25 @@
-// Regression for the gateway -> real board seam: an engine-context PATCH is
-// privileged, but only self-driven callers should suppress board dispatch.
-// Significant Web registration hands progression to the board; the garrison
-// doorway and quick inline cards retain their no-double-drive behavior.
+// The gateway → board REGISTRATION seam, against the real five-list board.
+//
+// This file used to pin dispatch OWNERSHIP: a significant Web registration
+// handed progression to the board, which drove the card exactly once, while the
+// garrison doorway and quick inline cards suppressed that drive. The
+// Conversations cut removed board dispatch entirely, and the surviving half of
+// that invariant — "a move never dispatches" — now lives in
+// tests/kanban-dispatch.test.ts, which covers the human move, the engine move,
+// the Running door and the requestsAutoDispatch predicate. None of it is
+// repeated here.
+//
+// What is left, and what this file now pins, is the half nothing else covers:
+// createAutonomousCard is still the door every channel's significant work walks
+// through, and it finishes by MOVING the new card onto `opts.targetList`. The
+// board validates that list. So the registration lane and the board's column
+// set have to agree, and the cut changed one of them.
+//
+// The stub-board suites (tests/gateway-quick-card.test.ts,
+// tests/autonomous-card-retry.test.ts) exercise the same function against a
+// fake that accepts any list, which is right for what they assert (payload
+// shape, rev-race retry) and is exactly why they cannot see this. Here the
+// board is the real makeRequestHandler over the real seedBoard().
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import http from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -13,30 +31,24 @@ import path from "node:path";
 // card; side files still live under the kanban root this file already pins.
 import { setupKanbanState } from "./kanban-state-env";
 let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
-beforeAll(async () => {
-  __kanbanState = await setupKanbanState();
-}, 30_000);
-afterAll(async () => {
-  await __kanbanState?.stop();
-});
-
 
 const ROOT = path.resolve(__dirname, "..");
 const KANBAN = path.join(ROOT, "fittings/seed/kanban-loop");
-const home = mkdtempSync(path.join(tmpdir(), "gateway-dispatch-home-"));
-const boardRoot = mkdtempSync(path.join(tmpdir(), "gateway-dispatch-board-"));
-const runsRoot = mkdtempSync(path.join(tmpdir(), "gateway-dispatch-runs-"));
+const home = mkdtempSync(path.join(tmpdir(), "gateway-registration-home-"));
+const boardRoot = mkdtempSync(path.join(tmpdir(), "gateway-registration-board-"));
+const runsRoot = mkdtempSync(path.join(tmpdir(), "gateway-registration-runs-"));
 
 process.env.GARRISON_HOME = home;
 process.env.GARRISON_KANBAN_DIR = boardRoot;
 process.env.GARRISON_RUNS_DIR = runsRoot;
-process.env.GARRISON_POLICY_PATH = "/nonexistent/gateway-dispatch-policy.json";
+process.env.GARRISON_POLICY_PATH = "/nonexistent/gateway-registration-policy.json";
 
 let boardServer: http.Server;
 let gatewayServer: http.Server;
 let boardBase = "";
 let gatewayChatPosts = 0;
-let createAutonomousCard: any;
+let createAutonomousCard: (args: Record<string, unknown>) => Promise<{ id: string; url: string } | null>;
+let BOARD_LIST_IDS: string[] = [];
 
 const buildPayload = ({ brief, project }: { brief: string; project: string | null }) => ({
   description: brief,
@@ -53,39 +65,30 @@ async function close(server: http.Server) {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-async function json(response: Response) {
-  return response.json() as Promise<any>;
-}
-
-async function create(body: Record<string, unknown>) {
-  const response = await fetch(`${boardBase}/cards`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  expect(response.status).toBe(201);
-  return (await json(response)).card;
-}
-
 async function card(id: string) {
-  return (await json(await fetch(`${boardBase}/cards/${id}`))).card;
+  return (await (await fetch(`${boardBase}/cards/${id}`)).json()).card;
 }
 
-async function waitFor(predicate: () => Promise<boolean> | boolean, timeoutMs = 2000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error("condition did not settle before timeout");
+// Register through the real door and report where the card ended up. `null`
+// means createAutonomousCard gave up — the gateway's caller then falls through
+// to an inline turn, and whatever card it managed to create is orphaned.
+async function register(opts: Record<string, unknown>) {
+  const registered = await createAutonomousCard({
+    message: "Implement a full feature with tests",
+    classification: { taskType: "code", tier: "T2-deep" },
+    opts: { project: "demo", ...opts },
+    buildPayload,
+    logFn: () => {}
+  });
+  return { registered, landedOn: registered ? (await card(registered.id)).list : null };
 }
 
 beforeAll(async () => {
+  __kanbanState = await setupKanbanState();
   mkdirSync(path.join(boardRoot, "cards"), { recursive: true });
 
-  // This test board makes Done the Plan phase's valid next step, so one dispatch
-  // reaches a manual terminal list. Count chat turns specifically: the engine
-  // also reports the required compaction boundary through a separate POST.
+  // A gateway stub that counts turns, so "registration never opens a turn"
+  // stays observable here even though the drive itself is gone.
   gatewayServer = http.createServer((req, res) => {
     if (req.method === "POST") {
       if (req.url === "/chat/stream") gatewayChatPosts += 1;
@@ -110,9 +113,14 @@ beforeAll(async () => {
     import("../fittings/seed/http-gateway/scripts/lib/autonomous-cards.mjs")
   ]);
   createAutonomousCard = cards.createAutonomousCard;
-  const testBoard = seedBoard();
-  testBoard.lists.find((list: { id: string }) => list.id === "plan").validNext = ["done"];
-  await saveBoard(testBoard, boardRoot);
+
+  // The board the fitting actually installs — no fixture edits. The previous
+  // version of this file rewrote a `plan` list's validNext to reach Done; there
+  // is no `plan` list to rewrite any more, and that line is what turned this
+  // suite's collection error into "Cannot set properties of undefined".
+  const board = seedBoard();
+  BOARD_LIST_IDS = board.lists.map((list: { id: string }) => list.id);
+  await saveBoard(board, boardRoot);
 
   boardServer = http.createServer(
     makeRequestHandler({ root: boardRoot, cwd: boardRoot, gatewayUrl, cap: 5 }, path.join(KANBAN, "dist"))
@@ -123,62 +131,50 @@ beforeAll(async () => {
     path.join(home, "ui-fittings", "kanban-loop.json"),
     JSON.stringify({ fittingId: "kanban-loop", url: boardBase, port: Number(new URL(boardBase).port) })
   );
-});
+}, 40_000);
 
 afterAll(async () => {
   await close(boardServer);
   await close(gatewayServer);
+  await __kanbanState?.stop();
   rmSync(home, { recursive: true, force: true });
   rmSync(boardRoot, { recursive: true, force: true });
   rmSync(runsRoot, { recursive: true, force: true });
 });
 
-describe.sequential("gateway registration dispatch ownership", () => {
-  it("auto-dispatches a significant Web card exactly once", async () => {
-    const registered = await createAutonomousCard({
-      message: "Implement a full feature with tests",
-      classification: { taskType: "code", tier: "T2-deep" },
-      opts: { project: "demo" },
-      buildPayload,
-      logFn: () => {}
-    });
+describe.sequential("gateway registration lands on the real board", () => {
+  it("the board under test is the five-column one, with no pipeline lists left", () => {
+    expect(BOARD_LIST_IDS).toEqual(["backlog", "todo", "running", "needs-attention", "scheduled", "done"]);
+  });
 
-    expect(registered?.id).toBeTruthy();
-    await waitFor(async () => gatewayChatPosts >= 1 && (await card(registered.id)).list === "done");
-    // Let any accidental second driver reach the stub before asserting the
-    // exactly-once property. The card's eventual verdict is outside this seam.
+  it("registration never opens a model turn — the board does not drive any more", async () => {
+    const before = gatewayChatPosts;
+    await register({ targetList: "todo" });
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(gatewayChatPosts).toBe(1);
-  });
-
-  it("keeps the in-session garrison doorway move suppressed", async () => {
-    const before = gatewayChatPosts;
-    const created = await create({ title: "doorway", project: "demo" });
-    const moved = await fetch(`${boardBase}/cards/${created.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "x-garrison-engine": "garrison-doorway" },
-      body: JSON.stringify({ list: "plan", rev: created.rev })
-    });
-    expect(moved.status).toBe(200);
-    expect((await json(moved)).dispatched).toBeUndefined();
-    await new Promise((resolve) => setTimeout(resolve, 75));
     expect(gatewayChatPosts).toBe(before);
-    expect((await card(created.id)).list).toBe("plan");
   });
 
-  it("keeps a quick gateway card inline instead of double-driving Implement", async () => {
-    const before = gatewayChatPosts;
-    const registered = await createAutonomousCard({
-      message: "rename a local variable",
-      classification: { taskType: "code", tier: "T0-trivial" },
-      opts: { project: "demo", quick: true, targetList: "implement" },
-      buildPayload,
-      logFn: () => {}
-    });
-
+  it("a registration onto a real column succeeds and reports the card", async () => {
+    const { registered, landedOn } = await register({ targetList: "todo" });
     expect(registered?.id).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve, 75));
-    expect(gatewayChatPosts).toBe(before);
-    expect((await card(registered.id)).list).toBe("implement");
+    expect(landedOn).toBe("todo");
+  });
+
+  // The bug these pinned (every lane targeting a deleted list; one orphan per
+  // attempt) is fixed at both ends: the lanes land on To do, and a move that
+  // still cannot land withdraws the card it created — a caller passing an
+  // unknown list gets null and a clean board, never a silent inline downgrade
+  // WITH a stranded card.
+  it("an unknown target list fails CLEAN — null result, no stranded card", async () => {
+    const countCards = async () => ((await (await fetch(`${boardBase}/cards`)).json()).cards ?? []).length;
+    const before = await countCards();
+
+    const { registered } = await register({ targetList: "plan" });
+
+    expect(registered).toBeNull();
+    expect(
+      await countCards(),
+      "the create half is withdrawn when the move cannot land — no orphan per attempt"
+    ).toBe(before);
   });
 });

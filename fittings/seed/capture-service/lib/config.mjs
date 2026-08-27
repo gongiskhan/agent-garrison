@@ -129,6 +129,12 @@ export function loadConfig(env = process.env) {
       const v = parseCsv(env.GARRISON_CAPTURESERVICE_STT_KEYTERMS);
       return v.length > 0 ? v : ["Zeca", "companion"];
     })(),
+    // Zombie-socket watchdog: reconnect the STT socket when we have been
+    // feeding it audio this recently and NOTHING has come back for this long.
+    // Generous on purpose - Deepgram is legitimately silent through a quiet
+    // room, and the KeepAlive we send when audio goes quiet means a healthy far
+    // end is never mute for minutes. 0 disables.
+    transcribeMuteTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_TRANSCRIBE_MUTE_TIMEOUT_MS, 120000),
     // Test hooks (omi's OMI_API_BASE_URL precedent): redirect the live STT
     // socket / the APNs gateway to local mocks so sandboxed E2E runs never
     // need real keys. Env-only, never in config_schema — production always
@@ -155,6 +161,13 @@ export function loadConfig(env = process.env) {
     wakeMaxCaptureMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_MAX_CAPTURE_MS, 20000),
     wakeMinCaptureMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_MIN_CAPTURE_MS, 0),
     wakeCommandWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_COMMAND_WINDOW_MS, 60000),
+    // How long a wake pulse fired off an unstable Deepgram INTERIM waits for
+    // the authoritative final to confirm it. Sized to one utterance, not to the
+    // capture window: measured interim-to-final gaps on live pendant finals run
+    // p90 ~5s, max ~6.8s. Deliberately NOT derived from wakeMaxCaptureMs - it
+    // used to be, and raising the capture window silently stretched the wearer's
+    // dedupe blackout to a minute.
+    wakeProvisionalTtlMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_PROVISIONAL_TTL_MS, 8000),
     wakeContextSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_MAX_AGE_MS, 120000),
     wakeCardDedupeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CARD_DEDUPE_MS, 600000),

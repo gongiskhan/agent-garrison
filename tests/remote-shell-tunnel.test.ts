@@ -139,6 +139,10 @@ describe("ensure() acts on the answer", () => {
     // lapses, and #startClient skips a live child - so one was found ten hours
     // old, holding nothing, with every retry inheriting it.
     const hosted = JSON.stringify({ tunnel: { hostConnections: 1, ports: [{ portNumber: 2222 }] } });
+    // A tunnel id nothing REAL can hold: the cross-profile lock lives in the
+    // shared tmpdir keyed by tunnel id, so using the production id here makes
+    // the test lose the claim to the live fitting on the same box - correctly.
+    const TEST_DT = { tunnel: `test-retire-${process.pid}`, port: DT.port };
     const kids: any[] = [];
     const cli = fakeCli(hosted);
     const mgr = new TunnelManager({
@@ -151,7 +155,7 @@ describe("ensure() acts on the answer", () => {
     const result = await mgr.ensure({
       name: "csg",
       ssh: { host: "127.0.0.1", port: await freePort(), user: "u", identity: null },
-      via: { devtunnel: DT }
+      via: { devtunnel: TEST_DT }
     } as any);
     expect(result.ok).toBe(false);
     // It got as far as spawning a client - the service gave no reason not to.

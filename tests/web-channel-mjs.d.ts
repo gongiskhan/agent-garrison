@@ -3,6 +3,9 @@
 declare module "*/web-channel-default/scripts/threads.mjs" {
   interface ThreadMeta {
     id: string;
+    /** The conversation this thread IS the channel surface of - derived from the
+     *  id, never read back from the file (threads.mjs conversationIdFor). */
+    conversationId: string | null;
     title: string;
     source: string;
     createdAt: string | null;
@@ -30,6 +33,7 @@ declare module "*/web-channel-default/scripts/threads.mjs" {
     messageKeys?: string[];
   }
   export function safeThreadId(raw: unknown): string | null;
+  export function conversationIdFor(thread: unknown): string | null;
   export function newThreadId(): string;
   export function listThreads(): Promise<ThreadMeta[]>;
   export function getThread(id: string): Promise<Thread | null>;

@@ -18,7 +18,7 @@ import path from "node:path";
 import url from "node:url";
 import { WebSocketServer } from "ws";
 import { HttpError, SessionManager } from "../lib/sessions.mjs";
-import { TunnelManager, garrisonHome, loadTransports } from "../lib/transports.mjs";
+import { SETTLE_SUPERVISOR_MS, TunnelManager, garrisonHome, loadTransports } from "../lib/transports.mjs";
 import { refreshHostTokens, DEFAULT_REFRESH_MS } from "../lib/host-credential.mjs";
 import { ForwardManager } from "../lib/forwards.mjs";
 import { listRemoteDir, readRemoteFile } from "../lib/remote-files.mjs";
@@ -117,6 +117,14 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+/** How long an off-the-request-path caller waits for a fresh devtunnel client
+ *  to bring its forward up. Config, never a literal: a hand-run `devtunnel
+ *  connect` was once silent for 45s before it settled. */
+function tunnelSettleMs() {
+  const sec = Number(process.env.GARRISON_REMOTESHELLRUNTIME_TUNNEL_SETTLE_SECONDS);
+  return Number.isFinite(sec) && sec > 0 ? sec * 1000 : SETTLE_SUPERVISOR_MS;
+}
+
 function assertStatusSlotFree() {
   let recorded;
   try { recorded = JSON.parse(readFileSync(STATUS_FILE, "utf8")); } catch { return; }
@@ -145,13 +153,14 @@ async function assertPortFree(port, host) {
 
 export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const transports = await loadTransports();
-  const tunnels = new TunnelManager({});
+  const notify = (payload) => notifyChannels(opts.notifyFittings, payload);
+  const tunnels = new TunnelManager({ notify });
   const forwards = new ForwardManager({});
-  const manager = new SessionManager({
-    tunnels,
-    transports,
-    notify: (payload) => notifyChannels(opts.notifyFittings, payload)
-  });
+  const manager = new SessionManager({ tunnels, transports, notify });
+  // A tunnel coming back is the moment everything that gave up while it was
+  // down should be restarted — the session pulse, the events watchers, and any
+  // attach a browser is still waiting on. Nothing else observes that edge.
+  tunnels.onRecovered = (transport) => manager.transportRecovered(transport);
   const restored = await manager.restore();
   if (restored > 0) console.log(`[remote-shell] restored ${restored} session record(s)`);
 
@@ -176,6 +185,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
             name: t.name,
             label: t.label,
             via: t.via ? "devtunnel" : "ssh",
+            // The join key for /tunnels: the UI renders health per transport row.
+            tunnel: t.via?.devtunnel?.tunnel ?? null,
             tmuxSession: t.tmuxSession,
             cwd: t.cwd,
             agentCommand: t.agentCommand,
@@ -184,6 +195,21 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
             forwards: forwards.snapshot(t)
           }))
         });
+      }
+      // Tunnel health, and the one lever that used to be "restart the whole
+      // fitting" - which is what both observed outages actually required.
+      if (req.method === "GET" && pathname === "/tunnels") {
+        return jsonRes(res, 200, { tunnels: tunnels.status() });
+      }
+      if (req.method === "POST" && /^\/tunnels\/[^/]+\/repair$/.test(pathname)) {
+        const key = decodeURIComponent(pathname.split("/")[2]);
+        // Accept either the transport name (what the UI shows) or the tunnel id
+        // (what /tunnels is keyed by).
+        const transport = transports.get(key)
+          ?? [...transports.values()].find((t) => t.via?.devtunnel?.tunnel === key);
+        if (!transport) return jsonRes(res, 404, { error: `no transport named "${key}" and no transport on a tunnel with that id` });
+        const result = await tunnels.repair(transport);
+        return jsonRes(res, result.ok ? 200 : 502, { ...result, tunnels: tunnels.status() });
       }
       // Bring a transport's forwards up (idempotent) and report where they landed.
       // POST because it opens ssh channels - a GET that dials would make a status
@@ -229,8 +255,73 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
       if (req.method === "POST" && pathname === "/sessions") {
         const body = await readJsonBody(req);
-        const session = await manager.start(String(body.transport || ""), { label: body.label });
+        const session = await manager.start(String(body.transport || ""), {
+          label: typeof body.label === "string" ? body.label : undefined,
+          recycle: body.recycle === true,
+          // The multi-session spec: a named tmux session in a chosen project
+          // folder. Absent, this is the transport's standing session as ever.
+          tmuxSession: typeof body.tmuxSession === "string" && body.tmuxSession.trim() ? body.tmuxSession.trim() : null,
+          cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null,
+          // "another agent in this folder": the tmux name above is a BASE and
+          // the free instance beside it is chosen here (see start()).
+          allocate: body.allocate === true
+        });
         return jsonRes(res, 200, { session: manager.summary(session) });
+      }
+
+      // ── the exec lane ──────────────────────────────────────────────────
+      // Loopback only, and deliberately ABSENT from the web channel's proxy
+      // allow-list: this runs a command on the remote machine, and the browser
+      // has no business reaching it. The tmux lane above is the interactive
+      // face of the same transport; this is the structured one.
+      if (req.method === "POST" && pathname === "/exec") {
+        const body = await readJsonBody(req);
+        const out = await manager.execArgv(String(body.transport || ""), {
+          argv: body.argv,
+          cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null,
+          stdin: typeof body.stdin === "string" ? body.stdin : null,
+          timeoutMs: Number(body.timeoutMs) > 0 ? Math.min(Number(body.timeoutMs), 900_000) : undefined,
+          login: body.login !== false
+        });
+        return jsonRes(res, 200, out);
+      }
+
+      // One headless agent turn, STREAMED as NDJSON: {delta} lines while the
+      // agent works, then one {result} or {error}. A turn runs for minutes, so a
+      // buffered response would show nothing until it ended - and the caller
+      // could not tell a slow turn from a dead one.
+      if (req.method === "POST" && pathname === "/agent-turns") {
+        const body = await readJsonBody(req);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/x-ndjson");
+        res.setHeader("Cache-Control", "no-store");
+        const send = (obj) => { try { res.write(`${JSON.stringify(obj)}\n`); } catch { /* client gone */ } };
+        let child = null;
+        // A client that hangs up mid-turn takes the remote command with it:
+        // killing the local ssh drops the channel and the far side gets a HUP.
+        req.on("aborted", () => { try { child?.kill("SIGTERM"); } catch {} });
+        try {
+          const turn = await manager.agentTurn(String(body.transport || ""), {
+            prompt: typeof body.prompt === "string" ? body.prompt : "",
+            model: typeof body.model === "string" && body.model.trim() ? body.model.trim() : null,
+            cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null,
+            resumeId: typeof body.resumeId === "string" && body.resumeId.trim() ? body.resumeId.trim() : null,
+            timeoutMs: Number(body.timeoutMs) > 0 ? Math.min(Number(body.timeoutMs), 3_600_000) : undefined,
+            onDelta: (delta) => send({ delta }),
+            onSpawn: (c) => { child = c; }
+          });
+          send({ result: turn });
+        } catch (err) {
+          send({ error: String(err?.message || err), status: err?.status ?? 500 });
+        }
+        return void res.end();
+      }
+
+      // The spawn targets the Shells picker offers: folders under ~/dev on the
+      // transport, annotated with any session already working there.
+      if (req.method === "GET" && pathname === "/projects") {
+        const projects = await manager.listProjects(String(query.transport || ""));
+        return jsonRes(res, 200, { projects });
       }
 
       const m = pathname?.match(/^\/sessions\/([A-Za-z0-9-]+)(\/.*)?$/);
@@ -272,6 +363,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
               endedAt: turn.endedAt,
               output: turn.output ?? "",
               outputRev: turn.outputRev ?? 0,
+              // The progress read still never fails the turn - but it stops
+              // pretending. A frozen transcript now says the link went, instead
+              // of hanging silently until the gateway's own timeout.
+              degraded: Boolean(turn.degraded),
               tail: turn.tail ?? null,
               error: turn.error ?? null
             }
@@ -286,7 +381,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           return jsonRes(res, 200, { ok: true });
         }
         if (req.method === "DELETE" && rest === "") {
-          await manager.remove(session.id);
+          await manager.remove(session.id, { killRemote: query.kill === "1" });
           return jsonRes(res, 200, { ok: true });
         }
       }
@@ -393,13 +488,30 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     });
   });
 
+  // Supervision starts HERE and not a line earlier. A dead remote must never
+  // delay the port opening or the status file landing, or `up()`'s own-port
+  // wait times out and the whole fitting reports failed for a tunnel problem.
+  // The first tick is scheduled, never awaited, and the interval is unref'd.
+  const checkSec = Number(process.env.GARRISON_REMOTESHELLRUNTIME_TUNNEL_CHECK_SECONDS);
+  const supervising = tunnels.startSupervision({
+    transports: [...transports.values()],
+    // 0 disables the loop entirely - the escape hatch if it ever misbehaves.
+    intervalMs: Number.isFinite(checkSec) ? checkSec * 1000 : undefined
+  });
+  if (supervising) console.log("[remote-shell] tunnel supervision armed");
+
   // Keep the remote's host credential alive from HERE. The remote is reachable
   // only through the tunnel it hosts, so a credential that must be renewed there
   // cannot be renewed at all once it lapses. See lib/host-credential.mjs.
   const refreshMin = Number(process.env.GARRISON_REMOTESHELLRUNTIME_TOKEN_REFRESH_MIN);
   const refreshMs = Number.isFinite(refreshMin) && refreshMin > 0 ? refreshMin * 60_000 : DEFAULT_REFRESH_MS;
   const pushTokens = async () => {
-    const results = await refreshHostTokens([...transports.values()], { ensure: (t) => tunnels.ensure(t) });
+    // Off the request path, so it gets the patient settle window: a fresh
+    // deploy genuinely wants the tunnel up rather than a fast "not yet".
+    const settleMs = tunnelSettleMs();
+    const results = await refreshHostTokens([...transports.values()], {
+      ensure: (t) => tunnels.ensure(t, { settleMs, reason: "host-token" })
+    });
     for (const r of results) {
       if (r.ok) console.log(`[remote-shell] host token delivered to ${r.transport} (expires ${r.expiration ?? "unknown"})`);
       else console.warn(`[remote-shell] host token ${r.stage} failed for ${r.transport}: ${r.error}`);
@@ -416,6 +528,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   const shutdown = async () => {
     clearInterval(refreshTimer);
+    tunnels.stopSupervision();
     manager.shutdownAll();
     tunnels.shutdown();
     try { await unlink(STATUS_FILE); } catch {}

@@ -116,7 +116,7 @@ export function listNodes(db) {
 }
 
 export function hello(db, authNode, input, serverSchemaVersion) {
-  const { clientVersion, minSchema, maxSchema, capabilities, localTime, health, activeComposition, tailnetHost, tailnetIp, platform } = input ?? {};
+  const { clientVersion, minSchema, maxSchema, capabilities, localTime, health, activeComposition, tailnetHost, tailnetIp, platform, accentColor } = input ?? {};
   if (localTime) {
     const skew = Math.abs(Date.parse(localTime) - Date.now());
     if (Number.isFinite(skew) && skew > 120_000) {
@@ -138,7 +138,8 @@ export function hello(db, authNode, input, serverSchemaVersion) {
         capabilities_json=@caps, health_json=@health, status=@status,
         active_composition=COALESCE(@comp, active_composition),
         tailnet_host=COALESCE(@th, tailnet_host), tailnet_ip=COALESCE(@ti, tailnet_ip),
-        platform=COALESCE(@pf, platform)
+        platform=COALESCE(@pf, platform),
+        accent_color=COALESCE(NULLIF(@accent,''), accent_color)
        WHERE name=@name`
     ).run({
       at: now(),
@@ -151,6 +152,7 @@ export function hello(db, authNode, input, serverSchemaVersion) {
       th: tailnetHost ?? null,
       ti: tailnetIp ?? null,
       pf: platform ?? null,
+      accent: accentColor ?? null,
       name: authNode.name
     });
     if (behind && prior?.status !== "behind") {
@@ -841,7 +843,7 @@ export function getCard(db, id) {
   return cardRow(r);
 }
 
-export function listCards(db, { list, placement, scheduledBefore, system, includeDeleted } = {}) {
+export function listCards(db, { list, placement, scheduledBefore, system, includeDeleted, frozen } = {}) {
   let sql = "SELECT * FROM cards WHERE 1=1";
   const args = [];
   if (!includeDeleted) sql += " AND deleted_at IS NULL";
@@ -849,8 +851,25 @@ export function listCards(db, { list, placement, scheduledBefore, system, includ
   if (placement) { sql += " AND placement_target=?"; args.push(placement); }
   if (scheduledBefore) { sql += " AND scheduled_for IS NOT NULL AND scheduled_for<=?"; args.push(scheduledBefore); }
   if (system) { sql += " AND system_key=?"; args.push(system); }
+  // Frozen history filter (Conversations migration): "0" = live only, "1" =
+  // frozen only. Every board-facing reader passes "0" — done/needs-attention
+  // are REUSED list ids and 200+ frozen cards must never flood the new board.
+  if (frozen === "0") sql += " AND json_extract(body_json,'$.frozen.at') IS NULL";
+  if (frozen === "1") sql += " AND json_extract(body_json,'$.frozen.at') IS NOT NULL";
   sql += " ORDER BY list, position";
   return db.prepare(sql).all(...args).map((r) => cardRow(r));
+}
+
+// Frozen history guard (Conversations migration, 2026-08-26). A frozen card is
+// read-only: every write refuses EXCEPT (a) DELETE — cleanup stays possible —
+// and (b) a patch whose ONLY key is `frozen`, which is the migration setting
+// or clearing the marker itself; without that escape the migration could not
+// re-run against its own guard and rollback would be impossible.
+function assertNotFrozen(body, id, patch = null) {
+  if (!body?.frozen?.at) return;
+  if (patch && Object.keys(patch).length === 1 && "frozen" in patch) return;
+  throw new StoreError(409, "card-frozen",
+    `card ${id} is frozen history (${body.frozen.reason ?? "legacy"}) — it is read-only`);
 }
 
 // The CAS write. PATCH NEVER upserts: 0 rows matched → 404; a deleted row is
@@ -867,10 +886,13 @@ export function patchCard(db, authNode, id, patch, { ifMatchRev, fence } = {}) {
     const r = db.prepare("SELECT * FROM cards WHERE id=?").get(id);
     if (!r) throw new StoreError(404, "not-found", "no such card (writes never resurrect)");
     if (r.deleted_at) throw new StoreError(404, "deleted", "card is deleted (writes never resurrect)");
+    const currentBody = parseJson(r.body_json, {});
+    // BEFORE the rev check: a frozen card must answer "frozen", not the
+    // misleading "conflict" a stale rev would produce.
+    assertNotFrozen(currentBody, id, patch);
     if (r.rev !== expected) {
       throw new StoreError(409, "conflict", "rev does not match", { rev: r.rev, card: cardRow(r) });
     }
-    const currentBody = parseJson(r.body_json, {});
     if (fence !== undefined && Number.isFinite(Number(currentBody.leaseFence)) && Number(fence) < Number(currentBody.leaseFence)) {
       throw new StoreError(409, "fenced", "write carries a lower fence than the card's recorded claim", {
         cardFence: currentBody.leaseFence
@@ -953,8 +975,9 @@ export function putCardDoc(db, authNode, cardId, name, body) {
     throw new StoreError(422, "invalid-doc-name", "doc name must be a simple filename");
   }
   const tx = db.transaction(() => {
-    const card = db.prepare("SELECT id, deleted_at FROM cards WHERE id=?").get(cardId);
+    const card = db.prepare("SELECT id, deleted_at, body_json FROM cards WHERE id=?").get(cardId);
     if (!card || card.deleted_at) throw new StoreError(404, "not-found", "no such live card");
+    assertNotFrozen(parseJson(card.body_json, {}), cardId);
     db.prepare(
       `INSERT INTO card_docs(card_id, name, body, rev, updated_at, updated_by) VALUES (@card, @name, @body, 1, @at, @by)
        ON CONFLICT(card_id, name) DO UPDATE SET body=excluded.body, rev=card_docs.rev+1,
@@ -977,6 +1000,8 @@ export function listCardDocs(db, cardId) {
 
 export function putCardAttachment(db, authNode, cardId, name, { bytes, sha256 }) {
   const tx = db.transaction(() => {
+    const card = db.prepare("SELECT body_json FROM cards WHERE id=?").get(cardId);
+    if (card) assertNotFrozen(parseJson(card.body_json, {}), cardId);
     db.prepare(
       `INSERT INTO card_attachments(card_id, name, bytes, sha256, home_node, created_at) VALUES (?,?,?,?,?,?)
        ON CONFLICT(card_id, name) DO UPDATE SET bytes=excluded.bytes, sha256=excluded.sha256, home_node=excluded.home_node`

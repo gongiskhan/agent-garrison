@@ -62,14 +62,15 @@ export function boardBase(garrisonHome) {
 }
 
 // D19: register a turn as a card on the board (POST + engine-context move,
-// exactly as the engine does — x-garrison-engine). The default lands the card
-// in Plan so the run engine dispatches it (significant work); a quick card
-// (opts.quick) lands in Implement and carries quick:true, and the caller
-// auto-advances it to Done at turn completion (completeQuickCard). Returns
-// {id, url} or null (board down / not installed → the caller falls back
-// inline; never hard-blocks).
+// exactly as the engine does — x-garrison-engine). Conversations: every lane
+// lands on To do — the five-state board has no duty lists, and the caller that
+// wants the work DRIVEN kicks the card's conversation itself (nothing else
+// will: the tick only re-kicks Running recovery and due schedule-runs). A
+// quick card carries quick:true and the caller auto-advances it to Done at
+// turn completion (completeQuickCard). Returns {id, url} or null (board down /
+// not installed → the caller falls back inline; never hard-blocks).
 export async function createAutonomousCard({ message, classification, opts = {}, buildPayload = null, logFn = () => {} }) {
-  const targetList = opts.targetList ?? "plan";
+  const targetList = opts.targetList ?? "todo";
   try {
     const base = boardBase();
     if (!base) throw new Error("kanban-loop status file not found");
@@ -114,9 +115,8 @@ export async function createAutonomousCard({ message, classification, opts = {},
     // response goes STALE almost immediately for no-project cards (the board
     // fires project inference fire-and-forget, whose first act bumps the rev) —
     // so on ANY failed move, re-GET the card for a fresh rev and retry, up to 3
-    // times. A card left in Backlog would be silently stranded (Backlog is a
-    // manual list, never auto-dispatched), which is exactly the failure the
-    // retry exists to prevent.
+    // times. A card stuck on the create door's landing list instead of its
+    // target would be silently stranded, which is what the retry prevents.
     let rev = card.rev ?? card.card?.rev ?? 0;
     let movedOk = false;
     for (let attempt = 0; attempt < 3 && !movedOk; attempt++) {
@@ -148,9 +148,13 @@ export async function createAutonomousCard({ message, classification, opts = {},
       await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
     }
     if (!movedOk) {
-      // The run would be invisible on a manual list — surface the failure to
-      // the caller instead of claiming success.
-      throw new Error(`board move to ${targetList} failed after retries (card ${id} left in backlog)`);
+      // Fail CLEAN. The create half already landed, and upstream reads a null
+      // return as "board unavailable" and falls through inline — so a card
+      // left behind here is an orphan per attempt, accumulating forever
+      // (found live when every lane briefly targeted a deleted list).
+      // Best-effort delete; the throw still surfaces the failure.
+      try { await fetch(`${base}/cards/${id}`, { method: "DELETE" }); } catch { /* best effort */ }
+      throw new Error(`board move to ${targetList} failed after retries (card ${id} withdrawn)`);
     }
     const url = `${base}/#/cards/${id}`;
     logFn({ kind: "autonomous-card-created", id, url, list: targetList, quick: opts.quick === true, taskType: classification?.taskType, tier: classification?.tier });
@@ -414,7 +418,12 @@ export async function cardById(cardId) {
     if (!r.ok) return null;
     const doc = await r.json();
     const card = doc.card ?? doc;
-    return card && typeof card === "object" && card.id ? card : null;
+    if (!card || typeof card !== "object" || !card.id) return null;
+    // The summary carries only checklist COUNTS; the items ride as a sibling.
+    // The launcher's brief needs the items — they are the card's concrete asks.
+    if (Array.isArray(doc.checklist)) card.checklist = doc.checklist;
+    if (typeof doc.acceptance === "string") card.acceptance = doc.acceptance;
+    return card;
   } catch {
     return null;
   }

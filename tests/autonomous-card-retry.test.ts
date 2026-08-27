@@ -79,7 +79,7 @@ afterAll(() => {
 });
 
 describe("createAutonomousCard rev-race retry (rev-s2 finding #1)", () => {
-  it("retries the move with a re-fetched rev and lands the card in plan", async () => {
+  it("retries the move with a re-fetched rev and lands the card on To do", async () => {
     const board = mockBoard();
     await new Promise<void>((r) => board.server.listen(0, "127.0.0.1", () => r()));
     const addr = board.server.address() as { port: number };
@@ -87,7 +87,7 @@ describe("createAutonomousCard rev-race retry (rev-s2 finding #1)", () => {
     const out = await fn("build X", { taskType: "code", tier: "T1-standard" }, {});
     expect(out).not.toBeNull();
     expect(out.id).toBe("01MOCKCARD0000000000000000");
-    expect(board.getList()).toBe("plan"); // the retry moved it
+    expect(board.getList()).toBe("todo"); // the retry moved it
     board.server.close();
   });
 

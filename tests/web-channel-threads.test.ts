@@ -85,6 +85,36 @@ describe("web-channel threads store", () => {
     expect((t2 as Loose).sessionIds).toEqual([]);
   });
 
+  it("a thread carries the conversation it IS the channel surface of", async () => {
+    // ONE identity: the thread's id names the conversation whose record the view
+    // streams, so no lookup table can ever go stale between them.
+    const fresh = await threads.ensureThread({ id: "chat-conv-identity" });
+    expect(fresh.conversationId).toBe("chat-conv-identity");
+    expect((await threads.getThread("chat-conv-identity"))?.conversationId).toBe("chat-conv-identity");
+    const [meta] = (await threads.listThreads()).filter((m) => m.id === "chat-conv-identity");
+    expect(meta.conversationId).toBe("chat-conv-identity");
+  });
+
+  it("a thread written before conversations existed adopts its own id on read", async () => {
+    const file = path.join(threads._threadsDirForTest(), "chat-legacy-conv.json");
+    fs.writeFileSync(file, JSON.stringify({
+      id: "chat-legacy-conv",
+      title: "Older thread",
+      messages: [{ role: "user", text: "hi" }],
+    }), "utf8");
+    expect((await threads.getThread("chat-legacy-conv"))?.conversationId).toBe("chat-legacy-conv");
+  });
+
+  it("derives the conversation id, so a tampered file cannot show another conversation's record", async () => {
+    const file = path.join(threads._threadsDirForTest(), "chat-conv-tamper.json");
+    fs.writeFileSync(file, JSON.stringify({
+      id: "chat-conv-tamper",
+      conversationId: "01SOMEONE-ELSES-CONVERSATION",
+      messages: [],
+    }), "utf8");
+    expect((await threads.getThread("chat-conv-tamper"))?.conversationId).toBe("chat-conv-tamper");
+  });
+
   it("ensureThread lets a Discuss open upgrade a thread stamped with the default chat source", async () => {
     // "chat" is what ensureThread stamps when nobody declared a source, so a
     // later Discuss open must be able to fill it in. Without this, whichever code

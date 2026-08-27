@@ -30822,9 +30822,20 @@ function attachTerminalScrolling(term, mount, { isTmux }) {
       return false;
     }
   };
+  let wheelWindowAt = 0;
+  let wheelWindowCount = 0;
+  const wheelAllowed = () => {
+    const now = Date.now();
+    if (now - wheelWindowAt > 1e3) {
+      wheelWindowAt = now;
+      wheelWindowCount = 0;
+    }
+    return ++wheelWindowCount <= 40;
+  };
   const wheelHost = term;
   if (typeof wheelHost.attachCustomWheelEventHandler === "function") {
     wheelHost.attachCustomWheelEventHandler(() => {
+      if (!wheelAllowed()) return false;
       if (mouseReported()) return true;
       if (isTmux()) return false;
       return true;
@@ -31162,6 +31173,26 @@ function TerminalPane({
 
 // ui/main.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime());
+function agoLabel(iso) {
+  if (!iso) return "never";
+  const secs = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1e3));
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  return `${Math.round(secs / 3600)}h ago`;
+}
+function tunnelHealth(row) {
+  if (!row) return { tone: "unknown", label: "unknown", detail: null };
+  if (row.carrying) return { tone: "up", label: "up", detail: `carried ${agoLabel(row.lastOkAt)}` };
+  if (row.repairing) return { tone: "repairing", label: "repairing", detail: "replacing the tunnel client" };
+  if (row.parked) return { tone: "parked", label: "parked", detail: row.parked.message };
+  return {
+    tone: "down",
+    label: row.state === "unknown" ? "unknown" : row.state,
+    // The whole point of the probe's verdicts: "wedged" and "refused" send the
+    // reader to different machines.
+    detail: row.probeReason ?? row.lastError ?? `last carried ${agoLabel(row.lastOkAt)}`
+  };
+}
 async function api(path, init) {
   const res = await fetch(path, {
     ...init,
@@ -31177,14 +31208,18 @@ function App() {
   const [selected, setSelected] = (0, import_react2.useState)(null);
   const [error, setError] = (0, import_react2.useState)(null);
   const [starting, setStarting] = (0, import_react2.useState)(null);
+  const [tunnels, setTunnels] = (0, import_react2.useState)({});
+  const [repairing, setRepairing] = (0, import_react2.useState)(null);
   const refresh = (0, import_react2.useCallback)(async () => {
     try {
-      const [s, t] = await Promise.all([
+      const [s, t, h] = await Promise.all([
         api("/sessions"),
-        api("/transports")
+        api("/transports"),
+        api("/tunnels")
       ]);
       setSessions(s.sessions);
       setTransports(t.transports);
+      setTunnels(h.tunnels ?? {});
       setSelected((cur) => cur && s.sessions.some((x) => x.id === cur) ? cur : s.sessions[0]?.id ?? null);
       setError(null);
     } catch (err) {
@@ -31219,6 +31254,18 @@ function App() {
       setStarting(null);
     }
   };
+  const repairTunnel = async (transport) => {
+    setRepairing(transport);
+    setError(null);
+    try {
+      await api(`/tunnels/${encodeURIComponent(transport)}/repair`, { method: "POST", body: "{}" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRepairing(null);
+      void refresh();
+    }
+  };
   const current = (0, import_react2.useMemo)(
     () => sessions.find((s) => s.id === selected) ?? null,
     [sessions, selected]
@@ -31243,21 +31290,44 @@ function App() {
         s.id
       )),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "rail-section", children: "Transports" }),
-      transports.map((t) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "transport", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "transport-name", children: [
-          t.label,
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "transport-via", children: t.via })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "button",
-          {
-            className: "start",
-            disabled: starting === t.name,
-            onClick: () => startSession(t.name),
-            children: starting === t.name ? "Starting..." : "Start / attach"
-          }
-        )
-      ] }, t.name))
+      transports.map((t) => {
+        const row = t.tunnel ? tunnels[t.tunnel] : void 0;
+        const health = t.tunnel ? tunnelHealth(row) : null;
+        return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "transport", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "transport-name", children: [
+            t.label,
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "transport-via", children: t.via })
+          ] }),
+          health && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "link-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `dot link-${health.tone}`, "aria-hidden": true }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "link-label", children: health.label }),
+            row?.child && !row.carrying && // The sentence the old status shape made impossible to say.
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "link-note", children: [
+              "child ",
+              row.child.alive ? "alive" : "gone"
+            ] })
+          ] }),
+          health?.detail && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "link-detail", children: health.detail }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            "button",
+            {
+              className: "start",
+              disabled: starting === t.name,
+              onClick: () => startSession(t.name),
+              children: starting === t.name ? "Starting..." : "Start / attach"
+            }
+          ),
+          t.tunnel && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            "button",
+            {
+              className: "repair",
+              disabled: repairing === t.name || Boolean(row?.repairing),
+              onClick: () => repairTunnel(t.name),
+              children: repairing === t.name || row?.repairing ? "Repairing..." : "Repair tunnel"
+            }
+          )
+        ] }, t.name);
+      })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("main", { className: "pane", children: current ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(TerminalPane, { ptyId: current.id, isActive: true }, current.id) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "placeholder", children: "Start a transport session to attach its terminal." }) })
   ] });

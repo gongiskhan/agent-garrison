@@ -22,7 +22,7 @@ import { ensureMorningBriefTemplate, seedBoard } from "../fittings/seed/kanban-l
 // @ts-ignore — pure .mjs
 import { createCard, loadCard, loadAllCards, migrateBoard, scheduleHolds, normaliseChecklist, cardPosition, normaliseScheduleAction, updateCardCAS, BOARD_VERSION } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { processCard, runScheduleNow, sweepDueSchedules } from "../fittings/seed/kanban-loop/lib/engine.mjs";
+import { runScheduleNow, sweepDueSchedules } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 // @ts-ignore — pure .mjs
 import { nextCronOccurrence, latestCronOccurrence, scheduleValidationError } from "../fittings/seed/kanban-loop/lib/schedules.mjs";
 // @ts-ignore — pure .mjs
@@ -73,19 +73,9 @@ describe("scheduleHolds", () => {
   });
 });
 
-describe("engine schedule guard", () => {
-  it("skips a schedule-held card on an immediate agent list", async () => {
-    const root = tmp();
-    const card = await createCard(root, {
-      title: "later",
-      list: "implement",
-      scheduledFor: future()
-    });
-    const { outcome } = await processCard({ root, board, card, runFn: forbiddenRunFn });
-    expect(outcome.status).toBe("skipped");
-    expect(outcome.reason).toBe("scheduled");
-  });
-});
+// The old engine guard (processCard skipping a held card) died with duty-list
+// dispatch; scheduleHolds is the surviving predicate and every kick seam
+// funnels through it (the tick checks card.scheduledFor via the sweep).
 
 describe("createCard schedule fields", () => {
   it("defaults scheduleAction to notify only when scheduled", async () => {
@@ -103,16 +93,31 @@ describe("createCard schedule fields", () => {
   });
 });
 
-describe("board v5 Scheduled migration", () => {
-  it("adds one fixed system column at the far left and is idempotent", () => {
+describe("board migration guard (Conversations)", () => {
+  it("heals an old board to AT MOST v9 and never self-stamps v10 (guard, not transform)", () => {
     const old = { version: 4, lists: [{ id: "backlog", title: "Backlog", order: 0, kind: "manual" }] };
     const migrated = migrateBoard(old as any);
-    expect(migrated.version).toBe(BOARD_VERSION);
+    // v10 is the Conversations state board, written ONLY by the one-pass
+    // migration script — migrate-on-read heals legacy layouts but stamps 9.
+    // (Versions past 10 are additive layout steps and DO apply on read.)
+    expect(BOARD_VERSION).toBeGreaterThanOrEqual(10);
+    expect(migrated.version).toBe(9);
     expect(migrated.lists[0]).toMatchObject({
       id: "scheduled", order: -1, userOrder: -1, kind: "scheduled", system: true
     });
-    expect(migrateBoard(migrated)).toBe(migrated);
     expect(migrated.lists.filter((list: any) => list.id === "scheduled")).toHaveLength(1);
+    // idempotent: a second pass changes nothing material
+    const again = migrateBoard(migrated);
+    expect(again.version).toBe(9);
+    // a v10 board crosses the guard and takes only the additive v11 step:
+    // Backlog appears, nothing legacy (Archived, Scheduled re-slot) fires.
+    const v10 = { version: 10, lists: [] };
+    const stepped = migrateBoard(v10 as any);
+    expect(stepped.version).toBe(BOARD_VERSION);
+    expect(stepped.lists.map((list: any) => list.id)).toEqual(["backlog"]);
+    // …and a current board passes through untouched.
+    const current = { version: BOARD_VERSION, lists: [] };
+    expect(migrateBoard(current as any)).toBe(current);
   });
 });
 
@@ -328,7 +333,7 @@ describe("sweepDueSchedules", () => {
     expect(new Set(keys).size).toBe(1);
   });
 
-  it("run mode advances a manual-list card into its sequence head", async () => {
+  it("run mode lands the card on To do carrying scheduleAction run (the tick's kick signal)", async () => {
     const root = tmp();
     const card = await createCard(root, {
       title: "run me",
@@ -340,33 +345,18 @@ describe("sweepDueSchedules", () => {
     const swept = await sweepDueSchedules(root, board);
     expect(swept).toEqual([{ id: card.id, action: "run" }]);
     const after = await loadCard(root, card.id);
-    expect(after.list).toBe("implement");
+    // Conversations: there are no agent lists to advance into. The card stays
+    // on To do with scheduleAction "run" — the tick kicks its conversation and
+    // the kick clears the flag.
+    expect(after.list).toBe("todo");
+    expect(after.scheduleAction).toBe("run");
     expect(after.scheduledFor).toBeNull();
     expect(after.scheduleNotifiedAt).toBeNull();
   });
 
-  it("run mode without a sequence targets the first non-interactive agent exit", async () => {
-    const root = tmp();
-    // todo's validNext is [discuss, plan]; discuss is agent-interactive, so the
-    // auto-run must land on plan.
-    const card = await createCard(root, { title: "auto", list: "todo", scheduledFor: past(), scheduleAction: "run" });
-    await sweepDueSchedules(root, board);
-    expect((await loadCard(root, card.id)).list).toBe("plan");
-  });
-
-  it("run mode on an agent list just releases the hold in place", async () => {
-    const root = tmp();
-    const card = await createCard(root, { title: "held run", list: "implement", scheduledFor: past(), scheduleAction: "run" });
-    const swept = await sweepDueSchedules(root, board);
-    expect(swept).toEqual([{ id: card.id, action: "run" }]);
-    const after = await loadCard(root, card.id);
-    expect(after.list).toBe("implement");
-    expect(after.scheduledFor).toBeNull();
-  });
-
   it("never touches a running card", async () => {
     const root = tmp();
-    const card = await createCard(root, { title: "busy", list: "implement", scheduledFor: past(), scheduleAction: "run" });
+    const card = await createCard(root, { title: "busy", list: "todo", scheduledFor: past(), scheduleAction: "run" });
     const disk = await loadCard(root, card.id);
     disk.status = "running";
     const { saveCard } = await import("../fittings/seed/kanban-loop/lib/board.mjs" as string);
@@ -394,7 +384,8 @@ describe("sweepDueSchedules", () => {
     const all = await loadAllCards(root);
     const occurrences = all.filter((card: any) => card.scheduleTemplateId === template.id);
     expect(occurrences).toHaveLength(1);
-    expect(occurrences[0]).toMatchObject({ list: "implement", occurrenceAt: due });
+    // Occurrences land on To do with the run flag; the tick kicks them.
+    expect(occurrences[0]).toMatchObject({ list: "todo", scheduleAction: "run", occurrenceAt: due });
     const after = await loadCard(root, template.id);
     expect(after.schedule.lastAt).toBe(due);
     expect(after.schedule.nextAt).toBe("2026-08-06T08:00:00.000Z");
@@ -521,7 +512,8 @@ describe("sweepDueSchedules", () => {
     });
     const result = await runScheduleNow(root, board, template.id, { now: () => "2026-08-05T13:00:00.000Z" });
     expect(result.created).toBe(true);
-    expect(result.card).toMatchObject({ scheduleTemplateId: template.id, list: "implement" });
+    // Run-now occurrences land on To do with the run flag (the tick kicks them).
+    expect(result.card).toMatchObject({ scheduleTemplateId: template.id, list: "todo", scheduleAction: "run" });
     expect((await loadCard(root, template.id)).schedule.nextAt).toBe("2026-08-06T07:00:00.000Z");
   });
 });

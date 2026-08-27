@@ -39,27 +39,49 @@ describe("Kanban Watch Panic UI", () => {
     );
   });
 
-  it("keeps Panic in Watch and leads a parked card to an editable routing retry", () => {
+  it("keeps Panic on the raw log and leads a parked card to an editable routing retry", () => {
     const source = readFileSync(
       path.join(REPO, "fittings/seed/kanban-loop/ui/main.tsx"),
       "utf8"
     );
     const watch = source.slice(source.indexOf("function WatchSheet"), source.indexOf("// ── list-config sheet"));
-    const detail = source.slice(source.indexOf("function DetailSheet"), source.indexOf("// ── session transcript view"));
+    const detail = source.slice(source.indexOf("function DetailSheet"), source.indexOf("// ── terminal modal"));
 
     expect(watch).toContain("api.panic(card.id)");
     expect(watch).toContain("Partial output will be kept but ignored");
     expect(watch).toContain("Review routing &amp; retry");
-    // Earlier remote phases stay replayable, so a finished dispatch still opens
-    // on the rich Log rather than falling back to Raw.
-    expect(watch).toContain('const hasRemoteReplay = Boolean(card.dispatch?.runId || card.dispatchRuns?.length);');
-    expect(watch).toContain('const hasSession = card.status === "running" || hasRemoteReplay || (card.sessionIds?.length ?? 0) > 0;');
-    expect(watch).toContain('useState<"session" | "raw">(hasSession ? "session" : "raw")');
-    expect(watch).toContain('live={card.status === "running" && live !== false && !done}');
-    expect(watch).toContain('dispatch={card.dispatch}');
-    expect(watch).toContain('dispatchRuns={card.dispatchRuns ?? []}');
+    // The sheet is the RAW layer now: the rich account of a card's work is its
+    // conversation, rendered in the opened card, so the tab strip and the
+    // transcript picker under it are gone and the phase log is the whole body.
+    expect(watch).toContain('<Sheet title={`Raw log: ${card.title}`}');
+    expect(watch).toContain('className="wscr"');
+    expect(watch).not.toContain("SessionViewer");
+    expect(watch).not.toContain('setTab(');
+    expect(source).not.toContain("function SessionViewer");
     expect(detail).toContain("Save & Retry");
     expect(detail).toContain("initialOpen={parked}");
     expect(detail).toContain("patchCard({ routing:");
+  });
+
+  // The card modal's conversation surface: rendered for a conversation-linked
+  // card, and ONLY for one - a legacy card frozen before the pivot has no ledger
+  // to read, so its runDir evidence block is the only proof it has and stays.
+  it("renders the conversation for a conversation-linked card and keeps legacy evidence for the rest", () => {
+    const source = readFileSync(
+      path.join(REPO, "fittings/seed/kanban-loop/ui/main.tsx"),
+      "utf8"
+    );
+    const detail = source.slice(source.indexOf("function DetailSheet"), source.indexOf("// ── terminal modal"));
+
+    expect(detail).toContain("const conversationId = card.conversationId ?? null;");
+    expect(detail).toContain("{conversationId && (");
+    expect(detail).toContain("<CardConversation");
+    // The evidence block survives, gated on NOT having a conversation.
+    expect(detail).toContain("const showEvidence = !conversationId &&");
+    expect(detail).toContain('<div className="evidence">');
+    // Every action the card offered still hangs off the same shared row, and the
+    // danger zone with it.
+    expect(detail).toContain("<CardActions card={card} list={cardList} busy={false} withId handlers={actions} />");
+    expect(detail).toContain('<div className="danger-zone">');
   });
 });

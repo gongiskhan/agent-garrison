@@ -19,12 +19,16 @@ import { promises as fs, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ulid } from "./ulid.mjs";
+// Function-level ESM cycle with coordination.mjs — safe: neither side calls
+// the other at module init, and the resolver is the ONE project→path door.
+import { repoPathForProject } from "./coordination.mjs";
 import { routeTerminalTransition } from "./notify-origin.mjs";
 import { generateHandoffIfDone } from "./handoff.mjs";
 import { deriveOriginId } from "./origins.mjs";
 import { markSteeringApplied } from "./steering.mjs";
 import { adoptFlowKeys } from "./policy.mjs";
 import { emitPersonalCompletionAfterDone, isPersonalDoneTransition } from "./personal-memory-outbox.mjs";
+import { openConversation } from "@garrison/claude-pty";
 import {
   SCHEDULE_ACTIONS,
   normaliseScheduleAction,
@@ -180,7 +184,7 @@ async function mirrorCard(root, card) {
 
 // The current on-disk board schema version. Bumped whenever a migration below
 // must run once on load for EVERY existing board (not just model-driven ones).
-export const BOARD_VERSION = 9;
+export const BOARD_VERSION = 11;
 
 // A duty-backed list's display title. The board is the thing Gonçalo looks at all
 // day, so a list that runs a duty must SAY it runs a duty (brief §2.4) — otherwise
@@ -251,6 +255,35 @@ export function dutyListTitle(id) {
 export function migrateBoard(board) {
   if (!board || typeof board !== "object") return board;
   if ((board.version || 0) >= BOARD_VERSION) return board;
+  // A ≥v10 (Conversations) board takes ONLY the explicit version-gated steps
+  // below — the legacy healing further down would re-add the Archived tail and
+  // re-slot Scheduled to the far left, columns/positions the five-state cut
+  // removed on purpose (caught by tests/kanban.test.ts the day v11 landed).
+  if ((board.version || 0) >= 10) {
+    let lists = board.lists || [];
+    // v10→v11 (2026-08-27): the Backlog column returns as a HUMAN-MANAGED
+    // shelf — work parked for later, with To do as the immediate-work list.
+    // Purely additive (no card moves, no kind changes), so unlike v10 it IS
+    // safe to do on read. Slotted leftmost via a below-minimum order so the
+    // five existing columns keep the exact positions the board already has.
+    if (!lists.some((l) => l.id === "backlog")) {
+      const minOrder = lists.reduce((m, l) => Math.min(m, Number.isFinite(l.order) ? l.order : 0), 0);
+      lists = [
+        {
+          id: "backlog", title: "Backlog", kind: "manual", trigger: "manual",
+          order: minOrder - 1, validNext: ["todo", "done"]
+        },
+        ...lists
+      ];
+      lists = lists.map((list) => {
+        if (list.id === "todo") return { ...list, validNext: ["backlog", "done"] };
+        if (list.id === "needs-attention") return { ...list, validNext: ["todo", "backlog", "done"] };
+        if (list.id === "done") return { ...list, validNext: ["todo", "backlog"] };
+        return list;
+      });
+    }
+    return { ...board, version: BOARD_VERSION, lists };
+  }
   let lists = board.lists || [];
   if ((board.version || 0) < 3) {
     lists = lists.map((l) => {
@@ -362,7 +395,35 @@ export function migrateBoard(board) {
       };
     });
   }
-  return { ...board, version: BOARD_VERSION, lists };
+  // v9→v10 (2026-08-26, Conversations) is a GUARD, not a transform. The board
+  // becomes five state columns and 200+ legacy cards freeze as history — a
+  // CARD migration, not a layout migration, so it is NOT done on read:
+  // scripts/migrate-conversations.mjs does the board and the cards in ONE
+  // pass. Until it runs, a v9 board on v10 code is served exactly as it is
+  // and stays stamped 9 — a half-migrated board (new columns, old cards)
+  // would strand every card through relocateStrandedCards. Nothing here to
+  // get wrong, which is the point: the two live boards recorded above (v6,
+  // v8) were stamped by a migration that shipped a version bump ahead of its
+  // transform.
+  // Every board on this path is pre-Conversations (the ≥v10 branch above
+  // returned already): heal it, warn, and leave it stamped AT MOST 9 — the
+  // v9→v10 step is a CARD migration run once by scripts/migrate-conversations.mjs.
+  console.warn("[kanban] board is pre-Conversations — run scripts/migrate-conversations.mjs; serving the legacy layout");
+  return { ...board, version: 9, lists };
+}
+
+// list ⟷ status coherence (Conversations): lists ARE the states, `card.list`
+// is authoritative and `status` mirrors it. Applied at the ONE write choke
+// point below, on the BODY, before the store serialises it — so the store's
+// re-derivation of promoted columns from body_json agrees by construction.
+export function coherentCardState(card) {
+  if (!card || typeof card !== "object") return card;
+  if (card.list === "running") return card.status === "running" ? card : { ...card, status: "running" };
+  if (card.list === "needs-attention") {
+    return card.status === "needs-attention" ? card : { ...card, status: "needs-attention" };
+  }
+  if (card.status === "running" || card.status === "needs-attention") return { ...card, status: "ok" };
+  return card;
 }
 
 /** Cards stranded in a list this migration removed. The board file only holds the
@@ -391,10 +452,14 @@ export async function loadBoard(root = kanbanRoot()) {
   const board = doc?.body ?? null;
   if (!board || typeof board !== "object") throw missingBoardError();
   // Migration on read, persisted back so it runs once; a fresh board is already at
-  // BOARD_VERSION.
+  // BOARD_VERSION. The v10 Conversations bump is a guard, not a transform: a v9
+  // board comes back still stamped 9, and persisting THAT every read would churn
+  // a config-doc rev per load — persist only when the version actually advanced.
   if (board && (board.version || 0) < BOARD_VERSION) {
     const migrated = migrateBoard(board);
-    await saveBoard(migrated, root);
+    if ((migrated?.version || 0) > (board.version || 0)) {
+      await saveBoard(migrated, root);
+    }
     return migrated;
   }
   return board;
@@ -565,8 +630,10 @@ export function cardScope(card) {
   return "unscoped";
 }
 
-export async function createCard(root, { title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
-  const id = ulid();
+export async function createCard(root, { id: explicitId = null, conversationId = null, title, description = "", project = null, scope = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+  // Conversations: a card materializing from a conversation TAKES the
+  // conversation's ULID as its id — one identity, one directory name.
+  const id = typeof explicitId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(explicitId) ? explicitId : ulid();
   // Personal is an independent label and may coexist with a project (for example,
   // a private task whose implementation still belongs to a real repository).
   // Every non-personal legacy/new shape derives project vs unscoped from the
@@ -599,12 +666,15 @@ export async function createCard(root, { title, description = "", project = null
   });
   const card = {
     id,
+    conversationId: typeof conversationId === "string" && conversationId ? conversationId : null,
     title: title ?? "(untitled)",
     description,
     project,
     scope,
     list,
-    status: "ok",
+    // list ⟷ status coherence holds from birth: a launcher-created Running
+    // card is status running, everything else starts ok.
+    status: list === "running" ? "running" : "ok",
     iterations: 0,
     rev: 0, // optimistic-concurrency revision (compare-and-swap on write)
     cost: null,
@@ -1086,6 +1156,57 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
 //     under the same lock (closure cleanup cannot race a reopen/delete).
 // A post-commit hook failure is reported as `postCommitError` but never turns a
 // committed card write into a false CAS failure.
+// The Done-invariant verdict for a card entering `done`. Scoped to
+// CONVERSATION-linked cards on purpose: their terminal handoff is the durable
+// gate record (validator rule 10 + the launcher's flow policy are the other
+// two layers). A card with no conversation — hand-managed, personal, or a
+// pre-Conversations legacy card — owes nothing at this door; its gates lived
+// in the retired engine transitions and freezing history is the migration's
+// job, not this write's.
+function doneEvidenceVerdict(card) {
+  try {
+    if (!card.conversationId) return { ok: true };
+    const store = openConversation(card.conversationId, { role: "board" });
+    const last = store.lastHandoffs(1)[0]?.handoff ?? null;
+    if (!last) return { ok: false, reason: "conversation has no handoff" };
+    if (last.status !== "complete") return { ok: false, reason: `terminal handoff status is ${last.status}` };
+    // Relative refs are written from the STRETCH's cwd — the card's project
+    // repo — while this check runs in the board server's. Unanchored, every
+    // relative ref failed here after PASSING the launcher's exit gate, and the
+    // done transition 409'd forever with the conversation finished (found
+    // live: a card wedged on Running with a complete terminal handoff).
+    const repo = card.project ? repoPathForProject(card.project) : null;
+    const resolvable = (last.evidenceRefs ?? []).some((ev) => {
+      if (ev?.kind !== "gate" && ev?.kind !== "run" && ev?.kind !== "file") return false;
+      const candidates = path.isAbsolute(String(ev.ref ?? ""))
+        ? [ev.ref]
+        : [repo && path.join(repo, ev.ref), ev.ref].filter(Boolean);
+      return candidates.some((candidate) => {
+        try {
+          return readFileSync(candidate).length > 0;
+        } catch {
+          return false;
+        }
+      });
+    });
+    return resolvable ? { ok: true } : { ok: false, reason: "no resolvable gate/run/file evidence in the terminal handoff" };
+  } catch (err) {
+    return { ok: false, reason: `evidence check failed: ${err?.message}` };
+  }
+}
+
+// Best-effort conversation-ledger append from the board process. The ledger
+// must never fail a card write. Exported: the server's materialization door
+// writes card-materialized through the same seam.
+export function appendConversationEvent(card, evt) {
+  try {
+    if (!card?.conversationId) return;
+    openConversation(card.conversationId, { role: "board" }).append(evt);
+  } catch {
+    /* fail-open */
+  }
+}
+
 async function writeCardWithHooks(root, { id, card = null, expectedRev = null, mutate = null, at, hooks = {} }) {
   // Snapshot the terminal edge while the CAS owns the authoritative before/after
   // pair, then perform the neutral outbox I/O only after the write commits.
@@ -1129,12 +1250,31 @@ async function writeCardWithHooks(root, { id, card = null, expectedRev = null, m
       }
       const candidate = typeof mutate === "function" ? await mutate(disk) : card;
       if (!candidate) return { ok: false, skipped: true, card: disk };
+      // list ⟷ status coherence runs on the BODY at the one choke point, so
+      // promoted columns re-derived from body_json agree by construction.
       const next = {
-        ...candidate,
+        ...coherentCardState(candidate),
         coordinationSeq: coordinationSeqForWrite(disk, candidate),
         rev: (disk.rev ?? 0) + 1,
         updated: at
       };
+      // The Done invariant (Conversations): a card that RAN owes evidence.
+      // A conversation card owes a terminal handoff whose gate/run evidence
+      // still resolves; a legacy run card owes <runDir>/evidence/evidence.md.
+      // A human override passes but is RECORDED as unproven — never as a pass.
+      if (next.list === "done" && (disk?.list ?? null) !== "done") {
+        const verdict = doneEvidenceVerdict(next);
+        if (!verdict.ok) {
+          const override = next.completionOverride && typeof next.completionOverride.reason === "string" && next.completionOverride.reason.trim();
+          if (!override) {
+            return { ok: false, precondition: true, detail: { ok: false, code: "evidence-required", reason: verdict.reason }, card: disk };
+          }
+          appendConversationEvent(next, {
+            kind: "card-completed-unproven",
+            payload: { cardId: next.id, reason: next.completionOverride.reason, missing: verdict.reason }
+          });
+        }
+      }
       let prepared = null;
       if (typeof hooks.beforeWrite === "function") {
         prepared = await hooks.beforeWrite({ disk, next });
@@ -1186,6 +1326,21 @@ async function writeCardWithHooks(root, { id, card = null, expectedRev = null, m
       // a finished | blocked | failed event — appends to the origin's durable event log
       // for ALL transports, and posts the (legacy) web text to the originating thread.
       routeTerminalTransition(root, disk, written, { summary: hooks.terminalSummary });
+      // Conversations: a state change on a conversation-linked card is a ledger
+      // event, written by the SERVER at the one choke point — actor attribution
+      // comes from the door (launcher | human | schedule-sweep | steering), and
+      // an "unknown" in the metrics is a real finding, never defaulted to human.
+      if (written.conversationId && ((disk?.list ?? null) !== written.list || (disk?.status ?? null) !== written.status)) {
+        appendConversationEvent(written, {
+          kind: "card-state-changed",
+          payload: {
+            cardId: written.id,
+            from: { list: disk?.list ?? null, status: disk?.status ?? null },
+            to: { list: written.list, status: written.status },
+            by: typeof hooks.actor === "string" && hooks.actor ? hooks.actor : "unknown"
+          }
+        });
+      }
       // The Done handoff is scheduled only after this loop returns. If it were
       // queued here, its callback could run before processCard writes its final
       // duty-summary.
@@ -1299,7 +1454,11 @@ export async function listCardIds(root = kanbanRoot()) {
 }
 
 export async function loadAllCards(root = kanbanRoot()) {
-  return (await boardStateClient().listCards()).map((row) => cardFromStore(row, { compat: true }));
+  // frozen:"0" unconditionally: done/needs-attention are REUSED list ids and
+  // the frozen history (Conversations migration) must never reach the board,
+  // its ticks, coordination scans or the weekly review. History readers ask
+  // the state service for frozen:"1" explicitly.
+  return (await boardStateClient().listCards({ frozen: "0" })).map((row) => cardFromStore(row, { compat: true }));
 }
 
 // Derive list membership from the cards (pure) — never stored.

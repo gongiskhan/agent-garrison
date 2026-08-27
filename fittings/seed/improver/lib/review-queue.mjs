@@ -65,7 +65,18 @@ export function findProposal(queue, id) {
 }
 
 export function markApplied(queue, id, evidence, at) {
-  return queue.map((p) => (p.id === id ? { ...p, status: "applied", appliedAt: at, evidence } : p));
+  // Apply evidence (bytes/sha/targetFile — the receipt of the write) is MERGED
+  // over the proposal's own evidence, never substituted for it. Replacing it
+  // wholesale destroyed a predict-batch's evidence.files on apply, which both
+  // un-reviewed its paths (reviewedPredictPathsFromQueue reads files off
+  // resolved records) and made the NEXT generation's id collide with the
+  // frozen applied record — newly qualifying paths were silently absorbed
+  // into a record nobody would ever look at again.
+  return queue.map((p) => (
+    p.id === id
+      ? { ...p, status: "applied", appliedAt: at, evidence: { ...(p.evidence ?? {}), ...(evidence ?? {}) } }
+      : p
+  ));
 }
 
 // shadcn/improve pattern 3 — a reject STORES A REASON so it can be recorded in

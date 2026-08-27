@@ -141,7 +141,14 @@ afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
 });
 
-describe("recovery Start is transactional", () => {
+// Conversations: the RECOVERY HOLD moved off the Start door. Start now kicks the
+// card's conversation through the gateway launcher and makes no coordination
+// decision at all; the surviving seam is the PATCH move door, where
+// shouldRecoverCoordinationHold + prepareRecoveredCoordinationHold run inside the
+// SAME CAS as the move (server.mjs commitPatch's beforeWrite hook). The invariant
+// under test is unchanged: a refused recovery must leave the card exactly as it
+// was — its wait, its schedule and its list all intact — never half-resumed.
+describe("recovery is transactional at the move door", () => {
   it("preserves waitingOn + schedule when a previously-started card has no touch-set", async () => {
     const repo = newRepo();
     const baseCard = await createCard(KANBAN_DIR, {
@@ -161,7 +168,7 @@ describe("recovery Start is transactional", () => {
       rerun: false,
       since: "2026-08-03T09:00:00.000Z"
     };
-    await updateCardCAS(KANBAN_DIR, baseCard.id, (card: any) => ({
+    const set = await updateCardCAS(KANBAN_DIR, baseCard.id, (card: any) => ({
       ...card,
       runId: baseCard.id,
       runDir,
@@ -173,7 +180,7 @@ describe("recovery Start is transactional", () => {
       scheduleAction: "run"
     }));
 
-    const response = await jsend("POST", `/cards/${baseCard.id}/start`);
+    const response = await jsend("PATCH", `/cards/${baseCard.id}`, { list: "todo", rev: set.rev });
     expect(response.status).toBe(409);
     expect(response.body).toMatchObject({
       error: "coordination-recovery-held",

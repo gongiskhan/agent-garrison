@@ -1196,7 +1196,7 @@ function App() {
         .then((r) => r.json())
         .then((d) => { if (alive) setWorktrees(normalizeWorktrees(d)); })
         .catch(() => {});
-      fetch("/api/operative")
+      fetch("/api/session")
         .then((r) => r.json())
         .then((d) => { if (alive && d && typeof d === "object" && d.gateway) setOperative(d); })
         .catch(() => {});

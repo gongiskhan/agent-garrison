@@ -26,7 +26,7 @@ const KANBAN_TURN_TIMEOUT_MS = Number(process.env.KANBAN_TURN_TIMEOUT_MS) || 25 
 // garrison-* run, so it gets a tight timeout: it must never tie the operative up the
 // way a Plan turn does. If the operative is mid-run it queues behind it; the abort
 // keeps a doomed inference from hanging the card-create path forever.
-// Exported because the dispatch-side gate (engine.settleProjectInference) has to size
+// Exported because anything gating on an in-flight inference has to size
 // its wait against THIS budget: a gate shorter than the turn it waits on advances the
 // card un-fenced and the inference result is discarded on arrival.
 export const KANBAN_INFER_TIMEOUT_MS = Number(process.env.KANBAN_INFER_TIMEOUT_MS) || 90 * 1000;
@@ -153,34 +153,6 @@ export function contextFromDone(done) {
   return { contextPct, peakContextPct, compactions };
 }
 
-// The board/tick pass `classification: null` here (the engine no longer pins a per-list
-// {taskType,tier}): the gateway then classifies the turn itself and routes it, biased by
-// the mode the prompt leads with. A non-null classification is still forwarded verbatim
-// for callers that want to force one.
-// A fire-and-forget-with-timeout POST to the gateway's duty-boundary compact
-// check (S1b). The engine calls this after a card advances a duty; the gateway
-// enqueues the check on its serialized turn chain and returns 202 fast (it does
-// not block on the compaction). A gateway that is down/old just no-ops here — the
-// boundary compaction is advisory, never load-bearing for the run.
-export function compactBoundaryFn(gatewayUrl) {
-  return async ({ cardId, dutyKey, focusContext }) => {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 5000);
-    try {
-      await fetch(`${gatewayUrl}/compact/boundary`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
-        body: JSON.stringify({ cardId: cardId ?? null, dutyKey: dutyKey ?? null, focusContext: focusContext ?? {} }),
-        signal: ctrl.signal
-      });
-    } catch {
-      /* gateway down / old / slow — advisory, swallow */
-    } finally {
-      clearTimeout(t);
-    }
-  };
-}
-
 // Stop the gateway turn that is provably executing this card. Kanban turns share
 // the gateway's fallback conversation key, so the card id is load-bearing: the
 // gateway rejects a mismatch instead of cancelling whichever queued turn happens
@@ -288,261 +260,24 @@ export function cardTurnRouting(card) {
   return Object.keys(routing).length ? routing : null;
 }
 
-export function gatewayRunFn(gatewayUrl) {
-  return async ({
-    prompt,
-    card,
-    classification,
-    list,
-    skill,
-    suppressContinuations,
-    onChunk,
-    duty,
-    level,
-    phase,
-    stepIndex,
-    sequence,
-    onTool,
-    onJournal,
-    contextHold,
-    dutyKey,
-    cardIds
-  }) => {
-    // Dispatch over the STREAMING endpoint, not the blocking /chat. A real garrison-*
-    // turn runs longer than the HTTP client's (undici) ~5-min headersTimeout, which would
-    // abort a blocking /chat request before the reply ever arrives. /chat/stream sends an
-    // `open` event immediately (headers fast → no headersTimeout) and a 15s keepalive
-    // heartbeat (data keeps flowing → no bodyTimeout), then a `done` event with the full
-    // result — so the connection survives an arbitrarily long turn.
-    // TWO client-side deadlines. `timeoutMs` below is only a REQUEST to the gateway,
-    // and the gateway does not honour it on every lane (the agent-sdk lane — the one
-    // kanban cards actually run on — drops the hint entirely). With no client-side
-    // bound, a turn whose `done` frame never arrives left the caller awaiting this
-    // stream forever, and the card "running" forever with it.
-    //   • hard: the per-turn ceiling plus slack, so the gateway's own timeout still
-    //     wins whenever it works and this only catches the case where it doesn't.
-    //   • idle: no CONTENT frame for a while. It must be armed on content, NOT on
-    //     bytes: the gateway emits a `: keepalive` comment every 15s, so a
-    //     byte-triggered timer would never fire on a wedged-but-connected stream.
-    // Both are TRANSPORT failures (retriable): the card reverts and runs again, it
-    // does not park as if the operative had refused.
-    const hardMs = KANBAN_TURN_TIMEOUT_MS + (Number(process.env.KANBAN_TURN_SLACK_MS) || 2 * 60 * 1000);
-    // 20 min, not 10: a real phase turn (planning a multi-KB card spec) legitimately
-    // works for longer than ten minutes without emitting a single token, and abandoning
-    // it threw away work that WAS in progress - the operative said so on the next chat
-    // turn. Stays under the 25+2 min hard deadline so that one still wins. Override
-    // with KANBAN_TURN_IDLE_MS.
-    const idleMs = Number(process.env.KANBAN_TURN_IDLE_MS) || 20 * 60 * 1000;
-    const ctrl = new AbortController();
-    let aborted = null;
-    const hardTimer = setTimeout(() => {
-      aborted = `no result after ${Math.round(hardMs / 60000)} min (per-turn ceiling)`;
-      ctrl.abort();
-    }, hardMs);
-    let idleTimer = null;
-    const armIdle = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        aborted = `the gateway sent no output for ${Math.round(idleMs / 60000)} min`;
-        ctrl.abort();
-      }, idleMs);
-    };
-    const clearDeadlines = () => {
-      clearTimeout(hardTimer);
-      if (idleTimer) clearTimeout(idleTimer);
-    };
-    armIdle();
-    const turnCardIds = [...new Set([
-      ...(typeof card?.id === "string" && card.id ? [card.id] : []),
-      ...(Array.isArray(cardIds) ? cardIds.filter((id) => typeof id === "string" && id) : [])
-    ])].slice(0, 100);
 
-    let res;
+// Conversations: the ONE way the board reaches the launcher. Fire-and-forget —
+// the gateway 202s and advances in the background; 409 means already advancing
+// (idempotent kicks); any transport failure is reported, never thrown, so a
+// tick survives a down gateway.
+export function conversationKickFn(gatewayUrl) {
+  return async ({ conversationId, cardId = null, task = null, title = null }) => {
     try {
-      res = await fetch(`${gatewayUrl}/chat/stream`, {
+      const res = await fetch(`${gatewayUrl}/conversation/kick`, {
         method: "POST",
-        signal: ctrl.signal,
-        headers: {
-          "content-type": "application/json",
-          "x-garrison-origin": "channel",
-          accept: "text/event-stream"
-        },
-        body: JSON.stringify({
-          channel: "kanban",
-          message: prompt,
-          classification: classification ?? null,
-          // D15: the skill is the POLICY-resolved phase binding the engine hands us,
-          // never a per-list pin (list.skill is dead).
-          skill: skill ?? null,
-          // V4 execution identity is authoritative for a composed card. The
-          // gateway resolves this exact leaf cell from model.json; old callers
-          // omit the fields and retain legacy taskType/tier routing.
-          duty: typeof duty === "string" ? duty : null,
-          level: Number.isInteger(level) ? level : null,
-          phase: typeof phase === "string" ? phase : null,
-          stepIndex: Number.isInteger(stepIndex) ? stepIndex : null,
-          sequence: Array.isArray(sequence) ? sequence : null,
-          suppressContinuations: suppressContinuations ?? true,
-          // THE TURN'S CWD. A card names a project; its run must happen IN that
-          // project's repo. Without this the gateway had no projectPath, fell back to
-          // GARRISON_COMPOSITION_DIR, and every card's turn ran in the composition
-          // directory — work landed in the right repo only because the prompt named
-          // the project and the agent navigated there itself.
-          //
-          // It goes under `routing`, NOT as a bare top-level `project`: `body.project`
-          // already means the D19 card-creation label on other channels, and giving it
-          // cwd meaning here would silently change their behaviour. `routing.project`
-          // is the pinned-intent channel the gateway validates at the edge
-          // (sanitizeRouting) and resolves to a git repo under the dev root. An
-          // unresolvable name is REJECTED and reported in overridesRejected — never
-          // silently run in the composition dir while claiming the project.
-          ...(cardTurnRouting(card) ? { routing: cardTurnRouting(card) } : {}),
-          timeoutMs: KANBAN_TURN_TIMEOUT_MS,
-          // S1b: whether this duty holds off compaction + the card+phase key, so the
-          // gateway's turn-boundary check honors the hold and stamps the compact log.
-          contextHold: contextHold === true,
-          dutyKey: dutyKey ?? null,
-          // Exact ownership proof for card-level Panic. Per-card turns derive it
-          // from `card.id`; batched turns pass every member explicitly because
-          // stopping their shared runtime turn necessarily affects the group.
-          ...(turnCardIds.length ? { cardIds: turnCardIds } : {})
-        })
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId, cardId, task, title })
       });
+      if (res.status === 202) return { ok: true, kicked: true };
+      if (res.status === 409) return { ok: true, kicked: false, alreadyAdvancing: true };
+      return { ok: false, status: res.status, error: (await res.json().catch(() => null))?.error ?? `http ${res.status}` };
     } catch (err) {
-      clearDeadlines();
-      const e = new Error(aborted ? `gateway turn abandoned: ${aborted}` : `gateway unreachable: ${err?.message || err}`);
-      e.transport = true;
-      throw e;
+      return { ok: false, transport: true, error: err?.message };
     }
-    if (!res.ok) {
-      clearDeadlines();
-      const e = new Error(`kanban dispatch failed: HTTP ${res.status}`);
-      if (res.status === 502 || res.status === 503 || res.status === 504) e.transport = true;
-      throw e;
-    }
-    if (!res.body) {
-      clearDeadlines();
-      const e = new Error("gateway dispatch: no stream body");
-      e.transport = true;
-      throw e;
-    }
-
-    // Parse the SSE stream: blocks separated by a blank line. `done` carries the final
-    // result; `error` a turn error; `chunk` events are normally deltas, but PTY lanes
-    // can re-emit the whole visible answer after a screen reflow with `replace:true`.
-    // Apply the same accumulator contract as Web Channel before forwarding the growing
-    // reply to onChunk (throttled), so the card's Watch never appends a replacement as
-    // a duplicate. `: keepalive` comments are ignored.
-    const decoder = new TextDecoder();
-    let buf = "";
-    let done = null;
-    let streamErr = null;
-    let live = "";
-    let journalSessionId = null;
-    let lastEmit = 0;
-    const emit = (force) => {
-      if (!onChunk) return;
-      const t = Date.now();
-      if (force || t - lastEmit > 400) { lastEmit = t; try { onChunk(live); } catch { /* ignore */ } }
-    };
-    const emitJournal = (payload) => {
-      const sessionId = payload?.session_id ?? payload?.sessionId;
-      if (typeof sessionId !== "string" || !sessionId || sessionId === journalSessionId || !onJournal) return;
-      journalSessionId = sessionId;
-      try {
-        onJournal({
-          sessionId,
-          transcriptPath: payload?.transcript_path ?? payload?.transcriptPath ?? null
-        });
-      } catch { /* observability must never break a turn */ }
-    };
-    try {
-      for await (const chunk of res.body) {
-        buf += decoder.decode(chunk, { stream: true });
-        let i;
-        while ((i = buf.indexOf("\n\n")) !== -1) {
-          const block = buf.slice(0, i);
-          buf = buf.slice(i + 2);
-          let event = "message";
-          let data = "";
-          for (const line of block.split("\n")) {
-            if (line.startsWith("event:")) event = line.slice(6).trim();
-            else if (line.startsWith("data:")) data += line.slice(5).trim();
-          }
-          // Re-arm the idle deadline on a CONTENT frame only. A `: keepalive`
-          // comment carries no `event:` line, so it lands here as "message" and
-          // deliberately does NOT count as progress — otherwise a wedged turn on a
-          // healthy socket would be kept alive forever by its own heartbeat.
-          //
-          // EVERY OTHER named frame does count, not just the ones carrying prose.
-          // A phase that reads twenty files before it says anything emits only
-          // `activity` (tool/thinking) and `session_event` (canonical events) for
-          // minutes at a time; while those were left off this list a WORKING turn
-          // was abandoned as "no output" and its card bounced back to Implement,
-          // repeatedly. Naming the two frames that don't count is also the version
-          // that keeps working when the gateway grows a new one.
-          if (event !== "message" && event !== "open") armIdle();
-          if (event === "chunk") {
-            // `chunk` is overloaded: gateway.mjs forwards a text_delta (a DELTA),
-            // gateway-pty.mjs sends the reply SO FAR with replace:true. Appending a
-            // cumulative frame duplicated every reply the routed lane produced.
-            try { const c = JSON.parse(data); if (typeof c.text === "string") { live = c.replace === true ? c.text : live + c.text; emit(false); } } catch { /* ignore */ }
-          } else if (event === "route") {
-            try { emitJournal(JSON.parse(data)); } catch { /* malformed route frame - ignore */ }
-          } else if (event === "tool") {
-            // S3d (D9b): an AskUserQuestion the operative raised MID-TURN (the discuss
-            // duty asking for scope). Forward the tool payload ({tool_use_id, questions})
-            // so the engine can route the questions to the card's origin as a needs-input
-            // event. Previously DROPPED - the round-trip closes E6 gap (a).
-            if (onTool) { try { onTool(JSON.parse(data)); } catch { /* malformed tool frame - ignore */ } }
-          } else if (event === "done") {
-            try { done = JSON.parse(data); emitJournal(done); } catch { done = { reply: "" }; }
-          } else if (event === "error") {
-            try { streamErr = JSON.parse(data)?.error || "stream error"; } catch { streamErr = "stream error"; }
-          }
-        }
-      }
-    } catch (err) {
-      // The stream dropped mid-turn (gateway restart, network, or one of OUR deadlines
-      // firing) — retriable, never the card's fault.
-      clearDeadlines();
-      const e = new Error(aborted ? `gateway turn abandoned: ${aborted}` : `gateway stream interrupted: ${err?.message || err}`);
-      e.transport = true;
-      throw e;
-    }
-    clearDeadlines();
-
-    if (streamErr) {
-      // A turn-level error reported by the gateway (e.g. the per-turn timeout fired).
-      // Treat a timeout as transport (retriable) — it is not a verdict from the operative.
-      const e = new Error(`kanban dispatch failed: ${streamErr}`);
-      if (/timed out|timeout/i.test(streamErr)) e.transport = true;
-      throw e;
-    }
-    if (!done) {
-      const e = new Error("gateway stream ended without a result");
-      e.transport = true;
-      throw e;
-    }
-    // Return the reply text, the per-turn route metadata (null for legacy non-routed turns), the
-    // per-turn context telemetry (null when none flowed), AND the operative session id
-    // (WS2 — the engine appends it to card.sessionIds so transcript links resolve). The
-    // shape stays an object every call site already destructures (`out?.reply`), so the
-    // extra fields are inert for callers that ignore them.
-    return {
-      reply: done.reply ?? done.text ?? "",
-      route: routeFromDone(done),
-      context: contextFromDone(done),
-      // A runtime may announce its journal on the early route frame but omit the
-      // coordinate from done. Preserve what Watch streamed so the terminal card
-      // still gains the durable sessionIds pointer.
-      sessionId: typeof done.session_id === "string" && done.session_id ? done.session_id : journalSessionId,
-      stoppedReason: typeof done.stoppedReason === "string" ? done.stoppedReason : null,
-      stoppedByUser: done.stoppedByUser === true,
-      interruptedByCardId: typeof done.interruptedByCardId === "string" ? done.interruptedByCardId : null,
-      affectedCardIds: Array.isArray(done.affectedCardIds)
-        ? done.affectedCardIds.filter((id) => typeof id === "string" && id).slice(0, 100)
-        : []
-    };
   };
 }

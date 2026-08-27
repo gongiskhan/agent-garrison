@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Kanban Loop own-port server (V1b, base port 7089). Serves the responsive,
+// Kanban Loop own-port server (V1b, port 27089). Serves the responsive,
 // phone-first board UI (dist/) and a small REST surface over lib/board.mjs +
 // lib/engine.mjs. It NEVER duplicates artifacts: a card stores POINTERS
 // (runId/runDir/sliceId/sessionIds/briefPath/videoUrl) and this server resolves
@@ -39,7 +39,6 @@ import {
   withCardOrderLock,
   deleteCard,
   deriveMembership,
-  appendCardLog,
   latestCardLogNumber,
   cardBriefFile,
   cardBriefRel,
@@ -53,7 +52,8 @@ import {
   cardAttachmentsDir,
   listCardAttachments,
   CARD_SCOPES,
-  cardScope, listProseLabel } from "../lib/board.mjs";
+  cardScope, listProseLabel, appendConversationEvent,
+  boardStateClient, BOARD_SCOPE } from "../lib/board.mjs";
 // S3a: the lifecycle event router — the server emits `created` after a card is made.
 // §7.1: it also poses an autonomy hold's question through the card's own origin.
 import { routeOriginEvent, createdMessage, routeNeedsInput } from "../lib/notify-origin.mjs";
@@ -65,17 +65,11 @@ import { STEER_ACTIONS, appendSteeringMd, writeSteeringDirective, markSteeringAp
 import {
   getList,
   validNextFor,
-  processCard,
-  processChain,
-  processBatch,
-  advanceCardPhase,
   recoverInterruptedRuns,
   triggerFor,
   isInteractive,
-  isGatedDiscuss,
   withEvent,
   replySnippet,
-  reapOrphanedRuns,
   parkFields,
   consumeStartOverrides,
   ATTENTION_LIST,
@@ -83,18 +77,17 @@ import {
 } from "../lib/engine.mjs";
 import { runScheduleNow } from "../lib/engine.mjs";
 import { scheduleValidationError, normaliseCardSchedule, nextCronOccurrence } from "../lib/schedules.mjs";
+import { describeRecurrence } from "../lib/recurrence.mjs";
 import {
   kanbanModelFile,
   loadResolvedModel,
   hasExecutionModel,
   resolveCardSequence,
   executionRouteFor,
-  isUserList,
-  insertUserLists
 } from "../lib/resolved-model.mjs";
-import { batchGatewayRunFn, reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
+import { reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
-import { gatewayRunFn, inferenceRunFn, compactBoundaryFn, interruptCardTurn, projectNameForRouting } from "../lib/gateway-client.mjs";
+import { inferenceRunFn, interruptCardTurn, projectNameForRouting } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
 import { loadPolicy, railForCard, railIsManualOnly, phaseTogglesFromCsv } from "../lib/policy.mjs";
 import {
@@ -115,7 +108,12 @@ import { listProjects, readDevRoot, resolveProjectName, listSkills } from "../li
 import { syncListBeat } from "../lib/scheduler-beats.mjs";
 import { reconcilePersonalCompletionOutbox } from "../lib/personal-memory-outbox.mjs";
 import { reconcileMorningBriefDeliveries } from "../lib/morning-briefing.mjs";
-import { claudeProjectDirForCwd, claudeProjectsDir } from "@garrison/claude-pty";
+import {
+  claudeProjectDirForCwd,
+  claudeProjectsDir,
+  gatewayMessageForwarder,
+  handleConversationRequest,
+} from "@garrison/claude-pty";
 // WS2: the artifact-ref vocabulary lives in lib/links.mjs (shared with the handoff
 // packet generator). Re-exported below so existing importers (tests) keep working.
 import {
@@ -438,6 +436,8 @@ export function cardSummary(card) {
     scope: cardScope(card),
     list: card.list,
     status: card.status ?? "ok",
+    duty: card.duty ?? null,
+    conversationId: card.conversationId ?? null,
     iterations: card.iterations ?? 0,
     goalMode: Boolean(card.goalMode),
     rev: card.rev ?? 0,
@@ -555,7 +555,16 @@ export function cardSummary(card) {
     // current run started (the live elapsed timer). The full `events` array is NOT
     // in this projection (it can be long) — GET /cards/:id carries it for the detail.
     description: typeof card.description === "string" ? card.description : "",
+    // Autonomy: OFF means the launcher pauses after planning and asks before
+    // doing the work; ON runs the conversation end to end unattended.
+    autonomous: card.autonomous === true,
     lastReply: card.lastReply ?? null,
+    // The terminal handoff's summary — written by the launcher's done
+    // transition; absent from this projection it read as never-written.
+    terminalSummary: card.terminalSummary ?? null,
+    // The autonomy gate's standing ask (next duty, plan summary, first items)
+    // — what the card front's approve block renders.
+    awaitingApproval: card.awaitingApproval ?? null,
     lastEvent: lastEventOf(card),
     // Per-phase runtime/model attribution for the card front: the most recent routed
     // event's route stamp ({ targetId, runtime, provider, model, effort,
@@ -596,7 +605,15 @@ export function cardSummary(card) {
     // `created` crosses so the drag layer can compute effective positions with
     // the EXACT value the server sorts by (cardPosition falls back to it).
     created: card.created ?? null,
-    updated: card.updated ?? null
+    updated: card.updated ?? null,
+    // The freeze marker (Conversations migration). It has to cross the
+    // projection: the state service refuses every write on a frozen card but
+    // DELETE, so the modal must be able to render read-only from the card
+    // itself rather than only when History happens to be the door it came
+    // through. Null for every live card.
+    frozen: card.frozen?.at
+      ? { at: card.frozen.at, reason: card.frozen.reason ?? null, by: card.frozen.by ?? null }
+      : null
   };
 }
 
@@ -1218,14 +1235,6 @@ export function isReadableFile(p) {
   }
 }
 
-// A Move onto this list should AUTO-START the card's run iff it is an IMMEDIATE agent
-// list — not a manual column, not an interactive list (Discuss), not a scheduler-beat
-// list (Test, which runs batched on its own beat). This is what makes "moving a card to
-// Plan start planning" instead of silently parking it.
-export function shouldAutoDispatch(board, listId) {
-  const l = getList(board, listId);
-  return !!l && l.kind === "agent" && !isInteractive(l) && triggerFor(l) === "immediate";
-}
 
 // Is a card LIVE — occupying its project's serialize slot / counting as an overlap
 // candidate? Mirrors coordination.mjs's isLiveCard (which is module-private there):
@@ -1374,46 +1383,47 @@ async function handleSteerCard(req, res, opts, id) {
   // hold, and the card cannot become running/abandoned/deleted underneath us.
   if (action === "revisit" && revisitDuty && card.status !== "running") {
     const board = await loadBoard(opts.root);
-    if (getList(board, revisitDuty)) {
-      let events = withEvent(card, {
-        at,
-        kind: "steering",
-        message: `Steering: ${action} → ${revisitDuty}`,
-        detail: reason || null
-      });
-      events = withEvent({ events }, {
-        at,
-        kind: "steering-restage",
-        message: `Re-staged to ${revisitDuty} (steering)`
-      });
-      const target = {
-        ...card,
-        // A human sending a card back through the pipeline is a fresh, approved pass:
-        // clear the park reason and RESET the iteration counter (the convergence guard),
-        // exactly like un-parking. Without this a card re-staged from needs-attention
-        // (parked AT the cap) would trip the cap on its first tick and re-park, and a
-        // done card would burn straight into it. The runDir + steering.md carry the
-        // prior context forward, so "same card, same context" holds.
-        ...unparkRecoveryFields(card),
-        list: revisitDuty,
-        status: "ok",
-        runningSince: null,
-        events
-      };
-      const moved = await saveCardCASWithHooks(opts.root, target, card.rev ?? 0, at, {
-        beforeWrite: ({ next }) => prepareRecoveredCoordinationHold(board, next),
-        afterWrite: () => {
-          appendSteeringMd(opts.root, id, { at, action, message });
-          writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
-          markSteeringApplied(opts.root, id);
-        }
-      });
-      if (moved.precondition) return coordinationRecoveryConflict(res, moved.detail);
-      if (moved.deleted) return jsonRes(res, 404, { error: "card was deleted while you were steering it" });
-      if (!moved.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(moved.card) });
-      card = moved.card;
-      applied = true;
-    }
+    // Conversations: there is no duty LIST to re-stage onto. An idle revisit
+    // sets the card's DUTY (the chip the launcher reads for its next stretch)
+    // and stays on its state column; the conversation forwarding below is what
+    // actually carries the human's redirection into the next brief.
+    let events = withEvent(card, {
+      at,
+      kind: "steering",
+      message: `Steering: ${action} → ${revisitDuty}`,
+      detail: reason || null
+    });
+    events = withEvent({ events }, {
+      at,
+      kind: "steering-restage",
+      message: `Re-staged to ${revisitDuty} (steering)`
+    });
+    const target = {
+      ...card,
+      // A human sending a card back through the pipeline is a fresh, approved
+      // pass: clear the park reason and RESET the iteration counter, exactly
+      // like un-parking. A terminal/parked card RE-ENTERS on To do; a live
+      // card keeps its column and only its duty chip changes.
+      ...unparkRecoveryFields(card),
+      duty: revisitDuty,
+      ...(card.list === "done" || card.list === "needs-attention" || card.list === "archived" ? { list: "todo" } : {}),
+      status: "ok",
+      runningSince: null,
+      events
+    };
+    const moved = await saveCardCASWithHooks(opts.root, target, card.rev ?? 0, at, {
+      beforeWrite: ({ next }) => prepareRecoveredCoordinationHold(board, next),
+      afterWrite: () => {
+        appendSteeringMd(opts.root, id, { at, action, message });
+        writeSteeringDirective(opts.root, id, { at, action, revisitDuty, reason, applied: false });
+        markSteeringApplied(opts.root, id);
+      }
+    });
+    if (moved.precondition) return coordinationRecoveryConflict(res, moved.detail);
+    if (moved.deleted) return jsonRes(res, 404, { error: "card was deleted while you were steering it" });
+    if (!moved.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(moved.card) });
+    card = moved.card;
+    applied = true;
   }
   if (!applied) {
     // Running revisits remain pending until the engine's next duty boundary;
@@ -1464,6 +1474,19 @@ async function handleSteerCard(req, res, opts, id) {
   } catch {
     /* origin routing is best-effort */
   }
+  // Conversations: steering IS a user message on the card's conversation — a
+  // running stretch sees it in its next brief; an idle conversation wakes the
+  // responder/triage routing. Fire-and-forget; the sidecar above is the record.
+  if (card.conversationId && opts.gatewayUrl && message.trim()) {
+    const steerText = action === "revisit" && revisitDuty
+      ? `[steering: revisit ${revisitDuty}] ${message}${reason ? ` (${reason})` : ""}`
+      : `[steering] ${message}`;
+    void fetch(`${opts.gatewayUrl}/conversation/message`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ conversationId: card.conversationId, message: steerText, origin: "steering" })
+    }).catch(() => {});
+  }
   jsonRes(res, 200, { ok: true, action, revisitDuty, applied });
 }
 
@@ -1495,6 +1518,97 @@ async function handleBoard(req, res, opts) {
   jsonRes(res, 200, view);
 }
 
+// ── frozen history (Conversations migration, 2026-08-26) ────────────────────
+// The pre-Conversations board, preserved. The live board is five state columns
+// and loadAllCards asks the state service for frozen:"0", so the 200+ legacy
+// cards are invisible there BY DESIGN. This is the one door that reads them.
+//
+// The layout comes from the SEPARATE config doc the migration copied the old
+// board into (namespace `board.layout.legacy`), never from `board.layout` — so
+// nothing here can disturb the live board or its v10 guard.
+export const LEGACY_BOARD_NAMESPACE = "board.layout.legacy";
+
+// A history card front needs a title, a project, and when it stopped. It does
+// NOT need the full cardSummary projection: that carries the whole description
+// and recomputes an expected route per card, and this endpoint answers with
+// every frozen card at once. The opened card still fetches GET /cards/:id, so
+// nothing is lost - only not paid for 263 times.
+export function frozenCardSummary(card) {
+  return {
+    id: card.id,
+    title: card.title ?? "(untitled)",
+    project: card.project ?? null,
+    scope: cardScope(card),
+    // The LEGACY list id, exactly as frozen. Deliberately not run through
+    // relocateRetiredListCards: history is what it was, not what a later
+    // migration would have made of it.
+    list: card.list,
+    status: card.status ?? "ok",
+    duty: card.duty ?? null,
+    created: card.created ?? null,
+    updated: card.updated ?? null,
+    frozen: card.frozen?.at
+      ? { at: card.frozen.at, reason: card.frozen.reason ?? null, by: card.frozen.by ?? null }
+      : null
+  };
+}
+
+// Newest-finished first inside a column: a history column is an archive, and the
+// same rule the live board's terminal lists use ("my card disappeared", 2026-08-07).
+function frozenInstant(card) {
+  const t = Date.parse(card?.updated ?? card?.created ?? "");
+  return Number.isFinite(t) ? t : 0;
+}
+
+export function buildHistoryView(legacyBoard, frozenCards) {
+  const cards = frozenCards.map(frozenCardSummary);
+  const byList = new Map();
+  for (const card of cards) {
+    if (!byList.has(card.list)) byList.set(card.list, []);
+    byList.get(card.list).push(card);
+  }
+  const legacyLists = Array.isArray(legacyBoard?.lists) ? legacyBoard.lists : [];
+  const lists = legacyLists
+    .slice()
+    .sort((a, b) => (a.userOrder ?? a.order ?? 0) - (b.userOrder ?? b.order ?? 0))
+    .map((list) => ({
+      id: list.id,
+      title: list.title ?? list.id,
+      kind: list.kind || "manual",
+      cards: (byList.get(list.id) ?? []).slice().sort((a, b) => frozenInstant(b) - frozenInstant(a))
+    }));
+  // A frozen card whose list the legacy layout does not name still has to be
+  // reachable - dropping it would make the History view quietly lie about how
+  // many records there are. Each orphan list becomes its own trailing column.
+  const known = new Set(lists.map((l) => l.id));
+  for (const [listId, group] of byList) {
+    if (known.has(listId)) continue;
+    lists.push({
+      id: listId,
+      title: listId,
+      kind: "manual",
+      unlisted: true,
+      cards: group.slice().sort((a, b) => frozenInstant(b) - frozenInstant(a))
+    });
+  }
+  return { lists, cards, total: cards.length };
+}
+
+async function handleHistory(req, res, opts) {
+  void opts;
+  const client = boardStateClient();
+  const [legacyDoc, frozenCards] = await Promise.all([
+    client.getConfig(LEGACY_BOARD_NAMESPACE, BOARD_SCOPE).catch(() => null),
+    client.listCards({ frozen: "1" })
+  ]);
+  const legacyBoard = legacyDoc?.body ?? null;
+  const view = buildHistoryView(legacyBoard, frozenCards);
+  // `legacyLayout: false` is an honest answer, not an error: an instance whose
+  // migration never ran has no old board to lay the records out under, and the
+  // cards (if any) still come back under their own list ids.
+  jsonRes(res, 200, { ...view, legacyLayout: Boolean(legacyBoard) });
+}
+
 async function handleGetCard(req, res, opts, id) {
   const root = opts.root;
   let card;
@@ -1504,8 +1618,11 @@ async function handleGetCard(req, res, opts, id) {
   const links = resolveCardLinks(card, { root, cwd: opts.cwd });
   jsonRes(res, 200, {
     card: cardSummary(card),
-    // The full checklist items (the summary carries only the counts).
+    // The full checklist items (the summary carries only the counts), and the
+    // acceptance body (deliberately NOT in cardSummary - the board front ships
+    // every card to the browser; bodies ride only on the single-card read).
     checklist: Array.isArray(card.checklist) ? card.checklist : [],
+    acceptance: typeof card.acceptance === "string" ? card.acceptance : null,
     links,
     // Two attachment sources, one list: card-owned uploads (cards/<id>/
     // attachments/, served by opaque artifact ref, deletable) and the legacy
@@ -1732,19 +1849,32 @@ async function handleCreateCard(req, res, opts) {
         at: body.scheduledFor,
         timezone: "Europe/Lisbon",
         enabled: true,
-        targetList: typeof body.targetList === "string" ? body.targetList.trim() : "backlog"
+        targetList: typeof body.targetList === "string" ? body.targetList.trim() : "todo"
       }
     : null);
   const scheduleError = scheduleValidationError(scheduleInput);
   if (scheduleError) return jsonRes(res, 400, { error: scheduleError });
   const targetListId = scheduleInput && typeof scheduleInput.targetList === "string"
     ? scheduleInput.targetList.trim()
-    : typeof body.targetList === "string" ? body.targetList.trim() : "backlog";
+    : typeof body.targetList === "string" ? body.targetList.trim() : "todo";
   if (!isValidListId(targetListId)) return jsonRes(res, 400, { error: "invalid target list id" });
   const board = await loadBoard(opts.root);
   const targetList = getList(board, targetListId);
   if (!targetList) return jsonRes(res, 400, { error: `unknown list: ${targetListId}` });
-  if (targetList.kind !== "manual" || targetList.terminal) {
+  // Conversations (materialization door): only the LAUNCHER may create a card
+  // directly in Running, and a Running card must name its conversation — a
+  // human creates on manual lists as before.
+  const conversationId = typeof body.conversationId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(body.conversationId)
+    ? body.conversationId
+    : null;
+  const engineRunningCreate = targetListId === "running" && isEngineRequest(req);
+  if (targetListId === "running" && !isEngineRequest(req)) {
+    return jsonRes(res, 400, { error: "only the launcher can create a card directly in Running" });
+  }
+  if (engineRunningCreate && !conversationId) {
+    return jsonRes(res, 400, { error: "a Running card must name its conversation" });
+  }
+  if (!engineRunningCreate && (targetList.kind !== "manual" || targetList.terminal)) {
     return jsonRes(res, 400, {
       error: `cards can only be created directly in an active manual list: ${targetListId}`
     });
@@ -1808,12 +1938,16 @@ async function handleCreateCard(req, res, opts) {
   const card = await withCardOrderLock(opts.root, async () => {
     const topPosition = await topOfListPosition(opts.root, storageListId);
     return createCard(opts.root, {
+    // Materialization: the card TAKES its conversation's id when given one.
+    id: conversationId,
+    conversationId,
     title,
     description,
     project: suppliedProject || explicitWorkspace,
     scope: requestedScope,
     list: storageListId,
     goalMode: body.goalMode === true,
+    autonomous: body.autonomous === true,
     acceptance: typeof body.acceptance === "string" ? body.acceptance : null,
     // S4 (D2/D8/D17): the flow naming the card's phase plan, the per-card
     // phase toggles merged over it, the tier (direct field or the D8 payload's
@@ -1937,6 +2071,24 @@ async function handleCreateCard(req, res, opts) {
   if (typeof body.videoUrl === "string" && /^https?:\/\//i.test(body.videoUrl)) {
     const v = await updateCard(opts.root, card.id, (c) => ({ ...c, videoUrl: body.videoUrl }));
     if (v) Object.assign(card, v);
+  }
+  // Conversations: materialization is a ledger event, written by the SERVER at
+  // the one door — a card cannot exist without its materialization on the
+  // record. Only when the card names a conversation (a plain hand-made card
+  // creates no empty store).
+  if (conversationId) {
+    appendConversationEvent(card, {
+      kind: "card-materialized",
+      payload: {
+        cardId: card.id,
+        list: card.list,
+        title: card.title,
+        decidedBy: typeof body.materialization?.decidedBy === "string"
+          ? body.materialization.decidedBy
+          : isEngineRequest(req) ? "launcher" : "human",
+        reason: typeof body.materialization?.reason === "string" ? body.materialization.reason.slice(0, 280) : null
+      }
+    });
   }
   // S3a (D8): emit the `created` lifecycle event to the card's origin (ensures the
   // origin record + appends to its event log; web origins also get a thread ack).
@@ -2087,13 +2239,15 @@ async function handleImportCards(req, res, opts) {
 
   const board = await loadBoard(root);
   const cards = await loadAllCards(root);
-  const targetList = typeof body.targetList === "string" && body.targetList ? body.targetList : "backlog";
+  const targetList = typeof body.targetList === "string" && body.targetList ? body.targetList : "todo";
   if (!isValidListId(targetList)) return jsonRes(res, 400, { error: "invalid target list id" });
   const target = getList(board, targetList);
   if (!target) return jsonRes(res, 400, { error: `unknown target list: ${targetList}` });
-  // Never import onto an agent list — creating/moving a card there auto-dispatches a run.
-  if (target.kind === "agent" || target.kind === "agent-interactive") {
-    return jsonRes(res, 400, { error: `cannot import onto the agent list "${targetList}" — pick a manual list (e.g. backlog)` });
+  // Never import onto Running (or a legacy agent list): cards enter Running only
+  // through the launcher — an imported card there would be a phantom "running"
+  // with no conversation behind it (coherentCardState would stamp the status).
+  if (targetList === "running" || target.kind === "system" || target.kind === "agent" || target.kind === "agent-interactive") {
+    return jsonRes(res, 400, { error: `cannot import onto "${targetList}" — pick a manual list (e.g. todo)` });
   }
 
   // Read ONLY the allow-listed fields from each incoming card (the SAME const the
@@ -2481,15 +2635,19 @@ function cleanupClosedCoordinationHold(root, board, card, priorCard = null) {
   });
 }
 
-// D16: cards on autonomous (agent-kind) lists are ENGINE-OWNED — the board API
-// rejects manual moves and edits on them. needs-attention is the one human
-// touchpoint on the autonomous side; interactive + manual lists stay editable.
+// D16, re-aimed by Conversations: a card is LAUNCHER-HELD while it is running —
+// `list` is the state, so the Running column IS the lock (the old agent-kind
+// check went inert with the five-state board, which has no agent list). The
+// board API rejects manual edits and deletes on a held card; the one human
+// affordance is the documented rescue move OFF Running (validNext:
+// needs-attention / todo), carved out at the PATCH door. Matches the UI's
+// launcherHeld gating (ui/main.tsx). Legacy agent-kind boards (pre-migration,
+// still stamped 9) keep the old lock.
 export function isEngineOwned(board, card) {
   // D19: a quick card is never engine-run — the gateway ran it inline and parked
-  // it on an agent list only transiently (Implement → Done). The locked-list rules
-  // apply ONLY to engine-owned cards mid-run, so a quick card stays operator-editable
-  // wherever it sits.
+  // it transiently. The lock applies only to cards a driver actually holds.
   if (card.quick === true) return false;
+  if (card.list === "running" || card.status === "running") return true;
   const list = getList(board, card.list);
   return Boolean(list && list.kind === "agent" && !isInteractive(list));
 }
@@ -2542,10 +2700,17 @@ async function handlePatchCard(req, res, opts, id) {
   // queued agent-list card is precisely the point of the schedule.
   const BENIGN_PATCH_KEYS = new Set(["rev", "schedule", "scheduledFor", "scheduleAction", "position", "checklist"]);
   const benignPatch = Object.keys(body).length > 0 && Object.keys(body).every((k) => BENIGN_PATCH_KEYS.has(k));
-  if (isEngineOwned(board, card) && !isEngineRequest(req) && !benignPatch) {
+  // The ONE human affordance on a launcher-held card: the documented rescue move
+  // OFF Running — a bare {list} PATCH to needs-attention / todo (Running's
+  // validNext). Content edits mid-stretch stay locked; the launcher's own writes
+  // carry the engine header.
+  const RESCUE_MOVE_KEYS = new Set(["rev", "list", "position"]);
+  const rescueMove = card.list === "running" && typeof body.list === "string" && body.list !== "running" &&
+    Object.keys(body).every((k) => RESCUE_MOVE_KEYS.has(k));
+  if (isEngineOwned(board, card) && !isEngineRequest(req) && !benignPatch && !rescueMove) {
     return jsonRes(res, 403, {
       error: "engine-owned",
-      message: `Card is on the autonomous list "${card.list}" — it is engine-owned (D16). Wait for the run, or resolve it from needs-attention if it parks.`
+      message: `Card is running — the launcher owns it while its conversation is in flight (D16). Move it off Running to rescue it, or wait for the stretch to finish.`
     });
   }
   if ((typeof body.project === "string" || body.scope !== undefined || changesExecutionProject) && card.runId && !isEngineRequest(req)) {
@@ -2557,6 +2722,15 @@ async function handlePatchCard(req, res, opts, id) {
   const next = { ...card };
   if (typeof body.list === "string") {
     if (!getList(board, body.list)) return jsonRes(res, 400, { error: `unknown list: ${body.list}` });
+    // Conversations: you cannot start a stretch by dragging. Running is entered
+    // only through the launcher (Start → /conversation/kick, the schedule sweep,
+    // or the materialization door) — same refusal as the CREATE door.
+    if (body.list === "running" && !isEngineRequest(req)) {
+      return jsonRes(res, 400, {
+        error: "list-locked",
+        message: "Cards cannot be moved into Running — Start the card instead."
+      });
+    }
     if ((body.list === "scheduled" || card.list === "scheduled") && !isEngineRequest(req)) {
       return jsonRes(res, 400, {
         error: "schedule-owned",
@@ -2565,6 +2739,19 @@ async function handlePatchCard(req, res, opts, id) {
     }
     next.list = body.list;
     next.status = "ok"; // a manual Move clears a parked/needs-attention status
+    // Moving the card by hand IS a decision about it — a standing approval ask
+    // must not follow the card to Done/Backlog and keep asking.
+    if (!isEngineRequest(req) && next.awaitingApproval) next.awaitingApproval = null;
+    // The Done evidence-gate's human override. It must CROSS this door or the
+    // gate at the CAS choke point never sees it — the override was designed
+    // (board.mjs records card-completed-unproven from it) but no HTTP client
+    // could ever supply it, so a human finishing a card whose conversation
+    // ended without resolvable evidence had no path to Done at all.
+    if (body.list === "done"
+        && body.completionOverride && typeof body.completionOverride === "object"
+        && typeof body.completionOverride.reason === "string" && body.completionOverride.reason.trim()) {
+      next.completionOverride = { reason: body.completionOverride.reason.trim().slice(0, 600) };
+    }
     // Record the manual move on the timeline so the activity feed shows human moves
     // alongside the engine's dispatches (a complete "what happened" history).
     if (body.list !== card.list) {
@@ -2673,6 +2860,7 @@ async function handlePatchCard(req, res, opts, id) {
     }
   }
   if (typeof body.goalMode === "boolean") next.goalMode = body.goalMode;
+  if (typeof body.autonomous === "boolean") next.autonomous = body.autonomous;
   if (typeof body.sliceId === "string") {
     const s = body.sliceId.trim();
     if (s && !isValidSliceId(s)) return jsonRes(res, 400, { error: "invalid sliceId (no path separators or ..)" });
@@ -2749,7 +2937,7 @@ async function handlePatchCard(req, res, opts, id) {
     const clearing = body.schedule === null || body.scheduledFor === null || body.scheduledFor === "";
     if (clearing) {
       const release = card.schedule?.targetList;
-      if (card.list === "scheduled") next.list = release && getList(board, release) ? release : "backlog";
+      if (card.list === "scheduled") next.list = release && getList(board, release) ? release : "todo";
       next.schedule = null;
       next.scheduledFor = null;
       next.scheduleAction = null;
@@ -2759,7 +2947,7 @@ async function handlePatchCard(req, res, opts, id) {
         next.events = withEvent(next, { at: new Date().toISOString(), kind: "schedule-cleared", message: `Schedule cleared${card.list === "scheduled" ? `; returned to ${next.list}` : ""}` });
       }
     } else {
-      const releaseTarget = card.list === "scheduled" ? card.schedule?.targetList ?? "backlog" : card.list;
+      const releaseTarget = card.list === "scheduled" ? card.schedule?.targetList ?? "todo" : card.list;
       const rawSchedule = body.schedule !== undefined
         ? body.schedule
         : {
@@ -2794,6 +2982,18 @@ async function handlePatchCard(req, res, opts, id) {
         targetList: releaseTarget
       });
       if (!schedule) return jsonRes(res, 400, { error: "schedule could not be normalised" });
+      // The Google Calendar link is sync bookkeeping, and it comes from the CARD
+      // — never from the request body. Carrying it across an edit is what stops
+      // every schedule change stranding its event on the calendar; refusing the
+      // body's copy is what stops a caller pointing a card at an arbitrary
+      // event id and having the next sweep rewrite or delete it.
+      delete schedule.calendar;
+      if (card.schedule?.calendar) schedule.calendar = card.schedule.calendar;
+      // Stamped at the ONE door a human edits a schedule through. This is the
+      // local half of the last-write-wins comparison against Calendar's own
+      // `updated`, so a schedule edited here beats a concurrent edit made in
+      // Google Calendar before it.
+      schedule.updatedAt = new Date().toISOString();
       next.schedule = schedule;
       next.scheduledFor = schedule.enabled ? schedule.nextAt : null;
       next.scheduleAction = schedule.action;
@@ -2805,7 +3005,9 @@ async function handlePatchCard(req, res, opts, id) {
         at: new Date().toISOString(),
         kind: schedule.kind === "cron" ? "schedule-recurring" : "schedule-set",
         message: schedule.kind === "cron"
-          ? `Recurring schedule ${schedule.cron} (${schedule.timezone}); next ${schedule.nextAt ?? "paused"}`
+          // A rule-driven schedule has no cron string to quote; read the rule
+          // back in words instead of printing "undefined" into the ledger.
+          ? `Recurring schedule ${schedule.recurrence ? describeRecurrence(schedule.recurrence) : schedule.cron} (${schedule.timezone}); next ${schedule.nextAt ?? "paused"}`
           : `Scheduled for ${schedule.nextAt} (${schedule.action === "run" ? "auto-run" : "notify"})`
       });
     }
@@ -2826,6 +3028,41 @@ async function handlePatchCard(req, res, opts, id) {
   // normaliser drops malformed items and stamps doneAt.
   if (body.checklist !== undefined) {
     next.checklist = body.checklist === null ? null : normaliseChecklist(body.checklist);
+  }
+  // The conversation link is ENGINE-ONLY and write-once-shaped: the launcher's
+  // kick stamps it (patchCardEngine {conversationId}), and everything that
+  // distinguishes a conversation card — the Done evidence invariant, the
+  // sweeps' hands-off rule, the card modal's conversation surface — keys on
+  // it. The CREATE door already accepts it; without this the PATCH door
+  // silently dropped the launcher's link and every started card read as
+  // conversation-less (found on the first live smoke).
+  if (isEngineRequest(req) && typeof body.conversationId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(body.conversationId)) {
+    next.conversationId = body.conversationId;
+  }
+  // The launcher's done transition carries the terminal handoff's summary —
+  // dropped silently before, leaving every finished card summary-less.
+  if (isEngineRequest(req) && typeof body.terminalSummary === "string") {
+    next.terminalSummary = body.terminalSummary.slice(0, 600);
+  }
+  // The autonomy gate's standing ask. ENGINE-ONLY and shape-checked: the
+  // launcher stamps it when it pauses on To do, and clears it (null) when a
+  // stretch starts. The board renders the approve block from exactly this.
+  if (isEngineRequest(req) && body.awaitingApproval !== undefined) {
+    if (body.awaitingApproval === null) {
+      next.awaitingApproval = null;
+    } else if (typeof body.awaitingApproval === "object" && typeof body.awaitingApproval.next === "string") {
+      next.awaitingApproval = {
+        next: body.awaitingApproval.next.slice(0, 60),
+        plan: typeof body.awaitingApproval.plan === "string" ? body.awaitingApproval.plan.slice(0, 1200) : null,
+        items: Array.isArray(body.awaitingApproval.items)
+          ? body.awaitingApproval.items.slice(0, 6).map((item) => String(item).slice(0, 200))
+          : [],
+        at: typeof body.awaitingApproval.at === "string" ? body.awaitingApproval.at : new Date().toISOString()
+      };
+    }
+  }
+  if (isEngineRequest(req) && typeof body.lastReply === "string") {
+    next.lastReply = body.lastReply.slice(0, 2000);
   }
   // The dispatch record is ENGINE-ONLY: it is the claim ledger (who holds this
   // card, and when they last checked in). A hand-edited claim would let any
@@ -2963,7 +3200,11 @@ async function handlePatchCard(req, res, opts, id) {
       // lifecycle lock; a concurrent reopen cannot slip between the two.
       afterWrite: landedTerminal
         ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)
-        : undefined
+        : undefined,
+      // Conversations: the card-state-changed ledger event's actor attribution
+      // comes from the door. Never defaulted to "human" — an "unknown" in the
+      // metrics is a real finding.
+      actor: isEngineRequest(req) ? "launcher" : "human"
     });
   };
   const needsOrderLock = needsImplicitMovePosition || (typeof body.position === "number" && Number.isFinite(body.position));
@@ -2986,10 +3227,6 @@ async function handlePatchCard(req, res, opts, id) {
   // the background, the card flips to `running` and is watchable; the PATCH returns at
   // once). A manual / interactive (Discuss) / scheduler-beat (Test) target just moves.
   //
-  // Only when the card actually CHANGES list: a PATCH that carries the current list
-  // (a field edit, or a no-op re-drop onto the same column) must not re-run an agent
-  // list and clobber a card that is already running there.
-  //
   // BUT an ENGINE request (x-garrison-engine: the garrison doorway positioning the
   // card, then driving it in-session via advanceCardPhase) must NOT also fire a
   // background processChain — that double-drives the card (background flow races the
@@ -3001,75 +3238,11 @@ async function handlePatchCard(req, res, opts, id) {
   // carding move carries x-garrison-engine) - unlike a normal engine move, which the
   // doorway drives itself. A human Discuss card (no gate marker) still just
   // moves (shouldAutoDispatch is false for the interactive list).
-  const listChanged = typeof body.list === "string" && body.list !== card.list;
-  const movedToGatedDiscuss =
-    listChanged && isGatedDiscuss(result.card, getList(board, body.list));
-  // An engine-context request suppresses the background chain UNLESS it explicitly
-  // hands progression to the board. The garrison doorway omits that intent because
-  // it drives in-session via advanceCardPhase; quick gateway cards omit it because
-  // they run inline. Significant gateway registrations include it because they
-  // return after registration and otherwise leave the card stranded until a tick or
-  // manual Run press.
-  const callerOwnsProgression = isEngineRequest(req) && !requestsAutoDispatch(req);
-  // §7.1: releasing an autonomy hold IS the authorisation to progress, so it
-  // dispatches even from an engine-context move. The gateway's channel-agnostic
-  // "go" resume moves the card with the engine header and no dispatch intent
-  // (moveCardEngine has one shape), and without this the answered card would sit
-  // on Plan until a tick noticed it - which reads to the person who just said
-  // "go" as nothing happening.
-  const autoDispatch =
-    movedToGatedDiscuss ||
-    (releasedAutonomyHold && typeof body.list === "string" && shouldAutoDispatch(board, body.list)) ||
-    (listChanged && shouldAutoDispatch(board, body.list) && !callerOwnsProgression);
-  if (autoDispatch && opts.gatewayUrl) {
-    // Coordination (GARRISON-FLOW-V2 S1) gates, applied the same way the tick does
-    // before dispatching: a card deferred behind an overlapping run does NOT
-    // auto-dispatch on move; and when coordination's substrate is degraded, the
-    // serialize gate lets only the oldest live card per project proceed. Both leave
-    // the card on its (already-moved) list, to be released/retried by a later tick.
-    if (result.card.waitingOn) {
-      const w = result.card.waitingOn;
-      return jsonRes(res, 200, {
-        card: cardSummary(result.card),
-        dispatched: false,
-        note: `waiting on ${w.cardTitle || w.cardId} (${w.until}) — will dispatch when released`
-      });
-    }
-    const coordCfg = coordinationConfig(loadPolicy());
-    if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
-      const allCards = await loadAllCards(root);
-      const gate = serializeGate(allCards, result.card, board);
-      if (!gate.allowed) {
-        return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: false, note: gate.reason });
-      }
-    }
-    if (await gatewayReachable(opts.gatewayUrl)) {
-      // processChain runs the AUTOMATED FLOW: this list, then the next immediate
-      // agent list, and so on (Plan → Implement → Review → …) without waiting for a
-      // Start press or the next tick. Fire-and-forget — the card flips to running and
-      // is watchable; the PATCH returns at once.
-      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
-        .catch((err) => console.error(`[kanban-loop] auto-dispatch on move failed for ${id}:`, err?.message || err));
-      return jsonRes(res, 200, { card: cardSummary(result.card), dispatched: true });
-    }
-    // Gateway down: the card stays on the target list (already moved, status ok) and
-    // WAITS — it dispatches on the next tick or via Start once an operative is up. We
-    // do NOT fire a doomed run that would park it in needs-attention just for moving.
-    // Persist the reason on the card so the UI can render a visible badge instead of
-    // leaving the user to discover a silent failure in the patch response.
-    const withError = {
-      ...result.card,
-      lastDispatchError: {
-        at: new Date().toISOString(),
-        reason: "gateway-unavailable",
-        listId: body.list,
-        message: "gateway not reachable — start an operative (composition up) and Retry"
-      }
-    };
-    const errSave = await saveCardCAS(root, withError, result.card.rev ?? 0);
-    const finalCard = errSave.ok ? errSave.card : result.card;
-    return jsonRes(res, 200, { card: cardSummary(finalCard), dispatched: false, note: "gateway not reachable — card waits on this list until an operative is up" });
-  }
+  // Conversations: a MOVE never auto-dispatches. There are no duty lists, no
+  // dispatch-on-entry, and you cannot start a stretch by dragging — work starts
+  // through Start (/cards/:id/start → the gateway's conversation kick), the
+  // schedule sweep + tick, or the materialization door. The old auto-dispatch
+  // block (shouldAutoDispatch + processChain) died with the duty-list engine.
   jsonRes(res, 200, {
     card: cardSummary(result.card),
     ...(result.postCommitError ? { coordinationCleanupPending: true } : {})
@@ -3093,13 +3266,13 @@ async function handleDeleteCard(req, res, opts, id) {
   try { card = await loadCard(opts.root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id
-  // D16: an engine-owned card (on an autonomous list) cannot be deleted
-  // mid-run — resolve it via needs-attention first.
+  // D16: a launcher-held card cannot be deleted mid-stretch — move it off
+  // Running (the rescue exit) or let the conversation finish first.
   const boardForLock = await loadBoard(opts.root);
   if (isEngineOwned(boardForLock, card) && !isEngineRequest(req)) {
     return jsonRes(res, 403, {
       error: "engine-owned",
-      message: `Card is on the autonomous list "${card.list}" — engine-owned (D16). Let the run finish or resolve it from needs-attention, then delete.`
+      message: `Card is running — the launcher owns it (D16). Move it off Running first, then delete.`
     });
   }
   const removed = [];
@@ -3483,7 +3656,7 @@ async function handleSnoozeCard(req, res, opts, id) {
     }
     if (!untilIso) return jsonRes(res, 400, { error: "pass minutes (a positive number) or until (a parseable ISO date-time)" });
     const action = normaliseScheduleAction(body.action ?? card.schedule?.action ?? card.scheduleAction);
-    const targetList = card.list === "scheduled" ? card.schedule?.targetList ?? "backlog" : card.list;
+    const targetList = card.list === "scheduled" ? card.schedule?.targetList ?? "todo" : card.list;
     const updated = await updateCard(root, id, (c) => ({
       ...c,
       list: "scheduled",
@@ -3658,172 +3831,75 @@ async function handleReconcile(req, res, opts) {
   return jsonRes(res, 200, { ok: true, added, removed, updated, movedToAttention: moved });
 }
 
+// POST /cards/:id/start — Start. Conversations: starting a card means starting
+// (or resuming) its CONVERSATION through the gateway's launcher. A card with a
+// conversation already gets a "resume" user message (triage re-routes it from
+// the summary); a fresh card gets a kick carrying its title + description as
+// the opening task. The board never dispatches model turns itself anymore.
 async function handleStartCard(req, res, opts, id) {
   const root = opts.root;
   let card;
   try { card = await loadCard(root, id); }
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
-  card.id = id; // pin to the validated route id — saveCardCAS/processCard write under this id
-  const board = await loadBoard(root);
-  const list = getList(board, card.list);
-  if (!list) return jsonRes(res, 400, { error: `card on unknown list: ${card.list}` });
-
-  // An INTERACTIVE list (Discuss) advances ONLY by a manual Move (PATCH) — never
-  // by Start/Advance (brief decision 8: the advance is manual). Reject it here so
-  // a Start cannot skip the brief-to-disk hand-off. EXCEPTION (S3d): a clarity-gated
-  // discuss card runs the discuss duty as a real session, so Start dispatches it
-  // like any agent list; a human Discuss card (no gate marker) stays manual.
-  if (isInteractive(list) && !isGatedDiscuss(card, list)) {
-    return jsonRes(res, 400, {
-      error: "interactive list (Discuss) advances by manual Move, not Start — open the web chat, then Move when ready"
-    });
+  card.id = id;
+  if (card.status === "running") {
+    return jsonRes(res, 409, { error: "already running", card: cardSummary(card) });
   }
-
-  // Manual columns normally advance to their first valid edge. Needs-attention
-  // instead resumes its still-valid parkedFrom phase, preserving the failed
-  // phase's run context. A gated Discuss card falls through to agent dispatch.
-  if (list.kind !== "agent" && !isGatedDiscuss(card, list)) {
-    // A manual-only rail (empty phase plan — the personal/channel kinds, or a
-    // card with every phase toggled off) never advances INTO the dev pipeline:
-    // its journey is the manual head/tail, so Advance targets the manual
-    // subset of the list's exits, or Done when the pipeline was the only exit.
-    // parkedFrom resume is skipped too — there is no phase context to preserve.
-    const manualOnly = railIsManualOnly(railForCard(loadPolicy(), card));
-    let targets = validNextFor(board, card.list);
-    if (manualOnly) {
-      const manual = targets.filter((t) => getList(board, t)?.kind === "manual");
-      targets = manual.length ? manual : ["done"];
-    }
-    const parkedTarget =
-      !manualOnly &&
-      card.list === ATTENTION_LIST &&
-      typeof card.parkedFrom === "string" &&
-      card.parkedFrom !== ATTENTION_LIST &&
-      getList(board, card.parkedFrom)
-        ? card.parkedFrom
-        : null;
-    const target = parkedTarget ?? targets[0];
-    if (!target) return jsonRes(res, 400, { error: `nothing to advance to from ${card.list}` });
-    const recovering = card.list === ATTENTION_LIST;
-    const landedTerminal = Boolean(getList(board, target)?.terminal || target === "done");
-    const at = new Date().toISOString();
-    const overridden = consumeStartOverrides(card, at);
-    const recover = recovering ? unparkRecoveryFields(card) : {};
-    const fromTitle = list.title || card.list;
-    const toTitle = getList(board, target)?.title || target;
-    let events = withEvent(overridden, {
-      at,
-      kind: recovering ? "recovered" : "moved",
-      message: recovering ? `Recovered: advanced ${listProseLabel(fromTitle)} → ${listProseLabel(toTitle)}` : `Advanced ${listProseLabel(fromTitle)} → ${listProseLabel(toTitle)}`
-    });
-    if (recovering && card.retryKeepsContext) {
-      events = withEvent({ events }, {
-        at,
-        kind: "retry-keeps-context",
-        message: "Retry preserves prior context (phase runDir + iteration logs kept)"
-      });
-    }
-    const next = { ...overridden, list: target, status: "ok", events, ...recover };
-    const result = await saveCardCASWithHooks(root, next, card.rev ?? 0, at, {
-      beforeWrite: isHumanHeld(card, board) && !landedTerminal
-        ? ({ next: lockedNext }) => prepareRecoveredCoordinationHold(
-            board,
-            lockedNext,
-            undefined,
-            getList(board, lockedNext.list)?.phase ?? lockedNext.list ?? null
-          )
-        : undefined,
-      afterWrite: landedTerminal
-        ? ({ disk, next: lockedNext }) => cleanupClosedCoordinationHold(root, board, lockedNext, disk)
-        : undefined
-    });
-    if (result.precondition) return coordinationRecoveryConflict(res, result.detail);
-    if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
-    if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
-    // If we advanced onto an immediate agent list, kick the automated flow.
-    if (shouldAutoDispatch(board, target) && opts.gatewayUrl && (await gatewayReachable(opts.gatewayUrl))) {
-      void processChain({ root, board, card: result.card, runFn: gatewayRunFn(opts.gatewayUrl), cap: opts.cap, cwd: opts.cwd, onDutyBoundary: compactBoundaryFn(opts.gatewayUrl) })
-        .catch((err) => console.error(`[kanban-loop] advance-chain failed for ${id}:`, err?.message || err));
-    }
-    return jsonRes(res, 200, {
-      card: cardSummary(result.card),
-      advanced: target,
-      ...(result.postCommitError ? { coordinationCleanupPending: true } : {})
-    });
+  if (card.list === "scheduled") {
+    return jsonRes(res, 409, { error: "scheduled template — use Run now instead of Start" });
   }
-
-  // Agent list: dispatch through the engine. Requires a LIVE gateway — PING it first
-  // so an explicit Start while no operative is up returns a clear 503 (telling the
-  // user to start an operative) instead of firing a doomed run that parks the card.
   const gatewayUrl = opts.gatewayUrl;
   if (!gatewayUrl || !(await gatewayReachable(gatewayUrl))) {
-    return jsonRes(res, 503, { error: "gateway not reachable — start an operative (composition up) before dispatching an agent list" });
+    return jsonRes(res, 503, { error: "gateway not reachable — start an operative (composition up) before starting a conversation" });
   }
-  // Coordination serialize gate (GARRISON-FLOW-V2 S1, Q8): when coordination is
-  // enabled but its substrate is degraded, only the oldest live card per project may
-  // dispatch — the same choke the tick applies. Start authorizes a waiting-card
-  // override, but the engine consumes it only in the eventual run-acquire CAS.
+  // Coordination serialize gate (GARRISON-FLOW-V2 S1): when coordination is
+  // enabled but degraded, only the oldest live card per project may start.
   {
     const coordCfg = coordinationConfig(loadPolicy());
     if (coordCfg.enabled && coordCfg.serializeWhenUnavailable && !coordinationAvailability().ok) {
       const allCards = await loadAllCards(root);
-      const gate = serializeGate(allCards, card, board);
+      const gate = serializeGate(allCards, card, await loadBoard(root));
       if (!gate.allowed) return jsonRes(res, 409, { error: gate.reason, card: cardSummary(card) });
     }
   }
-  // Do not consume wait/schedule in a standalone save here. The engine folds the
-  // explicit override into the exact status:"running" acquire CAS; every
-  // pre-acquire refusal/race therefore leaves both holds untouched.
-  const manualStart = Boolean(card.waitingOn || card.scheduledFor);
-  const cap = opts.cap;
-
-  // A BATCHED list (Test) runs one session per PROJECT with a per-card-verdict router
-  // format, so a manual Run must drive the BATCHED path — not the per-card chain (whose
-  // single-card reply can't satisfy the batch router prompt). Run just THIS card's
-  // project group, exactly as the scheduler beat would. This is what makes "Run" work
-  // on Test without waiting for the beat or fiddling with the trigger.
-  if (list.batched) {
-    const all = await loadAllCards(root);
-    const projectKey = card.project || "(no-project)";
-    const projectCards = all.filter((c) => c.list === card.list && (c.project || "(no-project)") === projectKey);
-    void processBatch({
-      root,
-      board,
-      listId: card.list,
-      cards: projectCards,
-      batchRunFn: batchGatewayRunFn(gatewayUrl),
-      cap,
-      cwd: opts.cwd,
-      manualStartIds: manualStart ? [card.id] : []
-    })
-      .catch((err) => console.error(`[kanban-loop] start/batch failed for ${id}:`, err?.message || err));
-    return jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), dispatched: true, batched: true });
+  try {
+    if (card.conversationId) {
+      // Resume: a user message on the settled conversation; the launcher's
+      // responder/triage routing decides what happens (needs-input + message →
+      // triage re-routes; done + message → responder answers).
+      const r = await fetch(`${gatewayUrl}/conversation/message`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: card.conversationId,
+          message: "The user pressed Start — resume this work from the summary and the last handoff.",
+          origin: "board"
+        })
+      });
+      if (!r.ok && r.status !== 202) {
+        return jsonRes(res, 502, { error: `gateway refused the resume: http ${r.status}` });
+      }
+    } else {
+      const r = await fetch(`${gatewayUrl}/conversation/kick`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: id,
+          cardId: id,
+          task: [card.title, card.description].filter(Boolean).join("\n\n") || card.title || "Untitled work",
+          title: card.title ?? null
+        })
+      });
+      if (r.status !== 202 && r.status !== 409) {
+        return jsonRes(res, 502, { error: `gateway refused the kick: http ${r.status}` });
+      }
+    }
+  } catch (err) {
+    return jsonRes(res, 502, { error: `gateway unreachable mid-start: ${err?.message}` });
   }
-
-  // Run the AUTOMATED FLOW fire-and-forget (a real chain is minutes long — never block
-  // the HTTP response on it). The card flips to running and is watchable; the response
-  // returns at once. This is the manual Run / Retry path (the UI shows it on any agent
-  // list card that isn't already running; immediate agent lists also auto-run on entry).
-  void processChain({
-    root,
-    board,
-    card,
-    runFn: gatewayRunFn(gatewayUrl),
-    cap,
-    cwd: opts.cwd,
-    onDutyBoundary: compactBoundaryFn(gatewayUrl),
-    manualStart
-  })
-    .catch((err) => console.error(`[kanban-loop] start/chain failed for ${id}:`, err?.message || err));
-  // This response is already an accepted-dispatch projection (the chain is
-  // intentionally fire-and-forget). Reflect the same override that the acquire
-  // CAS will consume, without writing it early: a failed acquire still leaves
-  // the durable wait/schedule untouched for a safe retry.
-  const acceptedCard = manualStart
-    ? consumeStartOverrides({ ...card, status: "running" }, new Date().toISOString())
-    : { ...card, status: "running" };
-  jsonRes(res, 200, { card: cardSummary(acceptedCard), dispatched: true });
+  return jsonRes(res, 200, { card: cardSummary({ ...card, status: "running" }), started: true });
 }
+
 
 // POST /cards/:id/panic — stop only the gateway turn that proves it owns this
 // card. The endpoint intentionally does NOT mutate the card: processCard/processBatch
@@ -3989,89 +4065,11 @@ async function handlePanicCard(req, res, opts, id) {
   });
 }
 
-// Host-authoritative completion seam for a pull-based Outpost worker. The
-// Next host API has already authenticated the machine and verified the evidence
-// manifest; this board-side seam rechecks the durable claim identity and then
-// uses advanceCardPhase so remote work cannot bypass gate, evidence,
-// coordination, cleanup, or terminal hooks.
+// The outpost-era remote-dispatch completion seam is RETIRED (Conversations):
+// phase advancement died with the duty-list engine, and remote work now rides
+// the remote-shell runtime inside a conversation stretch.
 async function handleDispatchComplete(req, res, opts, id) {
-  if (!isEngineRequest(req)) return jsonRes(res, 403, { error: "engine authentication required" });
-  const body = (await readBody(req)) || {};
-  let card;
-  try { card = await loadCard(opts.root, id); }
-  catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
-  const dispatch = card.dispatch && typeof card.dispatch === "object" ? card.dispatch : null;
-  if (!dispatch || dispatch.runId !== body.runId || dispatch.routingToken !== body.routingToken) {
-    return jsonRes(res, 409, { error: "dispatch claim identity changed" });
-  }
-  if (dispatch.releasedAt || dispatch.state === "done" || dispatch.state === "failed") {
-    return jsonRes(res, 409, { error: "dispatch claim is no longer active" });
-  }
-  if (dispatch.phase !== body.phase || card.list !== body.phase) {
-    return jsonRes(res, 409, { error: `card phase changed from ${body.phase || "unknown"} to ${card.list}` });
-  }
-  if (!Number.isInteger(dispatch.claimRevision)
-      || !Number.isInteger(body.rev)
-      || body.rev !== dispatch.claimRevision
-      || body.rev !== (card.rev ?? 0)) {
-    return jsonRes(res, 409, { error: "card revision changed", card: cardSummary(card) });
-  }
-  if (typeof body.verdict !== "string" || !body.verdict.trim()) {
-    return jsonRes(res, 400, { error: "verdict is required" });
-  }
-  const summary = typeof body.summary === "string" ? body.summary.trim().slice(0, 2000) : "completed on a remote node";
-  const evidenceRunKey = createHash("sha256").update(String(body.runId)).digest("hex").slice(0, 32);
-  const completed = {
-    ...card,
-    // Absolute and host-owned. The evidence endpoint writes the phase sidecar
-    // and tangible evidence here before this request is accepted.
-    runDir: path.join(opts.root, "cards", id, "dispatch", "runs", evidenceRunKey),
-    lastReply: summary || card.lastReply || null,
-    dispatch: {
-      ...dispatch,
-      state: "done",
-      heartbeatAt: new Date().toISOString(),
-      detail: summary || "completed on a remote node",
-      requestedTransition: body.verdict,
-      ...(typeof body.sessionId === "string" && body.sessionId ? { sessionId: body.sessionId } : {}),
-      logCursor: Number.isSafeInteger(body.logCursor) ? body.logCursor : 0,
-      evidenceManifest: Array.isArray(body.evidenceManifest) ? body.evidenceManifest : []
-    },
-    dispatchRuns: appendDispatchRunProvenance(card, {
-      runId: body.runId,
-      machine: dispatch.machine,
-      workerId: dispatch.workerId,
-      phase: body.phase,
-      state: "done",
-      claimedAt: dispatch.claimedAt,
-      completedAt: new Date().toISOString(),
-      logIndex: dispatch.logIndex,
-      sessionId: body.sessionId,
-      logCursor: body.logCursor,
-      evidenceManifest: body.evidenceManifest
-    })
-  };
-  const result = await advanceCardPhase({
-    root: opts.root,
-    board: await loadBoard(opts.root),
-    card: completed,
-    verdict: body.verdict.trim(),
-    cwd: opts.cwd,
-    onDutyBoundary: opts.gatewayUrl ? compactBoundaryFn(opts.gatewayUrl) : undefined
-  });
-  if (result?.outcome?.status !== "moved") {
-    return jsonRes(res, 422, {
-      error: `remote phase was not advanced: ${result?.outcome?.reason || result?.outcome?.status || "unknown"}`,
-      outcome: result?.outcome || null,
-      card: result?.card ? cardSummary(result.card) : cardSummary(card)
-    });
-  }
-  return jsonRes(res, 200, {
-    ok: true,
-    advanced: result.outcome.to,
-    outcome: result.outcome,
-    card: cardSummary(result.card)
-  });
+  return jsonRes(res, 410, { error: "remote dispatch completion is retired — work advances through conversation stretches now" });
 }
 
 async function handleDispatchCancelAck(req, res, opts, id) {
@@ -4211,21 +4209,7 @@ async function handleWatchCard(req, res, opts, id) {
   // tailing would break on an overwrite that re-flows or shrinks.)
   send("mode", { live: true, status: "running", n });
   let lastSent = null;
-  let timer = null;
-  let ended = false;
-  // Declared BEFORE pump so pump's early-finish path can call them without hitting
-  // a temporal-dead-zone ReferenceError (the first pump runs before the timer is
-  // even set). finish() is idempotent and stops the timer.
-  const cleanup = () => { if (timer) { clearInterval(timer); timer = null; } };
-  const finish = (payload) => {
-    if (ended) return;
-    ended = true;
-    send("end", payload);
-    cleanup();
-    res.end();
-  };
   const pump = async () => {
-    if (ended) return;
     if (isReadableFile(logFile)) {
       try {
         const text = await readFile(logFile, "utf8");
@@ -4239,14 +4223,16 @@ async function handleWatchCard(req, res, opts, id) {
     try {
       const fresh = await loadCard(root, id);
       if (fresh.status !== "running") {
-        finish({ reason: "run-finished", status: fresh.status, list: fresh.list });
+        send("end", { reason: "run-finished", status: fresh.status, list: fresh.list });
+        cleanup();
+        return res.end();
       }
     } catch {}
   };
-  req.on("close", cleanup);
   await pump();
-  // Only start polling if the first pump didn't already finish the stream.
-  if (!ended) timer = setInterval(pump, 1000);
+  const timer = setInterval(pump, 1000);
+  const cleanup = () => clearInterval(timer);
+  req.on("close", cleanup);
 }
 
 // GET /operative/screen - SSE proxy of the gateway's /screen/stream (the
@@ -4741,7 +4727,7 @@ async function handleArtifactWrite(req, res, opts, cardId, ref) {
   if (isEngineOwned(boardForLock, card) && !isEngineRequest(req)) {
     return jsonRes(res, 403, {
       error: "engine-owned",
-      message: `Card is on the autonomous list "${card.list}" — its run inputs are engine-owned (D16). Edit from needs-attention if it parks.`
+      message: `Card is running — its inputs are the launcher's while the conversation is in flight (D16). Move it off Running to edit, or wait for the stretch.`
     });
   }
   const absPath = resolveArtifactRef(card, ref, { root: opts.root, cwd: opts.cwd });
@@ -5286,7 +5272,7 @@ function serveStatic(req, res, distDir) {
   let pathname = url.parse(req.url).pathname || "/";
   if (pathname === "/") pathname = "/index.html";
   const filePath = path.join(distDir, pathname.replace(/^\/+/, ""));
-  if (filePath !== distDir && !filePath.startsWith(distDir + path.sep)) { res.statusCode = 403; return res.end("forbidden"); }
+  if (!filePath.startsWith(distDir)) { res.statusCode = 403; return res.end("forbidden"); }
   if (!existsSync(filePath)) {
     const idx = path.join(distDir, "index.html");
     if (existsSync(idx)) {
@@ -5393,6 +5379,10 @@ export function makeRequestHandler(opts, distDir) {
       if (pathname === "/health") return await handleHealth(req, res, opts);
       if (pathname === "/board" && method === "GET") return await handleBoard(req, res, opts);
       if (pathname === "/board/runtime" && method === "GET") return await handleBoardRuntime(req, res, opts);
+      // GET /history — the frozen pre-Conversations records under the legacy
+      // layout. Read-only by construction: it has no write counterpart, and the
+      // state service refuses every write on a frozen card but DELETE.
+      if (pathname === "/history" && method === "GET") return await handleHistory(req, res, opts);
       if (pathname === "/lists" && method === "GET") return await handleGetLists(req, res, opts);
       // GET /machines — the placement picker's vocabulary: this node plus every
       // other node in the mesh, with its live claim readiness. Same-origin proxy
@@ -5500,59 +5490,16 @@ export function makeRequestHandler(opts, distDir) {
         return await handlePatchList(req, res, opts, listId);
       }
 
-      // POST /lists { title } - create a new column = a HUMAN-MANAGED manual list
-      // (a plain parking column, no agent behaviour, no run-on-drop). It is NOT a
-      // composition duty: agent-managed lists are added by selecting a DUTY in
-      // Muster, which projects its list through the resolved model. A user list is
-      // marked `userCreated` so the duty reconcile preserves it, and is spliced in
-      // just before the fixed human tail. Persisted straight to the board.
+      // The Add-list affordance died with the duty lists (Conversations,
+      // 2026-08-26): the state-column board is FIXED — buildBoard creates no
+      // user lists and reconcileBoardLists removes anything outside the fixed
+      // set. Both list-mutation endpoints answer 410 so a stale client gets an
+      // honest refusal instead of a silently ignored write.
       if (pathname === "/lists" && method === "POST") {
-        if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list create rejected" });
-        const body = (await readBody(req)) || {};
-        const title = typeof body.title === "string" ? body.title.trim() : "";
-        if (!title) return jsonRes(res, 400, { error: "give the list a name" });
-        if (title.length > 80) return jsonRes(res, 400, { error: "list name is too long (max 80 characters)" });
-        const board = await loadBoard(opts.root).catch(() => null);
-        if (!board) return jsonRes(res, 409, { error: "no board on disk" });
-        const id = deriveUniqueListId(title, board);
-        if (!id) return jsonRes(res, 400, { error: "could not derive a valid id from that name" });
-        const newList = { id, title, kind: "manual", trigger: "manual", userCreated: true, validNext: [] };
-        const next = { ...board, lists: insertUserLists(board.lists, [newList]) };
-        await saveBoard(next, opts.root);
-        return jsonRes(res, 200, { ok: true, list: newList });
+        return jsonRes(res, 410, { error: "the board's lists are fixed — lists can no longer be created" });
       }
       if (listMatch && method === "DELETE") {
-        if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin list delete rejected" });
-        const listId = decodeURIComponent(listMatch[1]);
-        if (!isValidListId(listId)) return jsonRes(res, 400, { error: "invalid list id" });
-        const board = await loadBoard(opts.root).catch(() => null);
-        if (!board) return jsonRes(res, 409, { error: "no board on disk" });
-        const target = getList(board, listId);
-        if (!target) return jsonRes(res, 404, { error: `no such list: ${listId}` });
-        // A human-managed (user-created) list is owned by the board: drop it and
-        // park any cards left on it (never lost). A duty-backed list is owned by
-        // the composition, so its removal is proxied to the shell (the single
-        // composition writer), which deselects the duty and reconciles the board.
-        if (isUserList(target)) {
-          const next = { ...board, lists: (board.lists || []).filter((l) => l.id !== listId) };
-          await saveBoard(next, opts.root);
-          const moved = await relocateStrandedCards(opts.root, next, [listId]);
-          return jsonRes(res, 200, { ok: true, removed: [listId], movedToAttention: moved });
-        }
-        const appUrl = (process.env.GARRISON_APP_URL || "").trim();
-        if (!appUrl) return jsonRes(res, 503, { error: "no GARRISON_APP_URL in this fitting's env - re-up the composition so the runner projects it" });
-        try {
-          const r = await fetch(`${appUrl}/api/muster/duty`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ action: "delete", dutyId: listId }),
-            signal: AbortSignal.timeout(20000)
-          });
-          const doc = await r.json().catch(() => ({}));
-          return jsonRes(res, r.status, doc);
-        } catch (e) {
-          return jsonRes(res, 502, { error: `shell unreachable for duty delete: ${e?.message || e}` });
-        }
+        return jsonRes(res, 410, { error: "the board's lists are fixed — lists can no longer be deleted" });
       }
 
       // GET /origins/:originId[/events] (S3e) - the durable per-origin event log +
@@ -5652,10 +5599,31 @@ export function makeRequestHandler(opts, distDir) {
         if (sub === "" && method === "DELETE") return await handleDeleteCard(req, res, opts, id);
       }
 
+      // The conversation router (Conversations plan, C1). Same module, same
+      // relative base as the web channel and the Next app: the card modal's
+      // conversation view is served same-origin from here, so identical client
+      // code works on every surface.
+      if (pathname.startsWith("/api/conversation")) {
+        return void (await handleConversationRequest(req, res, {
+          role: "kanban",
+          forwardMessage: gatewayMessageForwarder(opts.gatewayUrl),
+        }));
+      }
+
       return serveStatic(req, res, distDir);
     } catch (err) {
       if (err?.code === "BODY_TOO_LARGE") {
         return jsonRes(res, 413, { error: "request JSON exceeds the 16 MB limit" });
+      }
+      // The state service's frozen-history refusal is a CLIENT answer, not a
+      // server fault. The card modal withholds every write control on a frozen
+      // record, so nothing here should trip it - but a stale tab still open on
+      // the old build must be told "read-only" rather than handed a 500.
+      if (err?.status === 409 && err?.body?.error === "card-frozen") {
+        return jsonRes(res, 409, {
+          error: "card-frozen",
+          message: err.body.detail || "this card is frozen history - it is read-only"
+        });
       }
       jsonRes(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
@@ -5669,20 +5637,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const liveOpts = { ...opts };
 
   // Recover cards stranded "running" by a mid-run restart — their dispatch died
-  // with the previous process, so nothing will ever finish or revert them. Two
-  // passes, stalest first: a card whose runningSince is older than ORPHAN_RUNNING_MS
-  // was already orphaned BEFORE this restart, so it is parked into needs-attention
-  // (genuinely stuck work, out of the pipeline and visible) rather than left in place
-  // with a Retry affordance nobody pressed. Everything still running after that pass
-  // is a run this restart really did interrupt, and gets the gentler clear-and-retry.
-  try {
-    const reaped = await reapOrphanedRuns(liveOpts.root);
-    if (reaped.length) {
-      console.log(`[kanban-loop] parked ${reaped.length} orphaned running card(s): ${reaped.join(", ")}`);
-    }
-  } catch (err) {
-    console.error("[kanban-loop] orphaned-run reaper failed:", err?.message || err);
-  }
+  // with the previous process, so nothing will ever finish or revert them.
   try {
     const recovered = await recoverInterruptedRuns(liveOpts.root);
     if (recovered.length) {

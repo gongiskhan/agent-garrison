@@ -41,6 +41,7 @@ import { runOrchestratorPolicyRule } from "../lib/orchestrator-policy-rule.mjs";
 import { runEscalationRule } from "../lib/escalation-rule.mjs";
 import { runCoordinationRule } from "../lib/coordination-rule.mjs";
 import { runFeedbackRule } from "../lib/feedback-rule.mjs";
+import { runConversationMetricsRule } from "../lib/conversation-metrics-rule.mjs";
 import { runDreamPhase, chooseDreamRunTurn } from "../lib/memory-dream.mjs";
 import { scanSkillTelemetry, telemetryToJSON } from "../lib/skill-telemetry.mjs";
 import { loadProvenance } from "../lib/provenance.mjs";
@@ -384,12 +385,33 @@ async function runSkills() {
   } catch (err) {
     console.error("escalation rule failed (skipped):", err?.message || err);
   }
+  // ── conversation-metrics rule (Conversations, Task 5) ──
+  // The stretch ledger's numbers: raise defaults on duties that always
+  // escalate, lower ones that never do, flag high dig rates and repeated
+  // consecutive failures. Same queue, never auto-applied.
+  try {
+    const convRule = runConversationMetricsRule({ now });
+    for (const p of convRule.proposals) {
+      writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
+      queue = upsertQueue(queue, p);
+    }
+    console.log(
+      `CONVERSATION-METRICS — proposals=${convRule.proposals.length} (conversations=${convRule.inputs.conversations}, ` +
+        `stretches=${convRule.inputs.stretches}, duties=${convRule.inputs.duties}, digRate=${convRule.inputs.digRate.toFixed(2)})`
+    );
+  } catch (err) {
+    console.error("conversation-metrics rule failed (skipped):", err?.message || err);
+  }
   // ── coordination rule (GARRISON-FLOW-V2 S6, D17) ──
   // Watches attributed interference + ordering decisions + touch-set-prediction
   // misses on the kanban cards and proposes threshold / lease-list / prediction
   // edits into the SAME queue — rendered as composer ghost edits, never auto-applied.
   try {
-    const coordRule = runCoordinationRule({ now });
+    // The queue is an INPUT here: a resolved predict-batch generation tells the
+    // rule which paths the human has already decided on, so the next delta
+    // becomes its own pending record instead of being absorbed into (or
+    // suppressed by) the frozen one.
+    const coordRule = runCoordinationRule({ now, queue });
     for (const p of coordRule.proposals) {
       writeFileSync(path.join(PROPOSALS_DIR, `${p.id}.json`), JSON.stringify(p, null, 2), "utf8");
       queue = upsertQueue(queue, p);

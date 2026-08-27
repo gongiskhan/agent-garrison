@@ -1,8 +1,11 @@
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Marked } from "marked";
 import { filePathMarkedExtension } from "./host-rewrite";
 import { installSafeMarkdownRenderer, loadHostMap } from "./markdown-safety";
+import { PayloadOpenerContext } from "./payload-context";
+import { railBadges } from "./run-context";
+import type { RouteAttribution } from "./transport";
 import {
   collectRelatedTasks,
   groupSessionTurns,
@@ -22,6 +25,7 @@ import {
   type SessionBlock,
   type SessionEvent,
   type SessionImage,
+  isFanoutTool,
 } from "./journal";
 
 // Rich activity-journal renderer. Claude/Agent SDK JSONL is today's producer,
@@ -33,7 +37,71 @@ installSafeMarkdownRenderer(md);
 // Absolute paths in prose (e.g. a screenshot the operative wrote) render inline.
 md.use({ extensions: [filePathMarkedExtension()] });
 
+/**
+ * The transcript's own Markdown seam: raw HTML escaped, links host-rewritten and
+ * `garrison://` resolved, absolute file paths linked. Exported so a sibling
+ * conversation surface (the payload viewer) renders prose through THIS renderer
+ * instead of standing up a second Marked instance whose security posture would
+ * then have to be kept in step with this one by hand.
+ */
+export function renderTranscriptMarkdown(text: string): string {
+  return md.parse(text ?? "") as string;
+}
+
 type StreamStatus = "connecting" | "streaming" | "ended" | "unavailable";
+
+/** Long enough for the eye to catch the row it landed on, short enough that it is
+ * gone before the reader starts reading it. */
+const FOCUS_FLASH_MS = 1200;
+const FOCUS_FLASH_CLASS = "cc-focus-flash";
+
+/**
+ * Land a jump: once the event carrying `focusEventId` has rendered inside
+ * `containerRef`, scroll it into view and flash it. The returned ref reads true
+ * while the landing is still pending, so a LIVE stream can suppress its
+ * stick-to-bottom until the jump has happened - without that the two fight and
+ * the hit is scrolled off screen the instant it appears.
+ *
+ * An id that never renders is not an error: nothing scrolls, nothing flashes, and
+ * the stream keeps behaving normally. The match is done by walking the stamped
+ * nodes rather than through a selector, so an id carrying quotes or a colon (a
+ * conversation id does) needs no escaping dance.
+ */
+function useFocusedEvent(
+  containerRef: React.RefObject<HTMLElement | null>,
+  focusEventId: string | undefined,
+  renderedEvents: unknown
+): React.MutableRefObject<boolean> {
+  const pendingRef = useRef(Boolean(focusEventId));
+  const lastIdRef = useRef(focusEventId);
+  // A NEW focus target re-arms the landing (the same component instance is
+  // re-pointed when the user clicks a second search hit). Mirrors the file's
+  // existing render-phase `liveRef.current = live` pattern.
+  if (lastIdRef.current !== focusEventId) {
+    lastIdRef.current = focusEventId;
+    pendingRef.current = Boolean(focusEventId);
+  }
+  useEffect(() => {
+    if (!focusEventId || !pendingRef.current) return;
+    const root = containerRef.current;
+    if (!root) return;
+    let target: HTMLElement | null = null;
+    for (const node of Array.from(root.querySelectorAll<HTMLElement>("[data-session-event-id]"))) {
+      if (node.getAttribute("data-session-event-id") === focusEventId) {
+        target = node;
+        break;
+      }
+    }
+    if (!target) return;
+    const landed = target;
+    pendingRef.current = false;
+    landed.scrollIntoView({ block: "center" });
+    landed.classList.add(FOCUS_FLASH_CLASS);
+    const timer = setTimeout(() => landed.classList.remove(FOCUS_FLASH_CLASS), FOCUS_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [focusEventId, renderedEvents]);
+  return pendingRef;
+}
 
 export interface SessionStreamProps {
   url: string;
@@ -43,6 +111,14 @@ export interface SessionStreamProps {
   /** The surrounding ClaudeChat owns the page's stable live region. Standalone
    * transcript hosts leave this enabled so their working state is announced. */
   announceLiveUpdates?: boolean;
+  /**
+   * Land on one event instead of on live: after the stream renders, the element
+   * stamped with this `data-session-event-id` is scrolled into view and flashed,
+   * and the stick-to-bottom is suppressed for that landing (a jump that is
+   * immediately scrolled away from is not a jump). Absent → exactly the previous
+   * behaviour. An id no event carries is inert.
+   */
+  focusEventId?: string;
 }
 
 export interface SessionEventTimelineProps {
@@ -59,6 +135,10 @@ export interface SessionEventTimelineProps {
    * decision. A pending block from any other/terminal generation stays visible
    * as history but never renders actionable controls. */
   permissionGenerationId?: string;
+  /** Scroll the event stamped with this `data-session-event-id` into view and
+   * flash it once it has rendered. The inline timeline owns no scroller of its
+   * own, so the jump walks up to whichever ancestor does. */
+  focusEventId?: string;
 }
 
 function displayJsonValue(value: unknown): string {
@@ -111,25 +191,36 @@ function TextBlock({
 /** Opens while an activity is live, then collapses on its completed transition. */
 function ActivityDetails({
   active,
+  forceOpen = false,
   className,
   id,
   summary,
   children,
 }: {
   active: boolean;
+  /** Open regardless of live state and keep it open when live ends — a failed
+   *  row's error IS its content; a collapsed failure reads as success. */
+  forceOpen?: boolean;
   className: string;
   id?: string;
   summary: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(active);
+  const [open, setOpen] = useState(active || forceOpen);
   const wasActive = useRef(active);
+  const wasForced = useRef(forceOpen);
   useEffect(() => {
     if (active !== wasActive.current) {
-      setOpen(active);
+      setOpen(active || forceOpen);
       wasActive.current = active;
     }
-  }, [active]);
+  }, [active, forceOpen]);
+  useEffect(() => {
+    if (forceOpen && !wasForced.current) {
+      setOpen(true);
+      wasForced.current = true;
+    }
+  }, [forceOpen]);
   return (
     <details
       id={id}
@@ -158,6 +249,57 @@ function toolAnchorId(toolUseId: string | null | undefined): string | undefined 
   return `cc-tool-${toolUseId.replace(/[^A-Za-z0-9_-]/g, "")}`;
 }
 
+/** The tool's FAMILY — drives the row glyph and its color. Scanning a stream
+ *  of thirty rows by shape beats reading thirty identical labels. */
+function toolFamily(name: string | undefined): "command" | "file" | "search" | "web" | "agent" | "tool" {
+  const leaf = String(name ?? "").split(/[.:/]/).pop()?.toLowerCase() ?? "";
+  if (/^(bash|shell|exec|exec_command|terminal)$/.test(leaf)) return "command";
+  if (/^(read|write|edit|multiedit|notebookedit)$/.test(leaf)) return "file";
+  if (/^(grep|glob|search|toolsearch|ls|find)$/.test(leaf)) return "search";
+  if (/^(webfetch|websearch|fetch)$/.test(leaf)) return "web";
+  if (isFanoutTool(name)) return "agent";
+  return "tool";
+}
+
+const TOOL_FAMILY_ICONS: Record<ReturnType<typeof toolFamily>, React.ReactNode> = {
+  command: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <path d="M2 3l3 3-3 3M6.5 9H10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  file: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <path d="M3 1.5h4L9.5 4v6.5h-6.5z M7 1.5V4h2.5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  ),
+  search: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <circle cx="5" cy="5" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M7.5 7.5L10.5 10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  ),
+  web: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M1.5 6h9M6 1.5c1.6 1.4 1.6 7.6 0 9c-1.6-1.4-1.6-7.6 0-9z" fill="none" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  ),
+  agent: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <path d="M6 1.8v3M6 4.8L2.5 8M6 4.8L9.5 8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="6" cy="1.8" r="1.2" fill="currentColor" />
+      <circle cx="2.5" cy="9" r="1.2" fill="currentColor" />
+      <circle cx="9.5" cy="9" r="1.2" fill="currentColor" />
+    </svg>
+  ),
+  tool: (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <circle cx="6" cy="6" r="1.8" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M6 1v1.6M6 9.4V11M1 6h1.6M9.4 6H11M2.5 2.5l1.1 1.1M8.4 8.4l1.1 1.1M9.5 2.5L8.4 3.6M3.6 8.4L2.5 9.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  ),
+};
+
 function ToolBlock({
   block,
   result,
@@ -178,18 +320,21 @@ function ToolBlock({
   const elapsed = elapsedLabel(progress?.elapsedMs);
   const status = result?.isError ? "failed" : result ? "done" : active ? "running" : progress?.status || "pending";
   const isCommand = /(?:^|[.:/])(bash|shell|exec|exec_command)$/i.test(block.name ?? "");
+  const family = toolFamily(block.name);
+  const failed = Boolean(result?.isError);
   return (
     <div className="cc-session-toolwrap">
       <ActivityDetails
         active={active}
-        className={`cc-session-tool${isCommand ? " cc-session-command" : ""}`}
+        forceOpen={failed}
+        className={`cc-session-tool fam-${family}${isCommand ? " cc-session-command" : ""}${failed ? " is-failed" : ""}`}
         id={toolAnchorId(block.toolUseId)}
         summary={
           <>
-            <span className="cc-session-tool-ico" aria-hidden="true" />
+            <span className={`cc-session-tool-ico fam-${family}`} aria-hidden="true">{TOOL_FAMILY_ICONS[family]}</span>
             <b className="cc-session-tool-name" title={block.name || "Tool"}>{block.name || "Tool"}</b>
             {hint && <span className="cc-session-tool-hint">{hint}</span>}
-            <span className={`cc-session-state ${result?.isError ? "error" : active ? "live" : ""}`}>
+            <span className={`cc-session-state ${failed ? "error" : result ? "done" : active ? "live" : ""}`}>
               {active && <span className="cc-session-live-dot" aria-hidden="true" />}
               {status}{elapsed ? ` · ${elapsed}` : ""}
             </span>
@@ -695,6 +840,127 @@ function SessionNotice({
   );
 }
 
+/** A stretch boundary: one full-width rule across the timeline carrying the same
+ * badge vocabulary as the Turn Rail. The badges come from `railBadges` and
+ * nowhere else, so the honesty rule holds here too - a dimension the stretch's
+ * attribution could not report gets NO badge, never a placeholder. */
+function StretchRule({ block }: { block: SessionBlock }) {
+  const ended = block.phase === "ended";
+  // railBadges is defensive about every field it reads; the two attribution
+  // shapes are the same bag described by two modules (journal owns the durable
+  // one, transport the live one), so this is a spelling change, not a claim.
+  const badges = railBadges((block.attribution ?? {}) as RouteAttribution);
+  const stretchId = compactNoticeText(block.stretchId);
+  const duty = compactNoticeText(block.duty);
+  const chosenBy = compactNoticeText(block.chosenBy);
+  const outcome = compactNoticeText(block.outcome);
+  const tokens =
+    typeof block.usedTokens === "number" && Number.isFinite(block.usedTokens) && block.usedTokens >= 0
+      ? Math.round(block.usedTokens)
+      : null;
+  const duration = elapsedLabel(block.durationMs);
+  return (
+    <div className={`cc-stretch cc-stretch-${ended ? "ended" : "started"}`}>
+      <div className="cc-stretch-head">
+        <span className="cc-stretch-kicker">{ended ? "Stretch ended" : "Stretch started"}</span>
+        {stretchId && (
+          <span className="cc-stretch-id" title={`stretch ${stretchId}`}>{stretchId}</span>
+        )}
+        {duty && <span className="cc-stretch-chip" title={`duty ${duty}`}>duty {duty}</span>}
+        {chosenBy && (
+          <span className="cc-stretch-chip" title={`the rung was chosen by ${chosenBy}`}>via {chosenBy}</span>
+        )}
+        {ended && outcome && (
+          <span className="cc-stretch-chip cc-stretch-outcome" title={`outcome ${outcome}`}>{outcome}</span>
+        )}
+        {ended && tokens !== null && (
+          <span className="cc-stretch-chip" title="tokens this stretch used">{tokens.toLocaleString("en-US")} tok</span>
+        )}
+        {ended && duration && <span className="cc-stretch-chip" title="how long the stretch ran">{duration}</span>}
+      </div>
+      {badges.length > 0 && (
+        <div className="cc-stretch-badges">
+          {badges.map((badge) => (
+            <span
+              key={badge.key}
+              className={`cc-stretch-badge${badge.tone ? ` cc-stretch-badge-${badge.tone}` : ""}`}
+              title={badge.title}
+            >
+              {badge.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Human labels for the ledger vocabulary. An unknown kind still renders (the
+ * store keeps unknown kinds verbatim) - it just reads as a plain ledger row. */
+const LEDGER_LABELS: Record<string, string> = {
+  handoff: "Handoff",
+  "delegation-dispatched": "Delegation sent",
+  "delegation-returned": "Delegation returned",
+  "delegation-failed": "Delegation failed",
+  "card-state-changed": "Card state changed",
+  escalation: "Escalation",
+  "policy-rewrite": "Policy rewrite",
+};
+
+/** Kinds that report something going wrong, and earn the warning tone. */
+const LEDGER_WARN_KINDS = new Set(["delegation-failed", "escalation"]);
+
+/** One conversation-ledger row, using the same expand-in-place disclosure the
+ * tool rows use. `payloadRef` becomes a control only where a host has supplied a
+ * payload opener (ConversationView knows the serving base; dev-env and the
+ * related-task overlay do not) - everywhere else it stays the inert reference
+ * label it was, because a click that 404s is worse than a label. */
+function LedgerRow({ block }: { block: SessionBlock }) {
+  const openPayload = useContext(PayloadOpenerContext);
+  const kind = compactNoticeText(block.kind);
+  const label = LEDGER_LABELS[kind] ?? "Ledger";
+  const title = compactNoticeText(block.title);
+  const detail = typeof block.detail === "string" ? block.detail : "";
+  const payloadRef = compactNoticeText(block.payloadRef);
+  const seq =
+    typeof block.seq === "number" && Number.isInteger(block.seq) && block.seq >= 0 ? block.seq : null;
+  const tone = LEDGER_WARN_KINDS.has(kind) ? " cc-ledger-warn" : "";
+  return (
+    <ActivityDetails
+      active={false}
+      className={`cc-ledger${tone}`}
+      summary={
+        <>
+          <span className="cc-ledger-label">{label}</span>
+          {title && <span className="cc-ledger-title">{title}</span>}
+          {seq !== null && <span className="cc-ledger-seq">#{seq}</span>}
+        </>
+      }
+    >
+      <div className="cc-ledger-body">
+        {detail.trim() ? <pre className="cc-session-pre">{detail}</pre> : null}
+        {payloadRef ? (
+          openPayload ? (
+            <button
+              type="button"
+              className="cc-ledger-ref cc-ledger-ref-open"
+              title={`Open payload ${payloadRef}`}
+              onClick={() => openPayload({ ref: payloadRef, name: payloadRef })}
+            >
+              payload {payloadRef}
+            </button>
+          ) : (
+            <span className="cc-ledger-ref" title={`payload ${payloadRef}`}>payload {payloadRef}</span>
+          )
+        ) : null}
+        {!detail.trim() && !payloadRef ? (
+          <div className="cc-ledger-empty">No further detail was recorded.</div>
+        ) : null}
+      </div>
+    </ActivityDetails>
+  );
+}
+
 /** Typed transport/admission failures use the same non-assertive visual language
  * as durable canonical error blocks. The surrounding chat owns announcements. */
 export function FailureNotice({ failure }: { failure: FailureInfo }) {
@@ -782,6 +1048,17 @@ function ActivityTimeline({
             </div>
           );
         }
+        if (beat.type === "stretch" || beat.type === "ledger") {
+          return (
+            <div
+              key={key}
+              data-session-event-id={sourceEvent?.id ?? undefined}
+              data-session-block-index={beat.blockIndex}
+            >
+              {beat.type === "stretch" ? <StretchRule block={block} /> : <LedgerRow block={block} />}
+            </div>
+          );
+        }
         if (beat.type === "thinking") {
           return <ThinkingBlock key={key} block={block} active={live && activeThinkingBlock === block} />;
         }
@@ -821,9 +1098,11 @@ export function SessionEventTimeline({
   renderMarkdown,
   onPermissionDecision,
   permissionGenerationId,
+  focusEventId,
 }: SessionEventTimelineProps) {
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [, setHostMapReady] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     let alive = true;
     void loadHostMap().then(() => { if (alive) setHostMapReady(true); });
@@ -846,9 +1125,11 @@ export function SessionEventTimeline({
     }
     return latest?.type === "thinking" ? latest : null;
   }, [events, live]);
+  useFocusedEvent(rootRef, focusEventId, events);
 
   return (
     <div
+      ref={rootRef}
       className={`cc-session-inline${className ? ` ${className}` : ""}`}
     >
       <ActivityTimeline
@@ -923,7 +1204,11 @@ function RelatedTasks({ tasks, onOpen }: { tasks: RelatedTask[]; onOpen: (task: 
   );
 }
 
-function useModalLifecycle(
+/** Open a <dialog> modally, lock the page behind it, focus the first control and
+ * put focus back where it came from on close. Exported so a sibling modal (the
+ * payload viewer) inherits the same behaviour instead of re-deriving it - a modal
+ * that forgets one of these four is the one that traps a keyboard user. */
+export function useModalLifecycle(
   dialogRef: React.RefObject<HTMLDialogElement>,
   initialFocusRef: React.RefObject<HTMLElement>
 ) {
@@ -946,7 +1231,8 @@ function useModalLifecycle(
   }, []);
 }
 
-function trapDialogTab(event: React.KeyboardEvent<HTMLDialogElement>, dialog: HTMLDialogElement | null) {
+/** Keep Tab inside an open dialog. Exported alongside {@link useModalLifecycle}. */
+export function trapDialogTab(event: React.KeyboardEvent<HTMLDialogElement>, dialog: HTMLDialogElement | null) {
   if (event.key !== "Tab") return;
   const focusable = dialog?.querySelectorAll<HTMLElement>(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -1016,6 +1302,7 @@ export function SessionStream({
   live = false,
   title: titleProp,
   announceLiveUpdates = true,
+  focusEventId,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
@@ -1029,6 +1316,7 @@ export function SessionStream({
   const liveRef = useRef(live);
   const previousLiveRef = useRef(live);
   liveRef.current = live;
+  const focusPendingRef = useFocusedEvent(scrollRef, focusEventId, events);
 
   useEffect(() => {
     const becameLive = live && !previousLiveRef.current;
@@ -1047,7 +1335,9 @@ export function SessionStream({
     setTitle(titleProp ?? null);
     setStatus("connecting");
     setRelatedView(null);
-    stickRef.current = true;
+    // A pending jump owns the scroll position for this mount: sticking to the
+    // bottom would scroll straight past the hit the reader asked to land on.
+    stickRef.current = !focusPendingRef.current;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const retryWhileLive = () => {
       if (!liveRef.current || retryTimer) return;
@@ -1126,6 +1416,22 @@ export function SessionStream({
     [events]
   );
   const turns = useMemo(() => groupSessionTurns(visibleEvents), [visibleEvents]);
+  // A turn the viewer WATCHED run must not snap shut the moment it settles. The
+  // live branch renders an open ActivityTimeline; when the turn completes that
+  // branch unmounts and a fresh InterimDetails takes its place, so without this
+  // the activity being read collapses itself out from under the reader at the
+  // exact moment the answer arrives. Remember which turn was live in THIS
+  // mounted transcript and keep that one open once it settles; turns that were
+  // already complete when the transcript opened stay collapsed, so replaying a
+  // long history is still tidy.
+  const watchedLiveTurns = useRef<Set<string>>(new Set());
+  const liveTurnKey = streamLive && turns.length ? turns[turns.length - 1].key : null;
+  useEffect(() => {
+    // Runs on the commit of the LIVE render, i.e. strictly before the render
+    // that flips the turn complete and mounts InterimDetails — so the key is
+    // already recorded by the time that mount reads its initial open state.
+    if (liveTurnKey) watchedLiveTurns.current.add(liveTurnKey);
+  }, [liveTurnKey]);
   const activeThinkingBlock = useMemo(() => {
     if (!streamLive) return null;
     let last: SessionBlock | null = null;
@@ -1167,6 +1473,12 @@ export function SessionStream({
           const presentation = presentSessionTurn(turn, turnLive);
           const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
           const hasSettlementNotice = turn.assistantEvents.some((event) => event.blocks.some((block) =>
+            // A stretch boundary is a settlement, not interim chatter: it carries
+            // the rung, the chooser, the outcome and the cost — the routing
+            // visibility the Conversations instrumentation exists for. Once the
+            // transcript tee gives every stretch prose, leaving it off this list
+            // folds every boundary into a closed disclosure by default.
+            block.type === "stretch" ||
             block.type === "error" || block.type === "retry" || block.type === "route" || block.type === "turn_end" ||
             (block.type === "rate_limit" && (
               String(block.status ?? "").toLowerCase() !== "allowed" ||
@@ -1178,6 +1490,10 @@ export function SessionStream({
             const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
             const activityCount = event.blocks.filter((block) =>
               block.type === "thinking" || block.type === "tool_use" || block.type === "error" || block.type === "permission_request" ||
+              // Counted for the same reason they are on hasVisibleSessionActivity's
+              // whitelist: a settled turn whose only blocks are conversation events
+              // would otherwise render as an empty assistant bubble.
+              block.type === "stretch" || block.type === "ledger" ||
               block.type === "retry" || block.type === "route" || block.type === "turn_end" ||
               (block.type === "rate_limit" && (
                 String(block.status ?? "").toLowerCase() !== "allowed" ||
@@ -1218,7 +1534,15 @@ export function SessionStream({
                     <div className="cc-session-awaiting" role={announceLiveUpdates ? "status" : undefined}>Working…</div>
                   )}
                   {!turnLive && interimCount > 0 && (
-                    <InterimDetails count={interimCount} openByDefault={!presentation.primaryText || hasSettlementNotice}>
+                    <InterimDetails
+                      count={interimCount}
+                      openByDefault={
+                        !presentation.primaryText || hasSettlementNotice ||
+                        // The turn just finished under the reader's eyes: leave
+                        // open what they were already watching.
+                        watchedLiveTurns.current.has(turn.key)
+                      }
+                    >
                       <ActivityTimeline
                         events={turn.assistantEvents}
                         includeText

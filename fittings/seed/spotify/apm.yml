@@ -98,7 +98,7 @@ x-garrison:
     timeout_ms: 15000
   for_consumers: |
     Spotify is a connector: a catalog of playback actions on the user's Spotify,
-    callable directly via the connector CLI (the Operative runs it over bash).
+    callable directly via the connector CLI (the session runs it over bash).
     Two hard requirements: playback control needs Spotify PREMIUM, and audio
     plays on whichever device runs the Spotify app — for "play on my phone" the
     Spotify app must be open/awake on the phone (it then appears under `devices`).

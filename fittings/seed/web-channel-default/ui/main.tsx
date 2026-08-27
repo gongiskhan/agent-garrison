@@ -22,8 +22,8 @@ import { createRoot } from "react-dom/client";
 import { Marked } from "marked";
 import {
   ClaudeChat,
+  ConversationView,
   createHttpTransport,
-  type ChatTransport,
   SessionStream,
   type ChatInputReceipt,
   type ComposerAdornmentApi,
@@ -33,8 +33,15 @@ import {
   type TurnRouting,
 } from "@garrison/claude-chat";
 import { createOrchestratorTransport } from "./orchestrator-transport";
+import {
+  CONVERSATION_BASE,
+  createConversationTransport,
+  postConversationMessage,
+} from "./conversation-transport";
 import { VoiceConversation } from "./voice-conversation";
 import { RemoteShellWorkbench } from "./remote-shell-workbench";
+import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail";
+import { ShellsModal, type ShellOpenSpec, type ShellSpawnSpec } from "./shells-modal";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -104,14 +111,17 @@ interface UrlState {
   /** Explicit ?console=1 - mount the raw PTY session console instead of the
    *  threaded surface. */
   console: boolean;
+  /** ?new=1 - start a FRESH conversation on load (the cross-node "+ New"
+   *  entry point: another node's picker opens this URL). */
+  fresh: boolean;
 }
 
 // Return to whatever page the user came from (the board / Automations), robust across
-// every access mode - the web channel is reached at its OWN port (127.0.0.1:7083), via
-// Garrison's /embed proxy (127.0.0.1:7777), or over the tailnet, and the host's URL
+// every access mode - the web channel is reached at its OWN port (127.0.0.1:27083), via
+// Garrison's /embed proxy (127.0.0.1:27777), or over the tailnet, and the host's URL
 // differs in each. history.back() returns to the previous page regardless of its URL,
 // so we never guess a route (an earlier version hard-coded "/embed/kanban-loop", which
-// 404'd → SPA-fell-back to the default console when opened directly on :7083). Prefer the
+// 404'd → SPA-fell-back to the default console when opened directly on :27083). Prefer the
 // TOP window when it's same-origin (Garrison embed); fall back to this window (direct
 // access - the common case) if the top is cross-origin or is this window.
 function goBackToHost(): void {
@@ -128,7 +138,7 @@ function goBackToHost(): void {
 
 function readUrl(): UrlState {
   if (typeof window === "undefined") {
-    return { context: undefined, source: undefined, kickoff: undefined, thread: undefined, title: undefined, level: undefined, returnUrl: undefined, returnLabel: undefined, console: false };
+    return { context: undefined, source: undefined, kickoff: undefined, thread: undefined, title: undefined, level: undefined, returnUrl: undefined, returnLabel: undefined, console: false, fresh: false };
   }
   const q = new URLSearchParams(window.location.search);
   const sourceRaw = q.get("source");
@@ -154,6 +164,7 @@ function readUrl(): UrlState {
     returnUrl,
     returnLabel,
     console: q.get("console") === "1",
+    fresh: q.get("new") === "1",
   };
 }
 
@@ -170,6 +181,11 @@ export interface RemoteShellTransport {
 
 interface ThreadMeta {
   id: string;
+  /** The conversation this thread IS the channel surface of - the same id, for
+   *  every thread the store could give one to (see threads.mjs
+   *  conversationIdFor). Null only for a thread whose sanitised id cannot be a
+   *  conversation id; that thread keeps the pre-conversation chat surface. */
+  conversationId?: string | null;
   title: string;
   source: string;
   createdAt: string | null;
@@ -183,9 +199,22 @@ interface ThreadMeta {
   pendingInputCount?: number;
   inputRevision?: number;
   /** Sparse remote-shell binding (threads whose context carries one): which
-   *  transport the thread's terminal attaches, plus the routing target its
-   *  chat turns pin. Server-derived from the thread context. */
-  remoteShell?: { transport: string; target?: string } | null;
+   *  transport the thread's terminal attaches, WHICH SESSION on it, plus the
+   *  routing target its chat turns pin. Server-derived from the thread context,
+   *  and (state/lastEventAt) joined to the fitting's live session at list time -
+   *  a machine hosts one agent per project now, so the session name is what
+   *  tells two shells apart. */
+  remoteShell?: {
+    transport: string;
+    target?: string;
+    tmuxSession?: string;
+    cwd?: string;
+    label?: string;
+    sessionId?: string;
+    state?: string | null;
+    lastEventAt?: string | null;
+    link?: string | null;
+  } | null;
 }
 interface ThreadInput extends ChatInputReceipt {
   message?: string;
@@ -433,6 +462,19 @@ async function apiEnsureThread(payload: { id?: string; title?: string; source?: 
     return d.thread ?? null;
   } catch { return null; }
 }
+async function apiRename(id: string, title: string): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/threads/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title })
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function apiDelete(id: string): Promise<boolean> {
   try {
     const response = await fetch(`/api/threads/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -956,6 +998,26 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // absent — the section simply doesn't render), and the fitting-side session
   // id backing the ACTIVE thread's terminal pane.
   const [rshTransports, setRshTransports] = useState<RemoteShellTransport[]>([]);
+  // Other nodes' conversations, from the mesh (state-service thread indexes).
+  // Opening one is a cross-origin NAVIGATION to the node that owns it.
+  const [meshNodes, setMeshNodes] = useState<RailMeshNode[]>([]);
+  const [meshSelf, setMeshSelf] = useState<RailSelf>({ node: null, accentColor: null });
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetch("/api/mesh-threads", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (!alive) return;
+          setMeshNodes(d.nodes ?? []);
+          if (d.self) setMeshSelf(d.self);
+        })
+        .catch(() => { /* empty rail is the degraded mode */ });
+    };
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, []);
   const [rshSessionId, setRshSessionId] = useState<string | null>(null);
   const [rshError, setRshError] = useState<string | null>(null);
 
@@ -964,10 +1026,29 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // the context object's identity) every tick — an object here would retrigger
   // the attach effect below each poll, tearing down and re-creating the
   // session/WS ten times a minute with a visible pane gap during each POST.
-  const activeRshTransport = useMemo(() => {
-    const ctx = activeThread?.context as { remoteShell?: { transport?: unknown } } | undefined;
-    return typeof ctx?.remoteShell?.transport === "string" ? ctx.remoteShell.transport : null;
+  // The full session spec off the thread context, as a STRING: the 10s idle
+  // poll replaces the context object every tick, and an object key here would
+  // re-run the attach effect (and its POST) ten times a minute.
+  const activeRshSpecJson = useMemo(() => {
+    const rs = (activeThread?.context as { remoteShell?: { transport?: unknown; tmuxSession?: unknown; cwd?: unknown; label?: unknown } } | undefined)?.remoteShell;
+    if (!rs || typeof rs.transport !== "string") return null;
+    return JSON.stringify({
+      transport: rs.transport,
+      tmuxSession: typeof rs.tmuxSession === "string" ? rs.tmuxSession : null,
+      cwd: typeof rs.cwd === "string" ? rs.cwd : null,
+      label: typeof rs.label === "string" ? rs.label : null
+    });
   }, [activeThread?.context]);
+  const activeRshTransport = useMemo(
+    () => (activeRshSpecJson ? (JSON.parse(activeRshSpecJson) as { transport: string }).transport : null),
+    [activeRshSpecJson]
+  );
+  // A thread IS a conversation's channel surface: the same id names both, the
+  // append-only conversation record is the transcript, and a typed message goes
+  // in through the conversation door. A remote-shell thread is the exception -
+  // its turns are delegated to an agent on ANOTHER machine rather than run as a
+  // stretch here, so it keeps the chat lane, its FIFO and its thread transcript.
+  const conversationId = activeRshTransport ? null : (activeThread?.conversationId ?? null);
 
   useEffect(() => {
     let alive = true;
@@ -983,12 +1064,18 @@ function ThreadedApp({ url }: { url: UrlState }) {
   useEffect(() => {
     setRshSessionId(null);
     setRshError(null);
-    if (!activeRshTransport) return;
+    if (!activeRshSpecJson) return;
+    const spec = JSON.parse(activeRshSpecJson) as { transport: string; tmuxSession: string | null; cwd: string | null; label: string | null };
     let alive = true;
     void fetch("/api/remote-shell/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ transport: activeRshTransport })
+      body: JSON.stringify({
+        transport: spec.transport,
+        ...(spec.tmuxSession ? { tmuxSession: spec.tmuxSession } : {}),
+        ...(spec.cwd ? { cwd: spec.cwd } : {}),
+        ...(spec.label ? { label: spec.label } : {})
+      })
     })
       .then(async (r) => {
         const data = await r.json().catch(() => ({}));
@@ -998,7 +1085,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
       })
       .catch((err) => { if (alive) setRshError(err instanceof Error ? err.message : String(err)); });
     return () => { alive = false; };
-  }, [activeRshTransport]);
+  }, [activeRshSpecJson]);
 
   const refreshList = useCallback(async (expectedEpoch = activityEpochRef.current) => {
     const list = await apiListThreads();
@@ -1102,6 +1189,17 @@ function ThreadedApp({ url }: { url: UrlState }) {
           }
           await openThread(ensured.id, { kickoff: Boolean(url.kickoff) });
         }
+      } else if (url.fresh) {
+        // Cross-node "+ New" landing: start a fresh conversation, then drop
+        // the ?new=1 from the address bar so a reload doesn't mint another.
+        const ensured = await apiEnsureThread({ source: "chat" });
+        if (!alive) return;
+        if (ensured) await openThread(ensured.id);
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete("new");
+          window.history.replaceState(null, "", u.toString());
+        } catch { /* address bar keeps the param; harmless */ }
       } else if (list.length > 0) {
         await openThread(list[0].id);
       } else {
@@ -1127,6 +1225,76 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // One-step remote-shell entry ("CSG work"): a stable thread per transport,
   // carrying the binding in its context and pinning the transport's routing
   // target (once) so chat-lane turns delegate to the remote agent.
+  const [shellsOpen, setShellsOpen] = useState(false);
+
+  // The Shells picker's open action: a stable thread per SESSION, keyed by its
+  // tmux name (a folder can host several agents, so the project alone does not
+  // identify one), carrying the full session spec in its context. Deliberately
+  // NO routing target pin: the delegate lane routes to a transport's STANDING
+  // session, so a project shell is terminal-first - the pane is the interaction
+  // surface, and the thread is how you find it again.
+  const openProjectShell = useCallback(async (spec: ShellOpenSpec) => {
+    setShellsOpen(false);
+    const ensured = await apiEnsureThread({
+      id: `remote-shell-${spec.transport}-${spec.tmuxSession}`,
+      title: spec.label || spec.tmuxSession,
+      source: "remote-shell",
+      context: { remoteShell: { transport: spec.transport, tmuxSession: spec.tmuxSession, cwd: spec.cwd, label: spec.label } }
+    });
+    if (!ensured) return;
+    await openThread(ensured.id);
+    await refreshList();
+  }, [openThread, refreshList]);
+
+  // "Another agent in this folder". The instance name is allocated by the
+  // FITTING (it can see both its own sessions and the remote's tmux list), so
+  // the thread is created from what actually started rather than from a name
+  // this client guessed and might collide with on a double click.
+  const spawnProjectShell = useCallback(async (spec: ShellSpawnSpec) => {
+    setShellsOpen(false);
+    setRshError(null);
+    let session: { tmuxSession?: string; cwd?: string; label?: string } | null = null;
+    try {
+      const res = await fetch("/api/remote-shell/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          transport: spec.transport,
+          tmuxSession: spec.base,
+          cwd: spec.cwd,
+          label: spec.label,
+          allocate: true
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `could not start a session (${res.status})`);
+      session = data?.session ?? null;
+    } catch (err) {
+      setRshError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    if (!session?.tmuxSession) {
+      setRshError("the remote shell started no session");
+      return;
+    }
+    const ensured = await apiEnsureThread({
+      id: `remote-shell-${spec.transport}-${session.tmuxSession}`,
+      title: session.label || session.tmuxSession,
+      source: "remote-shell",
+      context: {
+        remoteShell: {
+          transport: spec.transport,
+          tmuxSession: session.tmuxSession,
+          cwd: session.cwd ?? spec.cwd,
+          label: session.label ?? spec.label
+        }
+      }
+    });
+    if (!ensured) return;
+    await openThread(ensured.id);
+    await refreshList();
+  }, [openThread, refreshList]);
+
   const openRemoteShell = useCallback(async (t: RemoteShellTransport) => {
     const ensured = await apiEnsureThread({
       id: `remote-shell-${t.name}`,
@@ -1147,8 +1315,8 @@ function ThreadedApp({ url }: { url: UrlState }) {
     await openThread(id);
   }, [activeId, openThread]);
 
-  const removeThread = useCallback(async (id: string, e: React.SyntheticEvent) => {
-    e.stopPropagation();
+  const removeThread = useCallback(async (id: string, e?: React.SyntheticEvent) => {
+    e?.stopPropagation();
     const deleted = await apiDelete(id);
     const list = await apiListThreads();
     setThreads(list);
@@ -1158,6 +1326,11 @@ function ThreadedApp({ url }: { url: UrlState }) {
       else await newChat();
     }
   }, [activeId, openThread, newChat]);
+
+  const renameThread = useCallback(async (id: string, title: string) => {
+    const ok = await apiRename(id, title);
+    if (ok) await refreshList();
+  }, [refreshList]);
 
   // Persistence is SERVER-SIDE: server.mjs handleChat tees each exchange into the
   // thread when the upstream `done` event arrives (the transport sends the thread
@@ -1215,14 +1388,17 @@ function ThreadedApp({ url }: { url: UrlState }) {
     return () => window.clearInterval(timer);
   }, [activeId]);
 
+  // Exchange reduction survives for the CHAT lane only (remote-shell threads):
+  // a conversation replays from its own append-only record, so seeding it from a
+  // reduced thread transcript would paint the same turns twice.
   const history = useMemo(() => {
-    if (!activeThread) return [] as HistoryExchange[];
+    if (!activeThread || conversationId) return [] as HistoryExchange[];
     return toHistory(
       activeThread.messages,
       activeThread.sessionEvents,
       [...(activeThread.inputReceipts ?? []), ...(activeThread.pendingInputs ?? [])]
     );
-  }, [activeThread]);
+  }, [activeThread, conversationId]);
   // Show a prominent Back button for a host-opened Discuss (Kanban / Automations set a
   // returnLabel). Clicking it returns to the page the user came from via history.back().
   const backLabel = url.returnLabel && url.returnLabel.trim()
@@ -1369,92 +1545,66 @@ function ThreadedApp({ url }: { url: UrlState }) {
     return t;
   }, [activeId, activeThread?.runningSince, activeThread?.inputRevision, refreshAfterResume]);
 
+  // The conversation surface re-points ONE door - sendMessage - at the
+  // conversation router; the SSE connection, Stop, attachments and permission
+  // answers stay on the transport above, so the FIFO lane is untouched.
+  const conversationTransport = useMemo(
+    () => (conversationId ? createConversationTransport(transport, { conversationId }) : null),
+    [transport, conversationId]
+  );
+
+  // A host-opened Discuss carries an opening message the surface sends as if the
+  // user had typed it. ClaudeChat owns that for the chat lane (initialMessage);
+  // on the conversation lane it goes through the same door every other message
+  // uses, once per armed thread, so the record holds it exactly once. A failed
+  // post re-arms rather than swallowing the opening ask.
+  const kickoffSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!conversationId || !kickoff) return;
+    if (kickoffSentRef.current === conversationId) return;
+    kickoffSentRef.current = conversationId;
+    void postConversationMessage(conversationId, kickoff, { origin: "discuss" })
+      .catch(() => { kickoffSentRef.current = null; });
+  }, [conversationId, kickoff]);
+
   return (
     <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}${listOpen ? "" : " wc-shell--rail"}`}>
       <button
         className="wc-sidebar-toggle"
-        aria-label={sidebarOpen ? "Hide sessions" : "Show sessions"}
+        aria-label={sidebarOpen ? "Hide conversations" : "Show conversations"}
         onClick={() => setSidebarOpen((v) => !v)}
-        title="Sessions"
+        title="Conversations"
       >
         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
           <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
         </svg>
       </button>
-      <aside className="wc-sidebar" aria-label="Sessions">
-        <div className="wc-sidebar-head">
-          <button
-            className="wc-sidebar-collapse"
-            aria-expanded={listOpen}
-            aria-label={listOpen ? "Collapse sessions" : "Expand sessions"}
-            title={listOpen ? "Collapse sessions" : "Expand sessions"}
-            onClick={() => setListOpen((v) => !v)}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-              <path d="M4.5 2.5 8 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
-          </button>
-          <span className="wc-sidebar-title">Sessions</span>
-          <button className="wc-new" onClick={newChat} title="Start a new conversation">+ New</button>
-        </div>
-        <div className="wc-thread-list">
-          {threads.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
-          {threads.map((t) => {
-            const deleteDisabled = (t.pendingInputCount ?? 0) > 0;
-            return (
-              <div key={t.id} className={`wc-thread${t.id === activeId ? " wc-thread--active" : ""}`}>
-                <button
-                  type="button"
-                  className="wc-thread-open"
-                  onClick={() => selectThread(t.id)}
-                  title={t.title}
-                >
-                  <span className="wc-thread-main">
-                    <span className="wc-thread-title">{t.title || "New conversation"}</span>
-                    <span className="wc-thread-meta">
-                      {t.source && t.source !== "chat" && <span className="wc-thread-src">{t.source}</span>}
-                      {t.runningSince ? (
-                        <span className="wc-thread-src">Working</span>
-                      ) : deleteDisabled ? (
-                        <span className="wc-thread-src">{t.pendingInputCount} queued</span>
-                      ) : null}
-                      <span className="wc-thread-when">{fmtWhen(t.updatedAt)}</span>
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="wc-thread-del"
-                  aria-label={deleteDisabled ? "Conversation has pending messages" : "Delete conversation"}
-                  disabled={deleteDisabled}
-                  title={deleteDisabled ? "Finish or stop pending messages before deleting" : "Delete"}
-                  onClick={(e) => { void removeThread(t.id, e); }}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-        </div>
-        {rshTransports.length > 0 && (
-          <div className="wc-rsh-rail">
-            <div className="wc-rsh-rail-title">Remote shells</div>
-            {rshTransports.map((t) => (
-              <button
-                key={t.name}
-                type="button"
-                className="wc-rsh-entry"
-                onClick={() => { void openRemoteShell(t); }}
-                title={`Attach ${t.label || t.name} (${t.via})`}
-              >
-                <span className="wc-rsh-entry-label">{t.label || t.name}</span>
-                <span className="wc-rsh-entry-via">{t.via}</span>
-              </button>
-            ))}
-          </div>
-        )}
+      <aside className="wc-sidebar" aria-label="Conversations">
+        <SessionsRail
+          threads={threads}
+          meshNodes={meshNodes}
+          self={meshSelf}
+          transports={rshTransports}
+          activeId={activeId}
+          listOpen={listOpen}
+          onToggleList={() => setListOpen((v) => !v)}
+          onSelect={(id) => { void selectThread(id); }}
+          onNewLocal={() => { void newChat(); }}
+          onOpenRemoteShell={(t) => { void openRemoteShell(t as RemoteShellTransport); }}
+          onOpenShells={rshTransports.length > 0 ? () => setShellsOpen(true) : undefined}
+          onDeleteLocal={(id) => { void removeThread(id); }}
+          onRenameLocal={renameThread}
+        />
       </aside>
       <div className="wc-sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+      {shellsOpen && (
+        <ShellsModal
+          transports={rshTransports}
+          onOpen={(spec) => { void openProjectShell(spec); }}
+          onSpawn={(spec) => { void spawnProjectShell(spec); }}
+          onClose={() => setShellsOpen(false)}
+        />
+      )}
       <main className="wc-main">
         {(backLabel || briefPath) && (
           <div className="wc-backbar">
@@ -1490,17 +1640,17 @@ function ThreadedApp({ url }: { url: UrlState }) {
         )}
         {briefOpen && briefPath && <BriefPanel key={`${briefPath}:${briefReloadKey}`} path={briefPath} onClose={() => setBriefOpen(false)} />}
         {transcriptSession && (
-          <div className="wc-xscript" role="dialog" aria-label="Session transcript">
+          <div className="wc-xscript" role="dialog" aria-label="Runtime transcript">
             <div className="wc-xscript-head">
               <span className="wc-xscript-title">
-                Session
+                Runtime transcript
                 <span className="wc-xscript-id" title={transcriptSession}>{transcriptSession}</span>
               </span>
               <button
                 type="button"
                 className="wc-xscript-close"
                 onClick={() => setTranscriptSession(null)}
-                aria-label="Close session transcript"
+                aria-label="Close runtime transcript"
               >
                 ×
               </button>
@@ -1521,12 +1671,36 @@ function ThreadedApp({ url }: { url: UrlState }) {
             : null;
           const chat = loading || !activeId ? (
           <div className="wc-loading">Loading…</div>
+        ) : conversationId && conversationTransport ? (
+          // The conversation IS the transcript: no seeded history, no
+          // Chat/Transcript toggle, and the record replays from the store on
+          // every open. Keyed on the conversation alone - a re-mount would tear
+          // the live stream, and there is no local history left to refresh.
+          <ConversationView
+            key={conversationId}
+            conversationId={conversationId}
+            base={CONVERSATION_BASE}
+            transport={conversationTransport}
+            title={activeThread?.title || "Conversation"}
+            placeholder={narrowComposer ? "Message…" : undefined}
+            composerAdornment={voiceAdornment}
+            draftKey={activeId ?? undefined}
+            // Same rail contract as the chat lane below: `voice` stays off (the
+            // streaming mic in the composer adornment supersedes it) and
+            // `musterUrl` is deliberately absent - Muster is a Garrison route on
+            // another origin.
+            features={{ routing: true }}
+            routing={pins}
+            routeOptions={routeOptions}
+            onPinChange={savePins}
+            onOpenRuntimeTranscript={openTranscript}
+          />
         ) : (
           <ClaudeChat
             key={`${activeId}:${historyRev}`}
             draftKey={activeId ?? undefined}
             transport={transport}
-            title="Session"
+            title="Conversation"
             /* The phone composer row also carries voice, mic and attach, leaving
                the field ~180px - the full hint truncates mid-word there. */
             placeholder={activeRshTransport ? "Send to the remote agent — it lands in the console" : narrowComposer ? "Message…" : undefined}
@@ -1554,6 +1728,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
               <RemoteShellWorkbench
                 sessionId={rshSessionId}
                 transport={rshTransport}
+                sessionSpec={activeRshSpecJson ? JSON.parse(activeRshSpecJson) : null}
                 title={activeThread?.title || rshTransport?.label || "Remote shell"}
                 messageCount={activeThread?.messages?.length ?? 0}
                 hasActivity={Boolean(activeThread?.runningSince) || (activeThread?.pendingInputs?.length ?? 0) > 0}
@@ -1567,33 +1742,6 @@ function ThreadedApp({ url }: { url: UrlState }) {
       </main>
     </div>
   );
-}
-
-// The rich console rides the gateway's live /claude/* PTY surface — but not
-// every gateway implements it: the personal-operative http-gateway exposes only
-// /chat + /channels, so the rich transport would 404 every turn. A cheap
-// GET /api/claude/status probe decides which surface is live and falls back to
-// the orchestrator path (/api/chat → gateway /chat/stream) when it isn't. Both
-// forward voice through the same same-origin /api/voice/*.
-function ConsoleApp() {
-  const [transport, setTransport] = useState<ChatTransport | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      let rich = false;
-      try {
-        rich = (await fetch("/api/claude/status", { method: "GET" })).ok;
-      } catch {
-        /* rich surface unreachable - fall through to the orchestrator path */
-      }
-      if (!cancelled) setTransport(rich ? createHttpTransport("/api", { uploads: true }) : createOrchestratorTransport("/api"));
-    })();
-    return () => { cancelled = true; };
-  }, []);
-  // Render nothing for the one frame the probe takes - mounting the wrong
-  // transport and swapping it under a live chat would drop an in-flight turn.
-  if (!transport) return null;
-  return <ClaudeChat transport={transport} title="Operative" composerAdornment={voiceAdornment} />;
 }
 
 // ── Mount ───────────────────────────────────────────────────────────────────
@@ -1706,6 +1854,8 @@ function useComposerInset(active: boolean): void {
   }, [active]);
 }
 
+const EMBEDDED = (() => { try { return window.self !== window.top; } catch { return true; } })();
+
 function PushEnroller() {
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1713,6 +1863,7 @@ function PushEnroller() {
   const [noticeDismissed, setNoticeDismissed] = useState(false);
 
   useEffect(() => {
+    if (EMBEDDED) return;
     void registerServiceWorker().then(() => pushState().then(setState));
     // Render pushes that arrive while the app is focused: the OS usually
     // suppresses the system banner in that case, so without this an incoming
@@ -1859,7 +2010,11 @@ function App() {
   // Explicit ?console=1: the rich session console (live PTY surface).
   return (
     <>
-      <ConsoleApp />
+      <ClaudeChat
+        transport={createHttpTransport("/api", { uploads: true })}
+        title="Shared conversation console"
+        composerAdornment={voiceAdornment}
+      />
       <PushEnroller />
     </>
   );

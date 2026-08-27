@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Redeploy PROD — the one sanctioned way to land committed code on the
-# always-on address.
+# always-on tailnet address.
 #
 # HARD RULE (CLAUDE.md): a commit is not landed until prod has been redeployed.
 # Prod serves a BUILT artifact, so committing alone changes nothing a user can
@@ -14,11 +14,6 @@
 #   3. restart   — swap the app server onto the new build
 #   4. up        — operative + all its fittings come back on the NEW code
 #
-# Supervisor: this host runs prod under **launchd**, not systemd. The unit is
-# the LaunchAgent `com.garrison.jarvis` (RunAtLoad + KeepAlive), whose wrapper
-# is ~/.local/bin/garrison-launch.sh. `launchctl kickstart -k` stops and
-# respawns it in one call. The systemd path is kept for Linux hosts.
-#
 # Usage: scripts/garrison-redeploy.sh [composition-id]
 #        composition-id defaults to the prod instance's active composition.
 
@@ -28,113 +23,124 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-PROD_ENV="$(bash scripts/garrison-instance.sh prod env)"
-PROD_PORT="$(printf '%s\n' "$PROD_ENV" | sed -n 's/^GARRISON_APP_PORT=//p')"
-PROD_HOME="$(printf '%s\n' "$PROD_ENV" | sed -n 's/^GARRISON_HOME=//p')"
+PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
+PROD_HOME="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_HOME=//p')"
 BASE="http://127.0.0.1:${PROD_PORT}"
+# The app server is OS-supervised - that is what makes it always-on across
+# reboots and logouts, so the supervisor stays with the OS: a systemd user
+# unit on Linux, a launchd agent on macOS (both installed by
+# scripts/install-node.sh). This script only needs to RESTART whichever one
+# manages this box; every other step (build, down, wait, unlock, up, tailnet
+# publish) is already OS-neutral bash + curl + node.
+UNIT="garrison-prod.service"
+LAUNCHD_LABEL="io.garrison.node"
 
-UNIT="garrison-prod.service"          # systemd (Linux hosts)
-LAUNCHD_LABEL="com.garrison.jarvis"   # launchd (this Mac)
-
-# The launch wrapper spawns a waiter that POSTs /up once the app answers. During
-# a redeploy THIS script owns the `up`, so the marker tells that waiter to stand
-# down — otherwise two concurrent up() calls race over the same operative.
-REDEPLOY_LOCK="$PROD_HOME/.redeploy-in-progress"
-mkdir -p "$PROD_HOME"
-cleanup() { rm -f "$REDEPLOY_LOCK"; }
-trap cleanup EXIT
-
-composition="${1:-${GARRISON_COMPOSITION:-}}"
+composition="${1:-}"
 if [ -z "$composition" ]; then
   composition="$(node -e '
-    const fs = require("fs");
-    const home = process.argv[1];
-    const read = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
-    // 1. the composition prod last actually RAN (coord-lifecycle), 2. the
-    //    active_composition pointer, 3. jarvis.
-    // The lifecycle file leads because the pointer has been observed drifting
-    // back to "default" (2026-07-21, writer unidentified) — and redeploying
-    // that composition then silently swaps the always-on operative.
-    // What prod was running is the ground truth for what to bring back.
-    try {
-      const keys = Object.keys(read(home + "/coord-lifecycle.json"));
-      if (keys.length === 1) { process.stdout.write(keys[0]); process.exit(0); }
-    } catch {}
-    try { const c = read(home + "/config.json").active_composition; if (c) { process.stdout.write(c); process.exit(0); } } catch {}
-    process.stdout.write("jarvis");
+    const fs=require("fs");
+    const p=process.argv[1]+"/config.json";
+    try { process.stdout.write(JSON.parse(fs.readFileSync(p,"utf8")).active_composition || "default"); }
+    catch { process.stdout.write("default"); }
   ' "$PROD_HOME")"
 fi
 
 say() { printf "\n[redeploy] %s\n" "$*"; }
-say "composition=$composition  port=$PROD_PORT  home=$PROD_HOME"
 
 # --- 1. build ---------------------------------------------------------------
 say "building prod bundle (.next-prod)"
 bash scripts/garrison-instance.sh prod build
-# A build that exits 0 can still be unservable: on this 8 GB box an OOM-killed
-# child once left .next-prod without prerender-manifest.json and next start
-# crash-looped under KeepAlive while the OLD process kept serving (2026-07-23).
-# Refuse to touch the running prod until the artifact is provably complete.
-for f in BUILD_ID prerender-manifest.json routes-manifest.json; do
-  if [ ! -f "$REPO_ROOT/.next-prod/$f" ]; then
-    echo "[redeploy] build incomplete: .next-prod/$f missing — aborting before down" >&2
-    exit 1
-  fi
-done
 
 # --- 2. stop the operative on the old code ----------------------------------
 # Best-effort: a prod server that is down (or a composition that was never up)
 # must not abort the redeploy — the up() at step 4 is what has to succeed.
-# No graceful pre-down: the restart below is a hard service kill, and calling
-# /down here would — when this promote runs INSIDE the operative (chat "faz
-# commit") — stop the very operative running it, killing the promote before it
-# can even request the restart. The hard restart stops everything cleanly.
-say "skipping graceful pre-down (hard restart handles it)"
+if curl -sf -o /dev/null --max-time 5 "$BASE/api/compositions"; then
+  say "stopping operative + fittings ($composition)"
+  curl -sf -X POST --max-time 120 "$BASE/api/runner/$composition/down" >/dev/null \
+    || echo "[redeploy] down returned non-zero (continuing)"
+else
+  say "prod app not responding on $BASE — skipping pre-down"
+fi
 
-# --- 3. request an OUT-OF-TREE restart -------------------------------------
-# "faz commit" in the web channel runs this promote INSIDE the operative, a
-# descendant of the com.garrison.jarvis tree. Restarting a service from within
-# its own tree is unreliable: launchctl kickstart silently no-ops from that
-# context and a kill takes the promote down with it (seen 2026-07-23 — c0bb4e3
-# pushed but prod kept serving the old build). So we hand the restart to
-# com.garrison.restart-watch, a separate always-on LaunchAgent NOT in this tree.
-# It kickstarts jarvis; the fresh wrapper's waiter runs the up(); the watcher
-# republishes tailnet. We do NOT hold $REDEPLOY_LOCK — this script is very
-# likely dead (killed by the restart it asked for) before the up() would run, so
-# the fresh waiter MUST be free to do it.
-rm -f "$REDEPLOY_LOCK" 2>/dev/null || true
-head_short="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-say "requesting out-of-tree restart -> $head_short (com.garrison.restart-watch)"
-printf '%s\n' "$head_short" > "$PROD_HOME/.restart-requested"
-
-# Wait for prod to actually SERVE the new commit. data-commit is rendered per
-# request from the prod tree HEAD, so this proves the app swapped builds.
-served=""
-for i in $(seq 1 70); do
-  sleep 3
-  served="$(curl -s --max-time 5 "$BASE/" 2>/dev/null | grep -o 'data-commit="[a-f0-9]*"' | head -1 | cut -d'"' -f2)"
-  [ "$served" = "$head_short" ] && break
-  # ~36s in with the request still unconsumed -> no watcher running. Fall back to
-  # an in-line kickstart (works when THIS process is out-of-tree, e.g. an ssh
-  # promote; a harmless no-op if in-tree).
-  if [ "$i" = "12" ] && [ -f "$PROD_HOME/.restart-requested" ]; then
-    say "restart-watch has not consumed the request — in-line kickstart fallback"
-    if command -v launchctl >/dev/null 2>&1 \
-       && launchctl print "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1; then
-      launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL" 2>/dev/null || true
-    elif command -v systemctl >/dev/null 2>&1 && systemctl --user cat "$UNIT" >/dev/null 2>&1; then
-      systemctl --user restart "$UNIT" 2>/dev/null || true
-    fi
+# --- 3. swap the app server -------------------------------------------------
+restart_supervised() {
+  if command -v systemctl >/dev/null 2>&1 \
+     && systemctl --user cat "$UNIT" >/dev/null 2>&1; then
+    say "restarting $UNIT (systemd)"
+    systemctl --user restart "$UNIT"
+    return 0
   fi
-done
-
-if [ "$served" != "$head_short" ]; then
-  echo "[redeploy] prod is serving '${served:-none}' but HEAD is $head_short — restart did not take" >&2
-  tail -n 25 "$PROD_HOME/logs/restart-watch.log" 2>/dev/null >&2 || true
+  if command -v launchctl >/dev/null 2>&1 \
+     && launchctl print "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1; then
+    say "kickstarting $LAUNCHD_LABEL (launchd)"
+    launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL"
+    return 0
+  fi
+  return 1
+}
+if ! restart_supervised; then
+  echo "[redeploy] no app supervisor found (systemd: $UNIT, launchd: $LAUNCHD_LABEL)." >&2
+  echo "           Enroll this machine with scripts/install-node.sh, or start by hand:" >&2
+  echo "           bash scripts/garrison-instance.sh prod start" >&2
   exit 1
 fi
-# Os passos 3b/4/5 de main (unlock do vault, up, publicar tailnet) NAO vivem
-# aqui: este script pede um restart fora da arvore e morre com ele. O unlock e o
-# up() correm no waiter de ~/.local/bin/garrison-launch.sh; a republicacao da
-# tailnet corre em ~/.local/bin/garrison-restart-watch.sh. Ver merge de 2026-07-28.
-say "done — prod serving $BASE at commit $head_short (restart via watch agent)"
+
+# --- wait for the new server ------------------------------------------------
+say "waiting for $BASE"
+for _ in $(seq 1 60); do
+  if curl -sf -o /dev/null --max-time 3 "$BASE/api/compositions"; then
+    break
+  fi
+  sleep 2
+done
+if ! curl -sf -o /dev/null --max-time 3 "$BASE/api/compositions"; then
+  echo "[redeploy] prod did not come up on $BASE" >&2
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user status "$UNIT" --no-pager -n 30 >&2 || true
+  fi
+  if command -v launchctl >/dev/null 2>&1; then
+    launchctl print "gui/$(id -u)/$LAUNCHD_LABEL" 2>/dev/null | sed -n '1,20p' >&2 || true
+    tail -n 30 "$PROD_HOME/node-launchd.log" >&2 2>/dev/null || true
+  fi
+  exit 1
+fi
+
+# --- 3b. unlock the vault on the fresh server -------------------------------
+# The vault is keychain-sealed (no passphrase), so unlocking is non-interactive
+# by design. A fresh server process boots LOCKED, and up() fails loud on a
+# locked vault whenever the composition pins an account (a named pin throws,
+# account: auto HOLDs with every token unreadable) - so unlock BEFORE up. This
+# also heals any vault-consuming fitting that was started keyless. A
+# vault this key cannot open (legacy passphrase seal) stays locked and up()
+# reports it exactly as before.
+say "unlocking the vault (keychain-sealed)"
+curl -sf -X POST --max-time 15 -H 'content-type: application/json' -d '{}' \
+  "$BASE/api/vault/unlock" >/dev/null \
+  || echo "[redeploy] vault unlock failed - up may HOLD on account: auto"
+
+# --- 4. bring the operative + its fittings back on the new code -------------
+say "starting operative + fittings ($composition)"
+curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
+
+# --- 5. publish any newly-started own-port view to the tailnet --------------
+# Idempotent (existing mappings are kept). Without this a fitting that gains an
+# own port, or one started for the first time, has no `tailscale serve` mapping
+# and its embedded view is a BLANK pane over the tailnet: the iframe would need
+# a plain-HTTP frame on an HTTPS page, which the browser blocks as mixed
+# content. Exactly how drill's view broke.
+say "publishing own-port views to the tailnet"
+# Pass prod's identity explicitly: the script reads $GARRISON_HOME/ui-fittings to
+# find running views, and its own guard refuses any non-prod profile. Relying on
+# the ~/.garrison default would happen to work but would silently publish the
+# wrong instance's views if the default ever changed.
+GARRISON_INSTANCE_ID=prod GARRISON_HOME="$PROD_HOME" \
+  node "$REPO_ROOT/scripts/tailnet-serve-views.mjs" || \
+  echo "[redeploy] tailnet publish failed (views may be unreachable off-box)"
+
+# Name THIS node's tailnet address, not a hardcoded one - the same script runs
+# on every mesh machine.
+TAILNET_HOST="$(node -e '
+  try { process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1] + "/node.json", "utf8")).tailnetHost || ""); }
+  catch { /* unenrolled box: no tailnet address to name */ }
+' "$PROD_HOME")"
+say "done — prod serving $BASE${TAILNET_HOST:+ (tailnet: https://$TAILNET_HOST)}"

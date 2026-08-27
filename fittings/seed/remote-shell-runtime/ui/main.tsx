@@ -25,8 +25,47 @@ interface TransportRow {
   name: string;
   label: string;
   via: string;
+  tunnel: string | null;
   tmuxSession: string;
   cwd: string;
+}
+
+// Deliberately not `alive`. Process-table liveness is the word that reported
+// "healthy" all the way through an outage where the tunnel client held no
+// listener at all; `carrying` means the forward answered as ssh.
+interface TunnelRow {
+  carrying: boolean;
+  state: string;
+  lastOkAt: string | null;
+  probeReason: string | null;
+  misses: number;
+  parked: { reason: string; message: string } | null;
+  repairing: boolean;
+  backoffUntil: string | null;
+  child: { alive: boolean; startedAt: string; restarts: number } | null;
+  lastError: string | null;
+}
+
+function agoLabel(iso: string | null): string {
+  if (!iso) return "never";
+  const secs = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  return `${Math.round(secs / 3600)}h ago`;
+}
+
+function tunnelHealth(row: TunnelRow | undefined): { tone: string; label: string; detail: string | null } {
+  if (!row) return { tone: "unknown", label: "unknown", detail: null };
+  if (row.carrying) return { tone: "up", label: "up", detail: `carried ${agoLabel(row.lastOkAt)}` };
+  if (row.repairing) return { tone: "repairing", label: "repairing", detail: "replacing the tunnel client" };
+  if (row.parked) return { tone: "parked", label: "parked", detail: row.parked.message };
+  return {
+    tone: "down",
+    label: row.state === "unknown" ? "unknown" : row.state,
+    // The whole point of the probe's verdicts: "wedged" and "refused" send the
+    // reader to different machines.
+    detail: row.probeReason ?? row.lastError ?? `last carried ${agoLabel(row.lastOkAt)}`
+  };
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -45,15 +84,19 @@ function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
+  const [tunnels, setTunnels] = useState<Record<string, TunnelRow>>({});
+  const [repairing, setRepairing] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [s, t] = await Promise.all([
+      const [s, t, h] = await Promise.all([
         api<{ sessions: SessionRow[] }>("/sessions"),
-        api<{ transports: TransportRow[] }>("/transports")
+        api<{ transports: TransportRow[] }>("/transports"),
+        api<{ tunnels: Record<string, TunnelRow> }>("/tunnels")
       ]);
       setSessions(s.sessions);
       setTransports(t.transports);
+      setTunnels(h.tunnels ?? {});
       setSelected((cur) => cur && s.sessions.some((x) => x.id === cur)
         ? cur
         : s.sessions[0]?.id ?? null);
@@ -96,6 +139,19 @@ function App() {
     }
   };
 
+  const repairTunnel = async (transport: string) => {
+    setRepairing(transport);
+    setError(null);
+    try {
+      await api(`/tunnels/${encodeURIComponent(transport)}/repair`, { method: "POST", body: "{}" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRepairing(null);
+      void refresh();
+    }
+  };
+
   const current = useMemo(
     () => sessions.find((s) => s.id === selected) ?? null,
     [sessions, selected]
@@ -120,21 +176,45 @@ function App() {
           </button>
         ))}
         <div className="rail-section">Transports</div>
-        {transports.map((t) => (
-          <div key={t.name} className="transport">
-            <div className="transport-name">
-              {t.label}
-              <span className="transport-via">{t.via}</span>
+        {transports.map((t) => {
+          const row = t.tunnel ? tunnels[t.tunnel] : undefined;
+          const health = t.tunnel ? tunnelHealth(row) : null;
+          return (
+            <div key={t.name} className="transport">
+              <div className="transport-name">
+                {t.label}
+                <span className="transport-via">{t.via}</span>
+              </div>
+              {health && (
+                <div className="link-row">
+                  <span className={`dot link-${health.tone}`} aria-hidden />
+                  <span className="link-label">{health.label}</span>
+                  {row?.child && !row.carrying && (
+                    // The sentence the old status shape made impossible to say.
+                    <span className="link-note">child {row.child.alive ? "alive" : "gone"}</span>
+                  )}
+                </div>
+              )}
+              {health?.detail && <div className="link-detail">{health.detail}</div>}
+              <button
+                className="start"
+                disabled={starting === t.name}
+                onClick={() => startSession(t.name)}
+              >
+                {starting === t.name ? "Starting..." : "Start / attach"}
+              </button>
+              {t.tunnel && (
+                <button
+                  className="repair"
+                  disabled={repairing === t.name || Boolean(row?.repairing)}
+                  onClick={() => repairTunnel(t.name)}
+                >
+                  {repairing === t.name || row?.repairing ? "Repairing..." : "Repair tunnel"}
+                </button>
+              )}
             </div>
-            <button
-              className="start"
-              disabled={starting === t.name}
-              onClick={() => startSession(t.name)}
-            >
-              {starting === t.name ? "Starting..." : "Start / attach"}
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </aside>
       <main className="pane">
         {current ? (

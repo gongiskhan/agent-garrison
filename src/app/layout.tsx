@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow, Source_Serif_4, JetBrains_Mono } from "next/font/google";
 import { currentProfile } from "@/lib/instance-profile";
-import { commitShort } from "@/lib/build-info";
 import "./globals.css";
 import { AppShell } from "@/components/chrome/AppShell";
 import { ServiceWorkerRegistrar } from "@/components/chrome/ServiceWorkerRegistrar";
 import { readNodeIdentity } from "@/lib/node-identity";
+import { readBuildSha } from "@/lib/build-info";
 
 const barlow = Barlow({
   subsets: ["latin"],
@@ -87,6 +87,7 @@ export function generateViewport(): Viewport {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const node = readNodeIdentity();
+  const buildSha = readBuildSha();
   return (
     <html
       lang="en"
@@ -94,19 +95,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       // fixed top stripe and the sidebar instance chip. Server-rendered, so
       // the marker can never disagree with the process actually serving.
       data-instance={currentProfile()}
-      // The commit this instance is running, stamped by the same server render
-      // as the marker above so the two can never disagree. The sidebar brand
-      // block reads it off <html> and shows it under "v1 · localhost"; absent
-      // when the hash cannot be determined.
-      data-commit={commitShort() ?? undefined}
       className={`${barlow.variable} ${sourceSerif.variable} ${jetBrainsMono.variable}`}
       // The node's colour reaches every stylesheet with no client round trip
       // and no FOUC; the data-* pair is how client components (NodeBadge, the
       // sidebar subtitle) learn the name without a fetch, since node-identity
-      // reads the filesystem and cannot be bundled for the browser.
+      // reads the filesystem and cannot be bundled for the browser. Same
+      // reasoning for data-build-sha: build-info.ts shells out to git, which
+      // is server-only.
       data-node-id={node.id}
       data-node-name={node.name}
       data-node-accent={node.accent}
+      data-build-sha={buildSha ?? undefined}
       style={
         {
           "--node-accent": node.accentHex,

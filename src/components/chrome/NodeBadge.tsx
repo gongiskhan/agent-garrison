@@ -27,6 +27,17 @@ export function useNodeChrome(): NodeChrome | null {
   return node;
 }
 
+// The short git commit hash of the running build, read the same way as node
+// identity: layout.tsx stamps it onto <html data-build-sha>, and this hook is
+// the client side's only reader.
+export function useBuildSha(): string | null {
+  const [sha, setSha] = useState<string | null>(null);
+  useEffect(() => {
+    setSha(document.documentElement.dataset.buildSha ?? null);
+  }, []);
+  return sha;
+}
+
 // Which machine this window is. The accent dot is the cue that survives a
 // screenshot and a screen recording, where the title bar does not.
 export function NodeBadge() {

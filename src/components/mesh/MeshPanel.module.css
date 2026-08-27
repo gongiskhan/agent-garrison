@@ -207,13 +207,24 @@
 }
 
 .open {
-  align-self: start;
+  display: inline-block;
+  padding: 0.45rem 0.95rem;
+  border: 1px solid var(--node-accent, var(--brass));
+  border-radius: 7px;
+  background: var(--surface-raised, transparent);
   font-family: var(--font-mono), monospace;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--brass);
+  text-decoration: none;
+  color: inherit;
+  transition: background 120ms ease;
+}
+
+.open:hover {
+  background: var(--node-accent, var(--brass));
+  color: var(--surface, #fff);
 }
 
 .openMissing {

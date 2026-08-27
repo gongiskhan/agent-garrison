@@ -71,6 +71,31 @@ function threadPath(id) {
   return path.join(THREADS_DIR, `${id}.json`);
 }
 
+// The conversation-id vocabulary the conversation store and its HTTP router
+// enforce (packages/claude-pty conversation-http.mjs CONVERSATION_ID_RE). Kept
+// here as a literal rather than imported: threads.mjs is the durable store and
+// must not gain a runtime dependency to answer a question about a string.
+const CONVERSATION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * A thread IS a conversation's channel surface, so the two share ONE identity:
+ * the thread's id names the conversation whose record the view streams.
+ *
+ * DERIVED, never read back from the file. A stored value would buy nothing (it
+ * can only ever equal the id) and could go stale or - in a hand-edited file -
+ * name a DIFFERENT conversation, which would quietly show one thread another
+ * thread's record. `ensureThread` still stamps it on disk so the file states its
+ * own identity; this function is what every reader uses.
+ *
+ * Null only for a thread whose sanitised id cannot be a conversation id at all
+ * (a leading underscore). That thread keeps the pre-conversation chat surface
+ * rather than being renamed into an identity it never had.
+ */
+export function conversationIdFor(thread) {
+  const id = typeof thread?.id === "string" ? thread.id : "";
+  return CONVERSATION_ID_RE.test(id) ? id : null;
+}
+
 // A per-process counter so two writes to the SAME thread inside one millisecond
 // get distinct temp files. pid+Date.now() alone collided: a turn now writes the
 // transcript and the session id back-to-back, and the loser's rename landed on a
@@ -230,6 +255,27 @@ const SESSION_BLOCK_TYPES = new Set([
   "rate_limit",
   "turn_end",
   "permission_request",
+  // The conversation spine (Garrison Conversations): a stretch boundary and the
+  // append-only ledger rows that record what ran between messages.
+  //
+  // This set is the SERVER half of the block-type trap: a type the renderer
+  // speaks but this whitelist does not know is dropped here, taking the whole
+  // event with it. tests/session-block-parity.test.ts pins it against
+  // journal.ts's SESSION_BLOCK_TYPES in both directions.
+  "stretch",
+  "ledger",
+]);
+const STRETCH_PHASES = new Set(["started", "ended"]);
+// Closed, like the retry block's `kind`: journal.ts's SessionLedgerKind union is
+// the contract, and the parity test keeps the two lists in step.
+const SESSION_LEDGER_KINDS = new Set([
+  "handoff",
+  "delegation-dispatched",
+  "delegation-returned",
+  "delegation-failed",
+  "card-state-changed",
+  "escalation",
+  "policy-rewrite",
 ]);
 const FAILURE_KINDS = new Set([
   "authentication",
@@ -756,6 +802,59 @@ export function sanitizeSessionBlock(raw) {
     return out;
   }
 
+  if (type === "stretch") {
+    const phase = cleanSessionLabel(raw.phase, 80);
+    const stretchId = cleanSessionId(raw.stretchId);
+    if (!phase || !STRETCH_PHASES.has(phase) || !stretchId) return null;
+    // Same attribution whitelist the route block uses: a stretch names where the
+    // duty ran, and two different shapes for the same fact would drift. Unlike
+    // route, an EMPTY bag is KEPT rather than refused - a stretch that ran on a
+    // lane reporting nothing is still a real boundary, and the rail's rule is
+    // that an unreported dimension simply gets no badge.
+    if (!raw.attribution || typeof raw.attribution !== "object" || Array.isArray(raw.attribution)) return null;
+    const out = { type, phase, stretchId, attribution: sanitizeRouteMeta(raw.attribution) ?? {} };
+    // The duty, the rung's chooser and the outcome vocabulary all belong to the
+    // launcher and the handoff validator in claude-pty. Kept as opaque labels
+    // here on purpose - a second copy of those lists in the channel would be a
+    // mirror that silently drifts. An explicit null reads as "not reported", the
+    // same as the route attribution's own optional ids, so it is omitted.
+    for (const key of ["duty", "chosenBy", "outcome"]) {
+      if (!Object.hasOwn(raw, key) || raw[key] === null) continue;
+      if (!copyOptionalLabel(out, raw, key, 200)) return null;
+    }
+    if (Object.hasOwn(raw, "usedTokens") && raw.usedTokens !== null) {
+      if (!copyOptionalNumber(out, raw, "usedTokens", { integer: true, min: 0 })) return null;
+    }
+    if (Object.hasOwn(raw, "durationMs") && raw.durationMs !== null) {
+      if (!copyOptionalNumber(out, raw, "durationMs", { min: 0 })) return null;
+    }
+    return out;
+  }
+
+  if (type === "ledger") {
+    const kind = cleanSessionLabel(raw.kind, 200);
+    if (!kind || !SESSION_LEDGER_KINDS.has(kind)) return null;
+    const title = capSessionText(raw.title);
+    if (title === null || !title.trim()) return null;
+    const out = { type, kind, title };
+    if (Object.hasOwn(raw, "detail") && raw.detail !== null) {
+      if (!copyOptionalText(out, raw, "detail")) return null;
+    }
+    if (Object.hasOwn(raw, "payloadRef") && raw.payloadRef !== null) {
+      // An opaque store reference, never a path, and capped like an id: two
+      // distinct refs must never collapse into one by truncation.
+      const payloadRef = cleanSessionId(raw.payloadRef);
+      if (!payloadRef) return null;
+      out.payloadRef = payloadRef;
+    }
+    // Optional: the store assigns a stable per-conversation sequence, but a row
+    // written before it has one is still a row.
+    if (Object.hasOwn(raw, "seq") && raw.seq !== null) {
+      if (!copyOptionalNumber(out, raw, "seq", { integer: true, min: 0 })) return null;
+    }
+    return out;
+  }
+
   if (type === "retry") {
     if (raw.kind !== "api" && raw.kind !== "model_fallback") return null;
     const text = capSessionText(raw.text);
@@ -1072,16 +1171,31 @@ function deriveTitle(thread) {
 }
 
 /** Sparse remote-shell binding carried in a thread's opaque context: which
- *  transport this thread's terminal is attached to, and (optionally) the
- *  routing-target id its chat turns pin. Strictly picked — the context is
- *  client-influenced, so nothing else rides through. */
+ *  transport this thread's terminal is attached to, WHICH SESSION on it, and
+ *  (optionally) the routing-target id its chat turns pin. Strictly picked — the
+ *  context is client-influenced, so nothing else rides through.
+ *
+ *  `tmuxSession` rides the meta because a machine hosts many sessions now: the
+ *  list has to match a thread to ITS session to show whether that agent is
+ *  working, and a transport-only match would hand every shell on the box the
+ *  same state. Absent = the transport's standing session. */
 export function remoteShellBinding(thread) {
   const b = thread?.context?.remoteShell;
   if (!b || typeof b !== "object" || Array.isArray(b)) return null;
-  const transport = typeof b.transport === "string" && b.transport.trim() ? b.transport.trim().slice(0, 80) : null;
+  const str = (v, max = 80) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  const transport = str(b.transport);
   if (!transport) return null;
-  const target = typeof b.target === "string" && b.target.trim() ? b.target.trim().slice(0, 80) : null;
-  return { transport, ...(target ? { target } : {}) };
+  const target = str(b.target);
+  const tmuxSession = str(b.tmuxSession);
+  const cwd = str(b.cwd, 400);
+  const label = str(b.label, 120);
+  return {
+    transport,
+    ...(tmuxSession ? { tmuxSession } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(label ? { label } : {}),
+    ...(target ? { target } : {})
+  };
 }
 
 function toMeta(thread) {
@@ -1090,6 +1204,7 @@ function toMeta(thread) {
   return {
     ...(remoteShell ? { remoteShell } : {}),
     id: thread.id,
+    conversationId: conversationIdFor(thread),
     title: deriveTitle(thread),
     source: thread.source ?? "chat",
     createdAt: thread.createdAt ?? null,
@@ -1110,6 +1225,7 @@ async function readThreadFile(id) {
     const obj = JSON.parse(raw);
     if (!obj || typeof obj !== "object") return null;
     obj.id = id; // pin to the on-disk filename, never a tampered inner id
+    obj.conversationId = conversationIdFor(obj);
     if (!Array.isArray(obj.messages)) obj.messages = [];
     // Canonical events are always rebuilt through the sanitizer on read. This also
     // heals duplicate ids in a hand-edited/legacy file with the same latest-revision,
@@ -1209,6 +1325,7 @@ export async function ensureThread({ id, title, source, mode, context, nowIso })
     }
     const thread = {
       id: safe,
+      conversationId: safe,
       title: title ? String(title).slice(0, 120) : "",
       source: source ? String(source) : "chat",
       mode: mode ? String(mode) : null,
@@ -1874,6 +1991,26 @@ export async function threadHasPendingInputs(id) {
 }
 
 /** Delete a thread. Returns true if a file was removed. */
+/**
+ * User-driven rename. Unlike ensureThread's fill-if-empty title semantics,
+ * this SETS the title: the user's chosen name wins over whatever the first
+ * message auto-titled the thread, and later auto-titling must not undo it
+ * (renamedAt records the decision).
+ */
+export async function renameThread(id, title) {
+  const safe = safeThreadId(id);
+  const clean = typeof title === "string" ? title.trim().slice(0, 120) : "";
+  if (!safe || !clean) return null;
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread) return null;
+    thread.title = clean;
+    thread.renamedAt = new Date().toISOString();
+    await atomicWriteJson(threadPath(safe), thread);
+    return thread;
+  });
+}
+
 export async function deleteThread(id) {
   const safe = safeThreadId(id);
   if (!safe) return false;

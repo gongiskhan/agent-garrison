@@ -91,3 +91,32 @@ body {
   padding: 4px 8px;
   z-index: 2;
 }
+
+/* Tunnel health on a transport row. A dot alone cannot be read by anyone who
+   cannot tell the colours apart, so it always carries its word. */
+.link-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.link-label { font-size: 11px; color: #b9b9b9; text-transform: uppercase; letter-spacing: 0.04em; }
+.link-note { font-size: 11px; color: #8a8a8a; margin-left: auto; }
+.link-detail {
+  font-size: 11px;
+  color: #8a8a8a;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+.dot.link-up { background: #5c8a5c; }
+.dot.link-down { background: #b05353; }
+.dot.link-wedged { background: #b05353; }
+.dot.link-parked { background: #b0873f; }
+.dot.link-unknown { background: #5c5c5c; }
+.dot.link-repairing { background: #d8b04a; animation: pulse 1.2s ease-in-out infinite; }
+.repair {
+  width: 100%;
+  margin-top: 6px;
+  background: #30231f;
+  color: #e3ccc4;
+  border: 1px solid #4a3a38;
+  border-radius: 5px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.repair:disabled { opacity: 0.6; cursor: default; }

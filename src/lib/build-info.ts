@@ -1,45 +1,31 @@
+// The short git commit hash of the running build, for the sidebar footer.
+//
+// Same shape as node-identity.ts: a sync, module-cached read so server
+// components (layout.tsx) can call it with no await, and a stale value only
+// changes on the next process start - which is when a redeploy rebuilds
+// anyway.
+
 import { execFileSync } from "node:child_process";
 
-// Server-only: this module shells out to git. Import it from server components
-// and route handlers, never from a "use client" file — doing so would drag
-// node:child_process into the browser bundle.
+let cache: string | null | undefined;
 
-const TTL_MS = 15_000;
+export function resetBuildInfoCache(): void {
+  cache = undefined;
+}
 
-let cached: { value: string | null; at: number } | null = null;
-
-/**
- * Short hash of the commit this instance is running, or null when it cannot be
- * determined (no git, not a checkout, git missing from PATH).
- *
- * `GARRISON_COMMIT` wins when set, so a packaged deploy without a .git dir can
- * stamp the value explicitly. Otherwise the hash is read from the checkout the
- * server process was started in — `garrison-instance.sh` cds to the repo root
- * before starting next, for every profile.
- *
- * Cached briefly rather than forever: a production build bakes the value at
- * prerender (correct — that is the commit that was built), but `next dev` is a
- * long-lived process that outlives many commits.
- */
-export function commitShort(): string | null {
-  const fromEnv = process.env.GARRISON_COMMIT?.trim();
-  if (fromEnv) return fromEnv.slice(0, 7);
-
-  const now = Date.now();
-  if (cached && now - cached.at < TTL_MS) return cached.value;
-
-  let value: string | null = null;
+// Never throws: a checkout with no `.git` (or no `git` on PATH) degrades to
+// null, which callers render as absent rather than a broken build.
+export function readBuildSha(): string | null {
+  if (cache !== undefined) return cache;
   try {
-    value =
-      execFileSync("git", ["rev-parse", "--short", "HEAD"], {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        timeout: 2000,
-        stdio: ["ignore", "pipe", "ignore"]
-      }).trim() || null;
+    const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    cache = sha || null;
   } catch {
-    value = null;
+    cache = null;
   }
-  cached = { value, at: now };
-  return value;
+  return cache;
 }

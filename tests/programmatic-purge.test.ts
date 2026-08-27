@@ -23,6 +23,21 @@ const ROOT = path.resolve(__dirname, "..");
 // tests/docs are excluded by construction (git ls-files of these dirs).
 const TARGET_DIRS = ["src", "packages", "fittings", "scripts"];
 
+// The `stream-json` pattern is the one engine-AGNOSTIC rule here: it matches the
+// string wherever it appears, but the policy it enforces is about CLAUDE. Cursor
+// has no interactive API at all - `cursor-agent -p --output-format stream-json`
+// IS its non-interactive interface, and it is what lets a remote machine be an
+// ordinary runtime target instead of a screen we scrape (the exec lane in
+// remote-shell-runtime; cursor-runtime already ships the buffered `json` form of
+// the same call).
+//
+// So the exemption is per FILE and SELF-CHECKING: a listed file keeps its pass
+// only while it is still a cursor-agent caller. Claude's own headless flags stay
+// banned everywhere, this file included - the other two patterns are not relaxed.
+const CURSOR_HEADLESS_FILES = new Set([
+  "fittings/seed/remote-shell-runtime/lib/sessions.mjs",
+]);
+
 const BANNED: Array<{ label: string; re: RegExp }> = [
   // `\b` alone also matched an unrelated flag whose name merely STARTS with
   // print (`--print-only` in a spike script), which is not headless mode and
@@ -49,6 +64,19 @@ function trackedSourceFiles(): string[] {
 }
 
 describe("headless-mode exclusion guard (claude -p stays banned as a capability choice)", () => {
+  it("exempts only files that really are cursor-agent callers", () => {
+    // The exemption exists for an engine with no interactive API. If one of
+    // these files stops calling cursor-agent, it stops being exempt - otherwise
+    // the entry silently becomes a hole for anything at all.
+    for (const rel of CURSOR_HEADLESS_FILES) {
+      const full = path.join(ROOT, rel);
+      expect(existsSync(full), `${rel} is listed but missing`).toBe(true);
+      expect(readFileSync(full, "utf8"), `${rel} no longer calls cursor-agent`).toMatch(/cursor-agent/);
+      // Claude's own headless flags stay banned in the exempt file too.
+      expect(readFileSync(full, "utf8")).not.toMatch(/\bclaude['"]?,?\s+['"]?-p\b/);
+    }
+  });
+
   it("scans a non-empty set of production source files", () => {
     expect(trackedSourceFiles().length).toBeGreaterThan(50);
   });
@@ -65,8 +93,10 @@ describe("headless-mode exclusion guard (claude -p stays banned as a capability 
           return !(t.startsWith("//") || t.startsWith("#") || t.startsWith("*") || t.startsWith("/*"));
         })
         .join("\n");
+      const cursorExempt = CURSOR_HEADLESS_FILES.has(rel) && /cursor-agent/.test(code);
       for (const { label, re } of BANNED) {
         if (!re.test(code)) continue;
+        if (cursorExempt && label === "headless stream-json output") continue;
         offenders.push(`${rel} :: ${label} (${re})`);
       }
     }

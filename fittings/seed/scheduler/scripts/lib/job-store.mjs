@@ -166,11 +166,38 @@ export function createJobStore({
   }
 
   // ── state store ──
+  //
+  // PER-NODE ID NAMESPACING. The service keys jobs by bare id, and every
+  // node's setup hook registers the same logical ids (vault-git-sync,
+  // kanban-tick, ...) pinned to ITSELF — with bare ids the four nodes fought
+  // over one row, each register re-targeting it and every OTHER node's verify
+  // reading "not registered" (found live on the first three-Mac up()). A
+  // node-targeted job therefore lives in the service as `<id>@<node>`; the
+  // suffix is invisible to callers, and legacy bare rows targeted at this
+  // node keep working until their next save migrates them.
+  function nodeOfTarget(target) {
+    return typeof target === "string" && target.startsWith("node:") ? target.slice(5) : null;
+  }
+  function serviceIdFor(id, target) {
+    const node = nodeOfTarget(target);
+    return node ? `${id}@${node}` : id;
+  }
+  function displayId(row) {
+    const node = nodeOfTarget(row.target);
+    if (node && row.id.endsWith(`@${node}`)) return row.id.slice(0, -(node.length + 1));
+    return row.id;
+  }
+
   // There is no single-job GET, and `remove` must be able to address a job
   // pinned to ANOTHER node, so the raw lookup is deliberately unfiltered.
+  // Matches the LOGICAL id: the suffixed row for any node, or a legacy bare
+  // row. Own-node rows win over peers'.
   async function rawJob(id) {
     const rows = await client.listSchedulerJobs();
-    return rows.find((row) => row.id === id) ?? null;
+    const matches = rows.filter((row) => row.id === id || displayId(row) === id);
+    if (!matches.length) return null;
+    const own = matches.find((row) => nodeOfTarget(row.target) === self);
+    return own ?? matches[0];
   }
 
   async function putWithRev(id, job, rev) {
@@ -200,7 +227,7 @@ export function createJobStore({
     async loadJobs() {
       if (mode === "file") return (await readFile()).map(fromLegacyRecord);
       const rows = await client.listSchedulerJobs(self);
-      return rows.map(fromServiceRow);
+      return rows.map((row) => ({ ...fromServiceRow(row), id: displayId(row) }));
     },
 
     /** One job by id, WITHOUT the target filter — `remove` and `enable` address
@@ -211,7 +238,7 @@ export function createJobStore({
         return record ? fromLegacyRecord(record) : null;
       }
       const row = await rawJob(id);
-      return row ? fromServiceRow(row) : null;
+      return row ? { ...fromServiceRow(row), id: displayId(row) } : null;
     },
 
     /** Write a job through, CAS'd on the rev we read.
@@ -233,15 +260,23 @@ export function createJobStore({
         await writeFile(next);
         return { id, rev: null };
       }
+      const wireId = serviceIdFor(id, job.target);
+      // A legacy bare row TARGETED AT THIS NODE is this job's old home —
+      // update it in place (its id migrates on the service side only when
+      // the row is re-created; never fight over a peer's bare row).
       const current = await rawJob(id);
+      const currentIsOurs = current && nodeOfTarget(current.target) === self;
+      const writeId = currentIsOurs ? current.id : wireId;
       try {
-        return await putWithRev(id, job, current?.rev ?? 0);
+        return await putWithRev(writeId, job, currentIsOurs ? current.rev : (current?.id === writeId ? current.rev : 0));
       } catch (err) {
         if (!(err instanceof StateApiError) || err.status !== 409) throw err;
         // Exactly one retry, and it RE-READS. A blind force would be the
         // overwrite the precondition exists to prevent.
         const fresh = await rawJob(id);
-        return putWithRev(id, job, fresh?.rev ?? 0);
+        const freshIsOurs = fresh && nodeOfTarget(fresh.target) === self;
+        const retryId = freshIsOurs ? fresh.id : wireId;
+        return putWithRev(retryId, job, freshIsOurs ? fresh.rev : (fresh?.id === retryId ? fresh.rev : 0));
       }
     },
 
@@ -255,7 +290,7 @@ export function createJobStore({
       const current = await rawJob(id);
       if (!current) return { removed: false };
       try {
-        await client.deleteSchedulerJob(id, { ifMatchRev: current.rev });
+        await client.deleteSchedulerJob(current.id, { ifMatchRev: current.rev });
         return { removed: true };
       } catch (err) {
         if (!(err instanceof StateApiError)) throw err;
@@ -263,7 +298,7 @@ export function createJobStore({
         if (err.status !== 409) throw err;
         const fresh = await rawJob(id);
         if (!fresh) return { removed: false };
-        await client.deleteSchedulerJob(id, { ifMatchRev: fresh.rev });
+        await client.deleteSchedulerJob(fresh.id, { ifMatchRev: fresh.rev });
         return { removed: true };
       }
     },

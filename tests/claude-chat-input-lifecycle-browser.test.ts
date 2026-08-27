@@ -832,29 +832,34 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
   });
 
   it("rolls back a rejected async pin save and exposes a keyboard-retryable nonblocking error", async () => {
-    // Route is an icon in the composer that opens a sheet; the rail (and its pin
-    // menus) live inside it rather than in a standing row above the input.
+    // The pin editor is the RoutingModal now (the old RouteSheet was dead code:
+    // nothing opened it, and this test timed out on its ghost for weeks — task
+    // #27). The save strip renders in the COMPOSER, outside the modal, so a
+    // rejected save is visible wherever the pin was applied from.
     await page.locator(".cc-routebtn").click();
-    await page.locator("dialog.cc-sheet").waitFor({ state: "visible" });
-    const target = page.locator("button.cc-rbadge").filter({ hasText: "target" }).first();
-    await target.focus();
-    expect(await target.evaluate((node) => node === document.activeElement)).toBe(true);
-    await target.press("Enter");
-    const menu = page.locator(".cc-railmenu");
-    await expect.poll(() => menu.isVisible()).toBe(true);
-    expect(await menu.locator(".cc-railmenu-effect").textContent()).toBe(
-      "Starts a new session for your next message."
-    );
+    const modal = page.locator(".cc-rm");
+    await modal.waitFor({ state: "visible" });
+
+    await modal.locator("nav button", { hasText: "Execution" }).click();
+    const target = modal.locator(".cc-rm-opt", { hasText: "cc-sonnet-med" }).first();
+    await target.waitFor({ state: "visible" });
 
     await page.evaluate(() => { (window as any).__mock.rejectPinSave = true; });
-    await menu.locator(".cc-railitem").filter({ hasText: "cc-sonnet-med" }).click();
+    await target.click();
+
     const saveError = page.locator(".cc-pin-save-error");
     await expect.poll(() => saveError.isVisible()).toBe(true);
     expect(await saveError.textContent()).toContain("Your previous choices were restored");
-    expect(await page.locator(".cc-rbadge-pinned").filter({ hasText: "cc-sonnet-med" }).count()).toBe(0);
+    // Rolled back: the modal's target pane shows Automatic selected again.
+    await expect.poll(async () =>
+      (await modal.locator(".cc-rm-opt-sel", { hasText: "Automatic" }).count()) === 1 &&
+      (await modal.locator(".cc-rm-opt-sel", { hasText: "cc-sonnet-med" }).count()) === 0
+    ).toBe(true);
+    // Nonblocking: a polite status region, never an alert, composer usable.
     expect(await composer().isEnabled()).toBe(true);
     expect(await page.locator('[role="alert"]').count()).toBe(0);
-    expect(await page.locator('[role="status"][aria-live="polite"]').count()).toBe(1);
+    expect(await saveError.getAttribute("role")).toBe("status");
+    expect(await saveError.getAttribute("aria-live")).toBe("polite");
 
     const retry = saveError.getByRole("button", { name: "Retry save" });
     const retryBox = await retry.boundingBox();
@@ -865,7 +870,7 @@ describe("ClaudeChat generated input lifecycle in real Chromium", () => {
     await page.evaluate(() => { (window as any).__mock.rejectPinSave = false; });
     await retry.press("Enter");
     await expect.poll(() => page.locator(".cc-pin-save").count()).toBe(0);
-    expect(await page.locator(".cc-rbadge-pinned").filter({ hasText: "cc-sonnet-med" }).count()).toBe(1);
+    await expect.poll(() => modal.locator(".cc-rm-opt-sel", { hasText: "cc-sonnet-med" }).count()).toBe(1);
     expect(await page.evaluate(() => (window as any).__mock.pinChanges)).toEqual([
       { target: "cc-sonnet-med" },
       { target: "cc-sonnet-med" },

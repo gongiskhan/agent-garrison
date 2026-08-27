@@ -16,9 +16,7 @@ import { buildDiscussUrl, buildDiscussKickoff, briefSlug, briefRelPath, recordBr
 // @ts-ignore — pure .mjs
 import { createCard, loadCard } from "../fittings/seed/kanban-loop/lib/board.mjs";
 // @ts-ignore — pure .mjs
-import { processCard, isInteractive, getList, buildCardPrompt, readBriefContext } from "../fittings/seed/kanban-loop/lib/engine.mjs";
-// @ts-ignore — pure .mjs
-import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
+import { isInteractive, getList, readBriefContext } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 
 // The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
 // Boot one for this file and project its discovery env before anything reads a
@@ -292,33 +290,22 @@ describe("kanban discuss — the discussion result becomes downstream context", 
     expect(readBriefContext(cwd, null)).toBeNull();
   });
 
-  it("buildCardPrompt injects the discussion brief as a Discussion section", () => {
-    const list = getList(seedBoard(), "implement");
-    const prompt = buildCardPrompt({
-      list, card: { title: "T", project: "p", description: "d" }, validNext: ["review"],
-      discussionContext: "Decision: ship the widget behind a flag."
-    });
-    expect(prompt).toContain("## Discussion");
-    expect(prompt).toContain("ship the widget behind a flag");
-  });
-
-  it("processCard folds the CARD-OWNED brief (root/cards/<id>/brief.md) into the dispatched prompt", async () => {
+  // The two consumer-side cases here (buildCardPrompt injecting a "## Discussion"
+  // section, and processCard folding the card-owned brief into a dispatched
+  // prompt) went with the run engine — no per-phase prompt is composed any more.
+  // The brief itself is unchanged: it is still written next to the card's
+  // card.json, still read back by readBriefContext above, and it is what the
+  // launcher's opening brief quotes.
+  it("reads the CARD-OWNED brief (root/cards/<id>/brief.md), the deterministic location", async () => {
     const root = mkdtempSync(join(tmpdir(), "kanban-discuss-brief-"));
-    const cwd = mkdtempSync(join(tmpdir(), "kanban-discuss-cwd-"));
-    const board = seedBoard();
-    // Implement, not Plan: the default rail has the plan phase OFF, so a card
-    // seeded there fast-forwards (outcome `moved`, phasesOff ["plan"]) and
-    // never dispatches - which asserts nothing about the prompt. This test is
-    // about what reaches runFn, so it has to sit on a phase that is ON.
-    const card = await createCard(root, { title: "T", project: "p", list: "implement" });
-    // The brief lives next to the card's card.json — the deterministic location James is
-    // told to write to; the engine reads it from there regardless of any project cwd.
+    const card = await createCard(root, { title: "T", project: "p", list: "todo" });
+    mkdirSync(join(root, "cards", card.id), { recursive: true });
     writeFileSync(join(root, "cards", card.id, "brief.md"), "AGREED: build the widget behind a flag.");
-    let captured = "";
-    const runFn = async ({ prompt }: any) => { captured = prompt; return { reply: "review" }; };
-    await processCard({ root, board, card: await loadCard(root, card.id), runFn, cap: 10, cwd });
-    expect(captured).toContain("## Discussion");
-    expect(captured).toContain("AGREED: build the widget behind a flag.");
+    // Decoupled from any project cwd: the brief is found from the KANBAN root,
+    // which is what lets the board, the editor and the launcher agree on it.
+    expect(readBriefContext(root, `cards/${card.id}/brief.md`)).toContain(
+      "AGREED: build the widget behind a flag."
+    );
   });
 });
 
@@ -407,24 +394,10 @@ describe("kanban discuss — manual-advance contract (never auto-dispatched)", (
     expect(isInteractive(getList(board, "discuss"))).toBe(true);
   });
 
-  it("processCard skips a discuss card with status=skipped reason=interactive (no advance)", async () => {
-    const root = tmp();
-    const card = await createCard(root, { title: "Talk it through", list: "discuss" });
-    let dispatched = false;
-    const runFn = async () => { dispatched = true; return { reply: "plan" }; };
-
-    const { card: after, outcome } = await processCard({ root, board, card, runFn, cap: 10 });
-
-    expect(outcome.status).toBe("skipped");
-    expect(outcome.reason).toBe("interactive");
-    expect(dispatched).toBe(false);     // the engine never dispatched it
-    expect(after.list).toBe("discuss"); // it did NOT advance — manual Move only
-    // Untouched on disk: no iteration consumed, no runId minted.
-    const disk = await loadCard(root, card.id);
-    expect(disk.list).toBe("discuss");
-    expect(disk.iterations).toBe(0);
-    expect(disk.runId).toBe(null);
-  });
+  // The engine that had to be TOLD to skip an interactive list is gone, and with
+  // it the "processCard skips it" case: nothing dispatches on list entry at all
+  // now. isInteractive survives because the lock still reads it — an interactive
+  // list is never engine-owned, so its cards stay operator-editable.
 });
 
 describe("kanban discuss — briefRelPath (the CARD-UNIQUE auto-link convention)", () => {
@@ -520,9 +493,16 @@ describe("kanban discuss — the card's checklist is part of what it says", () =
     expect(JSON.parse(Buffer.from(decodeURIComponent(bareCtx), "base64").toString("utf8"))).not.toHaveProperty("checklist");
   });
 
-  it("is wired to the board: Discuss pulls the DETAIL, since the summary has only counts", () => {
+  // The board no longer navigates anywhere to discuss a card. Discussion IS the
+  // card's conversation, so Discuss opens the card ON that surface - no seeded
+  // copy of the card, no cross-fitting hop, nothing to keep in sync. The builders
+  // above still stand on their own (the URL contract is shared with the server
+  // and with the web channel's context decode), but the BOARD has stopped calling
+  // them, and this is the case that says so.
+  it("is wired to the board: Discuss opens the card on its conversation, and navigates nowhere", () => {
     const main = readFileSync(new URL("../fittings/seed/kanban-loop/ui/main.tsx", import.meta.url), "utf8");
-    expect(main).toContain("const detail = await api.card(card.id);");
-    expect(main).toContain("checklist: detail.checklist ?? []");
+    expect(main).toContain('setOverlay({ kind: "detail", cardId: card.id, focus: "conversation" });');
+    expect(main).not.toContain("buildDiscussUrl");
+    expect(main).not.toContain("garrison:navigate-fitting");
   });
 });

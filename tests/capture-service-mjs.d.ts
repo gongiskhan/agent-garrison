@@ -87,6 +87,7 @@ declare module "*/capture-service/lib/feedback.mjs" {
       log?: unknown;
       now?: () => number;
       wakeWindowTtlMs?: number;
+      wakeProvisionalTtlMs?: number;
     });
     emit(
       name: string,

@@ -94,6 +94,7 @@ interface CompositionManifest {
       duties?: unknown;
       selected_duties?: unknown;
       targets?: unknown;
+      ladders?: unknown;
       prompt_sources?: {
         orchestrator: string;
         // Read-only compatibility for pre-v4 manifests. New and rewritten v4
@@ -125,6 +126,19 @@ export interface CompositionTarget {
   params?: Record<string, string | number | boolean>;
 }
 
+// One rung of a model ladder: a NAMED model tier pointing at a composition
+// target. A ladder is ordered floor -> top and a duty escalates by climbing it.
+// A rung is model TIER only — orthogonal to a duty LEVEL, which is depth of
+// work; effort still comes from the level's cell, never from the rung.
+export interface CompositionLadderRung {
+  id: string;
+  target: string;
+}
+
+// Ladders by name (`standard`, `adversarial`, …). A duty names one via
+// `ladder:` (absent = `standard`) and picks its starting/ceiling rung by id.
+export type CompositionLadders = Record<string, CompositionLadderRung[]>;
+
 // The four v4-only fields a parsed composition carries beyond the v3 shape.
 // CompositionV4 extends Composition so every existing `Composition` consumer
 // keeps working unchanged; only v4-aware callers read these fields.
@@ -134,6 +148,10 @@ export interface CompositionV4 extends Composition {
   duties: DutySpec[];
   selectedDuties: string[];
   targets: CompositionTarget[];
+  // Named model ladders. Optional and additive: a composition that declares
+  // none still runs — every duty then falls back to a synthetic one-rung ladder
+  // derived from its own level-1 cell (kanban-model.ts).
+  ladders?: CompositionLadders;
 }
 
 const LEGACY_RUNTIME_ENGINE: Record<string, string> = {
@@ -309,8 +327,45 @@ const dutySpecSchema = z.object({
   // S3d (D9b) duty gate: composition-inline duties carry it too - zod strips
   // undeclared keys, so an unlisted `gate` would be silently dropped here exactly
   // as context_hold was. `explicit` holds the card on the duty for an explicit go.
-  gate: z.enum(["explicit"]).optional()
+  gate: z.enum(["explicit"]).optional(),
+  // Duty ladder lines (Conversations A2). `ladder` names the ladder in
+  // x-garrison.composition.ladders this duty climbs (absent = "standard");
+  // `default` is the rung a stretch starts on and `ceiling` the highest rung it
+  // may reach unaided. Both are RUNG ids, never target ids - the ladder owns the
+  // targets, so retargeting a tier is one edit in one place.
+  ladder: z.string().min(1).optional(),
+  default: z.string().min(1).optional(),
+  ceiling: z.string().min(1).optional()
 });
+
+// A ladder rung. Kebab-case id (the name a duty's default/ceiling references)
+// plus the composition target it resolves to. Rung ids are unique WITHIN a
+// ladder - a duplicate makes `default: middle` ambiguous, so it is rejected at
+// parse time rather than silently resolving to the first match.
+const ladderRungSchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .regex(/^[a-z][a-z0-9-]*$/, "ladder rung id must be kebab-case"),
+  target: z.string().min(1)
+});
+const laddersSchema = z.record(
+  z
+    .array(ladderRungSchema)
+    .min(1, "a ladder declares at least one rung")
+    .superRefine((rungs, ctx) => {
+      const seen = new Set<string>();
+      for (const rung of rungs) {
+        if (seen.has(rung.id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `ladder rung "${rung.id}" is declared twice - rung ids are unique within a ladder`
+          });
+        }
+        seen.add(rung.id);
+      }
+    })
+);
 
 const compositionTargetSchema = z.object({
   id: z.string().min(1),
@@ -325,6 +380,7 @@ interface ParsedCompositionV4 {
   duties: DutySpec[];
   selectedDuties: string[];
   targets: CompositionTarget[];
+  ladders?: CompositionLadders;
 }
 
 type CompositionBlock = NonNullable<NonNullable<CompositionManifest["x-garrison"]>["composition"]>;
@@ -340,7 +396,8 @@ export function parseCompositionV4(block: CompositionBlock): ParsedCompositionV4
   const selectedDuties: string[] =
     block.selected_duties === undefined ? [] : z.array(z.string().min(1)).parse(block.selected_duties);
   const targets = parseCompositionTargets(block.targets);
-  return { schema, duties, selectedDuties, targets };
+  const ladders = block.ladders === undefined ? undefined : laddersSchema.parse(block.ladders);
+  return { schema, duties, selectedDuties, targets, ladders };
 }
 
 function parseCompositionTargets(raw: unknown): CompositionTarget[] {
@@ -488,7 +545,7 @@ export async function writeComposition(
   manifest.version = manifest.version ?? "0.1.0";
   manifest.target = "claude";
   manifest.dependencies = { ...(manifest.dependencies ?? {}), apm: dependencies };
-  // Preserve v4 composition-level blocks (schema/duties/selected_duties/targets)
+  // Preserve v4 composition-level blocks (schema/duties/selected_duties/targets/ladders)
   // this writer does not author. Spreading the previous block first keeps them
   // intact; the explicit keys below overwrite only what this call owns. Without
   // the spread, saving selections from the UI would silently drop the v4 data.
@@ -711,7 +768,8 @@ export function manifestToComposition(id: string, manifest: CompositionManifest)
     schema: v4.schema,
     duties: v4.duties,
     selectedDuties: v4.selectedDuties,
-    targets: v4.targets
+    targets: v4.targets,
+    ...(v4.ladders ? { ladders: v4.ladders } : {})
   };
 }
 

@@ -81,7 +81,7 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    The Jarvis HUD is a voice-first front-end to the Operative. The browser
+    The Jarvis HUD is a voice-first front-end to the session. The browser
     drives; the Orchestrator does not call it directly. It reuses the proven
     web-channel path: POST /api/chat → gateway /chat/stream, and assistant
     replies are read aloud via the stationed voice Fitting.
@@ -103,7 +103,7 @@ x-garrison:
       GET  /api/project       → read-only repo state for the Workspace panel
                                 (branch, ahead/behind, recent commits, `gh` PRs;
                                 15s cache; { available:false } when no repo)
-      GET  /api/operative     → runtime health + agent surface for the Operative
+      GET  /api/session       → runtime health + agent surface for the session
                                 panel (gateway /health, voice /health, souls /
                                 skills / commands read from disk; 10s cache)
       GET  /api/sessions      → JSON proxy of gateway /sessions ({sessions:[]} on error)

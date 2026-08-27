@@ -1437,6 +1437,6 @@ export async function testRuntimeConnection(
     fittingId,
     ok: checks.every((c) => c.ok),
     checks,
-    note: "Static readiness check (stationing, runtime kind, override mechanism, required config). A live model handshake runs when the operative starts."
+    note: "Static readiness check (stationing, runtime kind, override mechanism, required config). A live model handshake runs when the session starts."
   };
 }

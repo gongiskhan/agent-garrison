@@ -17,6 +17,12 @@ final class PhoneFeedbackSink {
         case "wake_detected":
             guard !backgrounded else { return } // the pendant pulse carries it
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        case "wake_lapsed":
+            // The retraction of a wake pulse. Foreground-only like the wake
+            // itself: backgrounded, the pendant's double tick carries it, and a
+            // banner for "never mind" would be worse than silence.
+            guard !backgrounded else { return }
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
         case "segment_captured":
             guard !backgrounded else { return }
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()

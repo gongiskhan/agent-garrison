@@ -16,6 +16,8 @@ import {
   discussionDutyShortCircuit,
   parseLevelOverride,
   applyOverride,
+  clarityShortCircuit,
+  DEFAULT_CLARITY_RUBRIC,
   messageDigest,
   routingEvidence,
   appendEvidence,
@@ -432,5 +434,79 @@ describe("dispatch() orchestration (mocked garrison-call)", () => {
     expect(rec.duty).toBe("code");
     expect(rec.messageDigest).toBe(messageDigest("secret payload"));
     expect(line).not.toContain("secret payload");
+  });
+});
+
+// ── clarity (relocated from tests/s3d-clarity-gate.test.ts) ──────────────────
+// COMPUTED ON EVERY DISPATCH, READ BY NOBODY. Worth stating precisely, because
+// the two halves of this lane had different fates in the Conversations cut:
+//
+//   • The COMPUTATION is live and unconditional. buildDispatchPrompt still
+//     folds the clarity instruction and the full DEFAULT_CLARITY_RUBRIC into
+//     every dispatch prompt, dispatch() still runs clarityShortCircuit over the
+//     message (dispatch-core.mjs:605), and the verdict still lands on the
+//     result and in the routing evidence. That is the behaviour pinned below.
+//   • The CONSUMER is gone. The Discuss list, the gated-discuss dispatch, and
+//     the carding lane that read the verdict all died with the duty lists.
+//     `judgeClarity` (gateway-routing.mjs:2876) has no caller — gateway-pty.mjs
+//     says so in as many words at line 2787 — because triage is the first
+//     stretch now and parks an under-specified ask as needs-input instead.
+//
+// So every dispatch still pays prompt budget for a rubric and a field nothing
+// reads, and `card.clarity` (server.mjs:487, 1893) is now always null. That is
+// a cleanup decision, not a test decision: retiring the computation means
+// editing dispatch-core, and this block is what would tell you whether the edit
+// changed anything else. Delete it together with the clarity fields, not before.
+describe("dispatch clarity", () => {
+  it("dispatchSchema carries clarity as an OPTIONAL property (never required)", () => {
+    const schema = dispatchSchema();
+    expect(schema.properties.clarity).toEqual({ type: "string" });
+    expect(schema.required).not.toContain("clarity");
+  });
+
+  it("buildDispatchPrompt folds the clarity line + rubric + example; a custom rubric wins", () => {
+    const p = buildDispatchPrompt(model(), "do X");
+    expect(p).toContain("clarity - one of: clear, needs-discuss.");
+    expect(p).toContain(DEFAULT_CLARITY_RUBRIC);
+    expect(p).toContain('"clarity":"clear"');
+    const custom = buildDispatchPrompt(model(), "do X", { clarityRubric: "MY RUBRIC HERE" });
+    expect(custom).toContain("MY RUBRIC HERE");
+    expect(custom).not.toContain(DEFAULT_CLARITY_RUBRIC);
+  });
+
+  it("parseDispatch clamps clarity to clear|needs-discuss, defaulting clear", () => {
+    expect(parseDispatch({ structured: { duty: "code", level: 2, clarity: "needs-discuss" } }, model())?.clarity).toBe("needs-discuss");
+    expect(parseDispatch({ structured: { duty: "code", level: 2, clarity: "bogus" } }, model())?.clarity).toBe("clear");
+    expect(parseDispatch({ structured: { duty: "code", level: 2 } }, model())?.clarity).toBe("clear");
+  });
+
+  it("fallbackDispatch defaults clarity to clear", () => {
+    expect(fallbackDispatch(model()).clarity).toBe("clear");
+  });
+
+  it("clarityShortCircuit: explicit phrasing wins both directions; plain asks are null", () => {
+    expect(clarityShortCircuit("just do it")).toMatchObject({ clarity: "clear", overrideSource: "message" });
+    expect(clarityShortCircuit("no questions, ship it")).toMatchObject({ clarity: "clear" });
+    expect(clarityShortCircuit("let's discuss this first")).toMatchObject({ clarity: "needs-discuss", overrideSource: "message" });
+    expect(clarityShortCircuit("discuss before building")).toMatchObject({ clarity: "needs-discuss" });
+    expect(clarityShortCircuit("add a login form")).toBeNull();
+  });
+
+  it("dispatch() carries the model clarity, a phrasing override BEATS the model, and evidence keeps the digest not the raw message", async () => {
+    const carried = await dispatch(model(), "build me something big", {
+      call: async () => ({ ok: true, structured: { duty: "code", level: 2, clarity: "needs-discuss" } })
+    });
+    expect(carried.clarity).toBe("needs-discuss");
+    expect(carried.clarityOverrideSource).toBeNull();
+    expect(carried.evidence.clarity).toBe("needs-discuss");
+
+    const overridden = await dispatch(model(), "just do it - SECRET_TASK_TEXT", {
+      call: async () => ({ ok: true, structured: { duty: "code", level: 2, clarity: "needs-discuss" } })
+    });
+    expect(overridden.clarity).toBe("clear"); // the override beat the model's needs-discuss
+    expect(overridden.clarityOverrideSource).toBe("message");
+    expect(overridden.evidence.clarity).toBe("clear");
+    expect(overridden.evidence.messageDigest).toMatch(/^[0-9a-f]{16}$/);
+    expect(JSON.stringify(overridden.evidence)).not.toContain("SECRET_TASK_TEXT");
   });
 });

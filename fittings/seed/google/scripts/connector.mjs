@@ -4,16 +4,11 @@
 //   node connector.mjs catalog                   -> JSON { service, auth, actions[] }
 //   node connector.mjs call <action> [argsJson]  -> JSON { ok, result } | { ok:false, error, awaiting_connector }
 //
-// Auth is OAuth2: a FRESH access token is resolved from the keychain Vault
-// (vault.getAccessToken("google"), auto-refreshing) and reaches this call's env
-// as GOOGLE_ACCESS_TOKEN by one of two paths:
-//   - via the Automations engine, which injects it before spawning us, OR
-//   - self-resolved here when the token is absent (a direct call, e.g. the
-//     Operative over bash) by POSTing Garrison's own /api/connectors/google/
-//     auth-env route — the same route, internal-token guard, and refresher the
-//     engine uses. Either way the Vault stays the single owner of the grant and
-//     the token never touches the manifest, disk, or the logs (it is redacted).
-//     Vault-sealed end to end — no plaintext token.json on disk.
+// Auth is OAuth2: the Automations engine resolves a FRESH access token from the
+// keychain Vault (vault.getAccessToken("google"), auto-refreshing) and injects it
+// as GOOGLE_ACCESS_TOKEN into this call's env. The token never touches the
+// manifest or the logs (it is redacted). This is the Vault-sealed credential
+// story end to end — no plaintext token.json on disk.
 //
 // NOT BUFFERED — gmail.send goes out the moment it is called. Slack and
 // whatsapp-web park an agent-triggered send for a 60-second cancel window (see
@@ -27,8 +22,6 @@
 // and must be treated as ask-first, never act-and-inform.
 
 import { readFileSync, realpathSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const CATALOG = {
@@ -41,15 +34,31 @@ export const CATALOG = {
       mutates: true,
       description: "Send an email (optionally with attachments) via Gmail."
     },
-    {
-      name: "gmail.list",
-      args: ["query", "max"],
-      mutates: false,
-      description: "List recent Gmail messages — metadata only (from, subject, date, unread, snippet), never bodies. query defaults to in:inbox (Gmail search syntax, e.g. 'is:unread', 'newer_than:1d'); max defaults to 8 (cap 20)."
-    },
     { name: "drive.list", args: ["query", "page_size"], mutates: false, description: "List Drive files (most-recently-modified first)." },
-    { name: "calendar.create_event", args: ["summary", "start", "end", "calendar_id", "location", "description", "all_day", "time_zone"], mutates: true, description: "Create a calendar event. Timed: start/end as RFC3339 dateTime (e.g. 2026-07-08T20:30:00+01:00). All-day: pass date-only start/end (YYYY-MM-DD, end exclusive) or all_day:true. Optional location, description, time_zone." },
-    { name: "calendar.list_events", args: ["calendar_id", "time_min", "max"], mutates: false, description: "List upcoming calendar events." }
+    {
+      name: "calendar.create_event",
+      args: ["summary", "start", "end", "calendar_id", "description", "private_properties", "location", "all_day", "time_zone"],
+      mutates: true,
+      description: "Create a calendar event. Timed: start/end as RFC3339 dateTime. All-day: date-only start/end (YYYY-MM-DD, end exclusive) or all_day:true. Optional location, time_zone."
+    },
+    {
+      name: "calendar.update_event",
+      args: ["event_id", "summary", "start", "end", "calendar_id", "description", "private_properties", "location", "all_day", "time_zone"],
+      mutates: true,
+      description: "Patch an existing calendar event. Only the fields supplied are changed."
+    },
+    {
+      name: "calendar.delete_event",
+      args: ["event_id", "calendar_id"],
+      mutates: true,
+      description: "Delete a calendar event. Deleting an already-absent event succeeds."
+    },
+    {
+      name: "calendar.list_events",
+      args: ["calendar_id", "time_min", "time_max", "max", "updated_min", "private_extended_property", "show_deleted", "page_token"],
+      mutates: false,
+      description: "List calendar events. Returns each event's `updated` stamp, private extended properties and a nextPageToken (pass it back as page_token), so a caller can sync against the FULL listing."
+    }
   ]
 };
 
@@ -60,50 +69,8 @@ class NotConnectedError extends Error {
   }
 }
 
-// The 0600 per-machine capability token that gates Garrison's auth-env route.
-// Same file the Automations engine reads; absent (or unreadable) => "" and we
-// simply can't self-resolve, which surfaces as awaiting_connector below.
-function internalToken() {
-  try {
-    const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
-    const file = process.env.GARRISON_INTERNAL_TOKEN_PATH || path.join(home, "internal-token");
-    return readFileSync(file, "utf8").trim();
-  } catch {
-    return "";
-  }
-}
-
-// Self-resolve this connector's freshly-materialized auth env from Garrison when
-// nothing pre-injected it. Mirrors the engine's auth-env fetch: POST with the
-// internal token; a non-2xx (incl. 409 not-connected) yields {} so the caller
-// falls through to awaiting_connector. Never throws — auth failures are the
-// caller's to signal.
-async function fetchInjectedEnv(fetchImpl) {
-  const tok = internalToken();
-  if (!tok) return {};
-  // No port literal (HARD RULE: a fitting must be TOLD a peer address, never
-  // guess it). The runner projects GARRISON_BASE_URL; without it there is no way
-  // to know WHICH instance to ask, and a baked 7777 asked DEV on prod"s behalf.
-  // Absent env falls through exactly like an absent token: {} -> the caller
-  // reports awaiting_connector instead of crossing instances.
-  const base = process.env.GARRISON_BASE_URL;
-  if (!base) return {};
-  try {
-    const res = await fetchImpl(`${base}/api/connectors/google/auth-env`, {
-      method: "POST",
-      headers: { "x-garrison-internal": tok }
-    });
-    if (!res.ok) return {};
-    const json = await res.json();
-    return json.env ?? {};
-  } catch {
-    return {};
-  }
-}
-
-async function resolveToken(env, fetchImpl) {
-  let t = env.GOOGLE_ACCESS_TOKEN;
-  if (!t) t = (await fetchInjectedEnv(fetchImpl)).GOOGLE_ACCESS_TOKEN;
+function token(env) {
+  const t = env.GOOGLE_ACCESS_TOKEN;
   if (!t) throw new NotConnectedError("Google not connected (connect via OAuth so the Vault holds a grant)");
   return t;
 }
@@ -119,23 +86,6 @@ function header(value) {
   return String(value ?? "").replace(/[\r\n]+/g, " ").trim();
 }
 
-// RFC 2047 encoded-word for header values with non-ASCII (accents, emoji). A raw
-// UTF-8 Subject is invalid in a mail header and renders as mojibake ("OlÃ¡");
-// pure-ASCII values pass through untouched.
-function encodeHeaderWord(value) {
-  const s = String(value ?? "");
-  // eslint-disable-next-line no-control-regex
-  if (/^[\x00-\x7F]*$/.test(s)) return s;
-  return `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
-}
-
-// Base64 the UTF-8 body, wrapped at 76 cols (RFC 2045). Paired with
-// Content-Transfer-Encoding: base64 so the exact UTF-8 bytes reach the recipient
-// — no 8-bit-in-transit corruption, accents survive intact.
-function base64Body(body) {
-  return Buffer.from(body ?? "", "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
-}
-
 // Build an RFC822 message (multipart/mixed when there are attachments). An
 // attachment is { filename, mime_type?, content_base64 } or { filename, path }.
 function buildMime({ to, subject, body, cc, attachments }) {
@@ -143,22 +93,21 @@ function buildMime({ to, subject, body, cc, attachments }) {
   const cleanCc = cc ? header(cc) : "";
   const cleanSubject = header(subject);
   if (!attachments || attachments.length === 0) {
-    const lines = [`To: ${cleanTo}`, cleanCc ? `Cc: ${cleanCc}` : null, `Subject: ${encodeHeaderWord(cleanSubject)}`, "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", base64Body(body)].filter((l) => l !== null);
+    const lines = [`To: ${cleanTo}`, cleanCc ? `Cc: ${cleanCc}` : null, `Subject: ${cleanSubject}`, "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "", body ?? ""].filter((l) => l !== null);
     return lines.join("\r\n");
   }
   const boundary = "garrison_boundary_0xCAFE";
   const parts = [];
   parts.push(`To: ${cleanTo}`);
   if (cleanCc) parts.push(`Cc: ${cleanCc}`);
-  parts.push(`Subject: ${encodeHeaderWord(cleanSubject)}`);
+  parts.push(`Subject: ${cleanSubject}`);
   parts.push("MIME-Version: 1.0");
   parts.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
   parts.push("");
   parts.push(`--${boundary}`);
   parts.push("Content-Type: text/plain; charset=UTF-8");
-  parts.push("Content-Transfer-Encoding: base64");
   parts.push("");
-  parts.push(base64Body(body));
+  parts.push(body ?? "");
   for (const att of attachments) {
     const data = att.content_base64 ?? Buffer.from(readFileSync(att.path)).toString("base64");
     const filename = header(att.filename).replace(/"/g, "");
@@ -176,13 +125,50 @@ function buildMime({ to, subject, body, cc, attachments }) {
 }
 
 export async function runAction({ action, args = {}, env = process.env, fetchImpl = fetch }) {
-  const access = await resolveToken(env, fetchImpl);
+  const access = token(env);
   const authHeader = { Authorization: `Bearer ${access}` };
   const call = async (url, opts = {}) => {
     const res = await fetchImpl(url, { ...opts, headers: { ...authHeader, ...(opts.headers ?? {}) } });
     if (!res.ok) throw new Error(`google ${res.status}: ${await res.text()}`);
     return res.json();
   };
+  // Calendar's delete returns 204 with an empty body, so it cannot go through
+  // `call` (res.json() on no body throws). 410 Gone means the event was already
+  // deleted — the caller asked for it to be absent and it is, so that is a
+  // success, not an error. Making delete idempotent is what lets a sync retry
+  // safely after a crash between the API call and persisting the receipt.
+  const callNoBody = async (url, opts = {}) => {
+    const res = await fetchImpl(url, { ...opts, headers: { ...authHeader, ...(opts.headers ?? {}) } });
+    if (!res.ok && res.status !== 404 && res.status !== 410) {
+      throw new Error(`google ${res.status}: ${await res.text()}`);
+    }
+    return { deleted: true, alreadyAbsent: res.status === 404 || res.status === 410 };
+  };
+  // Google rejects an unknown/null field in an event body, so only the keys the
+  // caller actually supplied are sent. That is also what makes update_event a
+  // genuine PATCH: omitting `summary` leaves the remote summary alone rather
+  // than blanking it.
+  // An all-day event is a different SHAPE to Google, not a flag: it carries
+  // { date } where a timed event carries { dateTime }. Inferred from a date-only
+  // start ("YYYY-MM-DD") or an explicit all_day, so a caller that knows only the
+  // day never has to invent a time — and the PATCH discipline above still holds,
+  // because the branch only ever runs for a key the caller actually supplied.
+  const dateOnly = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const whenFor = (a, v) =>
+    a.all_day === true || dateOnly(v)
+      ? { date: v }
+      : { dateTime: v, ...(a.time_zone ? { timeZone: a.time_zone } : {}) };
+  const eventBody = (a) => ({
+    ...(a.summary !== undefined ? { summary: a.summary } : {}),
+    ...(a.description !== undefined ? { description: a.description } : {}),
+    ...(a.location !== undefined ? { location: a.location } : {}),
+    ...(a.start !== undefined ? { start: whenFor(a, a.start) } : {}),
+    ...(a.end !== undefined ? { end: whenFor(a, a.end) } : {}),
+    ...(a.private_properties && typeof a.private_properties === "object"
+      ? { extendedProperties: { private: a.private_properties } }
+      : {})
+  });
+  const EVENT_FIELDS = "id,status,summary,description,updated,start,end,extendedProperties,htmlLink";
   switch (action) {
     case "gmail.send": {
       const raw = base64url(buildMime(args));
@@ -191,30 +177,6 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ raw })
       });
-    }
-    case "gmail.list": {
-      // Metadata-only inbox listing for the HUD's [emails] widget: one id-list
-      // call + one metadata call per message (5 quota units each — negligible).
-      // Bodies are deliberately never fetched (gmail.readonly scope, privacy).
-      const params = new URLSearchParams();
-      params.set("q", args.query ?? "in:inbox");
-      params.set("maxResults", String(Math.min(Number(args.max ?? 8) || 8, 20)));
-      const list = await call(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`);
-      const messages = [];
-      for (const { id } of list.messages ?? []) {
-        const m = await call(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
-        );
-        const h = Object.fromEntries((m.payload?.headers ?? []).map((x) => [x.name.toLowerCase(), x.value]));
-        messages.push({
-          from: h.from ?? "",
-          subject: h.subject ?? "(sem assunto)",
-          date: h.date ?? "",
-          unread: (m.labelIds ?? []).includes("UNREAD"),
-          snippet: m.snippet ?? ""
-        });
-      }
-      return { messages };
     }
     case "drive.list": {
       const params = new URLSearchParams();
@@ -226,29 +188,60 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
     }
     case "calendar.create_event": {
       const calId = encodeURIComponent(args.calendar_id ?? "primary");
-      // All-day when start/end are date-only ("YYYY-MM-DD") or all_day is set —
-      // Google needs { date } for all-day and { dateTime } for timed events.
-      const dateOnly = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
-      const allDay = args.all_day === true || dateOnly(args.start);
-      const when = (v) => allDay
-        ? { date: v }
-        : { dateTime: v, ...(args.time_zone ? { timeZone: args.time_zone } : {}) };
-      const event = { summary: args.summary, start: when(args.start), end: when(args.end) };
-      if (args.location) event.location = args.location;
-      if (args.description) event.description = args.description;
-      return call(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events`, {
+      const params = new URLSearchParams({ fields: EVENT_FIELDS });
+      return call(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events?${params}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(event)
+        body: JSON.stringify(eventBody(args))
       });
+    }
+    case "calendar.update_event": {
+      if (!args.event_id) throw new Error("calendar.update_event requires event_id");
+      const calId = encodeURIComponent(args.calendar_id ?? "primary");
+      const params = new URLSearchParams({ fields: EVENT_FIELDS });
+      return call(
+        `https://www.googleapis.com/calendar/v3/calendars/${calId}/events/${encodeURIComponent(args.event_id)}?${params}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(eventBody(args))
+        }
+      );
+    }
+    case "calendar.delete_event": {
+      if (!args.event_id) throw new Error("calendar.delete_event requires event_id");
+      const calId = encodeURIComponent(args.calendar_id ?? "primary");
+      return callNoBody(
+        `https://www.googleapis.com/calendar/v3/calendars/${calId}/events/${encodeURIComponent(args.event_id)}`,
+        { method: "DELETE" }
+      );
     }
     case "calendar.list_events": {
       const calId = encodeURIComponent(args.calendar_id ?? "primary");
       const params = new URLSearchParams();
       params.set("timeMin", args.time_min ?? new Date(0).toISOString());
+      if (args.time_max) params.set("timeMax", args.time_max);
+      if (args.updated_min) params.set("updatedMin", args.updated_min);
+      // Repeatable parameter: each entry is a literal "key=value" match against
+      // the event's private extended properties. This is how a caller finds the
+      // events it owns without scanning the whole calendar.
+      const props = args.private_extended_property;
+      for (const prop of Array.isArray(props) ? props : props ? [props] : []) {
+        params.append("privateExtendedProperty", String(prop));
+      }
       params.set("maxResults", String(args.max ?? 10));
       params.set("singleEvents", "true");
-      params.set("orderBy", "startTime");
+      if (args.show_deleted) params.set("showDeleted", "true");
+      // Pagination: the fields mask already requests nextPageToken; without
+      // accepting the token back, a caller could only ever read page one — and
+      // a SYNC reading a truncated listing treats every event past the cut as
+      // deleted. The board's calendar sync loops on this until exhausted.
+      if (args.page_token) params.set("pageToken", String(args.page_token));
+      // orderBy=startTime is invalid alongside updatedMin's incremental
+      // semantics, and showDeleted only makes sense unordered — in both cases
+      // the caller is syncing, not reading a chronological agenda.
+      if (!args.updated_min && !args.show_deleted) params.set("orderBy", "startTime");
+      params.set("fields", `nextPageToken,items(${EVENT_FIELDS})`);
       return call(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events?${params}`);
     }
     default:

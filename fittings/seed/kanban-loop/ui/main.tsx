@@ -1,17 +1,30 @@
 // Kanban Loop board UI — responsive, phone-first (the v4 wireframe is the spec).
 // Lists are columns in a horizontally-scrollable board; each card front shows
 // title, project chip, list, iter N/cap, goalMode and the actions:
-// Start/Advance · Move · Watch. Clicking the card body opens its detail sheet
-// (the decision-10 LINKS: plan, brief, sessions, gate markers, screenshots, video)
-// + the small decision log;
-// the card LINKS its artifacts, never inlines their bodies (FINDING 10). Watch
-// streams the card's log over SSE for a live run, opens the web chat for an
-// interactive list (Discuss), or shows the linked static logs when nothing is
-// live — it never tmux-attaches (the pooled gateway operative is raw node-pty).
+// Start/Advance · Move · Raw log. Clicking the card body opens its detail sheet,
+// whose body is the card's CONVERSATION - the append-only ledger every stretch
+// wrote, with the composer that writes the next message into it - plus the
+// decision-10 LINKS (plan, brief, transcripts, gate markers, screenshots, video)
+// and the small decision log; the card LINKS its artifacts, never inlines their
+// bodies (FINDING 10). Under the conversation sits the raw layer: the card's
+// phase log over SSE, in its own sheet - it never tmux-attaches.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MutableRefObject } from "react";
 import { createRoot } from "react-dom/client";
-import { SessionStream as SharedSessionStream } from "@garrison/claude-chat";
+import { SessionStream as SharedSessionStream, RoutingModal, type TurnRouting } from "@garrison/claude-chat";
+import { applyPinPatch, pinnedSummary, railOptionsFor } from "./run-spec";
+import {
+  scheduleUrgency,
+  urgencyClass,
+  dueInstant,
+  releaseInstant,
+  hasSplitDeadline,
+  dueOffsetFromInstants,
+  type ScheduleUrgency
+} from "./schedule-urgency";
+import { DateTimePicker, RecurrenceBuilder, defaultRecurrence, type RecurrenceRule } from "./date-picker";
+// @ts-ignore — pure .mjs, bundled by esbuild alongside the UI
+import { describeRecurrence, nextRecurrenceOccurrence } from "../lib/recurrence.mjs";
 import {
   DndContext,
   DragOverlay,
@@ -78,6 +91,8 @@ import {
   BoardMark
 } from "./icons";
 import { TerminalPane } from "./terminal-pane";
+import { CardConversation, CONVERSATION_BASE } from "./card-conversation";
+import { HistoryView } from "./history-view";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
 import { deriveMoveTargets, isManualImportTarget } from "./move-targets";
@@ -88,18 +103,13 @@ import {
   shouldOpenCard
 } from "./card-click";
 import { cardIdFromLocation } from "./card-location";
+import { hiddenListCount, visibleLists } from "./list-visibility";
 import {
   DRAG_HOLD_MS,
   DRAG_MOUSE_DISTANCE,
   DRAG_HOLD_TOLERANCE_TOUCH,
   shouldActivateDrag
 } from "./drag-activation";
-// The Discuss URL contract is shared with the server (pure builder, no node
-// imports — see scripts/discuss.mjs). The board hands the generic web channel
-// the card as an OPAQUE context blob; the Discuss duty reads it.
-// @ts-expect-error — plain ESM .mjs sibling, no .d.ts; esbuild bundles it.
-import { buildDiscussUrl } from "../scripts/discuss.mjs";
-
 const ITERATION_CAP = 10;
 
 // localPort → HTTPS tailnet URL, fetched once from the same-origin /host-map
@@ -195,11 +205,9 @@ function stripAttachmentBlock(description: string): string {
 
 function listClass(list: ListView): string {
   if (list.id === "scheduled") return "list scheduled";
-  if (list.id === "archived") return "list manual archived";
   if (list.id === "needs-attention") return "list attn";
-  if (list.interactive) return "list interactive";
-  if (list.phase && list.phase.includes("adversarial")) return "list codex";
-  if (list.kind === "agent") return "list agent";
+  if (list.id === "running" || list.kind === "system") return "list running";
+  if (list.kind === "scheduled") return "list manual";
   return "list manual";
 }
 
@@ -263,26 +271,58 @@ function fmtSchedule(iso: string | null | undefined): string {
   return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
 }
 
-// Is the card's schedule instant already past (due)? Unparseable counts as due
-// so the amber chip surfaces the mistake instead of hiding it.
+// The RELEASE instant — when the card stops being held and lands on its list.
 function scheduleAt(card: CardSummary): string | null {
-  return card.schedule?.nextAt ?? card.scheduledFor ?? null;
+  return releaseInstant(card);
 }
 
+// The colour on the card front tracks the DEADLINE, not the release: a card that
+// landed on To Do this morning and is due tonight should sit there quietly until
+// tonight. With no deadline offset the two instants are the same value, so a
+// card that predates the split reads exactly as it always did.
+function cardUrgency(card: CardSummary): ScheduleUrgency {
+  return scheduleUrgency(dueInstant(card), Date.now(), { enabled: card.schedule?.enabled });
+}
+
+// The rule's NEXT release from now — the baseline a deadline offset is
+// measured from. Same walker the sweep uses (single authority), so an aged
+// rule's baseline is its coming occurrence, never its months-old start day.
+// Measuring against the start was the corruption: editing a January rule in
+// September computed an offset carrying eight months of drift.
+function recurrenceNextInstant(rule: RecurrenceRule, timeZone: string): string | null {
+  try {
+    return (nextRecurrenceOccurrence(rule, timeZone, new Date()) as { at: string } | null)?.at ?? null;
+  } catch {
+    return null;
+  }
+}
+
+
 function scheduleDue(card: CardSummary): boolean {
-  const at = scheduleAt(card);
-  if (!at || card.schedule?.enabled === false) return false;
-  const t = Date.parse(at);
-  return !Number.isFinite(t) || t <= Date.now();
+  return cardUrgency(card) === "due";
+}
+
+// How a recurring schedule reads when there is no cron string to quote — a
+// calendar rule has to say itself in words, or the chip prints "undefined".
+function repeatLabel(schedule: CardSchedule): string {
+  if (schedule.recurrence) return describeRecurrence(schedule.recurrence);
+  return schedule.cron ?? "repeats";
 }
 
 function scheduleChip(card: CardSummary): string {
   const schedule = card.schedule;
   if (schedule?.kind === "cron") {
-    if (!schedule.enabled) return `paused · ${schedule.cron}`;
+    if (!schedule.enabled) return `paused · ${repeatLabel(schedule)}`;
     return `${fmtSchedule(schedule.nextAt)} · repeats`;
   }
   return fmtSchedule(scheduleAt(card));
+}
+
+// The DEADLINE chip, shown only when it is a different moment from the release.
+// This is the one the card asked to "turn yellow a few minutes before due and
+// red when due, in a big highlighted fashion".
+function dueChip(card: CardSummary): string {
+  return `due ${fmtSchedule(dueInstant(card))}`;
 }
 
 // Stable card-detail URL used by schedule provenance links. The click is
@@ -587,11 +627,12 @@ function AutoTextarea({
 // SAME action row (CardActions). Two copies of these booleans is exactly how the
 // two surfaces would drift into offering different things for one card.
 function cardActionFlags(card: CardSummary, list: ListView) {
-  const engineOwned = list.kind === "agent" && !list.interactive;
+  // Conversations: a card is the human's to move EXCEPT while a stretch holds
+  // it. That is the whole ownership model now — no engine-owned columns, one bit.
+  const launcherHeld = card.status === "running" || list.id === "running";
+  const engineOwned = launcherHeld;
   const scheduled = list.id === "scheduled";
-  // Archived is a terminal parking column: cards land there via Archive and leave
-  // only via Unarchive/Move. Distinguished from Done (also terminal) by id.
-  const archived = list.id === "archived";
+  const archived = false; // the Archived column is gone (frozen history holds the old one)
   const running = card.status === "running";
   const inferring = card.inferState === "running";
   return {
@@ -603,18 +644,18 @@ function cardActionFlags(card: CardSummary, list: ListView) {
     // Advance shows on MANUAL lists (Backlog, To Do, needs-attention) — that is how a
     // card ENTERS the automated flow (To Do → Plan) or is re-sent after parking.
     // Discuss (interactive) uses the web chat + Move; Done (terminal) has nowhere to go.
-    canAdvance: !scheduled && list.kind !== "agent" && !list.interactive && !list.terminal && list.validNext.length > 0,
-    startLabel: "Advance",
+    canAdvance: false, // retired: Start kicks the conversation; moves are drag/Move
+    startLabel: "Start",
     // "Mark done": a one-click finish on any human-held, non-terminal card (Backlog,
     // To Do, Discuss, needs-attention). Engine-owned agent cards can't be moved by
     // hand (the API rejects it), and a card already on a terminal list has nowhere to go.
-    canMarkDone: !scheduled && !engineOwned && !list.terminal,
+    canMarkDone: !scheduled && !launcherHeld && !list.terminal,
     // "Archive": get a card out of the way. Available on any human-held column, not
     // just Done and needs-attention - a Backlog item you have decided against is the
     // most common thing you want to file away, and it previously had no Archive at
     // all. Still withheld from engine-owned cards (the API rejects a hand-move of a
     // card an autonomous list owns) and from the Archived column itself.
-    canArchive: !scheduled && !engineOwned && !archived,
+    canArchive: false, // Archive is retired: Done or Delete
     // A persisted dispatch failure (gateway unreachable / transport defer): a red chip +
     // inline reason, so a failed dispatch shows on the CARD.
     dispatchErr: card.lastDispatchError,
@@ -623,7 +664,9 @@ function cardActionFlags(card: CardSummary, list: ListView) {
     // non-running agent-list card that isn't parked (a parked card is recovered via the
     // needs-attention column's Advance/Move, and the batch path skips needs-attention
     // cards, so offering Run there would be a no-op); reads "Retry" after a dispatch error.
-    canRun: list.kind === "agent" && !list.interactive && !running && card.status !== "needs-attention",
+    // START: kick the card's conversation. Any non-running card off the
+    // scheduled column can start (needs-attention resumes via the launcher).
+    canRun: !scheduled && !running && !list.terminal,
     // Why a parked card is in the needs-attention column.
     parked: card.status === "needs-attention",
     // Offer "Infer" on a no-project card that isn't mid-inference (the visible attempt
@@ -636,6 +679,7 @@ function cardActionFlags(card: CardSummary, list: ListView) {
 // bottom of the opened card, so the two can never offer different things.
 interface CardActionHandlers {
   onStart: (c: CardSummary) => void;
+  onApprove: (c: CardSummary) => void;
   onMove: (c: CardSummary) => void;
   onQuickMove: (c: CardSummary, listId: string) => void;
   onDelete: (c: CardSummary) => void;
@@ -695,10 +739,10 @@ function CardActions({
         <button
           className="btn primary small"
           disabled={busy}
-          title={dispatchErr ? "re-run this card on this list" : `run ${list.title} on this card now`}
+          title={dispatchErr ? "start this card's conversation again" : "start this card's conversation"}
           onClick={() => h.onStart(card)}
         >
-          <PlayIcon /> <span className="btn-label">{dispatchErr ? "Retry" : "Run"}</span>
+          <PlayIcon /> <span className="btn-label">{dispatchErr ? "Retry" : "Start"}</span>
         </button>
       )}
       {canInfer && !engineOwned && (
@@ -711,24 +755,18 @@ function CardActions({
           <MoveIcon /> <span className="btn-label">Move</span>
         </button>
       )}
-      {/* Discuss opens a thread pinned to the Discuss duty; other lists expose Watch. */}
-      {list.interactive ? (
-        <button className="btn small primary" title="open a Discuss-duty conversation seeded with this card" onClick={() => h.onDiscuss(card)}>
-          <ChatIcon /> <span className="btn-label">Discuss</span>
+      {/* The conversation is the way into a card's activity: ONE button opening
+          the focused conversation modal. The raw log moved into that surface's
+          header, so the card front carries no log button. */}
+      <button className="btn small primary" title="open this card's conversation" onClick={() => h.onDiscuss(card)}>
+        <ChatIcon /> <span className="btn-label">Discuss</span>
+      </button>
+      {/* Terminal opens in the card's real project, or in the dedicated
+          personal workspace when a personal card has no project. */}
+      {(card.project || card.scope === "personal") && (
+        <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => h.onTerminal(card)}>
+          <TerminalIcon /> <span className="btn-label">Terminal</span>
         </button>
-      ) : (
-        <>
-          <button className="btn small" title="watch this card's live log" onClick={() => h.onWatch(card)}>
-            <WatchIcon /> <span className="btn-label">Watch</span>
-          </button>
-          {/* Terminal opens in the card's real project, or in the dedicated
-              personal workspace when a personal card has no project. */}
-          {(card.project || card.scope === "personal") && (
-            <button className="btn small" title="open an interactive shell in this card's project or personal workspace" onClick={() => h.onTerminal(card)}>
-              <TerminalIcon /> <span className="btn-label">Terminal</span>
-            </button>
-          )}
-        </>
       )}
       {/* Feedback: write a note and send THIS card back through the pipeline with the
           same context (runDir + prior logs preserved). The "it reached the end but
@@ -805,6 +843,7 @@ function Card({
   onRenamed,
   onInfer,
   onDiscuss,
+  onApprove,
   onRevert,
   onContinue,
   onDrill,
@@ -816,6 +855,7 @@ function Card({
   card: CardSummary;
   list: ListView;
   onStart: (c: CardSummary) => void;
+  onApprove: (c: CardSummary) => void;
   onMove: (c: CardSummary) => void;
   // Direct one-click move to a named list (Mark done → done, Archive → archived,
   // Unarchive → todo). Distinct from onMove, which asks when there is a choice.
@@ -842,11 +882,9 @@ function Card({
   const [titleError, setTitleError] = useState<string | null>(null);
   const titleEditRevision = useRef<number | null>(null);
   const titleEditJustEnded = useRef(false);
-  // D16: a card on an autonomous (agent) list is ENGINE-OWNED — the UI offers no
-  // manual Move/edit on it (the API rejects them too). needs-attention is the one
-  // human touchpoint on the autonomous side; interactive + manual lists stay
-  // fully editable.
-  const engineOwned = list.kind === "agent" && !list.interactive;
+  // Conversations: a card is held by the LAUNCHER only while a stretch runs on
+  // it; every other card is the human's to edit and move.
+  const engineOwned = card.status === "running" || list.id === "running";
   const scheduled = list.id === "scheduled";
 
   function markTitleEditEnded() {
@@ -1031,18 +1069,39 @@ function Card({
           <span className="chip" title={`${card.blocking.length} card(s) are waiting on this one`}>blocks {card.blocking.length}</span>
         )}
         {card.parkedFrom && <span className="chip" title="the list it parked from">from {card.parkedFrom}</span>}
-        {list.kind === "agent" && (
-          <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
+        {card.status === "running" && card.duty && (
+          <span className="chip" title="the duty the current stretch is running">duty: {card.duty}</span>
         )}
         {card.goalMode && <span className="chip goal">goalMode</span>}
+        {card.autonomous && (
+          <span className="chip chip-toggle on" title="Autonomous — runs end to end without asking. Toggle it in the card.">
+            autonomous
+          </span>
+        )}
+        {/* With a deadline offset the front carries TWO chips: when the card
+            LANDS (quiet — it is only placement) and when it is DUE (the one
+            that goes amber then red). Without one, the single chip below keeps
+            the urgency colour exactly as it always did. */}
+        {hasSplitDeadline(card) && (
+          <span
+            className={`chip sched due-chip${urgencyClass(cardUrgency(card))}`}
+            title={`due ${dueInstant(card)} — landed on this list at ${scheduleAt(card)}`}
+          >
+            <ClockIcon /> {dueChip(card)}
+          </span>
+        )}
         {(card.schedule || card.scheduledFor) && (
           <span
-            className={`chip sched${scheduleDue(card) ? " due" : ""}`}
+            className={`chip sched${hasSplitDeadline(card) ? " muted" : urgencyClass(cardUrgency(card))}`}
             title={
-              scheduleDue(card)
+              hasSplitDeadline(card)
+                ? `lands on its list at ${scheduleAt(card)}; the deadline is the chip beside it`
+                : scheduleDue(card)
                 ? `scheduled for ${scheduleAt(card)} - due${card.scheduleNotifiedAt ? ", reminder sent" : ""}`
+                : cardUrgency(card) === "soon"
+                ? `scheduled for ${scheduleAt(card)} - due in minutes`
                 : card.schedule?.kind === "cron"
-                  ? `${card.schedule.enabled ? "recurring" : "paused"}: ${card.schedule.cron} (${card.schedule.timezone})`
+                  ? `${card.schedule.enabled ? "recurring" : "paused"}: ${repeatLabel(card.schedule)} (${card.schedule.timezone})`
                   : `held until ${scheduleAt(card)} (${card.scheduleAction === "run" ? "runs automatically" : "notifies"})`
             }
           >
@@ -1058,7 +1117,7 @@ function Card({
           </span>
         )}
         {card.flow && <span className="chip" title="flow (the policy phase plan this run follows)">{card.flow}</span>}
-        {engineOwned && <span className="chip muted" title="This card is on an autonomous list — the run engine owns its progression (D16). It becomes editable if it parks in needs-attention.">engine-owned</span>}
+        {engineOwned && <span className="chip muted" title="The launcher owns this card while its conversation runs (D16). It becomes editable if it parks in Needs input.">launcher-held</span>}
         {card.fences?.sha && (
           <span className="chip fence" title={`last commit fence: ${card.fences.phase ?? "?"} @ ${card.fences.sha}`}>
             fence {card.fences.sha.slice(0, 7)}
@@ -1089,13 +1148,44 @@ function Card({
         </div>
       )}
 
+      {/* THE APPROVAL ASK — the conversation planned, paused, and wants a nod.
+          Loud on purpose: this is the one moment the card needs a human, so it
+          reads at a glance (what runs next + the plan) and approves in ONE
+          click right here. The nod is a real conversation message, the same
+          thing typing "go ahead" into the composer does. */}
+      {card.awaitingApproval && !running && (
+        <div className="approval-ask">
+          <div className="aa-head">Waiting for your approval</div>
+          <div className="aa-next">next: {card.awaitingApproval.next}</div>
+          {card.awaitingApproval.plan && <p className="aa-plan">{card.awaitingApproval.plan}</p>}
+          {card.awaitingApproval.items.length > 0 && (
+            <ul className="aa-items">
+              {card.awaitingApproval.items.slice(0, 4).map((item, i) => <li key={i}>{item}</li>)}
+              {card.awaitingApproval.items.length > 4 && (
+                <li className="muted">+{card.awaitingApproval.items.length - 4} more</li>
+              )}
+            </ul>
+          )}
+          <div className="aa-actions">
+            <button className="btn primary" disabled={busy} title="approve the plan and let the conversation continue" onClick={() => onApprove(card)}>
+              <PlayIcon /> Approve &amp; continue
+            </button>
+            <button className="btn small" disabled={busy} title="open the conversation before deciding" onClick={() => onDiscuss(card)}>
+              Review first
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* LIVE run state: a running pill with a ticking elapsed timer + the live log
           tail, so the card shows the operative WORKING (not just a pulsing dot). */}
       {running && (
         <div className="run-live">
           <div className="run-head">
             <span className="run-spin" aria-hidden />
-            <span>running on {list.title}</span>
+            {/* The list IS "Running", so naming it here read "running on Running".
+                The pill says what matters: work is live, for this long. */}
+            <span>running</span>
             <span className="run-elapsed"><Elapsed since={card.runningSince} /></span>
           </div>
           {card.liveTail
@@ -1166,7 +1256,7 @@ function Card({
         busy={busy}
         iconOnly
         handlers={{
-          onStart, onMove, onQuickMove, onDelete, onWatch, onTerminal,
+          onStart, onApprove, onMove, onQuickMove, onDelete, onWatch, onTerminal,
           onInfer, onDiscuss, onContinue, onDrill, onFeedback, onRunSchedule
         }}
       />
@@ -1275,144 +1365,51 @@ function RunSpec({
   setSpec,
   options,
   optionsError,
-  initialOpen = false
+  emphasise = false
 }: {
   spec: CardRouting;
   setSpec: (next: CardRouting) => void;
   options: RouteOptionsView | null;
   optionsError: string | null;
-  initialOpen?: boolean;
+  /** A card parked in Needs Attention wants its routing looked at — the summary
+   *  is drawn to the eye rather than a dialog being opened over the card the
+   *  user just asked to read. */
+  emphasise?: boolean;
 }) {
-  const [open, setOpen] = useState(initialOpen);
-  // A pin is "in force" only when it holds a real value - null/blank both mean
-  // automatic, exactly as TurnRouting defines it.
-  const pinnedCount = Object.values(spec).filter((v) => v !== null && v !== undefined && v !== "").length;
-  const down = options && options.sources?.gateway === false;
-  const why = down
-    ? "the operative is not running — start it to choose a runtime"
-    : optionsError
-      ? `could not load the options (${optionsError})`
-      : null;
-
-  // The phases of the SELECTED plan, in plan order. Falls back to the default work
-  // kind's plan, which is what an unpinned card actually walks. A pinned
-  // single-turn DUTY runs no phase plan at all, so the toggles hide.
-  const kindId = spec.duty ? "" : (spec.flow || options?.defaultFlow || "");
-  const planPhases = (options?.flows ?? []).find((k) => k.id === kindId)?.phases ?? [];
-  const off = new Set((spec.phasesOff ?? "").split(",").map((s) => s.trim()).filter(Boolean));
-  // Serialised in PLAN order, never tap order, so the same selection always
-  // produces the same pin.
-  const setOff = (next: Set<string>) => {
-    const csv = planPhases.filter((p) => next.has(p)).join(",");
-    setSpec({ ...spec, phasesOff: csv || undefined });
-  };
-
-  const set = (field: keyof CardRouting) => (v: string) =>
-    setSpec({ ...spec, [field]: v || undefined });
-
+  const [open, setOpen] = useState(false);
+  // The SAME console the Web Channel edits a conversation's pins with, fed the
+  // SAME gateway vocabulary. Everything board-specific lives in the two pure
+  // translations in ./run-spec — nothing is re-implemented here.
+  const rail = useMemo(() => railOptionsFor(options, optionsError), [options, optionsError]);
+  const pins = useMemo(() => pinnedSummary(spec), [spec]);
   return (
-    <div className="field">
-      <button type="button" className="spec-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        {open ? "▾" : "▸"} Run spec
+    <div className={`field spec-console${emphasise ? " spec-console-emph" : ""}`}>
+      <button
+        type="button"
+        className="spec-toggle"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+      >
+        Run spec
         <span className="muted">
-          {pinnedCount === 0 ? "everything automatic" : `${pinnedCount} chosen, the rest automatic`}
+          {pins.length === 0 ? "everything automatic" : `${pins.length} chosen, the rest automatic`}
         </span>
       </button>
-      {open && (
-        <div className="spec-grid">
-          {/* Duty and flow are ONE question ("what is this work?") asked as
-              two siblings before 2026-08-07: a phased flow spans several
-              duty-named lists, so picking both read as a contradiction. One
-              selector now offers phased plans (flows) and single-turn
-              duties together; the two wire fields underneath are unchanged and
-              mutually exclusive. */}
-          <SpecSelect
-            id="nc-kind-of-work" label="Kind of work" hint="the classifier decides"
-            value={spec.flow ? `kind:${spec.flow}` : spec.duty ? `duty:${spec.duty}` : AUTO}
-            disabled={why}
-            options={[
-              ...(options?.flows ?? []).map((k) => ({
-                value: `kind:${k.id}`,
-                label: k.id === options?.defaultFlow ? `${k.id} (default plan)` : k.id,
-                detail: (k.phases?.length ? `plan: ${k.phases.join(" → ")}` : k.description) ?? undefined
-              })),
-              ...(options?.duties ?? []).map((d) => ({
-                value: `duty:${d.id}`,
-                label: d.id,
-                detail: d.title ? `single-turn duty — ${d.title}` : "single-turn duty"
-              }))
-            ]}
-            onChange={(v) => {
-              if (!v) setSpec({ ...spec, duty: undefined, flow: undefined, phasesOff: undefined });
-              else if (v.startsWith("kind:")) setSpec({ ...spec, flow: v.slice(5), duty: undefined, phasesOff: undefined });
-              else setSpec({ ...spec, duty: v.slice(5), flow: undefined, phasesOff: undefined });
-            }}
-          />
-          <SpecSelect
-            id="nc-tier" label="Tier" hint="the classifier decides"
-            value={spec.tier ?? AUTO} disabled={why}
-            options={(options?.tiers ?? []).map((t) => ({ value: t, label: t }))}
-            onChange={set("tier")}
-          />
-          <SpecSelect
-            id="nc-target" label="Runtime + model" hint="the composition's routing"
-            value={spec.target ?? AUTO} disabled={why}
-            // A target picks runtime+provider+model COHERENTLY. They are not
-            // separate menus on purpose: there is no model catalog in the repo, so
-            // independent dropdowns would happily produce gemini + opus.
-            options={(options?.targets ?? []).map((t) => ({
-              value: t.id,
-              label: t.id,
-              detail: [t.runtime, t.model].filter(Boolean).join(" / ") || undefined
-            }))}
-            onChange={set("target")}
-          />
-          <SpecSelect
-            id="nc-effort" label="Effort" hint="the duty's effort"
-            value={spec.effort ?? AUTO} disabled={why}
-            options={(options?.efforts ?? []).map((e) => ({ value: e, label: e }))}
-            onChange={set("effort")}
-          />
-          <SpecSelect
-            id="nc-account" label="Account" hint="the composition's account"
-            value={spec.account ?? AUTO} disabled={why}
-            options={(options?.accounts ?? []).map((a) => ({ value: a.name, label: a.name, detail: a.platform ?? undefined }))}
-            onChange={set("account")}
-          />
-          {/* The former separate "Flow" dropdown folded into "Kind of work"
-              above (2026-08-07). The phase toggle row below still keys off the
-              selected (or default) plan. */}
-          {planPhases.length > 0 && (
-            <div className="spec-field spec-field-wide">
-              <label>Phases</label>
-              <div className="rail-toggles">
-                {planPhases.map((ph) => (
-                  <label
-                    key={ph}
-                    className={`chip toggle${off.has(ph) ? " off" : ""}`}
-                    title={off.has(ph) ? `${ph} is recorded OFF for this run (never a silent pass)` : `${ph} runs; tap to turn it off`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!off.has(ph)}
-                      onChange={(e) => {
-                        const next = new Set(off);
-                        if (e.target.checked) next.delete(ph);
-                        else next.add(ph);
-                        setOff(next);
-                      }}
-                    />
-                    {ph}
-                  </label>
-                ))}
-              </div>
-              <div className="spec-note">
-                {kindId ? `The ${kindId} plan, in order.` : "The default plan, in order."} A phase turned off stays on the
-                rail, recorded off — never silently skipped.
-              </div>
-            </div>
-          )}
+      {pins.length > 0 && (
+        <div className="spec-pins">
+          {pins.map((p) => (
+            <span key={p.field} className="chip mono" title={p.field}>{p.label}</span>
+          ))}
         </div>
+      )}
+      {open && (
+        <RoutingModal
+          pins={spec as TurnRouting}
+          options={rail}
+          onPin={(patch) => setSpec(applyPinPatch(spec, patch))}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   );
@@ -1580,6 +1577,10 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
   const [personal, setPersonal] = useState(false);
   const [description, setDescription] = useState("");
   const [goalMode, setGoalMode] = useState(false);
+  // Where the card lands: To do is immediate work, Backlog is the human shelf
+  // for later. A scheduled card ignores this — its release target is the
+  // schedule's own targetList.
+  const [destination, setDestination] = useState<"todo" | "backlog">("todo");
   // RUN-SPEC-V1: ONE explicit run spec for the card, in the same shape the Web
   // Channel's Turn Rail pins. It replaces the separate D17 flow select + phase
   // toggles that used to live here (those are now two dimensions of the spec) so
@@ -1594,13 +1595,16 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
   const [placement, setPlacement] = useState(initialPlacement);
   const [loadoutReady, setLoadoutReady] = useState<boolean | null>(null);
   // Card scheduling: one-time release or a timezone-aware recurring template.
-  const [scheduleKind, setScheduleKind] = useState<"none" | "once" | "cron">("none");
+  const [scheduleKind, setScheduleKind] = useState<"none" | "once" | "cron" | "repeat">("none");
+  const [scheduleRec, setScheduleRec] = useState<RecurrenceRule>(() => defaultRecurrence());
+  // The DEADLINE, as a local-wall value; "" means due == release, as before.
+  const [scheduleDue, setScheduleDue] = useState("");
   const [scheduleAt, setScheduleAt] = useState("");
   const [scheduleCron, setScheduleCron] = useState("0 8 * * 1-5");
   const [scheduleTimezone, setScheduleTimezone] = useState(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
   );
-  const [scheduleTarget, setScheduleTarget] = useState("backlog");
+  const [scheduleTarget, setScheduleTarget] = useState("todo");
   const [scheduleAction, setScheduleAction] = useState<"notify" | "run">("notify");
   // Files attached at creation: uploaded right AFTER the card exists (the
   // upload endpoint is card-scoped), before the sheet closes.
@@ -1673,17 +1677,25 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
       setSaving(false);
       return;
     }
+    // The deadline is picked as a date but stored as an offset from the release
+    // instant, so a recurring card keeps its deadline on every occurrence.
+    const releaseForDue = scheduledFor
+      ?? (scheduleKind === "repeat" ? recurrenceNextInstant(scheduleRec, scheduleTimezone) : null);
+    const dueOffsetMinutes = dueOffsetFromInstants(releaseForDue, isoFromLocalInput(scheduleDue));
+    const scheduleCommon = {
+      action: scheduleAction,
+      timezone: scheduleTimezone,
+      enabled: true,
+      targetList: scheduleTarget,
+      ...(dueOffsetMinutes ? { dueOffsetMinutes } : {})
+    };
     const schedule: Omit<CardSchedule, "nextAt" | "lastAt"> | undefined = scheduleKind === "once"
-      ? {
-          kind: "once", action: scheduleAction, at: scheduledFor!, timezone: scheduleTimezone,
-          enabled: true, targetList: scheduleTarget
-        }
-      : scheduleKind === "cron"
-        ? {
-            kind: "cron", action: scheduleAction, cron: scheduleCron.trim(), timezone: scheduleTimezone,
-            enabled: true, targetList: scheduleTarget
-          }
-        : undefined;
+      ? { kind: "once", at: scheduledFor!, ...scheduleCommon }
+      : scheduleKind === "repeat"
+        ? { kind: "cron", recurrence: scheduleRec, ...scheduleCommon }
+        : scheduleKind === "cron"
+          ? { kind: "cron", cron: scheduleCron.trim(), ...scheduleCommon }
+          : undefined;
     try {
       const created = await api.create({
         title: title.trim() || undefined,
@@ -1691,6 +1703,9 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
         ...(personal ? { scope: "personal" as const } : {}),
         description,
         goalMode,
+        // Only a plain card names its landing list; a scheduled card's release
+        // target is the schedule's targetList and sending both would conflict.
+        ...(destination === "backlog" && scheduleKind === "none" ? { targetList: "backlog" as const } : {}),
         ...(Object.keys(routing).length ? { routing } : {}),
         // Absent placement IS "host" on the wire — never send { target: "host" },
         // or every card carries a pin it did not ask for.
@@ -1735,7 +1750,7 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
     : machines?.defaultRuntime ?? null;
 
   return (
-    <Sheet title="New card → Backlog" onClose={onClose}>
+    <Sheet title="New card" onClose={onClose}>
       <div className="field">
         <label htmlFor="nc-title">Title <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
         <input id="nc-title" type="text" value={title} autoFocus
@@ -1743,6 +1758,24 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
       </div>
+      {scheduleKind === "none" && (
+        <div className="field">
+          <label>List</label>
+          <div className="seg" role="radiogroup" aria-label="landing list">
+            <button type="button" className={`btn small${destination === "todo" ? " primary" : ""}`}
+              aria-pressed={destination === "todo"} onClick={() => setDestination("todo")}>
+              To do
+            </button>
+            <button type="button" className={`btn small${destination === "backlog" ? " primary" : ""}`}
+              aria-pressed={destination === "backlog"} onClick={() => setDestination("backlog")}>
+              Backlog
+            </button>
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            To do is immediate work; Backlog is the shelf for work you want to keep for later.
+          </div>
+        </div>
+      )}
       <div className="field">
         <label className="row" htmlFor="nc-personal">
           <input id="nc-personal" type="checkbox" checked={personal}
@@ -1803,13 +1836,14 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
       <div className="field sched-create">
         <label htmlFor="nc-sched-kind">Schedule <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
         <div className="sched-inline">
-          <select id="nc-sched-kind" value={scheduleKind} onChange={(e) => setScheduleKind(e.target.value as "none" | "once" | "cron")}>
+          <select id="nc-sched-kind" value={scheduleKind} onChange={(e) => setScheduleKind(e.target.value as "none" | "once" | "cron" | "repeat")}>
             <option value="none">not scheduled</option>
             <option value="once">one time</option>
-            <option value="cron">recurring</option>
+            <option value="repeat">repeats…</option>
+            <option value="cron">cron (advanced)</option>
           </select>
           {scheduleKind === "once" && (
-            <input id="nc-sched" aria-label="Scheduled time" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+            <DateTimePicker id="nc-sched" label="Scheduled time" value={scheduleAt} onChange={setScheduleAt} />
           )}
           {scheduleKind === "cron" && (
             <input id="nc-sched-cron" aria-label="Five-field cron" type="text" value={scheduleCron} placeholder="0 8 * * 1-5" onChange={(e) => setScheduleCron(e.target.value)} />
@@ -1826,6 +1860,21 @@ function NewCardSheet({ board, initialPlacement = "", onClose, onCreated }: { bo
             </select>
           )}
         </div>
+        {scheduleKind === "repeat" && <RecurrenceBuilder value={scheduleRec} onChange={setScheduleRec} />}
+        {/* cron (advanced) has NO release baseline until the schedule is armed,
+            so offering the Due picker there silently discarded the input —
+            the deadline rides once/repeat schedules, where a baseline exists. */}
+        {(scheduleKind === "once" || scheduleKind === "repeat") && (
+          <div className="rec-row sched-due-row">
+            <span className="rec-label">Due</span>
+            <DateTimePicker label="Due time" value={scheduleDue} onChange={setScheduleDue} />
+            <span className="muted rec-note">
+              {scheduleDue
+                ? "the card lands at the time above and turns amber, then red, as this deadline arrives"
+                : "optional — leave empty and the card is due the moment it lands"}
+            </span>
+          </div>
+        )}
         {scheduleKind === "cron" && (
           <div className="sched-advanced">
             <div className="sched-presets" aria-label="Schedule presets">
@@ -2392,12 +2441,68 @@ function Section({ title, defaultOpen = false, tone, badge, children }: {
   );
 }
 
-function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers }) {
+/**
+ * One runtime transcript, opened from a stretch's `transcript` badge. The badge
+ * carries the runtime's own id; the card's recorded transcripts are addressed by
+ * POSITION, so an id the card has not recorded yet is reported as exactly that
+ * rather than resolved to whichever transcript happens to be nearest.
+ */
+function RuntimeTranscriptModal({
+  cardId,
+  sessionId,
+  index,
+  onClose
+}: {
+  cardId: string;
+  sessionId: string;
+  index: number;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const label = `Runtime transcript ${index >= 0 ? index + 1 : ""}`.trim();
+  return (
+    <div className="art-scrim" onClick={onClose}>
+      <div className="art-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={label}>
+        <div className="art-head">
+          <span className="art-title">{label}</span>
+          <span className="art-tag">{sessionId.slice(0, 12)}</span>
+          <span className="art-spacer" />
+          <button type="button" className="art-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="art-body">
+          {index >= 0 ? (
+            <div className="kanban-session-host cc-root" data-theme="light">
+              <SharedSessionStream
+                url={`/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`}
+                live={false}
+                title={label}
+              />
+            </div>
+          ) : (
+            <p className="muted">
+              This card has not recorded a transcript for {sessionId} - the runtime writes it when the stretch ends.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, onOpenCard, actions, focus, readOnly: readOnlyProp = false }: { cardId: string; board?: BoardView | null; onClose: () => void; onChanged: () => void; onWatch?: (c: CardSummary) => void; onTerminal?: (c: CardSummary) => void; onOpenCard?: (cardId: string) => void; actions?: CardActionHandlers; focus?: "conversation"; readOnly?: boolean }) {
   const [detail, setDetail] = useState<CardDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [openArt, setOpenArt] = useState<ArtifactRef | null>(null);
+  // A stretch's runtime-transcript badge opens the card's own transcript stream;
+  // `conversationRef` is where Discuss lands when it opens the card.
+  const [openTranscript, setOpenTranscript] = useState<{ sessionId: string; index: number } | null>(null);
+  const conversationRef = useRef<HTMLDivElement | null>(null);
   // S2 (Q7): abandonment + revert action state — separate from the delete flow.
   const [abandoning, setAbandoning] = useState(false);
   const [reverting, setReverting] = useState(false);
@@ -2430,12 +2535,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const [checkText, setCheckText] = useState("");
   const [checkDraft, setCheckDraft] = useState<{ id: string; text: string } | null>(null);
   const [schedDraft, setSchedDraft] = useState<string | null>(null);
-  const [schedKindDraft, setSchedKindDraft] = useState<"once" | "cron">("once");
+  // "repeat" is the calendar rule; "cron" remains for the schedules already
+  // written as cron strings, which keep editing exactly as they did.
+  const [schedKindDraft, setSchedKindDraft] = useState<"once" | "cron" | "repeat">("once");
   const [schedCronDraft, setSchedCronDraft] = useState("0 8 * * 1-5");
+  const [schedRecDraft, setSchedRecDraft] = useState<RecurrenceRule>(() => defaultRecurrence());
+  // The DEADLINE, as a local-wall value; "" means due == release, as before.
+  const [schedDueDraft, setSchedDueDraft] = useState("");
   const [schedTimezoneDraft, setSchedTimezoneDraft] = useState(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Lisbon"
   );
-  const [schedTargetDraft, setSchedTargetDraft] = useState("backlog");
+  const [schedTargetDraft, setSchedTargetDraft] = useState("todo");
   const [schedActionDraft, setSchedActionDraft] = useState<"notify" | "run">("notify");
   const [savingSched, setSavingSched] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -2468,6 +2578,18 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
 
   useEffect(() => { setProjectDraft(null); }, [cardId]);
   useEffect(() => { setRoutingDraft(null); }, [cardId]);
+  // Discuss opens the card ON its conversation: scroll the surface into view and
+  // put the caret in the composer, so the thing the user asked for is the thing
+  // under the cursor. Waits for the first detail load - the surface is not
+  // mounted before it.
+  useEffect(() => {
+    if (focus !== "conversation" || !detail?.card.conversationId) return;
+    const host = conversationRef.current;
+    if (!host) return;
+    host.scrollIntoView({ block: "nearest" });
+    host.querySelector("textarea")?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, detail?.card.conversationId]);
   useEffect(() => { setPlacementDraft("host"); }, [cardId]);
   useEffect(() => {
     let alive = true;
@@ -2487,6 +2609,20 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     api.machines().then((value) => { if (alive) setMachines(value); }).catch(() => { if (alive) setMachines(null); });
     return () => { alive = false; };
   }, [cardId]);
+
+  async function toggleAutonomous() {
+    if (!detail) return;
+    try {
+      const next = await api.patch(detail.card.id, {
+        autonomous: !detail.card.autonomous,
+        rev: detail.card.rev
+      });
+      setDetail((d) => d ? { ...d, card: next.card } : d);
+      onChanged();
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   async function saveProjectScope() {
     if (!detail) return;
@@ -2665,16 +2801,24 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   }
 
   function scheduleTarget(card: CardSummary): string {
-    return card.schedule?.targetList ?? (card.list === "scheduled" ? "backlog" : card.list);
+    return card.schedule?.targetList ?? (card.list === "scheduled" ? "todo" : card.list);
   }
 
   function beginScheduleEdit(card: CardSummary) {
     const current = card.schedule;
-    setSchedKindDraft(current?.kind === "cron" ? "cron" : "once");
+    // A recurring schedule opens in the mode it was written in: the calendar
+    // builder for a rule, the cron box for the strings already on the board.
+    setSchedKindDraft(current?.kind === "cron" ? (current.cron ? "cron" : "repeat") : "once");
     setSchedDraft(localInputFromIso(current?.kind === "once" ? current.at ?? current.nextAt : null));
+    setSchedRecDraft((current?.recurrence as RecurrenceRule | undefined) ?? defaultRecurrence());
+    setSchedDueDraft(
+      current?.dueOffsetMinutes
+        ? localInputFromIso(new Date(Date.parse(current.nextAt ?? current.at ?? new Date().toISOString()) + current.dueOffsetMinutes * 60_000).toISOString())
+        : ""
+    );
     setSchedCronDraft(current?.cron ?? "0 8 * * 1-5");
     setSchedTimezoneDraft(current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Lisbon");
-    setSchedTargetDraft(current?.targetList ?? (card.list === "scheduled" ? "backlog" : card.list));
+    setSchedTargetDraft(current?.targetList ?? (card.list === "scheduled" ? "todo" : card.list));
     setSchedActionDraft(current?.action ?? (card.scheduleAction === "run" ? "run" : "notify"));
   }
 
@@ -2684,15 +2828,25 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       setActionErr("Pick a valid date and time.");
       return;
     }
+    // The deadline is picked as a date but stored as an offset from the release
+    // instant, so it stays correct for every occurrence of a recurring card.
+    const releaseForDue = onceAt
+      ?? (schedKindDraft === "repeat"
+        ? recurrenceNextInstant(schedRecDraft, schedTimezoneDraft)
+        : card.schedule?.nextAt ?? null);
+    const dueOffsetMinutes = dueOffsetFromInstants(releaseForDue, isoFromLocalInput(schedDueDraft));
+    const common = {
+      action: schedActionDraft,
+      timezone: schedTimezoneDraft,
+      enabled: true,
+      targetList: schedTargetDraft || scheduleTarget(card),
+      ...(dueOffsetMinutes ? { dueOffsetMinutes } : {})
+    };
     const schedule = schedKindDraft === "once"
-      ? {
-          kind: "once", action: schedActionDraft, at: onceAt, timezone: schedTimezoneDraft,
-          enabled: true, targetList: schedTargetDraft || scheduleTarget(card)
-        }
-      : {
-          kind: "cron", action: schedActionDraft, cron: schedCronDraft.trim(), timezone: schedTimezoneDraft,
-          enabled: true, targetList: schedTargetDraft || scheduleTarget(card)
-        };
+      ? { kind: "once", at: onceAt, ...common }
+      : schedKindDraft === "repeat"
+        ? { kind: "cron", recurrence: schedRecDraft, ...common }
+        : { kind: "cron", cron: schedCronDraft.trim(), ...common };
     setSavingSched(true);
     const saved = await patchCard({ schedule });
     setSavingSched(false);
@@ -2776,6 +2930,10 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   // text on the clipboard, or one aimed at an input/textarea, is left alone so
   // this can never eat a normal text paste.
   useEffect(() => {
+    // A frozen record takes no uploads: the state service refuses the write and
+    // the sheet offers no attach control, so the document-level shortcut must
+    // not be the one door left open.
+    if (readOnlyProp || detail?.card.frozen?.at) return;
     async function onPaste(e: ClipboardEvent) {
       const cd = e.clipboardData;
       if (!cd) return;
@@ -2790,7 +2948,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.card.id]);
+  }, [detail?.card.id, detail?.card.frozen?.at, readOnlyProp]);
 
   async function removeAttachment(name: string) {
     if (!detail) return;
@@ -2868,15 +3026,30 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const checklist = detail.checklist ?? [];
   const running = card.status === "running";
   const parked = card.status === "needs-attention";
+  // A frozen pre-Conversations record is READ-ONLY, and the state service is
+  // what enforces it: every write on a frozen card comes back 409 card-frozen
+  // except DELETE. Derived from the card itself and not only from the History
+  // view's prop, so the same refusal is honoured wherever the card is opened
+  // from - a #card= link or a search hit reaches this sheet too. Presented as
+  // an absent control rather than a button that errors on press.
+  const frozenAt = card.frozen?.at ?? null;
+  const readOnly = readOnlyProp || Boolean(frozenAt);
   // D16: title/description edits are refused on an engine-owned card (the
   // server enforces it; the UI says so instead of offering a doomed control).
   // Schedule / checklist / attachments are benign and stay editable.
   const cardList = board?.lists.find((l) => l.id === card.list) ?? null;
-  const lockedCard = Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
+  const lockedCard = readOnly || Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
+  // A conversation-linked card shows its CONVERSATION here: the ledger carries
+  // the evidence refs a stretch's handoff had to prove, so a second Evidence
+  // block would be the same facts one layer thinner. A legacy card - one frozen
+  // before the conversations pivot, so with no ledger to read - keeps the runDir
+  // evidence block, which is the only proof it has.
+  const conversationId = card.conversationId ?? null;
   // Evidence is expected from Walkthrough onward — so at those stages we show the
   // Evidence section even when empty, surfacing the GAP (the user looks here for proof).
   const evidence = links.evidence ?? [];
-  const showEvidence = evidence.length > 0 || ["walkthrough", "validate", "done"].includes(card.list);
+  const showEvidence = !conversationId &&
+    (evidence.length > 0 || ["walkthrough", "validate", "done"].includes(card.list));
   // The description body without the ClaudeChat attachment block (which renders in
   // its own Attachments section below).
   const descBody = card.description ? stripAttachmentBlock(card.description) : "";
@@ -2909,6 +3082,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         </div>
       )}
       <div className="detail-meta">
+        <button
+          className="chip mono chip-id"
+          title="card id — click to copy"
+          onClick={() => { void navigator.clipboard?.writeText(card.id); }}
+        >
+          {card.id}
+        </button>
         {card.project
           ? <span className="chip">proj: {card.project}</span>
           : <span className="chip muted">no project</span>}
@@ -2916,11 +3096,60 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         <span className="chip">list: {card.list}</span>
         <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         {card.goalMode && <span className="chip goal">goalMode</span>}
+        {!frozenAt && (
+          <button
+            className={`chip chip-toggle${card.autonomous ? " on" : ""}`}
+            title={card.autonomous
+              ? "Autonomous ON — runs end to end without asking. Click to turn off."
+              : "Autonomous OFF — pauses after planning and asks before doing the work. Click to turn on."}
+            onClick={() => { void toggleAutonomous(); }}
+          >
+            autonomous: {card.autonomous ? "on" : "off"}
+          </button>
+        )}
         {card.runId && <span className="chip">run: {card.runId.slice(0, 8)}</span>}
         {card.sliceId && <span className="chip">slice: {card.sliceId}</span>}
       </div>
 
-      {/* Header actions: open the rich Log (Watch) or an interactive Terminal. */}
+      {frozenAt && (
+        <div className="state-callout frozen">
+          Frozen history - a record from before the Conversations migration. It can be read and
+          deleted, not edited, moved or run.
+        </div>
+      )}
+
+      {/* THE APPROVAL ASK, at full width — same block the card front wears,
+          uncapped: in here the whole plan is readable and the decision is one
+          click, with the conversation right below for anything deeper. */}
+      {card.awaitingApproval && card.status !== "running" && !readOnly && (
+        <div className="approval-ask detail-approval">
+          <div className="aa-head">Waiting for your approval</div>
+          <div className="aa-next">next: {card.awaitingApproval.next}</div>
+          {card.awaitingApproval.plan && <p className="aa-plan">{card.awaitingApproval.plan}</p>}
+          {card.awaitingApproval.items.length > 0 && (
+            <ul className="aa-items">
+              {card.awaitingApproval.items.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          )}
+          <div className="aa-actions">
+            <button
+              className="btn primary"
+              title="approve the plan and let the conversation continue"
+              onClick={() => actions?.onApprove?.(card)}
+            >
+              <PlayIcon /> Approve &amp; continue
+            </button>
+            <span className="muted" style={{ fontSize: 12 }}>
+              or write into the conversation below - any reply approves
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Header actions: open the rich Log (Watch) or an interactive Terminal.
+          Every one of them acts on a live card, so a frozen record is offered
+          none of them. */}
+      {!readOnly && (
       <div className="detail-actions">
         {titleDraft === null && (
           <button
@@ -2932,9 +3161,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             <WrenchIcon /> Rename
           </button>
         )}
-        <button className="btn small" onClick={() => onWatch?.(card)}>
-          <WatchIcon /> Watch (Log)
-        </button>
+        {/* A conversation card reaches its raw phase log from the conversation
+            header instead, where the rest of that surface's controls live. */}
+        {!conversationId && (
+          <button className="btn small" onClick={() => onWatch?.(card)}>
+            <WatchIcon /> Raw log
+          </button>
+        )}
         {(card.project || card.scope === "personal") && (
           <button className="btn small" onClick={() => onTerminal?.(card)}>
             <TerminalIcon /> Terminal
@@ -2957,6 +3190,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           </button>
         )}
       </div>
+      )}
       {card.drill && (
         <div className="drill-detail">
           <DrillBlock drill={card.drill} />
@@ -2967,7 +3201,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       {running && (
         <div className="state-callout running">
           <span className="run-spin" aria-hidden />
-          <span>Running on <b>{card.list}</b> · <Elapsed since={card.runningSince} /> — open Watch for the live stream.</span>
+          <span>Running · <Elapsed since={card.runningSince} /> — the conversation below streams live.</span>
         </div>
       )}
       {parked && card.attentionReason && (
@@ -2980,7 +3214,10 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       )}
 
       {/* RUN CONFIGURATION — secondary, collapsed by default. A parked card opens
-          it so its routing/placement retry controls are reachable at a glance. */}
+          it so its routing/placement retry controls are reachable at a glance.
+          The whole section is scope/placement/routing/schedule EDITORS, so a
+          frozen record - which will never run again - is shown none of it. */}
+      {!readOnly && (
       <Section
         title="Run configuration"
         defaultOpen={parked}
@@ -3098,7 +3335,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             setSpec={setRoutingDraft}
             options={routeOptions}
             optionsError={routeOptionsError}
-            initialOpen={parked}
+            emphasise={parked}
           />
           <div className="routing-actions">
             {parked && (
@@ -3122,10 +3359,16 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         <div className="dd-title">Schedule</div>
         {(card.schedule || card.scheduledFor) && schedDraft === null && (
           <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <span className={`chip sched${scheduleDue(card) ? " due" : ""}`}>
+            {/* Quiet when a separate deadline chip carries the colour. */}
+            <span className={`chip sched${hasSplitDeadline(card) ? " muted" : urgencyClass(cardUrgency(card))}`}>
               <ClockIcon /> {scheduleChip(card)}{card.scheduleAction === "run" ? " · auto-run" : " · notify"}
             </span>
-            {card.schedule?.kind === "cron" && <span className="chip muted">{card.schedule.cron} · {card.schedule.timezone}</span>}
+            {hasSplitDeadline(card) && (
+              <span className={`chip sched due-chip${urgencyClass(cardUrgency(card))}`} title={dueInstant(card) ?? undefined}>
+                {dueChip(card)}
+              </span>
+            )}
+            {card.schedule?.kind === "cron" && <span className="chip muted">{repeatLabel(card.schedule)} · {card.schedule.timezone}</span>}
             {card.schedule?.targetList && <span className="chip muted">to {card.schedule.targetList}</span>}
             {card.schedule?.cutoverPending && (
               <span className="chip attn" title="Verify with Run now, remove the legacy scheduler job, then rerun Kanban setup">
@@ -3171,13 +3414,15 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         {schedDraft !== null && (
           <div className="sched-editor">
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <select aria-label="Schedule kind" value={schedKindDraft} onChange={(e) => setSchedKindDraft(e.target.value === "cron" ? "cron" : "once")}>
+            <select aria-label="Schedule kind" value={schedKindDraft} onChange={(e) => setSchedKindDraft(e.target.value as "once" | "cron" | "repeat")}>
               <option value="once">one time</option>
-              <option value="cron">recurring</option>
+              <option value="repeat">repeats…</option>
+              <option value="cron">cron (advanced)</option>
             </select>
-            {schedKindDraft === "once" ? (
-              <input aria-label="Scheduled time" type="datetime-local" value={schedDraft} onChange={(e) => setSchedDraft(e.target.value)} />
-            ) : (
+            {schedKindDraft === "once" && (
+              <DateTimePicker label="Scheduled time" value={schedDraft} onChange={(next) => setSchedDraft(next)} />
+            )}
+            {schedKindDraft === "cron" && (
               <input aria-label="Five-field cron" type="text" value={schedCronDraft} placeholder="0 8 * * 1-5" onChange={(e) => setSchedCronDraft(e.target.value)} />
             )}
             <select value={schedActionDraft} onChange={(e) => setSchedActionDraft(e.target.value === "run" ? "run" : "notify")}>
@@ -3192,13 +3437,38 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             </select>
             <button
               className="btn small primary"
-              disabled={savingSched || (schedKindDraft === "once" ? !schedDraft || !isoFromLocalInput(schedDraft) : !schedCronDraft.trim())}
+              disabled={savingSched || (
+                schedKindDraft === "once" ? !schedDraft || !isoFromLocalInput(schedDraft)
+                  : schedKindDraft === "cron" ? !schedCronDraft.trim()
+                  : false
+              )}
               onClick={() => void saveScheduleDraft(card)}
             >
               {savingSched ? "Saving…" : "Set"}
             </button>
             <button className="btn small" onClick={() => setSchedDraft(null)}>Cancel</button>
             </div>
+            {schedKindDraft === "repeat" && (
+              <RecurrenceBuilder value={schedRecDraft} onChange={setSchedRecDraft} />
+            )}
+            {/* THE DEADLINE. Optional, and separate from the release instant
+                above: the card lands on its list at the release time and is DUE
+                here. Left empty, the two are the same moment — today's rule. */}
+            {(schedKindDraft !== "cron" || card.schedule?.nextAt) ? (
+              <div className="rec-row sched-due-row">
+                <span className="rec-label">Due</span>
+                <DateTimePicker label="Due time" value={schedDueDraft} onChange={setSchedDueDraft} />
+                <span className="muted rec-note">
+                  {schedDueDraft
+                    ? "the card lands at the time above and turns amber, then red, as this deadline arrives"
+                    : "optional — leave empty and the card is due the moment it lands"}
+                </span>
+              </div>
+            ) : (
+              <span className="muted rec-note">
+                A due time needs a release baseline — arm this cron schedule first, or use once/repeat.
+              </span>
+            )}
             {schedKindDraft === "cron" && (
               <div className="sched-presets">
                 <button className="btn tiny" type="button" onClick={() => setSchedCronDraft("0 8 * * *")}>Daily 08:00</button>
@@ -3260,6 +3530,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         )}
       </div>
       </Section>
+      )}
 
       {/* CONTENT — description, checklist, attachments: the primary "what this
           card is" tier, always expanded. */}
@@ -3300,7 +3571,9 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       )}
 
       {/* CHECKLIST - human-first sub-items; open items are folded into the
-          operative's dispatch prompt. Benign patch, editable everywhere. */}
+          operative's dispatch prompt. Benign patch, editable everywhere except
+          on a frozen record, where an empty list is nothing but a stray header. */}
+      {(checklist.length > 0 || !readOnly) && (
       <div className="detail-desc checklist">
         <div className="dd-title">
           Checklist
@@ -3314,15 +3587,21 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           <ul className="cl-items">
             {checklist.map((item) => (
               <li key={item.id} className={item.done ? "done" : ""}>
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={item.done}
-                  className={`cl-box${item.done ? " checked" : ""}`}
-                  title={item.done ? "mark as not done" : "mark as done"}
-                  onClick={() => void saveChecklist(checklist.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
-                />
-                {checkDraft?.id === item.id ? (
+                {readOnly ? (
+                  <span className={`cl-box${item.done ? " checked" : ""}`} role="img" aria-label={item.done ? "done" : "not done"} />
+                ) : (
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={item.done}
+                    className={`cl-box${item.done ? " checked" : ""}`}
+                    title={item.done ? "mark as not done" : "mark as done"}
+                    onClick={() => void saveChecklist(checklist.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
+                  />
+                )}
+                {readOnly ? (
+                  <span className="cl-text">{item.text}</span>
+                ) : checkDraft?.id === item.id ? (
                   <div className="cl-editor">
                     <AutoTextarea
                       aria-label="Edit checklist item"
@@ -3346,7 +3625,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
                     {item.text}
                   </button>
                 )}
-                {checkDraft?.id !== item.id && (
+                {!readOnly && checkDraft?.id !== item.id && (
                   <button
                     type="button"
                     className="cl-edit"
@@ -3357,15 +3636,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
                     Edit
                   </button>
                 )}
-                <button
-                  type="button"
-                  className="cl-del"
-                  title="remove this item"
-                  aria-label={`remove "${item.text}"`}
-                  onClick={() => void saveChecklist(checklist.filter((i) => i.id !== item.id))}
-                >
-                  <CloseIcon />
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="cl-del"
+                    title="remove this item"
+                    aria-label={`remove "${item.text}"`}
+                    onClick={() => void saveChecklist(checklist.filter((i) => i.id !== item.id))}
+                  >
+                    <CloseIcon />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -3374,30 +3655,36 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             sits under it. Sharing a flex row with the button is what made it
             narrow, and a fixed 4 rows made it tall - the opposite of what a
             mostly-one-line field wants. */}
-        <div className="cl-add">
-          <AutoTextarea
-            aria-label="New checklist item"
-            value={checkText}
-            placeholder="Add an item. Enter adds it; Shift+Enter for a new line."
-            onChange={setCheckText}
-            onSubmit={addCheckItem}
-          />
-          <div className="row" style={{ gap: 8, marginTop: 6 }}>
-            <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
-              <PlusIcon /> Add
-            </button>
+        {!readOnly && (
+          <div className="cl-add">
+            <AutoTextarea
+              aria-label="New checklist item"
+              value={checkText}
+              placeholder="Add an item. Enter adds it; Shift+Enter for a new line."
+              onChange={setCheckText}
+              onSubmit={addCheckItem}
+            />
+            <div className="row" style={{ gap: 8, marginTop: 6 }}>
+              <button className="btn small" disabled={!checkText.trim()} onClick={addCheckItem}>
+                <PlusIcon /> Add
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
+
+      )}
 
       {/* ATTACHMENTS - card-owned uploads (deletable, folded into the dispatch
           prompt as context) plus the legacy ClaudeChat description-block files.
-          Images render inline (click to enlarge); other files link out. */}
+          Images render inline (click to enlarge); other files link out. On a
+          frozen record the files are still readable; every way IN is closed. */}
+      {(attachments.length > 0 || !readOnly) && (
       <div
         className={`evidence${dragOver ? " drag-over" : ""}`}
-        onDragOver={(e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
+        onDragOver={readOnly ? undefined : (e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
+        onDragLeave={readOnly ? undefined : () => setDragOver(false)}
+        onDrop={readOnly ? undefined : (e) => {
           if (!e.dataTransfer?.files?.length) return;
           e.preventDefault();
           setDragOver(false);
@@ -3414,6 +3701,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
               is not working" looked like. Clicking the input directly always
               works. Drag-and-drop onto this panel and Cmd+V paste are the other
               two routes in, so a blocked picker is no longer a dead end. */}
+          {!readOnly && (
           <button
             type="button"
             className="btn tiny"
@@ -3423,6 +3711,8 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           >
             {uploading ? "uploading…" : "attach"}
           </button>
+          )}
+          {!readOnly && (
           <input
             ref={fileInputRef}
             type="file"
@@ -3437,6 +3727,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             disabled={uploading}
             onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void uploadFiles(files); }}
           />
+          )}
         </div>
         {attachments.length > 0 ? (
           <div className="ev-grid">
@@ -3456,7 +3747,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
                     <LinkIcon /> {a.name}
                   </a>
                 )}
-                {a.uploaded && (
+                {a.uploaded && !readOnly && (
                   <button type="button" className="ev-del" title={`remove ${a.name}`} aria-label={`remove ${a.name}`} onClick={() => void removeAttachment(a.name)}>
                     <CloseIcon />
                   </button>
@@ -3468,11 +3759,31 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>No attachments. Attached files are read by the operative as context for this card.</p>
         )}
       </div>
+      )}
 
       {card.lastReply && (
         <div className="detail-desc">
           <div className="dd-title">Last operative reply</div>
           <p className="reply-quote">“{card.lastReply}”</p>
+        </div>
+      )}
+
+      {/* THE CONVERSATION - the card's own thread: every stretch that ran, every
+          handoff and delegation it recorded, and the composer that writes the next
+          message into it. One id, one record: the conversation is the card. */}
+      {conversationId && (
+        <div className="conv-block" ref={conversationRef}>
+          <CardConversation
+            conversationId={conversationId}
+            title={card.title}
+            generation={`${card.rev}:${card.status}`}
+            frozen={readOnly}
+            onRawLog={() => onWatch?.(card)}
+            onOpenRuntimeTranscript={(sessionId) => setOpenTranscript({
+              sessionId,
+              index: (card.sessionIds ?? []).indexOf(sessionId)
+            })}
+          />
         </div>
       )}
 
@@ -3526,7 +3837,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       <div className="links">
         <LinkRow label="plan" refs={links.plan} onOpen={setOpenArt} />
         <LinkRow label="brief" refs={links.brief} onOpen={setOpenArt} />
-        <LinkRow label="sessions" refs={links.sessions} onOpen={setOpenArt} />
+        <LinkRow label="runtime transcripts" refs={links.sessions} onOpen={setOpenArt} />
         <LinkRow label="phase gates" refs={links.gates} onOpen={setOpenArt} />
         <LinkRow label="gate markers" refs={links.gateMarkers} onOpen={setOpenArt} />
         <LinkRow label="evidence index" refs={links.evidenceIndex} onOpen={setOpenArt} />
@@ -3557,6 +3868,14 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           attachments (outside History) also open it, so a collapsed History section
           must never unmount the overlay. */}
       {openArt && <ArtifactModal cardId={card.id} art={openArt} onClose={() => setOpenArt(null)} />}
+      {openTranscript && (
+        <RuntimeTranscriptModal
+          cardId={card.id}
+          sessionId={openTranscript.sessionId}
+          index={openTranscript.index}
+          onClose={() => setOpenTranscript(null)}
+        />
+      )}
 
       {/* The same action row the card front carries, at the bottom of the opened
           card - so everything you can do to a card is reachable from wherever you
@@ -3564,7 +3883,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           brings the card's id with it (withId) for quoting into an agent prompt.
           `list` comes from the board; without it there is nothing to derive the
           available actions from, so the row is simply omitted. */}
-      {actions && cardList && (
+      {actions && cardList && !readOnly && (
         <div className="detail-actions detail-actions-footer">
           <CardActions card={card} list={cardList} busy={false} withId handlers={actions} />
         </div>
@@ -3575,7 +3894,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             the conflict-risk count, the state tag, and the guarded Confirm-revert
             button. Clustered here with Abandon/Delete so every recovery/destructive
             action lives in one place. */}
-        {card.preparedRevert && (
+        {card.preparedRevert && !readOnly && (
           <div className="prepared-revert">
             <div className="dd-title">Prepared revert</div>
             <div className="pr-head">
@@ -3612,7 +3931,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         {/* Abandon (S2, Q7): prepare a revert of the card's committed work + park it.
             Offered on a non-running card that hasn't already been abandoned; the
             confirm() guard and the separate revert step keep it deliberate. */}
-        {!running && !card.preparedRevert && (
+        {!running && !card.preparedRevert && !readOnly && (
           <button className="btn danger" disabled={abandoning} onClick={() => void doAbandon()}>
             {abandoning ? "Preparing…" : "Abandon & prepare revert"}
           </button>
@@ -3632,88 +3951,6 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         )}
       </div>
     </Sheet>
-  );
-}
-
-// Rich activity uses @garrison/claude-chat's canonical SessionStream — the same
-// renderer as Web Channel (grouped turns, live tool progress, screenshot modal,
-// related tasks and retry). This wrapper only supplies card-scoped stream URLs
-// and the historical/live session picker.
-function SessionViewer({
-  cardId,
-  sessionIds,
-  live,
-  dispatch,
-  dispatchRuns
-}: {
-  cardId: string;
-  sessionIds: string[];
-  live: boolean;
-  dispatch: CardSummary["dispatch"];
-  dispatchRuns: NonNullable<CardSummary["dispatchRuns"]>;
-}) {
-  const recordedRunIds = new Set(dispatchRuns.map((run) => run.runId));
-  const remoteEntries = dispatchRuns.map((run, index) => ({
-    key: `outpost-${run.runId}`,
-    label: `Remote ${index + 1}${run.phase ? ` · ${run.phase}` : ""}${run.machine ? ` · ${run.machine}` : ""}`,
-    url: `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(run.runId)}`,
-    live: false
-  }));
-  if (dispatch?.runId && !recordedRunIds.has(dispatch.runId)) {
-    const dispatchLive = live && ["claimed", "running", "cancelling"].includes(dispatch.state);
-    remoteEntries.push({
-      key: `outpost-${dispatch.runId}`,
-      label: dispatchLive ? "Live · Remote" : `Remote run${dispatch.phase ? ` · ${dispatch.phase}` : ""}`,
-      url: dispatchLive
-        ? `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`
-        : `/cards/${encodeURIComponent(cardId)}/session-stream?run=${encodeURIComponent(dispatch.runId)}`,
-      live: dispatchLive
-    });
-  }
-  const entries = [
-    ...sessionIds.map((_sessionId, index) => ({ key: `history-${index}`, label: `Session ${index + 1}`, url: `/cards/${encodeURIComponent(cardId)}/session-stream?i=${index}`, live: false })),
-    ...remoteEntries,
-    ...(!dispatch?.runId && live
-      ? [{ key: "live", label: "Live", url: `/cards/${encodeURIComponent(cardId)}/session-stream?live=1`, live: true }]
-      : [])
-  ];
-  const count = entries.length;
-  const [selected, setSelected] = useState<number>(count > 0 ? count - 1 : 0);
-  useEffect(() => {
-    // Default to the most-recent session; re-clamp if the count shrinks.
-    setSelected((cur) => (cur >= 0 && cur < count ? cur : Math.max(0, count - 1)));
-  }, [count]);
-  if (count === 0) {
-    return <div className="dr-empty">No session transcript yet for this card — use the Raw tab for its phase log.</div>;
-  }
-  return (
-    <div className="dr-session-viewer">
-      {count > 1 && (
-        <div className="dr-rowwrap dr-session-tabs" role="tablist" aria-label="Sessions">
-          {entries.map((entry, index) => (
-            <button
-              key={entry.key}
-              role="tab"
-              aria-selected={selected === index}
-              className={"chip click" + (selected === index ? " ink active" : "")}
-              onClick={() => setSelected(index)}
-            >
-              {entry.label}
-            </button>
-          ))}
-        </div>
-      )}
-      {entries[selected] && (
-        <div className="kanban-session-host cc-root" data-theme="light">
-          <SharedSessionStream
-            key={entries[selected].key}
-            url={entries[selected].url}
-            live={entries[selected].live}
-            title={entries[selected].label === "Live" ? "Live activity" : entries[selected].label}
-          />
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -3769,11 +4006,11 @@ function TerminalModal({ card, onClose }: { card: CardSummary; onClose: () => vo
   );
 }
 
-// ── watch sheet — rich Log (session transcript) primary, Raw phase log fallback ─
-// The Log tab renders the operative's rich session transcript(s); the Raw tab
-// keeps the card's phase log over SSE (the fallback for cards with no session
-// yet). The live operative TERMINAL moved to its own Terminal modal. The
-// Interactive Discuss uses its duty-pinned conversation instead.
+// ── raw log sheet - the card's phase log over SSE ────────────────────────────
+// The rich account of what happened lives in the card's conversation (the opened
+// card renders it); this sheet is the RAW layer under it - the phase log the run
+// wrote line by line, plus the Panic control for a card that has to be stopped.
+// The interactive TERMINAL has its own modal.
 function WatchSheet({
   card,
   onClose,
@@ -3785,12 +4022,6 @@ function WatchSheet({
   onChanged: () => void;
   onReviewRouting: () => void;
 }) {
-  const hasRemoteReplay = Boolean(card.dispatch?.runId || card.dispatchRuns?.length);
-  const hasSession = card.status === "running" || hasRemoteReplay || (card.sessionIds?.length ?? 0) > 0;
-  // Default to the rich Log (session transcript) when the card has a session;
-  // otherwise the Raw phase log. The live operative TERMINAL moved to its own
-  // Terminal modal.
-  const [tab, setTab] = useState<"session" | "raw">(hasSession ? "session" : "raw");
   const [lines, setLines] = useState<string>("");
   const [live, setLive] = useState<boolean | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -3843,7 +4074,7 @@ function WatchSheet({
 
   useEffect(() => {
     if (scrRef.current) scrRef.current.scrollTop = scrRef.current.scrollHeight;
-  }, [lines, tab]);
+  }, [lines]);
 
   // Log formatting: markdown-ish headers, gate verdicts and the Adv-Review
   // "CODEX CALL" line (FINDING 6) get their own styling so a phase log reads
@@ -3857,7 +4088,7 @@ function WatchSheet({
   });
 
   return (
-    <Sheet title={`Watch: ${card.title}`} onClose={onClose} size="wide">
+    <Sheet title={`Raw log: ${card.title}`} onClose={onClose} size="wide">
       {card.status === "needs-attention" && card.attentionReason && (
         <div className="state-callout parked" style={{ marginTop: 0 }}>{card.attentionReason}</div>
       )}
@@ -3895,34 +4126,16 @@ function WatchSheet({
       {panicError && <div className="dispatch-err panic-error">{remoteRun ? "Stop & reroute" : "Panic"} did not stop anything: {panicError}</div>}
       <div className="watch">
         <div className="wbar">
-          <span className="wtabs">
-            <button className={`wtab${tab === "session" ? " on" : ""}`} onClick={() => setTab("session")}
-              title="the operative's rich session transcript">Log</button>
-            <button className={`wtab${tab === "raw" ? " on" : ""}`} onClick={() => setTab("raw")}
-              title="this card's raw phase log">Raw</button>
-          </span>
           card {card.id.slice(0, 6)} · {card.list}
-          {tab === "raw" && (
-            <span className={`live${live ? "" : " off"}`}>
-              {live === null ? "connecting…" : live ? "live" : "static logs"}
-            </span>
-          )}
+          <span className={`live${live ? "" : " off"}`}>
+            {live === null ? "connecting…" : live ? "live" : "static logs"}
+          </span>
         </div>
-        {tab === "session" ? (
-          <SessionViewer
-            cardId={card.id}
-            sessionIds={card.sessionIds ?? []}
-            live={card.status === "running" && live !== false && !done}
-            dispatch={card.dispatch}
-            dispatchRuns={card.dispatchRuns ?? []}
-          />
-        ) : (
-          <div className="wscr" ref={scrRef}>
-            {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
-          </div>
-        )}
+        <div className="wscr" ref={scrRef}>
+          {lines ? rendered : <span className="muted">{done ? "no log output" : "waiting for output…"}</span>}
+        </div>
       </div>
-      {tab === "raw" && done && (
+      {done && (
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
           stream ended: {done}
         </p>
@@ -4272,8 +4485,93 @@ function ListConfigSheet({
   );
 }
 
+// ── focused conversation modal ──────────────────────────────────────────────
+// The card's conversation as the WHOLE surface: what the web channel is to a
+// thread, this sheet is to a card - stream on top, composer pinned at the
+// bottom, everything else one click deeper. Card fronts open THIS (the log
+// buttons are gone from the front; the raw log lives in the conversation's own
+// header), and the full detail sheet is behind the Card details button.
+function ConversationSheet({ cardId, onClose, onOpenCard, onWatch, onStart, busy = false }: {
+  cardId: string;
+  onClose: () => void;
+  onOpenCard: (cardId: string) => void;
+  onWatch: (c: CardSummary) => void;
+  onStart?: (c: CardSummary) => void;
+  busy?: boolean;
+}) {
+  const [detail, setDetail] = useState<CardDetail | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [openTranscript, setOpenTranscript] = useState<{ sessionId: string; index: number } | null>(null);
+  // Same 3s pull the detail sheet uses: the stream renders itself over SSE, but
+  // the modal still needs the card's own state (list, conversation id, autonomy)
+  // live - a Start pressed here materialises the conversation into this poll.
+  useEffect(() => {
+    let alive = true;
+    const pull = () => api.card(cardId).then((d) => { if (alive) { setDetail(d); setErr(null); } }).catch((e) => {
+      if (alive && !detail) setErr(e instanceof Error ? e.message : String(e));
+    });
+    void pull();
+    const t = setInterval(pull, 3000);
+    return () => { alive = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardId]);
+  const card = detail?.card ?? null;
+  const frozen = Boolean(card?.frozen?.at);
+  const conversationId = card?.conversationId ?? null;
+  return (
+    <Sheet title={card?.title ?? "Conversation"} onClose={onClose} size="conv">
+      {err && !card && <div className="banner">Could not load the card: {err}</div>}
+      {card && (
+        <div className="conv-meta">
+          <button className="chip mono chip-id" title="copy the card id" onClick={() => { void navigator.clipboard?.writeText(card.id); }}>{card.id}</button>
+          <span className="chip">{card.list}</span>
+          {card.autonomous && <span className="chip">autonomous</span>}
+          {card.project && <span className="chip">{card.project}</span>}
+          <span className="conv-meta-spacer" />
+          <button className="btn small" title="the full card - description, checklist, run configuration, history" onClick={() => onOpenCard(card.id)}>
+            Card details
+          </button>
+        </div>
+      )}
+      {card && conversationId && (
+        <div className="conv-focus">
+          <CardConversation
+            conversationId={conversationId}
+            title={card.title}
+            generation={`${card.rev}:${card.status}`}
+            frozen={frozen}
+            onRawLog={() => onWatch(card)}
+            onOpenRuntimeTranscript={(sessionId) => setOpenTranscript({
+              sessionId,
+              index: (card.sessionIds ?? []).indexOf(sessionId)
+            })}
+          />
+        </div>
+      )}
+      {card && !conversationId && (
+        <div className="conv-empty">
+          <p className="muted">No conversation yet - this card has not been started.</p>
+          {!frozen && onStart && (
+            <button className="btn primary" disabled={busy || card.status === "running"} onClick={() => onStart(card)}>
+              <PlayIcon /> Start
+            </button>
+          )}
+        </div>
+      )}
+      {openTranscript && (
+        <RuntimeTranscriptModal
+          cardId={cardId}
+          sessionId={openTranscript.sessionId}
+          index={openTranscript.index}
+          onClose={() => setOpenTranscript(null)}
+        />
+      )}
+    </Sheet>
+  );
+}
+
 // ── generic modal sheet ─────────────────────────────────────────────────────
-function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" }) {
+function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" | "conv" }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -4281,7 +4579,7 @@ function Sheet({ title, onClose, children, size = "default" }: { title: string; 
   }, [onClose]);
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : size === "conv" ? " wide conv" : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="sh-head">
           <h3>{title}</h3>
           <button className="btn small" onClick={onClose} aria-label="Close"><CloseIcon /></button>
@@ -4296,12 +4594,12 @@ function Sheet({ title, onClose, children, size = "default" }: { title: string; 
 type Overlay =
   | { kind: "new"; placement?: string }
   | { kind: "move"; card: CardSummary }
-  | { kind: "detail"; cardId: string }
+  | { kind: "detail"; cardId: string; focus?: "conversation" }
+  | { kind: "conversation"; cardId: string }
   | { kind: "watch"; card: CardSummary }
   | { kind: "terminal"; card: CardSummary }
   | { kind: "config"; listId: string }
   | { kind: "feedback"; card: CardSummary }
-  | { kind: "addlist" }
   | { kind: "import" }
   | null;
 
@@ -4313,48 +4611,6 @@ function initialOverlayFromLocation(): Overlay {
   if (query.get("new") !== "1") return null;
   const placement = (query.get("placement") || "").trim();
   return { kind: "new", ...(placement ? { placement } : {}) };
-}
-
-// ── add-list sheet ──────────────────────────────────────────────────────────
-// A new column is a HUMAN-MANAGED manual list: a plain parking column with no
-// agent behaviour and no run-on-drop. It is NOT a composition duty — agent-managed
-// lists are added by selecting a DUTY in Muster, which projects its list onto the
-// board. The board owns the manual list directly (no apm.yml write).
-function AddListSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  async function submit() {
-    if (!title.trim()) { setErr("give the list a name"); return; }
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await api.createList({ title: title.trim() });
-      onCreated();
-      onClose();
-      void res;
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
-  }
-  return (
-    <Sheet title="Add list" onClose={onClose}>
-      <div className="field">
-        <label htmlFor="al-name">Name</label>
-        <input id="al-name" autoFocus type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Ideas" onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />
-      </div>
-      <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
-        This creates a human-managed list - a place to park cards by hand. It does
-        not run anything. To add an agent-managed list, add a duty in Muster and its
-        column appears here automatically.
-      </div>
-      {err && <div className="banner">{err}</div>}
-      <button className="btn primary" disabled={busy || !title.trim()} onClick={() => void submit()}>
-        {busy ? "Creating…" : "Create list"}
-      </button>
-    </Sheet>
-  );
 }
 
 // ── card import sheet ───────────────────────────────────────────────────────
@@ -4373,7 +4629,7 @@ function ImportSheet({
   const manualLists = board.lists.filter(isManualImportTarget);
   const [bundle, setBundle] = useState<unknown | null>(null);
   const [fileName, setFileName] = useState("");
-  const [targetList, setTargetList] = useState(manualLists.find((list) => list.id === "backlog")?.id ?? manualLists[0]?.id ?? "");
+  const [targetList, setTargetList] = useState(manualLists.find((list) => list.id === "todo")?.id ?? manualLists[0]?.id ?? "");
   const [sourceList, setSourceList] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [preview, setPreview] = useState<CardImportPreview | null>(null);
@@ -4591,6 +4847,15 @@ function App() {
   const [overlay, setOverlay] = useState<Overlay>(initialOverlayFromLocation);
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The board / frozen-History switch. Deliberately component state and not a
+  // route: History is a place you visit and leave, a reload landing back on the
+  // board is the right default, and a card link (?card= / #card=) still opens
+  // its modal over whichever of the two is showing.
+  const [view, setView] = useState<"board" | "history">("board");
+  // Bumped when an open card writes back, so History re-reads GET /history. A
+  // frozen record only ever changes one way - it is deleted - and that has to
+  // leave the column it was in, or the count above it starts lying.
+  const [historyRev, setHistoryRev] = useState(0);
   // ── drag state ────────────────────────────────────────────────────────────
   // During a drag the board renders from these overrides (membership order per
   // list / column order) so items shift live; the poll is paused (a reload
@@ -4599,6 +4864,15 @@ function App() {
   const [cardOrderOverride, setCardOrderOverride] = useState<Record<string, string[]> | null>(null);
   const [colOrderOverride, setColOrderOverride] = useState<string[] | null>(null);
   const [activeDrag, setActiveDrag] = useState<{ type: "card"; card: CardSummary } | { type: "column"; listId: string } | null>(null);
+  // Empty autonomous columns are hidden so the human scrolls past phases that
+  // hold work, not phases that could. The preference is per-browser and sticky:
+  // someone who wants the whole rail wants it on the next visit too.
+  const [showAllLists, setShowAllLists] = useState<boolean>(() => {
+    try { return window.localStorage.getItem("garrison.kanban.showAllLists") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem("garrison.kanban.showAllLists", showAllLists ? "1" : "0"); } catch { /* private mode: the session-only default is fine */ }
+  }, [showAllLists]);
   // A hash-only navigation does NOT reload the document, so a card link opened
   // while the board is already up (the common case - the board is a standing
   // tab) reaches us only through hashchange. Without this, the first card link
@@ -4847,9 +5121,8 @@ function App() {
   }
 
   // WS2 (D7): continue a DONE card's work in one click — create a successor card
-  // (continues=<id>, its prompt seeded from the predecessor's handoff packet) and
-  // move it to plan so the run dispatches. A fresh backlog card is not engine-owned,
-  // so the human move to plan is allowed and auto-dispatches.
+  // (continues=<id>, its prompt seeded from the predecessor's handoff packet) on
+  // To do. Starting it kicks a fresh conversation seeded from that handoff.
   async function onContinue(card: CardSummary) {
     setBusyCard(card.id);
     setNotice(null);
@@ -4875,39 +5148,42 @@ function App() {
     }
   }
 
-  // Open a Discuss-duty conversation seeded with this card. buildDiscussUrl carries
-  // the card context + an auto-sent kickoff (analyse the description, ask questions,
-  // write the brief). Crossing fittings: the board runs embedded (/embed/kanban-loop),
-  // so when embedded we ask the Garrison shell to swap the embedded view (its
-  // postMessage listener); standalone we navigate directly. The channel id is
-  // discovered at runtime (not hardcoded) so a non-default web channel works too.
-  async function onDiscuss(card: CardSummary) {
-    const channelId = runtime?.webChannelEmbedId ?? null;
-    if (!channelId) {
-      setNotice("No web channel is installed/running — install/start a web channel fitting to use Discuss.");
+  // Talking about a card IS its conversation, and the conversation deserves the
+  // whole modal: Discuss opens the focused conversation sheet (the web-channel
+  // experience, straight on the board). The full card detail stays one click
+  // away inside it. A card whose first stretch has not run yet still opens -
+  // the sheet offers Start and the surface appears the moment a conversation
+  // exists.
+  function onDiscuss(card: CardSummary) {
+    setOverlay({ kind: "conversation", cardId: card.id });
+  }
+
+  // One click IS the approval: the nod lands in the conversation as a real
+  // user message (exactly what typing "go ahead" does), which un-arms the
+  // autonomy gate and kicks the next stretch.
+  async function onApprove(card: CardSummary) {
+    if (!card.conversationId) {
+      setNotice("This card has no conversation to approve.");
       return;
     }
-    // The board summary carries checklist COUNTS, not the items - and a card's
-    // real content is often the checklist (an empty description with six items
-    // opened a Discuss that said "the card is just a title"). Pull the detail so
-    // the kickoff can carry what the card actually says; a failed fetch still
-    // opens the conversation with what the board already has.
-    let seed: CardSummary & { checklist?: ChecklistItem[] } = card;
+    setBusyCard(card.id);
+    setNotice(null);
     try {
-      const detail = await api.card(card.id);
-      seed = { ...card, ...detail.card, checklist: detail.checklist ?? [] };
-    } catch {
-      /* offline/board hiccup - discuss with the summary rather than not at all */
-    }
-    const chatHref = buildDiscussUrl(seed, { webChannelBase: `/embed/${channelId}`, cardsAbsDir: runtime?.cardsAbsDir ?? null });
-    const u = new URL(chatHref, window.location.origin);
-    const fittingId = u.pathname.split("/").filter(Boolean).pop() || channelId;
-    const params: Record<string, string> = {};
-    u.searchParams.forEach((v, k) => { params[k] = v; });
-    if (window.top && window.top !== window.self) {
-      window.top.postMessage({ type: "garrison:navigate-fitting", fittingId, params }, "*");
-    } else {
-      window.location.href = chatHref;
+      const res = await fetch(`${CONVERSATION_BASE}/${encodeURIComponent(card.conversationId)}/message`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Approved - continue.", origin: "kanban" })
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error ?? `The approval could not be delivered (${res.status}).`);
+      }
+      setNotice("Approved - the conversation continues.");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      await load();
+      setBusyCard(null);
     }
   }
 
@@ -4998,6 +5274,19 @@ function App() {
       return 0;
     });
   }, [board, colOrderOverride, cardOrderOverride, cardById]);
+
+  // What the rail actually renders. displayLists stays the COMPLETE ordered set
+  // (drag snapshots order from it, so a hidden column keeps its place); this is
+  // that set minus the empty autonomous phases. A drag reveals everything again
+  // - a column that disappeared when you picked a card up cannot be dropped on.
+  const boardLists = useMemo(
+    () => visibleLists(displayLists, { showAll: showAllLists, dragging: Boolean(activeDrag) }),
+    [displayLists, showAllLists, activeDrag]
+  );
+  const hiddenCount = useMemo(
+    () => hiddenListCount(displayLists, { showAll: showAllLists, dragging: Boolean(activeDrag) }),
+    [displayLists, showAllLists, activeDrag]
+  );
 
   // A card on an autonomous agent list is engine-owned: it may REORDER inside
   // its own column (position is a benign patch) but never change column by drag.
@@ -5167,7 +5456,14 @@ function App() {
       <TopBar
         onNew={() => setOverlay({ kind: "new" })}
         onImport={board ? () => setOverlay({ kind: "import" }) : undefined}
+        // History carries its own Back control, so the top-bar entry is offered
+        // only from the board - one way in, one way out, never two live toggles.
+        onHistory={view === "board" ? () => setView("history") : undefined}
         status={board ? `${board.cards.length} cards` : "loading…"}
+        // The rail only exists on the board, so its control is offered there.
+        hiddenLists={view === "board" ? hiddenCount : 0}
+        showAllLists={showAllLists}
+        onToggleAllLists={view === "board" ? () => setShowAllLists((v) => !v) : undefined}
       />
       {runtime?.noGateway && (
         <div className="banner" role="status">
@@ -5175,155 +5471,153 @@ function App() {
         </div>
       )}
       {notice && <div className="banner info" onClick={() => setNotice(null)}>{notice}</div>}
-      <div className="board-scroll">
-        <DndContext
-          sensors={dndSensors}
-          collisionDetection={boardCollisions}
-          onDragStart={onDragStart}
-          onDragOver={onDragOver}
-          onDragEnd={(e) => void onDragEnd(e)}
-          onDragCancel={onDragCancel}
-        >
-          <div className="board">
-            <SortableContext items={displayLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
-              {displayLists.map((list) => (
-                <SortableColumn
-                  key={list.id}
-                  list={list}
-                  className={listClass(list)}
-                  header={
-                    <div className="lh">
-                      <div className="lname">
-                        <span className="lname-text">{list.title}</span>
-                        <span className="count">{list.cards.length}</span>
-                        {!list.system && (
-                          <button
-                            className="gear"
-                            title={`Configure ${list.title}`}
-                            aria-label={`Configure ${list.title}`}
-                            onClick={() => setOverlay({ kind: "config", listId: list.id })}
-                          >
-                            <GearIcon />
-                          </button>
-                        )}
-                      </div>
-                      <div className="lkind">
-                        {list.id === "scheduled" ? (
-                          "system · schedules"
-                        ) : list.kind === "agent" && !list.interactive ? (
-                          <span className={list.phase?.includes("adversarial") ? "cdx" : "sk"} title="the pipeline phase this list runs; skill/model/effort come from the Orchestrator policy">
-                            phase: {list.phase ?? list.id}
-                          </span>
-                        ) : list.interactive ? (
-                          "interactive · web chat"
-                        ) : (
-                          `${list.kind} · ${list.trigger}`
-                        )}
-                      </div>
-                    </div>
-                  }
-                >
-                  <ListBodyDroppable listId={list.id}>
-                    {/* Backlog and To Do lead with direct-create affordances. The
-                        server inserts into that list under the same top-order lock,
-                        so there is no transient Backlog card or create-then-move
-                        activity. These controls replace the bare empty state. */}
-                    {canAddCardDirectly(list.id) && (
-                      <ListAddCard
-                        listId={list.id}
-                        listTitle={list.title}
-                        onCreated={() => void load()}
-                      />
-                    )}
-                    {list.cards.length === 0 && !canAddCardDirectly(list.id) && (
-                      <div className="lempty">{list.id === "scheduled" ? "No scheduled tasks" : "empty"}</div>
-                    )}
-                    {(() => {
-                      const renderCard = (card: CardSummary, sortable = true) => {
-                        const inner = (
-                          <Card
-                            key={sortable ? undefined : card.id}
-                            card={card}
-                            list={list}
-                            busy={busyCard === card.id}
-                            onStart={onStart}
-                            onInfer={onInfer}
-                            onDiscuss={onDiscuss}
-                            onRevert={onRevert}
-                            onMove={(c) => {
-                              // Item 2: Move is the MANUAL gate — it ALWAYS opens the sheet, which
-                              // now offers every list (not just validNext). Advance is the separate
-                              // next-list-only control. No single-target short-circuit: even a
-                              // one-exit list shows the picker so a card can be moved anywhere.
-                              setOverlay({ kind: "move", card: c });
-                            }}
-                            onQuickMove={onQuickMove}
-                            onDelete={onDelete}
-                            onWatch={(c) => setOverlay({ kind: "watch", card: c })}
-                            onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
-                            onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
-                            onRenamed={load}
-                            onContinue={onContinue}
-                            onDrill={onDrill}
-                            onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
-                            onRunSchedule={onRunSchedule}
-                            dragJustEnded={dragJustEndedRef}
-                          />
-                        );
-                        return sortable ? (
-                          <SortableCardWrap key={card.id} card={card} listId={list.id}>
-                            {inner}
-                          </SortableCardWrap>
-                        ) : inner;
-                      };
-                      // D19: the Done column groups quick cards (trivial-plan inline tasks)
-                      // under a collapsed "quick tasks" strip so the real runs stay legible.
-                      // Quick cards are not drag-sortable (they are archive, not queue).
-                      const mainCards = list.id === "done" ? list.cards.filter((c) => !c.quick) : list.cards;
-                      const quickCards = list.id === "done" ? list.cards.filter((c) => c.quick) : [];
-                      return (
-                        <SortableContext items={mainCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-                          {mainCards.map((c) => renderCard(c))}
-                          {quickCards.length > 0 && (
-                            <details className="quick-strip">
-                              <summary className="quick-strip-head">
-                                <span className="quick-strip-title">quick tasks</span>
-                                <span className="count">{quickCards.length}</span>
-                              </summary>
-                              <div className="quick-strip-body">{quickCards.map((c) => renderCard(c, false))}</div>
-                            </details>
+      {view === "history" ? (
+        <HistoryView
+          refreshKey={historyRev}
+          onBack={() => setView("board")}
+          onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
+        />
+      ) : (
+        <div className="board-scroll">
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={boardCollisions}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDragEnd={(e) => void onDragEnd(e)}
+            onDragCancel={onDragCancel}
+          >
+            <div className="board">
+              <SortableContext items={boardLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
+                {boardLists.map((list) => (
+                  <SortableColumn
+                    key={list.id}
+                    list={list}
+                    className={listClass(list)}
+                    header={
+                      <div className="lh">
+                        <div className="lname">
+                          <span className="lname-text">{list.title}</span>
+                          <span className="count">{list.cards.length}</span>
+                          {!list.system && (
+                            <button
+                              className="gear"
+                              title={`Configure ${list.title}`}
+                              aria-label={`Configure ${list.title}`}
+                              onClick={() => setOverlay({ kind: "config", listId: list.id })}
+                            >
+                              <GearIcon />
+                            </button>
                           )}
-                        </SortableContext>
-                      );
-                    })()}
-                  </ListBodyDroppable>
-                </SortableColumn>
-              ))}
-            </SortableContext>
-            {/* Trello-style "+ Add list": a new column IS a new composition-local
-                duty; the sheet says so and the shell owns the write. */}
-            <section className="list add-list">
-              <button className="add-list-btn" onClick={() => setOverlay({ kind: "addlist" })}>
-                <PlusIcon /> Add list
-              </button>
-            </section>
-          </div>
-          <DragOverlay>
-            {activeDrag?.type === "card" ? (
-              <div className="card drag-ghost">
-                <div className="ct">
-                  <span className="title">{activeDrag.card.title}</span>
+                        </div>
+                        <div className="lkind">
+                          {list.id === "scheduled" ? (
+                            "system · schedules"
+                          ) : list.id === "running" ? (
+                            "system · conversations"
+                          ) : (
+                            `${list.kind} · ${list.trigger}`
+                          )}
+                        </div>
+                      </div>
+                    }
+                  >
+                    <ListBodyDroppable listId={list.id}>
+                      {/* Backlog and To Do lead with direct-create affordances. The
+                          server inserts into that list under the same top-order lock,
+                          so there is no transient Backlog card or create-then-move
+                          activity. These controls replace the bare empty state. */}
+                      {canAddCardDirectly(list.id) && (
+                        <ListAddCard
+                          listId={list.id}
+                          listTitle={list.title}
+                          onCreated={() => void load()}
+                        />
+                      )}
+                      {list.cards.length === 0 && !canAddCardDirectly(list.id) && (
+                        <div className="lempty">{list.id === "scheduled" ? "No scheduled tasks" : "empty"}</div>
+                      )}
+                      {(() => {
+                        const renderCard = (card: CardSummary, sortable = true) => {
+                          const inner = (
+                            <Card
+                              key={sortable ? undefined : card.id}
+                              card={card}
+                              list={list}
+                              busy={busyCard === card.id}
+                              onStart={onStart}
+                              onApprove={onApprove}
+                              onInfer={onInfer}
+                              onDiscuss={onDiscuss}
+                              onRevert={onRevert}
+                              onMove={(c) => {
+                                // Item 2: Move is the MANUAL gate — it ALWAYS opens the sheet, which
+                                // now offers every list (not just validNext). Advance is the separate
+                                // next-list-only control. No single-target short-circuit: even a
+                                // one-exit list shows the picker so a card can be moved anywhere.
+                                setOverlay({ kind: "move", card: c });
+                              }}
+                              onQuickMove={onQuickMove}
+                              onDelete={onDelete}
+                              onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+                              onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
+                              onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
+                              onRenamed={load}
+                              onContinue={onContinue}
+                              onDrill={onDrill}
+                              onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
+                              onRunSchedule={onRunSchedule}
+                              dragJustEnded={dragJustEndedRef}
+                            />
+                          );
+                          return sortable ? (
+                            <SortableCardWrap key={card.id} card={card} listId={list.id}>
+                              {inner}
+                            </SortableCardWrap>
+                          ) : inner;
+                        };
+                        // D19: the Done column groups quick cards (trivial-plan inline tasks)
+                        // under a collapsed "quick tasks" strip so the real runs stay legible.
+                        // Quick cards are not drag-sortable (they are archive, not queue).
+                        const mainCards = list.id === "done" ? list.cards.filter((c) => !c.quick) : list.cards;
+                        const quickCards = list.id === "done" ? list.cards.filter((c) => c.quick) : [];
+                        return (
+                          <SortableContext items={mainCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                            {mainCards.map((c) => renderCard(c))}
+                            {quickCards.length > 0 && (
+                              <details className="quick-strip">
+                                <summary className="quick-strip-head">
+                                  <span className="quick-strip-title">quick tasks</span>
+                                  <span className="count">{quickCards.length}</span>
+                                </summary>
+                                <div className="quick-strip-body">{quickCards.map((c) => renderCard(c, false))}</div>
+                              </details>
+                            )}
+                          </SortableContext>
+                        );
+                      })()}
+                    </ListBodyDroppable>
+                  </SortableColumn>
+                ))}
+              </SortableContext>
+            </div>
+            <DragOverlay>
+              {activeDrag?.type === "card" ? (
+                <div className="card drag-ghost">
+                  <div className="ct">
+                    <span className="title">{activeDrag.card.title}</span>
+                  </div>
+                  {activeDrag.card.project && <div className="cmeta"><span className="chip">{activeDrag.card.project}</span></div>}
                 </div>
-                {activeDrag.card.project && <div className="cmeta"><span className="chip">{activeDrag.card.project}</span></div>}
-              </div>
-            ) : activeDrag?.type === "column" ? (
-              <div className="list drag-ghost-col">
-                <div className="lh"><div className="lname"><span className="lname-text">{displayLists.find((l) => l.id === activeDrag.listId)?.title ?? activeDrag.listId}</span></div></div>
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      </div>
+              ) : activeDrag?.type === "column" ? (
+                <div className="list drag-ghost-col">
+                  <div className="lh"><div className="lname"><span className="lname-text">{displayLists.find((l) => l.id === activeDrag.listId)?.title ?? activeDrag.listId}</span></div></div>
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </div>
+      )}
 
       {overlay?.kind === "new" && (
         <NewCardSheet board={board} initialPlacement={overlay.placement} onClose={() => setOverlay(null)} onCreated={() => void load()} />
@@ -5336,13 +5630,15 @@ function App() {
           key={overlay.cardId}
           cardId={overlay.cardId}
           board={board}
+          focus={overlay.focus}
           onClose={closeCardOverlay}
-          onChanged={() => void load()}
+          onChanged={() => { void load(); setHistoryRev((n) => n + 1); }}
           onWatch={(c) => setOverlay({ kind: "watch", card: c })}
           onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
           onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
           actions={{
             onStart,
+            onApprove,
             onMove: (c) => setOverlay({ kind: "move", card: c }),
             onQuickMove,
             // The sheet is showing the card that just went away, so close it.
@@ -5356,6 +5652,17 @@ function App() {
             onFeedback: (c) => setOverlay({ kind: "feedback", card: c }),
             onRunSchedule
           }}
+        />
+      )}
+      {overlay?.kind === "conversation" && (
+        <ConversationSheet
+          key={overlay.cardId}
+          cardId={overlay.cardId}
+          onClose={closeCardOverlay}
+          onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
+          onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+          onStart={onStart}
+          busy={busyCard === overlay.cardId}
         />
       )}
       {overlay?.kind === "watch" && (
@@ -5375,9 +5682,6 @@ function App() {
       {overlay?.kind === "feedback" && board && (
         <FeedbackSheet card={overlay.card} board={board} onClose={() => setOverlay(null)} onSent={() => void load()} />
       )}
-      {overlay?.kind === "addlist" && (
-        <AddListSheet onClose={() => setOverlay(null)} onCreated={() => void load()} />
-      )}
       {overlay?.kind === "import" && board && (
         <ImportSheet
           board={board}
@@ -5389,7 +5693,13 @@ function App() {
   );
 }
 
-function TopBar({ onNew, onImport, status }: { onNew: () => void; onImport?: () => void; status: string }) {
+function TopBar({ onNew, onImport, onHistory, status, hiddenLists, showAllLists, onToggleAllLists }: {
+  onNew: () => void; onImport?: () => void; onHistory?: () => void; status: string;
+  /** How many empty autonomous columns the rail is holding back right now. */
+  hiddenLists?: number;
+  showAllLists?: boolean;
+  onToggleAllLists?: () => void;
+}) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -5401,6 +5711,21 @@ function TopBar({ onNew, onImport, status }: { onNew: () => void; onImport?: () 
       </div>
       <span className="status">{status}</span>
       <div className="spacer" />
+      {/* Offered only when it would change something: either columns are hidden
+          right now, or every column is showing BECAUSE the human asked. */}
+      {onToggleAllLists && (showAllLists || (hiddenLists ?? 0) > 0) && (
+        <button
+          className="btn"
+          aria-pressed={Boolean(showAllLists)}
+          title={showAllLists
+            ? "hide autonomous phases that hold no cards"
+            : `show ${hiddenLists} empty autonomous phase${hiddenLists === 1 ? "" : "s"}`}
+          onClick={onToggleAllLists}
+        >
+          {showAllLists ? "Hide empty" : `Show all (${hiddenLists})`}
+        </button>
+      )}
+      {onHistory && <button className="btn" onClick={onHistory}>History</button>}
       <a className="btn" href={api.exportBoardUrl()} download>Export</a>
       {onImport && <button className="btn" onClick={onImport}>Import</button>}
       <button className="btn primary" onClick={onNew}><PlusIcon /> New card</button>

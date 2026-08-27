@@ -1511,7 +1511,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       if (pathname === "/api/kanban/cards" && method === "POST") return handleKanbanCreate(req, res);
       const kbStart = pathname.match(/^\/api\/kanban\/cards\/([0-9A-HJKMNP-TV-Z]{26})\/start$/i);
       if (kbStart && method === "POST") return handleKanbanStart(res, kbStart[1]);
-      if (pathname === "/api/operative" && method === "GET") return handleOperative(res, liveOpts);
+      if (pathname === "/api/session" && method === "GET") return handleOperative(res, liveOpts);
       if (pathname === "/api/sessions" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/sessions", { sessions: [] });
       // Real multi-session engine (dev-env) — the HUD's session switcher.
       if (pathname === "/api/dev-sessions" && method === "GET") return handleDevSessions(req, res, liveOpts);

@@ -291,7 +291,8 @@ const server = http.createServer(async (req, res) => {
             placement: url.searchParams.get("placement") ?? undefined,
             scheduledBefore: url.searchParams.get("scheduled_before") ?? undefined,
             system: url.searchParams.get("system") ?? undefined,
-            includeDeleted: url.searchParams.get("deleted") === "1"
+            includeDeleted: url.searchParams.get("deleted") === "1",
+            frozen: url.searchParams.get("frozen") ?? undefined
           })
         });
       }

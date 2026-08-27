@@ -202,6 +202,7 @@ export class StateClient {
     if (params.scheduledBefore) q.set("scheduled_before", params.scheduledBefore);
     if (params.system) q.set("system", params.system);
     if (params.includeDeleted) q.set("deleted", "1");
+    if (params.frozen !== undefined) q.set("frozen", String(params.frozen));
     return this.request("GET", `/v1/cards?${q}`).then((r) => r.cards);
   }
   patchCard(id, patch, { ifMatchRev, fence } = {}) {

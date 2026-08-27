@@ -5,9 +5,9 @@
 //   (a) the cardSummary projection carries waitingOn / stabilityAt / blocking,
 //   (b) creating a second live card on a project records the honest provisional overlap
 //       event (the real scoring waits for Plan completion — Q2 point 1),
-//   (c) a manual Start on a WAITING card is the deliberate override — it clears waitingOn
-//       (recording it) and dispatches (Q4),
-//   (d) the auto-dispatch path SKIPS a waitingOn card (the same skip the tick applies).
+//   (c) RETIRED by the Conversations cut — Start kicks a conversation, it does not
+//       dispatch, so there is no wait for a manual Start to override,
+//   (d) a PATCH move NEVER dispatches (shouldAutoDispatch is gone outright).
 //
 // Sandboxed exactly like tests/kanban-dispatch.test.ts: a tmp GARRISON_KANBAN_DIR board,
 // a tmp GARRISON_HOME for the coord substrate, a tmp GARRISON_RUNS_DIR, and a written
@@ -105,15 +105,6 @@ async function jsend(method: string, path: string, body?: unknown) {
   return { status: r.status, body: await r.json() as any };
 }
 
-async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 2_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("timed out waiting for accepted dispatch state");
-}
-
 describe("(a) cardSummary carries the coordination fields", () => {
   it("waitingOn / stabilityAt / planCompletedAt / blocking survive the projection", () => {
     const waitingOn = { cardId: "01BLOCKER00000000000000000", cardTitle: "earlier run", grade: "medium", reason: "medium overlap on files [src/a.ts]", until: "stability", thenTo: "implement", rerun: false, since: "2026-07-10T00:00:00.000Z" };
@@ -135,9 +126,9 @@ describe("(a) cardSummary carries the coordination fields", () => {
 
 describe("(b) create-time provisional overlap event", () => {
   it("a second live card on the same project gets an honest provisional coordination event", async () => {
-    // First card, made LIVE: on an agent list with a minted runDir (isCardLive).
-    const first = await createCard(KANBAN_DIR, { title: "first", project: "demo", list: "backlog" });
-    await updateCardCAS(KANBAN_DIR, first.id, (c: any) => ({ ...c, list: "plan", runId: "01RUNFIRST0000000000000000", runDir: join(RUNS_DIR, "01RUNFIRST0000000000000000") }));
+    // First card, made LIVE: on the Running column with a minted runDir (isCardLive).
+    const first = await createCard(KANBAN_DIR, { title: "first", project: "demo", list: "todo" });
+    await updateCardCAS(KANBAN_DIR, first.id, (c: any) => ({ ...c, list: "running", runId: "01RUNFIRST0000000000000000", runDir: join(RUNS_DIR, "01RUNFIRST0000000000000000") }));
 
     // Second card on the SAME project via the real create endpoint.
     const created = await jsend("POST", "/cards", { title: "second", project: "demo", description: "overlapping work" });
@@ -160,52 +151,34 @@ describe("(b) create-time provisional overlap event", () => {
   });
 });
 
-describe("(c) manual Start on a waiting card overrides the wait and dispatches", () => {
-  it("clears waitingOn with a recorded override event, then dispatches", async () => {
-    const card = await createCard(KANBAN_DIR, { title: "waiter", project: "demo", list: "backlog" });
-    await updateCardCAS(KANBAN_DIR, card.id, (c: any) => ({
-      ...c,
-      list: "plan",
-      runId: "01RUNWAITER000000000000000",
-      runDir: join(RUNS_DIR, "01RUNWAITER000000000000000"),
-      planCompletedAt: "2026-07-10T00:00:00.000Z",
-      waitingOn: { cardId: "01RUNFIRST0000000000000000", cardTitle: "first", grade: "medium", reason: "medium overlap", until: "stability", thenTo: "implement", rerun: false, since: "2026-07-10T00:00:00.000Z" }
-    }));
+// (c) — the manual-Start WAIT OVERRIDE is gone with the duty-list engine. Start no
+// longer dispatches a model turn at all: it kicks (or resumes) the card's
+// CONVERSATION through the gateway launcher, and there is no dispatch decision
+// left for a wait to defer. The former test asserted an override that the door no
+// longer performs, so it went with the door.
 
-    const res = await jsend("POST", `/cards/${card.id}/start`);
-    expect(res.status).toBe(200);
-    expect(res.body.dispatched).toBe(true);
-    // The response reflects the pre-dispatch state: the wait is cleared and the override
-    // is the last recorded event.
-    expect(res.body.card.waitingOn).toBeNull();
-    expect(res.body.card.lastEvent.kind).toBe("coordination");
-    expect(res.body.card.lastEvent.message).toMatch(/overridden manually/i);
-
-    // The response is an accepted-dispatch projection. The durable override lands
-    // only in the engine's acquire CAS, so an acquire refusal cannot erase the hold.
-    await waitFor(async () => (await loadCard(KANBAN_DIR, card.id)).waitingOn == null);
-  });
-});
-
-describe("(d) auto-dispatch skips a waitingOn card", () => {
-  it("a PATCH move onto an immediate agent list does NOT dispatch a waiting card", async () => {
-    // A card on a MANUAL list (todo) carrying a wait — a move out of it is a human PATCH
-    // (todo is not engine-owned), and the auto-dispatch onto plan must skip the wait.
+describe("(d) a PATCH move never dispatches", () => {
+  it("moving a card between state columns changes only its position, never its run state", async () => {
+    // The tick used to auto-dispatch a card moved onto an immediate agent list,
+    // and a waitingOn card had to be skipped by that path. Conversations deleted
+    // shouldAutoDispatch outright: a move is a move. This keeps the ONE invariant
+    // worth keeping from (d) — and asserts the write choke point's coherence rule
+    // (status mirrors the list; only the `running` column is running).
     const card = await createCard(KANBAN_DIR, { title: "still-waiting", project: "demo", list: "todo" });
     const set = await updateCardCAS(KANBAN_DIR, card.id, (c: any) => ({
       ...c,
       waitingOn: { cardId: "01RUNFIRST0000000000000000", cardTitle: "first", grade: "heavy", reason: "heavy overlap", until: "terminal", thenTo: "implement", rerun: false, since: "2026-07-10T00:00:00.000Z" }
     }));
 
-    const res = await jsend("PATCH", `/cards/${card.id}`, { list: "plan", rev: set.rev });
+    const res = await jsend("PATCH", `/cards/${card.id}`, { list: "done", rev: set.rev });
     expect(res.status).toBe(200);
-    expect(res.body.dispatched).toBe(false);
-    expect(res.body.note).toMatch(/waiting/i);
-    // The card DID move (the wait defers dispatch, not the move) and keeps its wait.
-    expect(res.body.card.list).toBe("plan");
-    expect(res.body.card.waitingOn).not.toBeNull();
+    expect(res.body.dispatched).toBeFalsy();
+    expect(res.body.card.list).toBe("done");
+    expect(res.body.card.status).not.toBe("running");
     const disk = await loadCard(KANBAN_DIR, card.id);
-    expect(disk.list).toBe("plan");
-    expect(disk.waitingOn).toBeTruthy();
+    expect(disk.list).toBe("done");
+    expect(disk.status).not.toBe("running");
+    expect(disk.runId ?? null).toBeNull();
+    expect(disk.runDir ?? null).toBeNull();
   });
 });

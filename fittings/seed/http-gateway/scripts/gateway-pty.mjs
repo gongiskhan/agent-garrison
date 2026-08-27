@@ -2330,6 +2330,33 @@ export function screenActivityEmitter(handle, onActivity, nowFn = Date.now) {
   };
 }
 
+// Start a card's conversation in the background — the same semantics as
+// POST /conversation/kick, callable in-process by the registration lanes.
+// Under the five-state board a freshly registered card sits on To do and
+// NOTHING else drives it (the tick only re-kicks Running recovery and due
+// schedule-runs), so the lane that registered it must kick it. Idempotent per
+// conversation: an already-advancing id is left alone.
+async function startCardConversation(routerObj, { cardId, task = null, title = null }) {
+  const conversationId = cardId;
+  const controllers = (globalThis.__conversationAborts ??= new Map());
+  if (controllers.has(conversationId)) return false;
+  const stretchLib = await import("./lib/stretch.mjs");
+  const { openConversation } = await import("@garrison/claude-pty");
+  const store = openConversation(conversationId, { role: "gateway" });
+  store.init({ title: title ? String(title).slice(0, 120) : "Conversation", cardId });
+  void stretchLib
+    .patchCardEngine({ id: cardId, patch: { conversationId, scheduleAction: null }, logFn: (e) => logEvent("stdout", e) })
+    .catch(() => {});
+  const controller = new AbortController();
+  controllers.set(conversationId, controller);
+  void stretchLib
+    .runConversation(routerObj, { conversationId, task, signal: controller.signal })
+    .then((r) => logEvent("stdout", { kind: "conversation-kick-done", conversationId, ...r }))
+    .catch((err) => logEvent("stderr", { kind: "conversation-kick-error", conversationId, error: err?.message }))
+    .finally(() => controllers.delete(conversationId));
+  return true;
+}
+
 async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   // Session log (Harness brief §1): the injection is written BEFORE the runtime
   // sees it, and the settled outcome after — every lane, one seam.
@@ -2597,9 +2624,9 @@ async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
           level: pre?.level ?? pre?.route?.level,
           sequence: pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence,
           dutyLevels: cardDutyLevels,
-          // A composite card starts on its first resolved leaf, not the legacy
-          // hardcoded Plan list (a valid workflow may begin at implement/research).
-          targetList: (pre?.sequence ?? pre?.route?.sequence ?? pipelineSequence)?.[0] ?? undefined,
+          // Conversations: every registration lands on To do. The routed
+          // sequence names DUTIES (handoffs walk them), never board columns.
+          targetList: "todo",
           // Where the task came from, so the run engine can post the outcome
           // back to the originating channel thread when the card completes.
           originChannel: origin && sessionKey ? { channel: origin, threadId: sessionKey } : null,
@@ -2659,12 +2686,12 @@ async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
           const resumeList = holdPlan.resumeList;
           const card = await router.createAutonomousCard(message, cls, {
             ...cardOpts,
-            // A held card sits in the board's capture list, which is manual and
-            // never auto-dispatched. That is the hold: no flag has to win a race
-            // with a tick, because nothing dispatches from Backlog in the first
-            // place. The flag is what the guards, the board UI and the resume path
-            // read.
-            targetList: "backlog",
+            // A held card sits on To do, which nothing auto-drives (the tick
+            // only kicks schedule-runs and Running recovery, and it skips
+            // autonomyHeld besides). That is the hold: no flag has to win a
+            // race with a tick. The flag is what the guards, the board UI and
+            // the resume path read.
+            targetList: "todo",
             autonomyHeld: true,
             autonomyAsk: {
               question: autonomy.question,
@@ -2753,26 +2780,20 @@ async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
           if (autonomy.informational && autonomy.question) await router.recordAutonomyAsked();
         }
         if (significant) {
-          // S3d (D9b): judge whether the ask is specified enough to plan against. A
-          // needs-discuss verdict cards the run onto the interactive Discuss list
-          // (targetList) + stamps clarity, so the engine dispatches the discuss duty
-          // session (scope Q&A → brief → plan) before the build; a clear verdict runs
-          // straight to plan as before. Phrasing overrides both ways ("just do it" /
-          // "let's discuss first"). Never blocks - a judge failure defaults to clear.
-          const clarity = await router.judgeClarity(message);
-          const needsDiscuss = clarity?.clarity === "needs-discuss";
-          const createOpts = needsDiscuss
-            ? { ...cardOpts, targetList: "discuss", clarity: "needs-discuss" }
-            : cardOpts;
-          const card = await router.createAutonomousCard(message, cls, createOpts);
+          // The Discuss clarity lane (S3d) retired with the duty lists: TRIAGE is
+          // the first stretch of every conversation, and an under-specified ask
+          // ends there as a needs-input handoff with a blocker naming what is
+          // missing — the same scope question, asked by the thing that owns the
+          // work. judgeClarity has no caller now.
+          const card = await router.createAutonomousCard(message, cls, cardOpts);
           if (card) {
             router.rememberCard(sessionKey, { cardId: card.id, quick: false, taskType: cls.taskType });
-            const reply = needsDiscuss
-              ? `Registered as a run - discussing scope first.\nCard: ${card.url}`
-              : `Registered as a run - the board's run engine will drive it through the pipeline.\n` +
-                `Card: ${card.url}`;
+            // The lane that registered the card drives it: kick its conversation
+            // (fire-and-forget; the card page streams it live).
+            const kicked = await startCardConversation(router, { cardId: card.id, task: message, title: message });
+            const reply = `Registered - running it as a conversation.\nCard: ${card.url}`;
             broadcastRich("assistant", { text: reply });
-            logEvent("stdout", { kind: "run-card", id: card.id, url: card.url, clarity: needsDiscuss ? "needs-discuss" : "clear" });
+            logEvent("stdout", { kind: "run-card", id: card.id, url: card.url, kicked });
             // §6 site 2 of 3. cardUrl is the board's LOOPBACK url: the renderer
             // (which owns the client's host context) passes it through
             // rewriteHostUrl - the gateway cannot, it has no page host.
@@ -2791,7 +2812,9 @@ async function runRoutedTurnInner(message, onChunk, hints, opts = {}) {
           const card = await router.createAutonomousCard(message, cls, {
             ...cardOpts,
             quick: true,
-            targetList: pre?.sequence?.[0] ?? "implement"
+            // Transiently on To do while the inline turn runs; the caller moves
+            // it to Done (completeQuickCard) or Needs input (parkQuickCard).
+            targetList: "todo"
           });
           if (card) {
             quickCard = card;
@@ -4684,6 +4707,197 @@ const server = http.createServer(async (request, response) => {
     // decision about work the BOARD is driving, and it must not queue behind a
     // spawning operative. Every branch is answered by the router (which logs the
     // decision either way), so this handler only adapts it to HTTP.
+    // ── Conversations (the stretch launcher's doors) ─────────────────────────
+    // A conversation is driven in-process on its own lane, OFF the serialized
+    // operative turn chain. The board is a trigger (its tick re-POSTs advance
+    // for recovery); these routes are the only way work enters the launcher.
+    if (url.pathname.startsWith("/conversation")) {
+      if (!router) return sendJson(response, 409, { error: "routed operative is not ready" });
+      const stretchLib = await import("./lib/stretch.mjs");
+      const { openConversation, newConversationId } = await import("@garrison/claude-pty");
+
+      if (request.method === "POST" && url.pathname === "/conversation/open") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(body.conversationId)
+          ? body.conversationId
+          : newConversationId();
+        const store = openConversation(conversationId, { role: "gateway" });
+        store.init({
+          title: typeof body.title === "string" ? body.title.slice(0, 120) : "Conversation",
+          objective: typeof body.objective === "string" ? body.objective.slice(0, 2000) : "",
+          origin: typeof body.origin === "string" ? body.origin : null,
+          cardId: typeof body.cardId === "string" ? body.cardId : null,
+        });
+        if (typeof body.task === "string" && body.task.trim()) {
+          stretchLib.recordUserMessage(store, { text: body.task, origin: body.origin ?? "api" });
+        }
+        logEvent("stdout", { kind: "conversation-open", conversationId });
+        return sendJson(response, 201, { conversationId });
+      }
+
+      if (request.method === "POST" && url.pathname === "/conversation/advance") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
+        if (!conversationId) return sendJson(response, 400, { error: "conversationId is required" });
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        if (controllers.has(conversationId)) {
+          return sendJson(response, 409, { error: "conversation is already advancing", conversationId });
+        }
+        const controller = new AbortController();
+        controllers.set(conversationId, controller);
+        response.statusCode = 200;
+        response.setHeader("content-type", "text/event-stream");
+        response.setHeader("cache-control", "no-cache, no-transform");
+        response.setHeader("connection", "keep-alive");
+        response.setHeader("x-accel-buffering", "no");
+        response.flushHeaders?.();
+        sseWrite(response, "open", { ts: Date.now(), conversationId });
+        const heartbeat = setInterval(() => {
+          try {
+            response.write(": keepalive\n\n");
+          } catch {
+            /* client gone */
+          }
+        }, 15_000);
+        // Closing the SSE client does NOT cancel the conversation — process
+        // survives tab close; /conversation/cancel is the explicit stop.
+        try {
+          const result = await stretchLib.runConversation(router, {
+            conversationId,
+            task: typeof body.task === "string" && body.task.trim() ? body.task : null,
+            maxStretches: Number(body.maxStretches) > 0 ? Math.min(Number(body.maxStretches), 64) : undefined,
+            signal: controller.signal,
+            onFrame: (event, payload) => {
+              try {
+                sseWrite(response, event, payload);
+              } catch {
+                /* client gone; the loop keeps running */
+              }
+            },
+          });
+          logEvent("stdout", { kind: "conversation-advance-done", conversationId, ...result });
+        } catch (err) {
+          try {
+            sseWrite(response, "error", { error: err?.message ?? String(err) });
+          } catch {
+            /* client gone */
+          }
+          logEvent("stderr", { kind: "conversation-advance-error", conversationId, error: err?.message });
+        } finally {
+          clearInterval(heartbeat);
+          controllers.delete(conversationId);
+          try {
+            response.end();
+          } catch {
+            /* already closed */
+          }
+        }
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/conversation/message") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
+        const message = typeof body.message === "string" ? body.message : "";
+        if (!conversationId || !message.trim()) {
+          return sendJson(response, 400, { error: "conversationId and message are required" });
+        }
+        const store = openConversation(conversationId, { role: "gateway" });
+        store.init({});
+        const rec = stretchLib.recordUserMessage(store, {
+          text: message,
+          origin: typeof body.origin === "string" ? body.origin : "web",
+          threadId: typeof body.threadId === "string" ? body.threadId : null,
+          context: typeof body.context === "string" ? body.context : null,
+          routing: body.routing && typeof body.routing === "object" && !Array.isArray(body.routing) ? body.routing : null,
+        });
+        const running = store.currentStretch();
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        const advancing = controllers.has(conversationId);
+        // Nothing running → a responder stretch answers from L1. Fire and
+        // forget on the conversation lane; the caller watches the store/SSE.
+        if (!running && !advancing) {
+          const controller = new AbortController();
+          controllers.set(conversationId, controller);
+          void stretchLib
+            .runConversation(router, { conversationId, signal: controller.signal })
+            .catch((err) => logEvent("stderr", { kind: "conversation-responder-error", conversationId, error: err?.message }))
+            .finally(() => controllers.delete(conversationId));
+        }
+        return sendJson(response, 202, { accepted: true, seq: rec.seq, pickedUpBy: running ? "running-stretch" : advancing ? "advancing" : "responder" });
+      }
+
+      // Fire-and-forget start/recovery door: the board's tick and the Start
+      // action land here. Opens the store when new, links the card, clears the
+      // schedule trigger, and advances in the background. 202 always; a
+      // conversation already advancing answers 409 so kicks are idempotent.
+      if (request.method === "POST" && url.pathname === "/conversation/kick") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(body.conversationId)
+          ? body.conversationId
+          : "";
+        if (!conversationId) return sendJson(response, 400, { error: "conversationId is required" });
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        if (controllers.has(conversationId)) {
+          return sendJson(response, 409, { error: "conversation is already advancing", conversationId });
+        }
+        const store = openConversation(conversationId, { role: "gateway" });
+        store.init({
+          title: typeof body.title === "string" ? body.title.slice(0, 120) : "Conversation",
+          cardId: typeof body.cardId === "string" ? body.cardId : conversationId,
+        });
+        // Link the card to its conversation + clear the schedule-run trigger so
+        // the tick stops re-kicking; best-effort (the advance still runs).
+        void stretchLib
+          .patchCardEngine({
+            id: typeof body.cardId === "string" ? body.cardId : conversationId,
+            patch: { conversationId, scheduleAction: null },
+            logFn: (e) => logEvent("stdout", e),
+          })
+          .catch(() => {});
+        const controller = new AbortController();
+        controllers.set(conversationId, controller);
+        void stretchLib
+          .runConversation(router, {
+            conversationId,
+            task: typeof body.task === "string" && body.task.trim() ? body.task : null,
+            signal: controller.signal,
+          })
+          .then((r) => logEvent("stdout", { kind: "conversation-kick-done", conversationId, ...r }))
+          .catch((err) => logEvent("stderr", { kind: "conversation-kick-error", conversationId, error: err?.message }))
+          .finally(() => controllers.delete(conversationId));
+        return sendJson(response, 202, { accepted: true, conversationId });
+      }
+
+      if (request.method === "POST" && url.pathname === "/conversation/cancel") {
+        const body = await readJsonBody(request);
+        const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        const controller = controllers.get(conversationId);
+        if (!controller) return sendJson(response, 404, { error: "no advancing conversation", conversationId });
+        controller.abort();
+        logEvent("stdout", { kind: "conversation-cancel", conversationId });
+        return sendJson(response, 202, { cancelled: true, conversationId });
+      }
+
+      if (request.method === "GET" && /^\/conversation\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(url.pathname)) {
+        const conversationId = url.pathname.split("/")[2];
+        const store = openConversation(conversationId, { role: "gateway" });
+        const summary = store.readSummary();
+        if (summary == null) return sendJson(response, 404, { error: "no such conversation" });
+        return sendJson(response, 200, {
+          conversationId,
+          summary,
+          handoffs: store.lastHandoffs(10),
+          tail: store.tail(100),
+          currentStretch: store.currentStretch(),
+          advancing: (globalThis.__conversationAborts ?? new Map()).has(conversationId),
+        });
+      }
+
+      return sendJson(response, 404, { error: "not found", path: url.pathname });
+    }
+
     if (request.method === "POST" && url.pathname === "/escalate") {
       if (!router) return sendJson(response, 409, { error: "routed operative is not ready" });
       const body = await readJsonBody(request);

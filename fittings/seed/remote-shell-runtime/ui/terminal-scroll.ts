@@ -69,9 +69,22 @@ export function attachTerminalScrolling(
   type WheelHandlerHost = {
     attachCustomWheelEventHandler?: (handler: (ev: WheelEvent) => boolean) => void;
   };
+  // Wheel storm brake: a runaway wheel source (momentum bug, stuck device,
+  // synthetic loop) turns into hundreds of reports a second, and the remote
+  // TUI re-renders per report - the pane "scrolls frantically". No human
+  // scrolls faster than ~40 ticks/s; beyond that budget the wheel is noise.
+  let wheelWindowAt = 0;
+  let wheelWindowCount = 0;
+  const wheelAllowed = () => {
+    const now = Date.now();
+    if (now - wheelWindowAt > 1000) { wheelWindowAt = now; wheelWindowCount = 0; }
+    return ++wheelWindowCount <= 40;
+  };
+
   const wheelHost = term as unknown as WheelHandlerHost;
   if (typeof wheelHost.attachCustomWheelEventHandler === "function") {
     wheelHost.attachCustomWheelEventHandler(() => {
+      if (!wheelAllowed()) return false;  // storm brake: drop the excess
       if (mouseReported()) return true;   // tmux mouse mode — let xterm report it
       if (isTmux()) return false;         // no way to scroll: swallow, never type
       return true;                        // a plain PTY: xterm's own handling is right

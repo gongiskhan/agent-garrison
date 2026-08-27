@@ -127,8 +127,10 @@ describe("Kanban transcript adapter matches the shared SessionStream journal mod
 describe("card session-stream route", () => {
   it("serves the current generation's sidecar as the shared SessionStream SSE contract", async () => {
     const root = tempRoot();
-    const card = await createCard(root, { title: "Live route", list: "plan", project: "garrison" });
-    const acquired = await saveCardCAS(root, { ...card, status: "running", runSeq: 1 }, card.rev);
+    // Conversations: `list` IS the state — a running card sits on the `running`
+    // list, and the store's write choke point re-derives `status` from it.
+    const card = await createCard(root, { title: "Live route", list: "todo", project: "garrison" });
+    const acquired = await saveCardCAS(root, { ...card, list: "running", status: "running", runSeq: 1 }, card.rev);
     expect(acquired.ok).toBe(true);
 
     const transcriptPath = path.join(root, "runtime", "route-session.jsonl");
@@ -164,8 +166,10 @@ describe("card session-stream route", () => {
 
       // End the generation after the handler has loaded the sidecar; its next
       // bounded poll observes the status change and closes the stream.
+      // Ending the generation means LEAVING the running list — flipping `status`
+      // alone would be re-derived straight back to "running".
       const running = await loadCard(root, card.id);
-      const settled = await saveCardCAS(root, { ...running, status: "ok" }, running.rev);
+      const settled = await saveCardCAS(root, { ...running, list: "done", status: "ok" }, running.rev);
       expect(settled.ok).toBe(true);
       const text = await response.text();
       const frames = text
@@ -182,10 +186,11 @@ describe("card session-stream route", () => {
 
   it("opens a running remote card on the rich default stream and receives ordered Outpost chunks", async () => {
     const root = tempRoot();
-    const card = await createCard(root, { title: "Remote live route", list: "plan", project: "garrison" });
+    const card = await createCard(root, { title: "Remote live route", list: "todo", project: "garrison" });
     const runId = "remote-run-1";
     const acquired = await saveCardCAS(root, {
       ...card,
+      list: "running",
       status: "running",
       placement: { target: "studio-mac" },
       dispatch: {
@@ -238,7 +243,7 @@ describe("card session-stream route", () => {
       expect(response.status).toBe(200);
       const running = await loadCard(root, card.id);
       expect((running as any).dispatch.runId).toBe(runId);
-      const settled = await saveCardCAS(root, { ...running, status: "ok" }, running.rev);
+      const settled = await saveCardCAS(root, { ...running, list: "done", status: "ok" }, running.rev);
       expect(settled.ok).toBe(true);
       const frames = (await response.text())
         .split("\n\n")
@@ -289,11 +294,12 @@ describe("card session-stream route", () => {
 
   it("tails the active dispatch log index instead of a higher losing reservation", async () => {
     const root = tempRoot();
-    const card = await createCard(root, { title: "Exact remote log", list: "plan", project: "garrison" });
+    const card = await createCard(root, { title: "Exact remote log", list: "todo", project: "garrison" });
     writeFileSync(path.join(root, "cards", card.id, "log-1.md"), "owned remote stream\n");
     writeFileSync(path.join(root, "cards", card.id, "log-2.md"), "losing claim reservation\n");
     const acquired = await saveCardCAS(root, {
       ...card,
+      list: "running",
       status: "running",
       placement: { target: "studio-mac" },
       dispatch: {
@@ -316,7 +322,7 @@ describe("card session-stream route", () => {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/cards/${card.id}/watch`);
       const current = await loadCard(root, card.id);
-      const settled = await saveCardCAS(root, { ...current, status: "ok" }, current.rev);
+      const settled = await saveCardCAS(root, { ...current, list: "done", status: "ok" }, current.rev);
       expect(settled.ok).toBe(true);
       const text = await response.text();
       expect(text).toContain('"live":true');

@@ -13,7 +13,7 @@ FITTING_DIR="$(cd "$SELF_DIR/.." && pwd)"            # .../vault-git-sync
 # --require-fresh backstop whose minute is staggered per node (four nodes
 # pushing the same remote at the same second is a needless conflict
 # generator, and a hash needs no coordination).
-CRON="${VAULT_GIT_SYNC_CRON:-*/15 * * * *}"
+CRON="${VAULT_GIT_SYNC_CRON:-}"
 VAULT_DIR="${VAULT_GIT_SYNC_VAULT_DIR:-$HOME/ObsidianVault}"
 # Expand a leading ~ NOW. setupConfigEnv (runner.ts) projects a `type: path`
 # config value with a bare String(), so a configured "~/ObsidianVault" arrives
@@ -36,6 +36,21 @@ fi
 # reads OBSIDIAN_VAULT. The scheduler runs the command via `/bin/sh -c`.
 JOB_CMD="OBSIDIAN_VAULT='$VAULT_DIR' bash '$FITTING_DIR/scripts/sync.sh'"
 
+# The 15-minute sync is STAGGERED per node within the quarter-hour: four
+# nodes hitting one remote at :00/:15/:30/:45 was a standing push race
+# (proven by a rotating push-failed status on whichever node lost).
+if command -v sha1sum >/dev/null 2>&1; then
+  NODE_HASH6=$(printf %s "${GARRISON_NODE_NAME:-$(hostname -s)}" | sha1sum | cut -c1-6)
+else
+  NODE_HASH6=$(printf %s "${GARRISON_NODE_NAME:-$(hostname -s)}" | shasum | cut -c1-6)
+fi
+if [ -z "$CRON" ]; then
+  # Four explicit minutes: the scheduler cron parser takes lists, not
+  # range-with-step (its "invalid range" refusal cost one Mac up()).
+  OFF=$(( 0x$NODE_HASH6 % 15 ))
+  CRON="$OFF,$((OFF+15)),$((OFF+30)),$((OFF+45)) * * * *"
+fi
+
 # register, not add: PRESERVES the user's enable/disable choice on re-register.
 node "$SCHEDULER" register vault-git-sync "$CRON" -- "$JOB_CMD"
 echo "vault-git-sync: registered @ '$CRON' (vault=$VAULT_DIR)"
@@ -43,7 +58,14 @@ echo "vault-git-sync: registered @ '$CRON' (vault=$VAULT_DIR)"
 # Nightly backstop: a FULL sync that refuses to lie — exit 75 when the lock
 # was held and no sync happened. Minute staggered by node-name hash.
 NODE_NAME="${GARRISON_NODE_NAME:-$(hostname -s | tr '[:upper:]' '[:lower:]')}"
-STAGGER_MIN=$(( 0x$(printf %s "$NODE_NAME" | sha1sum | cut -c1-6) % 60 ))
+# shasum on macOS, sha1sum on Linux - the first mesh Mac up() died exit 127
+# on the missing binary.
+if command -v sha1sum >/dev/null 2>&1; then
+  NODE_HASH=$(printf %s "$NODE_NAME" | sha1sum | cut -c1-6)
+else
+  NODE_HASH=$(printf %s "$NODE_NAME" | shasum | cut -c1-6)
+fi
+STAGGER_MIN=$(( 0x$NODE_HASH % 60 ))
 BACKSTOP_CRON="$STAGGER_MIN 4 * * *"
 BACKSTOP_CMD="OBSIDIAN_VAULT='$VAULT_DIR' bash '$FITTING_DIR/scripts/sync.sh' --require-fresh"
 node "$SCHEDULER" register vault-git-sync-nightly "$BACKSTOP_CRON" -- "$BACKSTOP_CMD"

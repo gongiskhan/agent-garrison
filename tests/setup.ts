@@ -27,3 +27,15 @@ process.env.GARRISON_ASSUME_INSTALLED = "1";
 if (!process.env.GARRISON_HOME) {
   process.env.GARRISON_HOME = mkdtempSync(join(tmpdir(), "garrison-test-home-"));
 }
+
+// A test must never reach the REAL state service either.
+//
+// Same hazard as the home above, one layer up: a shell that exports
+// GARRISON_STATE_URL/GARRISON_STATE_TOKEN (a node's own env, or a debugging
+// session) would hand every state-backed module the LIVE mesh — reads of real
+// cards, and writes to shared documents like sidebar.pins. Discovery has no
+// third fallback, so clearing these two makes the default "not enrolled", which
+// every state-backed module already handles. Tests that want a service set them
+// explicitly against tests/state-service-harness.ts.
+delete process.env.GARRISON_STATE_URL;
+delete process.env.GARRISON_STATE_TOKEN;

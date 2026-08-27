@@ -38,6 +38,16 @@ export function resolveGatewayUrl() {
   return null;
 }
 
+// The Garrison APP's base URL, same discipline as the gateway URL above: no
+// literal fallback, resolve from the projected URL or the app port, else null.
+export function resolveGarrisonBaseUrl() {
+  const explicit = (process.env.GARRISON_BASE_URL || "").trim();
+  if (explicit) return explicit;
+  const port = (process.env.GARRISON_APP_PORT || "").trim();
+  if (/^[0-9]+$/.test(port)) return `http://127.0.0.1:${port}`;
+  return null;
+}
+
 // The instance-identifying env baked into every scheduler job command this fitting
 // registers. The scheduler daemon runs jobs through `sh -c` with ITS OWN env, which
 // never carries the composition's projected values — so a job that needs them must
@@ -49,7 +59,13 @@ export function instanceEnvPrefix() {
   const vars = {
     GARRISON_GATEWAY_URL: resolveGatewayUrl(),
     GARRISON_HOME: process.env.GARRISON_HOME,
-    GARRISON_KANBAN_DIR: process.env.GARRISON_KANBAN_DIR
+    GARRISON_KANBAN_DIR: process.env.GARRISON_KANBAN_DIR,
+    // Calendar sync runs from the tick and reaches the app (connector auth-env)
+    // and the composition's installed connectors. Without these two the sync's
+    // connectorCaller() resolved nothing and every beat reported "not-connected"
+    // even with Google fully wired — indistinguishable from a real disconnect.
+    GARRISON_BASE_URL: resolveGarrisonBaseUrl(),
+    GARRISON_COMPOSITION_DIR: process.env.GARRISON_COMPOSITION_DIR
   };
   return Object.entries(vars)
     .filter(([, v]) => typeof v === "string" && v.trim() && !v.includes("'"))

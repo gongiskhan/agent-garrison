@@ -150,7 +150,24 @@ export default function RemoteSessionPage({ params }: { params: { node: string; 
     () => payload?.sessions.find((row) => row.id === sessionId) ?? null,
     [payload, sessionId]
   );
-  const threadId = session?.threadId ?? null;
+  // A gateway session does not always carry a web thread (the standing
+  // console predates the registry row). The peer's THREAD LIST is proxied,
+  // so when the session has none the operator picks one - control is still
+  // fully cross-node, just explicitly aimed.
+  const [pickedThread, setPickedThread] = useState<string>("");
+  const [peerThreads, setPeerThreads] = useState<{ id: string; title?: string }[]>([]);
+  const threadId = session?.threadId ?? (pickedThread || null);
+
+  useEffect(() => {
+    if (!session || session.threadId) return;
+    fetch(proxy(node, "threads"), { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        const threads = (d.threads ?? []) as { id: string; title?: string; updatedAt?: string }[];
+        setPeerThreads(threads.slice(0, 20));
+      })
+      .catch(() => setPeerThreads([]));
+  }, [node, session]);
 
   const loadSession = useCallback(async () => {
     try {
@@ -369,6 +386,28 @@ export default function RemoteSessionPage({ params }: { params: { node: string; 
                 {node} has no tailnet host recorded, so it cannot be opened directly from here.
               </p>
             )}
+
+            {!threadId && peerThreads.length > 0 ? (
+              <section className={styles.controls}>
+                <h2 className={styles.sectionTitle}>Control</h2>
+                <p className={styles.note}>
+                  This session has no web thread of its own. Pick one of {node}&apos;s threads to watch and steer through the mesh proxy:
+                </p>
+                <select
+                  className={styles.textarea}
+                  value={pickedThread}
+                  onChange={(event) => setPickedThread(event.target.value)}
+                  data-testid="remote-thread-picker"
+                >
+                  <option value="">- pick a thread on {node} -</option>
+                  {peerThreads.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title ? `${t.title} (${t.id})` : t.id}
+                    </option>
+                  ))}
+                </select>
+              </section>
+            ) : null}
 
             {threadId ? (
               <section className={styles.controls}>

@@ -13,7 +13,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Serves a React chat UI on its own port (default 27083). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Talks to the session through the gateway; never spawns Claude itself.
+  summary: Serves a React chat UI on its own port (the `port` config value, shifted by the instance profile). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Each thread is a conversation; it talks to the gateway and never spawns Claude itself.
   config_schema:
     - key: port
       type: integer
@@ -26,7 +26,7 @@ x-garrison:
     - key: gateway_url
       type: string
       default: ""
-      description: Optional override for the upstream http-gateway URL. Defaults to GARRISON_GATEWAY_URL env or http://127.0.0.1:4777.
+      description: Optional override for the upstream http-gateway URL. Defaults to the GARRISON_GATEWAY_URL env the runner projects, else the GARRISON_GATEWAY_HOST/GARRISON_GATEWAY_PORT pair.
     - key: tls_cert
       type: path
       default: ""

@@ -974,69 +974,6 @@ const nextClientRequestId = () => {
 };
 
 // m:ss elapsed for the working indicator (e.g. 7 → "0:07", 75 → "1:15").
-/**
- * A bottom sheet for one group of controls.
- *
- * The composer used to stack a badge rail, a chip row and the input on top of
- * each other, and every one of them was permanently on screen for a choice the
- * user makes occasionally. A sheet costs one tap to open and gives the controls
- * room to breathe; the transcript keeps saying what was actually chosen.
- *
- * Native <dialog> so Escape, the backdrop and focus containment are the
- * platform's job rather than ours.
- */
-function RouteSheet({
-  onClose,
-  busy,
-  saving,
-  error,
-  onRetry,
-  children,
-}: {
-  onClose: () => void;
-  busy: boolean;
-  saving?: boolean;
-  error?: string | null;
-  onRetry?: () => void;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDialogElement | null>(null);
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (!dialog.open) dialog.showModal();
-    const onCancel = (event: Event) => { event.preventDefault(); onClose(); };
-    dialog.addEventListener("cancel", onCancel);
-    return () => dialog.removeEventListener("cancel", onCancel);
-  }, [onClose]);
-  return (
-    <dialog
-      ref={ref}
-      className="cc-sheet"
-      aria-label="Run context"
-      onClick={(event) => { if (event.target === ref.current) onClose(); }}
-    >
-      <div className="cc-sheet-card">
-        <div className="cc-sheet-head">
-          <h2 className="cc-sheet-title">Route</h2>
-          <button type="button" className="cc-sheet-close" onClick={onClose} aria-label="Close route sheet">×</button>
-        </div>
-        <p className="cc-sheet-sub">
-          {busy
-            ? "A response is running - these apply to your next message."
-            : "Applies to your next message. Anything left on auto is chosen for you."}
-        </p>
-        <div className="cc-sheet-body">{children}</div>
-        {(saving || error) && (
-          <div className={`cc-pin-save${error ? " cc-pin-save-error" : ""}`}>
-            <span>{error ?? "Saving route choices…"}</span>
-            {error && onRetry && <button type="button" onClick={onRetry}>Retry save</button>}
-          </div>
-        )}
-      </div>
-    </dialog>
-  );
-}
 
 function fmtElapsed(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -1267,6 +1204,22 @@ export interface ClaudeChatProps {
    */
   autoShowTranscript?: boolean;
   /**
+   * The conversation stream IS the body. Hides the Chat/Transcript toggle, pins
+   * the transcript pane open (SessionStream on {@link transcriptUrl}), and renders
+   * the composer's pending-input receipts as a thin tail strip beneath it (a
+   * just-sent message shows queued/running immediately, then disappears into the
+   * stream once the store echoes it as a user event). Requires `transcriptUrl`.
+   * Default false - every existing embedder byte-identical.
+   */
+  transcriptOnly?: boolean;
+  /**
+   * Land the pinned transcript on ONE event (a search hit) instead of on live:
+   * threaded verbatim to {@link SessionStream}'s `focusEventId`. Only meaningful
+   * with `transcriptOnly`, because that is the only mode where this component
+   * owns the stream for the whole body rather than as a toggled pane.
+   */
+  transcriptFocusEventId?: string;
+  /**
    * Stable key for persisting the UNSENT composer draft (typed text + settled
    * attachments) across a re-mount. A multi-thread host re-mounts the component
    * with a fresh `key` when switching threads (see `initialHistory`), which would
@@ -1307,7 +1260,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -1383,6 +1336,10 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const [screen, setScreen] = useState<string[]>([]);
   const [showRaw, setShowRaw] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  // `transcriptOnly` can only mean something when there IS a stream to show.
+  // Derived once so the header, the body and the tail strip can never disagree
+  // about which surface is on screen.
+  const streamIsBody = Boolean(transcriptOnly && transcriptUrl);
   const [input, setInput] = useState(() => loadDraftText(draftKey));
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [menuIdx, setMenuIdx] = useState(0);
@@ -1531,7 +1488,6 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const [railOpen, setRailOpen] = useState(false);
   /** The generated thread edits its run context in a sheet rather than in a
    *  standing row of badges above the composer. */
-  const [routeSheetOpen, setRouteSheetOpen] = useState(false);
   const [routeModal, setRouteModal] = useState<{ open: boolean; focus?: PinField }>({ open: false });
   /** Which replies have their run-context rail expanded. Collapsed by default:
    *  the rail is a record you consult, not something to read on every message. */
@@ -2778,6 +2734,24 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
 
   const hasPins = Object.keys(pins).length > 0;
   const showFlightRail = railOn && (busy || hasPins || railOpen || pinSavePending || Boolean(pinSaveError));
+  // The tail strip: with the bubble pane gone, an input receipt has nowhere else
+  // to appear. Pending states carry the "I have it, it is nth in line" feedback a
+  // just-pressed Send owes the user before the store echoes the message back into
+  // the stream; a FAILED receipt joins them because otherwise a refused send would
+  // vanish without a trace. Bounded at three so a run of failures cannot grow a
+  // second transcript under the first.
+  const tailTurns = useMemo(
+    () =>
+      streamIsBody
+        ? turns
+            .filter((turn) =>
+              (!turn.eventTerminal && isPendingInputState(turn.inputState)) ||
+              (turn.inputState === "failed" && Boolean(turn.failure))
+            )
+            .slice(-3)
+        : [],
+    [streamIsBody, turns]
+  );
   // The flight rail's right-hand slot: the live elapsed time and the Stop pair
   // while busy; otherwise a way to put the rail away again.
   const generatedStopDisabled = !activeGeneratedTurn?.generationId || activeGeneratedTurn.inputState === "stopping";
@@ -2860,7 +2834,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             ))}
           </div>
         )}
-        {transcriptUrl && (
+        {/* No toggle where the stream IS the body: there is no other surface to
+            switch to, and a control whose two states look identical is chrome. */}
+        {transcriptUrl && !streamIsBody && (
           <button
             className="cc-rawtoggle"
             onClick={() => setShowTranscript((v) => !v)}
@@ -2874,8 +2850,20 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         </button>
       </header>
 
-      <div className="cc-scroll" ref={scrollRef} onScroll={onScroll} onClick={onCodeCopyClick}>
-        {showTranscript && transcriptUrl ? (
+      <div
+        className={`cc-scroll${streamIsBody ? " cc-scroll-stream" : ""}`}
+        ref={scrollRef}
+        onScroll={onScroll}
+        onClick={onCodeCopyClick}
+      >
+        {streamIsBody ? (
+          <SessionStream
+            url={transcriptUrl!}
+            live={busy}
+            announceLiveUpdates={false}
+            focusEventId={transcriptFocusEventId}
+          />
+        ) : showTranscript && transcriptUrl ? (
           <SessionStream url={transcriptUrl} live={busy} announceLiveUpdates={false} />
         ) : (
         <>
@@ -3109,6 +3097,29 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         )}
       </div>
 
+      {/* The tail strip. It is deliberately NOT a bubble: what it carries is a
+          receipt for a message that has not landed in the record yet, and once the
+          store echoes the message back as a user event the stream above owns it
+          and the row goes. */}
+      {tailTurns.length > 0 && (
+        <div className="cc-tailstrip">
+          {tailTurns.map((t) => (
+            <div className="cc-tailstrip-row" key={t.id}>
+              {t.user.trim() !== "" && (
+                <span className="cc-tailstrip-text" title={t.user}>{t.user}</span>
+              )}
+              <InputLifecycleStatus
+                turn={t}
+                elapsed={isActiveInputState(t.inputState) ? elapsed : 0}
+                hint={generatedMode ? (t.activity ?? "") : workingHint}
+                onRetryStop={() => { if (t.generationId) void requestGeneratedStop(t, false); }}
+              />
+              {t.failure && <FailureNotice failure={t.failure} />}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="cc-statusstrip" title="Claude Code status line">
         {status.rows.length > 0 ? status.rows.map((r, i) => <div key={i} className="cc-statusrow">{r}</div>) : <div className="cc-statusrow cc-dim">no status</div>}
       </div>
@@ -3298,28 +3309,6 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         {/* The flight rail: live badges for the turn in flight plus the pin
             dropdowns, mounted while busy, while anything is pinned, or on demand
             from the toolbar's Route chip. */}
-        {routeSheetOpen && generatedMode && (
-          <RouteSheet
-            onClose={() => setRouteSheetOpen(false)}
-            busy={busy}
-            saving={pinSavePending}
-            error={pinSaveError?.message ?? null}
-            onRetry={pinSaveError ? retryPinSave : undefined}
-          >
-            <AttributionRail
-              variant="flight"
-              route={rewriteRouteForHost(latestAssistant?.route, hostCtx())}
-              pins={pins}
-              pendingFields={pendingPins}
-              options={routeOptions ?? undefined}
-              onPin={applyPin}
-              onOpenTranscript={onOpenTranscript}
-              label="Run context for your next message"
-              musterUrl={musterUrl}
-              onOpenModal={(field) => { setRouteSheetOpen(false); setRouteModal({ open: true, focus: field }); }}
-            />
-          </RouteSheet>
-        )}
         {showFlightRail && !generatedMode && (
           <>
             <AttributionRail
@@ -3343,7 +3332,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             the modal CLOSES the sheet - so a banner living inside a rail meant a
             rejected save had nowhere to appear and failed silently. */}
         {(pinSavePending || pinSaveError) && (
-          <div className={`cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`}>
+          <div className={`cc-pin-save${pinSaveError ? " cc-pin-save-error" : ""}`} role="status" aria-live="polite">
             <span>{pinSaveError?.message ?? "Saving route choices…"}</span>
             {pinSaveError && (
               <button type="button" onClick={retryPinSave}>Retry save</button>
@@ -3423,9 +3412,9 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           {railOn && generatedMode && (
             <button
               type="button"
-              className={`cc-mic cc-routebtn${routeSheetOpen ? " cc-routebtn-active" : ""}`}
+              className={`cc-mic cc-routebtn${routeModal.open ? " cc-routebtn-active" : ""}`}
               aria-haspopup="dialog"
-              aria-expanded={routeSheetOpen}
+              aria-expanded={routeModal.open}
               aria-label="Run context for your next message"
               title="Route: duty, level, tier, runtime, model, effort, account, project, flow or phases for your next message"
               onClick={() => setRouteModal({ open: true })}

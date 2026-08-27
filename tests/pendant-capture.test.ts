@@ -440,6 +440,92 @@ describe("feedback bus unit behaviour", () => {
   });
 });
 
+// Regression (2026-08-27): the wearer reported the pendant "missing the wake
+// word a lot". It was not missing it - it was refusing to say so. The dedupe
+// window that stops one wake producing two buzzes was opened by an unstable
+// INTERIM guess and cleared only by an authoritative window_closed, so an
+// interim that never became a real wake held the gate shut for
+// wakeMaxCaptureMs + wakeSilenceCloseMs - 60s after the 2026-08-22 retune.
+// Every "Zeca" spoken in that minute, including the ones the system genuinely
+// heard, was swallowed with no pulse at all.
+describe("wake pulse suppression is scoped to what actually opened it", () => {
+  const boot = (home: string, extra: Record<string, unknown> = {}) => {
+    const counters = new Counters(home, "t");
+    const bus = new FeedbackBus({ counters, wakeWindowTtlMs: 5000, wakeProvisionalTtlMs: 60, ...extra });
+    return { counters, bus };
+  };
+
+  it("an interim wake that never confirms stops muting the next real wake", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "feedback-orphan-"));
+    try {
+      const { counters, bus } = boot(home);
+      expect(bus.emit("wake_detected", { sessionId: "S1", interim: true })).not.toBeNull();
+      // The final drops the name: no capture window, so no window_closed ever
+      // arrives to clear the gate. Only the provisional TTL can.
+      await new Promise((r) => setTimeout(r, 140));
+      // ...and the wearer's next attempt is felt, rather than swallowed for a
+      // full capture window.
+      expect(bus.emit("wake_detected", { sessionId: "S1", interim: true })).not.toBeNull();
+      expect(counters.read().feedback_wake_unconfirmed).toBe(1);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("tells the wearer the wake lapsed, so a pulse cannot promise a capture that never opened", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "feedback-lapse-"));
+    try {
+      const { bus } = boot(home);
+      const seen: string[] = [];
+      bus.subscribeAll((e) => seen.push(String(e.name)));
+      bus.emit("wake_detected", { sessionId: "S2", interim: true });
+      await new Promise((r) => setTimeout(r, 140));
+      expect(seen).toEqual(["wake_detected", "wake_lapsed"]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("a confirmed wake keeps the FULL window and never lapses", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "feedback-confirm-"));
+    try {
+      const { counters, bus } = boot(home);
+      const seen: string[] = [];
+      bus.subscribeAll((e) => seen.push(String(e.name)));
+      // interim guess, then the authoritative final agrees.
+      bus.emit("wake_detected", { sessionId: "S3", interim: true });
+      expect(bus.emit("wake_detected", { sessionId: "S3" })).toBeNull(); // already felt
+      expect(counters.read().feedback_wake_confirmed).toBe(1);
+
+      // Past the PROVISIONAL ttl the window must still be held - the capture is
+      // genuinely running, and a "Zeca" inside the command is not a new wake.
+      await new Promise((r) => setTimeout(r, 140));
+      expect(seen).toEqual(["wake_detected"]); // no lapse fired
+      expect(bus.emit("wake_detected", { sessionId: "S3", interim: true })).toBeNull();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("still buzzes exactly once for one wake - the interim/final double stays deduped", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "feedback-once-"));
+    try {
+      const { bus } = boot(home);
+      const seen: string[] = [];
+      bus.subscribeAll((e) => seen.push(String(e.name)));
+      // The common shape: ~3 interims per utterance, then the final.
+      bus.emit("wake_detected", { sessionId: "S4", interim: true });
+      bus.emit("wake_detected", { sessionId: "S4", interim: true });
+      bus.emit("wake_detected", { sessionId: "S4", interim: true });
+      bus.emit("wake_detected", { sessionId: "S4" });
+      bus.emit("window_closed", { sessionId: "S4", reason: "silence" });
+      expect(seen).toEqual(["wake_detected", "window_closed"]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("pendant triage identity (shared tick)", () => {
   it("triages a pendant ambient session event with pendant identity in one model call", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "pendant-triage-"));

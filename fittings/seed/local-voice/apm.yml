@@ -155,8 +155,8 @@ x-garrison:
                        sentence-by-sentence so playback can start early. The
                        voice is chosen from the TEXT's own language, so a reply
                        written in PT is spoken in a PT voice without any extra
-                       call. Pass it the Operative's reply text verbatim.
-    The Operative replies in the language it was addressed in; this Fitting then
+                       call. Pass it the session's reply text verbatim.
+    The session replies in the language it was addressed in; this Fitting then
     speaks that reply back in the same language. Everything runs on the host
     (Kokoro + faster-whisper); no key, no network.
     The WS /stream incremental-STT endpoint is not implemented in v1 — use the

@@ -49,6 +49,7 @@ const STATE_WORD: Record<DeckState, string> = {
 export function RemoteShellWorkbench({
   sessionId,
   transport,
+  sessionSpec = null,
   title,
   messageCount,
   hasActivity,
@@ -56,6 +57,9 @@ export function RemoteShellWorkbench({
 }: {
   sessionId: string;
   transport: RemoteShellTransport | null;
+  /** The multi-session spec for this thread's session (null = the transport's
+   *  standing session). Reattach must recycle THIS session, not the default. */
+  sessionSpec?: { transport: string; tmuxSession: string | null; cwd: string | null; label: string | null } | null;
   title: string;
   messageCount: number;
   /** A turn is running or history exists — suppresses the empty-state prose. */
@@ -115,7 +119,25 @@ export function RemoteShellWorkbench({
     return () => document.removeEventListener("keydown", onKey);
   }, [narrow, sheetOpen]);
 
-  const reattach = useCallback(() => setNonce((n) => n + 1), []);
+  // Reconnect recycles the fitting's ssh+tmux attach client too (recycle:
+  // true), not just this pane's WebSocket - it is the user's one-click way out
+  // of a wedged client state without touching tmux on the remote.
+  const reattach = useCallback(() => {
+    const t = transport?.name;
+    const bump = () => setNonce((n) => n + 1);
+    if (!t) return bump();
+    void fetch("/api/remote-shell/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        transport: t,
+        recycle: true,
+        ...(sessionSpec?.tmuxSession ? { tmuxSession: sessionSpec.tmuxSession } : {}),
+        ...(sessionSpec?.cwd ? { cwd: sessionSpec.cwd } : {}),
+        ...(sessionSpec?.label ? { label: sessionSpec.label } : {})
+      })
+    }).catch(() => { /* the WS reopen below still helps */ }).finally(bump);
+  }, [transport?.name, sessionSpec?.tmuxSession, sessionSpec?.cwd, sessionSpec?.label]);
 
   // Seam drag: pointer-driven, clamped, persisted on release.
   const onSeamPointerDown = useCallback((e: React.PointerEvent) => {
@@ -166,8 +188,9 @@ export function RemoteShellWorkbench({
 
   const crumb = useMemo(() => {
     if (!transport) return null;
-    return `${transport.via} / TMUX:${transport.tmuxSession}`.toUpperCase();
-  }, [transport]);
+    const sess = sessionSpec?.tmuxSession || transport.tmuxSession;
+    return `${transport.via} / TMUX:${sess}`.toUpperCase();
+  }, [transport, sessionSpec?.tmuxSession]);
 
   const emptyDelegate = messageCount === 0 && !hasActivity;
   const stateWord = STATE_WORD[state];

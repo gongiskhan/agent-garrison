@@ -671,7 +671,7 @@ const NEW_TARGETS: ReadonlyArray<{ label: string; href: string; hint: string }> 
     href: "/muster?section=transfer",
     hint: "import a .garrison.json bundle"
   },
-  { label: "Session", href: "/fitting/web-channel-default", hint: "a new Web Channel conversation" },
+  { label: "Conversation", href: "/fitting/web-channel-default", hint: "a new Web Channel conversation" },
   { label: "Card", href: "/fitting/kanban-loop", hint: "a new Kanban card" },
   { label: "Duty", href: "/muster", hint: "add a duty to the composition" },
   { label: "Fitting", href: "/compose", hint: "station or clone a Fitting" }

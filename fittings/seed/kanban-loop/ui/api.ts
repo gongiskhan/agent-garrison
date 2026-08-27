@@ -110,11 +110,33 @@ export interface PreparedRevertSummary {
 // been assigned yet.
 export type CardScope = "personal" | "project" | "unscoped";
 
+/** A calendar-style repeat rule — the alternative to a cron string for a
+ *  recurring schedule, and the only one that can say "every 2 weeks on Tuesday"
+ *  or "the second Tuesday of the month". See lib/recurrence.mjs. */
+export interface CardRecurrence {
+  freq: "daily" | "weekly" | "monthly";
+  interval: number;
+  hour: number;
+  minute: number;
+  start: string;
+  byWeekday?: number[];
+  byMonthDay?: number;
+  byWeekdayOrdinal?: { weekday: number; ordinal: number };
+  until?: string;
+  count?: number;
+}
+
 export interface CardSchedule {
   kind: "once" | "cron";
   action: "notify" | "run";
   at?: string;
+  /** A recurring schedule carries EITHER a cron string or a recurrence rule. */
   cron?: string;
+  recurrence?: CardRecurrence;
+  /** Minutes from the RELEASE instant to the DEADLINE. Absent or 0 means the
+   *  card is due the moment it lands — how every card behaved before the two
+   *  instants were split, and still the default. */
+  dueOffsetMinutes?: number;
   timezone: string;
   enabled: boolean;
   targetList: string;
@@ -141,12 +163,20 @@ export interface DispatchRunProvenance {
 }
 
 export interface CardSummary {
+  autonomous?: boolean;
+  /** The autonomy gate's standing ask: the conversation paused on To do and
+   *  wants a nod before the next duty runs. */
+  awaitingApproval?: { next: string; plan: string | null; items: string[]; at: string } | null;
   id: string;
   title: string;
   project: string | null;
   scope: CardScope;
   list: string;
   status: string;
+  /** The duty the current/last stretch ran (Conversations) — a chip, not a column. */
+  duty?: string | null;
+  /** The card's conversation id (equals the card id once a stretch has run). */
+  conversationId?: string | null;
   iterations: number;
   goalMode: boolean;
   rev: number;
@@ -271,6 +301,10 @@ export interface CardSummary {
   checklistDone?: number;
   created?: string | null;
   updated: string | null;
+  // Set on a pre-Conversations record the migration froze. The state service
+  // refuses every write on it but DELETE, so the card modal renders read-only
+  // wherever it is opened from - the History view, a hash link, or a search hit.
+  frozen?: { at: string; reason: string | null; by: string | null } | null;
 }
 
 // One checklist item on a card. Whole-array replace on PATCH.
@@ -341,6 +375,42 @@ export interface BoardView {
   version: number;
   lists: ListView[];
   cards: CardSummary[];
+}
+
+/** One frozen pre-Conversations record. A thin projection on purpose: the
+ *  History front shows a title, a project and when the card stopped, and the
+ *  opened card refetches the full detail through GET /cards/:id. */
+export interface FrozenCardSummary {
+  id: string;
+  title: string;
+  project: string | null;
+  scope: CardScope;
+  /** The LEGACY list id the card was frozen on. */
+  list: string;
+  status: string;
+  duty: string | null;
+  created: string | null;
+  updated: string | null;
+  frozen: { at: string; reason: string | null; by: string | null } | null;
+}
+
+export interface HistoryListView {
+  id: string;
+  title: string;
+  kind: string;
+  /** True for a column the legacy layout does not name — reconstructed from the
+   *  cards themselves so no record is silently dropped. */
+  unlisted?: boolean;
+  cards: FrozenCardSummary[];
+}
+
+export interface HistoryView {
+  lists: HistoryListView[];
+  cards: FrozenCardSummary[];
+  total: number;
+  /** False when this instance has no `board.layout.legacy` document (the
+   *  Conversations migration never ran here) — not an error. */
+  legacyLayout: boolean;
 }
 
 export interface ArtifactRef {
@@ -431,6 +501,10 @@ export interface CardRouting {
   flow?: string;
   /** Comma-separated phase ids turned OFF for this run. */
   phasesOff?: string;
+  /** Comma-separated phase ids ADDED beyond the resolved flow's plan. The
+   *  server has always accepted it (CARD_ROUTING_FIELDS); only the board's own
+   *  form could not express it until the shared routing console arrived. */
+  phasesOn?: string;
 }
 
 /** The gateway's routing vocabulary, proxied by the board. `sources.gateway: false`
@@ -445,6 +519,12 @@ export interface RouteOptionsView {
   flows: { id: string; description?: string | null; phases?: string[] | null }[];
   defaultFlow: string | null;
   projects: string[];
+  /** The policy's GLOBAL ordered phase catalog — what `phasesOn` may add. The
+   *  gateway has always sent it; the board proxies the body verbatim. */
+  phaseCatalog?: string[];
+  /** Tier prose from the policy, keyed by tier id, so a menu can say what a
+   *  tier MEANS instead of listing bare ids. */
+  tierDefinitions?: Record<string, string>;
   sources: { gateway: boolean };
 }
 
@@ -580,6 +660,9 @@ export interface LoadoutReadiness {
 export const api = {
   board: () => jfetch<BoardView>("/board"),
   runtime: () => jfetch<BoardRuntime>("/board/runtime"),
+  // The frozen pre-Conversations records under the legacy layout. Read-only:
+  // there is no write counterpart on this route by design.
+  history: () => jfetch<HistoryView>("/history"),
   lists: () => jfetch<ListsView>("/lists"),
   patchList: (id: string, body: ListConfigPatch) =>
     jfetch<{ list: ListConfig; rev: number }>(`/lists/${encodeURIComponent(id)}`, {
@@ -642,13 +725,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ order, ...(Number.isInteger(rev) ? { rev } : {}) })
     }),
-  // Create a new column = a human-managed manual list, persisted straight to the
-  // board (agent-managed lists come from selecting a duty in Muster).
-  createList: (body: { title: string }) =>
-    jfetch<{ ok: boolean; list?: { id: string; title: string }; error?: string }>("/lists", {
-      method: "POST",
-      body: JSON.stringify(body)
-    }),
+  // (No list-creation call here: the Conversations board's five state columns
+  // are FIXED and POST /lists answers 410. The client that offered it was a
+  // control that could only ever fail.)
   // Remove a column. A user-created manual list is dropped from the board; a
   // duty-backed list deselects its duty via the shell. Cards on it are parked.
   deleteList: (id: string) =>

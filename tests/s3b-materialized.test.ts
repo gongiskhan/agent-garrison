@@ -169,7 +169,7 @@ describe("durable thread->card lookup (heals restarts) + continuation payload", 
   it("cardsByOrigin returns this origin's cards; resolveThreadCard picks live vs done", async () => {
     const gw = new RoutedGateway({ config: { taskTypes: [], tiers: [] } });
     // origin with a LIVE card -> attach
-    const live = await createCard(KANBAN_DIR, { list: "plan", title: "live one", project: "p", originChannel: { channel: "web", threadId: "T-live" } });
+    const live = await createCard(KANBAN_DIR, { list: "todo", title: "live one", project: "p", originChannel: { channel: "web", threadId: "T-live" } });
     const byOrigin = await cardsByOrigin("web:T-live");
     expect(byOrigin.some((c: any) => c.id === live.id)).toBe(true);
     const attach = await gw.resolveThreadCard("web:T-live");
@@ -189,7 +189,8 @@ describe("durable thread->card lookup (heals restarts) + continuation payload", 
     const created = await createAutonomousCard({
       message: "continue the work",
       classification: { taskType: "code", tier: "T1-standard" },
-      opts: { continues: predecessor.id, project: "p", targetList: "plan" },
+      // Conversations: `todo` is the only creatable list — the duty columns are gone.
+      opts: { continues: predecessor.id, project: "p", targetList: "todo" },
       buildPayload: null,
       logFn: () => {}
     });

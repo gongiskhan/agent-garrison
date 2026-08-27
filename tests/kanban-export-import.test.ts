@@ -4,8 +4,8 @@
 //     dispatchCommand — the field that must NEVER travel),
 //   - exports its list and asserts the bundle carries the ALLOW-LIST and nothing else,
 //   - round-trips it back in onto another list and asserts fresh-ULID cards,
-//   - proves preview writes nothing, an agent-list target is refused, and the
-//     scheduleAction "run" → "notify" downgrade is applied.
+//   - proves preview writes nothing, a target list that is not on the board is
+//     refused, and the scheduleAction "run" → "notify" downgrade is applied.
 //
 // Sandbox mirrors tests/kanban-add-card.test.ts: tmp GARRISON_KANBAN_DIR + a
 // nonexistent GARRISON_POLICY_PATH so loadPolicy() is null (hermetic create).
@@ -142,7 +142,7 @@ describe("Item 4 — export / import a list of cards", () => {
       action: "run",
       at: FUTURE,
       nextAt: FUTURE,
-      targetList: "backlog"
+      targetList: "todo"
     });
 
     // Identity / lifecycle / evidence / coordination / the dispatchCommand must NOT travel.
@@ -174,7 +174,7 @@ describe("Item 4 — export / import a list of cards", () => {
     });
     expect(create.status).toBe(201);
 
-    const response = await fetch(base + "/cards/export?list=backlog");
+    const response = await fetch(base + "/cards/export?list=todo");
     const bundle = await response.json() as any;
     const exported = bundle.cards.find((card: any) => card.title === "Personal repository task");
     expect(exported).toMatchObject({ project: "garrison", scope: "personal" });
@@ -195,7 +195,7 @@ describe("Item 4 — export / import a list of cards", () => {
     const before = await jget("/board");
     const beforeTodo = before.body.lists.find((l: any) => l.id === "todo").cards.length;
 
-    const exp = await fetch(base + "/cards/export?list=backlog");
+    const exp = await fetch(base + "/cards/export?list=todo");
     const bundle = await exp.json();
     const preview = await jsend("POST", "/cards/import", { bundle, targetList: "todo", preview: true });
     expect(preview.status).toBe(200);
@@ -247,12 +247,32 @@ describe("Item 4 — export / import a list of cards", () => {
       .not.toEqual(sourceDetail.body.checklist.map((item: any) => item.id));
   });
 
-  it("refuses to import onto an agent list (would auto-dispatch runs)", async () => {
+  it("refuses a target list that is not on the board", async () => {
+    // Conversations: the duty lists this guard used to name ("plan") are gone, so
+    // an import can only land on one of the five state columns. A retired list id
+    // is refused BEFORE any card is written.
     const exp = await fetch(base + "/cards/export?list=scheduled");
     const bundle = await exp.json();
+    const before = await jget("/board");
     const bad = await jsend("POST", "/cards/import", { bundle, targetList: "plan" });
     expect(bad.status).toBe(400);
-    expect(String(bad.body.error)).toMatch(/agent list/i);
+    expect(String(bad.body.error)).toMatch(/unknown target list: plan/i);
+    const after = await jget("/board");
+    expect(after.body.lists.map((l: any) => l.cards.length))
+      .toEqual(before.body.lists.map((l: any) => l.cards.length));
+  });
+
+  // Cards enter Running only through the launcher: handleImportCards calls
+  // createCard directly (bypassing the POST /cards door), so it carries its own
+  // refusal — without it a plain browser-shaped import minted phantom "running"
+  // cards with no conversation behind them (coherentCardState stamped the
+  // status from the list).
+  it("refuses to import onto the running list without the engine header", async () => {
+    const bundle = { kind: "garrison.kanban.cards", version: 1, cards: [{ title: "phantom", description: "no conversation behind it" }] };
+    const bad = await jsend("POST", "/cards/import", { bundle, targetList: "running" });
+    expect(bad.status).toBe(400);
+    const board = await jget("/board");
+    expect(board.body.lists.find((l: any) => l.id === "running").cards).toEqual([]);
   });
 
   it("rejects a non-bundle body", async () => {
@@ -268,7 +288,7 @@ describe("Item 4 — export / import a list of cards", () => {
       routing: { project: "/home/ggomes/dev/garrison", model: "sonnet" }
     });
     expect(create.status).toBe(201);
-    const exportedResponse = await fetch(base + "/cards/export?list=backlog");
+    const exportedResponse = await fetch(base + "/cards/export?list=todo");
     const exportedBundle = await exportedResponse.json() as any;
     const exported = exportedBundle.cards.find((card: any) => card.title === "Machine-bound source");
     expect(exported.project).toBeUndefined();
@@ -287,7 +307,7 @@ describe("Item 4 — export / import a list of cards", () => {
         routing: { project: "file:///Users/someone/repo", model: "sonnet" }
       }]
     };
-    const imp = await jsend("POST", "/cards/import", { bundle: hostile, targetList: "backlog" });
+    const imp = await jsend("POST", "/cards/import", { bundle: hostile, targetList: "todo" });
     expect(imp.status).toBe(201);
     expect(imp.body.warnings.some((warning: string) => /machine-local project path/i.test(warning))).toBe(true);
     const importedId = imp.body.cards[0].id;
@@ -308,7 +328,7 @@ describe("Item 4 — export / import a list of cards", () => {
     });
     expect(create.status).toBe(201);
 
-    const response = await fetch(base + "/cards/export?list=backlog");
+    const response = await fetch(base + "/cards/export?list=todo");
     const bundle = await response.json() as any;
     const exported = bundle.cards.find((card: any) => card.title === "Nested portable source");
     expect(exported.project).toBeUndefined();
@@ -382,7 +402,7 @@ describe("Item 4 — export / import a list of cards", () => {
   };
 
   it("previews Trello JSON by source list and excludes archived cards by default", async () => {
-    const all = await jsend("POST", "/cards/import", { bundle: TRELLO, targetList: "backlog", preview: true });
+    const all = await jsend("POST", "/cards/import", { bundle: TRELLO, targetList: "todo", preview: true });
     expect(all.status).toBe(200);
     expect(all.body.sourceFormat).toBe("trello");
     expect(all.body.sourceName).toBe("Personal tasks");
@@ -392,7 +412,7 @@ describe("Item 4 — export / import a list of cards", () => {
 
     const oneList = await jsend("POST", "/cards/import", {
       bundle: TRELLO,
-      targetList: "backlog",
+      targetList: "todo",
       sourceList: "trello-later",
       includeArchived: true,
       preview: true

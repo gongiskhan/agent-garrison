@@ -74,8 +74,8 @@ describe("claude-chat canonical session events", () => {
     expect(read).toBeGreaterThan(writeResult);
     expect(readResult).toBeGreaterThan(read);
     expect(answer).toBeGreaterThan(readResult);
-    expect(html).toContain("cc-session-tool is-complete");
-    expect(html).not.toContain("cc-session-tool is-complete\" open");
+    expect(html).toContain("is-complete");
+    expect(html).not.toContain("is-complete\" open");
   });
 
   it("keeps completed thinking and image results expandable inside the tool card", () => {

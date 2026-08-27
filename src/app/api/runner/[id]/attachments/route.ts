@@ -13,7 +13,7 @@ export async function POST(
     const baseUrl = getGatewayBaseUrl(params.id);
     if (!baseUrl) {
       return NextResponse.json(
-        { error: "Operative is not running" },
+        { error: "No session is running" },
         { status: 503 }
       );
     }

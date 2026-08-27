@@ -415,7 +415,10 @@ html, body {
 .wc-sidebar-collapse svg { transform: rotate(90deg); transition: transform .14s ease; }
 .wc-shell--rail .wc-sidebar-collapse svg { transform: rotate(0deg); }
 
-.wc-thread-list {
+/* One scroll flow for everything that IS a conversation - the local list and
+   the mesh section ride together, so the mesh follows the content instead of
+   being pinned below a dead gap. Utility rails (remote shells) stay outside. */
+.wc-side-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -635,6 +638,7 @@ html, body {
      text rather than a clean rail. */
   .wc-shell--rail .wc-sidebar-title,
   .wc-shell--rail .wc-new,
+  .wc-shell--rail .wc-side-scroll,
   .wc-shell--rail .wc-thread-list { display: none; }
   .wc-shell--rail .wc-sidebar-head {
     justify-content: center;
@@ -999,12 +1003,15 @@ body {
   background: var(--wc-stone-50);
 }
 
-/* `.wc-xscript` rides along because the session-transcript slide-over renders a
-   package component (SessionStream, all `.cc-session*`) OUTSIDE `.cc-root`: every
-   --cc-* token it reads is declared here, so without this it would paint with the
-   whole palette unresolved. Sharing the selector keeps the two from drifting. */
+/* `.wc-xscript` and `.cc-conversation` ride along because both render package
+   components OUTSIDE `.cc-root` - the transcript slide-over (all `.cc-session*`)
+   and the conversation wrapper (its header, search, jump bar and tail strip).
+   Every --cc-* token they read is declared here, so without this they would
+   paint with the whole palette unresolved. Sharing the selector keeps the three
+   from drifting. */
 .cc-root,
-.wc-xscript {
+.wc-xscript,
+.cc-conversation {
   --cc-bg: var(--wc-stone-50);
   --cc-bg-elev: var(--wc-stone-100);
   --cc-bg-sunk: var(--wc-stone-200);
@@ -1149,9 +1156,42 @@ body {
 
 .wc-backbar,
 .wc-brief-head,
-.wc-brief-foot {
+.wc-brief-foot,
+.cc-conv-head {
   background: #e4dac7;
   border-color: #c8baa0;
+}
+
+/* ── Conversation chrome ──
+   The conversation's own bar sits ABOVE the chat's status row: it carries the
+   record's name and the search over it, in the same dossier chrome as the back
+   bar, so the two read as one stack rather than two competing headers. */
+.cc-conv-head { min-height: 44px; padding: 8px 12px; }
+.cc-conv-title {
+  font: 650 15px/1.25 var(--wc-serif);
+  color: var(--wc-ink);
+}
+.cc-conv-searchinput,
+.cc-conv-hits,
+.cc-conv-jumped button {
+  border-radius: 2px;
+  font-family: var(--wc-sans);
+}
+.cc-conv-searchinput { background: #f8f4eb; border-color: #b7a98e; }
+.cc-conv-hits { box-shadow: 0 12px 34px rgba(20, 26, 21, .18); }
+.cc-conv-jumped,
+.cc-tailstrip {
+  background: #efe6d3;
+  border-color: #c8baa0;
+}
+.cc-conv-hitkind,
+.cc-conv-hitseq { font-family: var(--wc-mono); }
+
+@media (max-width: 899px) {
+  /* The floating sidebar toggle now overlaps the CONVERSATION bar, so the
+     clearance moves with it and the chat header below goes back to its gutter. */
+  .cc-conv-head { padding-left: 50px; }
+  .wc-main .cc-conversation .cc-header { padding-left: var(--cc-gutter); }
 }
 
 .wc-back,
@@ -1325,6 +1365,7 @@ body {
 ::-webkit-scrollbar-corner { background: transparent; }
 
 .wc-sidebar,
+.wc-side-scroll,
 .wc-thread-list,
 .cc-md pre,
 .cc-codeblock pre {
@@ -1561,34 +1602,164 @@ body {
   color: #f0b0b0;
   font-size: 12px;
 }
-/* The rail lives in the DARK sidebar; inherited colors here come from the
-   page's light-skin body and read dark-on-dark, so every color is explicit. */
-.wc-rsh-rail { border-top: 1px solid #4b584d; padding: 8px; }
-.wc-rsh-rail-title {
+/* ── The sessions rail's interaction layer. The rail lives in the DARK
+   sidebar; inherited colors here come from the page's light-skin body and
+   read dark-on-dark, so every color is explicit. ──────────────────────────
+
+   One row language for every conversation. The node badge dot is the only
+   per-row identity mark; unread brightens the title and rings the dot. */
+.wc-row-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6a746b;
+}
+.wc-row-dot--shell { background: transparent; border: 1px solid #9fa69a; }
+.wc-thread--unread .wc-thread-title { font-weight: 740; color: #ffffff; }
+.wc-thread--unread .wc-row-dot { box-shadow: 0 0 0 2px rgba(203, 182, 119, 0.45); }
+.wc-thread--dragging { opacity: 0.45; }
+.wc-thread--drophint { box-shadow: inset 0 2px 0 var(--wc-brass, #b1954e); }
+.wc-row-out { flex: none; color: #9fa69a; opacity: 0; transition: opacity 0.12s ease; }
+.wc-thread:hover .wc-row-out { opacity: 0.9; }
+
+/* Sections read as sections: a rule and a breath between each group, so the
+   eye lands on the boundary before the header text. First section joins the
+   rail head without doubling its rule. */
+.wc-group { border-top: 1px solid #3c4a3f; margin-top: 8px; padding-top: 2px; }
+.wc-side-scroll > .wc-group:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+
+/* Group headers: collapsible, right-clickable, drop targets. */
+.wc-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 14px 3px;
+  border: 0;
+  background: transparent;
+  color: #9fa69a;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #9fa69a;
-  margin: 2px 0 6px;
+  text-align: left;
+  cursor: pointer;
 }
-.wc-rsh-entry {
+.wc-group-head--static { cursor: default; }
+.wc-group-head--drophint { box-shadow: inset 0 2px 0 var(--wc-brass, #b1954e); }
+.wc-group-chev { flex: none; transition: transform 0.12s ease; }
+.wc-group-chev--closed { transform: rotate(-90deg); }
+.wc-group-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wc-group-count { margin-left: auto; font: 10px/1 var(--wc-mono); color: #6a746b; }
+
+/* Context menu + the "+ New" picker share one item language. */
+.wc-ctx {
+  position: fixed;
+  z-index: 80;
+  min-width: 180px;
+  max-width: 260px;
+  padding: 4px;
+  background: #26312a;
+  border: 1px solid #4b584d;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(10, 14, 11, 0.5);
+}
+.wc-ctx-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #eef0e8;
+  font-size: 13px;
+  line-height: 1.3;
+  font-family: inherit;
   text-align: left;
-  background: none;
-  border: 1px solid #4b584d;
-  border-radius: 7px;
-  padding: 7px 9px;
-  margin-bottom: 6px;
   cursor: pointer;
-  color: #e6e9df;
-  font: inherit;
 }
-.wc-rsh-entry:hover { background: rgba(255, 255, 255, 0.06); }
-.wc-rsh-entry-via { font-size: 11px; color: #9fa69a; }
+.wc-ctx-item:hover:not(:disabled) { background: #33402f; }
+.wc-ctx-item:disabled { color: #6a746b; cursor: default; }
+.wc-ctx-item--danger { color: #e08475; }
+.wc-ctx-item--danger:hover:not(:disabled) { background: rgba(150, 63, 53, 0.22); }
+.wc-ctx-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wc-ctx-more { flex: none; color: #9fa69a; }
+.wc-ctx-back { color: #9fa69a; font-size: 12px; }
+
+.wc-new-wrap { position: relative; }
+.wc-newmenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 80;
+  min-width: 200px;
+  padding: 4px;
+  background: #26312a;
+  border: 1px solid #4b584d;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(10, 14, 11, 0.5);
+}
+
+/* Rename / new-group prompt. */
+.wc-prompt-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 11, 0.45);
+}
+.wc-prompt {
+  width: min(320px, calc(100vw - 48px));
+  padding: 14px;
+  background: #26312a;
+  border: 1px solid #4b584d;
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(10, 14, 11, 0.6);
+}
+.wc-prompt-title { margin-bottom: 10px; color: #eef0e8; font-size: 13px; font-weight: 620; }
+.wc-prompt input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #eef0e8;
+  font-size: 13px;
+  line-height: 1.3;
+  font-family: inherit;
+}
+.wc-prompt input:focus { outline: 2px solid var(--wc-brass, #b1954e); outline-offset: 0; }
+.wc-prompt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.wc-prompt-actions button {
+  padding: 6px 12px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd4c9;
+  font-size: 12px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+}
+.wc-prompt-save { background: var(--wc-brass, #b1954e); border-color: var(--wc-brass, #b1954e); color: #1d2620; }
+
+/* Meta node name on rows living elsewhere. */
+.wc-thread-node { font: 10px/1.3 var(--wc-mono); color: #9fa69a; }
 
 /* ── Routing console (.cc-rm) in the Garrison skin: serif display, brass
    accent, olive nav strip against the paper detail pane. ─────────────────── */
@@ -1873,3 +2044,150 @@ body {
 @media (max-width: 899px) {
   .wc-wb-head { padding-left: 52px; }
 }
+
+/* ── Shells picker: the one modal behind the sidebar's terminal button ────── */
+.wc-shells-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  padding: 0;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd4c9;
+  cursor: pointer;
+}
+.wc-shells-btn:hover { background: #2b372c; color: #eef0e8; }
+
+.wc-shells { width: min(440px, calc(100vw - 48px)); }
+.wc-shells-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #9fa69a;
+  font-size: 12px;
+}
+.wc-shells-transport select {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #eef0e8;
+  font-family: inherit;
+  font-size: 13px;
+}
+.wc-shells-head {
+  margin: 10px 0 4px;
+  color: #9fa69a;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.wc-shells-list { max-height: 240px; overflow-y: auto; overscroll-behavior: contain; }
+.wc-shells-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.wc-shells-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid #576358;
+  background: transparent;
+}
+.wc-shells-dot--idle { background: #6a746b; border-color: #6a746b; }
+.wc-shells-dot--running { background: #7ba95c; border-color: #7ba95c; }
+.wc-shells-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #eef0e8;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wc-shells-open:hover { background: #2b372c; }
+.wc-shells-name { font-size: 13px; font-weight: 620; }
+.wc-shells-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #9fa69a;
+  font: 10px/1.3 var(--wc-mono);
+}
+.wc-shells-stop {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: transparent;
+  color: #e08475;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.wc-shells-stop:hover:not(:disabled) { background: rgba(150, 63, 53, 0.22); }
+.wc-shells-stop:disabled { color: #6a746b; cursor: default; }
+/* "Another agent in this folder". Same footprint as Stop so the two actions on
+   a project row read as a pair rather than a button and an afterthought. */
+.wc-shells-add {
+  flex: none;
+  width: 28px;
+  padding: 4px 0;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd6c9;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wc-shells-add:hover { background: #2b372c; color: #eef0e8; }
+/* A folder with several agents lists them under it, indented and quieter than
+   the project row that owns them. */
+.wc-shells-project + .wc-shells-project { margin-top: 2px; }
+.wc-shells-row--sub { padding-left: 16px; }
+.wc-shells-row--sub .wc-shells-name { font-size: 12px; font-weight: 500; color: #cfd6c9; }
+.wc-shells-empty { padding: 8px 0; color: #9fa69a; font-size: 12px; }
+.wc-shells-error { padding: 8px 0; color: #e08475; font-size: 12px; }
+.wc-shells-manual { display: flex; gap: 8px; margin-top: 12px; }
+.wc-shells-manual input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #eef0e8;
+  font-family: inherit;
+  font-size: 12px;
+}
+.wc-shells-manual input:focus { outline: 2px solid var(--wc-brass, #b1954e); outline-offset: 0; }
+.wc-shells-manual button {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd4c9;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wc-shells-manual button:disabled { color: #6a746b; cursor: default; }

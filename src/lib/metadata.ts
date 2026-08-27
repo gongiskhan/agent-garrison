@@ -154,7 +154,17 @@ const dutySchema = z
     // S3d (D9b) duty gate (optional): `explicit` holds the card on this duty until
     // an explicit human go (Move / steering), instead of auto-advancing on the
     // verdict. Additive; absent = pass-through.
-    gate: z.enum(["explicit"]).optional()
+    gate: z.enum(["explicit"]).optional(),
+    // Conversations A2 duty ladder lines (optional): `ladder` names the model
+    // ladder this duty climbs (composition-level `ladders`; absent = "standard"),
+    // `default` the rung it starts on and `ceiling` the highest rung it may reach
+    // unaided — RUNG ids, not target ids. The ladders themselves are declared by
+    // the COMPOSITION (a fitting cannot name another fitting's targets), so only
+    // the duty lines are mirrored here. This schema is `.strict()`: without them a
+    // fitting shipping a laddered duty spec would be a parse error.
+    ladder: z.string().min(1).optional(),
+    default: z.string().min(1).optional(),
+    ceiling: z.string().min(1).optional()
   })
   .strict();
 

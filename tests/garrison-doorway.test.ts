@@ -92,9 +92,20 @@ describe("codex-runtime owns serialization (D14)", () => {
     const bridge = readFileSync(path.join(ROOT, "fittings/seed/codex-runtime/scripts/bridge.mjs"), "utf8");
     expect(bridge).toContain("acquireCodexLock");
     expect(bridge).toContain("releaseCodexLock");
-    expect(bridge).toContain('{ flag: "wx" }'); // O_EXCL
     expect(bridge.indexOf("acquireCodexLock()")).toBeLessThan(bridge.indexOf("await delegate(spec"));
     expect(bridge).toContain("finally {");
+    // The lock helpers come from the shared substrate, not a second inline
+    // implementation in the bridge — one machine-wide lock file, one owner.
+    expect(bridge).toMatch(/import \{[^}]*acquireCodexLock[^}]*\} from "@garrison\/claude-pty"/);
+  });
+
+  it("the shared lock is O_EXCL — the exclusion primitive lives where the helpers do", () => {
+    // The `{ flag: "wx" }` create-or-fail write used to sit inline in the bridge
+    // and moved into the shared module with the helpers (B4). It is the whole
+    // mechanism: without O_EXCL two codex processes share one OAuth token.
+    const lock = readFileSync(path.join(ROOT, "packages/claude-pty/src/codex-lock.mjs"), "utf8");
+    expect(lock).toContain('{ flag: "wx" }');
+    expect(lock).toContain("EEXIST");
   });
 
   it("bridge --probe still answers", () => {

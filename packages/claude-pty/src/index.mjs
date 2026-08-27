@@ -10,6 +10,42 @@
 export { spawnClaudePty, getCursorPosition, getLastRows, getScreenRows } from "./pty.mjs";
 export { SessionLog, runLog, resetRunLog, listRuns, readEvents, capPayload, sessionLogPath, sessionLogDir, LOG_DOMAINS } from "./session-log.mjs";
 export {
+  MODEL_COSTS,
+  loadModelCosts,
+  priceStretch,
+  computeConversationMetrics,
+  conversationMetrics,
+  rollupMetrics,
+} from "./conversation-metrics.mjs";
+export {
+  ConversationStore,
+  openConversation,
+  listConversations,
+  conversationsDir,
+  conversationDir,
+  newConversationId,
+  safeConversationId,
+  parseSummary,
+  renderSummary,
+  parseEscalationFloor,
+  validateHandoff,
+  defaultResolveEvidence,
+  HANDOFF_STATUSES,
+  EVIDENCE_KINDS,
+  CONVERSATION_EVENT_KINDS,
+  PAYLOAD_INLINE_CAP_BYTES,
+  LOG_ROLL_BYTES,
+  SUMMARY_MAX_BYTES,
+  SUMMARY_MAX_LINES,
+} from "./conversation-store.mjs";
+export { ledgerToSessionEvents, conversationEventId, RENDERED_LEDGER_KINDS } from "./conversation-adapt.mjs";
+export {
+  handleConversationRequest,
+  gatewayMessageForwarder,
+  recordDig,
+  CONVERSATION_ID_RE,
+} from "./conversation-http.mjs";
+export {
   jsonlFileSize,
   readJsonlFrom,
   parseTurn,
@@ -60,5 +96,6 @@ export { PtySessionManager } from "./session-manager.mjs";
 export { WarmPtySessionPool, measureIdleCost } from "./warm-pool.mjs";
 export { ClaudeCodeAdapter, runAdapterConformance, ADAPTER_METHODS } from "./runtime-adapter.mjs";
 export { delegate, validateTaskSpec, parseTaskSpec, validateDelegationResult, DelegationError, EMPTY_OUTPUT_PLACEHOLDER } from "./runtime-bridge.mjs";
+export { acquireCodexLock, releaseCodexLock, withCodexLock, LOCK_FILE as CODEX_LOCK_FILE, CODEX_LOCK_DIR } from "./codex-lock.mjs";
 export { MultiRuntimePool } from "./multi-runtime-pool.mjs";
 export { claudeProjectDirForCwd, claudeProjectsDir, claudeGlobalConfigPath } from "./paths.mjs";

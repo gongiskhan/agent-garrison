@@ -82,6 +82,11 @@ class SessionTranscription {
     this.open = false;
     this.ended = false;
     this.lastAudioAt = 0;
+    this.lastResultAt = 0;
+    this.lastInboundAt = 0;
+    this.muteWatchdog = null;
+    // One log line per message TYPE per session, not per frame.
+    this.loggedMessageTypes = new Set();
     this.keepalive = null;
     this.reconnectTimer = null;
     this.connect();
@@ -110,6 +115,8 @@ class SessionTranscription {
       this.open = true;
       counters.bump("transcribe_connects");
       for (const bytes of this.queue.splice(0)) ws.send(bytes);
+      this.lastInboundAt = Date.now();
+      this.armMuteWatchdog();
       this.keepalive = setInterval(() => {
         if (this.open && Date.now() - this.lastAudioAt > KEEPALIVE_MS) {
           try {
@@ -121,13 +128,44 @@ class SessionTranscription {
     });
     ws.on("message", (data, isBinary) => {
       if (isBinary) return;
+      // ANY inbound frame is proof the far end is still processing this
+      // stream - that is what the mute watchdog measures, not transcripts.
+      this.lastInboundAt = Date.now();
       let msg;
       try {
         msg = JSON.parse(data.toString());
       } catch {
         return;
       }
-      if (msg.type !== "Results") return;
+      // Everything that is NOT a transcript used to be dropped on this line,
+      // silently. That includes Deepgram's own Error and Warning frames - so a
+      // stream Deepgram was actively refusing looked, from here, exactly like a
+      // stream nobody was talking into: audio_frames_in climbing, segment
+      // counters frozen, no log, no counter, nothing to grep. That is precisely
+      // the shape of the 2026-08-27 "it is not listening" report, and it cost
+      // hours that a single log line would have closed.
+      //
+      // Metadata is routine (one per connection) and stays quiet at info level;
+      // anything else is surfaced once per type per connection - enough to
+      // diagnose, never enough to flood a long session. Content is NOT logged
+      // (I5): a transcript never reaches here, and these frames carry status,
+      // not speech.
+      if (msg.type !== "Results") {
+        const type = String(msg.type ?? "unknown");
+        counters.bump(`transcribe_dg_${type.toLowerCase()}`);
+        if (type !== "Metadata" && !this.loggedMessageTypes.has(type)) {
+          this.loggedMessageTypes.add(type);
+          const detail = [msg.description, msg.message, msg.reason, msg.err_msg]
+            .filter((v) => typeof v === "string" && v.trim())
+            .join(" | ")
+            .slice(0, 300);
+          log.error(
+            `[capture-service] deepgram sent ${type}${detail ? `: ${detail}` : ""} (session ${this.sessionId})`
+          );
+        }
+        return;
+      }
+      this.lastResultAt = Date.now();
       const segment = segmentFromResults(msg);
       if (!segment) return;
       // Echo suppression sits HERE, at the single ingestion point: a
@@ -151,10 +189,18 @@ class SessionTranscription {
       }
       this.lane.onSegment?.(this.sessionId, segment);
     });
-    ws.on("close", () => {
+    ws.on("close", (code, reason) => {
       this.open = false;
       if (this.keepalive) clearInterval(this.keepalive);
+      if (this.muteWatchdog) clearInterval(this.muteWatchdog);
       if (!this.ended) {
+        // The code and reason are the only account Deepgram gives of WHY it
+        // hung up; without them a drop is indistinguishable from a network
+        // blip and the reconnect loop hides the cause forever.
+        log.error(
+          `[capture-service] deepgram closed mid-session: ${code}` +
+            `${reason?.length ? ` ${String(reason).slice(0, 200)}` : ""} (session ${this.sessionId})`
+        );
         // Unexpected drop mid-session: one delayed reconnect per drop. The
         // gap is lost words, counted, never a crashed session.
         counters.bump("transcribe_disconnects");
@@ -191,9 +237,55 @@ class SessionTranscription {
     }
   }
 
+  // The zombie-socket watchdog (2026-08-27).
+  //
+  // A live pendant session went deaf and STAYED deaf: audio streaming out at
+  // the full 50 packets/s into an ESTABLISHED socket with a draining send
+  // queue, and not one frame coming back - no transcript, no error, no close.
+  // Deepgram had stopped processing the stream without telling anyone, and
+  // nothing here could notice, because every liveness signal we had was
+  // outbound. Only restarting the process fixed it, and until someone noticed,
+  // the wearer's device simply did not work.
+  //
+  // The measure is deliberately ANY inbound frame, not transcripts: Deepgram
+  // legitimately sends nothing through a silent room, so "no words for N
+  // seconds" is not evidence of anything. Paired with the KeepAlive above -
+  // which we send whenever audio goes quiet - a far end that is alive and
+  // attending to this stream does not stay mute for minutes on end.
+  //
+  // The asymmetry is the whole argument for a generous threshold plus a bias
+  // toward acting: a false positive costs one reconnect and a ~1s gap, while a
+  // miss costs every word until a human notices the device is dead.
+  armMuteWatchdog() {
+    if (this.muteWatchdog) clearInterval(this.muteWatchdog);
+    const muteMs = this.lane.cfg.transcribeMuteTimeoutMs ?? 0;
+    if (muteMs <= 0) return;
+    this.muteWatchdog = setInterval(() => {
+      if (this.ended || !this.open) return;
+      const now = Date.now();
+      // Only judge a stream we are actually feeding. An idle session that has
+      // sent no audio has no right to expect an answer.
+      if (now - this.lastAudioAt > muteMs) return;
+      if (now - this.lastInboundAt < muteMs) return;
+      this.lane.counters.bump("transcribe_mute_reconnects");
+      this.lane.log.error(
+        `[capture-service] deepgram went mute: fed audio for ${Math.round((now - this.lastInboundAt) / 1000)}s ` +
+          `with nothing inbound - reconnecting (session ${this.sessionId})`
+      );
+      // terminate(), not close(): a wedged peer may never answer a close
+      // handshake, and the 'close' handler is what schedules the reconnect.
+      try {
+        this.ws?.terminate?.() ?? this.ws?.close?.();
+      } catch {}
+      this.open = false;
+    }, Math.max(1000, Math.floor(muteMs / 4)));
+    this.muteWatchdog.unref?.();
+  }
+
   async end() {
     this.ended = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.muteWatchdog) clearInterval(this.muteWatchdog);
     if (this.keepalive) clearInterval(this.keepalive);
     if (this.ws && this.open) {
       // CloseStream flushes pending finals; wait briefly for them to arrive.

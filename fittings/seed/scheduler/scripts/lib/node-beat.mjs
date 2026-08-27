@@ -118,7 +118,11 @@ export function createNodeBeat({
         health,
         activeComposition: health.composition?.id ?? undefined,
         tailnetHost: health.node?.tailnetHost ?? undefined,
-        platform: health.platform ?? undefined
+        platform: health.platform ?? undefined,
+        // node.json is the identity authority; the registry row is a replica.
+        // Carrying the resolved accent on every beat is what keeps a peer's
+        // node dot the same colour the node paints itself.
+        accentColor: health.node?.accentHex ?? undefined
       });
       if (result?.behind) {
         complain(

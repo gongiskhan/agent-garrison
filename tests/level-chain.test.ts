@@ -36,9 +36,6 @@ import * as policyCore from "../fittings/seed/orchestrator/lib/policy-core.mjs";
 import { RoutedGateway } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore - pure .mjs
 import * as boardPolicy from "../fittings/seed/kanban-loop/lib/policy.mjs";
-// @ts-ignore - pure .mjs
-import { executionContextForCard } from "../fittings/seed/kanban-loop/lib/engine.mjs";
-
 // The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
 // Boot one for this file and project its discovery env before anything reads a
 // card; side files still live under the kanban root this file already pins.
@@ -159,70 +156,15 @@ describe("1. the flow definition decides the sequence and the per-duty levels", 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-describe("2. the engine dispatches each phase at ITS resolved level", () => {
-  // A v2 execution manifest whose duties are LEAVES: each expands to one
-  // self-step per level. This is the live shape - and the shape that made a
-  // flow-driven sequence unroutable before the fallback below existed.
-  const leafSteps = (duty: string) => ({
-    "1": [{ duty, targetId: `${duty}-fast`, runtime: "claude-code", model: "sonnet", effort: "low" }],
-    "2": [{ duty, targetId: `${duty}-std`, runtime: "claude-code", model: "sonnet", effort: "medium" }],
-    "3": [{ duty, targetId: `${duty}-deep`, runtime: "claude-code", model: "opus", effort: "high" }]
-  });
-  const model = {
-    version: 2,
-    duties: { implement: {}, test: {}, review: {}, plan: {}, develop: {} },
-    selectedDuties: ["implement", "test", "review", "plan", "develop"],
-    steps: {
-      implement: leafSteps("implement"),
-      test: leafSteps("test"),
-      review: leafSteps("review"),
-      plan: leafSteps("plan"),
-      // The composite: its level-2 expansion IS the sequence (the duty ladder).
-      develop: {
-        "2": [
-          { duty: "plan", targetId: "plan-std", runtime: "claude-code", model: "sonnet" },
-          { duty: "implement", targetId: "implement-std", runtime: "claude-code", model: "sonnet" }
-        ]
-      }
-    }
-  };
-
-  it("a flow-driven card sends (phase, the phase's level) - the cell that actually executes", () => {
-    const card = {
-      duty: "implement",
-      level: 2,
-      sequence: ["implement", "review"],
-      dutyLevels: { implement: 2, review: 3 }
-    };
-    const own = executionContextForCard(card, "implement", model);
-    expect(own).toMatchObject({ duty: "implement", level: 2, phase: "implement" });
-    expect(own.step.targetId).toBe("implement-std");
-    // The pinned review runs at 3 - the whole point of the pin.
-    const pinned = executionContextForCard(card, "review", model);
-    expect(pinned).toMatchObject({ duty: "review", level: 3, phase: "review" });
-    expect(pinned.step.targetId).toBe("review-deep");
-    // stepIndex indexes the card's sequence, which only lines up with a composite
-    // expansion, so the self-step path sends none rather than a misleading index.
-    expect(pinned.stepIndex).toBeNull();
-    expect(pinned.sequence).toEqual(["implement", "review"]);
-  });
-
-  it("a composite (duty-ladder) card keeps the identity it always had", () => {
-    const card = { duty: "develop", level: 2, sequence: ["plan", "implement"] };
-    expect(executionContextForCard(card, "implement", model)).toMatchObject({
-      duty: "develop",
-      level: 2,
-      phase: "implement",
-      stepIndex: 1
-    });
-    expect(executionContextForCard(card, "plan", model).step.targetId).toBe("plan-std");
-  });
-
-  it("a legacy card with no duty/level still resolves to nothing at all", () => {
-    expect(executionContextForCard({ id: "x" }, "implement", model)).toEqual({});
-    expect(executionContextForCard({ duty: "implement", level: 1 }, null, model)).toEqual({});
-  });
-
+describe("2. a phase's tier is derived from ITS resolved level, not the card's", () => {
+  // executionContextForCard — the board-side resolver that turned (card, phase)
+  // into the exact execution cell, applying the card's per-duty `dutyLevels` pin
+  // — went out with the Conversations cut, together with the list-driven engine
+  // that called it. Per-conversation escalation is the stretch launcher's RUNG
+  // LADDER now (a sticky per-duty escalation floor in the conversation summary),
+  // covered by the stretch-launcher suite. What still resolves here is the
+  // policy-side half: a level maps to a tier, and a phase's level wins over the
+  // card's.
   it("classificationForPhase derives the tier from the PHASE's level, keeping card.tier as the fallback", () => {
     expect(tierForLevel(POLICY, 1)).toBe("T0-trivial");
     expect(tierForLevel(POLICY, 2)).toBe("T1-standard");

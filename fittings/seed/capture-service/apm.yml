@@ -117,6 +117,21 @@ x-garrison:
       type: integer
       default: 60000
       description: How much post-wake speech counts as THE COMMAND; later speech is trailing context for the classifier.
+    - key: transcribe_mute_timeout_ms
+      type: integer
+      default: 120000
+      description: >-
+        Reconnect the speech-to-text socket when audio is still being fed but
+        nothing at all has come back for this long - the far end accepting
+        audio and silently no longer processing it. 0 disables the watchdog.
+    - key: wake_provisional_ttl_ms
+      type: integer
+      default: 8000
+      description: >-
+        How long a wake pulse fired off an unstable Deepgram interim waits for
+        the authoritative final to confirm it. Sized to one utterance, not to
+        the capture window. On expiry the wearer gets a wake_lapsed signal, so a
+        pulse that promised a capture cannot silently promise nothing.
     - key: wake_context_segments
       type: integer
       default: 6

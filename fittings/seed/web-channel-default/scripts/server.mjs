@@ -17,6 +17,9 @@
 // User opts into 0.0.0.0 via config_schema.bind_host when they want phone access.
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { meshThreads } from "../lib/mesh-threads.mjs";
+import { gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
+import { loadSidebar, saveSidebar } from "./sidebar-state.mjs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
@@ -32,6 +35,7 @@ import {
   appendMessages,
   appendSessionEvent,
   deleteThread,
+  renameThread,
   setThreadSession,
   setThreadRouting,
   setThreadRouteSession,
@@ -185,12 +189,17 @@ function readRemoteShellInfo() {
 // Subpaths the browser may reach through the relay. DELETE (forget session) and
 // anything unlisted stay on the fitting's own surface.
 const REMOTE_SHELL_PROXY_RE =
-  /^\/(transports|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
+  /^\/(transports|projects|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
+// DELETE relays only for the one shape that supports it: a session teardown.
+const REMOTE_SHELL_DELETE_RE = /^\/sessions\/[A-Za-z0-9-]+$/;
 
 async function handleRemoteShellProxy(req, res, subpath, query) {
   const info = readRemoteShellInfo();
   if (!info?.url) return jsonRes(res, 503, { error: "remote-shell fitting not available" });
-  if (!REMOTE_SHELL_PROXY_RE.test(subpath) || (req.method !== "GET" && req.method !== "POST")) {
+  const methodOk =
+    req.method === "GET" || req.method === "POST" ||
+    (req.method === "DELETE" && REMOTE_SHELL_DELETE_RE.test(subpath));
+  if (!REMOTE_SHELL_PROXY_RE.test(subpath) || !methodOk) {
     return jsonRes(res, 404, { error: "not relayed" });
   }
   let body = null;
@@ -219,20 +228,41 @@ async function handleRemoteShellProxy(req, res, subpath, query) {
 // Short-TTL snapshot of the fitting's sessions so the thread list can mark a
 // remote-shell thread running from the HOOK-DRIVEN state (covers instructions
 // typed straight into the TUI, which never become web-channel inputs).
-let remoteShellSnapshot = { at: 0, byTransport: new Map() };
-async function remoteShellSessionsByTransport() {
-  if (Date.now() - remoteShellSnapshot.at < 3000) return remoteShellSnapshot.byTransport;
-  const byTransport = new Map();
+//
+// Keyed per SESSION, not per transport: one machine hosts an agent per project
+// folder now, and a transport-keyed map handed every shell on that box whichever
+// session happened to be last in the array - so a thread showed "Working"
+// because a different project's agent was busy.
+let remoteShellSnapshot = { at: 0, sessions: [] };
+async function remoteShellSessions() {
+  if (Date.now() - remoteShellSnapshot.at < 3000) return remoteShellSnapshot.sessions;
+  let sessions = [];
   const info = readRemoteShellInfo();
   if (info?.url) {
     try {
       const res = await fetch(`${info.url}/sessions`, { signal: AbortSignal.timeout(1500) });
       const data = await res.json();
-      for (const s of data?.sessions ?? []) byTransport.set(s.transport, s);
+      if (Array.isArray(data?.sessions)) sessions = data.sessions;
     } catch { /* fitting down — threads just lose the live badge */ }
   }
-  remoteShellSnapshot = { at: Date.now(), byTransport };
-  return byTransport;
+  remoteShellSnapshot = { at: Date.now(), sessions };
+  return sessions;
+}
+
+function laterOf(a, b) {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
+/** The session a thread's binding names: the one with that tmux name, or the
+ *  transport's STANDING session when the binding names none (every thread
+ *  written before multi-session). */
+export function matchRemoteShellSession(binding, sessions) {
+  if (!binding) return null;
+  const mine = sessions.filter((s) => s.transport === binding.transport);
+  if (binding.tmuxSession) return mine.find((s) => s.tmuxSession === binding.tmuxSession) ?? null;
+  return mine.find((s) => s.standing) ?? null;
 }
 
 // Voice availability. The web UI hides its mic / speaker
@@ -2224,14 +2254,30 @@ async function handleThreadsList(res) {
   // additionally spins on the fitting's HOOK-DRIVEN session state, so work
   // typed straight into the remote TUI still shows as live.
   const running = new Set(runningThreadIds());
-  const rsh = await remoteShellSessionsByTransport();
+  const rsh = await remoteShellSessions();
   const threads = (await listThreads()).map((t) => {
-    if (running.has(t.id)) return { ...t, runningSince: runningSince(t.id) };
-    const session = t.remoteShell ? rsh.get(t.remoteShell.transport) : null;
+    const session = matchRemoteShellSession(t.remoteShell, rsh);
+    // The agent's own lifecycle IS this thread's activity: a terminal-first
+    // shell never writes a message, so without this its row would sit at the
+    // bottom of the rail forever, however busy the agent is.
+    const meta = session
+      ? {
+          ...t,
+          remoteShell: {
+            ...t.remoteShell,
+            sessionId: session.id,
+            state: session.state ?? null,
+            lastEventAt: session.lastEventAt ?? null,
+            link: session.link ?? null
+          },
+          updatedAt: laterOf(t.updatedAt, session.lastEventAt)
+        }
+      : t;
+    if (running.has(t.id)) return { ...meta, runningSince: runningSince(t.id) };
     if (session?.state === "running") {
-      return { ...t, runningSince: session.lastEventAt ?? session.createdAt ?? new Date().toISOString() };
+      return { ...meta, runningSince: session.lastEventAt ?? session.createdAt ?? new Date().toISOString() };
     }
-    return t;
+    return meta;
   });
   jsonRes(res, 200, { threads });
 }
@@ -2488,6 +2534,14 @@ async function handleThreadDelete(res, id) {
   jsonRes(res, ok ? 200 : 404, { ok });
 }
 
+async function handleThreadRename(req, res, id) {
+  let body;
+  try { body = await readJsonBody(req); } catch (err) { return jsonRes(res, 400, { error: `invalid json: ${err.message}` }); }
+  const thread = await renameThread(id, body?.title);
+  if (!thread) return jsonRes(res, 404, { error: "thread not found or empty title" });
+  jsonRes(res, 200, { thread });
+}
+
 // Route /api/threads, /api/threads/:id, /api/threads/:id/live and mutations.
 // Returns true
 // when it handled the request.
@@ -2501,6 +2555,7 @@ function routeThreads(req, res, pathname, method, opts) {
     const id = parts[0];
     if (id && parts.length === 1 && method === "GET") { void handleThreadGet(res, id); return true; }
     if (id && parts.length === 1 && method === "DELETE") { void handleThreadDelete(res, id); return true; }
+    if (id && parts.length === 1 && method === "PATCH") { void handleThreadRename(req, res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "live" && method === "GET") { handleThreadLive(req, res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "inputs" && method === "GET") { void handleThreadInputsGet(res, id); return true; }
     if (id && parts.length === 2 && parts[1] === "inputs" && method === "POST") { void handleThreadInputCreate(req, res, opts, id); return true; }
@@ -3277,6 +3332,24 @@ async function handleNotify(req, res, opts) {
       if (pathname === "/api/chat/interrupt" && method === "POST") return handleChatInterrupt(req, res, liveOpts);
       if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
       if (pathname === "/api/route-options" && method === "GET") return handleRouteOptions(req, res, liveOpts);
+      if (pathname === "/api/sidebar" && method === "GET") {
+        return void loadSidebar()
+          .then((body) => jsonRes(res, 200, body))
+          .catch(() => jsonRes(res, 200, { groups: [], membership: {}, order: {}, read: {}, archived: [] }));
+      }
+      if (pathname === "/api/sidebar" && method === "PUT") {
+        return void readJsonBody(req)
+          .then((body) => saveSidebar(body))
+          .then((clean) => jsonRes(res, 200, clean))
+          .catch((err) => jsonRes(res, 400, { error: String(err?.message ?? err) }));
+      }
+      if (pathname === "/api/mesh-threads" && method === "GET") {
+        // Other nodes' conversations, from the state service's per-node thread
+        // indexes. Empty on an unenrolled box; never an error surface.
+        return void meshThreads()
+          .then((body) => jsonRes(res, 200, body))
+          .catch(() => jsonRes(res, 200, { nodes: [] }));
+      }
       if (pathname === "/api/brief" && method === "GET") return handleBriefGet(res, parsed.query.path);
       if (pathname === "/api/brief" && method === "PUT") return handleBriefPut(req, res);
       if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method, liveOpts)) return;
@@ -3289,6 +3362,22 @@ async function handleNotify(req, res, opts) {
       if (pathname === "/api/claude/interrupt" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
       if (pathname === "/api/claude/answer" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "answer", "POST");
       if (pathname === "/api/attachments" && method === "POST") return handleAttachments(req, res, liveOpts);
+      // The conversation router (Conversations plan, C1). Mounted at the SAME
+      // relative base here, on the kanban board and in the Next app, because a
+      // conversation view only ever builds relative URLs - the browser is almost
+      // never on this box.
+      if (pathname.startsWith("/api/conversation")) {
+        return void handleConversationRequest(req, res, {
+          role: "web-channel",
+          forwardMessage: gatewayMessageForwarder(liveOpts.gatewayUrl),
+          // Tighter than the router's default because THIS mount is the one a
+          // person types into: the composer's receipt is terminal on admission
+          // (a message has no generation to follow), so the stream's echo of
+          // their own message is the only thing that says it landed. The poll
+          // itself is a stat of one file and re-parses only when it grew.
+          pollMs: 300,
+        }).catch((err) => jsonRes(res, 500, { error: String(err?.message ?? err) }));
+      }
       if (pathname.startsWith("/api/")) {
         jsonRes(res, 404, { error: "not found", path: pathname });
         return;
