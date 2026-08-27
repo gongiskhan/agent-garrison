@@ -12,7 +12,7 @@ spawns Claude itself.
 ## Architecture
 
 ```
-  browser HUD ──/api/chat──▶ jarvis-os (Node, :7097) ──▶ http-gateway ──▶ Operative
+  browser HUD ──/api/chat──▶ jarvis-os (Node, :8093) ──▶ http-gateway ──▶ Operative
    DitherCore                 clone of web-channel server         (Orchestrator)
    push-to-talk  ──/api/voice/{stt,tts}──▶ kind:voice Fitting (local-voice / deepgram-voice)
 ```

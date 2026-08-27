@@ -31,7 +31,7 @@ highlight, and the prose. That is it.
 ## Layout
 
 ```
-apm.yml                     manifest (faculty: knowledge, own_port, port 27097)
+apm.yml                     manifest (faculty: knowledge, own_port, port 8087)
 schema/                     the flow manifest JSON schema — the human-readable contract
 lib/
   extract.mjs               slicing + hashing + highlight normalisation (pure)
@@ -87,7 +87,7 @@ bundle living in exactly the tree where committed build output is fragile.
 The server needs a port and a git repository. It never picks a port itself.
 
 ```bash
-GARRISON_PROJECTVIEWER_PORT=27097 \
+GARRISON_PROJECTVIEWER_PORT=8087 \
 GARRISON_PROJECTVIEWER_TARGET_REPO=/path/to/repo \
 node scripts/start.mjs
 

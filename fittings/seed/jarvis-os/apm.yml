@@ -1,6 +1,6 @@
 name: jarvis-os
 version: 0.1.0
-description: Jarvis Agentic OS — a voice-first, Jarvis-style HUD (channels role, own-port). Serves a React HUD on its own port (default 7097) with a central audio-reactive core (DitherCore), push-to-talk, and reply read-aloud. Talks to the Operative through the http-gateway (same proven path as web-channel) and to a kind:voice Fitting for STT/TTS. Visual layer reused from the Fable jarvis-hud reference.
+description: Jarvis Agentic OS — a voice-first, Jarvis-style HUD (channels role, own-port). Serves a React HUD on its own port (default 8093) with a central audio-reactive core (DitherCore), push-to-talk, and reply read-aloud. Talks to the Operative through the http-gateway (same proven path as web-channel) and to a kind:voice Fitting for STT/TTS. Visual layer reused from the Fable jarvis-hud reference.
 target: claude
 type: hybrid
 includes: auto
@@ -8,15 +8,15 @@ x-garrison:
   faculty: channels
   cardinality_hint: single
   own_port: true
-  default_port: 7097
+  default_port: 8093
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Voice-first Jarvis HUD on its own port (default 7097). Hold-to-talk → STT → Orchestrator (via the gateway) → reply read aloud, with a central core that pulses to the live audio. Consumes a kind:voice Fitting (local-voice or deepgram-voice); never spawns Claude itself.
+  summary: Voice-first Jarvis HUD on its own port (default 8093). Hold-to-talk → STT → Orchestrator (via the gateway) → reply read aloud, with a central core that pulses to the live audio. Consumes a kind:voice Fitting (local-voice or deepgram-voice); never spawns Claude itself.
   config_schema:
     - key: port
       type: integer
-      default: 7097
+      default: 8093
       description: HTTP port the Jarvis HUD server binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

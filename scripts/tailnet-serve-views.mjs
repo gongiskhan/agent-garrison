@@ -8,8 +8,8 @@
 // the resulting `tailscale serve status` (src/lib/tailnet-serve.ts) and hands the
 // browser the HTTPS tailnet URL when reached over Tailscale.
 //
-// Idempotent: skips any local port already served. Serve port = the local port
-// itself (same number on and off the box), bumped only on collision.
+// Idempotent: skips any local port already served. Deterministic serve port =
+// 8400 + (localPort % 1000) (e.g. 27086 -> 8486), bumped on collision.
 //
 // Usage:  node scripts/tailnet-serve-views.mjs [--dry-run]
 
@@ -151,7 +151,7 @@ function ownPortViews() {
 // NODE profile (offset 0, this machine's real Garrison) may publish — a
 // dev/codex sandbox on shifted ports must never own the always-on address.
 function pickServePort(localPort, used) {
-  let p = localPort;
+  let p = 8400 + (localPort % 1000);
   while (used.has(p) || p === 8443 || p === 8444 || p === 8445 || p === 443) p += 1;
   return p;
 }
@@ -186,8 +186,6 @@ function main() {
   const status = serveStatus();
   const { byLocal, usedServePorts } = existingMappings(status);
   const views = ownPortViews();
-  // The app servers (7777 dev / 8777 prod) are mapped by hand and persist in
-  // tailscaled state; this script only tracks fittings.
 
   if (views.length === 0) {
     console.log("No own-port views found in ~/.garrison/ui-fittings — start the operative first.");

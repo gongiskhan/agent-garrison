@@ -93,7 +93,7 @@ x-garrison:
             max_send_delay_ms: 3500
         - id: jarvis-os
           config:
-            port: 7097
+            port: 8093
             bind_host: 127.0.0.1
             gateway_url: ''
             vad_redemption_ms: 550
@@ -104,7 +104,7 @@ x-garrison:
             wake_idle_timeout_s: 90
         - id: local-voice
           config:
-            port: 7081
+            port: 8081
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
             pause_comma: 0.08
@@ -277,7 +277,7 @@ x-garrison:
       knowledge:
         - id: project-viewer
           config:
-            port: 7098
+            port: 8087
             bind_host: 127.0.0.1
             target_repo: ~/dev/agent-garrison-dev
             language: pt

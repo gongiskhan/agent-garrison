@@ -583,13 +583,15 @@ function hostOf(urlish: string): string {
 
 // ── component ────────────────────────────────────────────────────────────────
 
-// DEV vs PROD at a glance. The HUD binds the profile-shifted fitting port
-// (dev 7097 / prod 8097 / codex 27097), so the port the page was LOADED from
+// DEV vs NODE at a glance. The HUD binds the offset-shifted fitting port
+// (node 8093 / dev 18093 / codex 28093), so the port the page was LOADED from
 // already carries the instance - no server round-trip needed. Only the dev
-// instance is badged: prod is the always-on wall surface and stays clean.
+// sandbox is badged: the node is the always-on wall surface and stays clean.
+// The offset is the ten-thousands digit: a node sits at offset 0, so any port
+// below 10000 is the node itself.
 const IS_DEV_INSTANCE = (() => {
   const port = Number(window.location.port);
-  return Number.isInteger(port) && port >= 7000 && port < 8000;
+  return Number.isInteger(port) && Math.floor(port / 10000) === 1;
 })();
 
 function App() {

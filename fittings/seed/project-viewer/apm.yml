@@ -15,15 +15,15 @@ x-garrison:
   cardinality_hint: single
   component_shape: plugin
   own_port: true
-  # 7098, in the committed 7xxx base map — NOT 27097. A base port is shifted by the
-  # profile offset (dev +0, prod +1000, codex +20000), so declaring 27097 would have
-  # meant a codex-shifted value used as a base, and 47097 on codex. Several older seed
-  # fittings carry that drift; the newest ones do not.
+  # 8087, in the committed 8xxx base map (f8a21811): a node binds the committed
+  # value as-is at offset 0, and only the sandboxes shift — dev +10000, codex
+  # +20000. Declaring an already-shifted value as the base is the drift several
+  # older seed fittings carry; this one does not.
   #
-  # 7098 and not 7097: the default-2 composition already gives 7097 to jarvis-os. In
-  # that composition 7077-7097 is almost solid, leaving 7078, 7085 and 7098 free, and
-  # 7099 is the scheduler.
-  default_port: 7098
+  # 8087 and not 8098: remote-shell-runtime holds 8098, and tests/mesh-serve-ports
+  # pins serve = 8400 + (port % 1000), so 8098 and the retired 7098 would both
+  # land on 8498. 8087 is free on both axes.
+  default_port: 8087
   # No `lifecycle`: the parser now warns that it is deprecated and ignored, since
   # every own-port Fitting shares the operative's lifecycle.
   platforms:
@@ -32,7 +32,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 7098
+      default: 8087
       description: HTTP port. The server exits non-zero when it is taken rather than shifting, because a silent shift would leave the sidebar pointing at nothing.
     - key: target_repo
       type: string

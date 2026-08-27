@@ -11,7 +11,7 @@
 //   - GET  /       → status page
 //
 // The Python child binds an internal localhost port (VOICE_PY_PORT); this Node
-// process owns the public port (default 7081) and the status file, so the
+// process owns the public port (default 8081) and the status file, so the
 // Garrison runner's own-port lifecycle (which kills the Node pid on `down`)
 // works unchanged. On shutdown we kill the Python child too.
 //
@@ -49,7 +49,7 @@ const cfg = (key) => process.env[`GARRISON_LOCALVOICE_${key}`];
 
 function parseArgs(argv) {
   const out = {
-    port: Number(cfg("PORT") || 7081),
+    port: Number(cfg("PORT") || 8081),
     host: cfg("BIND_HOST") || "127.0.0.1",
     // config_schema `python_bin`. LOCAL_VOICE_PYTHON is HOST env (the
     // interpreter setup.sh builds the venv with), not composition config, so it
