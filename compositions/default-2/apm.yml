@@ -10,7 +10,6 @@ dependencies:
     - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/dev-env
-    - path: ../../fittings/seed/dispatcher
     - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
@@ -19,7 +18,6 @@ dependencies:
     - path: ../../fittings/seed/google
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/huggingface-runtime
-    - path: ../../fittings/seed/identity-gary
     - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/improver-nightly
     - path: ../../fittings/seed/jarvis-os
@@ -33,7 +31,6 @@ dependencies:
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
-    - path: ../../fittings/seed/outpost-tailscale-host
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/project-viewer
     - path: ../../fittings/seed/power-default
@@ -65,7 +62,6 @@ x-garrison:
       orchestrator:
         - id: orchestrator
           config:
-            port: 7087
             bind_host: 127.0.0.1
       channels:
         - id: slack-channel
@@ -75,18 +71,15 @@ x-garrison:
             chat_timeout_ms: 600000
         - id: web-channel-default
           config:
-            port: 7083
             bind_host: 127.0.0.1
             gateway_url: ''
         - id: omi-channel
           config:
-            port: 7094
             bind_host: 127.0.0.1
             public_base_url: https://dev-madrid.tail31efa.ts.net:8443
             enabled: true
         - id: whatsapp-web
           config:
-            port: 7080
             bind_host: 127.0.0.1
             session_dir: ~/.config/garrison/whatsapp-web
             min_send_delay_ms: 1200
@@ -127,17 +120,11 @@ x-garrison:
       gateway:
         - id: http-gateway
           config:
-            port: 4777
             bind_host: 127.0.0.1
             compact_enabled: true
             compact_threshold_pct: 60
         - id: mcp-gateway
           config: {}
-        - id: dispatcher
-          config:
-            dispatch_provider: ollama-local
-            dispatch_shape: ollama
-            dispatch_model: qwen2.5:3b
       runtimes:
         - id: claude-code-runtime
           config:
@@ -176,17 +163,14 @@ x-garrison:
       observability:
         - id: monitor-default
           config:
-            port: 7077
             bind_host: 127.0.0.1
             poll_interval_ms: 1000
             log_retention_hours: 24
         - id: automations
           config:
-            port: 7090
             bind_host: 127.0.0.1
         - id: improver
           config:
-            port: 7093
             bind_host: 127.0.0.1
             cron: 30 3 * * *
             vault_dir: ~/ObsidianVault
@@ -200,7 +184,6 @@ x-garrison:
             health_port: 7099
         - id: kanban-loop
           config:
-            port: 7089
             bind_host: 127.0.0.1
             board_dir: ~/.garrison/kanban-loop
             iteration_cap: 10
@@ -216,15 +199,12 @@ x-garrison:
       sessions:
         - id: garrison-assistant
           config:
-            port: 7095
             bind_host: 127.0.0.1
         - id: dev-env
           config:
-            port: 7086
             bind_host: 127.0.0.1
         - id: file-browser
           config:
-            port: 7091
             bind_host: 127.0.0.1
             root: ~/.garrison/files
         - id: snapshots-default
@@ -244,11 +224,9 @@ x-garrison:
       surfaces:
         - id: screen-share-default
           config:
-            port: 7079
             bind_host: 127.0.0.1
         - id: browser-default
           config:
-            port: 7084
             bind_host: 127.0.0.1
             viewport_width: 1600
             viewport_height: 1200
@@ -256,24 +234,13 @@ x-garrison:
             every_nth_frame: 1
         - id: ports-default
           config:
-            port: 7088
             bind_host: 127.0.0.1
             scan_interval_ms: 5000
         - id: power-default
           config:
-            port: 7092
             bind_host: 127.0.0.1
             idle_minutes: 30
             load_threshold: 1
-        - id: outpost-tailscale-host
-          config:
-            port: 7082
-            bind_host: 127.0.0.1
-            outpost_host_url: http://127.0.0.1:3702
-      modes:
-        - id: identity-gary
-          config:
-            user_name: the user
       knowledge:
         - id: project-viewer
           config:
@@ -284,7 +251,6 @@ x-garrison:
       building:
         - id: drill
           config:
-            port: 7096
             bind_host: 127.0.0.1
       design:
         - id: taste
@@ -297,7 +263,6 @@ x-garrison:
           config: {}
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
-      soul: .garrison/prompts/soul.md
     duties:
       - id: code
         title: Code
@@ -604,9 +569,9 @@ x-garrison:
       - dispatch
     targets:
       - id: dispatch-fast
-        runtime: garrison-call
-        model: qwen2.5:3b
-        provider: ollama-local
+        runtime: agent-sdk
+        model: claude-haiku-4-5
+        provider: anthropic
         params:
           type: single-shot
       - id: cc-haiku
@@ -616,18 +581,6 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-      - id: cc-ollama-qwen
-        runtime: agent-sdk
-        model: qwen2.5-coder
-        provider: ollama-local
-        params:
-          type: runtime-target
-      - id: cc-ollama-deepseek
-        runtime: agent-sdk
-        model: deepseek-coder-v2
-        provider: ollama-local
-        params:
-          type: runtime-target
       - id: sec-gemini
         runtime: gemini
         model: gemini-2.5-flash
@@ -645,36 +598,6 @@ x-garrison:
         params:
           type: runtime-target
           pinned: true
-      - id: sdk-ollama-chat
-        runtime: agent-sdk
-        model: qwen3:0.6b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
-      - id: sdk-ollama-build
-        runtime: agent-sdk
-        model: qwen2.5-coder:7b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
-          maxTurns: 2
-          leanPrompt: >-
-            You output JavaScript source code ONLY, as a single fenced code block. Example request:
-            "a function add that sums two numbers". Example reply (this exact shape, nothing else):
-
-            ```js
-
-            export function add(a, b) {
-              return a + b;
-            }
-
-            ```
-
-            Rules: reply with ONLY one ```js fenced block containing the implementation. Never
-            output JSON. Never emit keys like name, arguments, phase, schema, or label. Never call a
-            tool. No prose before or after. No imports unless explicitly requested.
       - id: cc-opus
         runtime: agent-sdk
         model: opus
@@ -698,13 +621,6 @@ x-garrison:
         params:
           type: runtime-target
           authMode: api-key
-      - id: sdk-ollama-probe
-        runtime: agent-sdk
-        model: qwen2.5:3b
-        provider: ollama-local
-        params:
-          type: runtime-target
-          promptMode: lean
       - id: sol
         runtime: codex
         model: gpt-5.6-sol
