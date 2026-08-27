@@ -555,6 +555,9 @@ export function cardSummary(card) {
     // in this projection (it can be long) — GET /cards/:id carries it for the detail.
     description: typeof card.description === "string" ? card.description : "",
     lastReply: card.lastReply ?? null,
+    // The terminal handoff's summary — written by the launcher's done
+    // transition; absent from this projection it read as never-written.
+    terminalSummary: card.terminalSummary ?? null,
     lastEvent: lastEventOf(card),
     // Per-phase runtime/model attribution for the card front: the most recent routed
     // event's route stamp ({ targetId, runtime, provider, model, effort,
