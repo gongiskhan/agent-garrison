@@ -350,7 +350,7 @@ function routeFromRung(rung, { effort = null, duty, level }) {
 
 export const STRETCH_TEE_THROTTLE_MS = Number(process.env.GARRISON_STRETCH_TEE_MS) > 0
   ? Number(process.env.GARRISON_STRETCH_TEE_MS)
-  : 1000;
+  : 400;
 const TEE_TEXT_CAP = 48_000;
 
 // Cap text blocks so a tee record never crosses the store's 64KB spill
@@ -375,8 +375,8 @@ function capSessionEventBlocks(event) {
  * Agent-sdk lanes hand us rich SessionEvents (text/thinking/tool blocks with
  * stable ids and in-place revisions); exec lanes stream only reply chunks, so
  * `syntheticFromChunks` folds those into ONE synthetic text event. Appends are
- * throttled per event id: the serving layer's SSE polls the log at ~800ms, so
- * sub-second revisions would be invisible anyway — the throttle keeps the
+ * throttled per event id: the serving layer's SSE polls the log at ~350ms, so
+ * revisions faster than that would be invisible anyway — the throttle keeps the
  * append-only log bounded while the viewer still sees the text grow live.
  * `flush()` after the turn makes the final state durable. A tee failure never
  * kills the stretch.

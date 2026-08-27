@@ -33,7 +33,7 @@ export const CONVERSATION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const PAYLOAD_REF_RE = /^[A-Za-z0-9._-]{1,200}$/;
 const HANDOFF_ORDINAL_RE = /^\d{1,4}$/;
 
-const STREAM_POLL_MS = 800;
+const STREAM_POLL_MS = 350;
 const KEEPALIVE_MS = 15_000;
 const BODY_CAP_BYTES = 1024 * 1024;
 const DIG_DEBOUNCE_MS = 60_000;

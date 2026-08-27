@@ -249,6 +249,50 @@ function ActivityDetails({
 /** A detail this short reads as the row's own subtitle; longer needs its own line. */
 const NOTICE_INLINE_CHARS = 90;
 
+/**
+ * ChatGPT-style reveal for LIVE prose. The pipeline delivers text in bursts
+ * (the tee throttles, the SSE polls), so without this a fast model's paragraph
+ * lands whole. The shown slice catches up at a bounded rate (~two-thirds of a
+ * second per burst, floor ~120 chars/s) so the text TYPES in and can be read
+ * as it arrives. A mount mid-stream shows everything already present (no
+ * replay); a shrink (a stripped protocol tail) and a giant catch-up snap.
+ */
+function StreamingText({ text, renderMarkdown }: { text: string; renderMarkdown?: (value: string) => string }) {
+  const [shownLength, setShownLength] = useState(text.length);
+  const shownRef = useRef(text.length);
+  if (shownRef.current > text.length) shownRef.current = text.length;
+  useEffect(() => {
+    const backlog = text.length - shownRef.current;
+    if (backlog <= 0) {
+      if (shownLength !== text.length) setShownLength(text.length);
+      return;
+    }
+    if (backlog > 6000) {
+      shownRef.current = text.length;
+      setShownLength(text.length);
+      return;
+    }
+    let raf = 0;
+    const step = () => {
+      const remaining = text.length - shownRef.current;
+      if (remaining <= 0) return;
+      shownRef.current = Math.min(text.length, shownRef.current + Math.max(2, Math.ceil(remaining / 40)));
+      setShownLength(shownRef.current);
+      if (shownRef.current < text.length) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+  return (
+    <TextBlock
+      text={text.slice(0, Math.min(shownLength, text.length))}
+      role="assistant"
+      renderMarkdown={renderMarkdown}
+    />
+  );
+}
+
 function elapsedLabel(elapsedMs: number | null | undefined): string | null {
   if (typeof elapsedMs !== "number" || !Number.isFinite(elapsedMs) || elapsedMs < 0) return null;
   if (elapsedMs < 1000) return `${Math.round(elapsedMs)}ms`;
@@ -1048,7 +1092,9 @@ function ActivityTimeline({
               data-session-event-id={sourceEvent?.id ?? undefined}
               data-session-block-index={beat.blockIndex}
             >
-              <TextBlock text={text} role="assistant" renderMarkdown={renderMarkdown} />
+              {live
+                ? <StreamingText text={text} renderMarkdown={renderMarkdown} />
+                : <TextBlock text={text} role="assistant" renderMarkdown={renderMarkdown} />}
             </div>
           );
         }
@@ -1894,7 +1940,7 @@ export function SessionStream({
           <ConversationWorkingStrip activity={activity} announce={announceLiveUpdates} />
         )}
         {conversationMode && !derivedBusy && <ConversationStateBanner activity={activity} />}
-        {!stuck && (streamLive || derivedBusy) && (
+        {!stuck && (
           <div className="cc-session-jumpwrap">
             <button type="button" className="cc-session-jump" onClick={jumpToLatest}>
               Jump to latest
