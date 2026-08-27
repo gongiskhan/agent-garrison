@@ -1661,15 +1661,18 @@ export function SessionStream({
     el.scrollTop = target;
   }, [resolveScroller]);
 
-  // Reader-intent listeners on the resolved scroller. Wheel-up and drag-up
-  // unpin immediately (position thresholds re-yanked people who scrolled up a
-  // line to re-read); the scroll listener re-pins at the true bottom and
-  // catches a scrollbar drag upward, which fires neither wheel nor touch.
-  const hasContent = events.length > 0;
+  // Reader-intent listeners. The first cut bound these to the RESOLVED
+  // scroller once content appeared - but a fresh conversation has not
+  // overflowed its container yet, resolveScroller returned null, the
+  // listeners bound to NOTHING, and the follow loop then overwrote every
+  // wheel-up the reader tried, forever ("scrolling up is not allowed").
+  // Bind wheel/touch to OUR OWN content root instead (it always exists, and
+  // pointer events bubble through it regardless of which ancestor scrolls),
+  // and catch scroll in the CAPTURE phase on window (scroll does not bubble;
+  // capture sees every scroller, filtered to the one holding this transcript).
   useEffect(() => {
-    if (!hasContent) return;
-    const el = resolveScroller();
-    if (!el) return;
+    const content = scrollRef.current;
+    if (!content) return;
     const onWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) setPinned(false);
     };
@@ -1682,24 +1685,28 @@ export function SessionStream({
       if (y > touchY + 4) setPinned(false);
       touchY = y;
     };
-    const onScroll = () => {
+    const onScroll = (event: Event) => {
+      const el = event.target;
+      if (!(el instanceof HTMLElement) || !el.contains(content)) return;
       if (el.scrollHeight - el.scrollTop - el.clientHeight < 4) {
         if (!pinnedRef.current) setPinned(true);
-      } else if (el.scrollTop < lastWrittenTopRef.current - 4) {
+      } else if (lastWrittenTopRef.current >= 0 && el.scrollTop < lastWrittenTopRef.current - 4) {
+        // Moved UP from where the follow last wrote - a scrollbar drag, which
+        // fires neither wheel nor touch.
         setPinned(false);
       }
     };
-    el.addEventListener("wheel", onWheel, { passive: true });
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
-    el.addEventListener("scroll", onScroll, { passive: true });
+    content.addEventListener("wheel", onWheel, { passive: true });
+    content.addEventListener("touchstart", onTouchStart, { passive: true });
+    content.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     return () => {
-      el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("scroll", onScroll);
+      content.removeEventListener("wheel", onWheel);
+      content.removeEventListener("touchstart", onTouchStart);
+      content.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
     };
-  }, [hasContent, resolveScroller, setPinned]);
+  }, [setPinned]);
 
   // First contentful paint lands AT the bottom instantly - animating a whole
   // history on open would be two seconds of scrolling nobody asked for.
@@ -1731,6 +1738,12 @@ export function SessionStream({
       if (!el) return;
       const target = el.scrollHeight - el.clientHeight;
       const current = el.scrollTop;
+      // The reader moved UP since the last write: never fight them. This is
+      // the frame-level backstop for any input path no listener caught.
+      if (lastWrittenTopRef.current >= 0 && current < lastWrittenTopRef.current - 4 && target >= lastWrittenTopRef.current) {
+        setPinned(false);
+        return;
+      }
       if (target - current <= 0.5) return;
       const next = Math.min(target, current + Math.max(1, (target - current) * 0.22));
       lastWrittenTopRef.current = next;
@@ -1943,7 +1956,7 @@ export function SessionStream({
         {!stuck && (
           <div className="cc-session-jumpwrap">
             <button type="button" className="cc-session-jump" onClick={jumpToLatest}>
-              Jump to latest
+              Jump to bottom
             </button>
           </div>
         )}

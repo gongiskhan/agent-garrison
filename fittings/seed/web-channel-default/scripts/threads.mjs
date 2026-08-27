@@ -1170,12 +1170,67 @@ function recordThreadSession(thread, rawSessionId) {
 
 function deriveTitle(thread) {
   if (thread.title && String(thread.title).trim()) return String(thread.title).trim();
+  // A conversation thread's messages live in the LEDGER, not thread.messages -
+  // without this every conversation row read "New conversation" forever. The
+  // name is inferred from the conversation itself (objective, else the first
+  // human message) and an explicit thread.title always wins above.
+  const conversationTitle = inferredConversationTitle(conversationIdFor(thread));
+  if (conversationTitle) return conversationTitle;
   const firstUser = (thread.messages ?? []).find((m) => m.role === "user" && m.text?.trim());
   if (firstUser) {
     const firstLine = firstUser.text.split("\n").map((l) => l.trim()).find(Boolean) ?? firstUser.text;
     return firstLine.replace(/^#+\s*/, "").slice(0, 60).trim() || "New conversation";
   }
   return "New conversation";
+}
+
+/** Inferred display name for a conversation, from its own store: the L1
+ * summary's Objective once triage has written a real one, else the first
+ * human message in the ledger. Cached on (summary mtime, log size) - this
+ * runs per thread on a polled list route. Null when nothing usable exists,
+ * so callers keep their own fallback. */
+const inferredTitleCache = new Map();
+export function inferredConversationTitle(conversationId) {
+  if (!conversationId) return null;
+  const dir = path.join(garrisonDir(), "conversations", conversationId);
+  let cacheKey = "";
+  try { cacheKey += `s${fsSync.statSync(path.join(dir, "summary.md")).mtimeMs}`; } catch { /* no summary yet */ }
+  try { cacheKey += `l${fsSync.statSync(path.join(dir, "log.jsonl")).size}`; } catch { return null; }
+  const cached = inferredTitleCache.get(conversationId);
+  if (cached && cached.key === cacheKey) return cached.title;
+  let title = null;
+  try {
+    const summary = fsSync.readFileSync(path.join(dir, "summary.md"), "utf8");
+    const objective = summary.match(/^## Objective\n+([^\n]+)/m)?.[1]?.trim();
+    if (objective && !objective.startsWith("(not yet written")) title = objective;
+  } catch { /* objective is optional */ }
+  if (!title) {
+    // The ledger's HEAD: the first user-message is among the first records, so
+    // one bounded read is enough - never a full-file parse on a list route.
+    try {
+      const fd = fsSync.openSync(path.join(dir, "log.jsonl"), "r");
+      try {
+        const buf = Buffer.alloc(32_768);
+        const bytes = fsSync.readSync(fd, buf, 0, buf.length, 0);
+        for (const line of buf.toString("utf8", 0, bytes).split("\n")) {
+          if (!line.includes('"user-message"')) continue;
+          try {
+            const record = JSON.parse(line);
+            const text = record?.kind === "user-message" ? record?.payload?.text : null;
+            if (typeof text === "string" && text.trim()) {
+              title = text.split("\n").map((l) => l.trim()).find(Boolean) ?? null;
+              break;
+            }
+          } catch { /* a truncated tail line - keep scanning */ }
+        }
+      } finally {
+        fsSync.closeSync(fd);
+      }
+    } catch { /* no readable ledger */ }
+  }
+  title = title ? title.replace(/^#+\s*/, "").slice(0, 60).trim() || null : null;
+  inferredTitleCache.set(conversationId, { key: cacheKey, title });
+  return title;
 }
 
 /** Sparse remote-shell binding carried in a thread's opaque context: which
