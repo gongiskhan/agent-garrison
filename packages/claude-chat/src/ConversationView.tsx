@@ -64,6 +64,10 @@ export interface ConversationViewProps {
    *  (or no search route) turns it off. */
   search?: boolean;
   headerExtra?: React.ReactNode;
+  /** The host's word on whether this conversation is still being driven (a card
+   *  on Running). `false` vetoes the stream's derived working spinners; absent
+   *  leaves the event-derived activity in charge. */
+  live?: boolean;
 }
 
 /** Refuse an absolute base rather than handing the client a URL it cannot reach. */
@@ -103,6 +107,7 @@ export function ConversationView({
   focusSeq = null,
   search = true,
   headerExtra,
+  live,
 }: ConversationViewProps) {
   const root = useMemo(() => relativeBase(base), [base]);
   // The host's `focusSeq` is the initial/authoritative value; a hit clicked in
@@ -240,6 +245,7 @@ export function ConversationView({
             features={features}
             transcriptUrl={streamUrl}
             transcriptOnly
+            transcriptLive={live}
             transcriptFocusEventId={seq == null ? undefined : conversationEventId(conversationId, seq)}
             routing={routing}
             routeOptions={routeOptions}

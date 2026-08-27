@@ -3771,6 +3771,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
             title={card.title}
             generation={`${card.rev}:${card.status}`}
             frozen={readOnly}
+            running={card.status === "running" || card.list === "running"}
             onRawLog={() => onWatch?.(card)}
             onOpenRuntimeTranscript={(sessionId) => setOpenTranscript({
               sessionId,
@@ -4500,7 +4501,10 @@ function ConversationSheet({ cardId, onClose, onOpenCard, onWatch, onStart, busy
       {card && (
         <div className="conv-meta">
           <button className="chip mono chip-id" title="copy the card id" onClick={() => { void navigator.clipboard?.writeText(card.id); }}>{card.id}</button>
-          <span className="chip">{card.list}</span>
+          <span className={`chip conv-state-chip is-${card.list}`}>
+            {(card.status === "running" || card.list === "running") && <span className="run-spin" aria-hidden />}
+            {card.list === "needs-attention" ? "needs input" : card.list}
+          </span>
           {card.autonomous && <span className="chip">autonomous</span>}
           {card.project && <span className="chip">{card.project}</span>}
           <span className="conv-meta-spacer" />
@@ -4516,6 +4520,7 @@ function ConversationSheet({ cardId, onClose, onOpenCard, onWatch, onStart, busy
             title={card.title}
             generation={`${card.rev}:${card.status}`}
             frozen={frozen}
+            running={card.status === "running" || card.list === "running"}
             onRawLog={() => onWatch(card)}
             onOpenRuntimeTranscript={(sessionId) => setOpenTranscript({
               sessionId,

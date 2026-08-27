@@ -17,8 +17,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   --cc-bg-elev: #161b22;
   --cc-bg-sunk: #010409;
   --cc-fg: #e6edf3;
-  --cc-fg-dim: #8b949e;
-  --cc-fg-faint: #6e7681;
+  --cc-fg-dim: #a3aeb8;
+  --cc-fg-faint: #8b949e;
   --cc-border: #21262d;
   --cc-border-strong: #30363d;
   --cc-accent: #1f6feb;
@@ -40,8 +40,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   --cc-bg-elev: #f4ede0;
   --cc-bg-sunk: #efe7d6;
   --cc-fg: #18211c;
-  --cc-fg-dim: #5f6356;
-  --cc-fg-faint: #8a8d82;
+  --cc-fg-dim: #4c5045;
+  --cc-fg-faint: #6b6f61;
   --cc-border: #d6cdba;
   --cc-border-strong: #c4bba6;
   --cc-accent: #3d6249;
@@ -1044,7 +1044,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-stretch-chip {
   flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
-  color: var(--cc-fg-dim); white-space: nowrap;
+  color: var(--cc-fg); white-space: nowrap;
   font: 10px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 .cc-stretch-outcome { color: var(--cc-fg); border-color: var(--cc-fg-faint); }
@@ -1070,12 +1070,12 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 /* Ledger rows sit at the weight of a tool row: they are the record of what ran,
    scanned far more often than read. Same disclosure mechanics as a notice. */
 .cc-ledger {
-  min-width: 0; padding: 4px 9px; border-left: 2px solid var(--cc-border);
+  min-width: 0; padding: 4px 9px; border-left: 3px solid var(--cc-border);
   border-radius: 0 6px 6px 0; color: var(--cc-fg); font-size: 12px; line-height: 1.4;
 }
 .cc-ledger-warn {
   border-left-color: var(--cc-rail-warn, #e8a598);
-  background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 10%, transparent);
+  background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 16%, transparent);
 }
 .cc-ledger > summary {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; min-width: 0;
@@ -1086,7 +1086,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   flex: 0 0 auto; color: var(--cc-fg-faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
 }
 .cc-ledger-title {
-  min-width: 0; flex: 1 1 auto; color: var(--cc-fg-dim);
+  min-width: 0; flex: 1 1 auto; color: var(--cc-fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Once open there is nothing left to reveal by clipping the title. */
@@ -1111,8 +1111,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    of route/error/status used to shout louder than the answer they annotate; the
    weight now matches the tool rows they sit beside. */
 .cc-session-notice {
-  min-width: 0; padding: 5px 9px; border-left: 2px solid var(--cc-border-strong);
-  border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--cc-border-strong) 7%, transparent);
+  min-width: 0; padding: 5px 9px; border-left: 3px solid var(--cc-border-strong);
+  border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--cc-border-strong) 14%, transparent);
   color: var(--cc-fg); font-size: 12.5px; line-height: 1.4;
 }
 .cc-session-notice > summary {
@@ -1123,7 +1123,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    start as the ones that do. */
 .cc-session-notice.is-flat .cc-session-notice-head { padding-left: 14px; }
 .cc-session-notice-lede {
-  min-width: 0; flex: 1 1 auto; color: var(--cc-fg-dim);
+  min-width: 0; flex: 1 1 auto; color: var(--cc-fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* The lede is clipped only while it is genuinely collapsed - i.e. there is more
@@ -1134,11 +1134,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-notice-body { display: flex; flex-direction: column; gap: 3px; padding: 6px 0 2px 10px; }
 .cc-session-notice-warning {
   border-left-color: var(--cc-rail-warn, #e8a598);
-  background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 10%, transparent);
+  background: color-mix(in srgb, var(--cc-rail-warn, #e8a598) 16%, transparent);
 }
-.cc-session-notice-route { border-left-color: var(--cc-accent); background: color-mix(in srgb, var(--cc-accent) 8%, transparent); }
-.cc-session-notice-danger { border-left-color: var(--cc-danger-border); background: color-mix(in srgb, var(--cc-danger-border) 10%, transparent); }
-.cc-session-notice-complete { border-left-color: var(--cc-success, #70a37f); background: color-mix(in srgb, var(--cc-success, #70a37f) 8%, transparent); }
+.cc-session-notice-route { border-left-color: var(--cc-accent); background: color-mix(in srgb, var(--cc-accent) 14%, transparent); }
+.cc-session-notice-danger { border-left-color: var(--cc-danger-border); background: color-mix(in srgb, var(--cc-danger-border) 16%, transparent); }
+.cc-session-notice-complete { border-left-color: var(--cc-success, #70a37f); background: color-mix(in srgb, var(--cc-success, #70a37f) 14%, transparent); }
 .cc-session-notice-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px; min-width: 0; }
 .cc-session-notice-label {
   color: var(--cc-fg); font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
@@ -1988,8 +1988,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   --cc-bg-elev: #161b22;
   --cc-bg-sunk: #010409;
   --cc-fg: #e6edf3;
-  --cc-fg-dim: #8b949e;
-  --cc-fg-faint: #6e7681;
+  --cc-fg-dim: #a3aeb8;
+  --cc-fg-faint: #8b949e;
   --cc-border: #21262d;
   --cc-border-strong: #30363d;
   --cc-accent: #1f6feb;
@@ -2003,8 +2003,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   --cc-bg-elev: #f4ede0;
   --cc-bg-sunk: #efe7d6;
   --cc-fg: #18211c;
-  --cc-fg-dim: #5f6356;
-  --cc-fg-faint: #8a8d82;
+  --cc-fg-dim: #4c5045;
+  --cc-fg-faint: #6b6f61;
   --cc-border: #d6cdba;
   --cc-border-strong: #c4bba6;
   --cc-accent: #3d6249;
@@ -2175,6 +2175,82 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-conv-hit { min-height: 44px; }
   .cc-conv-jumped button, .cc-paymodal-raw, .cc-paymodal-head button { min-height: 44px; min-width: 44px; }
 }
+
+/* ── Conversation activity: working strip, terminal banners, jump pill ──────
+   The stream derives what the conversation is doing (journal.ts
+   conversationActivity) and says it at the tail, where the next content will
+   appear. The banners are deliberately the loudest thing in the transcript:
+   a parked conversation asking for input is the one state the reader must
+   never scroll past. */
+.cc-session-sentinel { height: 1px; flex: 0 0 1px; }
+
+.cc-conv-working {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 8px 12px; border: 1px solid var(--cc-border);
+  border-left: 3px solid var(--cc-accent); border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--cc-accent) 8%, transparent);
+}
+.cc-conv-working .cc-working-dots i { background: var(--cc-accent); }
+.cc-conv-working-label { font-size: 12.5px; font-weight: 600; color: var(--cc-fg); }
+.cc-conv-working-model {
+  padding: 1px 7px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
+  color: var(--cc-fg); font: 10.5px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.cc-conv-working-time {
+  margin-left: auto; color: var(--cc-fg-dim); font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+
+.cc-conv-state {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  padding: 12px 14px; border-radius: 10px; border: 1px solid var(--cc-border-strong);
+}
+.cc-conv-state-title { font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.cc-conv-state-line { margin: 0; font-size: 13px; line-height: 1.5; color: var(--cc-fg); overflow-wrap: anywhere; }
+.cc-conv-state-line b { font-weight: 700; }
+.cc-conv-state-hint { margin: 0; font-size: 12px; font-weight: 600; color: var(--cc-fg); opacity: .85; }
+.cc-conv-state-attn {
+  border-color: color-mix(in srgb, var(--cc-rail-warn, #d29922) 55%, transparent);
+  border-left: 4px solid var(--cc-rail-warn, #d29922);
+  background: color-mix(in srgb, var(--cc-rail-warn, #d29922) 16%, transparent);
+}
+.cc-conv-state-attn .cc-conv-state-title { color: var(--cc-fg); }
+.cc-conv-state-done {
+  border-color: color-mix(in srgb, var(--cc-success, #70a37f) 55%, transparent);
+  border-left: 4px solid var(--cc-success, #70a37f);
+  background: color-mix(in srgb, var(--cc-success, #70a37f) 12%, transparent);
+}
+
+/* Floats over the tail while the reader is scrolled up; disappears the moment
+   they are back at the bottom (it only renders while unstuck). Sticky, not
+   fixed: the scroll container belongs to the HOST, and sticky follows whichever
+   ancestor actually scrolls. */
+.cc-session-jump {
+  position: sticky; bottom: 10px; align-self: center; z-index: 4;
+  padding: 5px 14px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
+  background: var(--cc-bg-elev); color: var(--cc-fg); font-size: 12px; font-weight: 600;
+  cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.cc-session-jump:hover { border-color: var(--cc-accent); color: var(--cc-accent); }
+
+/* Header chip for a settled conversation state. */
+.cc-session-statechip {
+  padding: 1px 8px; border-radius: 999px; border: 1px solid var(--cc-border-strong);
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--cc-fg);
+}
+.cc-session-statechip.is-attn {
+  border-color: var(--cc-rail-warn, #d29922);
+  background: color-mix(in srgb, var(--cc-rail-warn, #d29922) 18%, transparent);
+}
+.cc-session-statechip.is-done {
+  border-color: var(--cc-success, #70a37f);
+  background: color-mix(in srgb, var(--cc-success, #70a37f) 14%, transparent);
+}
+.cc-session-statechip.is-dim { color: var(--cc-fg-dim); }
+
+/* Where the handoff pointed: the one chip on a stretch boundary that says what
+   happens NEXT, so it reads a shade stronger than the cost chips beside it. */
+.cc-stretch-next { border-color: var(--cc-accent); color: var(--cc-accent); }
 
 /* === kanban skin (override layer) === */
 /* Kanban Loop board — restyled into Garrison's "field manual" aesthetic so the
@@ -4124,8 +4200,8 @@ button:active, .btn:active { transform: translateY(1px); }
   --cc-bg-elev: var(--paper-2);
   --cc-bg-sunk: var(--paper-3);
   --cc-fg: var(--ink);
-  --cc-fg-dim: var(--mute);
-  --cc-fg-faint: var(--mute-2);
+  --cc-fg-dim: #565a50;
+  --cc-fg-faint: #6d7167;
   --cc-border: var(--rule);
   --cc-border-strong: var(--rule-2);
   --cc-accent: var(--sage-2);
@@ -4769,3 +4845,11 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .rec-dow:hover { border-color: var(--sage-2); }
 .rec-dow.on { background: var(--sage); border-color: var(--sage); color: var(--paper); }
 .sched-due-row { margin-top: 8px; }
+
+
+/* Conversation sheet state chip: the card's list said as state, with the same
+   spinner the card front uses while work is live. */
+.conv-state-chip { display: inline-flex; align-items: center; gap: 6px; }
+.conv-state-chip.is-running { background: var(--sage-soft); color: var(--ink); border-color: var(--sage-2); }
+.conv-state-chip.is-needs-attention { background: var(--alarm-soft); color: var(--alarm); border-color: rgba(155, 54, 45, 0.35); font-weight: 700; }
+.conv-state-chip.is-done { background: var(--paper-3); color: var(--ink); }

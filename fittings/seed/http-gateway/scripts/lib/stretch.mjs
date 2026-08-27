@@ -241,7 +241,15 @@ keys are not:
 Rules: blocked requires a blocker; partial/failed require at least one
 failedApproaches entry; next "done" requires status "complete"; a gate/run/file
 evidence ref must point at a real non-empty file. Update nothing else — the
-exit gate applies your handoff to the conversation summary.`;
+exit gate applies your handoff to the conversation summary.
+
+YOUR SESSION ENDS THE MOMENT YOUR TURN ENDS. There is no later: nothing will
+re-invoke you, and a background task's completion notification will never reach
+you. Never start a background command and end your turn "waiting" for it — run
+commands in the foreground and wait them out inside this turn, even long ones.
+If something genuinely cannot finish inside this stretch, say exactly that in
+the handoff (status partial, next pointing at the duty that should continue)
+instead of ending your turn without one.`;
 
 export function buildStretchBrief({
   conversationId,

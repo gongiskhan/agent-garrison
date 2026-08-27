@@ -1220,6 +1220,14 @@ export interface ClaudeChatProps {
    */
   transcriptFocusEventId?: string;
   /**
+   * The HOST's word on whether the conversation behind the pinned transcript is
+   * still being driven. Threaded verbatim to {@link SessionStream}'s
+   * `conversationLive`: `false` vetoes the stream's derived working spinners,
+   * anything else leaves the derivation in charge. Only meaningful with
+   * `transcriptOnly`.
+   */
+  transcriptLive?: boolean;
+  /**
    * Stable key for persisting the UNSENT composer draft (typed text + settled
    * attachments) across a re-mount. A multi-thread host re-mounts the component
    * with a fresh `key` when switching threads (see `initialHistory`), which would
@@ -1260,7 +1268,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, transcriptLive, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -2850,6 +2858,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             live={busy}
             announceLiveUpdates={false}
             focusEventId={transcriptFocusEventId}
+            conversationLive={transcriptLive}
           />
         ) : showTranscript && transcriptUrl ? (
           <SessionStream url={transcriptUrl} live={busy} announceLiveUpdates={false} />

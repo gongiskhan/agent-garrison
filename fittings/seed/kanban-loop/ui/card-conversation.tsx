@@ -161,6 +161,7 @@ export function CardConversation({
   title,
   generation,
   frozen = false,
+  running,
   onRawLog,
   onOpenRuntimeTranscript
 }: {
@@ -169,6 +170,11 @@ export function CardConversation({
   /** Changes when the card does, so the scope re-reads on a stretch boundary. */
   generation: string;
   frozen?: boolean;
+  /** Whether the CARD says work is being driven right now. `false` vetoes the
+   *  stream's derived working spinners (a wedged ledger must not spin forever
+   *  under a card that says parked); `undefined` trusts the stream's own
+   *  derivation. */
+  running?: boolean;
   onRawLog: () => void;
   onOpenRuntimeTranscript: (sessionId: string) => void;
 }) {
@@ -183,6 +189,7 @@ export function CardConversation({
         conversationId={conversationId}
         base={CONVERSATION_BASE}
         transport={transport}
+        live={frozen ? false : running ? undefined : false}
         title={title}
         placeholder={frozen ? "This conversation is frozen" : "Write into this conversation"}
         onOpenRuntimeTranscript={onOpenRuntimeTranscript}

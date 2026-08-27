@@ -31,6 +31,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import * as fsSync from "node:fs";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -276,6 +277,7 @@ const SESSION_LEDGER_KINDS = new Set([
   "card-state-changed",
   "escalation",
   "policy-rewrite",
+  "approval-requested",
 ]);
 const FAILURE_KINDS = new Set([
   "authentication",
@@ -818,9 +820,15 @@ export function sanitizeSessionBlock(raw) {
     // here on purpose - a second copy of those lists in the channel would be a
     // mirror that silently drifts. An explicit null reads as "not reported", the
     // same as the route attribution's own optional ids, so it is omitted.
-    for (const key of ["duty", "chosenBy", "outcome"]) {
+    for (const key of ["duty", "chosenBy", "outcome", "next", "blockerWho"]) {
       if (!Object.hasOwn(raw, key) || raw[key] === null) continue;
       if (!copyOptionalLabel(out, raw, key, 200)) return null;
+    }
+    // The handoff excerpt the terminal banner quotes: prose, not labels, so it
+    // takes the text cap rather than the label cap.
+    for (const key of ["summary", "blockerWhat", "blockerNeeds"]) {
+      if (!Object.hasOwn(raw, key) || raw[key] === null) continue;
+      if (!copyOptionalText(out, raw, key)) return null;
     }
     if (Object.hasOwn(raw, "usedTokens") && raw.usedTokens !== null) {
       if (!copyOptionalNumber(out, raw, "usedTokens", { integer: true, min: 0 })) return null;
@@ -2150,4 +2158,72 @@ export function runningSince(threadId) {
 
 export function runningThreadIds() {
   return [...activeInputByThread.keys()];
+}
+
+// ── Conversation-backed liveness ────────────────────────────────────────────
+// A conversation thread's work is driven by the LAUNCHER, not by this server's
+// input lifecycle: its message settles at admission, so activeInputByThread
+// never marks it running and the rail showed every working conversation as
+// idle. Read the truth from the conversation store itself: the
+// `.current-stretch` marker while a stretch runs, else the ledger tail for the
+// between-stretch window (exit gate, routing, a queued user message).
+
+const CONVERSATIONS_DIR = path.join(garrisonDir(), "conversations");
+/** Ledger kinds that decide liveness; everything else in the tail is content. */
+const CONV_TAIL_DECIDERS = new Set([
+  "user-message",
+  "stretch-started",
+  "stretch-ended",
+  "approval-requested",
+  "conversation-opened",
+]);
+
+/**
+ * ISO time since when the conversation has been actively driven, or null when it
+ * is waiting on a human (or on nothing). Sync and bounded on purpose: one stat
+ * plus at most one 16KB tail read per conversation thread, on a poll route.
+ */
+export function conversationRunningSince(conversationId) {
+  if (!conversationId) return null;
+  const dir = path.join(CONVERSATIONS_DIR, conversationId);
+  try {
+    const marker = fsSync.statSync(path.join(dir, ".current-stretch"));
+    return marker.mtime.toISOString();
+  } catch { /* no stretch holds the store - consult the tail */ }
+  let tail;
+  try {
+    const logPath = path.join(dir, "log.jsonl");
+    const size = fsSync.statSync(logPath).size;
+    const span = Math.min(size, 16_384);
+    const fd = fsSync.openSync(logPath, "r");
+    try {
+      const buf = Buffer.alloc(span);
+      fsSync.readSync(fd, buf, 0, span, size - span);
+      tail = buf.toString("utf8");
+    } finally {
+      fsSync.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const lines = tail.split("\n").filter((line) => line.trim());
+  // The first line of a mid-file window is almost always a partial record;
+  // walking backward, JSON.parse failures are simply skipped.
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    let record;
+    try { record = JSON.parse(lines[i]); } catch { continue; }
+    const kind = record?.kind;
+    if (!CONV_TAIL_DECIDERS.has(kind)) continue;
+    const since = typeof record.ts === "string" ? record.ts : new Date().toISOString();
+    if (kind === "user-message" || kind === "stretch-started") return since;
+    if (kind === "stretch-ended") {
+      const next = record?.payload?.next;
+      // A named duty means the launcher owes the next stretch; done and
+      // needs-input are terminal, and an old record without `next` must not
+      // claim liveness it cannot prove.
+      return typeof next === "string" && next && next !== "done" && next !== "needs-input" ? since : null;
+    }
+    return null; // approval-requested and conversation-opened wait on a human
+  }
+  return null;
 }

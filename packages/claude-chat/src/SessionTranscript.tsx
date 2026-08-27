@@ -8,6 +8,7 @@ import { railBadges } from "./run-context";
 import type { RouteAttribution } from "./transport";
 import {
   collectRelatedTasks,
+  conversationActivity,
   groupSessionTurns,
   hasVisibleSessionActivity,
   isSessionEvent,
@@ -18,6 +19,7 @@ import {
   sessionEventText,
   sessionThinkingSummary,
   sessionToolSummary,
+  type ConversationActivity,
   type FailureInfo,
   type PermissionAnswer,
   type PermissionDecision,
@@ -119,6 +121,15 @@ export interface SessionStreamProps {
    * behaviour. An id no event carries is inert.
    */
   focusEventId?: string;
+  /**
+   * The HOST's word on whether this conversation is still being driven (a card
+   * on Running, a thread with an active input). The stream derives its own
+   * activity from the events; an explicit `false` here overrides that
+   * derivation's spinners - a crashed launcher must not leave an eternal
+   * "working" strip when the card beside it says stopped. Absent → trust the
+   * derivation. Meaningless outside conversation streams.
+   */
+  conversationLive?: boolean;
 }
 
 export interface SessionEventTimelineProps {
@@ -873,6 +884,11 @@ function StretchRule({ block }: { block: SessionBlock }) {
         {ended && outcome && (
           <span className="cc-stretch-chip cc-stretch-outcome" title={`outcome ${outcome}`}>{outcome}</span>
         )}
+        {ended && compactNoticeText(block.next) && (
+          <span className="cc-stretch-chip cc-stretch-next" title="where the handoff pointed next">
+            next: {compactNoticeText(block.next)}
+          </span>
+        )}
         {ended && tokens !== null && (
           <span className="cc-stretch-chip" title="tokens this stretch used">{tokens.toLocaleString("en-US")} tok</span>
         )}
@@ -905,10 +921,11 @@ const LEDGER_LABELS: Record<string, string> = {
   "card-state-changed": "Card state changed",
   escalation: "Escalation",
   "policy-rewrite": "Policy rewrite",
+  "approval-requested": "Approval requested",
 };
 
 /** Kinds that report something going wrong, and earn the warning tone. */
-const LEDGER_WARN_KINDS = new Set(["delegation-failed", "escalation"]);
+const LEDGER_WARN_KINDS = new Set(["delegation-failed", "escalation", "approval-requested"]);
 
 /** One conversation-ledger row, using the same expand-in-place disclosure the
  * tool rows use. `payloadRef` becomes a control only where a host has supplied a
@@ -980,6 +997,7 @@ function ActivityTimeline({
   onPermissionDecision,
   permissionGenerationId,
   renderTerminalResult = false,
+  conversationTurn = false,
 }: {
   events: SessionEvent[];
   includeText: boolean;
@@ -993,6 +1011,13 @@ function ActivityTimeline({
   onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
   permissionGenerationId?: string;
   renderTerminalResult?: boolean;
+  /** This turn is one stretch of a conversation. A per-stretch "Response
+   * complete" is noise there - the stretch boundary carries the settlement, and
+   * the CONVERSATION's own end gets the banner - so a completed turn_end
+   * renders only its (unduplicated) result prose, never the notice row.
+   * Errors and cancellations keep their notice: a failure must never be the
+   * thing this hides. */
+  conversationTurn?: boolean;
 }) {
   const beats = sessionActivityBeats(events);
   return (
@@ -1033,6 +1058,27 @@ function ActivityTimeline({
           const terminalResultDuplicated = block.type === "turn_end" && typeof block.result === "string" && events.some(
             (event) => sessionEventText(event).trim() === block.result!.trim()
           );
+          if (
+            conversationTurn &&
+            block.type === "turn_end" &&
+            String(block.status ?? "completed") === "completed"
+          ) {
+            const resultText =
+              !terminalResultDuplicated && typeof block.result === "string" && block.result.trim()
+                ? block.result
+                : null;
+            if (!resultText) return null;
+            return (
+              <div
+                key={key}
+                className="cc-session-interim-text cc-session-markdown"
+                data-session-event-id={sourceEvent?.id ?? undefined}
+                data-session-block-index={beat.blockIndex}
+              >
+                <TextBlock text={resultText} role="assistant" renderMarkdown={renderMarkdown} />
+              </div>
+            );
+          }
           return (
             <div
               key={key}
@@ -1114,6 +1160,10 @@ export function SessionEventTimeline({
   );
   const resultsByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_result"), [events]);
   const progressByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
+  const conversationTurn = useMemo(
+    () => events.some((event) => (event.blocks ?? []).some((block) => block.type === "stretch")),
+    [events]
+  );
   const activeThinkingBlock = useMemo(() => {
     if (!live) return null;
     let latest: SessionBlock | null = null;
@@ -1145,6 +1195,7 @@ export function SessionEventTimeline({
         onPermissionDecision={onPermissionDecision}
         permissionGenerationId={permissionGenerationId}
         renderTerminalResult
+        conversationTurn={conversationTurn}
       />
       {modalImage && <ImageModal image={modalImage.image} label={modalImage.label} onClose={() => setModalImage(null)} />}
     </div>
@@ -1297,12 +1348,96 @@ function RelatedTaskModal({ task, onClose }: { task: RelatedTask; onClose: () =>
   );
 }
 
+/** Ticks once a second while mounted; the elapsed base for the working strip. */
+function useNowTick(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+/** The conversation's live pulse: what is running (or being decided) right now,
+ * with the model and a running clock. Renders at the tail of the stream, where
+ * the next content will appear - the reader's eye is already there. */
+function ConversationWorkingStrip({ activity, announce }: { activity: ConversationActivity; announce: boolean }) {
+  const now = useNowTick(true);
+  const elapsed = activity.since ? elapsedLabel(Math.max(0, now - activity.since)) : null;
+  const label = activity.mode === "working"
+    ? `Working${activity.duty ? ` — ${activity.duty}` : ""}`
+    : activity.mode === "handoff"
+      ? "Handing off — choosing what runs next"
+      : "Starting — message queued";
+  return (
+    <div className="cc-conv-working" role={announce ? "status" : undefined}>
+      <span className="cc-working-dots" aria-hidden="true"><i /><i /><i /></span>
+      <span className="cc-conv-working-label">{label}</span>
+      {activity.mode === "working" && activity.model && (
+        <span className="cc-conv-working-model">{activity.model}</span>
+      )}
+      {elapsed && <span className="cc-conv-working-time">{elapsed}</span>}
+    </div>
+  );
+}
+
+/** The conversation's terminal state, said out loud. A needs-input park was a
+ * one-line collapsed ledger row before this - the single most consequential
+ * state a conversation reaches, rendered quieter than a tool call. */
+function ConversationStateBanner({ activity }: { activity: ConversationActivity }) {
+  if (activity.mode === "needs-input") {
+    return (
+      <div className="cc-conv-state cc-conv-state-attn" role="status">
+        <div className="cc-conv-state-title">Needs your input</div>
+        {activity.blockerWhat && <p className="cc-conv-state-line">{activity.blockerWhat}</p>}
+        {activity.blockerNeeds && (
+          <p className="cc-conv-state-line"><b>Needed:</b> {activity.blockerNeeds}</p>
+        )}
+        {!activity.blockerWhat && !activity.blockerNeeds && activity.summary && (
+          <p className="cc-conv-state-line">{activity.summary}</p>
+        )}
+        <p className="cc-conv-state-hint">Reply below to resume this conversation.</p>
+      </div>
+    );
+  }
+  if (activity.mode === "awaiting-approval") {
+    return (
+      <div className="cc-conv-state cc-conv-state-attn" role="status">
+        <div className="cc-conv-state-title">Waiting for your go-ahead</div>
+        <p className="cc-conv-state-line">
+          The work is paused before its next step - the ask above carries the plan.
+        </p>
+        <p className="cc-conv-state-hint">Reply below to approve or redirect.</p>
+      </div>
+    );
+  }
+  if (activity.mode === "done") {
+    return (
+      <div className="cc-conv-state cc-conv-state-done">
+        <div className="cc-conv-state-title">Conversation complete</div>
+        {activity.summary && <p className="cc-conv-state-line">{activity.summary}</p>}
+      </div>
+    );
+  }
+  return null;
+}
+
+/** Header chip vocabulary for a settled conversation state. */
+const CONVERSATION_STATE_CHIPS: Partial<Record<ConversationActivity["mode"], { label: string; tone: "attn" | "done" | "dim" }>> = {
+  "needs-input": { label: "needs input", tone: "attn" },
+  "awaiting-approval": { label: "waiting for approval", tone: "attn" },
+  done: { label: "done", tone: "done" },
+  idle: { label: "idle", tone: "dim" },
+};
+
 export function SessionStream({
   url,
   live = false,
   title: titleProp,
   announceLiveUpdates = true,
   focusEventId,
+  conversationLive,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
@@ -1312,11 +1447,26 @@ export function SessionStream({
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [relatedView, setRelatedView] = useState<RelatedTask | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
+  /** Render mirror of stickRef: drives the "Jump to latest" pill. */
+  const [stuck, setStuck] = useState(true);
   const liveRef = useRef(live);
   const previousLiveRef = useRef(live);
   liveRef.current = live;
   const focusPendingRef = useFocusedEvent(scrollRef, focusEventId, events);
+
+  // The conversation's own read of what is happening, derived purely from the
+  // events. `none` for a plain runtime session - every conversation affordance
+  // below is gated on it.
+  const activity = useMemo<ConversationActivity>(() => conversationActivity(events), [events]);
+  const conversationMode = activity.mode !== "none";
+  // The host can veto the derivation's spinners (a card that says stopped),
+  // never assert them.
+  const derivedBusy =
+    conversationMode &&
+    conversationLive !== false &&
+    (activity.mode === "working" || activity.mode === "handoff" || activity.mode === "starting");
 
   useEffect(() => {
     const becameLive = live && !previousLiveRef.current;
@@ -1338,6 +1488,7 @@ export function SessionStream({
     // A pending jump owns the scroll position for this mount: sticking to the
     // bottom would scroll straight past the hit the reader asked to land on.
     stickRef.current = !focusPendingRef.current;
+    setStuck(stickRef.current);
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const retryWhileLive = () => {
       if (!liveRef.current || retryTimer) return;
@@ -1390,18 +1541,57 @@ export function SessionStream({
     };
   }, [url, titleProp, retryToken]);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [events]);
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  // ── Stick-to-bottom that survives ANY host embedding ──────────────────────
+  // This component does not own the scroll container: in the conversation
+  // surfaces the scrolling ancestor is ClaudeChat's .cc-scroll (or a host
+  // sheet), and `.cc-session-scroll` itself never overflows - so pinning our
+  // own div's scrollTop was a silent no-op there and streaming replies crawled
+  // out of view. Anchor on a bottom SENTINEL instead: an IntersectionObserver
+  // says whether the reader is at the bottom (visibility is computed through
+  // every clipping ancestor, so it is true in any embedding), and a
+  // ResizeObserver on the content re-pins via scrollIntoView - which scrolls
+  // whichever ancestor actually scrolls - every time the content grows while
+  // stuck. A pending search-hit jump owns the scroll until it lands.
+  const pinToLatest = (behavior: ScrollBehavior = "auto") => {
+    sentinelRef.current?.scrollIntoView({ block: "end", behavior });
   };
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        if (!entry) return;
+        stickRef.current = entry.isIntersecting;
+        setStuck(entry.isIntersecting);
+      },
+      // A reader within ~one row of the bottom still counts as following.
+      { rootMargin: "0px 0px 72px 0px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    const content = scrollRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickRef.current && !focusPendingRef.current) pinToLatest();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (stickRef.current && !focusPendingRef.current) pinToLatest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
 
   const resultsByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_result"), [events]);
   const progressByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
-  const streamLive = live && status === "streaming";
+  // A conversation drives itself: the launcher runs stretches whether or not
+  // the HOST considers a turn in flight, so the derivation joins the host's
+  // `live` in deciding whether the tail renders as active work.
+  const streamLive = (live || derivedBusy) && status === "streaming";
   const relatedTasks = useMemo(() => collectRelatedTasks(events, streamLive), [events, streamLive]);
   useEffect(() => {
     setRelatedView((selected) => {
@@ -1446,17 +1636,19 @@ export function SessionStream({
     return last?.type === "thinking" ? last : null;
   }, [events, streamLive]);
 
+  const stateChip = conversationMode && !streamLive ? CONVERSATION_STATE_CHIPS[activity.mode] : undefined;
   return (
     <div className="cc-session">
       <div className="cc-session-head">
         <span className="cc-session-head-title">{title ?? "Activity"}</span>
         {status === "connecting" && <span>connecting…</span>}
         {streamLive && <span className="cc-session-live"><span className="cc-session-live-dot" aria-hidden="true" />live</span>}
-        {(status === "ended" || (!live && status === "streaming")) && <span>complete</span>}
+        {stateChip && <span className={`cc-session-statechip is-${stateChip.tone}`}>{stateChip.label}</span>}
+        {!conversationMode && (status === "ended" || (!streamLive && status === "streaming")) && <span>complete</span>}
         {status === "unavailable" && <span>transcript unavailable</span>}
       </div>
       <RelatedTasks tasks={relatedTasks} onOpen={(task) => setRelatedView(task)} />
-      <div className="cc-session-scroll" ref={scrollRef} onScroll={onScroll}>
+      <div className="cc-session-scroll" ref={scrollRef}>
         {visibleEvents.length === 0 && (
           <div className="cc-session-empty">
             {status === "connecting"
@@ -1471,6 +1663,9 @@ export function SessionStream({
         {turns.map((turn, turnIndex) => {
           const turnLive = streamLive && turnIndex === turns.length - 1;
           const presentation = presentSessionTurn(turn, turnLive);
+          const turnIsStretch = turn.assistantEvents.some((event) =>
+            event.blocks.some((block) => block.type === "stretch")
+          );
           const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
           const hasSettlementNotice = turn.assistantEvents.some((event) => event.blocks.some((block) =>
             // A stretch boundary is a settlement, not interim chatter: it carries
@@ -1527,10 +1722,11 @@ export function SessionStream({
                         progressByToolUse={progressByToolUse}
                         onImage={(image, label) => setModalImage({ image, label })}
                         renderTerminalResult
+                        conversationTurn={turnIsStretch}
                       />
                     </>
                   )}
-                  {turnLive && !presentation.primaryText && interimCount === 0 && (
+                  {turnLive && !conversationMode && !presentation.primaryText && interimCount === 0 && (
                     <div className="cc-session-awaiting" role={announceLiveUpdates ? "status" : undefined}>Working…</div>
                   )}
                   {!turnLive && interimCount > 0 && (
@@ -1552,6 +1748,7 @@ export function SessionStream({
                         resultsByToolUse={resultsByToolUse}
                         progressByToolUse={progressByToolUse}
                         onImage={(image, label) => setModalImage({ image, label })}
+                        conversationTurn={turnIsStretch}
                       />
                     </InterimDetails>
                   )}
@@ -1560,6 +1757,20 @@ export function SessionStream({
             </React.Fragment>
           );
         })}
+        {derivedBusy && status !== "connecting" && (
+          <ConversationWorkingStrip activity={activity} announce={announceLiveUpdates} />
+        )}
+        {conversationMode && !derivedBusy && <ConversationStateBanner activity={activity} />}
+        {!stuck && (streamLive || derivedBusy) && (
+          <button
+            type="button"
+            className="cc-session-jump"
+            onClick={() => { stickRef.current = true; pinToLatest("smooth"); }}
+          >
+            Jump to latest
+          </button>
+        )}
+        <div className="cc-session-sentinel" ref={sentinelRef} aria-hidden="true" />
       </div>
       {modalImage && <ImageModal image={modalImage.image} label={modalImage.label} onClose={() => setModalImage(null)} />}
       {relatedView?.streamUrl && relatedView.streamUrl !== url && (

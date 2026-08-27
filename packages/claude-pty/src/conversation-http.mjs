@@ -269,6 +269,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
   // revise the `started` event the client already painted.
   const stretchStarts = new Map();
   const eventSlots = new Map();
+  const handoffBags = new Map();
   const first = store.range({ fromIndex: from, limit: 2000 });
   let cursor = first.nextIndex;
   let size = logBytes(store);
@@ -279,7 +280,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
     type: "init",
     available: true,
     live: true,
-    events: ledgerToSessionEvents(first.events, { conversationId, stretchStarts, eventSlots }),
+    events: ledgerToSessionEvents(first.events, { conversationId, stretchStarts, eventSlots, handoffBags }),
   });
 
   let closed = false;
@@ -314,7 +315,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
       const page = store.range({ fromIndex: cursor, limit: 500 });
       if (!page.events.length) return;
       cursor = page.nextIndex;
-      emit({ type: "events", events: ledgerToSessionEvents(page.events, { conversationId, stretchStarts, eventSlots }) });
+      emit({ type: "events", events: ledgerToSessionEvents(page.events, { conversationId, stretchStarts, eventSlots, handoffBags }) });
     } catch {
       // A transient read miss is retried on the next tick; it must never turn a
       // live conversation into a dead pane.

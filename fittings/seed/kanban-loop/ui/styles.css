@@ -1945,8 +1945,8 @@ button:active, .btn:active { transform: translateY(1px); }
   --cc-bg-elev: var(--paper-2);
   --cc-bg-sunk: var(--paper-3);
   --cc-fg: var(--ink);
-  --cc-fg-dim: var(--mute);
-  --cc-fg-faint: var(--mute-2);
+  --cc-fg-dim: #565a50;
+  --cc-fg-faint: #6d7167;
   --cc-border: var(--rule);
   --cc-border-strong: var(--rule-2);
   --cc-accent: var(--sage-2);
@@ -2590,3 +2590,11 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .rec-dow:hover { border-color: var(--sage-2); }
 .rec-dow.on { background: var(--sage); border-color: var(--sage); color: var(--paper); }
 .sched-due-row { margin-top: 8px; }
+
+
+/* Conversation sheet state chip: the card's list said as state, with the same
+   spinner the card front uses while work is live. */
+.conv-state-chip { display: inline-flex; align-items: center; gap: 6px; }
+.conv-state-chip.is-running { background: var(--sage-soft); color: var(--ink); border-color: var(--sage-2); }
+.conv-state-chip.is-needs-attention { background: var(--alarm-soft); color: var(--alarm); border-color: rgba(155, 54, 45, 0.35); font-weight: 700; }
+.conv-state-chip.is-done { background: var(--paper-3); color: var(--ink); }
