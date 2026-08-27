@@ -7,6 +7,7 @@ import {
   type SessionEvent,
 } from "../packages/claude-chat/src/journal";
 import { SessionEventTimeline } from "../packages/claude-chat/src/SessionTranscript";
+// @ts-ignore — pure .mjs
 import { ledgerToSessionEvents } from "../packages/claude-pty/src/conversation-adapt.mjs";
 
 // The conversation surface's live behaviour (spinners, the needs-input banner,
@@ -78,6 +79,17 @@ describe("conversationActivity", () => {
   it("is done at a done handoff, and idle for a record too old to carry next", () => {
     expect(conversationActivity([assistant("e1", [stretch("ended", { next: "done", summary: "shipped" })])]).mode).toBe("done");
     expect(conversationActivity([assistant("e1", [stretch("ended")])]).mode).toBe("idle");
+  });
+
+  it("ignores user-SHAPED runtime events: a teed tool result is not a queued message", () => {
+    // The SDK tee writes tool results as role "user" with toolResultsOnly; the
+    // live incident: a finished conversation read as "Starting - message
+    // queued" because its last teed tool result outranked the done boundary.
+    const activity = conversationActivity([
+      assistant("e1", [stretch("ended", { next: "done", summary: "shipped" })]),
+      { id: "tr1", role: "user", ts: 2_000, toolResultsOnly: true, blocks: [{ type: "tool_result", text: "ok" }] },
+    ]);
+    expect(activity.mode).toBe("done");
   });
 
   it("is starting after a user message that follows the last boundary", () => {

@@ -1348,6 +1348,10 @@ function RelatedTaskModal({ task, onClose }: { task: RelatedTask; onClose: () =>
   );
 }
 
+/** A queued message or a pending handoff older than this is not "about to
+ * run" - the spinner would be a claim nothing supports. */
+const STALE_PENDING_MS = 15 * 60_000;
+
 /** Ticks once a second while mounted; the elapsed base for the working strip. */
 function useNowTick(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -1461,11 +1465,20 @@ export function SessionStream({
   // below is gated on it.
   const activity = useMemo<ConversationActivity>(() => conversationActivity(events), [events]);
   const conversationMode = activity.mode !== "none";
+  // A pending state old enough that nothing is plausibly about to run: a
+  // message queued hours ago whose launcher never picked it up must not spin
+  // forever. Computed when the events change, which is exactly when the answer
+  // could change. `working` is exempt - a long-running stretch is still live.
+  const pendingStale =
+    (activity.mode === "handoff" || activity.mode === "starting") &&
+    activity.since !== null &&
+    Date.now() - activity.since > STALE_PENDING_MS;
   // The host can veto the derivation's spinners (a card that says stopped),
   // never assert them.
   const derivedBusy =
     conversationMode &&
     conversationLive !== false &&
+    !pendingStale &&
     (activity.mode === "working" || activity.mode === "handoff" || activity.mode === "starting");
 
   useEffect(() => {

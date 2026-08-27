@@ -906,8 +906,16 @@ export function conversationActivity(events: SessionEvent[]): ConversationActivi
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index];
     if (event.role === "user") {
-      userIndex = index;
-      userTs = typeof event.ts === "number" ? event.ts : null;
+      // Only a HUMAN message counts. The runtime tee also writes user-SHAPED
+      // events (tool results ride as role "user" with toolResultsOnly in the
+      // canonical vocabulary), and counting one of those made every finished
+      // stretch read as "a message is waiting".
+      const isMessage = !event.toolResultsOnly &&
+        (event.blocks ?? []).some((block) => block.type === "text" && typeof block.text === "string" && block.text.trim() !== "");
+      if (isMessage) {
+        userIndex = index;
+        userTs = typeof event.ts === "number" ? event.ts : null;
+      }
       continue;
     }
     for (const block of event.blocks ?? []) {
