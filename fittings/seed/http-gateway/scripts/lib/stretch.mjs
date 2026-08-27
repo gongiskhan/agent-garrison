@@ -669,10 +669,17 @@ export function applyHandoffToSummary(parsed, handoff, { floorUpdate = null } = 
 // ── card writes (board HTTP, engine context, rev-refresh retries) ───────────
 
 export async function patchCardEngine({ id, patch, logFn = () => {} }) {
-  try {
-    const base = boardBase();
-    if (!base || !id) return { ok: false, error: "no-board" };
-    for (let attempt = 0; attempt < 3; attempt++) {
+  const base = boardBase();
+  if (!base || !id) return { ok: false, error: "no-board" };
+  // Every failure mode below must RETRY and, on giving up, LOG WITH DETAIL.
+  // The first version let a thrown fetch (board momentarily unreachable)
+  // escape the retry loop to an outer catch that neither retried nor logged —
+  // a one-instant blip became a silent single-attempt failure, which is
+  // exactly how a finished conversation's park write vanished without a trace
+  // (card 01M106TB…, 2026-08-27).
+  let lastError = "board-patch-failed";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
       let rev = 0;
       try {
         const fresh = await fetch(`${base}/cards/${id}`);
@@ -689,13 +696,15 @@ export async function patchCardEngine({ id, patch, logFn = () => {} }) {
         body: JSON.stringify({ ...patch, rev }),
       });
       if (res.ok) return { ok: true };
-      await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+      const body = await res.text().catch(() => "");
+      lastError = `HTTP ${res.status}: ${body.slice(0, 300)}`;
+    } catch (err) {
+      lastError = err?.message ?? String(err);
     }
-    logFn({ kind: "conversation-card-patch-failed", id });
-    return { ok: false, error: "board-patch-failed" };
-  } catch (err) {
-    return { ok: false, error: err?.message };
+    await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
   }
+  logFn({ kind: "conversation-card-patch-failed", id, error: lastError, patch: Object.keys(patch).join(",") });
+  return { ok: false, error: lastError };
 }
 
 async function writeCardTransition(gateway, { cardId, conversationId, stretchId, phase, handoff = null, duty = null }) {
@@ -1146,13 +1155,18 @@ export async function runConversation(gateway, {
     }
 
     if (terminal === null) terminal = "cap";
-    if (terminal === "done") {
-      // The closing stretch already wrote the done transition — normally. A
-      // failed write (evidence guard, rev storm) leaves the card wedged on
-      // Running with a FINISHED conversation, and the tick's recovery kick
-      // lands right here: re-assert the terminal so the wedge self-heals.
+    if (terminal === "done" || terminal === "needs-input") {
+      // The closing stretch already wrote the terminal transition — normally.
+      // A failed write (evidence guard, rev storm, a board momentarily
+      // unreachable) leaves the card wedged on Running with a FINISHED
+      // conversation, and the tick's recovery kick lands right here: re-assert
+      // the terminal so the wedge self-heals. BOTH terminals need this — the
+      // first version covered only done, and a needs-input park that hit a
+      // transient write failure stayed wedged for hours while every kick
+      // no-opped through this branch (card 01M106TB…, 2026-08-27).
       const lastH = store.tail(1, { kinds: ["handoff"] })[0];
-      if (card?.id && lastH?.payload?.nextSteps?.next === "done") {
+      const lastNext = lastH?.payload?.nextSteps?.next;
+      if (card?.id && (lastNext === "done" || lastNext === "needs-input")) {
         await writeCardTransition(gateway, {
           cardId: card.id,
           conversationId,
@@ -1162,8 +1176,6 @@ export async function runConversation(gateway, {
           duty: lastH.duty ?? null,
         });
       }
-    } else if (terminal === "needs-input") {
-      // Written by the closing stretch.
     } else if (terminal === "cap" && card?.id) {
       await patchCardEngine({
         id: card.id,

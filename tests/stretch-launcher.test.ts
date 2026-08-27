@@ -2,7 +2,8 @@
 // tripwires, the two flow-policy invariants, and the full conversation loop
 // against a fake gateway whose "model" writes handoff files like a real
 // stretch would.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -232,6 +233,65 @@ function fakeGateway(script: Record<string, (brief: string) => any>, opts: { evi
   };
   return { gateway, calls, model };
 }
+
+describe("terminal re-assert — the kick heals a wedged card", () => {
+  it("a resumed conversation whose last handoff routed needs-input re-writes the park", async () => {
+    // The wedge this reproduces (card 01M106TB…, 2026-08-27): the closing
+    // stretch's park write hit a transient board failure, the card stayed on
+    // Running with a FINISHED conversation, and every recovery kick re-derived
+    // terminal=needs-input through a branch that wrote nothing. The re-assert
+    // must land the park on the resumed pass — with no model stretch run.
+    const CARD = "01M1TESTWEDGECARD0000000001";
+    const patches: any[] = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        if (req.method === "PATCH") {
+          patches.push({ headers: req.headers, body: JSON.parse(body || "{}") });
+        }
+        res.setHeader("content-type", "application/json");
+        // The card as the board still sees it: wedged on Running.
+        res.end(JSON.stringify({ ok: true, card: { id: CARD, rev: 7, list: "running", status: "running", conversationId: CARD } }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const port = (server.address() as { port: number }).port;
+    // boardBase()/cardById resolve the board from process.env.GARRISON_HOME's
+    // ui-fittings status file — point them at the recorder for this test only.
+    mkdirSync(path.join(tmp, "ui-fittings"), { recursive: true });
+    writeFileSync(path.join(tmp, "ui-fittings", "kanban-loop.json"), JSON.stringify({ url: `http://127.0.0.1:${port}` }));
+    const prevHome = process.env.GARRISON_HOME;
+    process.env.GARRISON_HOME = tmp;
+    try {
+      const store = openConversation(CARD, { role: "gateway", env });
+      store.init({ title: "wedged card" });
+      store.append({
+        kind: "handoff", duty: "implement", stretch: "st_w1",
+        payload: {
+          v: 1, stretchId: "st_w1", duty: "implement", status: "failed",
+          summary: "The stretch ended without a valid handoff", evidenceRefs: [],
+          nextSteps: { next: "needs-input", why: "the exit gate could not extract an honest handoff", items: [] },
+          blocker: { what: "no valid handoff from the stretch", needs: "a human look at the conversation log", who: "user" },
+          activeConstraints: [], failedApproaches: [{ approach: "extract", why: "over-long summary" }],
+          surprises: [], forceEscalation: null, synthesized: true,
+        },
+      });
+      store.append({ kind: "stretch-ended", duty: "implement", stretch: "st_w1", payload: { stretchId: "st_w1", outcome: "synthesized", next: "needs-input" } });
+      const { gateway } = fakeGateway({});
+      const result = await runConversation(gateway as any, { conversationId: CARD, env });
+      expect(result.terminal).toBe("needs-input");
+      expect(result.stretches).toBe(0); // pure recovery: no model stretch ran
+      const park = patches.find((p) => p.body.list === "needs-attention");
+      expect(park, "the park PATCH was re-asserted").toBeTruthy();
+      expect(park!.headers["x-garrison-engine"]).toBe("gateway");
+      expect(String(park!.body.attentionReason)).toContain("no valid handoff");
+    } finally {
+      process.env.GARRISON_HOME = prevHome;
+      server.close();
+    }
+  }, 15000);
+});
 
 describe("runConversation", () => {
   it("drives triage → implement → review(codex) → done, with review-before-done and evidence enforced", async () => {
