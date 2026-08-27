@@ -40,6 +40,7 @@ dependencies:
     - path: ../../fittings/seed/snapshots-default
     - path: ../../fittings/seed/taste
     - path: ../../fittings/seed/trello
+    - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/whatsapp-web
 x-garrison:
@@ -181,7 +182,7 @@ x-garrison:
           config:
             jobs_file: ~/.garrison/scheduler-jobs.json
             log_file: ~/.garrison/scheduler.log
-            health_port: 7099
+            health_port: 8099
         - id: kanban-loop
           config:
             bind_host: 127.0.0.1
@@ -207,6 +208,9 @@ x-garrison:
           config:
             bind_host: 127.0.0.1
             root: ~/.garrison/files
+        - id: vault-git-sync
+          config:
+            vault_dir: ~/ObsidianVault
         - id: snapshots-default
           config:
             projects_root: ~/dev

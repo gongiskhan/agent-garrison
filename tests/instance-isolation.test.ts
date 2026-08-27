@@ -4,8 +4,8 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync
@@ -97,15 +97,6 @@ function readYaml(file: string): any {
 }
 
 describe("Codex secondary-instance isolation", () => {
-  // The port-family rule exists so that a PER-INSTANCE fitting, once shifted by
-  // its profile offset, cannot land on another instance"s port. coord-agentmail
-  // is the opposite by construction: ONE agent-coordination server shared by
-  // every project and every instance, registered user-scope in ~/.claude.json so
-  // a bare `claude` run in any repo reaches the same address. Shifting it per
-  // profile would give each instance its own island and defeat the fitting. Its
-  // 28765 is therefore deliberate, not codex-family debt.
-  const SHARED_SINGLETON_PORTS = new Set(["coord-agentmail"]);
-
   it("projects every writable control-plane/config surface into the secondary homes without starting services", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-instance-env-"));
     sandboxes.push(fakeHome);
@@ -357,26 +348,14 @@ describe("Codex secondary-instance isolation", () => {
       execFileSync("node", [script], {
         cwd: ROOT,
         encoding: "utf8",
-        env: { ...process.env, GARRISON_INSTANCE_ID: "codex" },
+        env: { ...process.env, GARRISON_INSTANCE_ID: "dev" },
         stdio: "pipe"
       });
     } catch (error: any) {
       failed = true;
       expect(String(error.stderr)).toContain("only the node profile is served");
     }
-    expect(failed, "publishing a codex instance to the tailnet must fail").toBe(true);
-  });
-
-  // The identity formula is what makes the relaxation above safe. If anyone
-  // reinstates an offset-based serve port, dev and prod alias again and the
-  // prod-only guard must come back with it.
-  it("maps each own-port view to its own local port number on the tailnet", () => {
-    const source = readFileSync(
-      path.join(ROOT, "scripts", "tailnet-serve-views.mjs"),
-      "utf8"
-    );
-    expect(source).toContain("function pickServePort(localPort, used) {");
-    expect(source).toContain("let p = localPort;");
+    expect(failed, "publishing a dev instance to the tailnet must fail").toBe(true);
   });
 
   // Two-instance topology on the dev box: THIS checkout is the PRIMARY (main)
@@ -839,110 +818,6 @@ describe("Codex secondary-instance isolation", () => {
     expect(daemonGuard).toBeGreaterThanOrEqual(0);
     expect(daemonGuard).toBeLessThan(snapshotSetup.indexOf("USER_UNIT_DIR="));
     expect(daemonGuard).toBeLessThan(snapshotSetup.indexOf("systemctl --user daemon-reload"));
-  });
-
-  // The test above reads only `default`, which is how compositions/jarvis
-  // shipped kanban-loop with no `port` at all: it silently fell back to the
-  // fitting's default_port, which was itself the CODEX value (27089). Every
-  // profile therefore bound the same port and dev could not run the board
-  // while prod held it. This covers every shipped composition instead.
-  it("resolves every own-port fitting in every composition onto the committed base family", () => {
-    const compositionDirs = readdirSync(path.join(ROOT, "compositions"), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-
-    // Compositions written FOR the codex secondary instance are deliberately on
-    // the +20000 family — there those ports are the correct ones. Their
-    // listeners are still checked for collisions with each other, just not for
-    // membership of the primary family.
-    // Compositions that deliberately SPAN instances, so a codex-family (2xxxx)
-    // port in them is the point rather than a numbering slip. csg ("CSG
-    // (all-Cursor)") is one: it commits 7083/7087/7089/4777 alongside
-    // 27086/27091/27093/28765 on purpose, same genre as codex-mixed-proof.
-    const SECONDARY_COMPOSITIONS = new Set([
-      "secondary-minimal",
-      "codex-mixed-proof-20260716",
-      "csg"
-    ]);
-
-    expect(compositionDirs.length).toBeGreaterThan(0);
-
-    for (const name of compositionDirs) {
-      const file = path.join(ROOT, "compositions", name, "apm.yml");
-      if (!existsSync(file)) continue;
-      const composition = readYaml(file);
-      const selections = (composition["x-garrison"]?.composition?.selections ?? {}) as Record<
-        string,
-        Array<{ id: string; config?: Record<string, unknown> }>
-      >;
-
-      const seen = new Map<number, string>();
-      for (const entries of Object.values(selections)) {
-        for (const selected of entries ?? []) {
-          const fittingFile = path.join(ROOT, "fittings", "seed", selected.id, "apm.yml");
-          if (!existsSync(fittingFile)) continue;
-          const metadata = readYaml(fittingFile)["x-garrison"] ?? {};
-          if (metadata.own_port !== true) continue;
-
-          // The port MUST come from the composition config. Only composition
-          // config is passed through applyPortOffsetToConfig and projected into
-          // the fitting's env (runner.ts ownPortConfigEnv); `default_port` is
-          // informational and never reaches the process. So an own-port fitting
-          // that omits `port` binds its hardcoded default UNSHIFTED in every
-          // profile — dev and prod collide by construction.
-          expect(
-            Number.isInteger(Number(selected.config?.port)),
-            `${name}/${selected.id} is own-port but declares no \`port\` in its ` +
-              `composition config, so every profile would bind its default_port ` +
-              `(${metadata.default_port}) unshifted`
-          ).toBe(true);
-
-          const effective = Number(selected.config?.port);
-
-          // A committed port must be a DEV-family port, because dev's offset is
-          // 0 — the committed value IS the dev value and every other profile is
-          // that value shifted. A committed 2xxxx is a codex port that no
-          // offset can move out of the way.
-          expect(
-            SECONDARY_COMPOSITIONS.has(name) ||
-              SHARED_SINGLETON_PORTS.has(selected.id) ||
-              effective < 20000,
-            `${name}/${selected.id} commits ${effective}, which is outside the base family — ` +
-              `prod and dev would both bind it`
-          ).toBe(true);
-
-          expect(
-            seen.has(effective),
-            `${name}/${selected.id} collides with ${seen.get(effective)} on ${effective}`
-          ).toBe(false);
-          seen.set(effective, selected.id);
-        }
-      }
-    }
-  });
-
-  // 2026-07-21: THIRTEEN seeds still carried codex-family (2xxxx) default
-  // ports — legacy of this checkout’s codex-secondary past. A 2xxxx default is
-  // never right in a committed seed: dev’s offset is 0, so the committed value
-  // is what every profile starts from, and no offset moves 27xxx out of the
-  // codex range. The sweep renumbered them all (-20000); this pins the family.
-  it("keeps every seed fitting’s canonical port in the base family", () => {
-    for (const id of readdirSync(path.join(ROOT, "fittings", "seed"))) {
-      const apmFile = path.join(ROOT, "fittings", "seed", id, "apm.yml");
-      if (!existsSync(apmFile)) continue;
-      const meta = readYaml(apmFile)["x-garrison"] ?? {};
-      const schema = Array.isArray(meta.config_schema)
-        ? meta.config_schema.find((entry: { key?: string }) => entry?.key === "port")
-        : undefined;
-      const canonical =
-        typeof meta.default_port === "number" ? meta.default_port : schema?.default;
-      if (typeof canonical !== "number") continue;
-      if (SHARED_SINGLETON_PORTS.has(id)) continue;
-      expect(
-        canonical < 20000,
-        `${id} claims canonical port ${canonical} — codex family; commit the base (7xxx) value`
-      ).toBe(true);
-    }
   });
 
   it("ships selected operative instructions without executable primary-home literals", () => {

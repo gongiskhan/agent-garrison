@@ -25,6 +25,7 @@ dependencies:
     - path: ../../fittings/seed/snapshots-default
     - path: ../../fittings/seed/spotify
     - path: ../../fittings/seed/trello
+    - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/whatsapp-web
 x-garrison:
@@ -141,6 +142,9 @@ x-garrison:
           config:
             bind_host: 127.0.0.1
             root: ~/.garrison/files
+        - id: vault-git-sync
+          config:
+            vault_dir: ~/ObsidianVault
         - id: garrison-assistant
           config:
             bind_host: 127.0.0.1
