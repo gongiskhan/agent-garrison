@@ -341,7 +341,7 @@ describe("runConversation", () => {
   it("an unproductive duty escalates through the tripwire and the floor sticks in L1", async () => {
     let attempt = 0;
     const models: string[] = [];
-    const { gateway } = fakeGateway({
+    const { gateway, calls } = fakeGateway({
       triage: () => ({
         status: "complete",
         summary: "to implement",
@@ -398,6 +398,12 @@ describe("runConversation", () => {
     expect(store.tail(50, { kinds: ["escalation"] }).length).toBeGreaterThanOrEqual(1);
     const floor = store.parseSummary()!.escalationFloor;
     expect(floor.implement?.rung).toBe("top");
+    // Top-tier engagement is a REAL notification, not a log line the user has
+    // to grep for: the launcher tells the gateway the moment the last rung of
+    // a multi-rung ladder runs.
+    const topTier = calls.filter((c: any) => c.log?.kind === "conversation-top-tier");
+    expect(topTier.length).toBeGreaterThanOrEqual(1);
+    expect(topTier[0].log.model).toBe("opus");
   }, 20000);
 });
 
