@@ -64,6 +64,20 @@ fi
 
 # --- 3. swap the app server -------------------------------------------------
 restart_supervised() {
+  # A launchd kickstart issued from INSIDE the target's own process tree
+  # silently no-ops (observed 2026-07-23: the promote pushed, prod kept serving
+  # the old build). "faz commit" runs this script inside the operative, which is
+  # a descendant of the very agent we are restarting - so when an out-of-tree
+  # watcher is loaded, hand it the request and let it kickstart. The watcher
+  # reads $GARRISON_HOME/.restart-requested and polls the served build.
+  if command -v launchctl >/dev/null 2>&1 \n     && launchctl print "gui/$(id -u)/$RESTART_WATCH_LABEL" >/dev/null 2>&1; then
+    say "handing the restart to $RESTART_WATCH_LABEL (out of this process tree)"
+    # Do NOT keep the redeploy lock: this script is very likely killed by the
+    # restart it just asked for, and the fresh waiter must be free to run up().
+    rm -f "$PROD_HOME/.redeploy-in-progress" 2>/dev/null || true
+    git -C "$REPO_ROOT" rev-parse --short HEAD > "$PROD_HOME/.restart-requested"
+    return 0
+  fi
   if command -v systemctl >/dev/null 2>&1 \
      && systemctl --user cat "$UNIT" >/dev/null 2>&1; then
     say "restarting $UNIT (systemd)"
@@ -79,7 +93,10 @@ restart_supervised() {
   return 1
 }
 if ! restart_supervised; then
-  echo "[redeploy] no app supervisor found (systemd: $UNIT, launchd: $LAUNCHD_LABEL)." >&2
+  echo "[redeploy] no app supervisor found (systemd: $UNIT, launchd: $LAUNCHD_LABEL," >&2
+  echo "           watcher: $RESTART_WATCH_LABEL). If this box runs them under other" >&2
+  echo "           names, set GARRISON_SUPERVISOR_UNIT / GARRISON_SUPERVISOR_LABEL /" >&2
+  echo "           GARRISON_RESTART_WATCH_LABEL." >&2
   echo "           Enroll this machine with scripts/install-node.sh, or start by hand:" >&2
   echo "           bash scripts/garrison-instance.sh prod start" >&2
   exit 1
