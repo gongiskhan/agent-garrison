@@ -124,6 +124,32 @@ x-garrison:
             wake_command_window_ms: 45000
             wake_context_segments: 6
             wake_context_max_age_ms: 120000
+            # Zeca answers the moment he hears his name: "Sim?" at the wake
+            # word and "Ok." when the window closes, because the card is still
+            # ~25s away and silence is indistinguishable from not listening.
+            cue_enabled: true
+            # voice_language / wake_language are deliberately left at "auto".
+            # Pinning pt would defeat the point - the ask was that the cue says
+            # "Sim?" or "Yes?" depending on what was last spoken.
+            #
+            # Spoken discussions: "Zeca, quero discutir X", then talk without the
+            # wake word until "pronto". One duty-class turn per utterance, so it
+            # is bounded by discuss_idle_ms and discuss_max_turns.
+            discuss_enabled: true
+            # Named Cortex automations by voice. cortex-client is installed on
+            # this node; a name Cortex does not know falls through to the
+            # operative rather than guessing at a second runner.
+            automate_enabled: true
+            # The broadcast's frames become context the operative can read, so
+            # "responde-lhe que e melhor amanha" resolves "her" from the screen.
+            # A command that needs the screen and has none is refused out loud.
+            screen_context_enabled: true
+            # REQUIRED alongside the pendant: otherwise one spoken sentence
+            # reaches two microphones, hits two wake buses, and dispatches twice.
+            screen_audio_transcribe: false
+            # send_enabled / confirm_enabled stay OFF until whatsapp-web is
+            # equipped and paired by QR - a send lane with no connector would
+            # only ever fall through to the operative anyway.
       gateway:
         - id: http-gateway
           config:
