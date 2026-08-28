@@ -301,7 +301,21 @@ export class CaptureIngress {
     if (!stored && !transient) this.writeSessionRecord(record);
     if (!stored && transient) this.counters.bump("pendant_sessions_unpersisted");
 
-    const transcribing = this.transcriber ? this.transcriber.openSession(id) : false;
+    // Pendant + broadcast means ONE spoken sentence reaches TWO microphones in
+    // the same room: the pendant's and the broadcast extension's. Both streams
+    // transcribe, both hit a wake bus, and because those are separate WakeBus
+    // instances no instance-local dedupe can see both - so one "Zeca, cria uma
+    // tarefa" made two cards, and would have made two WhatsApp messages.
+    //
+    // With the pendant carrying mic, wake word, haptics and voice, the
+    // broadcast is a source of PIXELS. Its audio still spools and stores; it
+    // just does not open a second transcription. A context-only broadcast
+    // therefore produces no transcript, and its end-of-session capture_event is
+    // thin - correct, and honest.
+    const wantsTranscription =
+      record.mode !== "screen_audio" || this.cfg.screenAudioTranscribe !== false;
+    if (!wantsTranscription) this.counters.bump("screen_audio_transcription_skipped");
+    const transcribing = this.transcriber && wantsTranscription ? this.transcriber.openSession(id) : false;
     const media = new SessionMedia(this.store.dirs.media, id, {
       counters: this.counters,
       transient,

@@ -192,7 +192,7 @@ function timeContextLine(now) {
 
 // ---- dispatch prompt + reply ------------------------------------------------
 
-export function buildWakePrompt(command, projects, context = [], trailing = "", now = new Date()) {
+export function buildWakePrompt(command, projects, context = [], trailing = "", now = new Date(), opts = {}) {
   const projectList = projects.length > 0 ? projects.join(", ") : "(none known)";
   // The transcript is fragmented and speakers are often mis-attributed, so the
   // words that give a command its meaning frequently sit in a NEARBY segment
@@ -247,7 +247,12 @@ Schema:
   "automation": "the automation the user NAMED, verbatim (automate only)",
   "inputs": {"key": "value"} (automate only - only inputs actually spoken, else {}),
   "answer": "direct answer to the user (query only; concise, no preamble)",
-  "note_content": "the fact to remember, in your own words (note/unknown)"
+  "note_content": "the fact to remember, in your own words (note/unknown)"${
+    opts.screenContext
+      ? `,
+  "needs_screen": true (only when the instruction CANNOT be carried out without seeing the phone screen)`
+      : ""
+  }
 }
 
 Rules:
@@ -331,7 +336,19 @@ Rules:
   tomorrow -> a task about the rain). Never turn a context line into a command
   on its own, and title from the user's intent, not from a stray sentence.
 - If the command is empty or a fragment and the context does not make the
-  intent clear, answer "unknown" rather than inventing one.`;
+  intent clear, answer "unknown" rather than inventing one.${
+    opts.screenContext
+      ? `
+- needs_screen: TRUE when the instruction leans on something only visible on the
+  phone right now - an unnamed referent like "this chat", "reply to her", "tell
+  them", "responde-lhe", "manda isto", "aqui", "esta conversa". FALSE for
+  anything self-contained. ${
+    opts.screenLive
+      ? "The user's phone screen IS visible to Zeca right now."
+      : "Zeca CANNOT see the phone screen right now, so an instruction that needs it cannot be carried out."
+  }`
+      : ""
+  }`;
 }
 
 export function parseWakeReply(reply) {
@@ -406,7 +423,10 @@ export function parseWakeReply(reply) {
       automation: typeof parsed.automation === "string" ? parsed.automation.trim().slice(0, 160) : "",
       inputs,
       answer: typeof parsed.answer === "string" ? parsed.answer.trim() : "",
-      note_content: typeof parsed.note_content === "string" ? parsed.note_content.trim() : ""
+      note_content: typeof parsed.note_content === "string" ? parsed.note_content.trim() : "",
+      // Strict === true: an absent key, a string "true", or anything else must
+      // not quietly claim the command needs the screen.
+      needs_screen: parsed.needs_screen === true
     };
   } catch {
     return null;
@@ -430,7 +450,7 @@ export function parseWakeReply(reply) {
 // as the user's board. Vocabulary the user shares with an unrelated tool has to
 // be pinned to the right one here, because nothing downstream can catch it: the
 // answer is confident, well-formed, and wrong.
-export function buildDelegatePrompt(request, { boardUrl = null } = {}) {
+export function buildDelegatePrompt(request, { boardUrl = null, screen = null } = {}) {
   // The board is NOT an MCP server - there is no kanban tool in the operative's
   // toolset - so an operative asked about "my board" has to know to call the
   // fitting's HTTP API, and a fresh session has no way to guess the port. The
@@ -441,9 +461,19 @@ export function buildDelegatePrompt(request, { boardUrl = null } = {}) {
   const boardLine = boardUrl
     ? `The user's Kanban board is the kanban-loop fitting's HTTP API at ${boardUrl} - read it with GET ${boardUrl}/cards (and /lists), for example via curl. That API is the board; there is no kanban MCP tool.`
     : `The user's Kanban board is the kanban-loop fitting's HTTP API on this machine; find its address in ~/.garrison/ui-fittings/kanban-loop.json ("url") and read it with GET <url>/cards. There is no kanban MCP tool.`;
+  // ios-thing's framing, kept close to verbatim because that wording is the
+  // thing that made it work. The AGE is new and load-bearing: runDelegate reuses
+  // one gateway session per capture session, so a follow-up lands in the same
+  // conversation with a NEW pinned frame, and without the age the operative
+  // happily re-reads the stale path from the previous turn.
+  const screenLine = screen
+    ? `
+
+A screenshot of the user's phone AT THE MOMENT THEY SPOKE (${Math.round((screen.ageMs ?? 0) / 1000)} seconds ago) is saved at ${screen.file} - they were looking at this screen, often a chat or an app. The instruction may refer to it ("this chat", "reply to her", "tell them", "responde-lhe"). Read it to resolve any such reference, then act on the SAME conversation or target. If the screenshot does not actually show what the instruction refers to, say so rather than guessing at a different one.`
+    : "";
   return `This request came from the user speaking to their wearable, so the wording may be garbled by transcription - read it for intent, not literally.
 
-Request: "${request}"
+Request: "${request}"${screenLine}
 
 Do it now, using your tools and connected services - their Kanban board, memories, files, calendar and anything else you can reach. Don't ask for confirmation and don't propose a plan - if something is ambiguous, make the reasonable choice and say which one you made. If you genuinely cannot do it (no access, missing credential, service not connected), say exactly what is missing in one sentence - do not pretend it is done.
 
@@ -597,7 +627,7 @@ export const OMI_WAKE_SOURCE = {
 };
 
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -621,6 +651,9 @@ export class WakeBus {
     this.discussFn = discussFn;
     this.connectorFn = connectorFn;
     this.cortexFn = cortexFn;
+    // Resolves the phone screen the user was looking at. Null for omi, which
+    // has no broadcast lane - every screen branch below is then unreachable.
+    this.screenContextFn = screenContextFn;
     this.discussions = new Map(); // sessionId -> discussion state
     // Two lanes, deliberately distinct: `runFn` is the small pinned classifier
     // the wearer waits on; `operativeFn` is the full-toolset turn nobody waits
@@ -866,6 +899,10 @@ export class WakeBus {
         recent: [],
         contextUsed: [],
         wakeHitAt: 0,
+        // The frame PINNED at the wake hit, not at dispatch: the capture window
+        // runs up to 45s, so by dispatch the user has long stopped looking at
+        // whatever they meant.
+        screen: null,
         silenceTimer: null,
         capTimer: null,
         lastActivity: this.now()
@@ -953,6 +990,7 @@ export class WakeBus {
         s.contextUsed = this.contextWindow(s);
         if (s.contextUsed.length > 0) this.counters.bump("wake_context_used");
         s.wakeHitAt = this.now();
+        s.screen = this.screenContextFn?.({ sessionId, atMs: s.wakeHitAt }) ?? null;
         this.emitLifecycle("wake_detected", { sessionId, at: s.wakeHitAt });
         const after = text.slice(m.index + m[0].length).replace(/^[\s,.:;!?-]+/u, "").trim();
         if (after) s.parts.push({ text: after, at: s.wakeHitAt });
@@ -1048,8 +1086,11 @@ export class WakeBus {
     if (trailing) this.counters.bump("wake_trailing_context_used");
     const wakeHitAt = s.wakeHitAt;
     const context = s.contextUsed;
+    // Pinned at the wake hit and cleared with the rest of the capture state.
+    const screen = s.screen;
     s.parts = [];
     s.contextUsed = [];
+    s.screen = null;
     this.emitLifecycle("window_closed", { sessionId, reason, at: this.now() });
     // Kill switch honored mid-session (I9): flag off between hit and close
     // means nothing dispatches and nothing persists.
@@ -1065,12 +1106,12 @@ export class WakeBus {
       return this.dispatchChain;
     }
     this.dispatchChain = this.dispatchChain
-      .then(() => this.dispatch({ sessionId, command, wakeHitAt, reason, context, trailing }))
+      .then(() => this.dispatch({ sessionId, command, wakeHitAt, reason, context, trailing, screen }))
       .catch((err) => this.log.error(`[${this.source.logPrefix}] wake dispatch error: ${err?.message ?? err}`));
     return this.dispatchChain;
   }
 
-  async dispatch({ sessionId, command, wakeHitAt, context = [], trailing = "" }) {
+  async dispatch({ sessionId, command, wakeHitAt, context = [], trailing = "", screen = null }) {
     this.counters.bump("wake_dispatches");
     // The ONLY persistence from the wake bus: the assembled command text.
     const eventId = ulid();
@@ -1098,7 +1139,17 @@ export class WakeBus {
     const commandStartedAt = this.now();
     this.counters.observe("wake_capture_ms", commandStartedAt - wakeHitAt);
     try {
-      outcome = await this.handleCommand({ command, eventId, context, trailing, sessionId, onLanguage: (l) => { lang = l; } });
+      outcome = await this.handleCommand({
+        command,
+        eventId,
+        context,
+        trailing,
+        sessionId,
+        screen,
+        onLanguage: (l) => {
+          lang = l;
+        }
+      });
     } catch (err) {
       outcome = await this.fallbackNote({
         command,
@@ -1158,7 +1209,7 @@ export class WakeBus {
     return { ...outcome, receipts, latencyMs };
   }
 
-  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, onLanguage = null }) {
+  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, screen = null, onLanguage = null }) {
     // Nothing has been classified yet, so the only evidence is the transcript.
     let lang = this.resolveLanguage(command);
     onLanguage?.(lang);
@@ -1174,7 +1225,10 @@ export class WakeBus {
     const projects = await this.board.listProjects().catch(() => []);
     const classifyStartedAt = this.now();
     const { reply } = await this.runFn({
-      prompt: buildWakePrompt(command, projects, context, trailing, new Date(this.now()))
+      prompt: buildWakePrompt(command, projects, context, trailing, new Date(this.now()), {
+        screenContext: Boolean(this.screenContextFn),
+        screenLive: Boolean(screen && !screen.stale)
+      })
     });
     this.counters.observe("wake_classify_ms", this.now() - classifyStartedAt);
     const parsed = parseWakeReply(reply);
@@ -1303,7 +1357,7 @@ export class WakeBus {
       case "card_command":
         return this.handleCardCommand({ parsed, lang });
       case "delegate":
-        return this.handleDelegate({ parsed, command, eventId, sessionId, lang });
+        return this.handleDelegate({ parsed, command, eventId, sessionId, lang, screen });
       case "query": {
         const answer = parsed.answer || t("wake.no_answer", {}, lang);
         this.counters.bump("wake_queries_answered");
@@ -1537,8 +1591,25 @@ export class WakeBus {
   // Blocking the wearer on a turn that routinely runs a minute or more is what
   // made spoken requests feel broken, and a fast wrong answer from the
   // classifier's own head is worse than a slow right one.
-  async handleDelegate({ parsed, command, eventId, sessionId, lang = "en" }) {
+  async handleDelegate({ parsed, command, eventId, sessionId, lang = "en", screen = null }) {
     const request = parsed.request || command;
+    // A command that leans on the screen, with no usable screen, must NOT be
+    // delegated on a guess. Refusing in two seconds is far better for a wearable
+    // than the wrong message two minutes later.
+    if (parsed.needs_screen && (!screen || screen.stale)) {
+      this.counters.bump("wake_screen_blocked");
+      const seconds = screen?.ageMs ? Math.round(screen.ageMs / 1000) : 0;
+      return {
+        confirmation: screen?.stale
+          ? t("screen.stale", { seconds }, lang)
+          : t("screen.absent", {}, lang),
+        result: {
+          intent: "delegate_blocked",
+          reason: screen?.stale ? "screen_context_stale" : "screen_context_missing"
+        }
+      };
+    }
+    if (screen && !screen.stale) this.counters.bump("wake_screen_fused");
     if (!this.cfg.delegateEnabled || !this.operativeFn) {
       this.counters.bump("wake_delegate_unavailable");
       return this.fallbackNote({
@@ -1562,11 +1633,11 @@ export class WakeBus {
     return {
       confirmation: ack,
       result: { intent: "delegate", request, delivered: "pending" },
-      after: () => this.runDelegate({ request, eventId, sessionId, lang })
+      after: () => this.runDelegate({ request, eventId, sessionId, lang, screen })
     };
   }
 
-  async runDelegate({ request, eventId, sessionId, lang = "en" }) {
+  async runDelegate({ request, eventId, sessionId, lang = "en", screen = null }) {
     const startedAt = this.now();
     let text = "";
     let ok = false;
@@ -1574,7 +1645,10 @@ export class WakeBus {
       const { reply } = await this.operativeFn({
         // Resolved at call time from the board's status file, exactly like every
         // other board call here - never a baked port.
-        prompt: buildDelegatePrompt(request, { boardUrl: this.board?.base?.() ?? null }),
+        prompt: buildDelegatePrompt(request, {
+          boardUrl: this.board?.base?.() ?? null,
+          screen: screen && !screen.stale ? screen : null
+        }),
         // One gateway session per Omi capture session keeps a follow-up request
         // ("send that to Ana too") attached to the context that produced it.
         sessionId: sessionId ? `${this.source.originPrefix}-wake:${sessionId}` : null,

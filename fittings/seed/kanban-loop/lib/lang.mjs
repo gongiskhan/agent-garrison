@@ -164,7 +164,9 @@ export const MESSAGES = {
     "automate.ambiguous": "I found more than one: {names}. Which one?",
     "automate.started": "Started the {name} automation.",
     "automate.replay": "That run of {name} was already going.",
-    "automate.failed": "Couldn't run {name}: {error}"
+    "automate.failed": "Couldn't run {name}: {error}",
+    "screen.absent": "I can't see your screen. Turn on screen sharing, or tell me the name.",
+    "screen.stale": "I haven't seen your screen for {seconds} seconds - tell me who you mean."
   },
   pt: {
     "wake.unreachable": "Não consegui falar com o Zeca - guardei o teu comando como nota.",
@@ -204,7 +206,9 @@ export const MESSAGES = {
     "automate.ambiguous": "Encontrei mais do que uma: {names}. Qual delas?",
     "automate.started": "Comecei a automação {name}.",
     "automate.replay": "Essa execução do {name} já estava a correr.",
-    "automate.failed": "Não consegui correr {name}: {error}"
+    "automate.failed": "Não consegui correr {name}: {error}",
+    "screen.absent": "Não estou a ver o teu ecrã. Liga a partilha de ecrã, ou diz-me o nome.",
+    "screen.stale": "Não vejo o teu ecrã há {seconds} segundos - diz-me a quem queres responder."
   }
 };
 

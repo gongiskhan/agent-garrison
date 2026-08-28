@@ -313,3 +313,44 @@ describe("capture-service ingress", () => {
     expect(record.ended).toEqual({ reason: "timeout" });
   });
 });
+
+// Pendant + broadcast is the configuration the user actually wears: the pendant
+// carries mic, wake word, haptics and voice, and the broadcast supplies pixels.
+// Both streams used to transcribe, so ONE spoken sentence reached two
+// microphones in the same room, hit two separate WakeBus instances (which no
+// instance-local dedupe can bridge), and dispatched twice - two cards, or two
+// WhatsApp messages.
+describe("screen_audio transcription gate", () => {
+  // The gate itself is what is pinned here, through its counter, so the
+  // assertion holds whether or not a Deepgram lane is actually reachable in
+  // this environment.
+  it("skips transcription for a broadcast when the flag is off", async () => {
+    const { handle, base } = await boot({ screenAudioTranscribe: false });
+    const c = connect(base);
+    await c.opened;
+    c.ws.send(startMsg("01SCREENONLY00001", { mode: "screen_audio" }));
+    await c.next((m) => m.type === "session_started");
+    expect(handle.counters.read().screen_audio_transcription_skipped).toBe(1);
+    c.ws.close();
+  });
+
+  it("does not skip an audio session, whatever the flag says", async () => {
+    const { handle, base } = await boot({ screenAudioTranscribe: false });
+    const c = connect(base);
+    await c.opened;
+    c.ws.send(startMsg("01AUDIOSESSION001", { mode: "audio" }));
+    await c.next((m) => m.type === "session_started");
+    expect(handle.counters.read().screen_audio_transcription_skipped ?? 0).toBe(0);
+    c.ws.close();
+  });
+
+  it("does not skip a broadcast when the flag is on (the documented default)", async () => {
+    const { handle, base } = await boot({ screenAudioTranscribe: true });
+    const c = connect(base);
+    await c.opened;
+    c.ws.send(startMsg("01SCREENBOTH00001", { mode: "screen_audio" }));
+    await c.next((m) => m.type === "session_started");
+    expect(handle.counters.read().screen_audio_transcription_skipped ?? 0).toBe(0);
+    c.ws.close();
+  });
+});

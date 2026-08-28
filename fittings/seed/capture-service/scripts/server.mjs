@@ -34,6 +34,7 @@ import { ZecaVoice } from "../lib/tts.mjs";
 import { Cues } from "../lib/cues.mjs";
 import { ConfirmBus } from "../lib/confirm-bus.mjs";
 import { CortexCli } from "../lib/cortex-cli.mjs";
+import { ScreenContextIndex } from "../lib/screen-context.mjs";
 import { makeConnectorFn } from "../lib/connector-call.mjs";
 import { LanguageMemory } from "../lib/language-memory.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
@@ -548,7 +549,14 @@ export async function startServer(cfg = loadConfig()) {
       ? operativeRunFn(live.gatewayUrl, { timeoutMs: live.delegateTimeoutMs })
       : null;
   const board = new BoardClient({ env: cfg.env ?? process.env });
+  // The screen the user was looking at. Assigned once `ingress` exists (it is
+  // constructed below), and reached through a thunk - the same forward
+  // reference transcriber.onSegment already uses for ingress.sessions.
+  let screenContext = null;
+  const screenContextFn = (q) => screenContext?.latest(q) ?? null;
+
   const wakeBus = new WakeBus({
+    screenContextFn,
     cfg: live,
     store,
     counters,
@@ -600,6 +608,7 @@ export async function startServer(cfg = loadConfig()) {
     discussFn,
     connectorFn,
     cortexFn,
+    screenContextFn,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
   // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
@@ -655,6 +664,7 @@ export async function startServer(cfg = loadConfig()) {
     // capture_event for the shared triage tick (dedupe by session id).
     onSessionEnd: (record) => emitSessionEvent({ record, store, counters, cfg: live })
   });
+  screenContext = new ScreenContextIndex({ ingress, cfg: live, counters });
   const voice = new ZecaVoice({ cfg: live, counters });
   const cues = new Cues({ cfg: live, voice, counters });
   // Four short clips, once, so the first wake of the day is as fast as the

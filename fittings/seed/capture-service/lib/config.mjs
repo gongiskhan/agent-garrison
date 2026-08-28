@@ -191,6 +191,16 @@ export function loadConfig(env = process.env) {
     cortexCatalogTtlMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_CATALOG_TTL_MS, 300000),
     cortexPollIntervalMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_POLL_INTERVAL_MS, 15000),
     cortexPollMaxMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_POLL_MAX_MS, 600000),
+    // Screen context: the broadcast's frames become something the operative can
+    // read. OFF by default (I9) - with it off, frames are stored and ignored
+    // exactly as before.
+    screenContextEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_ENABLED, false),
+    screenContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_MAX_AGE_MS, 30000),
+    // Whether a screen_audio session ALSO transcribes. Defaults true to
+    // preserve the documented behaviour; the composition sets it false, because
+    // with a pendant on, one sentence otherwise reaches two microphones and
+    // dispatches twice.
+    screenAudioTranscribe: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE, true),
     // Zombie-socket watchdog: reconnect the STT socket when we have been
     // feeding it audio this recently and NOTHING has come back for this long.
     // Generous on purpose - Deepgram is legitimately silent through a quiet

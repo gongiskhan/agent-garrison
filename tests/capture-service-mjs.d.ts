@@ -121,6 +121,7 @@ declare module "*/capture-service/lib/media-log.mjs" {
   export function scanAudioLog(file: string): { lastSeq: number; records: number };
   export function readAudioLog(file: string): Generator<{ seq: number; ts: number; bytes: Buffer }>;
   export class SessionMedia {
+    latestFrame(): { seq: number; tsMs: number; atMs: number; file: string } | null;
     constructor(root: string, sessionId: string, opts?: Record<string, unknown>);
     acceptAudio(seq: number, ts: number, bytes: Buffer): number;
     acceptVideo(seq: number, ts: number, bytes: Buffer): number;
@@ -345,7 +346,12 @@ declare module "*/capture-service/lib/wake.mjs" {
     projects: string[],
     context?: Array<{ text: string; isUser: boolean }>,
     trailing?: string,
-    now?: Date
+    now?: Date,
+    opts?: { screenContext?: boolean; screenLive?: boolean }
+  ): string;
+  export function buildDelegatePrompt(
+    request: string,
+    opts?: { boardUrl?: string | null; screen?: { file: string; ageMs?: number } | null }
   ): string;
   export function buildVoiceDiscussPrompt(topic: string, opts?: { context?: Array<{ text: string }> }): string;
   export function buildVoiceDiscussTurn(utterance: string): string;
@@ -360,5 +366,12 @@ declare module "*/capture-service/lib/wake.mjs" {
     discussion(sessionId: string): { chain: Promise<unknown>; turns: number; [k: string]: unknown } | null;
     endDiscussion(sessionId: string, reason: string): { reason: string; turns: number } | null;
     resolveLanguage(command: string, parsed?: unknown): string;
+  }
+}
+
+declare module "*/capture-service/lib/screen-context.mjs" {
+  export class ScreenContextIndex {
+    constructor(opts: { ingress: unknown; cfg?: Record<string, unknown>; counters?: unknown; now?: () => number });
+    latest(q?: { atMs?: number | null }): { stale: boolean; sessionId: string; seq: number; file: string; ageMs: number } | null;
   }
 }
