@@ -17,7 +17,6 @@ import {
   presentSessionTurn,
   sessionActivityBeats,
   sessionEventText,
-  sessionThinkingSummary,
   sessionToolSummary,
   stripHandoffFence,
   type ConversationActivity,
@@ -441,21 +440,21 @@ function ToolBlock({
 }
 
 function ThinkingBlock({ block, active }: { block: SessionBlock; active: boolean }) {
-  const summary = sessionThinkingSummary(block.text);
+  // A thinking block opens empty and fills from deltas. Before any text lands
+  // there is nothing to read, and an empty panel is pure noise - a turn that
+  // never produced reasoning text must not leave a "Thought" box behind.
+  if (!String(block.text ?? "").trim()) return null;
+  // Never a <details>: the reasoning is part of the conversation's record, and a
+  // block that collapses the moment the next tool call starts can never be read.
+  // Every thinking block stays fully visible for the life of the transcript.
   return (
-    <ActivityDetails
-      active={active}
-      className="cc-session-thinking"
-      summary={
-        <>
-          <span>{active ? "Thinking" : "Thought"}</span>
-          <span className="cc-session-thinking-hint">{summary}</span>
-          {active && <span className="cc-session-live-dot" aria-hidden="true" />}
-        </>
-      }
-    >
-      <pre className="cc-session-pre">{block.text}</pre>
-    </ActivityDetails>
+    <div className={`cc-session-thinking${active ? " is-live" : " is-complete"}`}>
+      <div className="cc-session-thinking-head">
+        <span>{active ? "Thinking" : "Thought"}</span>
+        {active && <span className="cc-session-live-dot" aria-hidden="true" />}
+      </div>
+      <div className="cc-session-thinking-text">{block.text}</div>
+    </div>
   );
 }
 
@@ -1044,6 +1043,7 @@ function ActivityTimeline({
   renderTerminalResult = false,
   conversationTurn = false,
   omittedText = null,
+  omitThinking = false,
 }: {
   events: SessionEvent[];
   includeText: boolean;
@@ -1069,6 +1069,10 @@ function ActivityTimeline({
    * message), and the index-based omission only catches one of them - any text
    * beat matching this string is skipped. */
   omittedText?: string | null;
+  /** The host renders this turn's thinking blocks itself (hoisted above the
+   * interim fold so reasoning stays visible on a settled turn) - skip them
+   * here so they do not appear twice. */
+  omitThinking?: boolean;
 }) {
   const beats = sessionActivityBeats(events);
   return (
@@ -1163,6 +1167,7 @@ function ActivityTimeline({
           );
         }
         if (beat.type === "thinking") {
+          if (omitThinking) return null;
           return <ThinkingBlock key={key} block={block} active={live && activeThinkingBlock === block} />;
         }
         if (beat.type === "permission_request") {
@@ -1483,10 +1488,18 @@ function ConversationStateBanner({ activity }: { activity: ConversationActivity 
     );
   }
   if (activity.mode === "done") {
+    // The closing summary is the conversation's final report - it renders as
+    // real markdown (the handoff writes bullets), full width, never truncated;
+    // a very long one scrolls inside the banner instead of losing its tail.
     return (
       <div className="cc-conv-state cc-conv-state-done">
         <div className="cc-conv-state-title">Conversation complete</div>
-        {activity.summary && <p className="cc-conv-state-line">{activity.summary}</p>}
+        {activity.summary && (
+          <div
+            className="cc-conv-state-summary cc-md"
+            dangerouslySetInnerHTML={{ __html: md.parse(activity.summary) as string }}
+          />
+        )}
       </div>
     );
   }
@@ -1925,10 +1938,20 @@ export function SessionStream({
             )) ||
             (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback"))
           ));
+          // The turn's reasoning, in order. On a settled turn these render
+          // hoisted above the reply - never inside the interim fold, where a
+          // collapsed disclosure would hide them the moment the turn ends.
+          const settledThinking = turnLive
+            ? []
+            : turn.assistantEvents.flatMap((event, eventIndex) =>
+                event.blocks
+                  .map((block, blockIndex) => ({ block, key: `${turn.key}:think:${eventIndex}:${blockIndex}` }))
+                  .filter(({ block }) => block.type === "thinking" && typeof block.text === "string" && block.text.trim() !== "")
+              );
           const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
             const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
             const activityCount = event.blocks.filter((block) =>
-              block.type === "thinking" || block.type === "tool_use" || block.type === "error" || block.type === "permission_request" ||
+              block.type === "tool_use" || block.type === "error" || block.type === "permission_request" ||
               // Counted for the same reason they are on hasVisibleSessionActivity's
               // whitelist: a settled turn whose only blocks are conversation events
               // would otherwise render as an empty assistant bubble.
@@ -1953,6 +1976,9 @@ export function SessionStream({
               {(turn.assistantEvents.length > 0 || turnLive) && (
                 <div className="cc-session-turn assistant">
                   <span className="cc-session-role">Assistant</span>
+                  {settledThinking.map(({ block, key }) => (
+                    <ThinkingBlock key={key} block={block} active={false} />
+                  ))}
                   {!turnLive && Boolean(primaryText?.trim()) && <TextBlock text={primaryText!} role="assistant" />}
                   {turnLive && (
                     <>
@@ -1994,6 +2020,7 @@ export function SessionStream({
                         onImage={(image, label) => setModalImage({ image, label })}
                         conversationTurn={turnIsStretch}
                         omittedText={primaryText}
+                        omitThinking
                       />
                     </InterimDetails>
                   )}

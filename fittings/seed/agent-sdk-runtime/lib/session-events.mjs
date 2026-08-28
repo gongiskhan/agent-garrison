@@ -494,7 +494,16 @@ export class AgentSdkSessionEventNormalizer {
     if (retracts.length > 0) {
       state.retracts = [...new Set([...state.retracts, ...retracts])].slice(0, RETRACTION_CAP);
     }
-    const blocks = contentArray(message?.message?.content).map(settledBlock).filter(Boolean);
+    let blocks = contentArray(message?.message?.content).map(settledBlock).filter(Boolean);
+    // The CLI settles ONE API message as several assistant envelopes sharing the
+    // message id, each carrying a subset of its content - and the thinking block
+    // only ever rides the first. A plain replace therefore ERASES the reasoning
+    // from the event's final revision (the one every reload renders). Thinking,
+    // once seen for a message id, survives every later settle.
+    const priorThinking = state.blocks.filter((block) => block?.type === "thinking");
+    if (priorThinking.length > 0 && !blocks.some((block) => block?.type === "thinking")) {
+      blocks = [...priorThinking, ...blocks];
+    }
     if (message?.error) {
       blocks.push(errorBlock(assistantFailure(message)));
     }

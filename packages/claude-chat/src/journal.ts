@@ -757,9 +757,18 @@ export function mergeSessionEvents(current: SessionEvent[], incoming: SessionEve
         ...retractionsFor(next[acceptedIndex]),
         ...retracts,
       ])].slice(0, SESSION_RETRACT_CAP);
-      next[acceptedIndex] = retainedRetracts.length
-        ? { ...event, retracts: retainedRetracts }
+      // Same carry-forward for reasoning: the SDK settles one message as
+      // several subset envelopes sharing the event id, and only the first
+      // carries the thinking block - so the newest revision (the one a reload
+      // renders) would silently erase it. Thinking, once seen on a stable
+      // event, survives every later revision.
+      const priorThinking = (next[acceptedIndex].blocks ?? []).filter((block) => block.type === "thinking");
+      const merged = priorThinking.length > 0 && !(event.blocks ?? []).some((block) => block.type === "thinking")
+        ? { ...event, blocks: [...priorThinking, ...(event.blocks ?? [])] }
         : event;
+      next[acceptedIndex] = retainedRetracts.length
+        ? { ...merged, retracts: retainedRetracts }
+        : merged;
     }
     rebuildIndexes();
   }

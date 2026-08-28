@@ -231,7 +231,10 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
       const blocker = payload.blocker && typeof payload.blocker === "object" ? payload.blocker : {};
       bags.set(stretchId, {
         next: label(payload?.nextSteps?.next),
-        summary: label(payload.summary) ? cap(payload.summary, 600) : null,
+        // The schema's own 4000-char bound: the terminal banner renders this as
+        // the conversation's final report, so a tighter cap here just truncates
+        // what the user most wants to read.
+        summary: label(payload.summary) ? cap(payload.summary, 4000) : null,
         blockerWhat: label(blocker.what) ? cap(blocker.what, 400) : null,
         blockerNeeds: label(blocker.needs) ? cap(blocker.needs, 400) : null,
         blockerWho: label(blocker.who) ? cap(blocker.who, 120) : null,

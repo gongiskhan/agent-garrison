@@ -203,6 +203,39 @@ describe("Agent SDK channel-neutral session events", () => {
     expect(events.every((event) => event.ts === 1234)).toBe(true);
   });
 
+  it("keeps thinking in the final revision when the settled envelope omits it", () => {
+    // The CLI settles one API message as several assistant envelopes sharing
+    // the message id, and only the FIRST carries the thinking block. Without
+    // the settle-merge, the last revision - the one every reload renders - had
+    // no thinking at all (measured on a live conversation: 31 of 31 lost).
+    const normalizer = new AgentSdkSessionEventNormalizer({ turnId: "turn-settle", now: () => 99 });
+    const events = [
+      ...normalizer.push({
+        type: "stream_event",
+        uuid: "start",
+        session_id: "session-settle",
+        event: { type: "message_start", message: { id: "message-settle", content: [] } }
+      }),
+      ...normalizer.push({
+        type: "stream_event",
+        uuid: "think",
+        session_id: "session-settle",
+        event: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "weigh the options" } }
+      }),
+      ...normalizer.push({
+        type: "assistant",
+        uuid: "settled-text",
+        session_id: "session-settle",
+        message: { id: "message-settle", content: [{ type: "text", text: "the answer" }] }
+      })
+    ];
+    const last = events.filter((event) => event.id === "message-settle").at(-1);
+    expect(last.blocks).toEqual([
+      { type: "thinking", text: "weigh the options" },
+      { type: "text", text: "the answer" }
+    ]);
+  });
+
   it("preserves retry/rate-limit fields and maps assistant failures without provider secrets", () => {
     const normalizer = new AgentSdkSessionEventNormalizer({
       generationId: "generation-errors",

@@ -880,7 +880,6 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); }
 :is(
   .cc-session-longtext,
-  .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
   .cc-related
@@ -889,7 +888,6 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 :is(
   .cc-session-longtext,
-  .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
   .cc-session-notice,
@@ -897,7 +895,6 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 ) > summary::-webkit-details-marker { display: none; }
 :is(
   .cc-session-longtext,
-  .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
   .cc-session-notice,
@@ -917,7 +914,6 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 :is(
   .cc-session-longtext,
-  .cc-session-thinking,
   .cc-session-interim,
   .cc-session-tool,
   .cc-session-notice,
@@ -937,16 +933,27 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    ink back with it. */
 .cc-session-pre.cc-session-result { background: var(--cc-bg-sunk); color: var(--cc-fg); }
 .cc-session-pre.cc-session-result.is-live { max-height: 440px; border-color: var(--cc-border-strong); }
+/* Thinking is a first-class, always-visible part of the transcript - never a
+   collapsible row (a block that folds when the next tool call starts can never
+   be read). The accent-tinted panel makes each reasoning beat easy to spot,
+   including the final one right before the reply. */
 .cc-session-thinking {
-  border-left: 2px solid var(--cc-border-strong); padding-left: 8px; color: var(--cc-fg-dim);
+  margin: 6px 0;
+  padding: 8px 12px 9px;
+  border-left: 3px solid color-mix(in srgb, var(--cc-accent) 55%, var(--cc-border-strong));
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--cc-accent) 6%, transparent);
 }
 .cc-session-thinking.is-live { border-left-color: var(--cc-accent); }
-.cc-session-thinking > summary {
-  cursor: pointer; display: flex; align-items: center; gap: 7px; min-width: 0;
-  color: var(--cc-fg-dim); font-size: 12px;
+.cc-session-thinking-head {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--cc-accent); margin-bottom: 4px;
 }
-.cc-session-thinking-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cc-fg-dim); font-style: italic; }
-.cc-session-thinking > .cc-session-pre { margin-top: 8px; }
+.cc-session-thinking-text {
+  font-size: 13px; line-height: 1.55; color: var(--cc-fg); font-style: italic;
+  white-space: pre-wrap; word-break: break-word;
+}
 .cc-session-activity { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .cc-session-interim {
   margin-top: 2px; padding-left: 9px; border-left: 2px solid var(--cc-border);
@@ -1304,7 +1311,6 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   }
   :is(.cc-session, .cc-session-inline) :is(
     .cc-session-longtext,
-    .cc-session-thinking,
     .cc-session-interim,
     .cc-session-tool,
     .cc-related
@@ -2219,7 +2225,16 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   border-color: color-mix(in srgb, var(--cc-success, #70a37f) 55%, transparent);
   border-left: 4px solid var(--cc-success, #70a37f);
   background: color-mix(in srgb, var(--cc-success, #70a37f) 12%, transparent);
+  padding: 14px 16px;
 }
+/* The final report: full markdown at reading size, never truncated - a long
+   one scrolls inside the banner rather than losing its tail. */
+.cc-conv-state-summary {
+  font-size: 14px; line-height: 1.55; color: var(--cc-fg);
+  max-height: 45vh; overflow-y: auto; overflow-wrap: anywhere;
+}
+.cc-conv-state-summary > :first-child { margin-top: 0; }
+.cc-conv-state-summary > :last-child { margin-bottom: 0; }
 
 /* Floats over the tail while the reader is scrolled up; disappears the moment
    they are back at the bottom (it only renders while unpinned). The wrapper is

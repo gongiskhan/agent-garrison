@@ -471,35 +471,38 @@ body {
 .card .ct .card-rename:focus-visible { opacity: 1; }
 .card .ct .card-rename:hover { color: var(--ink); }
 .card .ct .card-rename:focus-visible { outline: 2px solid var(--sage); outline-offset: 1px; }
+/* Seamless in-place title editing: the input IS the title (same type, same
+   place), distinguished only by the dashed baseline. Enter commits, Escape
+   cancels, clicking away commits - no Save/Cancel chrome. */
 .card .ct .card-title-editor {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 5px;
+  display: flex;
   flex: 1 1 auto;
   min-width: 0;
 }
 .card .ct .card-title-input {
   min-width: 0;
   width: 100%;
-  border: 1px solid var(--sage);
-  background: white;
+  border: 0;
+  border-bottom: 1px dashed var(--sage);
+  border-radius: 0;
+  background: transparent;
   color: var(--ink);
   font: inherit;
   font-weight: 600;
-  padding: 4px 5px;
+  font-size: 13px;
+  padding: 0 0 1px;
 }
-.card .ct .card-title-input:focus { outline: 2px solid color-mix(in srgb, var(--sage) 35%, transparent); }
-.card .ct .card-title-action {
-  min-height: 30px;
-  border: 1px solid var(--rule);
-  background: white;
-  color: var(--ink-2);
-  font: 500 10px var(--sans);
-  padding: 3px 6px;
+.card .ct .card-title-input:focus,
+.card .ct .card-title-input:focus-visible { outline: none; border-bottom-color: var(--ink); }
+/* Bulk-selection tick, first thing on the title row. */
+.card .ct .card-select {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: var(--ink);
   cursor: pointer;
 }
-.card .ct .card-title-action.save { background: var(--ink); border-color: var(--ink); color: var(--paper); }
-.card .ct .card-title-action:disabled { opacity: 0.45; cursor: not-allowed; }
 .card .card-title-error {
   color: var(--alarm);
   font-size: 11px;
@@ -714,6 +717,78 @@ body {
   line-height: 1.25;
 }
 .sheet .sh-body { padding: 16px 18px 20px; }
+/* In-place editable sheet title: pencil beside the heading; in edit mode the
+   heading text itself becomes the input (same serif, same size). */
+.sheet .sh-head h3 .sheet-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  max-width: 100%;
+}
+.sheet .sh-head h3 .sheet-title-text { min-width: 0; overflow-wrap: anywhere; }
+.sheet .sh-head h3 .sheet-title-edit {
+  flex: 0 0 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 120ms, color 120ms;
+}
+.sheet .sh-head h3 .sheet-title-edit:hover,
+.sheet .sh-head h3 .sheet-title-edit:focus-visible { color: var(--ink); opacity: 1; }
+.sheet .sh-head h3 .sheet-title-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px dashed var(--sage);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  padding: 0 0 1px;
+}
+.sheet .sh-head h3 .sheet-title-input:focus,
+.sheet .sh-head h3 .sheet-title-input:focus-visible { outline: none; border-bottom-color: var(--ink); }
+
+/* ── bulk action bar (appears while any card is ticked) ── */
+.bulk-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 13px;
+  max-width: calc(100vw - 16px);
+  background: var(--paper, white);
+  border: 1px solid var(--ink);
+  box-shadow: 0 8px 28px rgba(30, 28, 22, 0.22);
+}
+.bulk-bar .bulk-count {
+  font: 600 12px var(--sans);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.bulk-bar .bulk-move {
+  min-height: 30px;
+  border: 1px solid var(--rule);
+  background: white;
+  color: var(--ink-2);
+  font: 500 12px var(--sans);
+  padding: 3px 6px;
+}
 
 /* ---- Opened-card section hierarchy (information-hierarchy pass) ----
    The primary tiers — status callouts, description, checklist, attachments,

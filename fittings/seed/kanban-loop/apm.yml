@@ -1,6 +1,6 @@
 name: kanban-loop
 version: 0.2.0
-description: Kanban Loop V1b — a workflow state machine wearing a Kanban board. Cards are work items, lists are pipeline states, an agent-list's router-prompt is the transition function. The full garrison-* pipeline (Plan → Implement → Review → Adv Review → Test → Adv Test → Walkthrough → Validate, plus Backlog/To Do/Discuss/Done/needs-attention). Composes the orchestrator (preRoute), the garrison skills, and the scheduler.
+description: Kanban Board — cards are work items and every started card runs as a conversation. Lists are card states (Scheduled / Backlog / To do / Running / Needs input / Done); the stretch launcher drives the work and the board is its window. Composes the orchestrator (preRoute), the garrison skills, and the scheduler.
 target: claude
 type: hybrid
 includes: auto
@@ -82,7 +82,7 @@ x-garrison:
     expect: KANBAN-OK
     timeout_ms: 10000
   for_consumers: |
-    The Kanban Loop is THE run engine's window: every autonomous run is a card. A
+    The Kanban Board is THE run engine's window: every autonomous run is a card. A
     manual list is a plain column; an agent list maps to a phase name and nothing
     else — the executing skill, model, effort and runtime resolve from the compiled
     Orchestrator policy at dispatch time (never per-list config), the dispatch

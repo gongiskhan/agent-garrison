@@ -228,7 +228,7 @@ keys are not:
   "stretchId": "<given below>",
   "duty": "<your duty>",
   "status": "complete" | "partial" | "blocked" | "failed",
-  "summary": "<what happened, <=4000 chars>",
+  "summary": "<what happened - concise, plain language, <=4000 chars>",
   "evidenceRefs": [{"kind":"file|commit|run|gate|artifact|url|log","ref":"<ABSOLUTE path or id>","note":"..."}],
   "nextSteps": {"next":"<a selected duty, or done, or needs-input>","why":"...","items":["..."]},
   "blocker": null | {"what":"...","needs":"...","who":"..."},
@@ -242,6 +242,11 @@ Rules: blocked requires a blocker; partial/failed require at least one
 failedApproaches entry; next "done" requires status "complete"; a gate/run/file
 evidence ref must point at a real non-empty file. Update nothing else — the
 exit gate applies your handoff to the conversation summary.
+
+The summary is read by a HUMAN — when next is "done" it is shown whole as the
+conversation's final report. Write it tight: lead with the outcome in one short
+sentence, then short markdown bullets for what changed and how it was verified.
+No filler, no restating the task, no hedging.
 
 YOUR SESSION ENDS THE MOMENT YOUR TURN ENDS. There is no later: nothing will
 re-invoke you, and a background task's completion notification will never reach

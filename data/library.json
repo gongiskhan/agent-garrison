@@ -563,7 +563,7 @@
   },
   {
     "id": "kanban-loop",
-    "name": "Kanban Loop",
+    "name": "Kanban Board",
     "repo": "local:fittings/seed/kanban-loop",
     "localPath": "fittings/seed/kanban-loop",
     "summary": "Workflow state machine as a Kanban board (automation-runner) with a responsive phone-first board UI. Discuss opens a web thread explicitly pinned to the Discuss duty; agent phases use the composition's duty/level routing and produce linked evidence without duplicating artifacts.",

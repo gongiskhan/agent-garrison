@@ -79,7 +79,6 @@ import {
   SparkIcon,
   ChatIcon,
   TerminalIcon,
-  WrenchIcon,
   DrillIcon,
   MailIcon,
   ClockIcon,
@@ -850,7 +849,9 @@ function Card({
   onFeedback,
   onRunSchedule,
   dragJustEnded,
-  busy
+  busy,
+  selected,
+  onToggleSelect
 }: {
   card: CardSummary;
   list: ListView;
@@ -861,6 +862,9 @@ function Card({
   // Unarchive → todo). Distinct from onMove, which asks when there is a choice.
   onQuickMove: (c: CardSummary, listId: string) => void;
   onDelete: (c: CardSummary) => void;
+  /** Bulk selection: whether this card is ticked, and the tick toggle. */
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
   onWatch: (c: CardSummary) => void;
   onTerminal: (c: CardSummary) => void;
   onOpen: (c: CardSummary) => void;
@@ -947,6 +951,17 @@ function Card({
       }}
     >
       <div className="ct">
+        {/* Bulk tick. An input, so the drag sensor and the card-open click both
+            already ignore it (DRAG_EXEMPT_ANCESTORS / INTERACTIVE_ANCESTORS). */}
+        <input
+          type="checkbox"
+          className="card-select"
+          checked={selected}
+          aria-label={`Select card: ${card.title}`}
+          onChange={() => onToggleSelect(card.id)}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
         <span className={dotClass(card)} aria-hidden />
         {titleDraft === null ? (
           <>
@@ -1012,6 +1027,9 @@ function Card({
               }
             }}
           >
+            {/* Seamless in-place edit: the input wears the title's own type, so
+                editing happens "in the title" rather than in a separate box.
+                Enter commits, Escape cancels, clicking away commits. */}
             <input
               className="card-title-input"
               aria-label={`Edit title for ${card.title}`}
@@ -1033,24 +1051,6 @@ function Card({
                 else cancelTitleEdit();
               }}
             />
-            <button
-              type="button"
-              className="card-title-action save"
-              aria-label="Save card title"
-              disabled={savingTitle || !titleDraft.trim()}
-              onClick={() => void saveCardTitle()}
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              className="card-title-action"
-              aria-label="Cancel title editing"
-              disabled={savingTitle}
-              onClick={cancelTitleEdit}
-            >
-              Cancel
-            </button>
           </div>
         )}
         {titleDraft === null && fmtCardDate(card.id) && <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>}
@@ -2526,7 +2526,6 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   // Trello-style in-place editing: title + description drafts (null = not
   // editing), the checklist add-input, the schedule picker drafts, and the
   // attachment upload state.
-  const [titleDraft, setTitleDraft] = useState<string | null>(null);
   const [descDraft, setDescDraft] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [checkText, setCheckText] = useState("");
@@ -2748,14 +2747,6 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
       await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
       return false;
     }
-  }
-
-  async function saveTitle() {
-    const t = (titleDraft ?? "").trim();
-    if (!t || !detail || t === detail.card.title) { setTitleDraft(null); return; }
-    setSavingEdit(true);
-    if (await patchCard({ title: t })) setTitleDraft(null);
-    setSavingEdit(false);
   }
 
   async function saveDescription() {
@@ -3056,24 +3047,11 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     machineSupportsRuntime(selectedMachine, placementRuntime) && placementProjectReady
   );
   return (
-    <Sheet title={card.title} onClose={onClose} size="mid">
-      {/* In-place title edit (Trello-style). Locked on an engine-owned card. */}
-      {titleDraft !== null && (
-        <div className="detail-desc">
-          <div className="row" style={{ gap: 8 }}>
-            <input
-              aria-label="Card title"
-              value={titleDraft}
-              autoFocus
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void saveTitle(); if (e.key === "Escape") setTitleDraft(null); }}
-              style={{ flex: 1, minWidth: 0 }}
-            />
-            <button className="btn small primary" disabled={savingEdit || !titleDraft.trim()} onClick={() => void saveTitle()}>Save</button>
-            <button className="btn small" onClick={() => setTitleDraft(null)}>Cancel</button>
-          </div>
-        </div>
-      )}
+    <Sheet
+      title={<EditableSheetTitle value={card.title} locked={lockedCard} onSave={(t) => patchCard({ title: t })} />}
+      onClose={onClose}
+      size="mid"
+    >
       <div className="detail-meta">
         <button
           className="chip mono chip-id"
@@ -3144,16 +3122,8 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           none of them. */}
       {!readOnly && (
       <div className="detail-actions">
-        {titleDraft === null && (
-          <button
-            className="btn small"
-            disabled={lockedCard}
-            title={lockedCard ? "engine-owned - the title is editable when the card is not on an autonomous list" : "rename this card"}
-            onClick={() => setTitleDraft(card.title)}
-          >
-            <WrenchIcon /> Rename
-          </button>
-        )}
+        {/* Rename lives in the sheet header now: the title itself is editable
+            via the pencil right beside it. */}
         {/* A conversation card reaches its raw phase log from the conversation
             header instead, where the rest of that surface's controls live. */}
         {!conversationId && (
@@ -4552,7 +4522,68 @@ function ConversationSheet({ cardId, onClose, onOpenCard, onWatch, onStart, busy
 }
 
 // ── generic modal sheet ─────────────────────────────────────────────────────
-function Sheet({ title, onClose, children, size = "default" }: { title: string; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" | "conv" }) {
+/** In-place editable sheet title: the heading text itself becomes the input,
+ * with the pencil affordance right beside it - no separate edit box. */
+function EditableSheetTitle({ value, locked, onSave }: {
+  value: string;
+  locked: boolean;
+  onSave: (title: string) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const cancelled = useRef(false);
+  async function commit() {
+    if (saving) return;
+    const t = (draft ?? "").trim();
+    if (!t || t === value) { setDraft(null); return; }
+    setSaving(true);
+    const ok = await onSave(t);
+    setSaving(false);
+    if (ok) setDraft(null);
+  }
+  if (draft === null) {
+    return (
+      <span className="sheet-title">
+        <span className="sheet-title-text">{value}</span>
+        {!locked && (
+          <button
+            type="button"
+            className="sheet-title-edit"
+            title="Edit title"
+            aria-label={`Edit title: ${value}`}
+            onClick={() => { cancelled.current = false; setDraft(value); }}
+          >
+            <PencilIcon />
+          </button>
+        )}
+      </span>
+    );
+  }
+  return (
+    <input
+      className="sheet-title-input"
+      value={draft}
+      autoFocus
+      disabled={saving}
+      aria-label={`Edit title for ${value}`}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => { if (!cancelled.current) void commit(); }}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return;
+        const action = cardTitleEditAction(e.key);
+        if (!action) return;
+        e.preventDefault();
+        // The sheet closes on window-level Escape; cancelling the title edit
+        // must stop there, not take the whole sheet with it.
+        e.stopPropagation();
+        if (action === "save") void commit();
+        else { cancelled.current = true; setDraft(null); }
+      }}
+    />
+  );
+}
+
+function Sheet({ title, onClose, children, size = "default" }: { title: ReactNode; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" | "conv" }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -4828,6 +4859,37 @@ function App() {
   const [overlay, setOverlay] = useState<Overlay>(initialOverlayFromLocation);
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Optimistic removals: a card whose Done/Delete has been pressed leaves the
+  // board INSTANTLY (filtered out of displayLists) while the API call runs in
+  // the background - that is what makes rapid card-after-card triage possible.
+  // On failure the id is dropped from this set (the card reappears) and the
+  // error lands in the notice. On success the id is dropped after the reload.
+  const [hiddenCards, setHiddenCards] = useState<ReadonlySet<string>>(new Set());
+  // Bulk selection: card ids ticked for a batch operation.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const hideCards = useCallback((ids: string[]) => {
+    setHiddenCards((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }, []);
+  const unhideCards = useCallback((ids: string[]) => {
+    setHiddenCards((prev) => {
+      if (!ids.some((id) => prev.has(id))) return prev;
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }, []);
+  const toggleSelected = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   // The board / frozen-History switch. Deliberately component state and not a
   // route: History is a place you visit and leave, a reload landing back on the
   // board is the right default, and a card link (?card= / #card=) still opens
@@ -4993,38 +5055,100 @@ function App() {
   // Unarchive → todo). A manual move: the server clears any parked status and
   // records the move on the card's timeline; CAS on the card's rev keeps it from
   // stepping on a concurrent tick.
+  //
+  // OPTIMISTIC: the card leaves the board the instant the button is pressed, so
+  // the next card can be handled immediately. The API call runs behind it; a
+  // failure brings the card back and the notice names it with the error.
   async function onQuickMove(card: CardSummary, listId: string) {
-    setBusyCard(card.id);
     setNotice(null);
+    hideCards([card.id]);
     try {
       await api.patch(card.id, { list: listId, rev: card.rev });
       await load();
       const title = board?.lists.find((l) => l.id === listId)?.title ?? listId;
       setNotice(`Moved to ${title}`);
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      setNotice(`"${card.title || card.id}" was not moved - ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setBusyCard(null);
+      unhideCards([card.id]);
     }
   }
 
   // Delete straight from the card front. Irreversible and it takes the card's run
   // directory with it, so it always asks first and names the card in the prompt -
   // the board is a grid of near-identical tiles and "are you sure?" is not enough
-  // to tell you which one you are about to destroy.
+  // to tell you which one you are about to destroy. After the confirm the card
+  // vanishes optimistically, same as onQuickMove; a failed delete restores it.
   async function onDelete(card: CardSummary) {
     if (!window.confirm(`Delete "${card.title || card.id}"? This removes the card and its run history for good.`)) return;
-    setBusyCard(card.id);
     setNotice(null);
+    hideCards([card.id]);
     try {
       await api.del(card.id);
       await load();
       setNotice("Card deleted");
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      setNotice(`"${card.title || card.id}" was not deleted - ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setBusyCard(null);
+      unhideCards([card.id]);
     }
+  }
+
+  // Batch operations over the ticked cards. Optimistic exactly like the
+  // single-card paths: leaving cards vanish immediately, every card's API call
+  // runs concurrently, failures come back with their errors in the notice.
+  async function bulkApply(
+    action: "done" | "start" | "delete" | "move",
+    targetList?: string
+  ) {
+    const cards = (board?.cards ?? []).filter((c) => selected.has(c.id));
+    if (cards.length === 0) return;
+    const listOf = (c: CardSummary) => board?.lists.find((l) => l.id === c.list);
+    // Cards the action cannot apply to are skipped up front (and stay ticked).
+    const launcherHeld = (c: CardSummary) => c.status === "running" || c.list === "running";
+    let eligible = cards;
+    if (action === "done") eligible = cards.filter((c) => !launcherHeld(c) && c.list !== "scheduled" && !listOf(c)?.terminal);
+    else if (action === "move") eligible = cards.filter((c) => !launcherHeld(c) && c.list !== targetList);
+    else if (action === "start") eligible = cards.filter((c) => !launcherHeld(c) && c.list !== "scheduled");
+    const skipped = cards.length - eligible.length;
+    if (eligible.length === 0) {
+      setNotice("None of the selected cards can take that action.");
+      return;
+    }
+    if (action === "delete" && !window.confirm(
+      `Delete ${eligible.length} card${eligible.length === 1 ? "" : "s"}? This removes them and their run history for good.`
+    )) return;
+    setNotice(null);
+    const leaves = action !== "start";
+    const ids = eligible.map((c) => c.id);
+    if (leaves) hideCards(ids);
+    const results = await Promise.allSettled(eligible.map(async (c) => {
+      if (action === "delete") return api.del(c.id);
+      if (action === "start") return api.start(c.id);
+      const list = action === "done" ? "done" : targetList!;
+      return api.patch(c.id, { list, rev: c.rev });
+    }));
+    const failed: string[] = [];
+    const failedIds = new Set<string>();
+    results.forEach((r, i) => {
+      if (r.status === "rejected") {
+        failedIds.add(eligible[i].id);
+        failed.push(`"${eligible[i].title || eligible[i].id}": ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
+      }
+    });
+    await load();
+    if (leaves) unhideCards(ids);
+    // Successes untick; failures stay ticked for a retry.
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((id) => failedIds.has(id)));
+      return next;
+    });
+    const verb = action === "done" ? "marked done" : action === "start" ? "started" : action === "delete" ? "deleted" : `moved to ${targetList}`;
+    const okCount = eligible.length - failed.length;
+    const parts = [`${okCount} ${verb}`];
+    if (skipped > 0) parts.push(`${skipped} skipped`);
+    if (failed.length > 0) parts.push(`${failed.length} failed - ${failed.join("; ")}`);
+    setNotice(parts.join(", "));
   }
 
   // WS2 (D7): continue a DONE card's work in one click — create a successor card
@@ -5161,9 +5285,31 @@ function App() {
     return m;
   }, [board]);
 
+  // Drop ids that no longer exist on the polled board: a deleted card's hidden
+  // entry, or a selection of a card someone else removed, must not live forever.
+  useEffect(() => {
+    if (!board) return;
+    const present = new Set((board.cards ?? []).map((c) => c.id));
+    setHiddenCards((prev) => {
+      const next = [...prev].filter((id) => present.has(id));
+      return next.length === prev.size ? prev : new Set(next);
+    });
+    setSelected((prev) => {
+      const next = [...prev].filter((id) => present.has(id));
+      return next.length === prev.size ? prev : new Set(next);
+    });
+  }, [board]);
+
   const displayLists = useMemo(() => {
     if (!board) return [] as ListView[];
     let lists = board.lists;
+    if (hiddenCards.size > 0) {
+      lists = lists.map((l) =>
+        l.cards.some((c) => hiddenCards.has(c.id))
+          ? { ...l, cards: l.cards.filter((c) => !hiddenCards.has(c.id)) }
+          : l
+      );
+    }
     if (colOrderOverride) {
       const rank = new Map(colOrderOverride.map((id, i) => [id, i]));
       lists = [...lists].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999));
@@ -5180,7 +5326,7 @@ function App() {
       if (b.id === "scheduled") return 1;
       return 0;
     });
-  }, [board, colOrderOverride, cardOrderOverride, cardById]);
+  }, [board, hiddenCards, colOrderOverride, cardOrderOverride, cardById]);
 
   // What the rail actually renders. displayLists stays the COMPLETE ordered set
   // (drag snapshots order from it, so a hidden column keeps its place); this is
@@ -5378,6 +5524,36 @@ function App() {
         </div>
       )}
       {notice && <div className="banner info" onClick={() => setNotice(null)}>{notice}</div>}
+      {/* Bulk action bar: appears while any card is ticked. The single-card
+          operations, in one go over the whole selection. */}
+      {view === "board" && selected.size > 0 && (
+        <div className="bulk-bar" role="toolbar" aria-label="Bulk card actions">
+          <span className="bulk-count">{selected.size} selected</span>
+          <button className="btn small ok" title="mark the selected cards done" onClick={() => void bulkApply("done")}>
+            <CheckIcon /> Done
+          </button>
+          <button className="btn small primary" title="start the selected cards" onClick={() => void bulkApply("start")}>
+            <PlayIcon /> Start
+          </button>
+          <select
+            className="bulk-move"
+            aria-label="Move selected cards to list"
+            value=""
+            onChange={(e) => { const v = e.target.value; if (v) void bulkApply("move", v); }}
+          >
+            <option value="">Move to…</option>
+            {(board?.lists ?? []).filter((l) => l.id !== "running").map((l) => (
+              <option key={l.id} value={l.id}>{l.title}</option>
+            ))}
+          </select>
+          <button className="btn small danger" title="delete the selected cards" onClick={() => void bulkApply("delete")}>
+            <CloseIcon /> Delete
+          </button>
+          <button className="btn small" title="clear the selection" onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
       {view === "history" ? (
         <HistoryView
           refreshKey={historyRev}
@@ -5452,6 +5628,8 @@ function App() {
                               card={card}
                               list={list}
                               busy={busyCard === card.id}
+                              selected={selected.has(card.id)}
+                              onToggleSelect={toggleSelected}
                               onStart={onStart}
                               onApprove={onApprove}
                               onInfer={onInfer}
@@ -5612,7 +5790,7 @@ function TopBar({ onNew, onImport, onHistory, status, hiddenLists, showAllLists,
       <div className="brand">
         <span className="brand-mark"><BoardMark /></span>
         <span className="brand-text">
-          <span className="name">Kanban Loop</span>
+          <span className="name">Kanban Board</span>
           <span className="sub">Workflow Board</span>
         </span>
       </div>
