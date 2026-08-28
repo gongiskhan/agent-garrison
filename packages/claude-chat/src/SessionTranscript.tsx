@@ -1520,6 +1520,16 @@ export function SessionStream({
   const lastWrittenTopRef = useRef(-1);
   const followActiveRef = useRef(false);
   const hadContentRef = useRef(false);
+  /** A pill-click descent in flight. While set, position-based unpin signals
+   * are ignored - a settling turn can collapse layout mid-descent and the
+   * browser's scroll anchoring then moves scrollTop up, which reads exactly
+   * like a drag-up. Only real reader input (wheel/touch) cancels a jump. */
+  const jumpingRef = useRef(false);
+  /** A pointer is currently held down. A position regression is a reader's
+   * scrollbar drag ONLY while this is true - without it, the browser's scroll
+   * anchoring (layout collapsing above the viewport as a turn settles) writes
+   * the same upward jolt and must never read as intent. */
+  const pointerDownRef = useRef(false);
   const liveRef = useRef(live);
   const previousLiveRef = useRef(live);
   liveRef.current = live;
@@ -1661,17 +1671,23 @@ export function SessionStream({
     el.scrollTop = target;
   }, [resolveScroller]);
 
-  // Reader-intent listeners on the resolved scroller. Wheel-up and drag-up
-  // unpin immediately (position thresholds re-yanked people who scrolled up a
-  // line to re-read); the scroll listener re-pins at the true bottom and
-  // catches a scrollbar drag upward, which fires neither wheel nor touch.
-  const hasContent = events.length > 0;
+  // Reader-intent listeners. The first cut bound these to the RESOLVED
+  // scroller once content appeared - but a fresh conversation has not
+  // overflowed its container yet, resolveScroller returned null, the
+  // listeners bound to NOTHING, and the follow loop then overwrote every
+  // wheel-up the reader tried, forever ("scrolling up is not allowed").
+  // Bind wheel/touch to OUR OWN content root instead (it always exists, and
+  // pointer events bubble through it regardless of which ancestor scrolls),
+  // and catch scroll in the CAPTURE phase on window (scroll does not bubble;
+  // capture sees every scroller, filtered to the one holding this transcript).
   useEffect(() => {
-    if (!hasContent) return;
-    const el = resolveScroller();
-    if (!el) return;
+    const content = scrollRef.current;
+    if (!content) return;
     const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) setPinned(false);
+      if (event.deltaY < 0) {
+        jumpingRef.current = false;
+        setPinned(false);
+      }
     };
     let touchY = 0;
     const onTouchStart = (event: TouchEvent) => {
@@ -1679,27 +1695,45 @@ export function SessionStream({
     };
     const onTouchMove = (event: TouchEvent) => {
       const y = event.touches[0]?.clientY ?? 0;
-      if (y > touchY + 4) setPinned(false);
+      if (y > touchY + 4) {
+        jumpingRef.current = false;
+        setPinned(false);
+      }
       touchY = y;
     };
-    const onScroll = () => {
+    const onScroll = (event: Event) => {
+      const el = event.target;
+      if (!(el instanceof HTMLElement) || !el.contains(content)) return;
       if (el.scrollHeight - el.scrollTop - el.clientHeight < 4) {
         if (!pinnedRef.current) setPinned(true);
-      } else if (el.scrollTop < lastWrittenTopRef.current - 4) {
+      } else if (
+        pointerDownRef.current &&
+        !jumpingRef.current &&
+        lastWrittenTopRef.current >= 0 &&
+        el.scrollTop < lastWrittenTopRef.current - 4
+      ) {
+        // Moved UP from where the follow last wrote WITH the pointer held -
+        // a scrollbar drag, which fires neither wheel nor touch.
         setPinned(false);
       }
     };
-    el.addEventListener("wheel", onWheel, { passive: true });
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
-    el.addEventListener("scroll", onScroll, { passive: true });
+    const onPointerDown = () => { pointerDownRef.current = true; };
+    const onPointerUp = () => { pointerDownRef.current = false; };
+    content.addEventListener("wheel", onWheel, { passive: true });
+    content.addEventListener("touchstart", onTouchStart, { passive: true });
+    content.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    window.addEventListener("mousedown", onPointerDown, { capture: true, passive: true });
+    window.addEventListener("mouseup", onPointerUp, { capture: true, passive: true });
     return () => {
-      el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("scroll", onScroll);
+      content.removeEventListener("wheel", onWheel);
+      content.removeEventListener("touchstart", onTouchStart);
+      content.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
+      window.removeEventListener("mousedown", onPointerDown, { capture: true } as EventListenerOptions);
+      window.removeEventListener("mouseup", onPointerUp, { capture: true } as EventListenerOptions);
     };
-  }, [hasContent, resolveScroller, setPinned]);
+  }, [setPinned]);
 
   // First contentful paint lands AT the bottom instantly - animating a whole
   // history on open would be two seconds of scrolling nobody asked for.
@@ -1731,6 +1765,19 @@ export function SessionStream({
       if (!el) return;
       const target = el.scrollHeight - el.clientHeight;
       const current = el.scrollTop;
+      // The reader moved UP with the pointer held since the last write: never
+      // fight them. Pointer-gated for the same reason the scroll listener is -
+      // scroll anchoring writes the same jolt with nobody touching anything.
+      if (
+        pointerDownRef.current &&
+        !jumpingRef.current &&
+        lastWrittenTopRef.current >= 0 &&
+        current < lastWrittenTopRef.current - 4 &&
+        target >= lastWrittenTopRef.current
+      ) {
+        setPinned(false);
+        return;
+      }
       if (target - current <= 0.5) return;
       const next = Math.min(target, current + Math.max(1, (target - current) * 0.22));
       lastWrittenTopRef.current = next;
@@ -1752,18 +1799,28 @@ export function SessionStream({
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  /** The pill, and the only programmatic way back: pin and ease down. */
+  /** The pill, and the only programmatic way back: pin and ease down. The
+   * jumping flag holds until the descent LANDS, so a mid-descent layout shift
+   * (a turn settling, scroll anchoring) cannot read as reader intent. */
   const jumpToLatest = useCallback(() => {
     setPinned(true);
+    jumpingRef.current = true;
     const el = resolveScroller();
-    if (!el) return;
+    if (!el) {
+      jumpingRef.current = false;
+      return;
+    }
     const animate = () => {
-      if (!pinnedRef.current) return;
+      if (!pinnedRef.current || !jumpingRef.current) {
+        jumpingRef.current = false;
+        return;
+      }
       const target = el.scrollHeight - el.clientHeight;
       const next = Math.min(target, el.scrollTop + Math.max(2, (target - el.scrollTop) * 0.25));
       lastWrittenTopRef.current = next;
       el.scrollTop = next;
       if (target - next > 0.5) requestAnimationFrame(animate);
+      else jumpingRef.current = false;
     };
     requestAnimationFrame(animate);
   }, [resolveScroller, setPinned]);
@@ -1943,7 +2000,7 @@ export function SessionStream({
         {!stuck && (
           <div className="cc-session-jumpwrap">
             <button type="button" className="cc-session-jump" onClick={jumpToLatest}>
-              Jump to latest
+              Jump to bottom
             </button>
           </div>
         )}
