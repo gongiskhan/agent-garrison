@@ -227,7 +227,7 @@ ${vagueTimeBlock(now)}
 
 Schema:
 {
-  "intent": "create_task" | "create_event" | "card_command" | "delegate" | "query" | "note" | "unknown",
+  "intent": "create_task" | "create_event" | "card_command" | "discuss" | "send_message" | "automate" | "delegate" | "query" | "note" | "unknown",
   "title": "short title (create_task/create_event/note)",
   "description": "one-paragraph body in your own words (create_task/create_event)",
   "project": null,
@@ -238,7 +238,14 @@ Schema:
   "minutes": 120 (card_command snooze with a relative delay - whole minutes),
   "until": "absolute ISO 8601 time (card_command snooze with an absolute time)",
   "request": "the user's instruction or question, restated in one clear sentence (delegate only)",
-  "ack": "one short line telling the user what you are about to do (delegate only)",
+  "ack": "one short line telling the user what you are about to do (delegate/discuss/send_message/automate)",
+  "topic": "what the user wants to talk through, one clear sentence (discuss only)",
+  "medium": "whatsapp" | "email" | "slack" | null (send_message only - null when they did not say),
+  "recipient": "the person or channel EXACTLY as the user named them (send_message only)",
+  "subject": "email subject line (send_message with medium email, optional)",
+  "body": "what should be said, in the user's own words (send_message only)",
+  "automation": "the automation the user NAMED, verbatim (automate only)",
+  "inputs": {"key": "value"} (automate only - only inputs actually spoken, else {}),
   "answer": "direct answer to the user (query only; concise, no preamble)",
   "note_content": "the fact to remember, in your own words (note/unknown)"
 }
@@ -269,10 +276,32 @@ Rules:
   "7Q2M"); never invent, complete or translate it. A relative snooze gives
   "minutes"; an absolute one gives "until" computed from the current local
   time above. Never emit both.
+- discuss: the user wants to TALK something through with you rather than have it
+  done - "quero discutir X", "vamos falar sobre X", "let's think about X", "o que
+  achas de X", "ajuda-me a decidir X". This opens a spoken conversation that
+  CONTINUES without the wake word until they end it, so choose it only when they
+  are inviting a back-and-forth, never for a single question (that is "query" or
+  "delegate"). Put what they want to talk about in "topic", restated clearly and
+  self-contained. Put a one-line spoken opener in "ack".
+- send_message: the user wants a message SENT to a named person or channel -
+  "manda uma mensagem à Marília a dizer que é melhor amanhã", "envia um email ao
+  João sobre a proposta", "diz no Slack ao Pedro que já vou". "recipient" is the
+  person or channel EXACTLY as they named them - never a guessed address, phone
+  number or handle. "body" is what should be said, in the user's own words and
+  language. "medium" is "whatsapp", "email" or "slack" only when they SAID which;
+  leave it null otherwise - do NOT infer email from the fact that a message
+  sounds formal. "subject" only for an email they gave one for. Put a short
+  spoken acknowledgement in "ack".
+- automate: the user wants an existing NAMED automation run - "corre a automação
+  X", "run the X automation", "dispara o X". "automation" is the name VERBATIM as
+  they said it; never translate it, never complete it, never invent one. "inputs"
+  carries only key/value inputs they actually spoke, else {}. Someone describing
+  something they would LIKE automated, without naming an existing automation, is
+  create_task.
 - delegate: the user wants Zeca to DO something now, or asks something that
   cannot be answered without looking at their real data. You are a small, fast,
-  tool-less classifier: you cannot send a message, read their calendar, search
-  their files, open a web page, look at the Kanban board or read their memories.
+  tool-less classifier: you cannot read their calendar, search their files, open
+  a web page, look at the Kanban board or read their memories.
   Zeca himself can do all of that. So anything of that shape is "delegate":
   sending or drafting a message anywhere (Slack, email, WhatsApp), anything
   touching a connected service (calendar, Trello, Google, GitHub), reading or
@@ -282,14 +311,18 @@ Rules:
   clearly and self-contained, because Zeca sees ONLY that sentence, not this
   transcript. Put a short spoken-style acknowledgement in "ack" ("On it - I'll
   message Ana on Slack"). When in doubt between delegate and query, choose
-  delegate: a real answer late beats a confident wrong one now.
+  delegate: a real answer late beats a confident wrong one now. A message to a
+  NAMED person is "send_message", not delegate; delegate still owns everything
+  vaguer ("responde ao email do João", "avisa toda a gente").
 - query: ONLY for something you can answer correctly from general knowledge
   alone, with no access to the user's data ("how many grams in an ounce").
   Put the full answer in "answer". If it needs anything of theirs, delegate.
 - note: the user states a fact or a preference to REMEMBER - something that is
   true, not something to be done ("o Tomás é alérgico a amendoim", "prefiro voar
-  de manhã"). Anything with an action in it is a create_task even when it is
-  phrased as a plan rather than an instruction.
+  de manhã"). An explicit instruction to remember is ALSO a note even though it
+  is phrased as an order: "guarda isto", "lembra-te que", "apontar que", "save
+  this", "remember that". Anything with an action in it is a create_task even
+  when it is phrased as a plan rather than an instruction.
 - unknown: none of the above fits.
 - project: one of [${projectList}] only when clearly implied, else null.
 - Keep the user's language (PT stays PT, EN stays EN).
@@ -312,7 +345,38 @@ export function parseWakeReply(reply) {
   try {
     const parsed = JSON.parse(text.slice(start, end + 1));
     if (typeof parsed !== "object" || parsed === null) return null;
-    const intents = ["create_task", "create_event", "card_command", "delegate", "query", "note", "unknown"];
+    const intents = [
+      "create_task",
+      "create_event",
+      "card_command",
+      "discuss",
+      "send_message",
+      "automate",
+      "delegate",
+      "query",
+      "note",
+      "unknown"
+    ];
+    // A CLOSED vocabulary. An unspoken medium stays null and is resolved by the
+    // fitting against config - never inferred here, and above all never inferred
+    // as email: email is the one send with no daemon and no cancel window.
+    const MEDIA = ["whatsapp", "email", "slack"];
+    const medium =
+      typeof parsed.medium === "string" && MEDIA.includes(parsed.medium.trim().toLowerCase())
+        ? parsed.medium.trim().toLowerCase()
+        : null;
+    // Spoken automation inputs, bounded on every axis: this map reaches a child
+    // process argv, so a model that answers with 500 keys, nested objects, or a
+    // key full of shell metacharacters yields {} rather than something
+    // half-sanitised.
+    const inputs = {};
+    if (parsed.inputs && typeof parsed.inputs === "object" && !Array.isArray(parsed.inputs)) {
+      for (const [k, v] of Object.entries(parsed.inputs).slice(0, 16)) {
+        if (!/^[A-Za-z0-9_.-]{1,64}$/.test(k)) continue;
+        if (typeof v !== "string" && typeof v !== "number") continue;
+        inputs[k] = String(v).slice(0, 200);
+      }
+    }
     // Minutes may come back as a number or a numeric string; anything else is
     // dropped here so the handler only ever sees a usable number or null.
     const minutes =
@@ -334,6 +398,13 @@ export function parseWakeReply(reply) {
       until: typeof parsed.until === "string" ? parsed.until.trim() : "",
       request: typeof parsed.request === "string" ? parsed.request.trim() : "",
       ack: typeof parsed.ack === "string" ? parsed.ack.trim() : "",
+      topic: typeof parsed.topic === "string" ? parsed.topic.trim() : "",
+      medium,
+      recipient: typeof parsed.recipient === "string" ? parsed.recipient.trim().slice(0, 120) : "",
+      subject: typeof parsed.subject === "string" ? parsed.subject.trim().slice(0, 200) : "",
+      body: typeof parsed.body === "string" ? parsed.body.trim().slice(0, 2000) : "",
+      automation: typeof parsed.automation === "string" ? parsed.automation.trim().slice(0, 160) : "",
+      inputs,
       answer: typeof parsed.answer === "string" ? parsed.answer.trim() : "",
       note_content: typeof parsed.note_content === "string" ? parsed.note_content.trim() : ""
     };
@@ -437,6 +508,80 @@ export function parseRevisionReply(reply) {
   }
 }
 
+// Ends a spoken discussion. ANCHORED exact-match, the same shape the gateway's
+// AFFIRMATIVE_GO uses and for the same reason: "pronto, mas o que achas disso"
+// is a turn in the conversation, not an instruction to end it. A sentence that
+// merely CONTAINS "done" must never close the discussion.
+export const DISCUSS_END =
+  /^(?:pronto|acabou|chega|ja esta|já está|e tudo|é tudo|obrigado|obrigada|done|that'?s it|thats it|we'?re done|stop|thanks)[.!]?$/i;
+
+// The kickoff for a SPOKEN discussion.
+//
+// The doctrine is restated from kanban-loop's buildDiscussKickoff rather than
+// imported (cross-fitting imports are forbidden, and that one is card-shaped:
+// it names a brief path and a checklist that do not exist here).
+//
+// The voice-only constraints are not style preferences. "Under 55 words" is an
+// ENGINEERING limit: tts.mjs refuses to render above MAX_TEXT_CHARS = 600, and
+// a discussion that silently drops into the phone's robotic synthesizer voice
+// is a different product from the one being built here.
+export function buildVoiceDiscussPrompt(topic, { context = [] } = {}) {
+  const contextBlock =
+    context.length > 0
+      ? `\nWhat was said just before, for context only:\n"${context.map((c) => c.text).join(" ")}"\n`
+      : "";
+  return `The user wants to talk something through with you, out loud, through an earpiece. This is a conversation, not a task.
+
+What they want to discuss: "${topic}"
+${contextBlock}
+How to be in this conversation:
+
+Argue with me before you agree with me. If I am about to do something daft, say so first and explain why - agreement I did not earn is worth nothing. Hold the engineering and the product view at once. Prefer what you can check over what sounds right, and say plainly when you do not know rather than filling the gap.
+
+Ask ONE real question at a time, not three. Do not summarise what I just said back to me.
+
+How to SPEAK here, which is different from writing:
+
+Everything you say is read aloud into an earpiece. Keep every reply under 55 words - this is a hard limit, not a guideline. Never use markdown, bullet points, headings, code, URLs, or anything you would not say out loud to someone standing next to you. No preamble and no sign-off. Plain spoken sentences.
+
+There is no document to write here and no file to touch. The conversation is the whole of it.
+
+Open the discussion now with your first reply.`;
+}
+
+// Every later turn. Deliberately thin: the gateway owns continuity for this
+// session id, so re-sending the transcript would pay for it twice and drift.
+export function buildVoiceDiscussTurn(utterance) {
+  return `${utterance}
+
+(Still speaking out loud. Under 55 words, plain spoken sentences, no markdown, no lists.)`;
+}
+
+// A long reply still has to be heard. Split on sentence boundaries so each
+// piece renders as its own clip; capped at two, because a third means the
+// prompt failed and the fix is the prompt, not more audio.
+export function splitForSpeech(text, { maxChars = 500, maxChunks = 2 } = {}) {
+  const clean = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  if (clean.length <= maxChars) return [clean];
+  const sentences = clean.match(/[^.!?]+[.!?]*\s*/g) ?? [clean];
+  const chunks = [];
+  let current = "";
+  for (const sentence of sentences) {
+    if (current && (current + sentence).length > maxChars) {
+      chunks.push(current.trim());
+      current = "";
+      if (chunks.length >= maxChunks) break;
+    }
+    current += sentence;
+  }
+  if (current.trim() && chunks.length < maxChunks) chunks.push(current.trim());
+  const kept = chunks.slice(0, maxChunks);
+  const spokenLength = kept.join(" ").length;
+  if (spokenLength < clean.length) kept[kept.length - 1] = `${kept[kept.length - 1]} ...`;
+  return kept;
+}
+
 // ---- the bus ----------------------------------------------------------------
 
 // Default source identity. A sibling channel (the iOS companion) reuses this
@@ -452,7 +597,7 @@ export const OMI_WAKE_SOURCE = {
 };
 
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -468,6 +613,15 @@ export class WakeBus {
     // "read it off what was said", which is what omi passes and what every
     // default below preserves.
     this.language = language;
+    // Optional lanes, all null by default so omi-channel - which has no live
+    // socket to speak into - keeps behaving exactly as before. `speakFn === null`
+    // is also what makes the `discuss` intent degrade to `delegate` there: a
+    // spoken conversation on a channel that cannot speak is not a conversation.
+    this.speakFn = speakFn;
+    this.discussFn = discussFn;
+    this.connectorFn = connectorFn;
+    this.cortexFn = cortexFn;
+    this.discussions = new Map(); // sessionId -> discussion state
     // Two lanes, deliberately distinct: `runFn` is the small pinned classifier
     // the wearer waits on; `operativeFn` is the full-toolset turn nobody waits
     // on. Collapsing them is what made every spoken command cost a Sonnet turn.
@@ -594,12 +748,116 @@ export class WakeBus {
     return { action: "revise", applied };
   }
 
+  // ---- spoken discussions --------------------------------------------------
+
+  discussion(sessionId) {
+    return this.discussions.get(sessionId) ?? null;
+  }
+
+  // One fable-class turn per utterance, serialised: two segments arriving while
+  // a turn is in flight become ONE next utterance rather than two concurrent
+  // conversations answering over each other.
+  appendDiscussion(sessionId, text) {
+    const d = this.discussion(sessionId);
+    if (!d) return;
+    d.parts.push(text);
+    d.lastActivity = this.now();
+    this.armDiscussIdle(sessionId);
+    if (d.utteranceTimer) clearTimeout(d.utteranceTimer);
+    const settled = endsSentence(text);
+    const waitMs = settled ? this.cfg.wakeSilenceCloseMs : this.cfg.wakeSilenceCloseMs * 2;
+    d.utteranceTimer = setTimeout(() => this.flushDiscussion(sessionId), waitMs);
+    d.utteranceTimer.unref?.();
+    this.emitLifecycle("segment_captured", { sessionId, at: this.now() });
+  }
+
+  armDiscussIdle(sessionId) {
+    const d = this.discussion(sessionId);
+    if (!d) return;
+    if (d.idleTimer) clearTimeout(d.idleTimer);
+    d.idleTimer = setTimeout(() => this.endDiscussion(sessionId, "idle"), this.cfg.discussIdleMs ?? 180000);
+    d.idleTimer.unref?.();
+  }
+
+  flushDiscussion(sessionId) {
+    const d = this.discussion(sessionId);
+    if (!d || d.parts.length === 0) return;
+    const utterance = d.parts.join(" ").replace(/\s+/g, " ").trim();
+    d.parts = [];
+    if (!utterance) return;
+    d.chain = (d.chain ?? Promise.resolve())
+      .then(() => this.runDiscussTurn(sessionId, utterance))
+      .catch((err) => this.log.error(`[${this.source.logPrefix}] discuss turn error: ${err?.message ?? err}`));
+  }
+
+  async runDiscussTurn(sessionId, utterance) {
+    const d = this.discussion(sessionId);
+    if (!d) return;
+    if ((d.turns ?? 0) >= (this.cfg.discussMaxTurns ?? 40)) {
+      this.endDiscussion(sessionId, "max-turns");
+      return;
+    }
+    d.turns = (d.turns ?? 0) + 1;
+    this.counters.bump("wake_discuss_turns");
+    // The wearer needs to know the discussion is alive well before a fable turn
+    // can answer.
+    this.emitLifecycle("window_closed", { sessionId, reason: "discuss-thinking", at: this.now() });
+    const startedAt = this.now();
+    let reply = "";
+    try {
+      const res = await this.discussFn({ prompt: buildVoiceDiscussTurn(utterance), sessionId: d.threadId });
+      reply = String(res?.reply ?? "").trim();
+    } catch (err) {
+      this.counters.bump("wake_discuss_failed");
+      reply = t("wake.delegate_failed", { error: err?.message ?? err }, d.lang);
+    }
+    this.counters.observe("wake_discuss_ms", this.now() - startedAt);
+    await this.speakDiscussion(reply, d);
+  }
+
+  async speakDiscussion(text, d) {
+    for (const chunk of splitForSpeech(text)) {
+      try {
+        await this.speakFn?.(chunk, { kind: "discuss", lang: d?.lang ?? null });
+      } catch (err) {
+        this.log.error(`[${this.source.logPrefix}] discuss speak failed: ${err?.message ?? err}`);
+      }
+    }
+  }
+
+  endDiscussion(sessionId, reason) {
+    const d = this.discussion(sessionId);
+    if (!d) return null;
+    if (d.utteranceTimer) clearTimeout(d.utteranceTimer);
+    if (d.idleTimer) clearTimeout(d.idleTimer);
+    this.discussions.delete(sessionId);
+    const s = this.sessions.get(sessionId);
+    if (s && s.state === "discussing") s.state = "armed";
+    this.counters.bump("wake_discuss_ended");
+    this.log.log(`[${this.source.logPrefix}] discussion ended (${reason}) after ${d.turns ?? 0} turns`);
+    // The transcript is the artefact. Written on the way out rather than per
+    // turn, so an abandoned discussion still leaves something behind.
+    if (d.turns > 0) {
+      try {
+        this.memoryWriter.write({
+          title: `Conversa: ${d.topic.slice(0, 60)}`,
+          content: d.topic,
+          tags: ["wake", "discuss"],
+          provenance: { source: `${this.source.id} voice discussion`, turns: d.turns, ended: reason }
+        });
+      } catch {
+        /* the memory store is optional-one; a lost transcript never breaks the exit */
+      }
+    }
+    return { reason, turns: d.turns ?? 0 };
+  }
+
   session(sessionId) {
     let s = this.sessions.get(sessionId);
     if (!s) {
       s = {
         id: sessionId,
-        state: "armed", // armed | capturing
+        state: "armed", // armed | capturing | discussing
         seen: new Set(), // segment fingerprints (dedupe - I6)
         parts: [],
         // Rolling pre-wake context, in memory only and never persisted unless a
@@ -648,6 +906,26 @@ export class WakeBus {
           continue;
         }
         s.seen.add(fingerprint);
+
+        // A live discussion owns the microphone: everything said goes to the
+        // thread, with no wake word, until the user ends it.
+        if (s.state === "discussing") {
+          if (this.regex.test(text)) {
+            // Saying the name inside a discussion is a deliberate mode change -
+            // the user is already talking to Zeca, so the only reason to say it
+            // again is to leave. It is also the one escape a wearer can be
+            // taught and will remember under stress. The rest of the segment
+            // still runs as an ordinary command, so "Zeca, cria uma tarefa
+            // disso" does exactly the right thing.
+            this.endDiscussion(sessionId, "wake");
+          } else if (DISCUSS_END.test(text.trim())) {
+            this.endDiscussion(sessionId, "phrase");
+            continue;
+          } else {
+            this.appendDiscussion(sessionId, text.trim());
+            continue;
+          }
+        }
 
         if (s.state === "capturing") {
           s.parts.push({ text: text.trim(), at: this.now() });
@@ -1016,6 +1294,12 @@ export class WakeBus {
           });
         }
       }
+      case "discuss":
+        return this.handleDiscuss({ parsed, command, eventId, sessionId, lang, context });
+      case "send_message":
+        return this.handleSendMessage({ parsed, command, eventId, sessionId, lang });
+      case "automate":
+        return this.handleAutomate({ parsed, command, eventId, lang });
       case "card_command":
         return this.handleCardCommand({ parsed, lang });
       case "delegate":
@@ -1052,6 +1336,198 @@ export class WakeBus {
           lang,
           reason: "unknown intent"
         });
+    }
+  }
+
+  // Open a spoken discussion: the session stops being a wake gate and becomes a
+  // conversation until the user ends it.
+  //
+  // Degrades to `delegate` wherever there is no speak lane. omi-channel has no
+  // live socket, and a "discussion" whose replies arrive as push notifications
+  // is not the thing the user asked for - it is a delegate turn with extra
+  // steps, so it may as well be one honestly.
+  async handleDiscuss({ parsed, command, eventId, sessionId, lang, context = [] }) {
+    if (!this.cfg.discussEnabled || !this.discussFn || !this.speakFn || !sessionId) {
+      this.counters.bump("wake_discuss_unavailable");
+      return this.handleDelegate({ parsed, command, eventId, sessionId, lang });
+    }
+    const topic = parsed.topic || parsed.request || command;
+    const threadId = `${this.source.originPrefix}:discuss:${sessionId}:${ulid()}`;
+    const s = this.session(sessionId);
+    s.state = "discussing";
+    this.discussions.set(sessionId, {
+      threadId,
+      topic,
+      lang,
+      parts: [],
+      turns: 0,
+      chain: Promise.resolve(),
+      utteranceTimer: null,
+      idleTimer: null,
+      openedAt: this.now(),
+      lastActivity: this.now()
+    });
+    this.armDiscussIdle(sessionId);
+    this.counters.bump("wake_discuss_opened");
+    // The opener runs as deferred work for the same reason a delegate answer
+    // does: the acknowledgement has to reach the wearer before the turn that
+    // answers it, or they hear the reply and then the "on it".
+    return {
+      confirmation: parsed.ack || topic,
+      result: { intent: "discuss", topic, threadId },
+      // Queued on the DISCUSSION's chain, not just awaited here. The opener
+      // runs as deferred work while the wearer may already be replying, so if
+      // it ran on its own the opener and the first answer would be two
+      // concurrent turns speaking over each other.
+      after: () => {
+        const d = this.discussion(sessionId);
+        if (!d) return Promise.resolve();
+        d.chain = d.chain.then(async () => {
+          this.counters.bump("wake_discuss_turns");
+          let reply = "";
+          try {
+            const res = await this.discussFn({
+              prompt: buildVoiceDiscussPrompt(topic, { context }),
+              sessionId: threadId
+            });
+            reply = String(res?.reply ?? "").trim();
+          } catch (err) {
+            this.counters.bump("wake_discuss_failed");
+            reply = t("wake.delegate_failed", { error: err?.message ?? err }, lang);
+          }
+          await this.speakDiscussion(reply, d);
+        });
+        return d.chain;
+      }
+    };
+  }
+
+  // A message to a NAMED person. Promoted out of `delegate` for the safety
+  // gate, not for speed: a delegated send is an unattended operative turn that
+  // reaches a connector with no window the wearer can HEAR.
+  async handleSendMessage({ parsed, command, eventId, sessionId, lang }) {
+    if (!this.cfg.sendEnabled || !this.connectorFn) {
+      this.counters.bump("wake_send_unavailable");
+      return this.handleDelegate({ parsed, command, eventId, sessionId, lang });
+    }
+    const recipient = parsed.recipient;
+    const body = parsed.body || command;
+    // An unspoken medium NEVER resolves to email: email is the one send with no
+    // daemon and no cancel window of its own, so defaulting into it is how you
+    // mail the wrong person irreversibly.
+    const medium = parsed.medium ?? this.cfg.sendDefaultMedium ?? "whatsapp";
+    if (!recipient || !body) {
+      this.counters.bump("wake_send_incomplete");
+      return this.handleDelegate({ parsed, command, eventId, sessionId, lang });
+    }
+    if (medium !== "whatsapp") {
+      // Slack and email have no parked-send lane here yet. Handing them to the
+      // operative is honest; pretending to gate them would not be.
+      this.counters.bump(`wake_send_delegated_${medium}`);
+      return this.handleDelegate({
+        parsed: { ...parsed, request: parsed.request || command },
+        command,
+        eventId,
+        sessionId,
+        lang
+      });
+    }
+    let candidates = [];
+    try {
+      const res = await this.connectorFn("whatsapp-web", "resolve_contact", { name: recipient });
+      candidates = Array.isArray(res?.result?.contacts) ? res.result.contacts : (res?.result ?? []);
+    } catch (err) {
+      this.counters.bump("wake_send_resolve_failed");
+      return this.handleDelegate({ parsed, command, eventId, sessionId, lang });
+    }
+    // Never guess among candidates - the same doctrine handleCardCommand
+    // applies to an ambiguous card reference, and the stakes here are higher.
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      this.counters.bump("wake_send_no_contact");
+      return this.handleDelegate({ parsed, command, eventId, sessionId, lang });
+    }
+    if (candidates.length > 1) {
+      this.counters.bump("wake_send_ambiguous");
+      const names = candidates.slice(0, 3).map((c) => c?.name ?? c?.id ?? "?").join(", ");
+      return {
+        confirmation: t("send.ambiguous", { recipient, names }, lang),
+        result: { intent: "send_message", ok: false, reason: "ambiguous recipient" }
+      };
+    }
+    const contact = candidates[0];
+    try {
+      // Parked, not sent: the connector's own outbox holds it for its cancel
+      // window, and the ConfirmBus announces it out loud.
+      const res = await this.connectorFn("whatsapp-web", "send_text", { to: contact?.id ?? contact?.jid, body });
+      this.counters.bump("wake_sends_queued");
+      return {
+        confirmation: t("send.queued", { recipient: contact?.name ?? recipient, body }, lang),
+        result: {
+          intent: "send_message",
+          ok: true,
+          medium,
+          queued: res?.result?.queued !== false,
+          outboxId: res?.result?.id ?? null
+        }
+      };
+    } catch (err) {
+      this.counters.bump("wake_sends_failed");
+      return this.handleDelegate({ parsed, command, eventId, sessionId, lang });
+    }
+  }
+
+  // Run an existing NAMED automation on Cortex. Promoted because the fitting
+  // can resolve a spoken name against a real catalog in ~2s, and because only
+  // it will reliably supply --idempotency-key, which is the at-most-once
+  // guarantee a spoken command badly needs.
+  async handleAutomate({ parsed, command, eventId, lang }) {
+    if (!this.cfg.automateEnabled || !this.cortexFn) {
+      this.counters.bump("wake_automate_unavailable");
+      return this.handleDelegate({ parsed, command, eventId, sessionId: null, lang });
+    }
+    const spoken = parsed.automation;
+    if (!spoken) return this.handleDelegate({ parsed, command, eventId, sessionId: null, lang });
+    let match;
+    try {
+      match = await this.cortexFn.resolve(spoken);
+    } catch (err) {
+      this.counters.bump("wake_automate_catalog_failed");
+      return { confirmation: t("automate.unavailable", {}, lang), result: { intent: "automate", ok: false } };
+    }
+    if (match?.status === "unavailable") {
+      // Not an error to debug: shipping without Cortex installed is the default.
+      this.counters.bump("wake_automate_unavailable");
+      return { confirmation: t("automate.unavailable", {}, lang), result: { intent: "automate", ok: false } };
+    }
+    if (match?.status === "none") {
+      this.counters.bump("wake_automate_no_match");
+      // The local automations engine is reachable from the operative, and a
+      // voice path that silently picks between two runners is how you run the
+      // wrong thing.
+      return this.handleDelegate({ parsed, command, eventId, sessionId: null, lang });
+    }
+    if (match?.status === "ambiguous") {
+      this.counters.bump("wake_automate_ambiguous");
+      return {
+        confirmation: t("automate.ambiguous", { names: (match.candidates ?? []).slice(0, 3).join(", ") }, lang),
+        result: { intent: "automate", ok: false, reason: "ambiguous" }
+      };
+    }
+    try {
+      const run = await this.cortexFn.run(match.id, parsed.inputs ?? {}, `voice-${eventId}`);
+      this.counters.bump("wake_automations_run");
+      return {
+        confirmation: run?.created === false
+          ? t("automate.replay", { name: match.name }, lang)
+          : t("automate.started", { name: match.name }, lang),
+        result: { intent: "automate", ok: true, automationId: match.id, runId: run?.runId ?? null }
+      };
+    } catch (err) {
+      this.counters.bump("wake_automations_failed");
+      return {
+        confirmation: t("automate.failed", { name: match.name, error: err?.message ?? err }, lang),
+        result: { intent: "automate", ok: false }
+      };
     }
   }
 

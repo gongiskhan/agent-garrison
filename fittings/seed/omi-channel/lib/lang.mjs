@@ -155,7 +155,16 @@ export const MESSAGES = {
     "card.started": 'Started "{title}" (card {ref})',
     "card.snooze_time": 'I couldn\'t make out the snooze time for card {ref} - try "snooze card {ref} for 2 hours".',
     "card.snooze_failed": 'Couldn\'t snooze "{title}" (card {ref}) - the board refused.',
-    "card.snoozed": 'Snoozed "{title}" until {when} (card {ref})'
+    "card.snoozed": 'Snoozed "{title}" until {when} (card {ref})',
+    "send.ambiguous": "I know more than one {recipient}: {names}. Which one?",
+    "send.queued": "Sending to {recipient}: {body}. Say cancel to stop it.",
+    "send.cancelled": "Cancelled.",
+    "send.already_sent": "That one had already gone out.",
+    "automate.unavailable": "Cortex is not set up on this machine.",
+    "automate.ambiguous": "I found more than one: {names}. Which one?",
+    "automate.started": "Started the {name} automation.",
+    "automate.replay": "That run of {name} was already going.",
+    "automate.failed": "Couldn't run {name}: {error}"
   },
   pt: {
     "wake.unreachable": "Não consegui falar com o Zeca - guardei o teu comando como nota.",
@@ -186,7 +195,16 @@ export const MESSAGES = {
     "card.started": 'Comecei "{title}" (cartão {ref})',
     "card.snooze_time": 'Não percebi por quanto tempo adiar o cartão {ref} - tenta "adia o cartão {ref} duas horas".',
     "card.snooze_failed": 'Não consegui adiar "{title}" (cartão {ref}) - o quadro recusou.',
-    "card.snoozed": 'Adiei "{title}" até {when} (cartão {ref})'
+    "card.snoozed": 'Adiei "{title}" até {when} (cartão {ref})',
+    "send.ambiguous": "Conheço mais do que um {recipient}: {names}. Qual deles?",
+    "send.queued": "Vou enviar a {recipient}: {body}. Diz cancela para parar.",
+    "send.cancelled": "Cancelado.",
+    "send.already_sent": "Essa já tinha sido enviada.",
+    "automate.unavailable": "O Cortex não está instalado nesta máquina.",
+    "automate.ambiguous": "Encontrei mais do que uma: {names}. Qual delas?",
+    "automate.started": "Comecei a automação {name}.",
+    "automate.replay": "Essa execução do {name} já estava a correr.",
+    "automate.failed": "Não consegui correr {name}: {error}"
   }
 };
 

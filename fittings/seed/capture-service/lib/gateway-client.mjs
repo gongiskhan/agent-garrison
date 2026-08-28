@@ -116,3 +116,58 @@ export function operativeRunFn(gatewayUrl, { timeoutMs = 10 * 60 * 1000, fetchIm
     }
   };
 }
+
+// The spoken-discussion lane.
+//
+// Identical to operativeRunFn except for the routing pin. `{duty, level}`
+// re-enters the gateway's v4 duty lane, so the turn runs the composition's real
+// `discuss` cell rather than a general-purpose route wearing a duty label.
+//
+// NOTE for anyone reading the Discuss machinery in kanban-loop: this
+// deliberately does NOT create a Discuss card. The `discuss` LIST no longer
+// exists on a live board (the Conversations cut, board v10), which also makes
+// the gateway's discuss-intercept answer/go branches unreachable - they sit
+// behind `liveCard.list !== "discuss"`. A routing pin on a thread is what the
+// web channel actually does today, and it is what works.
+//
+// channel stays "garrison" for the same reason the other lanes use it: it
+// suppresses auto-carding, and a spoken discussion must not spawn a card per
+// turn.
+export function discussRunFn(gatewayUrl, { timeoutMs = 90_000, fetchImpl = fetch, level = 1 } = {}) {
+  return async ({ prompt, sessionId = null }) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      let res;
+      try {
+        res = await fetchImpl(`${gatewayUrl}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-garrison-origin": "channel" },
+          body: JSON.stringify({
+            channel: "garrison",
+            message: prompt,
+            routing: { duty: "discuss", level },
+            ...(sessionId ? { sessionId } : {}),
+            sessionTitle: "Spoken discussion",
+            suppressContinuations: true,
+            timeoutMs
+          }),
+          signal: ctrl.signal
+        });
+      } catch (err) {
+        const e = new Error(`gateway unreachable: ${err?.message ?? err}`);
+        e.transport = true;
+        throw e;
+      }
+      if (!res.ok) {
+        const e = new Error(`discuss turn failed: HTTP ${res.status}`);
+        if (res.status === 502 || res.status === 503 || res.status === 504) e.transport = true;
+        throw e;
+      }
+      const data = await res.json().catch(() => ({}));
+      return { reply: data.reply ?? data.text ?? "", sessionId: data.session_id ?? null };
+    } finally {
+      clearTimeout(t);
+    }
+  };
+}

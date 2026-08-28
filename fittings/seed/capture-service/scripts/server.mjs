@@ -20,7 +20,7 @@ import { readdirSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FITTING_ID, loadConfig } from "../lib/config.mjs";
-import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON } from "../lib/store.mjs";
+import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON, ulid } from "../lib/store.mjs";
 import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
 import { TranscriptionLane } from "../lib/deepgram-live.mjs";
 import { WakeBus, wakeRegex } from "../lib/wake.mjs";
@@ -32,9 +32,12 @@ import { CompanionNotifier, isLoopbackUrl, priorityForTag } from "../lib/notify.
 import { AckSink } from "../lib/ack-sink.mjs";
 import { ZecaVoice } from "../lib/tts.mjs";
 import { Cues } from "../lib/cues.mjs";
+import { ConfirmBus } from "../lib/confirm-bus.mjs";
+import { CortexCli } from "../lib/cortex-cli.mjs";
+import { makeConnectorFn } from "../lib/connector-call.mjs";
 import { LanguageMemory } from "../lib/language-memory.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
-import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
+import { discussRunFn, inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 
 // Source identity handed to the byte-identical wake module (invariant I2:
 // everything this channel persists carries source "companion-ios").
@@ -565,6 +568,16 @@ export async function startServer(cfg = loadConfig()) {
   // language-memory.mjs), consulted by the cues and by the wake bus.
   const languageMemory = new LanguageMemory({ stateDir: live.stateDir, cfg: live, counters });
 
+  // The spoken-discussion lane: same gateway door, pinned to the composition's
+  // real `discuss` duty cell.
+  const discussFn = live.gatewayUrl
+    ? discussRunFn(live.gatewayUrl, { timeoutMs: live.discussTurnTimeoutMs, level: live.discussLevel })
+    : null;
+  // Connector calls for spoken sends. NOT the automations invoker - see
+  // connector-call.mjs for why that one cannot be used here.
+  const connectorFn = makeConnectorFn({ env: cfg.env ?? process.env });
+  const cortexFn = new CortexCli({ cfg: live, counters, env: cfg.env ?? process.env });
+
   const feedbackBus = new FeedbackBus({
     counters,
     // A CONFIRMED wake legitimately lasts as long as its capture can run. A
@@ -584,6 +597,9 @@ export async function startServer(cfg = loadConfig()) {
     notifier,
     source: PENDANT_WAKE_SOURCE,
     language: () => languageMemory.current(),
+    discussFn,
+    connectorFn,
+    cortexFn,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
   // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
@@ -603,6 +619,10 @@ export async function startServer(cfg = loadConfig()) {
     // and the settled-close logic keys on smart_format punctuation. The one
     // interim consumer is the pendant's feedback-only wake watcher above.
     onSegment: (sessionId, segment) => {
+      // A cancellation is an ANSWER to a prompt Zeca just spoke, not a command,
+      // so it is checked before the wake gate and before the discussion branch
+      // and it needs no wake word.
+      if (segment.final && confirmBus.consumeSegment(sessionId, segment.text)) return;
       const mode = ingress?.sessions.get(sessionId)?.record.mode ?? null;
       // Language is learned ONLY from speech aimed at Zeca: a segment carrying
       // the wake word, or one arriving while the capture window is open.
@@ -642,7 +662,31 @@ export async function startServer(cfg = loadConfig()) {
   // delayed one.
   void cues.prewarm();
   const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier, voice, languageMemory });
-  ingress.onSpokenReceipt = (msg) => ackSink.handleSpokenReceipt(msg);
+  // Announce-and-cancel for a parked send. Owns no timer of its own: the
+  // connector's outbox holds the send, this only says it out loud and cancels.
+  const confirmBus = new ConfirmBus({ cfg: live, counters, ackSink, languageMemory, env: cfg.env ?? process.env });
+  // Speaking is the ack lane, which is what registers the echo fingerprint
+  // BEFORE anything leaves - without that, Zeca's own voice comes back through
+  // the pendant mic and, in a discussion where there is no wake gate, becomes
+  // the user's next utterance.
+  pendantWakeBus.speakFn = async (text, { kind = "discuss", lang = null } = {}) => {
+    await ackSink.handleAck({
+      id: `voice-${ulid()}`,
+      kind: "captured",
+      severity: "info",
+      templateId: `voice_${kind}`,
+      text,
+      ...(lang ? { lang } : {})
+    });
+  };
+  // Every delegated or parked action opens the confirmation watch.
+  const wrappedAfter = confirmBus;
+  ingress.onSpokenReceipt = (msg) => {
+    ackSink.handleSpokenReceipt(msg);
+    // The announcement has actually left the speaker now, so the microphone is
+    // hearing the user again rather than us.
+    if (msg?.ok) wrappedAfter.onSpoken(String(msg?.spoken ?? ""));
+  };
 
   // Feedback delivery: every event goes to the live pendant session's socket
   // as {type:"feedback", event}; the Companion drives the device haptic and

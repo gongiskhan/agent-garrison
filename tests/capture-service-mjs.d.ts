@@ -300,3 +300,65 @@ declare module "*/capture-service/lib/echo-guard.mjs" {
     shouldSuppress(segmentText: unknown): boolean;
   }
 }
+
+declare module "*/capture-service/lib/connector-call.mjs" {
+  export function connectorScriptPath(connectorId: string, env?: Record<string, string | undefined>): string | null;
+  export function makeConnectorFn(opts?: {
+    env?: Record<string, string | undefined>;
+    spawnImpl?: unknown;
+    timeoutMs?: number;
+  }): (connectorId: string, action: string, args?: Record<string, unknown>) => Promise<any>;
+}
+
+declare module "*/capture-service/lib/cortex-cli.mjs" {
+  export function readInstallReceipt(env?: Record<string, string | undefined>): { bin: string; baseUrl: string | null } | null;
+  export class CortexCli {
+    constructor(opts: { cfg: unknown; counters?: unknown; env?: Record<string, string | undefined>; execImpl?: unknown; log?: unknown });
+    resolve(spokenName: string): Promise<{ status: string; id?: string; name?: string; candidates?: string[] }>;
+    run(automationId: string, inputs?: Record<string, unknown>, idempotencyKey?: string | null): Promise<{ runId: string | null; created: boolean }>;
+    status(runId: string): Promise<unknown>;
+  }
+}
+
+declare module "*/capture-service/lib/confirm-bus.mjs" {
+  export function whatsappBase(env?: Record<string, string | undefined>): string | null;
+  export class ConfirmBus {
+    constructor(opts: Record<string, unknown>);
+    enabled(): boolean;
+    watch(): void;
+    stop(): void;
+    poll(): Promise<void>;
+    onSpoken(ackId: string): void;
+    consumeSegment(sessionId: string, text: unknown): boolean;
+  }
+}
+
+// The wake bus is a byte-identical mirror of omi-channel's (companion-lockstep
+// pins it), so the shim mirrors the shape the tests actually use.
+declare module "*/capture-service/lib/wake.mjs" {
+  export const DISCUSS_END: RegExp;
+  export function wakeRegex(variants: string[]): RegExp | null;
+  export function normalizeTitle(title: unknown): string;
+  export function parseWakeReply(reply: string): Record<string, any> | null;
+  export function buildWakePrompt(
+    command: string,
+    projects: string[],
+    context?: Array<{ text: string; isUser: boolean }>,
+    trailing?: string,
+    now?: Date
+  ): string;
+  export function buildVoiceDiscussPrompt(topic: string, opts?: { context?: Array<{ text: string }> }): string;
+  export function buildVoiceDiscussTurn(utterance: string): string;
+  export function splitForSpeech(text: unknown, opts?: { maxChars?: number; maxChunks?: number }): string[];
+  export function humanTime(iso: unknown, now?: Date, lang?: string): string;
+  export class WakeBus {
+    constructor(deps: Record<string, unknown>);
+    delegateChain?: Promise<unknown>;
+    handleSegments(args: { sessionId: string; segments: unknown[] }): void;
+    close(sessionId: string, reason: string): Promise<any>;
+    session(sessionId: string): { state: string; [k: string]: unknown };
+    discussion(sessionId: string): { chain: Promise<unknown>; turns: number; [k: string]: unknown } | null;
+    endDiscussion(sessionId: string, reason: string): { reason: string; turns: number } | null;
+    resolveLanguage(command: string, parsed?: unknown): string;
+  }
+}

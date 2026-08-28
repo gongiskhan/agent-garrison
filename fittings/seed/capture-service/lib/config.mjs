@@ -156,6 +156,41 @@ export function loadConfig(env = process.env) {
     // ask was "if last time we spoke in english", which is stickiness, not a
     // per-utterance flip.
     languageMemoryTtlMs: parseIntOr(env.GARRISON_CAPTURESERVICE_LANGUAGE_MEMORY_TTL_MS, 21600000),
+    // Spoken discussions. A voice discussion spends one duty-class turn PER
+    // UTTERANCE, so it is opt-in, bounded by the idle timer and the turn
+    // ceiling, and counted.
+    discussEnabled: parseBool(env.GARRISON_CAPTURESERVICE_DISCUSS_ENABLED, false),
+    discussLevel: parseIntOr(env.GARRISON_CAPTURESERVICE_DISCUSS_LEVEL, 1),
+    discussIdleMs: parseIntOr(env.GARRISON_CAPTURESERVICE_DISCUSS_IDLE_MS, 180000),
+    discussTurnTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_DISCUSS_TURN_TIMEOUT_MS, 90000),
+    discussMaxTurns: parseIntOr(env.GARRISON_CAPTURESERVICE_DISCUSS_MAX_TURNS, 40),
+    // Spoken sends. The medium default is deliberately whatsapp and must never
+    // be email: email is the one send with no daemon and no cancel window.
+    sendEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SEND_ENABLED, false),
+    sendDefaultMedium: (() => {
+      const v = (env.GARRISON_CAPTURESERVICE_SEND_DEFAULT_MEDIUM || "").trim().toLowerCase();
+      return v === "whatsapp" || v === "slack" ? v : "whatsapp";
+    })(),
+    // Announce-and-cancel for a parked send.
+    confirmEnabled: parseBool(env.GARRISON_CAPTURESERVICE_CONFIRM_ENABLED, false),
+    confirmPollMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CONFIRM_POLL_MS, 1000),
+    confirmWatchMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CONFIRM_WATCH_MS, 90000),
+    // The cancel window opens only once the announcement has actually been
+    // SPOKEN - the announcement contains the word "cancela", and the pendant
+    // hears it. This is the fallback when no spoken receipt arrives.
+    confirmArmDelayMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CONFIRM_ARM_DELAY_MS, 1500),
+    cancelVariants: (() => {
+      const v = parseCsv(env.GARRISON_CAPTURESERVICE_CANCEL_VARIANTS);
+      // Bare "nao"/"no"/"para" are deliberately absent: they are among the
+      // commonest words in spoken Portuguese, and a false cancel is cheap while
+      // a false send is not.
+      return v.length > 0 ? v : ["cancela", "cancelar", "cancel", "stop", "esquece"];
+    })(),
+    // Cortex automations.
+    automateEnabled: parseBool(env.GARRISON_CAPTURESERVICE_AUTOMATE_ENABLED, false),
+    cortexCatalogTtlMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_CATALOG_TTL_MS, 300000),
+    cortexPollIntervalMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_POLL_INTERVAL_MS, 15000),
+    cortexPollMaxMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_POLL_MAX_MS, 600000),
     // Zombie-socket watchdog: reconnect the STT socket when we have been
     // feeding it audio this recently and NOTHING has come back for this long.
     // Generous on purpose - Deepgram is legitimately silent through a quiet
