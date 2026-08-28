@@ -175,12 +175,56 @@ final class SpeechSink {
     /// Speaking a Portuguese sentence through an English synthesizer voice is
     /// the language-mixing bug one layer down, and it is invisible until you
     /// hear it. Only consulted when the user has not chosen a voice.
+    /// The on-device voice for a fallback utterance.
+    ///
+    /// `AVSpeechSynthesisVoice(language: "pt-PT")` is NOT enough, and this is
+    /// the whole "why is it Brazilian" bug: a stock iPhone ships Brazilian
+    /// Portuguese and no pt-PT voice at all, so that initialiser returns nil,
+    /// the utterance gets no explicit voice, and iOS reads Portuguese text in
+    /// its default Portuguese voice - which is Brazilian. The ElevenLabs clip
+    /// is European; every line that falls back to the phone is not.
+    ///
+    /// So: enumerate, take pt-PT explicitly, and prefer a higher-quality one
+    /// when several are installed. Returns nil when the device genuinely has
+    /// no European voice - the caller then reports which locale it settled
+    /// for, rather than leaving it a mystery.
     static func localVoice(for lang: String?) -> String? {
+        bestVoice(for: lang)?.identifier
+    }
+
+    static func bestVoice(for lang: String?) -> AVSpeechSynthesisVoice? {
+        let wanted: [String]
         switch lang {
-        case "pt": return AVSpeechSynthesisVoice(language: "pt-PT")?.identifier
-        case "en": return AVSpeechSynthesisVoice(language: "en-US")?.identifier
+        case "pt": wanted = ["pt-PT"] // never pt-BR: European is the point
+        case "en": wanted = ["en-GB", "en-US"]
         default: return nil
         }
+        let installed = AVSpeechSynthesisVoice.speechVoices()
+        for code in wanted {
+            let matches = installed.filter { $0.language == code }
+            if matches.isEmpty { continue }
+            // Premium/enhanced first when the user has downloaded one.
+            return matches.max { rank($0) < rank($1) }
+        }
+        return nil
+    }
+
+    private static func rank(_ voice: AVSpeechSynthesisVoice) -> Int {
+        switch voice.quality {
+        case .premium: return 3
+        case .enhanced: return 2
+        default: return 1
+        }
+    }
+
+    /// What the phone actually did, for the receipt: the clip, or the
+    /// synthesizer and in which locale. Without this the server cannot tell
+    /// "spoke in Diogo" from "spoke in a Brazilian system voice" - they are
+    /// both just `ok`, which is exactly how this went unnoticed.
+    static func synthReason(for lang: String?) -> String {
+        if let voice = bestVoice(for: lang) { return "synth:\(voice.language)" }
+        let fallback = AVSpeechSynthesisVoice.currentLanguageCode()
+        return "synth-default:\(lang ?? "?")→\(fallback)"
     }
 
     // MARK: - Intake
@@ -236,7 +280,7 @@ final class SpeechSink {
                 guard let self else { return }
                 if played {
                     self.speaking = false
-                    self.onReceipt?(Receipt(ackId: ack.id, ok: true, reason: nil))
+                    self.onReceipt?(Receipt(ackId: ack.id, ok: true, reason: "clip"))
                     self.pump()
                 } else {
                     self.speakLocally(ack)
@@ -248,11 +292,14 @@ final class SpeechSink {
     }
 
     private func speakLocally(_ ack: AckPayload) {
+        let reason = Self.synthReason(for: ack.lang)
         utterer.utter(ack.text, rate: rate, volume: volume, voiceId: voiceId ?? Self.localVoice(for: ack.lang)) {
             [weak self] finished in
             guard let self else { return }
             self.speaking = false
-            self.onReceipt?(Receipt(ackId: ack.id, ok: finished, reason: finished ? nil : "interrupted"))
+            // The reason rides even on success: it is the ONLY way the server
+            // learns a line was read by a system voice rather than Diogo.
+            self.onReceipt?(Receipt(ackId: ack.id, ok: finished, reason: finished ? reason : "interrupted"))
             self.pump()
         }
     }

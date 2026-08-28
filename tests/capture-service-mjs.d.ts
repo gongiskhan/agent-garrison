@@ -250,7 +250,7 @@ declare module "*/capture-service/lib/opus-normalize.mjs" {
 
 declare module "*/capture-service/lib/tts.mjs" {
   export function textSeed(text: string): number;
-  export function clipId(args: { text: string; voiceId: string; model: string }): string;
+  export function clipId(args: { text: string; voiceId: string; model: string; lang?: string | null }): string;
   export function looksPortuguese(text: unknown): boolean;
   export class ZecaVoice {
     constructor(deps: {
@@ -262,8 +262,8 @@ declare module "*/capture-service/lib/tts.mjs" {
     });
     available(): { ok: boolean; reason?: string };
     readClip(id: unknown): Buffer | null;
-    clipFor(text: unknown): Promise<{ id: string; cached?: boolean } | null>;
-    cachedClipFor(text: unknown): { id: string; cached: boolean } | null;
+    clipFor(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached?: boolean } | null>;
+    cachedClipFor(text: unknown, opts?: { lang?: string | null }): { id: string; cached: boolean } | null;
     pin(id: unknown): void;
   }
 }

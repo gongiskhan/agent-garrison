@@ -133,7 +133,11 @@ describe("cues - never on the network", () => {
       const fetchesAfterWarm = h.calls.length;
       expect(fetchesAfterWarm).toBeGreaterThan(0);
       const speak = h.cues.speechFor("wake_detected", "pt");
-      expect(speak?.audio_path).toBe(`/speak/${clipId({ text: "Sim?", voiceId: VOICE, model: MODEL })}.mp3`);
+      // Keyed by language too - the cue knows which language it is, so it is
+      // rendered WITH the pt-PT anchors rather than inferred from two words.
+      expect(speak?.audio_path).toBe(
+        `/speak/${clipId({ text: "Sim?", voiceId: VOICE, model: MODEL, lang: "pt" })}.mp3`
+      );
       // The whole point: serving a warm cue costs zero round trips.
       expect(h.calls).toHaveLength(fetchesAfterWarm);
       expect(h.counters.read().cue_clip_hits).toBe(1);

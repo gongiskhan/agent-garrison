@@ -218,4 +218,45 @@ describe("Zeca's voice - never costs the acknowledgement", () => {
       h.cleanup();
     }
   });
+
+  // The "why is the voice Brazilian" bug, and the reason it was invisible.
+  //
+  // Anchors were chosen by INFERRING the language from the text, and the lines
+  // with no accents and no Portuguese stopwords - "Deixa comigo.", "Feito." -
+  // inferred as not-Portuguese and went out unanchored. Per the 28-palavras
+  // findings a short unanchored clip is exactly where the accent drifts to
+  // pt-BR, and "Deixa comigo." is spoken after EVERY command, so the drift was
+  // the voice the wearer heard most.
+  it("anchors a Portuguese line the text alone cannot identify", async () => {
+    const h = harness();
+    try {
+      // Proof of the trap: inference genuinely fails on this sentence.
+      expect(looksPortuguese("Deixa comigo.")).toBe(false);
+
+      await h.voice.clipFor("Deixa comigo.", { lang: "pt" });
+      expect(String(h.calls[0].body.previous_text ?? "")).not.toHaveLength(0);
+      expect(String(h.calls[0].body.next_text ?? "")).not.toHaveLength(0);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("leaves an English line unanchored even when the words look Portuguese-ish", async () => {
+    const h = harness();
+    try {
+      await h.voice.clipFor("On it.", { lang: "en" });
+      expect(h.calls[0].body.previous_text).toBeUndefined();
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  // The language changes the AUDIO, so it has to change the cache key - or the
+  // unanchored recording keeps being served after the fix.
+  it("keys the cache on language, and leaves legacy ids alone", async () => {
+    const base = { text: "Deixa comigo.", voiceId: VOICE, model: MODEL };
+    expect(clipId({ ...base, lang: "pt" })).not.toBe(clipId(base));
+    expect(clipId({ ...base, lang: "pt" })).not.toBe(clipId({ ...base, lang: "en" }));
+    expect(clipId({ ...base, lang: null })).toBe(clipId(base));
+  });
 });

@@ -76,7 +76,7 @@ export class Cues {
     if (!text) return null;
     const speak = { text, lang: isLanguage(lang) ? lang : "pt", priority: "cue" };
     try {
-      const clip = this.voice?.cachedClipFor(text) ?? null;
+      const clip = this.voice?.cachedClipFor(text, { lang: speak.lang }) ?? null;
       if (clip) {
         speak.audio_path = `/speak/${clip.id}.mp3`;
         this.counters?.bump?.("cue_clip_hits");
@@ -84,7 +84,7 @@ export class Cues {
         this.counters?.bump?.("cue_clip_misses");
         // Repair in the background so the NEXT one is warm. A no-op on a hit,
         // and it can never delay this call.
-        void this.ensure(text);
+        void this.ensure(text, speak.lang);
       }
     } catch (err) {
       this.counters?.bump?.("cue_clip_errors");
@@ -96,10 +96,10 @@ export class Cues {
 
   // Render a cue line if it is not already on disk, and pin it so the
   // oldest-first prune cannot evict it behind ordinary card titles.
-  async ensure(text) {
+  async ensure(text, lang = null) {
     if (!this.voice) return null;
     try {
-      const clip = await this.voice.clipFor(text);
+      const clip = await this.voice.clipFor(text, { lang });
       if (clip?.id) this.voice.pin(clip.id);
       return clip;
     } catch {
@@ -114,8 +114,8 @@ export class Cues {
     let warmed = 0;
     for (const entry of Object.values(CUE_TEXT)) {
       if (!entry) continue;
-      for (const text of Object.values(entry)) {
-        if (await this.ensure(text)) warmed += 1;
+      for (const [lang, text] of Object.entries(entry)) {
+        if (await this.ensure(text, lang)) warmed += 1;
       }
     }
     this.counters?.bump?.("cue_prewarmed");

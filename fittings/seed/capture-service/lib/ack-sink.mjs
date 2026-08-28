@@ -162,7 +162,7 @@ export class AckSink {
         // otherwise. clipFor NEVER throws and returns null on any failure, so
         // the acknowledgement is never held hostage to the nicety - the phone
         // just speaks it itself, exactly as it always did.
-        const clip = this.voice ? await this.voice.clipFor(ack.text) : null;
+        const clip = this.voice ? await this.voice.clipFor(ack.text, { lang: ack.lang ?? null }) : null;
         // RELATIVE on purpose: the phone reaches this service over the tailnet,
         // never on localhost, so an absolute machine-local URL would be
         // unreachable AND mixed content (the standing house rule).
@@ -249,6 +249,17 @@ export class AckSink {
     if (msg.ok) {
       this.counters.bump("speaks_confirmed");
       this.counters.observe("speak_confirm_ms", this.now() - pending.sentAt);
+      // WHICH voice actually spoke. "ok" alone cannot tell Diogo from a system
+      // voice reading Portuguese in Brazilian - they are both a success, which
+      // is precisely how a Brazilian-sounding assistant went unnoticed for
+      // days. The reason is a short enum-ish string, never content.
+      const via = String(msg.reason ?? "").trim();
+      if (via === "clip") this.counters.bump("speaks_via_clip");
+      else if (via.startsWith("synth")) {
+        this.counters.bump("speaks_via_synth");
+        this.counters.bump(`speaks_via_${via.replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 40)}`);
+        this.log.log(`[capture-service] speak ${msg.spoken} used the phone's own voice (${via})`);
+      }
     } else {
       this.counters.bump("speaks_failed");
       // Reason is a short enum-ish string from the app (muted, interrupted,
