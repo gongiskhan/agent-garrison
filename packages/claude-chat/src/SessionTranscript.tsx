@@ -1463,12 +1463,21 @@ function ConversationStateBanner({ activity }: { activity: ConversationActivity 
     );
   }
   if (activity.mode === "awaiting-approval") {
+    // Say WHAT is being approved, in the ask's own words: the duty it wants to
+    // run next and the plan it intends to execute. A go-ahead prompt that hides
+    // the plan behind a collapsed ledger row is asking for a blind signature.
+    const plan = activity.approvalPlan ?? activity.summary;
     return (
       <div className="cc-conv-state cc-conv-state-attn" role="status">
-        <div className="cc-conv-state-title">Waiting for your go-ahead</div>
-        <p className="cc-conv-state-line">
-          The work is paused before its next step - the ask above carries the plan.
-        </p>
+        <div className="cc-conv-state-title">
+          Waiting for your go-ahead
+          {activity.approvalNext ? ` - next step: ${activity.approvalNext}` : ""}
+        </div>
+        {plan ? (
+          <p className="cc-conv-state-line cc-conv-state-plan">{plan}</p>
+        ) : (
+          <p className="cc-conv-state-line">The work is paused before its next step.</p>
+        )}
         <p className="cc-conv-state-hint">Reply below to approve or redirect.</p>
       </div>
     );

@@ -106,12 +106,32 @@ describe("conversationActivity", () => {
     const ask = assistant("e2", [{ type: "ledger", kind: "approval-requested", title: "Waiting for your go-ahead" }]);
     const paused = conversationActivity([assistant("e1", [stretch("ended", { next: "implement" })]), ask]);
     expect(paused.mode).toBe("awaiting-approval");
+    // A bare ask (old record, no structured fields) still reads as a pause.
+    expect(paused.approvalNext).toBeNull();
+    expect(paused.approvalPlan).toBeNull();
     const resumed = conversationActivity([
       assistant("e1", [stretch("ended", { next: "implement" })]),
       ask,
       user("u1", "Approved - continue.", 9_500),
     ]);
     expect(resumed.mode).toBe("starting");
+  });
+
+  it("carries the approval ask's plan into the activity so the banner can quote it", () => {
+    const activity = conversationActivity([
+      assistant("e1", [stretch("ended", { next: "implement" })]),
+      assistant("e2", [{
+        type: "ledger",
+        kind: "approval-requested",
+        title: "Waiting for your go-ahead - next: implement",
+        next: "implement",
+        detail: "three edits, one test\n\nPlanned:\n- a\n- b",
+      }]),
+    ]);
+    expect(activity.mode).toBe("awaiting-approval");
+    expect(activity.approvalNext).toBe("implement");
+    expect(activity.approvalPlan).toContain("three edits, one test");
+    expect(activity.approvalPlan).toContain("Planned:");
   });
 });
 
@@ -188,6 +208,10 @@ describe("adapter: the ended stretch carries its handoff", () => {
     expect(row?.type).toBe("ledger");
     expect(row?.kind).toBe("approval-requested");
     expect(row?.title).toContain("go-ahead");
+    // The structured ask: the banner reads these instead of parsing the title.
+    expect(row?.next).toBe("implement");
+    expect(row?.detail).toContain("three edits, one test");
+    expect(row?.detail).toContain("- a");
   });
 });
 

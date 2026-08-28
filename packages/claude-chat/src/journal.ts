@@ -161,9 +161,10 @@ export interface SessionBlock {
   durationMs?: number | null;
   payloadRef?: string | null;
   seq?: number | null;
-  /** `stretch` phase `ended` only - where the handoff pointed and, when it
-   * blocked, what it needs. These drive the conversation activity derivation
-   * (spinner vs "needs your input" banner) without parsing ledger prose. */
+  /** `stretch` phase `ended` (where the handoff pointed and, when it blocked,
+   * what it needs) and `ledger` kind `approval-requested` (the duty asking for
+   * a go-ahead). These drive the conversation activity derivation (spinner vs
+   * "needs your input" banner) without parsing ledger prose. */
   next?: string | null;
   summary?: string | null;
   blockerWhat?: string | null;
@@ -888,6 +889,10 @@ export interface ConversationActivity {
   blockerWhat: string | null;
   blockerNeeds: string | null;
   blockerWho: string | null;
+  /** `awaiting-approval` only - the duty asking for a go-ahead and the plan it
+   * intends to execute (the ask's own words, plus its planned items). */
+  approvalNext: string | null;
+  approvalPlan: string | null;
   /** Epoch ms of the event that established this mode - the spinner's elapsed base. */
   since: number | null;
 }
@@ -912,6 +917,7 @@ export function conversationActivity(events: SessionEvent[]): ConversationActivi
   let stretchTs: number | null = null;
   let approvalIndex = -1;
   let approvalTs: number | null = null;
+  let approvalBlock: SessionBlock | null = null;
   let userIndex = -1;
   let userTs: number | null = null;
 
@@ -941,6 +947,7 @@ export function conversationActivity(events: SessionEvent[]): ConversationActivi
         if (block.kind === "approval-requested") {
           approvalIndex = index;
           approvalTs = typeof event.ts === "number" ? event.ts : null;
+          approvalBlock = block;
         }
       }
     }
@@ -954,6 +961,8 @@ export function conversationActivity(events: SessionEvent[]): ConversationActivi
     blockerWhat: null,
     blockerNeeds: null,
     blockerWho: null,
+    approvalNext: null,
+    approvalPlan: null,
   };
   if (!sawSpine) return { mode: "none", ...empty, since: null };
 
@@ -966,6 +975,10 @@ export function conversationActivity(events: SessionEvent[]): ConversationActivi
     blockerWhat: activityLabel(stretch?.blockerWhat),
     blockerNeeds: activityLabel(stretch?.blockerNeeds),
     blockerWho: activityLabel(stretch?.blockerWho),
+    // The approval ask's own content: the duty it wants to run and the plan it
+    // intends to execute (adapter-built from the ask's plan + planned items).
+    approvalNext: activityLabel(approvalBlock?.next),
+    approvalPlan: activityLabel(approvalBlock?.detail),
   };
 
   // A user message after everything else: the launcher owes the next stretch.

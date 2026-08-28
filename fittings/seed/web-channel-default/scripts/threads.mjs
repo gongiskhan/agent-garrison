@@ -848,6 +848,11 @@ export function sanitizeSessionBlock(raw) {
     if (Object.hasOwn(raw, "detail") && raw.detail !== null) {
       if (!copyOptionalText(out, raw, "detail")) return null;
     }
+    // An approval ask names the duty it wants to run next; opaque label, same
+    // reasoning as the stretch-row labels above.
+    if (Object.hasOwn(raw, "next") && raw.next !== null) {
+      if (!copyOptionalLabel(out, raw, "next", 200)) return null;
+    }
     if (Object.hasOwn(raw, "payloadRef") && raw.payloadRef !== null) {
       // An opaque store reference, never a path, and capped like an id: two
       // distinct refs must never collapse into one by truncation.

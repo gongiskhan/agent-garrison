@@ -261,6 +261,7 @@ function ledgerRow(record, payload, kind, index) {
     kind,
     title: built.title,
     ...(built.detail ? { detail: cap(built.detail, DETAIL_CAP) } : {}),
+    ...(built.next ? { next: built.next } : {}),
     ...(payloadRef ? { payloadRef } : {}),
     seq: index,
   };
@@ -289,6 +290,9 @@ function buildTitleAndDetail(record, payload) {
       return {
         title: `Waiting for your go-ahead - next: ${next}`,
         detail: [text(payload.plan), items.trim()].filter(Boolean).join("\n\n") || null,
+        // Structured copy of the ask so the terminal banner can say what it is
+        // approving without parsing the title back apart.
+        next: text(payload.next) || null,
       };
     }
     case "delegation-dispatched": {
