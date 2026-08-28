@@ -35,9 +35,14 @@ final class PhoneFeedbackSink {
             if !speaks { AudioServicesPlaySystemSound(1057) } // short tick
         case "task_created":
             if backgrounded {
+                // Localized from the conversation's language, not the phone's
+                // locale: the user flips between Portuguese and English and the
+                // notification should match what was SAID.
+                let pt = event.lang == "pt"
                 postLocalNotification(
                     title: "Zeca",
-                    body: event.title.map { "Card created: \($0)" } ?? "Card created.",
+                    body: event.title.map { pt ? "Cartão criado: \($0)" : "Card created: \($0)" }
+                        ?? (pt ? "Cartão criado." : "Card created."),
                     sound: .default
                 )
                 return
@@ -48,7 +53,9 @@ final class PhoneFeedbackSink {
             if backgrounded {
                 postLocalNotification(
                     title: "Zeca",
-                    body: event.reason.map { "Couldn't act on that (\($0))." } ?? "Couldn't act on that.",
+                    body: event.lang == "pt"
+                        ? (event.reason.map { "Não consegui fazer isso (\($0))." } ?? "Não consegui fazer isso.")
+                        : (event.reason.map { "Couldn't act on that (\($0))." } ?? "Couldn't act on that."),
                     sound: .defaultCritical
                 )
                 return

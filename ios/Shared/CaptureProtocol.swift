@@ -170,6 +170,9 @@ struct FeedbackEvent: Codable, Equatable {
     let title: String?
     let interim: Bool?
     let speak: FeedbackSpeech?
+    /// Conversation language when the server knew it - drives the localized
+    /// notification bodies ("Cartão criado" vs "Card created").
+    let lang: String?
 
     enum CodingKeys: String, CodingKey {
         case eventId = "event_id"
@@ -181,6 +184,7 @@ struct FeedbackEvent: Codable, Equatable {
         case title
         case interim
         case speak
+        case lang
     }
 }
 

@@ -53,9 +53,9 @@ struct ContentView: View {
                 Spacer()
 
                 List {
+                    NavigationLink("Conversation") { ConversationView() }
                     NavigationLink("Pendant") { PendantView() }
                     NavigationLink("Sessions") { SessionsView() }
-                    NavigationLink("Messages") { AckLogView() }
                     NavigationLink("Settings") { SettingsView() }
                 }
                 .listStyle(.inset)

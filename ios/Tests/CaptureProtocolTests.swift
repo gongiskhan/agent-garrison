@@ -114,4 +114,33 @@ final class CaptureProtocolTests: XCTestCase {
         guard case .speak(let b)? = ServerMessage.parse(noLang) else { return XCTFail("ack without lang") }
         XCTAssertNil(b.lang)
     }
+
+    // The transcript the Conversation screen renders. Pinned against the exact
+    // shape /capture/exchanges serves - a silent decode failure here shows the
+    // user an empty conversation over a healthy server.
+    func testDecodesTheExchangesTranscript() throws {
+        let json = """
+        {"exchanges":[{"id":"01K000000000000000000000AA","at":"2026-08-28T09:00:00.000Z",        "command":"Zeca, quantos gramas tem uma onça?","intent":"query",        "confirmation":"Uma onça tem cerca de 28 gramas.","lang":"pt",        "cardId":null,"cardUrl":null,"delivery":"spoken",        "followups":[{"round":0,"at":"2026-08-28T09:00:20.000Z","request":"algo de comida",        "reply":"Queres ideias para o jantar?","ok":true}]}]}
+        """
+        let decoded = try JSONDecoder().decode(ExchangesResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.exchanges.count, 1)
+        let exchange = decoded.exchanges[0]
+        XCTAssertEqual(exchange.confirmation, "Uma onça tem cerca de 28 gramas.")
+        XCTAssertEqual(exchange.delivery, "spoken")
+        XCTAssertEqual(exchange.lang, "pt")
+        XCTAssertEqual(exchange.followups.first?.reply, "Queres ideias para o jantar?")
+    }
+
+    // A feedback event carrying the conversation language - the phone localizes
+    // its own notification bodies from it.
+    func testDecodesAFeedbackEventWithLanguage() {
+        let json = """
+        {"type":"feedback","event":{"event_id":"01K9","name":"task_created",        "session_id":"01SESS","at":"2026-08-28T09:00:00.000Z","title":"comprar pão","lang":"pt"}}
+        """
+        guard case .feedback(let event)? = ServerMessage.parse(json) else {
+            return XCTFail("event with lang must decode")
+        }
+        XCTAssertEqual(event.lang, "pt")
+        XCTAssertEqual(event.title, "comprar pão")
+    }
 }
