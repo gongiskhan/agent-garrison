@@ -49,6 +49,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
         )
         self.uploader = uploader
         uploader.connect()
+        // Tell the app it has eyes. Read on the main screen, and by the user
+        // deciding whether to say "her" or a name.
+        AppGroup.noteBroadcastAlive()
         // No speech in screen_audio mode (the server never sends it either):
         // this process has no AEC coupling to the app's speaker.
     }
@@ -64,6 +67,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         uploader?.end(reason: "user")
         uploader = nil
         encoder = nil
+        AppGroup.clearBroadcast()
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
@@ -90,6 +94,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         autoreleasepool {
             guard let jpeg = jpegFromPixelBuffer(pixelBuffer) else { return }
             uploader.sendVideoFrame(jpeg, ts: Date().timeIntervalSince(sessionStart) * 1000)
+            // Cheap: this path is already throttled to ~1.5 fps.
+            AppGroup.noteBroadcastAlive()
         }
     }
 

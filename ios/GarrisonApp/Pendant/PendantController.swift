@@ -66,6 +66,16 @@ final class PendantController: ObservableObject {
         }
     }
 
+    /// The app-lifetime pendant.
+    ///
+    /// The controller used to be a `@StateObject` inside PendantView, so
+    /// navigating to Settings - or anywhere - tore it down: BLE dropped, the
+    /// session ended, and the wearable went deaf until you walked back to that
+    /// one screen. A pendant is an always-on device; its owner has to be the
+    /// app, not a view. Views observe this; nobody else constructs one except
+    /// tests, which pass their own transport.
+    static let shared = PendantController()
+
     init(
         transport: DeviceTransport? = nil,
         phoneSink: PhoneFeedbackSink? = PhoneFeedbackSink(),

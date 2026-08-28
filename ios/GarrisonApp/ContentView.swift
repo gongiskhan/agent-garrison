@@ -6,12 +6,17 @@ import SwiftUI
 /// anywhere (invariant I3).
 struct ContentView: View {
     @StateObject private var capture = CaptureController()
+    @ObservedObject private var pendant = PendantController.shared
     @State private var showConsent = false
+    // The broadcast lives in another process; poll the shared heartbeat.
+    @State private var broadcasting = AppGroup.isBroadcasting()
+    private let broadcastTick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
                 statusHeader
+                liveLines
 
                 if capture.isRunning {
                     Button {
@@ -74,6 +79,33 @@ struct ContentView: View {
                 )
             }
             .onAppear { PushManager.shared.registerOnLaunch() }
+            .onReceive(broadcastTick) { _ in broadcasting = AppGroup.isBroadcasting() }
+        }
+    }
+
+    /// What Zeca can currently hear and see. The pendant now outlives this
+    /// screen, and the broadcast is started from Control Centre and never
+    /// mentions itself, so without this the two things that decide whether a
+    /// spoken command will work are both invisible from the app.
+    @ViewBuilder private var liveLines: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: pendant.isActive ? "dot.radiowaves.left.and.right" : "circle.dashed")
+                    .foregroundStyle(pendant.isActive ? .green : .secondary)
+                Text(pendant.isActive ? "Pendant connected - listening for \u{201C}Zeca\u{201D}" : "Pendant not connected")
+                    .font(.footnote)
+                    .foregroundStyle(pendant.isActive ? .primary : .secondary)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: broadcasting ? "rectangle.on.rectangle" : "rectangle.dashed")
+                    .foregroundStyle(broadcasting ? .green : .secondary)
+                Text(broadcasting
+                     ? "Screen shared - Zeca can see what you are looking at"
+                     : "Screen not shared - say the name instead of \u{201C}her\u{201D}")
+                    .font(.footnote)
+                    .foregroundStyle(broadcasting ? .primary : .secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 

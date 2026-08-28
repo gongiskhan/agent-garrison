@@ -59,4 +59,26 @@ final class SettingsAndConsentTests: XCTestCase {
         XCTAssertEqual(entries.first?.id, "a5") // newest first
         XCTAssertEqual(entries.first?.text, "entry 5")
     }
+
+    // The broadcast runs in another process, so "can Zeca see my screen right
+    // now" is only answerable through the shared App Group. A stale stamp must
+    // read as NOT broadcasting - the extension can be killed without ever
+    // running its teardown, and claiming eyes it does not have is what would
+    // make "reply to her" act on a screen from an hour ago.
+    func testBroadcastLivenessIsAHeartbeatNotAFlag() {
+        AppGroup.clearBroadcast()
+        XCTAssertFalse(AppGroup.isBroadcasting())
+
+        let now = Date()
+        AppGroup.noteBroadcastAlive(now: now)
+        XCTAssertTrue(AppGroup.isBroadcasting(now: now))
+        XCTAssertTrue(AppGroup.isBroadcasting(now: now.addingTimeInterval(AppGroup.broadcastStaleAfter - 1)))
+        XCTAssertFalse(
+            AppGroup.isBroadcasting(now: now.addingTimeInterval(AppGroup.broadcastStaleAfter + 1)),
+            "a stale heartbeat means the extension died - never claim the screen is live"
+        )
+
+        AppGroup.clearBroadcast()
+        XCTAssertFalse(AppGroup.isBroadcasting())
+    }
 }

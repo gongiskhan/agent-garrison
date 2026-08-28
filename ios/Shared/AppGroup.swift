@@ -28,6 +28,7 @@ enum AppGroup {
         // Pendant Direct.
         static let pendantIdentifier = "pendant.identifier" // CBPeripheral UUID string
         static let pendantAmbientConsent = "pendant.ambientConsent" // stronger one-time notice acknowledged
+        static let broadcastHeartbeat = "broadcast.heartbeat" // epoch seconds, written by the extension
     }
 
     static var pendantIdentifier: UUID? {
@@ -89,5 +90,34 @@ enum AppGroup {
         }
         request.timeoutInterval = 15
         return request
+    }
+}
+
+// MARK: - Broadcast liveness
+
+/// The broadcast runs in its OWN PROCESS (the upload extension), so the app
+/// cannot observe it directly and a user has no way to tell whether Zeca can
+/// currently see their screen - which decides whether "reply to her" can work
+/// at all. The extension therefore stamps a heartbeat into the shared App
+/// Group as it ships frames, and the app reads it.
+///
+/// A heartbeat rather than a flag because the extension can be killed by the
+/// system without ever running its teardown: a stale stamp then reads as
+/// "not broadcasting", which is the safe direction.
+extension AppGroup {
+    /// Frames arrive at ~1.5 fps, so anything fresher than this is live.
+    static let broadcastStaleAfter: TimeInterval = 8
+
+    static func noteBroadcastAlive(now: Date = Date()) {
+        defaults?.set(now.timeIntervalSince1970, forKey: Key.broadcastHeartbeat)
+    }
+
+    static func clearBroadcast() {
+        defaults?.removeObject(forKey: Key.broadcastHeartbeat)
+    }
+
+    static func isBroadcasting(now: Date = Date()) -> Bool {
+        guard let beat = defaults?.object(forKey: Key.broadcastHeartbeat) as? Double else { return false }
+        return now.timeIntervalSince1970 - beat < broadcastStaleAfter
     }
 }

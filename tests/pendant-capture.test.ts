@@ -503,6 +503,58 @@ describe("pendant capture path", () => {
     session.ws.close();
   });
 
+  // The broadcast, for real: TWO live sessions on one server, joined by time
+  // rather than by any shared id. The pendant carries mic/wake/voice; the
+  // broadcast carries pixels. Until now this was only tested with a stubbed
+  // screen resolver, which cannot catch the thing that actually matters -
+  // whether one session's frames reach the other session's command.
+  it("fuses a frame from the BROADCAST session into a command heard on the PENDANT", async () => {
+    const gw = await startStubGateway({
+      intent: "delegate",
+      request: "Responder que é melhor amanhã",
+      needs_screen: true,
+      ack: "Deixa-me ver o ecrã."
+    });
+    cleanups.push(() => gw.close());
+    const { handle, base } = await boot(
+      [{ afterFrames: 3, message: dgResults("Zeca, responde-lhe que é melhor amanhã.", true, 0, 2) }],
+      {
+        speakEnabled: true,
+        cueEnabled: true,
+        wakeSilenceCloseMs: 120,
+        gatewayUrl: gw.url,
+        screenContextEnabled: true,
+        screenAudioTranscribe: false
+      }
+    );
+
+    // The broadcast: a separate session pushing JPEG stills, no audio.
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0xff, 0xd9]);
+    const screen = await streamPendant(base, "01SCREENSESSION01", 0, { mode: "screen_audio" });
+    for (let seq = 1; seq <= 3; seq++) {
+      screen.ws.send(encodeMediaFrame(1, seq, seq * 667, jpeg));
+      await screen.next((m: any) => m.type === "ack" && m.stream === "video" && m.seq === seq);
+    }
+
+    const pendant = await streamPendant(base, "01PENDANTSESSION1", 8);
+    await waitFor(() => (handle.counters.read().wake_screen_fused ?? 0) === 1, 10000);
+
+    // The operative prompt names the SCREEN session's frame while the turn
+    // belongs to the PENDANT session. That single fact is the whole feature.
+    const operative = gw.requests.find((r: any) => !String(r.body.message).includes("spoken wake-word command"));
+    expect(operative).toBeTruthy();
+    expect(String(operative.body.message)).toContain("01SCREENSESSION01");
+    expect(String(operative.body.message)).toContain("AT THE MOMENT THEY SPOKE");
+    expect(String(operative.body.sessionId ?? "")).toContain("01PENDANTSESSION1");
+
+    // And the broadcast never opened a second transcription, so one spoken
+    // sentence cannot dispatch twice.
+    expect(handle.counters.read().screen_audio_transcription_skipped).toBe(1);
+    expect(handle.counters.read().wake_dispatches).toBe(1);
+    pendant.ws.close();
+    screen.ws.close();
+  });
+
   // A socket send is not delivery. The app can be suspended with the socket
   // looking open - 26 of 44 speaks timed out in one real day - and the answer
   // must not die with the receipt: it becomes the push it originally skipped.

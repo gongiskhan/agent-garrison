@@ -29,7 +29,7 @@ function dgFinal(text, start = 0, dur = 2) {
   });
 }
 
-export async function drive({ segments, classifierReply, operativeReply = "Resposta do operativo.", label }) {
+export async function drive({ segments, classifierReply, operativeReply = "Resposta do operativo.", label, beforeSegments = null }) {
   const home = mkdtempSync(path.join(os.tmpdir(), "zeca-drive-"));
   const dgSockets = [];
   const wss = await new Promise((resolve) => {
@@ -80,6 +80,7 @@ export async function drive({ segments, classifierReply, operativeReply = "Respo
   const handle = await startServer({
     ...cfg, env, port: 0, enabled: true, transcribeEnabled: true, wakeEnabled: true,
     pendantEnabled: true, speakEnabled: true, cueEnabled: true, notifyEnabled: false,
+    screenContextEnabled: true, screenAudioTranscribe: false,
     gatewayUrl: `http://127.0.0.1:${gateway.address().port}`,
     wakeSilenceCloseMs: 300, wakeSettledCloseMs: 200, wakeMaxCaptureMs: 4000,
     wsFactory: () => new WebSocket(dgUrl)
@@ -99,6 +100,10 @@ export async function drive({ segments, classifierReply, operativeReply = "Respo
   ws.send(JSON.stringify({ type: "session_start", session_id: "01DRIVE" + Date.now().toString(36).toUpperCase().slice(-8), mode: "pendant", codec: "opus_fs320", device_name: "drive", consent: "shown" }));
   await new Promise((r) => setTimeout(r, 250));
 
+  // A second, concurrent session (the broadcast) when the scenario wants one.
+  const side = beforeSegments ? await beforeSegments(base, TOKEN) : null;
+  if (side) await new Promise((r) => setTimeout(r, 700));
+
   let seq = 0;
   for (const seg of segments) {
     ws.send(Buffer.concat([Buffer.from([0]), (() => { const b = Buffer.alloc(16); b.writeUInt32LE(++seq, 0); b.writeDoubleLE(seq * 20, 4); b.writeUInt32LE(6, 12); return b; })(), Buffer.from("opusXX")]));
@@ -110,7 +115,10 @@ export async function drive({ segments, classifierReply, operativeReply = "Respo
 
   const exchanges = await fetch(`${base}/capture/exchanges`, { headers: { authorization: `Bearer ${TOKEN}` } }).then((r) => r.json()).catch(() => ({ exchanges: [] }));
   const counters = handle.counters.read();
-  ws.close(); handle.ingress.close(); handle.server.close(); wss.close(); gateway.close(); board.close();
+  side?.stop(); ws.close(); handle.ingress.close(); handle.server.close(); wss.close(); gateway.close(); board.close();
   rmSync(home, { recursive: true, force: true });
-  return { label, spoken, feedback, cards, exchanges: exchanges.exchanges ?? [], counters };
+  const operativePrompts = gatewayCalls
+    .map((c) => String(c.message ?? ""))
+    .filter((m) => !m.includes("spoken wake-word command"));
+  return { label, spoken, feedback, cards, operativePrompts, exchanges: exchanges.exchanges ?? [], counters };
 }
