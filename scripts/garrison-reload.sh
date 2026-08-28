@@ -36,6 +36,7 @@ cd "$REPO_ROOT"
 PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
 BASE="http://127.0.0.1:${PROD_PORT}"
 UNIT="garrison-prod.service"
+LAUNCHD_LABEL="io.garrison.node"
 
 say() { printf "\n[reload] %s\n" "$*"; }
 
@@ -45,12 +46,28 @@ say "building prod bundle (.next-prod)"
 bash scripts/garrison-instance.sh prod build
 
 # --- swap the app server ----------------------------------------------------
-if systemctl --user list-unit-files "$UNIT" >/dev/null 2>&1 \
-   && systemctl --user cat "$UNIT" >/dev/null 2>&1; then
-  say "restarting $UNIT"
-  systemctl --user restart "$UNIT"
-else
-  echo "[reload] $UNIT not installed — start prod with: npm run prod:start" >&2
+# Same OS detection as garrison-redeploy.sh: systemd user unit on Linux,
+# launchd agent on macOS. The reload script predated the cross-OS redeploy
+# (bd35e505) and silently only worked on Linux.
+restart_supervised() {
+  if command -v systemctl >/dev/null 2>&1 \
+     && systemctl --user cat "$UNIT" >/dev/null 2>&1; then
+    say "restarting $UNIT (systemd)"
+    systemctl --user restart "$UNIT"
+    return 0
+  fi
+  if command -v launchctl >/dev/null 2>&1 \
+     && launchctl print "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1; then
+    say "kickstarting $LAUNCHD_LABEL (launchd)"
+    launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL"
+    return 0
+  fi
+  return 1
+}
+if ! restart_supervised; then
+  echo "[reload] no app supervisor found (systemd: $UNIT, launchd: $LAUNCHD_LABEL)." >&2
+  echo "         Enroll this machine with scripts/install-node.sh, or start by hand:" >&2
+  echo "         npm run prod:start" >&2
   exit 1
 fi
 
