@@ -243,6 +243,12 @@ export function loadConfig(env = process.env) {
     wakeContextSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_MAX_AGE_MS, 120000),
     wakeCardDedupeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CARD_DEDUPE_MS, 600000),
+    // The clarifying-question window: after Zeca SPEAKS a question, the next
+    // utterance - no wake word - is taken as the answer. Short on purpose (an
+    // always-on mic must not stay promiscuous), and rounds are capped so a
+    // model that keeps asking stops being answered.
+    wakeFollowupWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_WINDOW_MS, 12000),
+    wakeFollowupMaxRounds: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_MAX_ROUNDS, 3),
     // Which language the wake path confirms in. "auto" (the default) reads it
     // off what the user actually said; an explicit pt/en pins it.
     wakeLanguage: (() => {

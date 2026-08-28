@@ -142,6 +142,11 @@ export class FeedbackBus {
       ...(payload.reason !== undefined ? { reason: payload.reason } : {}),
       ...(payload.cardId !== undefined ? { card_id: payload.cardId } : {}),
       ...(payload.title !== undefined ? { title: payload.title } : {}),
+      // The conversation's language, when the producer knew it - the phone
+      // localizes its own notification bodies from this ("Cartão criado" vs
+      // "Card created"), which is the same mixing bug the acks had, one layer
+      // down.
+      ...(payload.lang !== undefined && payload.lang !== null ? { lang: payload.lang } : {}),
       ...(payload.interim ? { interim: true } : {})
     };
 

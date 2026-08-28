@@ -286,8 +286,9 @@ Rules:
   achas de X", "ajuda-me a decidir X". This opens a spoken conversation that
   CONTINUES without the wake word until they end it, so choose it only when they
   are inviting a back-and-forth, never for a single question (that is "query" or
-  "delegate"). Put what they want to talk about in "topic", restated clearly and
-  self-contained. Put a one-line spoken opener in "ack".
+  "delegate"). Put what they want to talk about in "topic", restated clearly,
+  self-contained and in the user's own language. Put a one-line spoken opener in
+  "ack".
 - send_message: the user wants a message SENT to a named person or channel -
   "manda uma mensagem à Marília a dizer que é melhor amanhã", "envia um email ao
   João sobre a proposta", "diz no Slack ao Pedro que já vou". "recipient" is the
@@ -313,8 +314,9 @@ Rules:
   changing files or code, searching the web, running or checking anything in
   Garrison, and any question about the user's own tasks, schedule, memories,
   projects or past conversations. Put the instruction in "request" - restated
-  clearly and self-contained, because Zeca sees ONLY that sentence, not this
-  transcript. Put a short spoken-style acknowledgement in "ack" ("On it - I'll
+  clearly and self-contained AND IN THE USER'S OWN LANGUAGE, because Zeca sees
+  ONLY that sentence, not this transcript - a Portuguese command restated in
+  English makes Zeca answer in English. Put a short spoken-style acknowledgement in "ack" ("On it - I'll
   message Ana on Slack"). When in doubt between delegate and query, choose
   delegate: a real answer late beats a confident wrong one now. A message to a
   NAMED person is "send_message", not delegate; delegate still owns everything
@@ -433,6 +435,26 @@ export function parseWakeReply(reply) {
   }
 }
 
+// The reply-language pin. "Keep the user's language" asks the model to infer
+// it back out of a possibly-translated restatement; when the bus has already
+// RESOLVED the language, say it outright - the difference is exactly the
+// "answered me in English" bug.
+function languageLine(lang) {
+  if (lang === "pt") return "Reply in European Portuguese (pt-PT) - the user spoke Portuguese.";
+  if (lang === "en") return "Reply in English - the user spoke English.";
+  return "Keep the user's language (Portuguese stays Portuguese).";
+}
+
+// A follow-up turn inside the SAME gateway session: the user just answered the
+// clarifying question the previous reply asked. Deliberately thin - the
+// gateway owns the conversation context, and re-sending the preamble would
+// drown the answer.
+export function buildFollowupPrompt(answer, { lang = null } = {}) {
+  return `The user answered: "${answer}"
+
+Continue - same rules: act now, then reply with what you DID (or found), in under 60 words, plain text, no markdown. One more clarifying question (ending in "?") only if you are still genuinely blocked. ${languageLine(lang)}`;
+}
+
 // What the OPERATIVE sees for a delegated spoken request. It reaches him with
 // no transcript and no wearable context, so the framing has to carry three
 // things the text alone does not: that this came from speech (so the phrasing
@@ -450,7 +472,7 @@ export function parseWakeReply(reply) {
 // as the user's board. Vocabulary the user shares with an unrelated tool has to
 // be pinned to the right one here, because nothing downstream can catch it: the
 // answer is confident, well-formed, and wrong.
-export function buildDelegatePrompt(request, { boardUrl = null, screen = null } = {}) {
+export function buildDelegatePrompt(request, { boardUrl = null, screen = null, lang = null } = {}) {
   // The board is NOT an MCP server - there is no kanban tool in the operative's
   // toolset - so an operative asked about "my board" has to know to call the
   // fitting's HTTP API, and a fresh session has no way to guess the port. The
@@ -479,7 +501,11 @@ Do it now, using your tools and connected services - their Kanban board, memorie
 
 "My board", "my tasks" and "my cards" ALWAYS mean the user's Kanban board. ${boardLine} They NEVER mean your own session to-do list: TaskList/TaskCreate and any similar in-session task tool are YOUR scratchpad for this turn, they are always empty at the start of one, and their contents are not the user's data. Never answer a question about the user's board from them - read the board itself, and if you genuinely could not reach it say so rather than reporting an empty scratchpad as an empty board.
 
-Then reply with what you DID (or found), in under 60 words, plain text, no markdown, no preamble. This reply is delivered to the user's phone as a notification. Keep the user's language (Portuguese stays Portuguese).`;
+"Their memories" means the basic-memory tools (search_notes, read_note, recent_activity) over their Obsidian vault - search there BEFORE saying you found nothing, and when you find nothing say exactly what you searched for and where. You can search the web when their own data is not enough. If a connector (Google, Slack, ...) is genuinely not connected, say so in one sentence and still do everything the rest of your tools allow.
+
+If the request is genuinely ambiguous or underspecified, do NOT guess and do NOT answer with generic filler: reply with exactly ONE short clarifying question, ending in "?". The user answers by voice and the conversation continues right here - so ask the one question whose answer unblocks you.
+
+Then reply with what you DID (or found), in under 60 words, plain text, no markdown, no preamble. This reply is READ ALOUD to the user or shown on their phone. ${languageLine(lang)}`;
 }
 
 // The revision pass. The card already exists and the user has had time to look
@@ -655,6 +681,9 @@ export class WakeBus {
     // has no broadcast lane - every screen branch below is then unreachable.
     this.screenContextFn = screenContextFn;
     this.discussions = new Map(); // sessionId -> discussion state
+    // Open clarifying-question windows: Zeca asked something and the NEXT
+    // utterance - no wake word - is the answer. sessionId -> window.
+    this.answers = new Map();
     // Two lanes, deliberately distinct: `runFn` is the small pinned classifier
     // the wearer waits on; `operativeFn` is the full-toolset turn nobody waits
     // on. Collapsing them is what made every spoken command cost a Sonnet turn.
@@ -779,6 +808,53 @@ export class WakeBus {
       })
       .catch(() => []);
     return { action: "revise", applied };
+  }
+
+  // ---- clarifying questions (the answer window) ----------------------------
+  //
+  // The delegate prompt invites the operative to ask ONE question when the
+  // request is ambiguous. The wearer answers by just talking - demanding the
+  // wake word to answer a question Zeca asked would be absurd. Three rules
+  // keep that safe on an always-on microphone:
+  //
+  //   * the window ARMS only after the question has actually been SPOKEN (the
+  //     phone's {spoken, ok} receipt) - so the question's own echo, which the
+  //     mic hears a beat later, cannot answer itself;
+  //   * it stays open for a few seconds only, and the wake word always wins;
+  //   * rounds are capped - a model that keeps asking stops being answered.
+  //
+  // Registered by the capture-service's speak-first notifier; omi-channel has
+  // no speak lane and therefore never opens one - the mirror stays inert.
+
+  expectAnswer(sessionId, ackId, { lang = "en", rounds = 0, eventId = null } = {}) {
+    if (!sessionId || !ackId) return;
+    if (rounds >= (this.cfg.wakeFollowupMaxRounds ?? 3)) {
+      this.counters.bump("wake_followup_rounds_capped");
+      return;
+    }
+    this.answers.set(sessionId, { ackId, lang, rounds, eventId, armed: false, expiresAt: 0 });
+  }
+
+  armAnswerWindow(ackId) {
+    for (const [sessionId, w] of this.answers) {
+      if (w.ackId !== ackId || w.armed) continue;
+      w.armed = true;
+      w.expiresAt = this.now() + (this.cfg.wakeFollowupWindowMs ?? 12000);
+      this.counters.bump("wake_followup_windows_armed");
+      return sessionId;
+    }
+    return null;
+  }
+
+  openAnswerWindow(sessionId) {
+    const w = this.answers.get(sessionId);
+    if (!w || !w.armed) return null;
+    if (this.now() > w.expiresAt) {
+      this.answers.delete(sessionId);
+      this.counters.bump("wake_followup_windows_expired");
+      return null;
+    }
+    return w;
   }
 
   // ---- spoken discussions --------------------------------------------------
@@ -943,6 +1019,31 @@ export class WakeBus {
           continue;
         }
         s.seen.add(fingerprint);
+
+        // An open answer window eats the next utterance: the wearer is
+        // ANSWERING Zeca's question, not issuing a command. The wake word
+        // still wins - saying the name is always a fresh start.
+        const answerWindow = this.openAnswerWindow(sessionId);
+        if (answerWindow && !this.regex.test(text)) {
+          this.answers.delete(sessionId);
+          this.counters.bump("wake_followup_answers");
+          this.emitLifecycle("segment_captured", { sessionId, at: this.now() });
+          const answer = text.trim();
+          this.delegateChain = (this.delegateChain ?? Promise.resolve())
+            .then(() =>
+              this.runDelegate({
+                request: answer,
+                eventId: ulid(),
+                sessionId,
+                lang: answerWindow.lang,
+                followupOf: answerWindow.eventId,
+                round: answerWindow.rounds + 1
+              })
+            )
+            .catch((err) => this.log.error(`[${this.source.logPrefix}] wake followup error: ${err?.message ?? err}`));
+          continue;
+        }
+        if (answerWindow && this.regex.test(text)) this.answers.delete(sessionId);
 
         // A live discussion owns the microphone: everything said goes to the
         // thread, with no wake word, until the user ends it.
@@ -1174,25 +1275,44 @@ export class WakeBus {
       });
     }
 
-    const resultRef = path.join("wake-results", `${eventId}.json`);
-    atomicWriteJSON(path.join(this.store.root, resultRef), {
-      eventId,
-      command,
-      ...outcome.result
-    });
-    event.triage_result_ref = resultRef;
-    this.store.writeEvent(event);
-
-    // Silent outcomes still leave the full forensic trail above - the
+    // Silent outcomes still leave the full forensic trail below - the
     // capture_event and the wake-results record - they just do not interrupt the
     // user to report that nothing happened.
+    //
+    // `lang`, `sessionId` and `eventId` ride in params for the speak-first
+    // notifier the capture-service wraps around this bus: with a live pendant
+    // session the confirmation is SPOKEN (and the push skipped); without one it
+    // falls back to the push exactly as before. Omi's notifier ignores them.
     const receipts = outcome.silent
       ? []
       : await this.notifier.send({
           template: "wake_confirmation",
-          params: { text: outcome.confirmation, cardUrl: outcome.cardUrl ?? null }
+          params: { text: outcome.confirmation, cardUrl: outcome.cardUrl ?? null, lang, sessionId, eventId }
         });
     if (!outcome.silent) this.counters.observe("wake_notify_ms", this.now() - commandDoneAt);
+    // Persisted AFTER delivery so the record can say HOW it reached the user.
+    // This file is the transcript's source of truth: the app's Conversation
+    // screen reads it back over /capture/exchanges, so it carries the full
+    // untruncated confirmation - text that was already pushed to the phone, so
+    // nothing new leaves the machine (I5 still bars raw ambient transcript).
+    const delivery = outcome.silent
+      ? "silent"
+      : receipts.some((r) => r?.means === "companion-speech" && r?.ok)
+        ? "spoken"
+        : "push";
+    const resultRef = path.join("wake-results", `${eventId}.json`);
+    atomicWriteJSON(path.join(this.store.root, resultRef), {
+      eventId,
+      command,
+      at: new Date(this.now()).toISOString(),
+      lang,
+      confirmation: outcome.confirmation ?? null,
+      cardUrl: outcome.cardUrl ?? null,
+      delivery,
+      ...outcome.result
+    });
+    event.triage_result_ref = resultRef;
+    this.store.writeEvent(event);
     const latencyMs = this.now() - wakeHitAt;
     this.counters.observe("wake_hit_to_notification_ms", latencyMs);
     this.log.log(`[${this.source.logPrefix}] wake command dispatched (${outcome.result.intent}) in ${latencyMs}ms`);
@@ -1310,6 +1430,7 @@ export class WakeBus {
             eventId,
             cardId: card?.id ?? null,
             title,
+            lang,
             at: this.now()
           });
           this.rememberCard(dedupeKey);
@@ -1637,18 +1758,23 @@ export class WakeBus {
     };
   }
 
-  async runDelegate({ request, eventId, sessionId, lang = "en", screen = null }) {
+  async runDelegate({ request, eventId, sessionId, lang = "en", screen = null, followupOf = null, round = 0 }) {
     const startedAt = this.now();
     let text = "";
     let ok = false;
     try {
       const { reply } = await this.operativeFn({
         // Resolved at call time from the board's status file, exactly like every
-        // other board call here - never a baked port.
-        prompt: buildDelegatePrompt(request, {
-          boardUrl: this.board?.base?.() ?? null,
-          screen: screen && !screen.stale ? screen : null
-        }),
+        // other board call here - never a baked port. A follow-up rides the SAME
+        // gateway session (the sessionId below), so the thin continuation prompt
+        // lands with the whole prior turn's context intact.
+        prompt: followupOf
+          ? buildFollowupPrompt(request, { lang })
+          : buildDelegatePrompt(request, {
+              boardUrl: this.board?.base?.() ?? null,
+              screen: screen && !screen.stale ? screen : null,
+              lang
+            }),
         // One gateway session per Omi capture session keeps a follow-up request
         // ("send that to Ana too") attached to the context that produced it.
         sessionId: sessionId ? `${this.source.originPrefix}-wake:${sessionId}` : null,
@@ -1663,16 +1789,32 @@ export class WakeBus {
     const elapsed = this.now() - startedAt;
     this.counters.observe("wake_delegate_ms", elapsed);
     this.counters.bump(ok ? "wake_delegates_answered" : "wake_delegates_failed");
-    atomicWriteJSON(path.join(this.store.root, "wake-results", `${eventId}.delegate.json`), {
+    // A follow-up round files under its PARENT exchange, so the transcript
+    // threads the whole clarification dialogue as one conversation.
+    const resultFile = followupOf
+      ? `${followupOf}.followup.${round}.json`
+      : `${eventId}.delegate.json`;
+    atomicWriteJSON(path.join(this.store.root, "wake-results", resultFile), {
       eventId,
+      ...(followupOf ? { followupOf, round } : {}),
       request,
       reply: text,
       ok,
+      at: new Date(this.now()).toISOString(),
       elapsedMs: elapsed
     });
     this.log.log(`[${this.source.logPrefix}] wake delegate ${ok ? "answered" : "failed"} in ${elapsed}ms`);
     await this.notifier
-      .send({ template: "wake_confirmation", params: { text: text.slice(0, 800) } })
+      .send({
+        template: "wake_confirmation",
+        params: {
+          text: text.slice(0, 800),
+          lang,
+          sessionId,
+          eventId: followupOf ?? eventId,
+          followupRounds: round
+        }
+      })
       .catch(() => []);
     return { ok, reply: text };
   }

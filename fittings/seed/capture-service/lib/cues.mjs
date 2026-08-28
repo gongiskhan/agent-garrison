@@ -30,7 +30,11 @@ import { detectLanguage, isLanguage } from "./lang.mjs";
 // and pinning trivial, and it is why this is a table and not a template.
 export const CUE_TEXT = {
   wake_detected: { pt: "Sim?", en: "Yes?" },
-  window_closed: { pt: "Ok.", en: "Okay." },
+  // Not "Ok." - a one-syllable TTS clip lands clipped and odd, and it says
+  // nothing. The honest content of this moment is "I stopped listening and
+  // started working", and the wait it opens is ~25 seconds, so the cue is a
+  // handoff, not an acknowledgement syllable.
+  window_closed: { pt: "Deixa comigo.", en: "On it." },
   // An interim wake hit that the final never confirms. The wearer already felt
   // the pulse, so there is an argument for saying "Desculpa." here - but a
   // retraction is only worth its own interruption if lapses are common, and

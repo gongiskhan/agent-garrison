@@ -199,6 +199,7 @@ describe("pendant capture path", () => {
       headers: { authorization: `Bearer ${TOKEN}` }
     });
     const feedback: any[] = [];
+    const speaks: any[] = [];
     const queue: any[] = [];
     const waiters: Array<{ pred: (m: any) => boolean; resolve: (m: any) => void }> = [];
     ws.on("message", (data, isBinary) => {
@@ -207,6 +208,13 @@ describe("pendant capture path", () => {
       if (msg.type === "feedback") {
         feedback.push(msg.event);
         if (autoAck) ws.send(JSON.stringify({ type: "feedback_ack", event_id: msg.event.event_id }));
+        return;
+      }
+      if (msg.type === "speak") {
+        speaks.push(msg.ack);
+        // The receipt is what arms an answer window server-side - a real phone
+        // sends it once the audio has finished playing.
+        if (autoAck) ws.send(JSON.stringify({ type: "spoken", spoken: msg.ack.id, ok: true }));
         return;
       }
       const i = waiters.findIndex((w) => w.pred(msg));
@@ -240,7 +248,7 @@ describe("pendant capture path", () => {
       ws.send(encodeMediaFrame(0, seq, seq * 20, Buffer.from(`opus-${seq}`)));
       await next((m) => m.type === "ack" && m.seq === seq);
     }
-    return { ws, next, feedback, opened };
+    return { ws, next, feedback, speaks, opened };
   }
 
   it("refuses pendant sessions while pendant_enabled is off (independent kill switch)", async () => {
@@ -403,6 +411,72 @@ describe("pendant capture path", () => {
     expect(existsSync(path.join(home, "capture", "sessions", `${sessionId}.json`))).toBe(true);
     expect(existsSync(path.join(home, "capture", "transcripts", `${sessionId}.json`))).toBe(true);
     ws.close();
+  });
+
+  // The answer to "the rest of the messages are just push notifications":
+  // every wake confirmation is SPOKEN when a live session can hear it, in the
+  // user's language, and the exchange lands - full text - in the transcript
+  // the app reads back.
+  it("speaks a query answer in Portuguese instead of pushing it, and records the exchange", async () => {
+    const gw = await startStubGateway({ intent: "query", answer: "Uma onça tem cerca de 28 gramas." });
+    cleanups.push(() => gw.close());
+    const { handle, base } = await boot(
+      [{ afterFrames: 3, message: dgResults("Zeca, quantos gramas tem uma onça?", true, 0, 2) }],
+      { speakEnabled: true, wakeSilenceCloseMs: 120, gatewayUrl: gw.url }
+    );
+
+    const session = await streamPendant(base, "01SPEAKFIRST00001", 8);
+    await waitFor(() => session.speaks.some((a: any) => String(a.text).includes("28 gramas")));
+
+    const spoken = session.speaks.find((a: any) => String(a.text).includes("28 gramas"));
+    // The language rode the whole way down: the phone needs it for its
+    // synthesizer fallback voice.
+    expect(spoken.lang).toBe("pt");
+    expect(spoken.templateId).toBe("wake_confirmation");
+    await waitFor(() => handle.counters.read().wake_confirmations_spoken === 1);
+
+    // The transcript endpoint returns the exchange, untruncated, marked spoken.
+    const res = await fetch(`${base}/capture/exchanges`, {
+      headers: { authorization: `Bearer ${TOKEN}` }
+    });
+    expect(res.status).toBe(200);
+    const { exchanges } = (await res.json()) as any;
+    expect(exchanges).toHaveLength(1);
+    expect(exchanges[0].command).toContain("quantos gramas");
+    expect(exchanges[0].confirmation).toBe("Uma onça tem cerca de 28 gramas.");
+    expect(exchanges[0].intent).toBe("query");
+    expect(exchanges[0].lang).toBe("pt");
+    expect(exchanges[0].delivery).toBe("spoken");
+
+    // And without the token, nothing leaves.
+    const denied = await fetch(`${base}/capture/exchanges`);
+    expect(denied.status).toBe(401);
+    session.ws.close();
+  });
+
+  it("falls back to the push lane when no session can hear", async () => {
+    const gw = await startStubGateway({ intent: "query", answer: "Cerca de 28 gramas." });
+    cleanups.push(() => gw.close());
+    const { handle, base } = await boot(
+      [{ afterFrames: 3, message: dgResults("Zeca, quantos gramas tem uma onça?", true, 0, 2) }],
+      { speakEnabled: true, wakeSilenceCloseMs: 120, gatewayUrl: gw.url }
+    );
+
+    // The session closes before dispatch, so nothing can hear the answer.
+    const session = await streamPendant(base, "01PUSHFALLBACK001", 8);
+    session.ws.close();
+    let exchanges: any[] = [];
+    await waitFor(() => {
+      void fetch(`${base}/capture/exchanges`, { headers: { authorization: `Bearer ${TOKEN}` } })
+        .then((r) => r.json())
+        .then((d: any) => {
+          exchanges = d.exchanges ?? [];
+        })
+        .catch(() => {});
+      return exchanges.length === 1 && exchanges[0].delivery === "push";
+    }, 10000);
+    expect(exchanges[0].delivery).toBe("push");
+    expect(handle.counters.read().wake_confirmations_spoken ?? 0).toBe(0);
   });
 });
 

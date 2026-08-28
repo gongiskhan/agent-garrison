@@ -353,6 +353,7 @@ declare module "*/capture-service/lib/wake.mjs" {
     request: string,
     opts?: { boardUrl?: string | null; screen?: { file: string; ageMs?: number } | null }
   ): string;
+  export function buildFollowupPrompt(answer: string, opts?: { lang?: string | null }): string;
   export function buildVoiceDiscussPrompt(topic: string, opts?: { context?: Array<{ text: string }> }): string;
   export function buildVoiceDiscussTurn(utterance: string): string;
   export function splitForSpeech(text: unknown, opts?: { maxChars?: number; maxChunks?: number }): string[];
@@ -365,6 +366,13 @@ declare module "*/capture-service/lib/wake.mjs" {
     session(sessionId: string): { state: string; [k: string]: unknown };
     discussion(sessionId: string): { chain: Promise<unknown>; turns: number; [k: string]: unknown } | null;
     endDiscussion(sessionId: string, reason: string): { reason: string; turns: number } | null;
+    expectAnswer(
+      sessionId: string,
+      ackId: string,
+      opts?: { lang?: string | null; rounds?: number; eventId?: string | null }
+    ): void;
+    armAnswerWindow(ackId: string): string | null;
+    openAnswerWindow(sessionId: string): { ackId: string; lang: string; rounds: number } | null;
     resolveLanguage(command: string, parsed?: unknown): string;
   }
 }

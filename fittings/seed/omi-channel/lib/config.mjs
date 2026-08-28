@@ -207,6 +207,12 @@ export function loadConfig(env = process.env) {
     // reaction - and the repeat is different transcript text, so nothing else
     // catches it. 0 disables.
     wakeCardDedupeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CARD_DEDUPE_MS, 600000),
+    // The clarifying-question window: after Zeca SPEAKS a question, the next
+    // utterance - no wake word - is taken as the answer. Short on purpose (an
+    // always-on mic must not stay promiscuous), and rounds are capped so a
+    // model that keeps asking stops being answered.
+    wakeFollowupWindowMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_FOLLOWUP_WINDOW_MS, 12000),
+    wakeFollowupMaxRounds: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_FOLLOWUP_MAX_ROUNDS, 3),
     // Which language the wake path confirms in. "auto" (the default) reads it
     // off what the user actually said; an explicit pt/en pins it.
     wakeLanguage: (() => {

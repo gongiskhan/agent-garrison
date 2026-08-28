@@ -262,6 +262,19 @@ x-garrison:
       description: >-
         How old the newest frame may be, measured from the moment the user spoke
         rather than from dispatch.
+    - key: wake_followup_window_ms
+      type: integer
+      default: 12000
+      description: >-
+        After Zeca speaks a clarifying question, how long the next utterance -
+        no wake word needed - counts as the answer. Opens only once the phone
+        confirms the question was actually spoken.
+    - key: wake_followup_max_rounds
+      type: integer
+      default: 3
+      description: >-
+        Ceiling on clarifying-question rounds per exchange. A model that keeps
+        asking stops being answered.
     - key: screen_audio_transcribe
       type: boolean
       default: true

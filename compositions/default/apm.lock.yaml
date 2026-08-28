@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-27T22:00:26.960491+00:00'
+generated_at: '2026-08-28T09:00:05.108911+00:00'
 apm_version: 0.10.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -204,3 +204,7 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/web-channel-default
+- repo_url: _local/whatsapp-web
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/whatsapp-web

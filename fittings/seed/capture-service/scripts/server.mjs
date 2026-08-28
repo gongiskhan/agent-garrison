@@ -16,7 +16,7 @@
 // in logs or counters — ids, seqs, counts and reasons only.
 
 import { createServer } from "node:http";
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FITTING_ID, loadConfig } from "../lib/config.mjs";
@@ -307,6 +307,68 @@ export function makeRequestHandler(ctx) {
         res.end(audio);
         return;
       }
+      // The conversation, as data - what the app's Conversation screen renders.
+      // One exchange per wake command: the user's words, what Zeca decided
+      // (intent), what he said back (full text, untruncated - the push banner
+      // is a preview, THIS is the record), how it was delivered, and every
+      // follow-up round of a clarifying-question dialogue threaded under it.
+      //
+      // Same bearer as the capture stream: this is transcript-adjacent content
+      // and never leaves without the token.
+      if (req.method === "GET" && p === "/capture/exchanges") {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const dir = path.join(store.root, "wake-results");
+        let names = [];
+        try {
+          names = readdirSync(dir);
+        } catch {
+          /* no exchanges yet */
+        }
+        const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 50));
+        const bases = names
+          .filter((f) => /^[0-9A-HJKMNP-TV-Z]{26}\.json$/.test(f))
+          .map((f) => {
+            try {
+              return { id: f.slice(0, -5), mtime: statSync(path.join(dir, f)).mtimeMs };
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean)
+          .sort((a, b) => b.mtime - a.mtime)
+          .slice(0, limit);
+        const exchanges = [];
+        for (const { id } of bases) {
+          const record = readJSON(path.join(dir, `${id}.json`));
+          if (!record) continue;
+          const followups = [];
+          const answer = readJSON(path.join(dir, `${id}.delegate.json`));
+          if (answer) followups.push({ round: 0, at: answer.at ?? null, request: answer.request ?? null, reply: answer.reply ?? "", ok: answer.ok !== false });
+          for (const f of names) {
+            const m = f.match(new RegExp(`^${id}\\.followup\\.(\\d+)\\.json$`));
+            if (!m) continue;
+            const doc = readJSON(path.join(dir, f));
+            if (doc) followups.push({ round: Number(m[1]), at: doc.at ?? null, request: doc.request ?? null, reply: doc.reply ?? "", ok: doc.ok !== false });
+          }
+          followups.sort((a, b) => a.round - b.round);
+          exchanges.push({
+            id,
+            at: record.at ?? null,
+            command: record.command ?? "",
+            intent: record.intent ?? null,
+            confirmation: record.confirmation ?? null,
+            lang: record.lang ?? null,
+            cardId: record.cardId ?? null,
+            cardUrl: record.cardUrl ?? null,
+            delivery: record.delivery ?? null,
+            followups
+          });
+        }
+        counters.bump("exchanges_served");
+        return json(res, 200, { exchanges });
+      }
+
       if (req.method === "GET" && (p === "/health" || p === "/api/health")) {
         return json(res, 200, {
           ok: true,
@@ -552,6 +614,60 @@ export async function startServer(cfg = loadConfig()) {
   // The screen the user was looking at. Assigned once `ingress` exists (it is
   // constructed below), and reached through a thunk - the same forward
   // reference transcriber.onSegment already uses for ingress.sessions.
+  // Speak first, push as the fallback - the answer to "the rest of the
+  // messages are just push notifications". Every wake confirmation (query
+  // answers, delegate acks and results, card-command outcomes, fallback notes)
+  // is SPOKEN through the ack sink when a live session can hear it, and only
+  // falls back to the APNs push when nothing can. When the spoken text asks a
+  // question, the answer window opens (wake.mjs expectAnswer/armAnswerWindow)
+  // so the wearer can reply without the wake word.
+  //
+  // Forward references on purpose: ackSink and the buses are constructed
+  // below, and send() only ever runs after startup.
+  let ackSinkRef = null;
+  const answerBuses = [];
+  const speakingNotifier = {
+    send: async (payload) => {
+      const { template, params = {} } = payload ?? {};
+      const text = typeof params.text === "string" ? params.text.trim() : "";
+      if (template === "wake_confirmation" && text && ackSinkRef?.speakableSession()) {
+        const ackId = `wake-${ulid()}`;
+        // A question opens the expectation BEFORE the speak leaves, so the
+        // phone's {spoken} receipt can arm it - never the other way round, or
+        // the receipt races the registration.
+        if (text.endsWith("?") && params.sessionId) {
+          for (const bus of answerBuses) {
+            bus.expectAnswer(params.sessionId, ackId, {
+              lang: params.lang ?? null,
+              rounds: params.followupRounds ?? 0,
+              eventId: params.eventId ?? null
+            });
+          }
+        }
+        try {
+          const res = await ackSinkRef.handleAck({
+            id: ackId,
+            kind: "captured",
+            severity: "info",
+            templateId: "wake_confirmation",
+            text,
+            ...(params.lang ? { lang: params.lang } : {})
+          });
+          if (res?.body?.delivered === "socket") {
+            counters.bump("wake_confirmations_spoken");
+            return [{ means: "companion-speech", ok: true, ackId }];
+          }
+        } catch (err) {
+          console.error(`[capture-service] speak-first confirmation failed, pushing instead: ${err?.message ?? err}`);
+        }
+        // Not spoken: an unarmed answer expectation can never open, so it is
+        // safe to leave behind; the push below is the delivery.
+      }
+      return notifier.send(payload);
+    },
+    cardUrl: (id) => notifier.cardUrl(id)
+  };
+
   let screenContext = null;
   const screenContextFn = (q) => screenContext?.latest(q) ?? null;
 
@@ -564,7 +680,7 @@ export async function startServer(cfg = loadConfig()) {
     operativeFn,
     board,
     memoryWriter: new MemoryWriter({ prefix: "companion", label: "Companion", env: cfg.env ?? process.env }),
-    notifier,
+    notifier: speakingNotifier,
     source: COMPANION_WAKE_SOURCE
   });
 
@@ -602,7 +718,7 @@ export async function startServer(cfg = loadConfig()) {
     operativeFn,
     board,
     memoryWriter: new MemoryWriter({ prefix: "pendant", label: "Pendant", env: cfg.env ?? process.env }),
-    notifier,
+    notifier: speakingNotifier,
     source: PENDANT_WAKE_SOURCE,
     language: () => languageMemory.current(),
     discussFn,
@@ -611,6 +727,7 @@ export async function startServer(cfg = loadConfig()) {
     screenContextFn,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
+  answerBuses.push(wakeBus, pendantWakeBus);
   // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
   // Deepgram interims so the pendant buzzes fast; the authoritative window
   // still runs on finals through the untouched WakeBus. The FeedbackBus
@@ -672,6 +789,7 @@ export async function startServer(cfg = loadConfig()) {
   // delayed one.
   void cues.prewarm();
   const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier, voice, languageMemory });
+  ackSinkRef = ackSink;
   // Announce-and-cancel for a parked send. Owns no timer of its own: the
   // connector's outbox holds the send, this only says it out loud and cancels.
   const confirmBus = new ConfirmBus({ cfg: live, counters, ackSink, languageMemory, env: cfg.env ?? process.env });
@@ -695,7 +813,13 @@ export async function startServer(cfg = loadConfig()) {
     ackSink.handleSpokenReceipt(msg);
     // The announcement has actually left the speaker now, so the microphone is
     // hearing the user again rather than us.
-    if (msg?.ok) wrappedAfter.onSpoken(String(msg?.spoken ?? ""));
+    if (msg?.ok) {
+      const ackId = String(msg?.spoken ?? "");
+      wrappedAfter.onSpoken(ackId);
+      // A spoken question opens its answer window only now - its own echo,
+      // which the mic hears a beat later, can no longer answer it.
+      for (const bus of answerBuses) bus.armAnswerWindow(ackId);
+    }
   };
 
   // Feedback delivery: every event goes to the live pendant session's socket

@@ -59,8 +59,8 @@ describe("cues - the catalog", () => {
     try {
       expect(h.cues.speechFor("wake_detected", "pt")?.text).toBe("Sim?");
       expect(h.cues.speechFor("wake_detected", "en")?.text).toBe("Yes?");
-      expect(h.cues.speechFor("window_closed", "pt")?.text).toBe("Ok.");
-      expect(h.cues.speechFor("window_closed", "en")?.text).toBe("Okay.");
+      expect(h.cues.speechFor("window_closed", "pt")?.text).toBe("Deixa comigo.");
+      expect(h.cues.speechFor("window_closed", "en")?.text).toBe("On it.");
     } finally {
       h.cleanup();
     }
