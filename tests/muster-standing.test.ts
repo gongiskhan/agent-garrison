@@ -164,8 +164,11 @@ describe("buildStandingPayload (pure)", () => {
 
     // orchestrator is NOT a standing slot.
     expect(payload.slots.some((s) => s.faculty === "orchestrator")).toBe(false);
-    // the eight infrastructure slots are present.
-    expect(payload.slots.map((s) => s.faculty)).toEqual([
+    // every OTHER faculty is - the 2026-08-28 widening: capability-faculty
+    // fittings (building, knowledge, ...) were invisible on the Fittings tab
+    // before this, so a stationed Drill could not be found or removed.
+    const slotFaculties = payload.slots.map((s) => s.faculty);
+    for (const required of [
       "channels",
       "gateway",
       "runtimes",
@@ -173,8 +176,18 @@ describe("buildStandingPayload (pure)", () => {
       "observability",
       "sessions",
       "surfaces",
-      "connectors"
-    ]);
+      "connectors",
+      "building",
+      "knowledge",
+      "coordination"
+    ]) {
+      expect(slotFaculties).toContain(required);
+    }
+    // Every fitting and candidate carries its human browsing category.
+    for (const slot of payload.slots) {
+      for (const fitting of slot.fittings) expect(typeof fitting.category).toBe("string");
+      for (const candidate of slot.candidates) expect(typeof candidate.category).toBe("string");
+    }
 
     const channels = payload.slots.find((s) => s.faculty === "channels")!;
     expect(channels.fittings).toHaveLength(1);
@@ -193,6 +206,29 @@ describe("buildStandingPayload (pure)", () => {
     // runtime templates come from the library's runtime fittings.
     expect(payload.runtimeTemplates.map((t) => t.id)).toContain("agent-sdk-runtime");
     expect(payload.primaryRuntime).toBe("agent-sdk-runtime");
+  });
+
+  it("lists a selected_duties duty fitting in its faculty slot, flagged read-only", () => {
+    const payload = buildStandingPayload({
+      composition: {
+        id: "c",
+        name: "C",
+        selections: {},
+        selectedDuties: ["dispatcher"],
+        primaryRuntime: "agent-sdk-runtime"
+      },
+      entries: [],
+      library
+    });
+    // The duty fitting is FINDABLE (it was invisible before 2026-08-28): it
+    // rides its faculty's slot with the dutyFitting flag, no config surface.
+    const gateway = payload.slots.find((s) => s.faculty === "gateway")!;
+    const duty = gateway.fittings.find((f) => f.id === "dispatcher");
+    expect(duty).toBeTruthy();
+    expect(duty!.dutyFitting).toBe(true);
+    expect(duty!.configSchema).toEqual([]);
+    // ...but it is NOT an addable candidate - its equip path is the Duties flow.
+    expect(gateway.candidates.some((c) => c.id === "dispatcher")).toBe(false);
   });
 });
 
