@@ -31,6 +31,8 @@ import { MemoryWriter } from "../lib/memory-writer.mjs";
 import { CompanionNotifier, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
 import { AckSink } from "../lib/ack-sink.mjs";
 import { ZecaVoice } from "../lib/tts.mjs";
+import { Cues } from "../lib/cues.mjs";
+import { LanguageMemory } from "../lib/language-memory.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
 import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 
@@ -559,6 +561,10 @@ export async function startServer(cfg = loadConfig()) {
   // carrying the pendant identity. Same deps, same store, same notifier (the
   // pendant's phone IS the companion phone); the lifecycle hook is inert on
   // the companion bus and live here.
+  // Which language Zeca is speaking. Fed only by text aimed at Zeca (see
+  // language-memory.mjs), consulted by the cues and by the wake bus.
+  const languageMemory = new LanguageMemory({ stateDir: live.stateDir, cfg: live, counters });
+
   const feedbackBus = new FeedbackBus({
     counters,
     // A CONFIRMED wake legitimately lasts as long as its capture can run. A
@@ -577,6 +583,7 @@ export async function startServer(cfg = loadConfig()) {
     memoryWriter: new MemoryWriter({ prefix: "pendant", label: "Pendant", env: cfg.env ?? process.env }),
     notifier,
     source: PENDANT_WAKE_SOURCE,
+    language: () => languageMemory.current(),
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
   // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
@@ -597,6 +604,12 @@ export async function startServer(cfg = loadConfig()) {
     // interim consumer is the pendant's feedback-only wake watcher above.
     onSegment: (sessionId, segment) => {
       const mode = ingress?.sessions.get(sessionId)?.record.mode ?? null;
+      // Language is learned ONLY from speech aimed at Zeca: a segment carrying
+      // the wake word, or one arriving while the capture window is open.
+      // Ambient television in another language must never flip the cue.
+      if (segment.final && (languageMemory.isCapturing(sessionId) || pendantInterimRegex?.test(segment.text))) {
+        languageMemory.note(sessionId, segment.text);
+      }
       if (mode === "pendant") {
         if (!live.wakeEnabled) return;
         if (!segment.final) {
@@ -623,7 +636,12 @@ export async function startServer(cfg = loadConfig()) {
     onSessionEnd: (record) => emitSessionEvent({ record, store, counters, cfg: live })
   });
   const voice = new ZecaVoice({ cfg: live, counters });
-  const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier, voice });
+  const cues = new Cues({ cfg: live, voice, counters });
+  // Four short clips, once, so the first wake of the day is as fast as the
+  // hundredth. Never awaited: a cold cue costs the phone's own voice, not a
+  // delayed one.
+  void cues.prewarm();
+  const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier, voice, languageMemory });
   ingress.onSpokenReceipt = (msg) => ackSink.handleSpokenReceipt(msg);
 
   // Feedback delivery: every event goes to the live pendant session's socket
@@ -637,13 +655,35 @@ export async function startServer(cfg = loadConfig()) {
     const ws = session.socket;
     if (ws && ws.readyState === ws.OPEN) {
       try {
-        ws.send(JSON.stringify({ type: "feedback", event }));
+        // The spoken cue rides the event it belongs to. Resolved SYNCHRONOUSLY
+        // (cachedClipFor never touches the network) because everything after
+        // this send - the device haptic, the feedback_ack, and therefore
+        // wake_to_device_ack_ms - is waiting on it.
+        //
+        // A deduped wake never reaches here at all: FeedbackBus.emit returns
+        // null before calling subscribers, so a swallowed second "Zeca" stays
+        // silent for free.
+        const speak = cues.speechFor(event.name, languageMemory.current(event.session_id));
+        if (speak) {
+          // Before the sound exists, not after: the cue comes back through the
+          // pendant mic a beat later, and while the capture window is open it
+          // would otherwise land in the command AND re-arm the silence timer.
+          cues.registerEcho(echoGuard, speak);
+        }
+        ws.send(JSON.stringify({ type: "feedback", event: speak ? { ...event, speak } : event }));
         counters.bump("feedback_pushed");
       } catch {
         counters.bump("feedback_push_failed");
       }
     } else {
       counters.bump("feedback_unpushed_no_socket");
+    }
+  });
+  // The capture window drives what counts as speech aimed at Zeca.
+  feedbackBus.subscribeAll((event) => {
+    if (event.name === "wake_detected") languageMemory.markCapturing(event.session_id, true);
+    else if (event.name === "window_closed" || event.name === "wake_lapsed") {
+      languageMemory.markCapturing(event.session_id, false);
     }
   });
   ingress.onFeedbackAck = (sessionId, msg) => {

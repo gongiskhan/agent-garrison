@@ -68,6 +68,20 @@ final class SpeechUtterer: NSObject, Utterer, AVSpeechSynthesizerDelegate {
 final class SpeechSink {
     static let queueCeiling = 3
     static let stalenessSeconds: TimeInterval = 30
+    /// A cue is worth saying only while it is still an ANSWER. "Sim?" arriving
+    /// three seconds after you spoke is worse than silence - it sounds like a
+    /// reply to whatever you said next.
+    static let cueStalenessSeconds: TimeInterval = 2.5
+
+    /// A short spoken cue: not an ack, and deliberately not subject to the ack
+    /// queue. See `speakCue`.
+    struct Cue {
+        let eventId: String
+        let text: String
+        let lang: String?
+        let audioPath: String?
+        let at: Date?
+    }
 
     struct Receipt {
         let ackId: String
@@ -102,6 +116,7 @@ final class SpeechSink {
     private var rate: Float { defaults?.object(forKey: AppGroup.Key.speakRate) as? Float ?? AVSpeechUtteranceDefaultSpeechRate }
     private var volume: Float { defaults?.object(forKey: AppGroup.Key.speakVolume) as? Float ?? 1.0 }
     private var voiceId: String? { defaults?.string(forKey: AppGroup.Key.speakVoiceId) }
+    private var cuesOn: Bool { defaults?.object(forKey: AppGroup.Key.speakCues) as? Bool ?? true }
 
     private var mutedNow: Bool {
         if let until = defaults?.object(forKey: AppGroup.Key.muteUntil) as? Double, now().timeIntervalSince1970 < until {
@@ -112,6 +127,60 @@ final class SpeechSink {
         guard start >= 0, end >= 0, start != end else { return false }
         let hour = Calendar.current.component(.hour, from: now())
         return start < end ? (hour >= start && hour < end) : (hour >= start || hour < end)
+    }
+
+    // MARK: - Cues
+
+    /// Speak a wake/window cue, or drop it.
+    ///
+    /// Three deliberate departures from the ack policy above:
+    ///
+    ///  - a cue NEVER queues. Its entire value is immediacy, so behind anything
+    ///    else it is worthless; busy means dropped, and the ack queue is left
+    ///    completely untouched.
+    ///  - its staleness is 2.5s, not 30s.
+    ///  - it is NOT gated on `speakInfo`. That switch means "the operative's
+    ///    routine created/finished chatter", and someone who muted that still
+    ///    wants to know they were heard. The master switch, quiet hours, mute
+    ///    and the dedicated cue toggle all still silence it.
+    func speakCue(_ cue: Cue) {
+        guard masterOn, !mutedNow, cuesOn else { return }
+        if let at = cue.at, now().timeIntervalSince(at) > Self.cueStalenessSeconds { return }
+        guard !speaking else { return }
+        speaking = true
+        if let clipPlayer, let audioPath = cue.audioPath, !audioPath.isEmpty {
+            clipPlayer.play(path: audioPath, volume: volume) { [weak self] played in
+                guard let self else { return }
+                if played {
+                    self.speaking = false
+                    self.pump()
+                } else {
+                    self.utterCue(cue)
+                }
+            }
+            return
+        }
+        utterCue(cue)
+    }
+
+    private func utterCue(_ cue: Cue) {
+        utterer.utter(cue.text, rate: rate, volume: volume, voiceId: voiceId ?? Self.localVoice(for: cue.lang)) {
+            [weak self] _ in
+            guard let self else { return }
+            self.speaking = false
+            self.pump()
+        }
+    }
+
+    /// Speaking a Portuguese sentence through an English synthesizer voice is
+    /// the language-mixing bug one layer down, and it is invisible until you
+    /// hear it. Only consulted when the user has not chosen a voice.
+    static func localVoice(for lang: String?) -> String? {
+        switch lang {
+        case "pt": return AVSpeechSynthesisVoice(language: "pt-PT")?.identifier
+        case "en": return AVSpeechSynthesisVoice(language: "en-US")?.identifier
+        default: return nil
+        }
     }
 
     // MARK: - Intake
@@ -179,7 +248,8 @@ final class SpeechSink {
     }
 
     private func speakLocally(_ ack: AckPayload) {
-        utterer.utter(ack.text, rate: rate, volume: volume, voiceId: voiceId) { [weak self] finished in
+        utterer.utter(ack.text, rate: rate, volume: volume, voiceId: voiceId ?? Self.localVoice(for: ack.lang)) {
+            [weak self] finished in
             guard let self else { return }
             self.speaking = false
             self.onReceipt?(Receipt(ackId: ack.id, ok: finished, reason: finished ? nil : "interrupted"))

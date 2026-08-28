@@ -36,7 +36,7 @@ const BURST_WINDOW_MS = 5 * 60_000;
 const BURST_CEILING = 3; // distinct error pushes per window before collapsing
 
 export class AckSink {
-  constructor({ cfg, store, counters, echoGuard, ingress, notifier, voice = null, log = console, now = () => Date.now() }) {
+  constructor({ cfg, store, counters, echoGuard, ingress, notifier, voice = null, languageMemory = null, log = console, now = () => Date.now() }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -46,6 +46,7 @@ export class AckSink {
     this.log = log;
     this.now = now;
     this.voice = voice;
+    this.languageMemory = languageMemory;
     this.pendingSpeaks = new Map(); // ack id -> {sentAt, sessionId, timer}
     // In-memory on purpose: a restart is exactly when the operator should hear
     // the next failure again, and the window is minutes, not days.
@@ -134,6 +135,14 @@ export class AckSink {
   async handleAck(ack) {
     if (!ack || typeof ack !== "object" || typeof ack.text !== "string" || ack.text.trim() === "") {
       return { status: 400, body: { error: "ack.text is required" } };
+    }
+    // The other half of the user's rule: "or a reply was in english". An ack
+    // is Zeca speaking, and what he just spoke sets the language of the next
+    // cue. The ack carries its own `lang` when kanban-loop resolved one;
+    // failing that the text itself is the evidence.
+    if (this.languageMemory) {
+      if (typeof ack.lang === "string") this.languageMemory.noteLanguage(null, ack.lang);
+      else this.languageMemory.note(null, ack.text);
     }
     // 1. Echo window opens FIRST — before any speak instruction leaves.
     const registered = this.echoGuard.register({ text: ack.text, echo: ack.echo ?? null });

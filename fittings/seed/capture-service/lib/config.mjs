@@ -142,6 +142,20 @@ export function loadConfig(env = process.env) {
     // unspoken pt-PT anchors are the accent fix.
     ttsModel: (env.GARRISON_CAPTURESERVICE_TTS_MODEL || "").trim() || "eleven_multilingual_v2",
     ttsCacheMaxClips: parseIntOr(env.GARRISON_CAPTURESERVICE_TTS_CACHE_MAX_CLIPS, 500),
+    // The two spoken cues ("Sim?" at the wake word, "Ok." when the window
+    // closes). OFF by default like every other pipe (I9); the composition turns
+    // it on. With it off the wearer gets exactly today's haptics and silence.
+    cueEnabled: parseBool(env.GARRISON_CAPTURESERVICE_CUE_ENABLED, false),
+    // Pins the spoken language outright. "auto" (the default) infers it from
+    // what the user last said to Zeca.
+    voiceLanguage: (() => {
+      const v = (env.GARRISON_CAPTURESERVICE_VOICE_LANGUAGE || "").trim().toLowerCase();
+      return v === "pt" || v === "en" ? v : null;
+    })(),
+    // How long a remembered language stays authoritative. Long on purpose: the
+    // ask was "if last time we spoke in english", which is stickiness, not a
+    // per-utterance flip.
+    languageMemoryTtlMs: parseIntOr(env.GARRISON_CAPTURESERVICE_LANGUAGE_MEMORY_TTL_MS, 21600000),
     // Zombie-socket watchdog: reconnect the STT socket when we have been
     // feeding it audio this recently and NOTHING has come back for this long.
     // Generous on purpose - Deepgram is legitimately silent through a quiet

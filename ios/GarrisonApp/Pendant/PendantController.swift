@@ -209,6 +209,21 @@ final class PendantController: ObservableObject {
 
     private func handleFeedback(_ event: FeedbackEvent) {
         phoneSink?.play(event)
+        // The spoken cue, if this event carries one. Non-blocking and dropped
+        // rather than queued, so it can never sit in front of the haptic write
+        // below - the feedback_ack rides that write, and wake_to_device_ack_ms
+        // measures it.
+        if let speak = event.speak {
+            speechSink.speakCue(
+                SpeechSink.Cue(
+                    eventId: event.eventId,
+                    text: speak.text,
+                    lang: speak.lang,
+                    audioPath: speak.audioPath,
+                    at: ISO8601DateFormatter().date(from: event.at)
+                )
+            )
+        }
         let pattern = Self.hapticPattern(for: event.name)
         if let first = pattern.first {
             // The ack rides on the FIRST physical device write - that is the

@@ -13,6 +13,9 @@ final class PhoneFeedbackSink {
 
     func play(_ event: FeedbackEvent) {
         let backgrounded = UIApplication.shared.applicationState != .active
+        // When the event speaks, the spoken word IS the confirmation; a system
+        // tick underneath it just collides with "Ok." The haptic still fires.
+        let speaks = event.speak != nil
         switch event.name {
         case "wake_detected":
             guard !backgrounded else { return } // the pendant pulse carries it
@@ -29,7 +32,7 @@ final class PhoneFeedbackSink {
         case "window_closed":
             if backgrounded { return } // interim tier; terminal ones notify
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            AudioServicesPlaySystemSound(1057) // short tick
+            if !speaks { AudioServicesPlaySystemSound(1057) } // short tick
         case "task_created":
             if backgrounded {
                 postLocalNotification(

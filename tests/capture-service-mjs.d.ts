@@ -262,5 +262,41 @@ declare module "*/capture-service/lib/tts.mjs" {
     available(): { ok: boolean; reason?: string };
     readClip(id: unknown): Buffer | null;
     clipFor(text: unknown): Promise<{ id: string; cached?: boolean } | null>;
+    cachedClipFor(text: unknown): { id: string; cached: boolean } | null;
+    pin(id: unknown): void;
+  }
+}
+
+declare module "*/capture-service/lib/cues.mjs" {
+  export const CUE_TEXT: Record<string, Record<string, string> | null>;
+  export class Cues {
+    constructor(opts: { cfg: unknown; voice?: unknown; counters?: unknown; log?: unknown });
+    enabled(): boolean;
+    textFor(name: string, lang: string): string | null;
+    speechFor(name: string, lang: string): { text: string; lang: string; audio_path?: string; priority: string } | null;
+    ensure(text: string): Promise<{ id: string } | null>;
+    prewarm(): Promise<number>;
+    registerEcho(echoGuard: unknown, speak: unknown): void;
+  }
+}
+
+declare module "*/capture-service/lib/language-memory.mjs" {
+  export class LanguageMemory {
+    constructor(opts: { stateDir: string; cfg?: unknown; counters?: unknown; now?: () => number; log?: unknown });
+    note(sessionId: string | null, text: unknown): string | null;
+    noteLanguage(sessionId: string | null, lang: unknown): string | null;
+    markCapturing(sessionId: string, open: boolean): void;
+    isCapturing(sessionId: string): boolean;
+    current(sessionId?: string | null): string;
+  }
+}
+
+declare module "*/capture-service/lib/echo-guard.mjs" {
+  export function normalizeTokens(text: unknown): string[];
+  export class EchoGuard {
+    constructor(opts?: { ttlMs?: number; counters?: unknown; now?: () => number; log?: unknown });
+    register(entry: { text: string; echo?: string | null }): boolean;
+    registerShort(text: unknown, opts?: { ttlMs?: number }): boolean;
+    shouldSuppress(segmentText: unknown): boolean;
   }
 }

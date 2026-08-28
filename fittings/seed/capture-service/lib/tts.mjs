@@ -80,6 +80,30 @@ export class ZecaVoice {
     this.now = now;
     this.dir = path.join(cfg.stateDir, "tts-cache");
     this.inFlight = new Map(); // clipId -> Promise, so a repeated line generates once
+    // Clip ids that pruneCache may never evict. The spoken CUES live here: they
+    // are a handful of fixed lines rendered once at boot, and pruning is
+    // oldest-mtime-first, so without this they are guaranteed to fall out behind
+    // ttsCacheMaxClips distinct card titles and then be missing at the exact
+    // moment latency matters most.
+    this.pinned = new Set();
+  }
+
+  pin(id) {
+    if (/^[0-9a-f]{8,64}$/.test(String(id ?? ""))) this.pinned.add(String(id));
+  }
+
+  // The SYNCHRONOUS half of clipFor: is this line already on disk?
+  //
+  // Exists because the feedback lane must never await TTS. clipFor is async and
+  // can reach ElevenLabs; awaiting it in the feedback subscriber would delay the
+  // socket send, therefore the device haptic, therefore wake_to_device_ack_ms -
+  // and the whole point of a wake cue is that it is immediate. A miss here is
+  // not a failure: the phone speaks the line in its own voice instead.
+  cachedClipFor(text) {
+    const trimmed = String(text ?? "").trim();
+    if (!trimmed || !this.available().ok) return null;
+    const id = clipId({ text: trimmed, voiceId: this.cfg.ttsVoiceId, model: this.cfg.ttsModel });
+    return this.readClip(id) ? { id, cached: true } : null;
   }
 
   available() {
@@ -192,6 +216,7 @@ export class ZecaVoice {
     }
     if (names.length <= cap) return;
     const byAge = names
+      .filter((f) => !this.pinned.has(f.replace(/\.mp3$/, "")))
       .map((f) => {
         const full = path.join(this.dir, f);
         try {
