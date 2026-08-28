@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var showConsent = false
     // The broadcast lives in another process; poll the shared heartbeat.
     @State private var broadcasting = AppGroup.isBroadcasting()
+    @State private var broadcastError: String? = AppGroup.broadcastError()?.0
     private let broadcastTick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -79,7 +80,10 @@ struct ContentView: View {
                 )
             }
             .onAppear { PushManager.shared.registerOnLaunch() }
-            .onReceive(broadcastTick) { _ in broadcasting = AppGroup.isBroadcasting() }
+            .onReceive(broadcastTick) { _ in
+                broadcasting = AppGroup.isBroadcasting()
+                broadcastError = AppGroup.broadcastError()?.0
+            }
         }
     }
 
@@ -99,14 +103,27 @@ struct ContentView: View {
             HStack(spacing: 6) {
                 Image(systemName: broadcasting ? "rectangle.on.rectangle" : "rectangle.dashed")
                     .foregroundStyle(broadcasting ? .green : .secondary)
-                Text(broadcasting
-                     ? "Screen shared - Zeca can see what you are looking at"
-                     : "Screen not shared - say the name instead of \u{201C}her\u{201D}")
+                Text(broadcastLine)
                     .font(.footnote)
-                    .foregroundStyle(broadcasting ? .primary : .secondary)
+                    .foregroundStyle(broadcastTint)
                     .multilineTextAlignment(.center)
             }
         }
+    }
+
+    /// Never just "not shared": either it is live, or it says WHY it is not -
+    /// the extension's own refusal when there is one, and otherwise how to
+    /// start it. "Screen not shared" with no next step is what sent the user
+    /// back to me instead of to the picker.
+    private var broadcastTint: Color {
+        if broadcasting { return .primary }
+        return broadcastError == nil ? .secondary : .orange
+    }
+
+    private var broadcastLine: String {
+        if broadcasting { return "Screen shared - Zeca can see what you are looking at" }
+        if let broadcastError { return "Screen sharing failed: \(broadcastError)" }
+        return "Screen not shared - tap the broadcast button below, pick Garrison, and turn the microphone OFF"
     }
 
     @ViewBuilder private var statusHeader: some View {

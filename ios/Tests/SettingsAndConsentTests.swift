@@ -81,4 +81,25 @@ final class SettingsAndConsentTests: XCTestCase {
         AppGroup.clearBroadcast()
         XCTAssertFalse(AppGroup.isBroadcasting())
     }
+
+    // The extension dies in its own process. Without this channel a refusal to
+    // start is invisible and the app can only say "not shared", which is true
+    // and useless - it sends the user back to the developer instead of to the
+    // thing they need to fix.
+    func testTheExtensionCanExplainWhyItRefusedToStart() {
+        AppGroup.clearBroadcast()
+        AppGroup.clearBroadcastError()
+        XCTAssertNil(AppGroup.broadcastError())
+
+        let now = Date()
+        AppGroup.noteBroadcastError("No capture URL set", now: now)
+        XCTAssertEqual(AppGroup.broadcastError(now: now)?.0, "No capture URL set")
+        // An error must never read as a live broadcast.
+        XCTAssertFalse(AppGroup.isBroadcasting(now: now))
+        // ...and it ages out rather than explaining today's silence forever.
+        XCTAssertNil(AppGroup.broadcastError(now: now.addingTimeInterval(7200)))
+
+        AppGroup.clearBroadcastError()
+        XCTAssertNil(AppGroup.broadcastError())
+    }
 }

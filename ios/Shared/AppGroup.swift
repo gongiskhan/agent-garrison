@@ -29,6 +29,8 @@ enum AppGroup {
         static let pendantIdentifier = "pendant.identifier" // CBPeripheral UUID string
         static let pendantAmbientConsent = "pendant.ambientConsent" // stronger one-time notice acknowledged
         static let broadcastHeartbeat = "broadcast.heartbeat" // epoch seconds, written by the extension
+        static let broadcastLastError = "broadcast.lastError" // why the extension refused to start
+        static let broadcastLastErrorAt = "broadcast.lastErrorAt"
     }
 
     static var pendantIdentifier: UUID? {
@@ -114,6 +116,32 @@ extension AppGroup {
 
     static func clearBroadcast() {
         defaults?.removeObject(forKey: Key.broadcastHeartbeat)
+    }
+
+    /// The extension dies in its own process with no console anyone reads, so
+    /// a refusal to start ("no capture endpoint set") was invisible from the
+    /// app - the user just saw "screen not shared" forever with no reason.
+    /// This is the same instrumentation lesson the spoken-voice bug taught:
+    /// report WHICH failure, or the next round is another guess.
+    static func noteBroadcastError(_ message: String, now: Date = Date()) {
+        defaults?.set(message, forKey: Key.broadcastLastError)
+        defaults?.set(now.timeIntervalSince1970, forKey: Key.broadcastLastErrorAt)
+        defaults?.removeObject(forKey: Key.broadcastHeartbeat)
+    }
+
+    /// -> (message, when) for an error recent enough to still explain the
+    /// current state. Cleared by a successful start.
+    static func broadcastError(now: Date = Date(), within: TimeInterval = 3600) -> (String, Date)? {
+        guard let message = defaults?.string(forKey: Key.broadcastLastError),
+              let at = defaults?.object(forKey: Key.broadcastLastErrorAt) as? Double,
+              now.timeIntervalSince1970 - at < within
+        else { return nil }
+        return (message, Date(timeIntervalSince1970: at))
+    }
+
+    static func clearBroadcastError() {
+        defaults?.removeObject(forKey: Key.broadcastLastError)
+        defaults?.removeObject(forKey: Key.broadcastLastErrorAt)
     }
 
     static func isBroadcasting(now: Date = Date()) -> Bool {
