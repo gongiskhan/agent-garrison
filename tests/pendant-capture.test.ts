@@ -479,6 +479,30 @@ describe("pendant capture path", () => {
     expect(handle.counters.read().wake_confirmations_spoken ?? 0).toBe(0);
   });
 
+  // The failure the user actually hit: say "Zeca", hear "Sim?", hear "Deixa
+  // comigo." - and then nothing, ever. Two cues promising work that was never
+  // attempted. A wake window that closes on nothing must SAY so; silence after
+  // the name was spoken is the one outcome the cues exist to remove.
+  it("says it did not catch anything instead of going silent", async () => {
+    const gw = await startStubGateway({ intent: "unknown" });
+    cleanups.push(() => gw.close());
+    const { handle, base } = await boot(
+      // The wake word alone, with nothing usable after it.
+      [{ afterFrames: 3, message: dgResults("Zeca.", true, 0, 1) }],
+      { speakEnabled: true, cueEnabled: true, wakeSilenceCloseMs: 120, gatewayUrl: gw.url }
+    );
+    const session = await streamPendant(base, "01UNHEARD0000001", 8);
+    await waitFor(() => session.speaks.some((a: any) => /percebi|catch/i.test(String(a.text))), 8000);
+    await waitFor(() => (handle.counters.read().wake_unheard_spoken ?? 0) >= 1, 8000);
+
+    // And the closing cue is SUPPRESSED for an empty capture: "Deixa comigo."
+    // would promise work that is not happening.
+    const closing = session.feedback.find((e: any) => e.name === "window_closed");
+    expect(closing?.empty).toBe(true);
+    expect(closing?.speak ?? null).toBeNull();
+    session.ws.close();
+  });
+
   // A socket send is not delivery. The app can be suspended with the socket
   // looking open - 26 of 44 speaks timed out in one real day - and the answer
   // must not die with the receipt: it becomes the push it originally skipped.

@@ -275,6 +275,13 @@ x-garrison:
       description: >-
         Ceiling on clarifying-question rounds per exchange. A model that keeps
         asking stops being answered.
+    - key: wake_unheard_enabled
+      type: boolean
+      default: true
+      description: >-
+        Say "Não percebi - repete?" when a wake window closes with nothing
+        usable. On by default: after the wake cue has already answered, silence
+        is the one outcome the wearer cannot interpret.
     - key: wake_progress_interval_ms
       type: integer
       default: 60000

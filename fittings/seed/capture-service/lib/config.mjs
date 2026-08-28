@@ -252,6 +252,9 @@ export function loadConfig(env = process.env) {
     // "Ainda estou a tratar disso." while a delegated turn runs - spoken only,
     // never pushed. 0 disables.
     wakeProgressIntervalMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_PROGRESS_INTERVAL_MS, 60000),
+    // Say "Não percebi - repete?" when a wake window closes with nothing
+    // usable, rather than leaving the wearer in silence after two cues.
+    wakeUnheardEnabled: parseBool(env.GARRISON_CAPTURESERVICE_WAKE_UNHEARD_ENABLED, true),
     // Which language the wake path confirms in. "auto" (the default) reads it
     // off what the user actually said; an explicit pt/en pins it.
     wakeLanguage: (() => {

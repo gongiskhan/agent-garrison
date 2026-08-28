@@ -1232,7 +1232,11 @@ export class WakeBus {
     s.parts = [];
     s.contextUsed = [];
     s.screen = null;
-    this.emitLifecycle("window_closed", { sessionId, reason, at: this.now() });
+    // `empty` rides the event so the closing cue can stay honest: promising
+    // "Deixa comigo." and then admitting you heard nothing is worse than one
+    // clean "Não percebi".
+    const nothingUsable = !command && context.length === 0;
+    this.emitLifecycle("window_closed", { sessionId, reason, empty: nothingUsable, at: this.now() });
     // Kill switch honored mid-session (I9): flag off between hit and close
     // means nothing dispatches and nothing persists.
     if (!this.cfg.wakeEnabled) {
@@ -1244,6 +1248,25 @@ export class WakeBus {
     // which is exactly the fragmented-speech case this is for.
     if (!command && context.length === 0) {
       this.counters.bump("wake_empty_commands");
+      // ...but dead-ending SILENTLY is the worst outcome the wearer can get:
+      // they said the name, heard "Sim?", heard "Deixa comigo." - and then
+      // nothing, ever. Two cues promising work that was never even attempted.
+      // Say so instead. Bounded by wake hits (you must have said the name), and
+      // speak-only: an unheard capture is not worth a banner.
+      if (this.cfg.wakeUnheardEnabled) {
+        this.counters.bump("wake_unheard_spoken");
+        void this.notifier
+          .send({
+            template: "wake_confirmation",
+            params: {
+              text: t("wake.unheard", {}, this.resolveLanguage("")),
+              lang: this.resolveLanguage(""),
+              sessionId,
+              speakOnly: true
+            }
+          })
+          .catch(() => []);
+      }
       return this.dispatchChain;
     }
     this.dispatchChain = this.dispatchChain

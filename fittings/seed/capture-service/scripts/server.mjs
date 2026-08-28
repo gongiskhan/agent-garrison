@@ -646,7 +646,9 @@ export async function startServer(cfg = loadConfig()) {
       const text = typeof params.text === "string" ? params.text.trim() : "";
       if (template === "wake_confirmation" && text && ackSinkRef?.speakableSession()) {
         const ackId = `wake-${ulid()}`;
-        const isProgress = params.progress === true;
+        // Progress pings and "didn't catch that" are presence, not information:
+        // spoken when someone is listening, never turned into a banner.
+        const isProgress = params.progress === true || params.speakOnly === true;
         // A question opens the expectation BEFORE the speak leaves, so the
         // phone's {spoken} receipt can arm it - never the other way round, or
         // the receipt races the registration.
@@ -871,7 +873,11 @@ export async function startServer(cfg = loadConfig()) {
         // A deduped wake never reaches here at all: FeedbackBus.emit returns
         // null before calling subscribers, so a swallowed second "Zeca" stays
         // silent for free.
-        const speak = cues.speechFor(event.name, languageMemory.current(event.session_id));
+        // A window that closed on nothing gets no "Deixa comigo." - the
+        // unheard line the wake bus is about to speak is the honest one.
+        const speak = event.empty
+          ? null
+          : cues.speechFor(event.name, languageMemory.current(event.session_id));
         if (speak) {
           // Before the sound exists, not after: the cue comes back through the
           // pendant mic a beat later, and while the capture window is open it
