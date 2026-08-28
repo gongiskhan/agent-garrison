@@ -165,6 +165,7 @@ export const MESSAGES = {
     "automate.started": "Started the {name} automation.",
     "automate.replay": "That run of {name} was already going.",
     "automate.failed": "Couldn't run {name}: {error}",
+    "wake.still_working": "Still working on it.",
     "screen.absent": "I can't see your screen. Turn on screen sharing, or tell me the name.",
     "screen.stale": "I haven't seen your screen for {seconds} seconds - tell me who you mean."
   },
@@ -207,6 +208,7 @@ export const MESSAGES = {
     "automate.started": "Comecei a automação {name}.",
     "automate.replay": "Essa execução do {name} já estava a correr.",
     "automate.failed": "Não consegui correr {name}: {error}",
+    "wake.still_working": "Ainda estou a tratar disso.",
     "screen.absent": "Não estou a ver o teu ecrã. Liga a partilha de ecrã, ou diz-me o nome.",
     "screen.stale": "Não vejo o teu ecrã há {seconds} segundos - diz-me a quem queres responder."
   }

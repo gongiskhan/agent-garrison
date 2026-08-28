@@ -478,6 +478,24 @@ describe("pendant capture path", () => {
     expect(exchanges[0].delivery).toBe("push");
     expect(handle.counters.read().wake_confirmations_spoken ?? 0).toBe(0);
   });
+
+  // A socket send is not delivery. The app can be suspended with the socket
+  // looking open - 26 of 44 speaks timed out in one real day - and the answer
+  // must not die with the receipt: it becomes the push it originally skipped.
+  it("falls back to a push when a spoken confirmation is never confirmed", async () => {
+    const gw = await startStubGateway({ intent: "query", answer: "Cerca de 28 gramas." });
+    cleanups.push(() => gw.close());
+    const { handle, base } = await boot(
+      [{ afterFrames: 3, message: dgResults("Zeca, quantos gramas tem uma onça?", true, 0, 2) }],
+      { speakEnabled: true, wakeSilenceCloseMs: 120, gatewayUrl: gw.url, speakReceiptTimeoutMs: 250 }
+    );
+    // autoAck:false - the frame arrives on a live socket and the "phone" never
+    // answers, exactly what a suspended app looks like from the server.
+    const session = await streamPendant(base, "01NORECEIPT000001", 8, { autoAck: false });
+    await waitFor(() => handle.counters.read().wake_confirmations_spoken === 1, 8000);
+    await waitFor(() => handle.counters.read().wake_confirmation_push_after_timeout === 1, 8000);
+    session.ws.close();
+  });
 });
 
 describe("feedback bus unit behaviour", () => {

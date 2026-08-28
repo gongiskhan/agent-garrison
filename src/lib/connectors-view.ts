@@ -12,6 +12,15 @@ export interface ConnectorSecretStatus {
 
 export interface ConnectorView {
   id: string;
+  /** The Fitting that provides this connector - what "station it" refers to. */
+  fittingId: string;
+  /**
+   * Whether that Fitting is stationed in the active composition. A connector
+   * that is not stationed has NOTHING to connect: its daemon is not running
+   * and no turn can reach it, however sealed its credentials look. The page
+   * must say that instead of presenting a dead card.
+   */
+  equipped: boolean;
   name: string;
   summary: string;
   auth: "oauth2" | "api_key" | "none";
@@ -37,9 +46,10 @@ export function buildConnectorsView(
   entries: LibraryEntry[],
   vaultSecretNames: readonly string[],
   oauthHealth: readonly OAuthHealth[],
-  opts: { vaultLocked?: boolean } = {}
+  opts: { vaultLocked?: boolean; equippedFittingIds?: ReadonlySet<string> } = {}
 ): ConnectorView[] {
   const vaultLocked = opts.vaultLocked ?? false;
+  const equippedIds = opts.equippedFittingIds ?? null;
   const present = new Set(vaultSecretNames);
   const healthBy = new Map(oauthHealth.map((h) => [h.connector, h]));
   const out: ConnectorView[] = [];
@@ -62,6 +72,10 @@ export function buildConnectorsView(
 
     out.push({
       id,
+      fittingId: entry.id,
+      // Unknown composition (equippedIds null) reads as equipped - the page
+      // must not claim "not stationed" on a read failure.
+      equipped: equippedIds ? equippedIds.has(entry.id) : true,
       name: entry.name,
       summary: entry.summary ?? entry.metadata.summary ?? "",
       auth: spec.auth,

@@ -275,6 +275,12 @@ x-garrison:
       description: >-
         Ceiling on clarifying-question rounds per exchange. A model that keeps
         asking stops being answered.
+    - key: wake_progress_interval_ms
+      type: integer
+      default: 60000
+      description: >-
+        While a delegated turn runs, speak "Ainda estou a tratar disso." this
+        often. Spoken only, never pushed; 0 disables.
     - key: screen_audio_transcribe
       type: boolean
       default: true

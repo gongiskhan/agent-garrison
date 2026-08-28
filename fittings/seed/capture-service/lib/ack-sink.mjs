@@ -23,7 +23,7 @@
 import path from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 
-const SPEAK_RECEIPT_TIMEOUT_MS = 30_000;
+const SPEAK_RECEIPT_TIMEOUT_MS = 30_000; // default; cfg.speakReceiptTimeoutMs overrides (tests)
 
 // Burst control for error pushes (2026-08-18: ~30 failures in 60 s put ~30
 // buzzes on the phone). The rules, in order of what matters:
@@ -48,6 +48,12 @@ export class AckSink {
     this.voice = voice;
     this.languageMemory = languageMemory;
     this.pendingSpeaks = new Map(); // ack id -> {sentAt, sessionId, timer}
+    // Fired when a forwarded speak gets NO receipt inside the window. A socket
+    // send is not delivery - the app can be suspended with the socket looking
+    // open - and 26 of 44 speaks timing out in one day is what "I didn't get a
+    // reply" looks like from the server. The capture-service uses this to fall
+    // back to a real push.
+    this.onSpeakTimeout = null;
     // In-memory on purpose: a restart is exactly when the operator should hear
     // the next failure again, and the window is minutes, not days.
     this.burst = { startedAt: 0, pushed: 0, suppressed: 0, subjects: new Map(), timer: null };
@@ -164,8 +170,15 @@ export class AckSink {
         session.socket.send(JSON.stringify({ type: "speak", ack: speak }));
         this.counters.bump("speaks_forwarded");
         const timer = setTimeout(() => {
-          if (this.pendingSpeaks.delete(ack.id)) this.counters.bump("speak_receipt_timeouts");
-        }, SPEAK_RECEIPT_TIMEOUT_MS);
+          if (this.pendingSpeaks.delete(ack.id)) {
+            this.counters.bump("speak_receipt_timeouts");
+            try {
+              this.onSpeakTimeout?.(ack.id);
+            } catch (err) {
+              this.log.error(`[capture-service] speak-timeout hook failed: ${err?.message ?? err}`);
+            }
+          }
+        }, this.cfg.speakReceiptTimeoutMs ?? SPEAK_RECEIPT_TIMEOUT_MS);
         timer.unref?.();
         this.pendingSpeaks.set(ack.id, { sentAt: this.now(), sessionId: session.record.id, timer });
         this.logAck({

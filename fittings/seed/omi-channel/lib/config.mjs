@@ -213,6 +213,9 @@ export function loadConfig(env = process.env) {
     // model that keeps asking stops being answered.
     wakeFollowupWindowMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_FOLLOWUP_WINDOW_MS, 12000),
     wakeFollowupMaxRounds: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_FOLLOWUP_MAX_ROUNDS, 3),
+    // "Ainda estou a tratar disso." while a delegated turn runs - spoken only,
+    // never pushed. 0 disables.
+    wakeProgressIntervalMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_PROGRESS_INTERVAL_MS, 60000),
     // Which language the wake path confirms in. "auto" (the default) reads it
     // off what the user actually said; an explicit pt/en pins it.
     wakeLanguage: (() => {

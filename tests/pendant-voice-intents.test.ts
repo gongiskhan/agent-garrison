@@ -389,3 +389,101 @@ describe("voice automations", () => {
     }
   });
 });
+
+describe("what the voice never says", () => {
+  // The gateway appends "[route: cc-opus | ...]" to replies. In a terminal,
+  // metadata; read ALOUD, bracket soup after every single answer.
+  it("strips the gateway's routing footer before a reply is spoken or stored", async () => {
+    const notified: any[] = [];
+    const h = bus({
+      runFn: reply({ intent: "delegate", request: "restaurante", ack: "Vou ver." }),
+      operativeFn: async () => ({
+        reply: "É bom: 4,6 em 5.\n\n[route: cc-opus | rule: research-l1 | profile: personal]\n[orchestrator-active]"
+      }),
+      notifier: {
+        send: async ({ params }: any) => {
+          notified.push(params);
+          return [];
+        },
+        cardUrl: async () => null
+      }
+    });
+    try {
+      h.wake.handleSegments({ sessionId: "s1", segments: [{ text: "Zeca, o restaurante é bom?", start: 0, end: 1 }] });
+      await h.wake.close("s1", "silence");
+      await h.wake.delegateChain;
+      const answer = notified.find((p) => p.text?.includes("4,6"));
+      expect(answer.text).toBe("É bom: 4,6 em 5.");
+      expect(answer.text).not.toContain("[route");
+      // Brackets INSIDE prose survive - only the trailing metadata block goes.
+      expect(WakeBus.stripRoutingFooter("Uso [este] formato.")).toBe("Uso [este] formato.");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  // "Sim. Olha achas que..." - the cue's echo, fused by the transcriber onto
+  // the front of the user's first words, where the exact-match echo lane
+  // cannot reach without eating real speech.
+  it("strips a leading cue echo off the command, and only off the front", async () => {
+    const classified: string[] = [];
+    const h = bus(
+      {
+        runFn: async ({ prompt }: any) => {
+          classified.push(prompt);
+          return { reply: JSON.stringify({ intent: "query", answer: "ok" }) };
+        }
+      },
+      { wakeEchoPrefixes: ["sim", "deixa comigo", "ok"] }
+    );
+    try {
+      h.wake.handleSegments({ sessionId: "s1", segments: [{ text: "Zeca.", start: 0, end: 1 }] });
+      h.wake.handleSegments({ sessionId: "s1", segments: [{ text: "Sim. Olha, achas que o Porta 67 é bom?", start: 1, end: 2 }] });
+      await h.wake.close("s1", "silence");
+      expect(classified[0]).toContain('Command (spoken right after the wake word): "Olha, achas que o Porta 67 é bom?"');
+      // A word merely STARTING with a prefix survives.
+      expect(h.wake.stripLeadingCueEcho("Simplesmente faz")).toBe("Simplesmente faz");
+      expect(h.wake.stripLeadingCueEcho("Cria uma tarefa sim")).toBe("Cria uma tarefa sim");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  // "Ainda estou a tratar disso." every interval while the operative works -
+  // the wearer's silence-reading is binary, and a minute of nothing means it
+  // died. Spoken only: params.progress makes the wrapper skip the push.
+  it("speaks a progress line while a long delegate turn runs, then stops", async () => {
+    const notified: any[] = [];
+    const h = bus(
+      {
+        runFn: reply({ intent: "delegate", request: "demorado", ack: "Vou ver." }),
+        operativeFn: async () => {
+          await new Promise((r) => setTimeout(r, 120));
+          return { reply: "feito" };
+        },
+        notifier: {
+          send: async ({ params }: any) => {
+            notified.push(params);
+            return [];
+          },
+          cardUrl: async () => null
+        }
+      },
+      { wakeProgressIntervalMs: 40 }
+    );
+    try {
+      h.wake.handleSegments({ sessionId: "s1", segments: [{ text: "Zeca, faz uma coisa demorada.", start: 0, end: 1 }] });
+      await h.wake.close("s1", "silence");
+      await h.wake.delegateChain;
+      const progress = notified.filter((p) => p.progress === true);
+      expect(progress.length).toBeGreaterThanOrEqual(2);
+      expect(progress[0].text).toBe("Ainda estou a tratar disso.");
+      // And it STOPS with the turn - nothing new after the answer.
+      const count = notified.filter((p) => p.progress === true).length;
+      await new Promise((r) => setTimeout(r, 100));
+      expect(notified.filter((p) => p.progress === true).length).toBe(count);
+    } finally {
+      h.cleanup();
+    }
+  });
+});

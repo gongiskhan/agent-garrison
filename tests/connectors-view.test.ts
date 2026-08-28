@@ -83,4 +83,23 @@ describe("buildConnectorsView (C6)", () => {
     expect(connectorIdOf(trello)).toBe("trello");
     expect(connectorIdOf(plain)).toBeNull();
   });
+
+  // "I go in the connections page and I don't see any way to connect": a
+  // connector whose Fitting is not stationed HAS no way to connect - no
+  // daemon, no reachable route - and the card must say that instead of
+  // rendering dead controls.
+  it("marks a connector unequipped when its Fitting is not in the composition", () => {
+    const views = buildConnectorsView([trello, google], [], [], {
+      equippedFittingIds: new Set(["google"])
+    });
+    const byId = Object.fromEntries(views.map((v) => [v.id, v]));
+    expect(byId.google.equipped).toBe(true);
+    expect(byId.trello.equipped).toBe(false);
+    expect(byId.trello.fittingId).toBe("trello");
+  });
+
+  it("reads as equipped when the composition could not be read - never falsely 'not stationed'", () => {
+    const views = buildConnectorsView([trello], [], []);
+    expect(views[0].equipped).toBe(true);
+  });
 });

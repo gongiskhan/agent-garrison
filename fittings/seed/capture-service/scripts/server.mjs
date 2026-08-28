@@ -593,6 +593,10 @@ export async function startServer(cfg = loadConfig()) {
   // `live` is what handlers read; port is corrected to the actually-bound one
   // after listen (tests pass port 0 for an ephemeral bind).
   const live = { ...cfg };
+  // The cue texts double as echo prefixes: a cue plays while the user is
+  // already talking, and its echo sometimes lands fused onto the front of the
+  // command's first segment where the exact-match echo lane cannot reach it.
+  live.wakeEchoPrefixes = ["sim", "yes", "deixa comigo", "on it", "ok", "okay"];
   const store = new CaptureStore(live.stateDir);
   const counters = new Counters(store.root, "server");
   const notifier = new CompanionNotifier({ cfg: live, store, counters, env: cfg.env ?? process.env });
@@ -626,16 +630,27 @@ export async function startServer(cfg = loadConfig()) {
   // below, and send() only ever runs after startup.
   let ackSinkRef = null;
   const answerBuses = [];
+  // Confirmations spoken but never CONFIRMED spoken. A socket send is not
+  // delivery - the app can be suspended with the socket looking open - so the
+  // payload is kept until the receipt lands, and the receipt timeout turns it
+  // into the push it originally skipped. Bounded: entries die with the receipt,
+  // the timeout, or the sweep below.
+  const awaitingReceipt = new Map(); // ackId -> { payload, at }
+  const sweepAwaiting = () => {
+    const cutoff = Date.now() - 10 * 60_000;
+    for (const [id, entry] of awaitingReceipt) if (entry.at < cutoff) awaitingReceipt.delete(id);
+  };
   const speakingNotifier = {
     send: async (payload) => {
       const { template, params = {} } = payload ?? {};
       const text = typeof params.text === "string" ? params.text.trim() : "";
       if (template === "wake_confirmation" && text && ackSinkRef?.speakableSession()) {
         const ackId = `wake-${ulid()}`;
+        const isProgress = params.progress === true;
         // A question opens the expectation BEFORE the speak leaves, so the
         // phone's {spoken} receipt can arm it - never the other way round, or
         // the receipt races the registration.
-        if (text.endsWith("?") && params.sessionId) {
+        if (!isProgress && text.endsWith("?") && params.sessionId) {
           for (const bus of answerBuses) {
             bus.expectAnswer(params.sessionId, ackId, {
               lang: params.lang ?? null,
@@ -655,6 +670,12 @@ export async function startServer(cfg = loadConfig()) {
           });
           if (res?.body?.delivered === "socket") {
             counters.bump("wake_confirmations_spoken");
+            // A progress line is presence, not information: if it was not
+            // heard, there is nothing to recover - never push it.
+            if (!isProgress) {
+              sweepAwaiting();
+              awaitingReceipt.set(ackId, { payload, at: Date.now() });
+            }
             return [{ means: "companion-speech", ok: true, ackId }];
           }
         } catch (err) {
@@ -662,6 +683,7 @@ export async function startServer(cfg = loadConfig()) {
         }
         // Not spoken: an unarmed answer expectation can never open, so it is
         // safe to leave behind; the push below is the delivery.
+        if (isProgress) return [{ means: "companion-speech", ok: false, skipped: "progress line, nothing listening" }];
       }
       return notifier.send(payload);
     },
@@ -809,12 +831,20 @@ export async function startServer(cfg = loadConfig()) {
   };
   // Every delegated or parked action opens the confirmation watch.
   const wrappedAfter = confirmBus;
+  ackSink.onSpeakTimeout = (ackId) => {
+    const entry = awaitingReceipt.get(ackId);
+    if (!entry) return;
+    awaitingReceipt.delete(ackId);
+    counters.bump("wake_confirmation_push_after_timeout");
+    void notifier.send(entry.payload).catch(() => []);
+  };
   ingress.onSpokenReceipt = (msg) => {
     ackSink.handleSpokenReceipt(msg);
     // The announcement has actually left the speaker now, so the microphone is
     // hearing the user again rather than us.
     if (msg?.ok) {
       const ackId = String(msg?.spoken ?? "");
+      awaitingReceipt.delete(ackId);
       wrappedAfter.onSpoken(ackId);
       // A spoken question opens its answer window only now - its own echo,
       // which the mic hears a beat later, can no longer answer it.

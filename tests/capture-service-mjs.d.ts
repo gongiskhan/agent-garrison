@@ -359,7 +359,9 @@ declare module "*/capture-service/lib/wake.mjs" {
   export function splitForSpeech(text: unknown, opts?: { maxChars?: number; maxChunks?: number }): string[];
   export function humanTime(iso: unknown, now?: Date, lang?: string): string;
   export class WakeBus {
+    static stripRoutingFooter(text: unknown): string;
     constructor(deps: Record<string, unknown>);
+    stripLeadingCueEcho(command: unknown): string;
     delegateChain?: Promise<unknown>;
     handleSegments(args: { sessionId: string; segments: unknown[] }): void;
     close(sessionId: string, reason: string): Promise<any>;
