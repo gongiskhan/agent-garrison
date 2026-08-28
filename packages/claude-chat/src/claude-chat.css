@@ -2207,7 +2207,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-conv-state-line b { font-weight: 700; }
 /* The approval plan quotes the ask verbatim (paragraph + "Planned:" list); the
  * newlines are the list, and a very long plan scrolls inside the banner. */
-.cc-conv-state-plan { white-space: pre-line; max-height: 40vh; overflow-y: auto; }
+.cc-conv-state-plan { white-space: pre-line; max-height: 26vh; overflow-y: auto; }
 .cc-conv-state-hint { margin: 0; font-size: 12px; font-weight: 600; color: var(--cc-fg); opacity: .85; }
 .cc-conv-state-attn {
   border-color: color-mix(in srgb, var(--cc-rail-warn, #d29922) 55%, transparent);
