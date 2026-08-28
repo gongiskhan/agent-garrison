@@ -60,6 +60,7 @@ describe("the answer window", () => {
   it("routes the next utterance - no wake word - into the SAME gateway session", async () => {
     const h = bus();
     try {
+      h.wake.session("s1"); // a question always follows a wake hit on this session
       h.wake.expectAnswer("s1", "ack-1", { lang: "pt", rounds: 0, eventId: "01EVENT0000000000000000000" });
       // Not armed yet: the question has not been spoken. A segment now is
       // ordinary ambient speech and must NOT be consumed.
@@ -81,6 +82,7 @@ describe("the answer window", () => {
   it("lets the wake word win over an open window", async () => {
     const h = bus();
     try {
+      h.wake.session("s1");
       h.wake.expectAnswer("s1", "ack-1", { lang: "pt" });
       h.wake.armAnswerWindow("ack-1");
       h.wake.handleSegments({ sessionId: "s1", segments: [{ text: "Zeca, cria uma tarefa nova.", start: 0, end: 1 }] });
@@ -99,6 +101,7 @@ describe("the answer window", () => {
     let t = 1000;
     const h = bus({ now: () => t });
     try {
+      h.wake.session("s1");
       h.wake.expectAnswer("s1", "ack-1", { lang: "pt" });
       h.wake.armAnswerWindow("ack-1");
       t += 13_000; // past wakeFollowupWindowMs
@@ -113,6 +116,7 @@ describe("the answer window", () => {
   it("caps the rounds - a model that keeps asking stops being answered", () => {
     const h = bus();
     try {
+      h.wake.session("s1");
       h.wake.expectAnswer("s1", "ack-4", { lang: "pt", rounds: 3 });
       expect(h.wake.armAnswerWindow("ack-4")).toBeNull(); // never registered
     } finally {
@@ -123,6 +127,7 @@ describe("the answer window", () => {
   it("files a follow-up under its PARENT exchange, so the transcript threads", async () => {
     const h = bus();
     try {
+      h.wake.session("s1");
       h.wake.expectAnswer("s1", "ack-1", { lang: "pt", rounds: 0, eventId: "01PARENT000000000000000000" });
       h.wake.armAnswerWindow("ack-1");
       h.wake.handleSegments({ sessionId: "s1", segments: [{ text: "para o jantar.", start: 0, end: 1 }] });
@@ -151,6 +156,20 @@ describe("the answer window", () => {
       h.wake.handleSegments({ sessionId: "s1", segments: [{ text: "uma frase qualquer.", start: 0, end: 1 }] });
       await h.wake.delegateChain;
       expect(h.prompts).toHaveLength(0);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  // The capture-service runs TWO buses and registers the expectation on both.
+  // Only the one that owns the session may open a window, or a pendant
+  // question would arm a phantom window on the companion bus - and consume a
+  // mic-mode answer meant for the pendant once both lanes are live at once.
+  it("refuses to open a window for a session this bus does not own", () => {
+    const h = bus();
+    try {
+      h.wake.expectAnswer("never-seen-here", "ack-9", { lang: "pt" });
+      expect(h.wake.armAnswerWindow("ack-9")).toBeNull();
     } finally {
       h.cleanup();
     }

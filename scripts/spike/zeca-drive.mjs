@@ -29,7 +29,7 @@ function dgFinal(text, start = 0, dur = 2) {
   });
 }
 
-export async function drive({ segments, classifierReply, label }) {
+export async function drive({ segments, classifierReply, operativeReply = "Resposta do operativo.", label }) {
   const home = mkdtempSync(path.join(os.tmpdir(), "zeca-drive-"));
   const dgSockets = [];
   const wss = await new Promise((resolve) => {
@@ -46,7 +46,7 @@ export async function drive({ segments, classifierReply, label }) {
       gatewayCalls.push(JSON.parse(body || "{}"));
       const isClassify = String(JSON.parse(body || "{}").message).includes("spoken wake-word command");
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ reply: isClassify ? JSON.stringify(classifierReply) : "Resposta do operativo." }));
+      res.end(JSON.stringify({ reply: isClassify ? JSON.stringify(classifierReply) : operativeReply }));
     });
   });
   await new Promise((r) => gateway.listen(0, "127.0.0.1", r));

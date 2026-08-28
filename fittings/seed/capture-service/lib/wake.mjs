@@ -868,6 +868,12 @@ export class WakeBus {
 
   expectAnswer(sessionId, ackId, { lang = "en", rounds = 0, eventId = null } = {}) {
     if (!sessionId || !ackId) return;
+    // Only the bus that actually owns this session may open a window. The
+    // capture-service runs two (companion + pendant) and registers on both,
+    // so without this a pendant question also arms a phantom window on the
+    // companion bus - inert today, but it would consume a mic-mode answer
+    // meant for the pendant the moment both lanes are live at once.
+    if (!this.sessions.has(sessionId)) return;
     if (rounds >= (this.cfg.wakeFollowupMaxRounds ?? 3)) {
       this.counters.bump("wake_followup_rounds_capped");
       return;
