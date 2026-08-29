@@ -29,7 +29,7 @@ function dgFinal(text, start = 0, dur = 2) {
   });
 }
 
-export async function drive({ segments, classifierReply, operativeReply = "Resposta do operativo.", label, beforeSegments = null }) {
+export async function drive({ segments, classifierReply, operativeReply = "Resposta do operativo.", label, beforeSegments = null, afterWake = null }) {
   const home = mkdtempSync(path.join(os.tmpdir(), "zeca-drive-"));
   const dgSockets = [];
   const wss = await new Promise((resolve) => {
@@ -101,7 +101,7 @@ export async function drive({ segments, classifierReply, operativeReply = "Respo
   await new Promise((r) => setTimeout(r, 250));
 
   // A second, concurrent session (the broadcast) when the scenario wants one.
-  const side = beforeSegments ? await beforeSegments(base, TOKEN) : null;
+  let side = beforeSegments ? await beforeSegments(base, TOKEN) : null;
   if (side) await new Promise((r) => setTimeout(r, 700));
 
   let seq = 0;
@@ -109,6 +109,11 @@ export async function drive({ segments, classifierReply, operativeReply = "Respo
     ws.send(Buffer.concat([Buffer.from([0]), (() => { const b = Buffer.alloc(16); b.writeUInt32LE(++seq, 0); b.writeDoubleLE(seq * 20, 4); b.writeUInt32LE(6, 12); return b; })(), Buffer.from("opusXX")]));
     await new Promise((r) => setTimeout(r, 40));
     for (const s of dgSockets) if (s.readyState === 1) s.send(dgFinal(seg.text, seg.start ?? 0, seg.dur ?? 2));
+    // The broadcast starting mid-capture, after the wake word has landed.
+    if (afterWake && !side) {
+      side = await afterWake(base, TOKEN);
+      await new Promise((r) => setTimeout(r, 120));
+    }
     await new Promise((r) => setTimeout(r, seg.gapMs ?? 120));
   }
   await new Promise((r) => setTimeout(r, 1800));

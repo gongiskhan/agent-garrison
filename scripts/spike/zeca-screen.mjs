@@ -19,7 +19,7 @@ function videoFrame(seq, ts, bytes) {
 }
 
 // Opens a broadcast session alongside the pendant one and keeps pushing frames.
-async function openBroadcast(base, token) {
+async function openBroadcast(base, token, { firstFrameDelayMs = 0 } = {}) {
   const ws = new WebSocket(base.replace("http", "ws") + "/capture/stream", {
     headers: { authorization: `Bearer ${token}` }
   });
@@ -32,8 +32,14 @@ async function openBroadcast(base, token) {
     consent: "shown"
   }));
   let seq = 0;
-  const timer = setInterval(() => ws.send(videoFrame(++seq, seq * 667, JPEG)), 300);
-  return { ws, stop: () => { clearInterval(timer); ws.close(); } };
+  let timer = null;
+  // The real race: the broadcast is open but its FIRST frame has not landed
+  // when the wake word does - which is what "start sharing, then speak
+  // immediately" looks like from the server.
+  const start = setTimeout(() => {
+    timer = setInterval(() => ws.send(videoFrame(++seq, seq * 667, JPEG)), 300);
+  }, firstFrameDelayMs);
+  return { ws, stop: () => { clearTimeout(start); if (timer) clearInterval(timer); ws.close(); } };
 }
 
 const r = await drive({
@@ -44,7 +50,13 @@ const r = await drive({
   ],
   classifierReply: { intent: "delegate", request: "Responder que é melhor amanhã", needs_screen: true, ack: "Deixa-me ver o ecrã." },
   operativeReply: "Enviei a mensagem.",
-  beforeSegments: process.env.NO_SCREEN ? null : openBroadcast
+  // LATE=1 starts the broadcast only AFTER the wake word - the real "I turned
+  // sharing on and spoke immediately" race.
+  // LATE=1: the broadcast is live but silent until after the wake word - the
+  // "turned sharing on and spoke immediately" race.
+  beforeSegments: process.env.NO_SCREEN
+    ? null
+    : (base, token) => openBroadcast(base, token, { firstFrameDelayMs: process.env.LATE ? 900 : 0 })
 });
 
 console.log("\ncues       :", r.feedback.filter((f) => f.speak).map((f) => f.speak).join(" | "));

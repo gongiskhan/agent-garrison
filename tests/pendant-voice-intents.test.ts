@@ -486,4 +486,39 @@ describe("what the voice never says", () => {
       h.cleanup();
     }
   });
+
+  // Both of these filed durable memory notes today, with a spoken "guardei
+  // como nota" - untrue in spirit (nothing was asked) and noise in the vault.
+  it("does not turn a bare wake word or a one-word interjection into a note", async () => {
+    for (const text of ["Zeca.", "Boa."]) {
+      const h = bus({ runFn: reply({ intent: "unknown" }) }, { wakeUnheardEnabled: true });
+      try {
+        h.wake.handleSegments({ sessionId: "s1", segments: [{ text: "Zeca.", start: 0, end: 1 }] });
+        h.wake.handleSegments({ sessionId: "s1", segments: [{ text, start: 2, end: 3 }] });
+        const out = await h.wake.close("s1", "silence");
+        expect(out.result.intent).toBe("discarded");
+        expect(out.confirmation).toMatch(/percebi|catch/i);
+      } finally {
+        h.cleanup();
+      }
+    }
+  });
+
+  // Overnight the 6h language memory expires; falling back to English for a
+  // Portuguese household is the worse guess, and the STT pin is the one thing
+  // always true about this deployment.
+  it("falls back to the transcriber's language, not English", async () => {
+    const h = bus({}, { sttLanguage: "pt", wakeLanguage: null });
+    try {
+      expect(h.wake.resolveLanguage("")).toBe("pt");
+    } finally {
+      h.cleanup();
+    }
+    const en = bus({}, { sttLanguage: "en", wakeLanguage: null });
+    try {
+      expect(en.wake.resolveLanguage("")).toBe("en");
+    } finally {
+      en.cleanup();
+    }
+  });
 });

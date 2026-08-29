@@ -768,7 +768,13 @@ export class WakeBus {
     const fromCommand = detectLanguage(command);
     if (isLanguage(fromCommand)) return fromCommand;
     const configured = this.cfg.wakeLanguage;
-    return isLanguage(configured) ? configured : "en";
+    if (isLanguage(configured)) return configured;
+    // Last resort: the language the TRANSCRIBER is pinned to. Falling back to
+    // English for a Portuguese household - which is what happened overnight
+    // once the 6h language memory expired - is the worse guess by far, and the
+    // STT pin is the one thing that is always true about this deployment.
+    const stt = String(this.cfg.sttLanguage ?? "").slice(0, 2).toLowerCase();
+    return isLanguage(stt) ? stt : "en";
   }
 
   // Remember a just-created card and evict anything past the dedupe window, so
@@ -1571,8 +1577,27 @@ export class WakeBus {
           result: { intent: "note", saved: written.ok }
         };
       }
-      default:
-        // Unknown intent: save a note and SAY SO (spec).
+      default: {
+        // Unknown intent: save a note and SAY SO (spec) - but a ONE-WORD
+        // unknown is not a thought worth keeping. "Boa." became a durable
+        // memory note with a spoken "guardei como nota", which is noise in the
+        // vault and a small lie about what happened. Same spirit as the echo
+        // guard's token floor: too short to attribute, so do not.
+        const words = String(command ?? "")
+          .replace(/[^\p{L}\p{N}\s]/gu, " ")
+          .split(/\s+/u)
+          .filter(Boolean);
+        // Zero words is an unrecoverable capture and keeps its existing
+        // contract below (fallbackNote counts it and discards it). Only the
+        // ONE-word case is new.
+        if (words.length === 1) {
+          this.counters.bump("wake_unknown_too_short");
+          return {
+            confirmation: this.cfg.wakeUnheardEnabled ? t("wake.unheard", {}, lang) : null,
+            silent: !this.cfg.wakeUnheardEnabled,
+            result: { intent: "discarded", reason: "unknown intent, too short to keep" }
+          };
+        }
         return this.fallbackNote({
           command,
           eventId,
@@ -1580,6 +1605,7 @@ export class WakeBus {
           lang,
           reason: "unknown intent"
         });
+      }
     }
   }
 
@@ -1786,6 +1812,22 @@ export class WakeBus {
     // A command that leans on the screen, with no usable screen, must NOT be
     // delegated on a guess. Refusing in two seconds is far better for a wearable
     // than the wrong message two minutes later.
+    // The screen is pinned at the WAKE HIT so a 45-second capture window
+    // cannot fuse a screen the user stopped looking at. But that also misses
+    // the two commonest real cases: starting the broadcast and immediately
+    // speaking (its first frame lands a beat after the wake word), and turning
+    // sharing on DURING the window because Zeca just asked for it. So when the
+    // pin found nothing, look again now - still bounded by the same freshness
+    // window, so a stale screen is still refused.
+    let effectiveScreen = screen;
+    if (parsed.needs_screen && (!screen || screen.stale) && this.screenContextFn) {
+      const late = this.screenContextFn({ sessionId, atMs: this.now() });
+      if (late && !late.stale) {
+        this.counters.bump("wake_screen_late_bind");
+        effectiveScreen = late;
+      }
+    }
+    screen = effectiveScreen;
     if (parsed.needs_screen && (!screen || screen.stale)) {
       this.counters.bump("wake_screen_blocked");
       const seconds = screen?.ageMs ? Math.round(screen.ageMs / 1000) : 0;
@@ -2061,6 +2103,18 @@ export class WakeBus {
   // Takes a message KEY, never a rendered sentence: every caller reaches here
   // from a failure path, and translating an English string back afterwards is
   // not a thing that works.
+  // Is this "command" only the wake word said again, or a bare interjection?
+  // "Zeca. Zeca." and "Boa." were both filed as durable memory notes with a
+  // spoken "I saved it as a note" - which is untrue in spirit: nothing was
+  // asked, and the vault now holds noise. Treated as unheard instead.
+  isNothingSaid(command) {
+    const text = String(command ?? "").trim();
+    if (!text) return true;
+    const stripped = this.regex ? text.replace(new RegExp(this.regex.source, "giu"), " ") : text;
+    const words = stripped.replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/u).filter(Boolean);
+    return words.length === 0;
+  }
+
   fallbackNote({ command, eventId, key, lang = "en", reason }) {
     // An empty capture that nothing could be made of is not a note - it is
     // nothing. The note here IS the command ("content: command"), so an empty
@@ -2079,12 +2133,14 @@ export class WakeBus {
     // Guarded here rather than in the unknown-intent branch so it also covers the
     // gateway-offline, unparseable-reply, board-unreachable and delegation-off
     // callers: every one of them writes the command as the whole note.
-    if (!String(command ?? "").trim()) {
+    if (this.isNothingSaid(command)) {
       this.counters.bump("wake_unrecoverable_captures");
+      // Not silent any more: the wearer said the name and deserves to know it
+      // landed on nothing, rather than being told a note was saved.
       return {
-        confirmation: null,
-        silent: true,
-        result: { intent: "discarded", reason: `empty command (${reason})` }
+        confirmation: this.cfg.wakeUnheardEnabled ? t("wake.unheard", {}, lang) : null,
+        silent: !this.cfg.wakeUnheardEnabled,
+        result: { intent: "discarded", reason: `nothing said (${reason})` }
       };
     }
     const written = this.memoryWriter.write({
