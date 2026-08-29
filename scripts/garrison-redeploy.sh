@@ -32,8 +32,14 @@ BASE="http://127.0.0.1:${PROD_PORT}"
 # scripts/install-node.sh). This script only needs to RESTART whichever one
 # manages this box; every other step (build, down, wait, unlock, up, tailnet
 # publish) is already OS-neutral bash + curl + node.
-UNIT="garrison-prod.service"
-LAUNCHD_LABEL="io.garrison.node"
+# Overridable so a box enrolled under other labels can still redeploy: this Mac
+# has run com.garrison.jarvis since long before io.garrison.node existed, and
+# its enrolment path is blocked (install-node.sh wants a token from dev-madrid,
+# which is no longer in the tailnet).
+UNIT="${GARRISON_SUPERVISOR_UNIT:-garrison-prod.service}"
+LAUNCHD_LABEL="${GARRISON_SUPERVISOR_LABEL:-io.garrison.node}"
+# The out-of-tree watcher, when one is loaded — see restart_supervised.
+RESTART_WATCH_LABEL="${GARRISON_RESTART_WATCH_LABEL:-com.garrison.restart-watch}"
 
 composition="${1:-}"
 if [ -z "$composition" ]; then
