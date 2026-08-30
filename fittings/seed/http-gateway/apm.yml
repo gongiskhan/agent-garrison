@@ -41,6 +41,59 @@ x-garrison:
         that records the literal API request/response into the session log
         (api-domain events, credentials redacted). Audit-grade "what the model
         saw"; off by default.
+    - key: session_log_proxy_dump
+      type: string
+      default: ''
+      description: >-
+        Directory the logging proxy additionally writes each literal request
+        body to, whole and untruncated (bodies only - never headers, so no
+        credentials). Empty disables it. Only meaningful with
+        session_log_proxy on; for auditing an assembled prompt the session
+        log's payload cap makes unusable.
+    - key: stretch_claude_home
+      type: boolean
+      default: false
+      description: >-
+        Point spawned stretches at a Garrison-owned CLAUDE_CONFIG_DIR
+        ($GARRISON_HOME/stretch-claude) instead of the user's real ~/.claude.
+        With the real one, the CLI injects the personal memory index, the
+        personal skills list and the agent-type list into every stretch - about
+        6,300 tokens on sonnet, shipped to every provider a stretch runs on, and
+        changing whenever personal memory changes, which forks the byte-stable
+        prefix that cross-stretch cache sharing needs. The Garrison directory
+        carries only symlinked credentials and a seeded state file.
+    - key: prefix_cache_ttl
+      type: string
+      default: ''
+      description: >-
+        Rewrite the cache_control TTL on the SYSTEM breakpoints of every
+        Anthropic request to "1h" (or "5m"). A stretch is a fresh session, so
+        with the 5-minute default each one re-writes the same ~43k boot prefix
+        instead of reading the previous stretch's. A 1h write costs 2x base
+        input against 1.25x and every later read is 0.1x, so it pays back the
+        first time a second stretch reuses it. Requires session_log_proxy.
+        Empty leaves the SDK's own choice alone.
+    - key: prefix_tool_search
+      type: string
+      default: ''
+      description: >-
+        Defer tool loading behind the API's tool search tool - "regex" or
+        "bm25". Every tool except those in prefix_tool_search_keep is sent with
+        defer_loading:true and discovered on demand. Measured 90.3% smaller tool
+        block on haiku. EXPERIMENTAL: the Agent SDK must round-trip the
+        server_tool_use and tool_search_tool_result blocks for the conversation
+        to continue. Requires session_log_proxy. Empty disables it.
+    - key: prefix_tool_search_keep
+      type: string
+      default: 'Bash,Read,Write,Edit'
+      description: >-
+        Comma-separated tools that stay loaded when prefix_tool_search is on,
+        or "none" to defer every one of them. The published advice to keep three
+        to five hot tools is written for interactive latency; a deferred tool
+        expands inline into the messages and is cached for the rest of the
+        stretch, so a long agentic stretch pays one search plus one expansion
+        rather than anything per call. Keeping Bash/Read/Write/Edit leaves 6,562
+        of a 7,077-token block on the table.
     - key: compact_enabled
       type: boolean
       default: true

@@ -4,7 +4,11 @@
 
 Garrison is a local web app that composes and runs autonomous coding-agent setups. You pick the parts, wire them up, hit Run, and watch a long-running agent - a **session** - do its thing. Every layer is visible: the manifest, the assembled prompt, the secrets vault, the capability wiring, the logs.
 
-**Platform, CLI, and model agnostic.** Claude Code is the default runtime, but it is one Fitting among several. Codex and Gemini CLI ship as runtime Fittings today, the Anthropic Agent SDK runtime too, and the Runtime Faculty's uniform adapter contract lets you add any other coding CLI (opencode, and others). The Orchestrator routes each task to whichever runtime, model, and effort you picked for it.
+**Platform, CLI, and model agnostic.** Claude Code is the default runtime, but it is one Fitting among several. Codex, Gemini CLI, OpenCode, the Anthropic Agent SDK, and HTTP-backed model routers (OpenRouter, Hugging Face) all ship as runtime Fittings today, plus `remote-shell` for driving an agent living in tmux on another machine. The Runtime Faculty's uniform adapter contract lets you add any other coding CLI. The Orchestrator routes each task to whichever runtime, model, and effort you picked for it.
+
+**Local-first, and now multi-node.** A single box is the common case, but Garrison runs as a **mesh**: enrol several machines against one state service and a session started on any node is pinned to that node and watchable from every other. Memory follows you across the mesh over a single git-synced vault; the scheduler leases shared jobs so they fire exactly once. (The mesh replaced the earlier "outposts" bridge in 2026-08.)
+
+**Every task is a conversation.** Work no longer marches through a row of duty lanes. The Kanban Loop is now a **run engine** of six state columns (Scheduled · Backlog · To do · Running · Needs input · Done), and each card *is* a conversation. Every model turn on it is a **stretch** - a fresh session handed a brief and required to write a handoff on the way out - and the Orchestrator picks the duty and level (Triage, Plan, Implement, Review, Test, and the rest) each stretch runs as. Cards advance by that handoff, not by being dragged from lane to lane; the whole arc reads back as one conversation with the model chips shown on every turn.
 
 Open-source. Local-first. Single-user. No cloud, no auth, no telemetry. Talks only to `localhost` (and, when you choose, your own Tailscale tailnet - see [Reach it from your phone](#reach-it-from-your-phone)).
 
@@ -78,7 +82,7 @@ An agent you cannot explain to a business client is an agent you cannot sell to 
 
 - Node.js 20+
 - The default runtime: Claude Code CLI installed and authenticated (`claude --version`), on a Claude Max account (runs with your auth, no API key billing)
-- Optional other runtimes, only if you compose them: the `codex` CLI (`codex-runtime`), the `gemini` CLI (`gemini-runtime`), or the Anthropic Agent SDK (`agent-sdk-runtime`). Leave `primary_runtime` unset to use Claude Code.
+- Optional other runtimes, only if you compose them: the `codex` CLI (`codex-runtime`), the `gemini` CLI (`gemini-runtime`), the `opencode` CLI (`opencode-runtime`), the Anthropic Agent SDK (`agent-sdk-runtime`), the HTTP model routers `openrouter-runtime` and `huggingface-runtime`, or `remote-shell-runtime` (delegate to an agent on another machine). Leave `primary_runtime` unset to use Claude Code.
 
 ### Install and run
 
@@ -94,7 +98,7 @@ Open [http://localhost:27777](http://localhost:27777). The Compose tab is where 
 ### Common commands
 
 ```bash
-npm start                                            # next dev + outpost host
+npm start                                            # next dev + mesh state service
 npm run typecheck                                    # tsc --noEmit
 npm test                                             # vitest run
 npm run check:integration                            # live SDK + composition smoke
@@ -140,7 +144,7 @@ Everything else - Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plan
 
 ```
    dev-env (27086)        screen-share (27079)   browser (27084)
-   monitor (27077)        web-channel (27083)    outposts (27082)
+   monitor (27077)        web-channel (27083)    ports · power
    voice (27085)          kanban-loop           improver          automations
 ```
 
@@ -168,7 +172,10 @@ A Fitting is not a config entry - it is a working part that *does something*. Th
 - `claude-code-runtime` - default primary; the node-pty engine driving the real interactive Claude Code CLI
 - `codex-runtime` - drives `codex exec` behind the uniform runtime adapter
 - `gemini-runtime` - drives `gemini -p` behind the same adapter
+- `opencode-runtime` - drives `opencode run` behind the adapter, resuming its own session across turns
 - `agent-sdk-runtime` - the Anthropic Agent SDK behind the adapter (structured, non-interactive)
+- `openrouter-runtime` / `huggingface-runtime` - HTTP model routers (no CLI to install) behind the adapter, for model breadth and open-weight models
+- `remote-shell-runtime` - delegate a turn to an agent living in tmux on another machine over an ssh transport, streaming its live TUI back
 
 **Memory** - recall across sessions, machines, and runtimes
 - `basic-memory` - Obsidian-native markdown vault indexed into a local SQLite knowledge graph, with write/search/read MCP tools shared across Claude, Codex, and Gemini
@@ -177,11 +184,14 @@ A Fitting is not a config entry - it is a working part that *does something*. Th
 **Channels** - how you reach the session
 - `web-channel-default` - mobile-first browser chat UI (port 27083), text or voice, replies read aloud
 - `slack-channel` - receives Slack mentions and DMs, round-trips replies through the gateway
+- `omi-channel` - the Omi always-on wearable as an ear and a mouth; conversations and day summaries triage into cards and memories, wake-word commands arrive as turns
+- `companion` - the Garrison iOS companion app for deliberate, session-based capture (meetings, dictation, car sessions)
 
 **Connectors** - authenticated, Vault-sealed calls to live external services
 - `google` - Gmail / Drive / Calendar as an OAuth2 action catalog
 - `trello` - board lists and cards as a callable action catalog
 - `deepgram-voice` - speech-to-text and text-to-speech on port 27085
+- `cortex-client` / `cortex-automations` - a remote capability reached through one pinned binary, and driving remote automation runs from the session
 
 **Coordination** - keep parallel sessions out of each other's way
 - `coord-agentmail` - shared local agent-mail server: identities, messaging, advisory file leases
@@ -190,7 +200,7 @@ A Fitting is not a config entry - it is a working part that *does something*. Th
 **Automation & self-improvement** - run without a direct prompt
 - `scheduler` - a cron-style always-on job scheduler daemon (no Claude dependency)
 - `automations` - a YAML automations engine (8 step types incl. browser, connector, sub-automation) with a live SSE run viewer
-- `kanban-loop` - a workflow state machine rendered as a phone-first Kanban board (some lanes hands-on, some run themselves)
+- `kanban-loop` - the run engine, rendered as a phone-first board of six state columns (Scheduled · Backlog · To do · Running · Needs input · Done). Every card is a **conversation**; each model turn is a **stretch** - a fresh session handed a brief and required to write a handoff on the way out - and the Orchestrator routes each stretch to a duty and level. Cards advance by handoff, not by moving between duty lanes
 - `improver` - nightly self-improvement: reads telemetry, transcripts, and evidence, then proposes reviewable skill / routing / memory changes
 
 **Gateway** - the local entry point inbound channels and runtimes route through
@@ -261,7 +271,7 @@ consumes:
   - { kind: voice, cardinality: optional-one }
 ```
 
-The `cardinality: any` literal is how the Orchestrator **discovers installed Fittings without hardcoding** - declare `consumes: [{ kind: connector, cardinality: any }]` and every stationed connector shows up. Add a new Fitting → it appears in the generated capabilities block automatically. No Garrison code change. The live kinds are `orchestrator`, `identity`, `memory-store`, `automation-runner`, `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`, `outpost`, `monitor`, `voice`, `duty`, and the derived `view`.
+The `cardinality: any` literal is how the Orchestrator **discovers installed Fittings without hardcoding** - declare `consumes: [{ kind: connector, cardinality: any }]` and every stationed connector shows up. Add a new Fitting → it appears in the generated capabilities block automatically. No Garrison code change. The live kinds are `orchestrator`, `identity`, `memory-store`, `automation-runner`, `connector`, `runtime`, `mcp-gateway`, `channel`, `vault`, `dev-env`, `screen-share`, `monitor`, `voice`, `duty`, and the derived `view`.
 
 Each provider Fitting can ship a `for_consumers` markdown block - usage guidance the runner injects under its line in the Orchestrator prompt at assembly time. Locality principle: the Fitting that ships a capability also ships the doc on how to use it.
 

@@ -15,54 +15,75 @@
 import path from "node:path";
 import { readFileSync, writeFileSync, statSync, renameSync } from "node:fs";
 import { openConversation, listConversations, conversationDir } from "./conversation-store.mjs";
+import {
+  loadModelRates,
+  priceUsage,
+  priceAggregate,
+  aggregateUsageRows,
+  emptyUsage,
+  addUsage,
+} from "./model-rates.mjs";
 
-// USD per MILLION tokens, list rates (cached from the Claude API docs,
-// 2026-08-26): input / output / cacheRead (~0.1x input) / cacheWrite (1.25x
-// input, 5-minute TTL). Aliases map to their current resolution. OpenAI
-// models ride the ChatGPT-plan subscription and are deliberately UNPRICED
-// here — add them to the override file if a list rate ever matters.
-export const MODEL_COSTS = {
-  "claude-haiku-4-5": { input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite: 1.25 },
-  haiku: { input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite: 1.25 },
-  "claude-sonnet-5": { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-sonnet-4-6": { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
-  sonnet: { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-opus-5": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-opus-4-8": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
-  opus: { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-fable-5": { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite: 12.5 },
-  fable: { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite: 12.5 },
-};
+// The rate table moved to data/model-rates.json + model-rates.mjs so that BOTH
+// sides of a cost comparison price through one function (see that module's
+// header). What is left here is the ledger-shaped view over it.
+//
+// `MODEL_COSTS` and `loadModelCosts` survive as thin adapters onto the shared
+// table: they were the repo's rate surface and callers still exist.
 
-/** Merge the operator's override file OVER the static map — a price correction
- *  must not need a redeploy, and a network lookup must not make metrics fail. */
+/** The shared table in the old {input, output, cacheRead, cacheWrite} shape. */
 export function loadModelCosts(env = process.env) {
-  const home = env.GARRISON_HOME?.trim() || path.join(process.env.HOME ?? "", ".garrison");
-  try {
-    const override = JSON.parse(readFileSync(path.join(home, "conversations", "model-costs.json"), "utf8"));
-    return { ...MODEL_COSTS, ...override };
-  } catch {
-    return MODEL_COSTS;
+  const rates = loadModelRates(env);
+  const out = {};
+  for (const [k, r] of Object.entries(rates.models ?? {})) {
+    out[k] = { input: r.input, output: r.output, cacheRead: r.cacheRead, cacheWrite: r.cacheWrite5m };
   }
+  for (const [alias, target] of Object.entries(rates.aliases ?? {})) {
+    if (out[target] && !out[alias]) out[alias] = out[target];
+  }
+  return out;
 }
 
-/** Price a stretch. usedTokens is the adapters' single cumulative counter
- *  (input+output un-split on most lanes), so the honest estimate prices it at
- *  the OUTPUT rate ceiling and the INPUT rate floor and reports the band. */
-export function priceStretch({ model, usedTokens }, costs = MODEL_COSTS) {
+export const MODEL_COSTS = loadModelCosts();
+
+/**
+ * Price ONE stretch.
+ *
+ * The exact path takes `usage` — the five token classes summed from the
+ * stretch's `usage` ledger rows — and returns a single number.
+ *
+ * The legacy path takes only the un-split cumulative `usedTokens` scalar, which
+ * cannot be priced exactly: the same token costs 0.1x as a cache read and 5x as
+ * output. That path still returns the honest BAND it always did (input rate as
+ * the floor, output rate as the ceiling) rather than inventing a point estimate.
+ * A conversation recorded before per-call capture existed reads through it.
+ */
+export function priceStretch({ model, usedTokens, usage = null, byModel = null }, costs = MODEL_COSTS, env = process.env) {
+  if (byModel && Object.keys(byModel).length) {
+    const priced = priceAggregate({ byModel }, { fallbackModel: model, env });
+    return priced.unpriced
+      ? { usd: null, unpriced: true, reason: priced.reason }
+      : { usd: priced.usd, usdLow: priced.usd, usdHigh: priced.usd, unpriced: false, exact: true };
+  }
+  if (usage) {
+    const priced = priceUsage(usage, { model, env });
+    return priced.unpriced
+      ? { usd: null, unpriced: true, reason: priced.reason }
+      : { usd: priced.usd, usdLow: priced.usd, usdHigh: priced.usd, unpriced: false, exact: true, breakdown: priced.breakdown };
+  }
   if (typeof usedTokens !== "number" || usedTokens <= 0) {
     return { usd: null, unpriced: true, reason: "no usage reported" };
   }
-  // Providers report DATED ids (claude-haiku-4-5-20251001) while the table
-  // keys the family — exact first, then the date suffix stripped, then the
-  // longest table key that prefixes the id. Never a fuzzy guess beyond that:
-  // an unknown family stays unpriced rather than borrowing a neighbour's rate.
   const id = String(model ?? "").toLowerCase();
   const undated = id.replace(/-\d{8}$/, "");
-  const rate = costs[model] ?? costs[id] ?? costs[undated] ??
+  const rate =
+    costs[model] ??
+    costs[id] ??
+    costs[undated] ??
     Object.entries(costs)
       .filter(([k]) => id.startsWith(`${k}-`) || id === k)
-      .sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? null;
+      .sort((a, b) => b[0].length - a[0].length)[0]?.[1] ??
+    null;
   if (!rate) return { usd: null, unpriced: true, reason: `no list rate for model ${model}` };
   const m = usedTokens / 1_000_000;
   return {
@@ -75,9 +96,10 @@ export function priceStretch({ model, usedTokens }, costs = MODEL_COSTS) {
 
 // ── per-conversation aggregation (cached) ───────────────────────────────────
 
-export function computeConversationMetrics(events, { costs = MODEL_COSTS } = {}) {
+export function computeConversationMetrics(events, { costs = MODEL_COSTS, env = process.env } = {}) {
   const stretches = [];
   const byStretch = new Map();
+  const usageRows = new Map();
   let digs = 0;
   let escalations = [];
   let delegations = { dispatched: 0, returned: 0, failed: 0, usedTokens: 0 };
@@ -100,6 +122,15 @@ export function computeConversationMetrics(events, { costs = MODEL_COSTS } = {})
         stretches.push(rec);
         break;
       }
+      case "usage": {
+        // Per-API-call rows. Keyed by stretch so a conversation can be re-priced
+        // from the raw provider numbers without re-running anything.
+        const k = e.payload?.stretchId ?? e.stretch;
+        if (!k) break;
+        if (!usageRows.has(k)) usageRows.set(k, []);
+        usageRows.get(k).push(e.payload);
+        break;
+      }
       case "stretch-ended": {
         const rec = byStretch.get(e.payload?.stretchId ?? e.stretch);
         if (rec) {
@@ -108,7 +139,26 @@ export function computeConversationMetrics(events, { costs = MODEL_COSTS } = {})
           rec.costUnknown = e.payload?.costUnknown ?? rec.usedTokens == null;
           rec.durationMs = e.payload?.durationMs ?? null;
           rec.next = e.payload?.next ?? null;
-          rec.cost = priceStretch({ model: rec.model, usedTokens: rec.usedTokens }, costs);
+          // Attribution comes from the OBSERVED model on the closing event, not
+          // the routed one on stretch-started: a provider fallback changes which
+          // model actually billed, and pricing the route would price a model that
+          // never ran.
+          rec.observedModel = e.payload?.model ?? null;
+          rec.provider = e.payload?.provider ?? rec.provider;
+          rec.runtime = e.payload?.runtime ?? rec.runtime;
+          rec.target = e.payload?.target ?? null;
+          rec.apiCalls = e.payload?.apiCalls ?? 0;
+          rec.sdkCostUsd = typeof e.payload?.sdkCostUsd === "number" ? e.payload.sdkCostUsd : null;
+          rec.usageBasis = e.payload?.usageBasis ?? null;
+          rec.subagentsInvisible = e.payload?.subagentsInvisible === true;
+          const rows = usageRows.get(rec.stretchId) ?? [];
+          const agg = aggregateUsageRows(rows);
+          rec.usage = agg.usage;
+          rec.byModel = agg.byModel;
+          if (!rec.apiCalls) rec.apiCalls = agg.apiCalls;
+          rec.cost = agg.apiCalls
+            ? priceStretch({ model: rec.observedModel ?? rec.model, byModel: agg.byModel }, costs, env)
+            : priceStretch({ model: rec.observedModel ?? rec.model, usedTokens: rec.usedTokens }, costs, env);
         }
         break;
       }
@@ -155,9 +205,41 @@ export function computeConversationMetrics(events, { costs = MODEL_COSTS } = {})
   }
 
   const priced = stretches.filter((s) => s.cost && !s.cost.unpriced);
+  const exact = priced.filter((s) => s.cost.exact);
+  // Per-model totals, priced once at the end so each model is charged its own
+  // rate rather than the stretch's headline model.
+  const byModel = {};
+  for (const st of stretches) {
+    for (const [model, entry] of Object.entries(st.byModel ?? {})) {
+      (byModel[model] ??= { apiCalls: 0, usage: emptyUsage() });
+      byModel[model].apiCalls += entry.apiCalls ?? 0;
+      byModel[model].usage = addUsage(byModel[model].usage, entry.usage);
+    }
+  }
+  for (const [model, entry] of Object.entries(byModel)) {
+    const p = priceUsage(entry.usage, { model, env });
+    entry.usd = p.unpriced ? null : p.usd;
+    entry.unpriced = p.unpriced;
+    if (p.unpriced) entry.reason = p.reason;
+  }
+  const usage = stretches.reduce((acc, s) => addUsage(acc, s.usage), emptyUsage());
+  const cacheAndInput = usage.inputTokens + usage.cacheReadTokens + usage.cacheWrite5mTokens + usage.cacheWrite1hTokens;
   return {
     stretches: stretches.length,
     perStretch: stretches,
+    apiCalls: stretches.reduce((a, s) => a + (s.apiCalls ?? 0), 0),
+    usage,
+    // The share of everything read into the model that came from cache. This is
+    // the number that explains a conversation's cost: cache reads are a tenth of
+    // input, so a high share means a long context is nearly free to re-read.
+    cacheReadShare: cacheAndInput ? usage.cacheReadTokens / cacheAndInput : 0,
+    // Exact only. A stretch priced from the legacy un-split counter contributes
+    // to usdLow/usdHigh below, never to this figure.
+    totalCostUsd: exact.length ? exact.reduce((a, s) => a + s.cost.usd, 0) : null,
+    exactlyPricedStretches: exact.length,
+    sdkCostUsd: stretches.some((s) => typeof s.sdkCostUsd === "number")
+      ? stretches.reduce((a, s) => a + (s.sdkCostUsd ?? 0), 0)
+      : null,
     totalUsedTokens: stretches.reduce((a, s) => a + (s.usedTokens ?? 0), 0),
     unpricedStretches: stretches.filter((s) => !s.cost || s.cost.unpriced).length,
     usdLow: priced.reduce((a, s) => a + (s.cost.usdLow ?? 0), 0),
@@ -177,15 +259,27 @@ export function computeConversationMetrics(events, { costs = MODEL_COSTS } = {})
     }, {}),
     byDuty: stretches.reduce((acc, s) => {
       const k = s.duty ?? "unknown";
-      (acc[k] ??= { stretches: 0, usedTokens: 0, escalations: 0 });
+      (acc[k] ??= { stretches: 0, usedTokens: 0, escalations: 0, apiCalls: 0, usd: 0, unpriced: 0 });
       acc[k].stretches += 1;
       acc[k].usedTokens += s.usedTokens ?? 0;
+      acc[k].apiCalls += s.apiCalls ?? 0;
+      if (s.cost?.exact) acc[k].usd += s.cost.usd;
+      else if (!s.cost || s.cost.unpriced) acc[k].unpriced += 1;
       return acc;
     }, {}),
+    // Where the money went, by the model that actually served the call.
+    byModel,
   };
 }
 
-/** Cached per-conversation metrics: recompute only when the log grew. */
+// Bump when the metrics computation changes shape or meaning. The cache is
+// keyed on this AND the rate table's date, because neither a code change nor a
+// price correction touches a finished log's mtime — without them, every
+// conversation that stopped growing would serve its pre-change numbers forever.
+export const METRICS_SCHEMA = 2;
+
+/** Cached per-conversation metrics: recompute when the log grew, the metrics
+ *  schema changed, or the rate table was updated. */
 export function conversationMetrics(conversationId, { env = process.env, costs } = {}) {
   const store = openConversation(conversationId, { role: "metrics", env });
   const cacheFile = path.join(store.dir, ".metrics.json");
@@ -195,17 +289,21 @@ export function conversationMetrics(conversationId, { env = process.env, costs }
   } catch {
     /* no log yet */
   }
+  const ratesTable = loadModelRates(env);
+  const ratesStamp = ratesTable.stamp ?? ratesTable.rates_updated ?? "none";
   try {
     const cached = JSON.parse(readFileSync(cacheFile, "utf8"));
-    if (cached.mtime === mtime) return cached.metrics;
+    if (cached.mtime === mtime && cached.schema === METRICS_SCHEMA && cached.rates === ratesStamp) {
+      return cached.metrics;
+    }
   } catch {
     /* recompute */
   }
   const { events } = store.range({ fromIndex: 0, limit: 100_000 });
-  const metrics = computeConversationMetrics(events, { costs: costs ?? loadModelCosts(env) });
+  const metrics = computeConversationMetrics(events, { costs: costs ?? loadModelCosts(env), env });
   try {
     const tmp = `${cacheFile}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ mtime, metrics }));
+    writeFileSync(tmp, JSON.stringify({ mtime, schema: METRICS_SCHEMA, rates: ratesStamp, metrics }));
     renameSync(tmp, cacheFile);
   } catch {
     /* cache is a convenience */
@@ -217,13 +315,15 @@ export function conversationMetrics(conversationId, { env = process.env, costs }
 export function rollupMetrics({ env = process.env, groupBy = "duty", since = null } = {}) {
   const costs = loadModelCosts(env);
   const groups = {};
-  const totals = { conversations: 0, stretches: 0, usdLow: 0, usdHigh: 0, unpricedStretches: 0, repeatedFailures: 0, digs: 0 };
+  const totals = { conversations: 0, stretches: 0, usd: 0, apiCalls: 0, usdLow: 0, usdHigh: 0, unpricedStretches: 0, repeatedFailures: 0, digs: 0 };
   for (const { id, mtime } of listConversations(env)) {
     if (since && mtime && mtime < since) continue;
     const m = conversationMetrics(id, { env, costs });
     if (!m.stretches) continue;
     totals.conversations += 1;
     totals.stretches += m.stretches;
+    totals.usd += m.totalCostUsd ?? 0;
+    totals.apiCalls += m.apiCalls ?? 0;
     totals.usdLow += m.usdLow;
     totals.usdHigh += m.usdHigh;
     totals.unpricedStretches += m.unpricedStretches;
@@ -231,9 +331,11 @@ export function rollupMetrics({ env = process.env, groupBy = "duty", since = nul
     if (m.repeatedFailure) totals.repeatedFailures += 1;
     for (const s of m.perStretch) {
       const key = groupBy === "model" ? (s.model ?? "unknown") : groupBy === "chosenBy" ? (s.chosenBy ?? "unknown") : (s.duty ?? "unknown");
-      (groups[key] ??= { stretches: 0, usedTokens: 0, usdLow: 0, usdHigh: 0, unpriced: 0, escalated: 0 });
+      (groups[key] ??= { stretches: 0, usedTokens: 0, usd: 0, apiCalls: 0, usdLow: 0, usdHigh: 0, unpriced: 0, escalated: 0 });
       groups[key].stretches += 1;
       groups[key].usedTokens += s.usedTokens ?? 0;
+      groups[key].apiCalls += s.apiCalls ?? 0;
+      if (s.cost?.exact) groups[key].usd += s.cost.usd;
       if (s.cost && !s.cost.unpriced) {
         groups[key].usdLow += s.cost.usdLow ?? 0;
         groups[key].usdHigh += s.cost.usdHigh ?? 0;

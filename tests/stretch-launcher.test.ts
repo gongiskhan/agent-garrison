@@ -110,7 +110,12 @@ describe("applyFlowPolicy", () => {
   it("implement → done is rewritten to review-before-done", () => {
     const store = openConversation("f1", { role: "gateway", env });
     const res = applyFlowPolicy("done", { store, duty: "implement", selectedDuties: ["implement", "adversarial-review", "test"] });
-    expect(res).toMatchObject({ next: "adversarial-review", rewritten: true, reason: "review-before-done" });
+    expect(res).toMatchObject({ next: "adversarial-review", rewritten: true });
+    // The reason now carries WHY the gate fired (see REVIEW_GATE in stretch.mjs
+    // and tests/review-gate.test.ts). A store with no recorded tool calls has an
+    // unreadable change size, and unknown is deliberately not treated as small.
+    expect(res.reason).toMatch(/^review-before-done: /);
+    expect(res.reason).toContain("unknown");
   });
 
   it("done without resolvable gate/run evidence is rewritten to test", () => {

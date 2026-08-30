@@ -34,9 +34,12 @@ import {
   defaultResolveEvidence,
   renderSummary,
   runLog,
+  aggregateUsageRows,
+  priceAggregate,
 } from "@garrison/claude-pty";
 import { boardBase, cardById } from "./autonomous-cards.mjs";
 import { resolveRunScope, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
+import { applyDutyHarnessProfile } from "./harness-profiles.mjs";
 
 export const STRETCH_TIMEOUT_MS = Number(process.env.GARRISON_STRETCH_TIMEOUT_MS) > 0
   ? Number(process.env.GARRISON_STRETCH_TIMEOUT_MS)
@@ -53,6 +56,91 @@ export const CONVERSATION_FLOW = {
   doneRequiresEvidence: { kinds: ["gate", "run"], otherwise: "test" },
   selfLoopCap: 2,
 };
+
+// review-before-done used to be unconditional, and a decorrelated second read
+// on another provider is not free: measured on the 2026-08-28 benchmark it was
+// $0.44 of a $2.11 conversation - 21% - across two passes that found nothing
+// the eighteen behaviour checks did not already cover. The second pass, over a
+// small follow-up edit after the first review had already passed, is the one
+// that is hard to defend.
+//
+// So the review is GATED on what the stretch actually did. The thresholds come
+// from the ledger: across 33 recorded conversations the median implement
+// stretch writes 7,670 bytes, so 12,000 is "more than a routine pass" rather
+// than a number picked to look reasonable. Everything uncertain resolves
+// TOWARDS reviewing: an incomplete handoff, a risky path, an explicit ask, or
+// an unreadable change size all review.
+export const REVIEW_GATE = {
+  changedBytes: 12_000,
+  changedFiles: 5,
+  // A second adversarial pass, after one already ran and passed, has to clear
+  // a much higher bar - that is the A-B loop this gate exists to stop.
+  repeatChangedBytes: 40_000,
+  riskyPath: /(auth|crypt|secret|token|vault|permission|password|credential|\.env)/i,
+  askedFor: /\b(review|adversarial|audit|scrutinis|scrutiniz)/i,
+};
+
+/** How much a stretch actually changed, read off the ledger rather than off
+ *  git: a conversation's cwd is not always a repo, and the tool calls are the
+ *  authoritative record of what was written. Longest input per tool id, because
+ *  a tool_use block's arguments arrive as a growing prefix of their JSON. */
+export function stretchChangeFootprint(store, stretchId) {
+  if (!store || !stretchId) return { bytes: 0, files: [], known: false };
+  const events = store.tail(4000, { kinds: ["session-event"] }) ?? [];
+  const byTool = new Map();
+  for (const e of events) {
+    if (e.stretch !== stretchId) continue;
+    for (const b of e.payload?.blocks ?? []) {
+      if (b?.type !== "tool_use" || !b.toolUseId) continue;
+      if (!["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(b.name)) continue;
+      const cur = byTool.get(b.toolUseId) ?? "";
+      const next = typeof b.input === "string" ? b.input : JSON.stringify(b.input ?? "");
+      if (next.length > cur.length) byTool.set(b.toolUseId, next);
+    }
+  }
+  let bytes = 0;
+  const files = new Set();
+  for (const raw of byTool.values()) {
+    bytes += raw.length;
+    try {
+      const j = JSON.parse(raw);
+      if (typeof j.file_path === "string") files.add(j.file_path);
+    } catch { /* a truncated prefix still counts its bytes */ }
+  }
+  return { bytes, files: [...files], known: byTool.size > 0 };
+}
+
+/** Should this implement stretch be read by someone else before it closes? */
+export function reviewGateDecision(store, { stretchId, handoff = null } = {}) {
+  const status = handoff?.status ?? null;
+  if (status && status !== "complete") {
+    return { review: true, reason: `handoff status ${status}` };
+  }
+  const foot = stretchChangeFootprint(store, stretchId);
+  if (!foot.known) {
+    // No readable footprint is not evidence of a small change.
+    return { review: true, reason: "change size unknown" };
+  }
+  const risky = foot.files.find((f) => REVIEW_GATE.riskyPath.test(f));
+  if (risky) return { review: true, reason: `touched a sensitive path (${risky})` };
+
+  // Did anyone ask for one? The task and any steering are the standing record
+  // of what the human wanted.
+  const asks = (store.tail(200, { kinds: ["user-message"] }) ?? [])
+    .some((e) => REVIEW_GATE.askedFor.test(String(e.payload?.text ?? "")));
+  if (asks) return { review: true, reason: "the request asks for a review" };
+
+  const reviewedBefore = (store.tail(200, { kinds: ["handoff"] }) ?? [])
+    .some((e) => String(e.payload?.duty ?? "").includes("review") && e.payload?.status === "complete");
+  const threshold = reviewedBefore ? REVIEW_GATE.repeatChangedBytes : REVIEW_GATE.changedBytes;
+  if (foot.bytes >= threshold || foot.files.length >= REVIEW_GATE.changedFiles) {
+    return { review: true, reason: `${foot.bytes}B across ${foot.files.length} file(s)` };
+  }
+  return {
+    review: false,
+    reason: `${foot.bytes}B across ${foot.files.length} file(s) is below the ${threshold}B / ${REVIEW_GATE.changedFiles}-file bar${reviewedBefore ? " for a repeat pass" : ""}`,
+  };
+}
 
 // Tripwire thresholds (locked): 3 attempts without progress, 2 consecutive
 // gate-duty failures. Tuned from validation data later.
@@ -169,8 +257,9 @@ export function tripwires(store, { duty, window = 12 } = {}) {
 }
 
 /** The two flow invariants. Returns {next, rewritten, reason}. */
-export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = null } = {}) {
+export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = null, stretchId = null, handoff = null } = {}) {
   if (next !== "done") return { next, rewritten: false, reason: null };
+  let skippedReview = null;
   // Triage never closes a conversation as done: its job is to open the work
   // and name the first working duty, and a capable floor model will happily do
   // a small task itself and hand off done (observed on the first live run —
@@ -180,10 +269,20 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
     const first = ["plan", "implement"].find((d) => selectedDuties.includes(d));
     if (first) return { next: first, rewritten: true, reason: "triage-never-done" };
   }
-  // review-before-done: implement work is not done until someone else read it.
+  // review-before-done: implement work is not done until someone else read it -
+  // when the change is big enough, risky enough, or unfinished enough to be
+  // worth another provider's turn. See REVIEW_GATE.
   if (CONVERSATION_FLOW.reviewBeforeDone.from.includes(duty)) {
     const insert = CONVERSATION_FLOW.reviewBeforeDone.insert.find((d) => selectedDuties.includes(d));
-    if (insert) return { next: insert, rewritten: true, reason: "review-before-done" };
+    if (insert) {
+      const gate = reviewGateDecision(store, { stretchId, handoff });
+      if (gate.review) {
+        return { next: insert, rewritten: true, reason: `review-before-done: ${gate.reason}` };
+      }
+      // Skipping is a decision, recorded as one. `done` still has to clear
+      // done-requires-evidence below, so this is not a shortcut to closing.
+      skippedReview = gate.reason;
+    }
   }
   // done-requires-evidence: somewhere in this conversation a gate/run evidence
   // ref must still resolve on disk. Restates the old terminal Test→Done
@@ -210,7 +309,7 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
       return { next: otherwise, rewritten: true, reason: "done-without-evidence" };
     }
   }
-  return { next, rewritten: false, reason: null };
+  return { next, rewritten: false, reason: null, skippedReview };
 }
 
 // ── brief ───────────────────────────────────────────────────────────────────
@@ -454,10 +553,12 @@ export async function runStretch(gateway, {
   route,
   brief,
   stretchId,
+  conversationId = null,
   cwd = null,
   turnId = null,
   onChunk = null,
   onEvent = null,
+  onUsage = null,
   signal = null,
   timeoutMs = STRETCH_TIMEOUT_MS,
 }) {
@@ -487,8 +588,12 @@ export async function runStretch(gateway, {
       ? gateway.runAgentSdkTurn(route, brief, onChunk, {
           sessionKey: `stretch:${stretchId}`,
           turnId: turnId ?? `stretch:${stretchId}`,
+          // The stretch's own conversation, so the layer-3 tools default to it
+          // instead of making the model quote an id back out of its brief.
+          ...(conversationId ? { conversationId } : {}),
           ...(cwd ? { cwd } : {}),
           onEvent,
+          onUsage,
           registerStop,
         })
       : gateway.runSecondaryTurn(route, brief, {
@@ -497,10 +602,22 @@ export async function runStretch(gateway, {
           ...(cwd ? { cwd } : {}),
         });
     const result = await Promise.race([turnPromise, timeout]);
+    // The exec lane has no streaming seam, so its rows only exist here, on the
+    // settled envelope. Hand them to the same sink the agent-sdk lane streams
+    // into so both lanes land in the ledger identically.
+    //
+    // ONLY the exec lane. The agent-sdk lane already streamed each row through
+    // onUsage as it happened and also returns them on the envelope; replaying
+    // those emitted every row twice and doubled every cost.
+    if (!isAgentSdk && typeof onUsage === "function" && Array.isArray(result?.usage)) {
+      for (const row of result.usage) onUsage(row);
+    }
     return {
       ok: true,
       reply: result?.reply ?? "",
       sessionId: result?.session_id ?? null,
+      usage: Array.isArray(result?.usage) ? result.usage : [],
+      sdkCostUsd: typeof result?.cost_usd === "number" ? result.cost_usd : null,
       usedTokens: typeof result?.usedTokens === "number" ? result.usedTokens : null,
       costUnknown: typeof result?.usedTokens !== "number",
       model: result?.model ?? route.target.model,
@@ -514,6 +631,11 @@ export async function runStretch(gateway, {
       ok: false,
       reply: "",
       sessionId: null,
+      // A timed-out stretch returns no rows, but the ones it already streamed
+      // through onUsage are in the ledger — which is precisely why capture is
+      // live rather than on settle.
+      usage: [],
+      sdkCostUsd: null,
       usedTokens: null,
       costUnknown: true,
       model: route.target.model,
@@ -977,9 +1099,12 @@ export async function runConversation(gateway, {
       // Effort comes from the duty LEVEL cell (rung supplies identity only).
       const baseRoute = await gateway.executionRouteFor({ duty, level });
       const effort = baseRoute?.target?.effort ?? null;
-      const route = ladder.ladder === "synthetic" && baseRoute
-        ? baseRoute
-        : routeFromRung(rungPick.rung, { effort, duty, level });
+      const route = applyDutyHarnessProfile(
+        ladder.ladder === "synthetic" && baseRoute
+          ? baseRoute
+          : routeFromRung(rungPick.rung, { effort, duty, level }),
+        duty
+      );
 
       const stretchId = `st_${newConversationId()}`;
       const ordinal = store.nextHandoffOrdinal();
@@ -1070,10 +1195,20 @@ export async function runConversation(gateway, {
         duty,
         syntheticFromChunks: route.target.runtime !== "agent-sdk",
       });
+      // Cost instrumentation: every API call the provider described, appended to
+      // L3 AS IT HAPPENS. Live rather than on settle so a stretch that times out
+      // still leaves behind what it burned — the old scalar reported null there.
+      const usageRows = [];
+      const onUsage = (row) => {
+        if (!row) return;
+        usageRows.push(row);
+        store.append({ kind: "usage", duty, stretch: stretchId, runId, payload: { ...row, ordinal } });
+      };
       const result = await runStretch(gateway, {
         route,
         brief,
         stretchId,
+        conversationId,
         cwd: scope.cwd,
         turnId: `${conversationId}#${ordinal}`,
         onChunk: (text, replace) => {
@@ -1084,6 +1219,7 @@ export async function runConversation(gateway, {
           onFrame("session_event", event);
           tee.event(event);
         },
+        onUsage,
         signal,
       });
       tee.flush();
@@ -1093,7 +1229,9 @@ export async function runConversation(gateway, {
         ? async (prompt) => {
             const r = await gateway.runAgentSdkTurn(route, prompt, null, {
               sessionKey: `stretch:${stretchId}`,
+              conversationId,
               turnId: `${conversationId}#${ordinal}#re-ask`,
+              onUsage: (row) => onUsage({ ...row, phase: "re-ask" }),
             });
             return r?.reply ?? "";
           }
@@ -1105,7 +1243,13 @@ export async function runConversation(gateway, {
           floorRoute.target.runtime === "agent-sdk" ? floorRoute : baseRoute ?? floorRoute,
           prompt,
           null,
-          { sessionKey: `repair:${stretchId}`, turnId: `${conversationId}#${ordinal}#repair`, ...(scope.cwd ? { cwd: scope.cwd } : {}) }
+          {
+            sessionKey: `repair:${stretchId}`,
+            conversationId,
+            turnId: `${conversationId}#${ordinal}#repair`,
+            onUsage: (row) => onUsage({ ...row, phase: "repair" }),
+            ...(scope.cwd ? { cwd: scope.cwd } : {}),
+          }
         );
         await gateway.releaseConversationSessions?.(`repair:${stretchId}`)?.catch?.(() => {});
         return r?.reply ?? "";
@@ -1129,7 +1273,16 @@ export async function runConversation(gateway, {
 
       // Persist the raw reply (L3) and the handoff event.
       const replyRef = store.writeNamedPayload(`stretch-${String(ordinal).padStart(4, "0")}-reply.md`, result.reply ?? "");
-      const policy = applyFlowPolicy(gate.handoff.nextSteps.next, { store, duty, selectedDuties, cwd: scope.cwd ?? gateway.compositionDir });
+      const policy = applyFlowPolicy(gate.handoff.nextSteps.next, {
+        store, duty, selectedDuties, cwd: scope.cwd ?? gateway.compositionDir,
+        stretchId, handoff: gate.handoff,
+      });
+      if (policy.skippedReview) {
+        store.append({
+          kind: "policy-rewrite", duty, stretch: stretchId,
+          payload: { from: "adversarial-review", to: "done", reason: `review skipped: ${policy.skippedReview}` },
+        });
+      }
       if (policy.rewritten) {
         store.append({ kind: "policy-rewrite", duty, stretch: stretchId, payload: { from: gate.handoff.nextSteps.next, to: policy.next, reason: policy.reason } });
         gate.handoff.nextSteps = { ...gate.handoff.nextSteps, next: policy.next, why: `${gate.handoff.nextSteps.why} [policy: ${policy.reason}]` };
@@ -1153,10 +1306,37 @@ export async function runConversation(gateway, {
 
       await writeCardTransition(gateway, { cardId: card?.id, conversationId, stretchId, phase: result.ok ? "ended" : "error", handoff: gate.handoff, duty });
 
+      // Aggregate the stretch's calls onto its closing event: this is the record
+      // every downstream number is built from. `cost_usd` is OUR arithmetic over
+      // the rate table; `sdkCostUsd` is what the provider's own SDK reported for
+      // the same calls. They are kept apart on purpose — a divergence beyond a
+      // rounding margin means the table or the parsing is wrong, and averaging
+      // the two would hide exactly that.
+      const usageAgg = aggregateUsageRows(usageRows);
+      const priced = priceAggregate(usageAgg, { fallbackModel: result.model ?? route.target.model });
       const endedPayload = {
         stretchId,
         ordinal,
         duty,
+        provider: route.target.provider ?? null,
+        runtime: route.target.runtime ?? null,
+        target: route.targetId ?? null,
+        effort: route.target.effort ?? null,
+        apiCalls: usageAgg.apiCalls,
+        inputTokens: usageAgg.usage.inputTokens,
+        outputTokens: usageAgg.usage.outputTokens,
+        cacheWriteTokens: usageAgg.usage.cacheWrite5mTokens + usageAgg.usage.cacheWrite1hTokens,
+        cacheWrite5mTokens: usageAgg.usage.cacheWrite5mTokens,
+        cacheWrite1hTokens: usageAgg.usage.cacheWrite1hTokens,
+        cacheReadTokens: usageAgg.usage.cacheReadTokens,
+        usageBasis: usageAgg.basis,
+        usageSources: usageAgg.sources,
+        ttlSplit: usageAgg.ttlSplit,
+        subagentsInvisible: usageAgg.subagentsInvisible,
+        byModel: usageAgg.byModel,
+        cost_usd: priced.usd,
+        costUnpricedReason: priced.reason,
+        sdkCostUsd: usageAgg.sdkCostUsd ?? result.sdkCostUsd ?? null,
         outcome: !result.ok ? "error" : gate.synthesized ? "synthesized" : gate.repairs ? "repaired" : "handoff",
         usedTokens: result.usedTokens,
         costUnknown: result.costUnknown,

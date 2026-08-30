@@ -1,0 +1,19 @@
+[
+ {
+  "name": "after-code",
+  "model": "claude-haiku-4-5",
+  "prefix": 28833,
+  "usage": {
+   "input_tokens": 10,
+   "output_tokens": 3,
+   "cache_creation_input_tokens": 23830,
+   "cache_read_input_tokens": 4993,
+   "cache_creation": {
+    "ephemeral_5m_input_tokens": 0,
+    "ephemeral_1h_input_tokens": 23830
+   }
+  },
+  "error": null,
+  "requests": 2
+ }
+]

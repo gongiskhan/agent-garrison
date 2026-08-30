@@ -13,7 +13,10 @@
 
 import http from "node:http";
 import https from "node:https";
+import fs from "node:fs";
+import path from "node:path";
 import { runLog } from "@garrison/claude-pty";
+import { shapeAnthropicRequest, describeToolSearchBlocks } from "./anthropic-request-shaper.mjs";
 
 const UPSTREAM = "https://api.anthropic.com";
 // Never persist credentials: these headers are dropped from the logged copy
@@ -28,6 +31,16 @@ function loggableHeaders(headers) {
   return out;
 }
 
+// The session log caps payloads, which is right for a log and useless for
+// auditing a 150k-character system prompt. GARRISON_ANTHROPIC_PROXY_DUMP=<dir>
+// additionally writes each request body whole, exactly as sent. Bodies only:
+// headers (and therefore credentials) never reach the dump.
+function dumpDir() {
+  const dir = String(process.env.GARRISON_ANTHROPIC_PROXY_DUMP ?? "").trim();
+  if (!dir) return null;
+  try { fs.mkdirSync(dir, { recursive: true }); return dir; } catch { return null; }
+}
+
 function tryParse(buf) {
   const text = buf.toString("utf8");
   try { return JSON.parse(text); } catch { return text; }
@@ -37,14 +50,50 @@ function tryParse(buf) {
  * Start the proxy on a loopback ephemeral port. Returns {url, close} — `url`
  * goes into ANTHROPIC_BASE_URL for the runtime spawn.
  */
-export function startAnthropicLogProxy({ upstream = UPSTREAM } = {}) {
+/**
+ * Start the proxy on a loopback ephemeral port. Returns {url, close} - `url`
+ * goes into ANTHROPIC_BASE_URL for the runtime spawn.
+ *
+ * `shape` turns the proxy from an observer into the one seam where Garrison can
+ * set request fields the Agent SDK does not expose: the cache TTL that decides
+ * whether six stretches share one prefix or write it six times, and deferred
+ * tool loading. Off unless configured; when on, every rewrite is logged beside
+ * the request it changed.
+ */
+export function startAnthropicLogProxy({ upstream = UPSTREAM, shape = null } = {}) {
   const upstreamUrl = new URL(upstream);
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
-      const body = Buffer.concat(chunks);
+      let body = Buffer.concat(chunks);
       const exchangeId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // Rewrite BEFORE logging and before forwarding, so the log records what
+      // was actually sent rather than what the SDK handed us.
+      let shaped = null;
+      if (shape && req.url.includes("/v1/messages") && !req.url.includes("count_tokens")) {
+        try {
+          const parsed = JSON.parse(body.toString("utf8"));
+          const result = shapeAnthropicRequest(parsed, shape);
+          if (result.changes.cacheTtl || result.changes.toolSearch) {
+            body = Buffer.from(JSON.stringify(result.body));
+            shaped = result.changes;
+          }
+        } catch {
+          // An unparseable body is forwarded untouched. Shaping is an
+          // optimisation; it must never be the reason a turn fails.
+        }
+      }
+      if (shaped) {
+        runLog()?.append({ domain: "api", kind: "api-request-shaped", payload: { exchangeId, ...shaped } });
+      }
+      const dir = dumpDir();
+      if (dir && req.url.includes("/v1/messages")) {
+        try {
+          fs.writeFileSync(path.join(dir, `${exchangeId}.request.json`), body.toString("utf8"));
+        } catch { /* a dump is diagnostics; never fail the turn over it */ }
+      }
       runLog()?.append({
         domain: "api",
         kind: "api-request",
@@ -62,7 +111,9 @@ export function startAnthropicLogProxy({ upstream = UPSTREAM } = {}) {
         port: upstreamUrl.port || 443,
         path: req.url,
         method: req.method,
-        headers: { ...req.headers, host: upstreamUrl.hostname },
+        // content-length is recomputed: a shaped body is a different length,
+        // and a stale header truncates the request into a 400.
+        headers: { ...req.headers, host: upstreamUrl.hostname, "content-length": String(body.length) },
       }, (upstreamRes) => {
         res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
         const respChunks = [];
@@ -72,6 +123,11 @@ export function startAnthropicLogProxy({ upstream = UPSTREAM } = {}) {
         });
         upstreamRes.on("end", () => {
           res.end();
+          const parsedResponse = tryParse(Buffer.concat(respChunks));
+          const blocks = describeToolSearchBlocks(parsedResponse);
+          if (blocks.serverToolUse.length || blocks.searchResults.length) {
+            runLog()?.append({ domain: "api", kind: "api-tool-search", payload: { exchangeId, ...blocks } });
+          }
           runLog()?.append({
             domain: "api",
             kind: "api-response",
@@ -79,7 +135,7 @@ export function startAnthropicLogProxy({ upstream = UPSTREAM } = {}) {
               exchangeId,
               status: upstreamRes.statusCode,
               headers: loggableHeaders(upstreamRes.headers),
-              body: tryParse(Buffer.concat(respChunks)),
+              body: parsedResponse,
             },
           });
         });

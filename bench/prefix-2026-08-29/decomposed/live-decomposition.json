@@ -1,0 +1,384 @@
+{
+ "claude-haiku-4-5": {
+  "file": "mte465db-w3dqzy.request.json",
+  "sections": {
+   "model": "claude-haiku-4-5",
+   "sections": {
+    "floor": 8,
+    "whole": 77433,
+    "systemAll": 39566,
+    "toolsAll": 31238,
+    "messages": 6620,
+    "presetPrompt": 6012,
+    "appendedPrompt": 33493
+   },
+   "tools": {
+    "Agent": 2199,
+    "AskUserQuestion": 1511,
+    "Bash": 3669,
+    "CronCreate": 1687,
+    "CronDelete": 607,
+    "CronList": 572,
+    "DesignSync": 3124,
+    "Edit": 936,
+    "EnterPlanMode": 1607,
+    "EnterWorktree": 1526,
+    "ExitPlanMode": 1129,
+    "ExitWorktree": 1206,
+    "Monitor": 2374,
+    "NotebookEdit": 972,
+    "PushNotification": 906,
+    "Read": 1184,
+    "ScheduleWakeup": 1550,
+    "Skill": 1021,
+    "TaskCreate": 1204,
+    "TaskGet": 785,
+    "TaskList": 817,
+    "TaskOutput": 917,
+    "TaskStop": 658,
+    "TaskUpdate": 1547,
+    "WebFetch": 988,
+    "WebSearch": 996,
+    "Workflow": 6393,
+    "Write": 773,
+    "mcp__garrison__create_continuation": 671,
+    "mcp__garrison__fetch_evidence": 697,
+    "mcp__garrison__list_automations": 557,
+    "mcp__garrison__list_scheduled_cards": 597,
+    "mcp__garrison__poll_origin_events": 721,
+    "mcp__garrison__record_improver_feedback": 701,
+    "mcp__garrison__run_automation": 611,
+    "mcp__garrison__run_card": 684,
+    "mcp__garrison__schedule_card": 997
+   },
+   "systemBlocks": [
+    {
+     "index": 0,
+     "chars": 84,
+     "tokens": 40
+    },
+    {
+     "index": 1,
+     "chars": 94,
+     "tokens": 21
+    },
+    {
+     "index": 2,
+     "chars": 154990,
+     "tokens": 39505
+    }
+   ],
+   "notes": [
+    "split system block at offset 26450: preset 26450 chars, appended 128540 chars"
+   ],
+   "messageBlocks": [
+    {
+     "index": 0,
+     "chars": 1766,
+     "tokens": 408,
+     "label": "<system-reminder> Available agent types for the Agent tool: - claude: Catch-all for any task that doesn't fit a more spe"
+    },
+    {
+     "index": 1,
+     "chars": 4620,
+     "tokens": 1197,
+     "label": "<system-reminder> The following skills are available for use with the Skill tool: - deep-research: Deep research harnes"
+    },
+    {
+     "index": 2,
+     "chars": 13498,
+     "tokens": 4031,
+     "label": "<system-reminder> As you answer the user's questions, you can use the following context: # claudeMd Codebase and user in"
+    },
+    {
+     "index": 3,
+     "chars": 3464,
+     "tokens": 980,
+     "label": "(the prompt)"
+    }
+   ]
+  },
+  "toolSubsets": {
+   "floor": 8,
+   "all": 31238,
+   "subsets": {
+    "measured-allowlist": {
+     "kept": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Agent",
+      "TaskOutput",
+      "AskUserQuestion"
+     ],
+     "missing": [
+      "ToolSearch"
+     ],
+     "tokens": 8213
+    },
+    "coding-core": {
+     "kept": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit"
+     ],
+     "missing": [],
+     "tokens": 5074
+    },
+    "coding-plus-agent": {
+     "kept": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Agent"
+     ],
+     "missing": [],
+     "tokens": 6777
+    },
+    "mcp-only": {
+     "kept": [
+      "mcp__garrison__create_continuation",
+      "mcp__garrison__fetch_evidence",
+      "mcp__garrison__list_automations",
+      "mcp__garrison__list_scheduled_cards",
+      "mcp__garrison__poll_origin_events",
+      "mcp__garrison__record_improver_feedback",
+      "mcp__garrison__run_automation",
+      "mcp__garrison__run_card",
+      "mcp__garrison__schedule_card"
+     ],
+     "missing": [],
+     "tokens": 2268
+    }
+   }
+  },
+  "toolCount": 37,
+  "toolNames": [
+   "Agent",
+   "AskUserQuestion",
+   "Bash",
+   "CronCreate",
+   "CronDelete",
+   "CronList",
+   "DesignSync",
+   "Edit",
+   "EnterPlanMode",
+   "EnterWorktree",
+   "ExitPlanMode",
+   "ExitWorktree",
+   "Monitor",
+   "NotebookEdit",
+   "PushNotification",
+   "Read",
+   "ScheduleWakeup",
+   "Skill",
+   "TaskCreate",
+   "TaskGet",
+   "TaskList",
+   "TaskOutput",
+   "TaskStop",
+   "TaskUpdate",
+   "WebFetch",
+   "WebSearch",
+   "Workflow",
+   "Write",
+   "mcp__garrison__create_continuation",
+   "mcp__garrison__fetch_evidence",
+   "mcp__garrison__list_automations",
+   "mcp__garrison__list_scheduled_cards",
+   "mcp__garrison__poll_origin_events",
+   "mcp__garrison__record_improver_feedback",
+   "mcp__garrison__run_automation",
+   "mcp__garrison__run_card",
+   "mcp__garrison__schedule_card"
+  ]
+ },
+ "claude-sonnet-5": {
+  "file": "mte46h63-4bh83e.request.json",
+  "sections": {
+   "model": "claude-sonnet-5",
+   "sections": {
+    "floor": 7,
+    "whole": 105236,
+    "systemAll": 54622,
+    "toolsAll": 41275,
+    "messages": 9332,
+    "presetPrompt": 8228,
+    "appendedPrompt": 46309
+   },
+   "tools": {
+    "Agent": 2631,
+    "AskUserQuestion": 1743,
+    "Bash": 4661,
+    "CronCreate": 1891,
+    "CronDelete": 505,
+    "CronList": 453,
+    "DesignSync": 3671,
+    "Edit": 933,
+    "EnterPlanMode": 1971,
+    "EnterWorktree": 1667,
+    "ExitPlanMode": 1257,
+    "ExitWorktree": 1267,
+    "Monitor": 2840,
+    "NotebookEdit": 986,
+    "PushNotification": 869,
+    "Read": 1260,
+    "ScheduleWakeup": 1763,
+    "Skill": 1097,
+    "TaskCreate": 1352,
+    "TaskGet": 745,
+    "TaskList": 799,
+    "TaskOutput": 897,
+    "TaskStop": 563,
+    "TaskUpdate": 1764,
+    "WebFetch": 1045,
+    "WebSearch": 1013,
+    "Workflow": 8086,
+    "Write": 714,
+    "mcp__garrison__create_continuation": 595,
+    "mcp__garrison__fetch_evidence": 623,
+    "mcp__garrison__list_automations": 434,
+    "mcp__garrison__list_scheduled_cards": 493,
+    "mcp__garrison__poll_origin_events": 657,
+    "mcp__garrison__record_improver_feedback": 614,
+    "mcp__garrison__run_automation": 512,
+    "mcp__garrison__run_card": 606,
+    "mcp__garrison__schedule_card": 1042
+   },
+   "systemBlocks": [
+    {
+     "index": 0,
+     "chars": 84,
+     "tokens": 49
+    },
+    {
+     "index": 1,
+     "chars": 94,
+     "tokens": 37
+    },
+    {
+     "index": 2,
+     "chars": 154902,
+     "tokens": 54537
+    }
+   ],
+   "notes": [
+    "split system block at offset 26362: preset 26362 chars, appended 128540 chars"
+   ],
+   "messageBlocks": [
+    {
+     "index": 0,
+     "chars": 13498,
+     "tokens": 5647,
+     "label": "<system-reminder> As you answer the user's questions, you can use the following context: # claudeMd Codebase and user in"
+    },
+    {
+     "index": 1,
+     "chars": 3752,
+     "tokens": 1462,
+     "label": "(the prompt)"
+    }
+   ]
+  },
+  "toolSubsets": {
+   "floor": 7,
+   "all": 41275,
+   "subsets": {
+    "measured-allowlist": {
+     "kept": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Agent",
+      "TaskOutput",
+      "AskUserQuestion"
+     ],
+     "missing": [
+      "ToolSearch"
+     ],
+     "tokens": 10715
+    },
+    "coding-core": {
+     "kept": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit"
+     ],
+     "missing": [],
+     "tokens": 6506
+    },
+    "coding-plus-agent": {
+     "kept": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Agent"
+     ],
+     "missing": [],
+     "tokens": 8783
+    },
+    "mcp-only": {
+     "kept": [
+      "mcp__garrison__create_continuation",
+      "mcp__garrison__fetch_evidence",
+      "mcp__garrison__list_automations",
+      "mcp__garrison__list_scheduled_cards",
+      "mcp__garrison__poll_origin_events",
+      "mcp__garrison__record_improver_feedback",
+      "mcp__garrison__run_automation",
+      "mcp__garrison__run_card",
+      "mcp__garrison__schedule_card"
+     ],
+     "missing": [],
+     "tokens": 2744
+    }
+   }
+  },
+  "toolCount": 37,
+  "toolNames": [
+   "Agent",
+   "AskUserQuestion",
+   "Bash",
+   "CronCreate",
+   "CronDelete",
+   "CronList",
+   "DesignSync",
+   "Edit",
+   "EnterPlanMode",
+   "EnterWorktree",
+   "ExitPlanMode",
+   "ExitWorktree",
+   "Monitor",
+   "NotebookEdit",
+   "PushNotification",
+   "Read",
+   "ScheduleWakeup",
+   "Skill",
+   "TaskCreate",
+   "TaskGet",
+   "TaskList",
+   "TaskOutput",
+   "TaskStop",
+   "TaskUpdate",
+   "WebFetch",
+   "WebSearch",
+   "Workflow",
+   "Write",
+   "mcp__garrison__create_continuation",
+   "mcp__garrison__fetch_evidence",
+   "mcp__garrison__list_automations",
+   "mcp__garrison__list_scheduled_cards",
+   "mcp__garrison__poll_origin_events",
+   "mcp__garrison__record_improver_feedback",
+   "mcp__garrison__run_automation",
+   "mcp__garrison__run_card",
+   "mcp__garrison__schedule_card"
+  ]
+ }
+}

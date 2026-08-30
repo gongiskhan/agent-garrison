@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClaudeChat, type ChatFeatures, type ComposerAdornmentApi } from "./ClaudeChat";
 import { resolvedChatScheme, subscribeChatTheme } from "./chat-theme";
 import { PayloadModal } from "./PayloadModal";
+import { ConversationCost } from "./ConversationCost";
 import { PayloadOpenerContext, type PayloadTarget } from "./payload-context";
 import type { RailOptions } from "./AttributionRail";
 import type { ChatTransport, TurnRouting } from "./transport";
@@ -181,6 +182,7 @@ export function ConversationView({
     <div className="cc-conversation" data-theme={themeOn ? scheme : undefined}>
       <div className="cc-conv-head">
         <span className="cc-conv-title" title={title ?? conversationId}>{title ?? conversationId}</span>
+        <ConversationCost conversationId={conversationId} base={root} generation={seq} />
         {search && (
           <div className="cc-conv-search">
             <input

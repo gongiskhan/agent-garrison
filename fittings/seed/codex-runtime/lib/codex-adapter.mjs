@@ -6,6 +6,9 @@
 // scraping. It implements the same RuntimeAdapter contract as ClaudeCodeAdapter;
 // the generic pool + runtime-bridge drive it unchanged.
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const FULL_ACCESS_PERMISSION_MODES = new Set(["auto", "bypassPermissions", "full-auto"]);
 const WORKSPACE_WRITE_PERMISSION_MODES = new Set(["acceptEdits", "allow-file-edits"]);
@@ -72,6 +75,183 @@ function totalTokens(usage) {
   return (Number.isFinite(input) ? input : 0) + (Number.isFinite(output) ? output : 0);
 }
 
+
+// ── rollout usage (cost instrumentation, 2026-08-28) ────────────────────────
+//
+// `codex exec --json` closes with ONE `turn.completed.usage` for the thread it
+// ran. That number is real, but it is NOT the bill: codex 0.149 spawns subagent
+// threads (`spawn_agent`), each with its own independent counter that never
+// reaches the parent's total. Measured on a real Garrison delegation, stdout
+// reported 4,102,975 tokens against an actual 11,255,541 — a 2.74x undercount.
+//
+// The honest source is the rollout under $CODEX_HOME/sessions. Every thread
+// writes one `rollout-<local-iso>-<uuid>.jsonl`; the parent's `thread_id` (from
+// the first stdout line) is the uuid in its filename AND the `session_id` every
+// one of its subagent threads carries. So the parent's id groups the whole tree.
+//
+// Per-call rows come from `total_token_usage` DELTAS, not from summing
+// `last_token_usage`: the CLI re-emits identical token_count records (a measured
+// 22% over-count when summed naively), while `total_token_usage` is strictly
+// monotone per thread.
+//
+// The rollout is written progressively, so this must run AFTER the child closes.
+
+export function codexHome(env = process.env) {
+  return env?.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+}
+
+function* jsonlRecords(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return;
+  }
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t.startsWith("{")) continue;
+    try {
+      yield JSON.parse(t);
+    } catch {
+      /* a torn final line is not a parse failure worth reporting */
+    }
+  }
+}
+
+/** Day directories under sessions/, newest first, bounded. */
+function sessionDayDirs(root, limit = 8) {
+  const dirs = [];
+  const listNumeric = (dir) => {
+    try {
+      return fs
+        .readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && /^\d+$/.test(e.name))
+        .map((e) => e.name)
+        .sort()
+        .reverse();
+    } catch {
+      return [];
+    }
+  };
+  for (const y of listNumeric(root)) {
+    for (const m of listNumeric(path.join(root, y))) {
+      for (const d of listNumeric(path.join(root, y, m))) {
+        dirs.push(path.join(root, y, m, d));
+        if (dirs.length >= limit) return dirs;
+      }
+    }
+  }
+  return dirs;
+}
+
+/**
+ * Every rollout file belonging to `threadId` — its own, plus every subagent
+ * thread whose session_meta names it as `session_id`. Matched on the uuid, never
+ * on the filename timestamp: that timestamp is LOCAL time while every payload
+ * timestamp is UTC, and deriving one from the other silently finds nothing.
+ */
+export function findRolloutFiles(threadId, { home, env = process.env, dayLimit = 4 } = {}) {
+  if (!threadId) return [];
+  const root = path.join(home ?? codexHome(env), "sessions");
+  const found = [];
+  for (const dir of sessionDayDirs(root, dayLimit)) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir).filter((f) => f.startsWith("rollout-") && f.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      const file = path.join(dir, name);
+      if (name.endsWith(`-${threadId}.jsonl`)) {
+        found.push({ file, own: true });
+        continue;
+      }
+      // Only the first session_meta record is read to test membership.
+      for (const rec of jsonlRecords(file)) {
+        if (rec?.type !== "session_meta") continue;
+        if (rec?.payload?.session_id === threadId && rec?.payload?.id !== threadId) {
+          found.push({ file, own: false });
+        }
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+const USAGE_KEYS = [
+  "input_tokens",
+  "cached_input_tokens",
+  "cache_write_input_tokens",
+  "output_tokens",
+  "reasoning_output_tokens",
+];
+
+/**
+ * Per-API-call usage rows for one rollout file, as monotone deltas of
+ * `total_token_usage`. Returns [] when the file reports no usage.
+ */
+export function rolloutUsageRows(file, { own = true } = {}) {
+  const rows = [];
+  let prev = null;
+  let model = null;
+  let threadId = null;
+  let threadSource = own ? "user" : "subagent";
+  let n = 0;
+  for (const rec of jsonlRecords(file)) {
+    if (rec?.type === "session_meta") {
+      // FIRST session_meta only. A forked subagent replays the parent's history,
+      // parent session_meta included, so a last-one-wins read tags every child's
+      // spend as the parent's and the parent/subagent split silently collapses.
+      if (threadId == null) {
+        threadId = rec.payload?.id ?? null;
+        threadSource = rec.payload?.thread_source ?? threadSource;
+      }
+      continue;
+    }
+    if (rec?.type === "turn_context") {
+      model = rec.payload?.model ?? model;
+      continue;
+    }
+    if (rec?.type !== "event_msg" || rec?.payload?.type !== "token_count") continue;
+    const total = rec.payload?.info?.total_token_usage;
+    if (!total || typeof total !== "object") continue;
+    const usage = {};
+    let any = false;
+    for (const k of USAGE_KEYS) {
+      const cur = Number(total[k] ?? 0);
+      const was = Number(prev?.[k] ?? 0);
+      const d = Number.isFinite(cur) && Number.isFinite(was) ? cur - was : 0;
+      usage[k] = d > 0 ? d : 0;
+      if (usage[k] > 0) any = true;
+    }
+    prev = total;
+    if (!any) continue; // a repeated token_count record contributes nothing
+    rows.push({
+      source: "codex-rollout",
+      callId: `${threadId ?? path.basename(file)}:${n++}`,
+      threadId,
+      threadSource,
+      model,
+      usage,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Every per-call usage row for a codex thread and its subagents.
+ * `{rows, files, complete}` — `complete` is false when no rollout was found, so
+ * a caller can fall back to the stdout aggregate and SAY that it did.
+ */
+export function readCodexThreadUsage(threadId, opts = {}) {
+  const files = findRolloutFiles(threadId, opts);
+  const rows = [];
+  for (const f of files) rows.push(...rolloutUsageRows(f.file, { own: f.own }));
+  return { rows, files: files.map((f) => f.file), complete: files.length > 0 };
+}
+
 /**
  * Parse a `codex exec --json` stdout stream.
  *
@@ -86,6 +266,10 @@ export function parseCodexJsonl(stdout) {
   const errors = [];
   let usage = null;
   let sawJson = false;
+  // The thread id is the join key to the rollout file under ~/.codex/sessions,
+  // which is the ONLY place a subagent's spend is visible (stdout reports the
+  // parent thread only). It arrives on the first line and used to be discarded.
+  let threadId = null;
   for (const line of String(stdout ?? "").split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
@@ -101,6 +285,7 @@ export function parseCodexJsonl(stdout) {
     // not a silent text loss.
     const type = evt.type ?? evt.msg?.type ?? null;
     const item = evt.item ?? evt.msg ?? evt;
+    if (type === "thread.started" && typeof evt.thread_id === "string") threadId = evt.thread_id;
     // ONLY the completed item (never `item.updated`, which repeats the same
     // item id mid-stream and would duplicate the reply text).
     if (type === "item.completed" || type === "agent_message") {
@@ -123,6 +308,7 @@ export function parseCodexJsonl(stdout) {
   }
   return {
     sawJson,
+    threadId,
     // A turn can emit more than one agent message; keep them all, in order.
     text: messages.join("\n\n"),
     usedTokens: totalTokens(usage),
@@ -284,7 +470,44 @@ export class CodexAdapter {
     const text = parsed.sawJson ? parsed.text : (r.stdout ?? "");
     session.usedTokens = parsed.usedTokens;
     session.usage = parsed.usage ?? null;
-    const usage = parsed.usedTokens == null ? {} : { usedTokens: parsed.usedTokens };
+    session.threadId = parsed.threadId ?? null;
+    // Provider-reported usage, per API call. The rollout is authoritative because
+    // it is the only source that sees subagent threads; the stdout aggregate is
+    // the fallback and is TAGGED as such so a reader can tell a complete number
+    // from a parent-thread-only one.
+    let usageRows = [];
+    let usageSource = null;
+    if (parsed.threadId) {
+      try {
+        const roll = readCodexThreadUsage(parsed.threadId, { env: session.config?.env ?? process.env });
+        if (roll.complete && roll.rows.length) {
+          usageRows = roll.rows;
+          usageSource = "codex-rollout";
+          session.usageFiles = roll.files;
+        }
+      } catch {
+        /* the rollout is telemetry: never fail a turn over it */
+      }
+    }
+    if (!usageRows.length && parsed.usage) {
+      usageRows = [
+        {
+          source: "codex-stdout",
+          callId: parsed.threadId ? `${parsed.threadId}:turn` : null,
+          threadId: parsed.threadId ?? null,
+          threadSource: "user",
+          model: session.model ?? session.config?.model ?? null,
+          usage: parsed.usage,
+          subagentsInvisible: true,
+        },
+      ];
+      usageSource = "codex-stdout";
+    }
+    session.usageRows = usageRows;
+    const usage = {
+      ...(parsed.usedTokens == null ? {} : { usedTokens: parsed.usedTokens }),
+      ...(usageRows.length ? { usage: usageRows, usageSource } : {}),
+    };
     // A cancelled turn's child was signalled, so it "fails" with only partial
     // output. That is not a runtime error to throw on: settle the turn with the
     // partial text and the explicit stop reason so the caller can badge it.

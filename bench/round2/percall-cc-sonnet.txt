@@ -1,0 +1,78 @@
+{"run_label":"","side":"claude-code","task_id":"","source":"jsonl-transcript","wall_clock_seconds":524,"api_calls":61,"input_tokens":122,"output_tokens":43491,"cache_write_tokens":125190,"cache_read_tokens":4772828,"total_cost_usd":1.8904796000000001,"compactions":0,"stretches":[{"duty":"","model":"claude-sonnet-5","effort":"","api_calls":61,"input_tokens":122,"output_tokens":43491,"cache_write_tokens":125190,"cache_read_tokens":4772828,"cost_usd":1.8904796000000001}],"_meta":{"session_id":"78296ab7-29a9-4ec7-89d9-b9330790d29d","transcript_files":["/home/ggomes/.claude/projects/-home-ggomes-dev-bench2-todo-cc-sonnet/78296ab7-29a9-4ec7-89d9-b9330790d29d.jsonl"],"transcript_count":1,"assistant_records":116,"deduped_api_calls":61,"unpriced_models":[],"rates_updated":"2026-08-29","by_model":{"claude-sonnet-5":{"api_calls":61,"usd":1.8904796000000001,"unpriced":false}}}}
+
+per-call usage rows (cache writes split by TTL):
+(a stretch's `result` row is its settled TOTAL; the `assistant` rows above it are
+ the per-call record of the same tokens. Summing both would double-count, so the
+ arithmetic below runs the same aggregateUsageRows the exported total came from.)
+model                        src                 input     output       cw5m       cw1h  cacheRead
+claude-sonnet-5              transcript              2        268          0      39958          0
+claude-sonnet-5              transcript              2       7042          0       1068      39958
+claude-sonnet-5              transcript              2        147          0       7060      41026
+claude-sonnet-5              transcript              2        146          0        197      48086
+claude-sonnet-5              transcript              2        349          0        337      48283
+claude-sonnet-5              transcript              2        139          0        451      48620
+claude-sonnet-5              transcript              2        528          0        240      49071
+claude-sonnet-5              transcript              2        774          0        629      49311
+claude-sonnet-5              transcript              2        916          0        876      49940
+claude-sonnet-5              transcript              2        154          0       1017      50816
+claude-sonnet-5              transcript              2       1260          0        255      51833
+claude-sonnet-5              transcript              2        119          0       1365      52088
+claude-sonnet-5              transcript              2        420          0        498      53453
+claude-sonnet-5              transcript              2        905          0        457      53951
+claude-sonnet-5              transcript              2        125          0       1030      54408
+claude-sonnet-5              transcript              2        674          0        232      55438
+claude-sonnet-5              transcript              2         84          0        803      55670
+claude-sonnet-5              transcript              2        513          0        515      56473
+claude-sonnet-5              transcript              2        334          0       1340      56988
+claude-sonnet-5              transcript              2        317          0       1049      58328
+claude-sonnet-5              transcript              2        497          0        509      59377
+claude-sonnet-5              transcript              2       1448          0       1522      59886
+claude-sonnet-5              transcript              2         85          0       1576      61408
+claude-sonnet-5              transcript              2         96          0        158      62984
+claude-sonnet-5              transcript              2        556          0        601      63142
+claude-sonnet-5              transcript              2        947          0       1307      63743
+claude-sonnet-5              transcript              2        149          0       1442      65050
+claude-sonnet-5              transcript              2        107          0        231      66492
+claude-sonnet-5              transcript              2        950          0       5127      66723
+claude-sonnet-5              transcript              2       1615          0       1027      71850
+claude-sonnet-5              transcript              2        232          0       1719      72877
+claude-sonnet-5              transcript              2         82          0        357      74596
+claude-sonnet-5              transcript              2        263          0       5101      74953
+claude-sonnet-5              transcript              2        306          0       1525      80054
+claude-sonnet-5              transcript              2        213          0       1351      81579
+claude-sonnet-5              transcript              2        674          0        591      82930
+claude-sonnet-5              transcript              2        107          0        805      83521
+claude-sonnet-5              transcript              2        219          0        162      84326
+claude-sonnet-5              transcript              2        428          0        353      84488
+claude-sonnet-5              transcript              2        720          0        560      84841
+claude-sonnet-5              transcript              2        806          0        877      85401
+claude-sonnet-5              transcript              2        588          0       1119      86278
+claude-sonnet-5              transcript              2        780          0      15695      87397
+claude-sonnet-5              transcript              2       2638          0        904     103092
+claude-sonnet-5              transcript              2       2071          0       2693     103996
+claude-sonnet-5              transcript              2        844          0       2227     106689
+claude-sonnet-5              transcript              2       2556          0       1162     108916
+claude-sonnet-5              transcript              2        627          0       3791     110078
+claude-sonnet-5              transcript              2        310          0        706     113869
+claude-sonnet-5              transcript              2        751          0        373     114575
+claude-sonnet-5              transcript              2       2303          0       1290     114948
+claude-sonnet-5              transcript              2       1861          0       2404     116238
+claude-sonnet-5              transcript              2        377          0       2507     118642
+claude-sonnet-5              transcript              2        570          0        735     121149
+claude-sonnet-5              transcript              2        154          0        668     121884
+claude-sonnet-5              transcript              2        188          0        254     122552
+claude-sonnet-5              transcript              2        180          0        485     122806
+claude-sonnet-5              transcript              2        133          0        253     123291
+claude-sonnet-5              transcript              2        156          0        634     123544
+claude-sonnet-5              transcript              2        337          0        566     124178
+claude-sonnet-5              transcript              2        353          0        446     124744
+TOTAL                                              122      43491          0     125190    4772828
+
+worked arithmetic, per model, at the rates in data/model-rates.json:
+  claude-sonnet-5
+    input                122 x $2      / 1e6 = 0.0002440
+    output             43491 x $10     / 1e6 = 0.4349100
+    cacheWrite1h      125190 x $4      / 1e6 = 0.5007600
+    cacheRead        4772828 x $0.2    / 1e6 = 0.9545656
+    subtotal                                    $1.8904796
+  TOTAL $1.8904796   (reported total_cost_usd: 1.8904796000000001)

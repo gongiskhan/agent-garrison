@@ -1,0 +1,222 @@
+{
+ "measured_on": "2026-08-29",
+ "method": "Route A: the gateway's own logging proxy (session_log_proxy) dumped the LITERAL request bodies of a live conversation; each section was then counted with the provider's /v1/messages/count_tokens endpoint, not a local estimator. Route B, as a cross-check: differential probes toggling one harness component at a time and reading cache_creation_input_tokens on the first API call.",
+ "observed_first_call_prefix_before": {
+  "triage/claude-haiku-4-5": 77571,
+  "implement/claude-sonnet-5": 105188,
+  "test/claude-sonnet-5": 105478,
+  "adversarial-review/gpt-5.6-sol": 16243
+ },
+ "observed_first_call_prefix_after": {
+  "triage/claude-haiku-4-5": 29943,
+  "implement/claude-sonnet-5": 43248,
+  "adversarial-review/gpt-5.6-sol": 16804
+ },
+ "decomposition": {
+  "claude-haiku-4-5": {
+   "counted_whole": 77433,
+   "claude_code_preset": 6012,
+   "garrison_assembled_prompt": 33493,
+   "tool_schemas": 31238,
+   "user_message": 6620,
+   "floor": 8,
+   "tool_count": 37,
+   "message_blocks": [
+    {
+     "index": 0,
+     "chars": 1766,
+     "tokens": 408,
+     "label": "<system-reminder> Available agent types for the Agent tool: - claude: Catch-all for any task that doesn't fit a more spe"
+    },
+    {
+     "index": 1,
+     "chars": 4620,
+     "tokens": 1197,
+     "label": "<system-reminder> The following skills are available for use with the Skill tool: - deep-research: Deep research harnes"
+    },
+    {
+     "index": 2,
+     "chars": 13498,
+     "tokens": 4031,
+     "label": "<system-reminder> As you answer the user's questions, you can use the following context: # claudeMd Codebase and user in"
+    },
+    {
+     "index": 3,
+     "chars": 3464,
+     "tokens": 980,
+     "label": "(the prompt)"
+    }
+   ],
+   "tool_subsets": {
+    "measured-allowlist": 8213,
+    "coding-core": 5074,
+    "coding-plus-agent": 6777,
+    "mcp-only": 2268
+   }
+  },
+  "claude-sonnet-5": {
+   "counted_whole": 105236,
+   "claude_code_preset": 8228,
+   "garrison_assembled_prompt": 46309,
+   "tool_schemas": 41275,
+   "user_message": 9332,
+   "floor": 7,
+   "tool_count": 37,
+   "message_blocks": [
+    {
+     "index": 0,
+     "chars": 13498,
+     "tokens": 5647,
+     "label": "<system-reminder> As you answer the user's questions, you can use the following context: # claudeMd Codebase and user in"
+    },
+    {
+     "index": 1,
+     "chars": 3752,
+     "tokens": 1462,
+     "label": "(the prompt)"
+    }
+   ],
+   "tool_subsets": {
+    "measured-allowlist": 10715,
+    "coding-core": 6506,
+    "coding-plus-agent": 8783,
+    "mcp-only": 2744
+   }
+  }
+ },
+ "assembled_prompt_sections": {
+  "(preamble)": {
+   "chars": 61,
+   "tokens": 15
+  },
+  "## Routing philosophy": {
+   "chars": 732,
+   "tokens": 178
+  },
+  "## Execution policy": {
+   "chars": 3486,
+   "tokens": 804
+  },
+  "## Tools and capabilities available in this Operative": {
+   "chars": 109600,
+   "tokens": 28128
+  },
+  "## Duties and levels": {
+   "chars": 9465,
+   "tokens": 2820
+  },
+  "## Composition readiness": {
+   "chars": 597,
+   "tokens": 165
+  },
+  "## Escalation policy": {
+   "chars": 680,
+   "tokens": 173
+  },
+  "## When to ask vs proceed": {
+   "chars": 706,
+   "tokens": 167
+  },
+  "## Identity": {
+   "chars": 766,
+   "tokens": 180
+  }
+ },
+ "differential_probes_haiku": {
+  "full-baseline": 78316
+ },
+ "tokenizer_ab": {
+  "claude-haiku-4-5": {
+   "assembled": 32638,
+   "sample": 2201
+  },
+  "claude-sonnet-5": {
+   "assembled": 45160,
+   "sample": 3602
+  },
+  "claude-opus-5": {
+   "assembled": 45160,
+   "sample": 3601
+  },
+  "claude-opus-4-8": {
+   "assembled": 45160,
+   "sample": 3602
+  }
+ },
+ "tool_usage": {
+  "conversations": 33,
+  "stretchesByDuty": {
+   "triage": 25,
+   "discuss": 1,
+   "implement": 35,
+   "adversarial-review": 28,
+   "plan": 6,
+   "test": 26,
+   "responder": 5,
+   "review": 1,
+   "writing": 7,
+   "other": 1,
+   "ops": 1,
+   "research": 1
+  },
+  "toolsByDuty": {
+   "triage": {
+    "Read": 13,
+    "Bash": 13,
+    "Write": 95,
+    "AskUserQuestion": 2
+   },
+   "discuss": {
+    "Bash": 17,
+    "Write": 24
+   },
+   "implement": {
+    "Read": 417,
+    "Bash": 1488,
+    "Edit": 1018,
+    "Write": 978,
+    "Agent": 63,
+    "tool": 15
+   },
+   "plan": {
+    "Bash": 184,
+    "Agent": 22,
+    "Write": 158,
+    "Read": 20
+   },
+   "test": {
+    "Read": 6,
+    "Bash": 445,
+    "Write": 123,
+    "ToolSearch": 8,
+    "TaskOutput": 3,
+    "Edit": 5
+   },
+   "review": {
+    "Bash": 15,
+    "Write": 16
+   },
+   "responder": {
+    "Write": 6
+   },
+   "writing": {
+    "Write": 131,
+    "Read": 44,
+    "Bash": 178,
+    "Edit": 369
+   },
+   "other": {
+    "Bash": 3,
+    "Write": 6
+   },
+   "ops": {
+    "Bash": 35,
+    "Write": 15
+   },
+   "research": {
+    "Bash": 2,
+    "Write": 5
+   }
+  }
+ }
+}

@@ -1,0 +1,37 @@
+==================================================================
+BUILD + TEST — garrison (~/dev/bench-todo-gar), nothing fixed
+==================================================================
+
+## npm install
+npm warn config production Use `--omit=dev` instead.
+
+up to date in 652ms
+exit: 0
+
+## npm test
+npm warn config production Use `--omit=dev` instead.
+
+> todo-api@1.0.0 test
+> jest
+
+PASS src/app.test.ts
+  Todo API
+    ✓ creates a valid todo (38 ms)
+    ✓ rejects an empty title (4 ms)
+    ✓ rejects a title over 200 characters (3 ms)
+    ✓ rejects malformed JSON with a JSON error body (4 ms)
+    ✓ filters by completed (13 ms)
+    ✓ updates a todo (5 ms)
+    ✓ deletes a todo (6 ms)
+    ✓ returns 404 on a missing id (2 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       8 passed, 8 total
+Snapshots:   0 total
+Time:        1.454 s, estimated 2 s
+Ran all test suites.
+exit: 0
+
+## tsc --noEmit (strict: true)
+npm warn config production Use `--omit=dev` instead.
+exit: 0

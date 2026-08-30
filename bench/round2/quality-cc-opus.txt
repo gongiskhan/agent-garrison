@@ -1,0 +1,120 @@
+==================================================================
+QUALITY + SCOPE — cc-opus
+dir: /home/ggomes/dev/bench2-todo-cc-opus
+==================================================================
+
+------------------------------------------------------------------
+## scope: what was produced
+------------------------------------------------------------------
+./.gitignore
+./package.json
+./README.md
+./src/app.test.ts
+./src/app.ts
+./src/index.ts
+./src/store.ts
+./src/types.ts
+./src/validation.ts
+./tsconfig.json
+
+file count: 10
+lines of source (.ts/.js/.tsx):
+  440 total
+lines of TEST source:
+223 ./src/app.test.ts
+
+dependencies declared:
+  runtime : 1 ['express']
+  dev     : 3 ['@types/express', '@types/node', 'typescript']
+  total   : 4
+  scripts : {'build': 'tsc', 'start': 'npm run build && node dist/index.js', 'test': 'npm run build && node --test dist'}
+packages installed (node_modules top level): 68
+
+------------------------------------------------------------------
+## npm install
+------------------------------------------------------------------
+
+up to date in 341ms
+npm install exit: 0
+
+------------------------------------------------------------------
+## npm test
+------------------------------------------------------------------
+      ---
+      duration_ms: 7.003549
+      ...
+    # Subtest: returns 404 for an unknown id
+    ok 2 - returns 404 for an unknown id
+      ---
+      duration_ms: 2.948329
+      ...
+    1..2
+ok 5 - DELETE /todos/:id
+  ---
+  duration_ms: 10.170148
+  type: 'suite'
+  ...
+# Subtest: error handling
+    # Subtest: rejects a malformed JSON body
+    ok 1 - rejects a malformed JSON body
+      ---
+      duration_ms: 3.61451
+      ...
+    # Subtest: returns 404 for an unknown route
+    ok 2 - returns 404 for an unknown route
+      ---
+      duration_ms: 2.898209
+      ...
+    1..2
+ok 6 - error handling
+  ---
+  duration_ms: 6.681409
+  type: 'suite'
+  ...
+1..6
+# tests 18
+# suites 6
+# pass 18
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 304.576039
+npm test exit: 0
+
+------------------------------------------------------------------
+## typescript strict compile
+------------------------------------------------------------------
+  strict = True
+tsc exit: 0
+
+------------------------------------------------------------------
+## README
+------------------------------------------------------------------
+# Todo API
+
+A small REST API for managing todos, built with Node, TypeScript and Express.
+Todos are held in memory only: all data is lost when the process stops.
+
+## Requirements
+
+- Node.js 20 or newer (uses the built-in `node:test` runner and `crypto.randomUUID`)
+- npm
+
+## Setup
+
+```bash
+npm install
+```
+
+## Run
+
+```bash
+npm start
+```
+
+The server listens on port 3000 (`http://localhost:3000`). Set the `PORT`
+environment variable to use a different port.
+
+
+END — cc-opus

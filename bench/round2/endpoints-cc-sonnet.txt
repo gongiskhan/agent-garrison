@@ -1,0 +1,39 @@
+app resolved from app.js default
+PASS  npm-start port 3000 answers GET /todos
+        200 []
+PASS  POST /todos creates (uuid, completed=false, ISO createdAt)
+        201 {"id":"9f8d1bd2-44a8-4e61-8432-9984e49d564f","title":"write the report","completed":false,"createdAt":"2026-08-29T09:27:38.023Z"}
+PASS  POST empty title -> 400 {error}
+        400 {"error":"title is required and must be a non-empty string"}
+PASS  POST 201-char title -> 400 {error}
+        400 {"error":"title must be at most 200 characters"}
+PASS  POST 200-char title accepted (boundary)
+        201 {"id":"b098245a-01ec-4e63-8a7e-7157b7f27483","title":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+PASS  POST missing title -> 400 {error}
+        400 {"error":"title is required and must be a non-empty string"}
+PASS  POST non-string title -> 400 {error}
+        400 {"error":"title is required and must be a non-empty string"}
+PASS  GET /todos/:id returns it
+        200 {"id":"9f8d1bd2-44a8-4e61-8432-9984e49d564f","title":"write the report","completed":false,"createdAt":"2026-08-29T09:27:38.023Z"}
+PASS  GET unknown id -> 404 {error}
+        404 {"error":"Todo not found"}
+PASS  PATCH completed=true
+        200 {"id":"9f8d1bd2-44a8-4e61-8432-9984e49d564f","title":"write the report","completed":true,"createdAt":"2026-08-29T09:27:38.023Z"}
+PASS  PATCH title
+        200 {"id":"9f8d1bd2-44a8-4e61-8432-9984e49d564f","title":"renamed","completed":true,"createdAt":"2026-08-29T09:27:38.023Z"}
+PASS  PATCH empty title -> 400 {error}
+        400 {"error":"title is required and must be a non-empty string"}
+PASS  PATCH unknown id -> 404 {error}
+        404 {"error":"Todo not found"}
+PASS  GET /todos?completed=true filters
+        200 [{"id":"9f8d1bd2-44a8-4e61-8432-9984e49d564f","title":"renamed","completed":true,"createdAt":"2026-08-29T09:27:38.023Z"}]
+PASS  GET /todos?completed=false filters
+        200 [{"id":"b098245a-01ec-4e63-8a7e-7157b7f27483","title":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+PASS  DELETE /todos/:id
+        204 ""
+PASS  GET after delete -> 404 {error}
+        404 {"error":"Todo not found"}
+PASS  DELETE unknown id -> 404 {error}
+        404 {"error":"Todo not found"}
+
+18/18 behaviour checks passed

@@ -18,6 +18,23 @@ export {
   rollupMetrics,
 } from "./conversation-metrics.mjs";
 export {
+  DEFAULT_RATES_PATH,
+  loadModelRates,
+  clearModelRatesCache,
+  resolveModelRate,
+  priceUsage,
+  priceAggregate,
+  aggregateUsageRows,
+  normalizeUsageRow,
+  normalizeAnthropicUsage,
+  normalizeOpenAiUsage,
+  normalizeCodexUsage,
+  emptyUsage,
+  addUsage,
+  usageIsEmpty,
+  totalTokens,
+} from "./model-rates.mjs";
+export {
   ConversationStore,
   openConversation,
   listConversations,
@@ -39,6 +56,7 @@ export {
   SUMMARY_MAX_LINES,
 } from "./conversation-store.mjs";
 export { ledgerToSessionEvents, conversationEventId, RENDERED_LEDGER_KINDS } from "./conversation-adapt.mjs";
+export { buildConversationDigest } from "./conversation-digest.mjs";
 export {
   handleConversationRequest,
   gatewayMessageForwarder,

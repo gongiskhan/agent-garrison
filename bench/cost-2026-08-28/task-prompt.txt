@@ -1,0 +1,18 @@
+Build a small todo REST API in this empty directory.
+
+Requirements:
+
+* Node with TypeScript, Express, in-memory storage, no database, no external services.
+* Endpoints: POST /todos to create, GET /todos to list with an optional `completed` query filter, GET /todos/:id, PATCH /todos/:id to update title or completed, DELETE /todos/:id.
+* A todo has: id (uuid), title (string, required, non-empty, max 200 chars), completed (boolean, defaults false), createdAt (ISO timestamp).
+* Validation: reject invalid payloads with 400 and a JSON error body of the shape `{ "error": "message" }`. Unknown ids return 404 with the same shape.
+* Tests with the project's standard test runner covering: creating a valid todo, rejecting an empty title, rejecting a title over 200 chars, filtering by completed, updating a todo, deleting a todo, and a 404 on a missing id.
+* A README with setup and run instructions, and the endpoint list.
+
+Acceptance criteria, all of which must hold when you are done:
+
+* `npm install` then `npm test` passes with every test green.
+* `npm start` runs the server on port 3000.
+* The code compiles with no TypeScript errors under strict mode.
+
+Do not add authentication, persistence, Docker, CI configuration, or any dependency beyond what the above requires. Stop when the acceptance criteria are met.

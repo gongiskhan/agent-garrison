@@ -23,7 +23,7 @@
 
 import type { DutyLevel, DutyLevelCell, LibraryEntry } from "./types";
 import type { ResolvedModel } from "./resolver";
-import { substituteCapabilitiesPlaceholder } from "./runner";
+import { substituteCapabilitiesPlaceholder, type CapabilitiesDetail } from "./runner";
 import {
   AUTHORED_SECTION_DEFAULTS,
   AUTHORED_SECTION_IDS,
@@ -79,6 +79,9 @@ const SECTION_ORDER: string[] = [
 export interface LayeredPromptInput {
   model: ResolvedModel;
   entries: LibraryEntry[];
+  // "index" trims the capability catalogue to one line per capability. See
+  // GlobalConfig.capabilities_detail for what that costs and saves.
+  capabilitiesDetail?: CapabilitiesDetail;
   // Authored overrides by section id. Any absent id falls back to its default
   // text. Unknown ids are ignored.
   authored?: Partial<Record<AuthoredSectionId, string>>;
@@ -94,16 +97,43 @@ export interface OrchestratorPreview {
 // The capabilities block - reuses the runner's single renderer (the locality
 // principle: provider for_consumers guidance lives in the fitting, folded here).
 // Empty compositions render the runner's "no Faculties" sentinel.
-export function renderCapabilities(entries: LibraryEntry[]): string {
-  const block = substituteCapabilitiesPlaceholder("{{capabilities}}", entries).trim();
-  return [
-    "Treat this list as the authoritative inventory of what is installed in this",
-    "composition. Each provider's usage guidance is indented under its line. If a",
-    "capability is not listed here it is not installed - say so rather than",
-    "fabricating it.",
-    "",
-    block
-  ].join("\n");
+export function renderCapabilities(
+  entries: LibraryEntry[],
+  detail: CapabilitiesDetail = "full"
+): string {
+  const block = substituteCapabilitiesPlaceholder("{{capabilities}}", entries, detail).trim();
+  if (detail === "names") {
+    return [
+      "The authoritative inventory of what is installed in this composition, by",
+      "`kind:name`. If a capability is not listed here it is not installed - say so",
+      "rather than fabricating it.",
+      "",
+      "Only the names are carried. For what a capability does and how to call it,",
+      "read `mcp__garrison__garrison_capability_doc` with the `kind:name` below.",
+      "Do not guess at an interface that tool would have given you.",
+      "",
+      block,
+    ].join("\n");
+  }
+  const preamble = detail === "index"
+    ? [
+        "Treat this list as the authoritative inventory of what is installed in this",
+        "composition. If a capability is not listed here it is not installed - say so",
+        "rather than fabricating it.",
+        "",
+        "Only the one-line summaries are carried here. A line marked [usage guidance",
+        "available] has a fuller provider-authored note; read it with the",
+        "conversation-store fetch tool (`mcp__garrison__garrison_capability_doc`)",
+        "before using that capability in an unfamiliar way. Do not guess at an",
+        "interface the guidance would have given you.",
+      ]
+    : [
+        "Treat this list as the authoritative inventory of what is installed in this",
+        "composition. Each provider's usage guidance is indented under its line. If a",
+        "capability is not listed here it is not installed - say so rather than",
+        "fabricating it.",
+      ];
+  return [...preamble, "", block].join("\n");
 }
 
 // Escape a value for a single markdown table cell: pipes would break the column
@@ -161,10 +191,23 @@ function renderableDutyIds(model: ResolvedModel): string[] {
 // and what it resolves to (a leaf cell's skill/target/effort, or a composite's
 // resolved sequence). This is what routing inference and the operative read to know
 // the system's duties.
-export function renderDutiesAndLevels(model: ResolvedModel): string {
+export function renderDutiesAndLevels(model: ResolvedModel, compact = false): string {
   const ids = renderableDutyIds(model);
   if (ids.length === 0) {
     return "_No duties are selected in this composition._";
+  }
+  // A stretch already receives its OWN duty's description and level in its
+  // brief. The full table - 24 duties times three levels, with each level's
+  // resolved target - is 2,895 tokens of routing detail that the stretch cannot
+  // act on and the router does not read from here. Compact keeps the
+  // vocabulary, which is what a handoff's `nextSteps.next` has to match.
+  if (compact) {
+    return [
+      "The duties this Operative can perform. Your own duty and level are in your",
+      "brief; these are the names a handoff's `nextSteps.next` may use.",
+      "",
+      ...ids.map((id) => `- ${id} — ${model.duties[id].title}`),
+    ].join("\n");
   }
   const intro = [
     "The work this Operative can perform, as duties. Each duty has one or more",
@@ -234,8 +277,8 @@ function lockedSection(id: LockedSectionId, content: string): PromptSection {
 // on its own so regeneration can rebuild ONLY the locked blocks.
 export function buildLockedSections(input: LayeredPromptInput): PromptSection[] {
   return [
-    lockedSection("capabilities", renderCapabilities(input.entries)),
-    lockedSection("duties-and-levels", renderDutiesAndLevels(input.model)),
+    lockedSection("capabilities", renderCapabilities(input.entries, input.capabilitiesDetail ?? "full")),
+    lockedSection("duties-and-levels", renderDutiesAndLevels(input.model, input.capabilitiesDetail === "names")),
     lockedSection("readiness", renderReadiness(input.model))
   ];
 }

@@ -1,0 +1,60 @@
+{
+ "model": "claude-haiku-4-5",
+ "sections": {
+  "floor": 8,
+  "whole": 30483,
+  "systemAll": 18841,
+  "toolsAll": 7077,
+  "messages": 4556,
+  "presetPrompt": 6074,
+  "appendedPrompt": 12707
+ },
+ "tools": {
+  "Agent": 2359,
+  "Bash": 3669,
+  "Edit": 936,
+  "Read": 1184,
+  "Write": 773,
+  "mcp__garrison__garrison_capability_doc": 636
+ },
+ "systemBlocks": [
+  {
+   "index": 0,
+   "chars": 85,
+   "tokens": 39
+  },
+  {
+   "index": 1,
+   "chars": 94,
+   "tokens": 21
+  },
+  {
+   "index": 2,
+   "chars": 75504,
+   "tokens": 18781
+  }
+ ],
+ "notes": [
+  "split system block at offset 26711: preset 26711 chars, appended 48793 chars"
+ ],
+ "messageBlocks": [
+  {
+   "index": 0,
+   "chars": 1767,
+   "tokens": 408,
+   "label": "<system-reminder> Available agent types for the Agent tool: - claude: Catch-all for any task that doesn't fit a more spe"
+  },
+  {
+   "index": 1,
+   "chars": 13837,
+   "tokens": 4138,
+   "label": "<system-reminder> As you answer the user's questions, you can use the following context: # claudeMd Codebase and user in"
+  },
+  {
+   "index": 2,
+   "chars": 30,
+   "tokens": 6,
+   "label": "(the prompt)"
+  }
+ ]
+}

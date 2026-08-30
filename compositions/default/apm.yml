@@ -60,6 +60,7 @@ x-garrison:
         max_spend_per_day: 250
         max_tool_calls_per_tick: 300
       permissions_mode: auto
+      capabilities_detail: names
       observability_config:
         log_sink: runner
     selections:
@@ -141,6 +142,11 @@ x-garrison:
             bind_host: 127.0.0.1
             compact_enabled: true
             compact_threshold_pct: 60
+            session_log_proxy: true
+            stretch_claude_home: true
+            prefix_cache_ttl: 1h
+            prefix_tool_search: regex
+            prefix_tool_search_keep: none
         - id: mcp-gateway
           config: {}
       runtimes:
@@ -526,9 +532,13 @@ x-garrison:
       - id: adversarial-review
         title: Adversarial Review
         description: >-
-          A decorrelated second read whose job is to find what the first one missed. Cite only
-          violations that materially change correctness or safety; when your PREVIOUS findings have
-          been addressed and nothing substantive remains, hand off complete with next=done - endless
+          A decorrelated second read whose job is to find what the first one missed. START with the
+          request's own explicit constraints and prohibitions - a stated "do not add X", a named
+          dependency or scope limit, a required output shape - and check the change against each one
+          by name. A violated constraint is a finding even when the code is correct, and it is the
+          class of finding a correctness-only read reliably misses. Then cite behavioural violations
+          that materially change correctness or safety; when your PREVIOUS findings have been
+          addressed and nothing substantive remains, hand off complete with next=done - endless
           re-refutation is a failure mode, not rigor.
         levels:
           - description: 'quick: the diff against its stated invariants'

@@ -899,6 +899,17 @@ function SessionNotice({
  * badge vocabulary as the Turn Rail. The badges come from `railBadges` and
  * nowhere else, so the honesty rule holds here too - a dimension the stretch's
  * attribution could not report gets NO badge, never a placeholder. */
+/** Money, at a precision that stays readable across four orders of magnitude:
+ * a sub-cent stretch and a ten-dollar conversation both have to be legible. */
+export function formatUsd(usd: number): string {
+  if (!Number.isFinite(usd)) return "";
+  if (usd === 0) return "$0";
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  if (usd < 100) return `$${usd.toFixed(2)}`;
+  return `$${Math.round(usd).toLocaleString("en-US")}`;
+}
+
 function StretchRule({ block }: { block: SessionBlock }) {
   const ended = block.phase === "ended";
   // railBadges is defensive about every field it reads; the two attribution
@@ -914,6 +925,14 @@ function StretchRule({ block }: { block: SessionBlock }) {
       ? Math.round(block.usedTokens)
       : null;
   const duration = elapsedLabel(block.durationMs);
+  const cost =
+    typeof block.costUsd === "number" && Number.isFinite(block.costUsd) && block.costUsd >= 0
+      ? block.costUsd
+      : null;
+  const apiCalls =
+    typeof block.apiCalls === "number" && Number.isFinite(block.apiCalls) && block.apiCalls > 0
+      ? block.apiCalls
+      : null;
   return (
     <div className={`cc-stretch cc-stretch-${ended ? "ended" : "started"}`}>
       <div className="cc-stretch-head">
@@ -935,6 +954,20 @@ function StretchRule({ block }: { block: SessionBlock }) {
         )}
         {ended && tokens !== null && (
           <span className="cc-stretch-chip" title="tokens this stretch used">{tokens.toLocaleString("en-US")} tok</span>
+        )}
+        {ended && apiCalls !== null && (
+          <span className="cc-stretch-chip" title="API calls this stretch made">
+            {apiCalls} {apiCalls === 1 ? "call" : "calls"}
+          </span>
+        )}
+        {/* An unpriced stretch shows NO cost chip. A zero would read as free. */}
+        {ended && cost !== null && (
+          <span
+            className="cc-stretch-chip cc-stretch-cost"
+            title="list-rate cost of this stretch, from the provider's own per-call usage"
+          >
+            {formatUsd(cost)}
+          </span>
         )}
         {ended && duration && <span className="cc-stretch-chip" title="how long the stretch ran">{duration}</span>}
       </div>

@@ -1,0 +1,70 @@
+[
+ {
+  "name": "full-baseline",
+  "model": "claude-sonnet-5",
+  "prefix": 77741,
+  "usage": {
+   "input_tokens": 2346,
+   "output_tokens": 4,
+   "cache_creation_input_tokens": 75395,
+   "cache_read_input_tokens": 0,
+   "cache_creation": {
+    "ephemeral_5m_input_tokens": 0,
+    "ephemeral_1h_input_tokens": 75395
+   }
+  },
+  "error": null,
+  "requests": 2
+ },
+ {
+  "name": "after-code",
+  "model": "claude-sonnet-5",
+  "prefix": 43915,
+  "usage": {
+   "input_tokens": 585,
+   "output_tokens": 4,
+   "cache_creation_input_tokens": 43330,
+   "cache_read_input_tokens": 0,
+   "cache_creation": {
+    "ephemeral_5m_input_tokens": 0,
+    "ephemeral_1h_input_tokens": 43330
+   }
+  },
+  "error": null,
+  "requests": 2
+ },
+ {
+  "name": "after-read",
+  "model": "claude-sonnet-5",
+  "prefix": 37680,
+  "usage": {
+   "input_tokens": 2,
+   "output_tokens": 4,
+   "cache_creation_input_tokens": 37678,
+   "cache_read_input_tokens": 0,
+   "cache_creation": {
+    "ephemeral_5m_input_tokens": 0,
+    "ephemeral_1h_input_tokens": 37678
+   }
+  },
+  "error": null,
+  "requests": 2
+ },
+ {
+  "name": "after-read-ask",
+  "model": "claude-sonnet-5",
+  "prefix": 39069,
+  "usage": {
+   "input_tokens": 2,
+   "output_tokens": 4,
+   "cache_creation_input_tokens": 39067,
+   "cache_read_input_tokens": 0,
+   "cache_creation": {
+    "ephemeral_5m_input_tokens": 0,
+    "ephemeral_1h_input_tokens": 39067
+   }
+  },
+  "error": null,
+  "requests": 2
+ }
+]

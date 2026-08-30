@@ -1,0 +1,101 @@
+==================================================================
+QUALITY + SCOPE — gar-b
+dir: /home/ggomes/dev/bench2-todo-gar-b
+==================================================================
+
+------------------------------------------------------------------
+## scope: what was produced
+------------------------------------------------------------------
+./jest.config.js
+./package.json
+./README.md
+./src/app.ts
+./src/index.ts
+./src/store.ts
+./src/types.ts
+./src/validation.ts
+./tests/todos.test.ts
+./tsconfig.json
+
+file count: 10
+lines of source (.ts/.js/.tsx):
+ 266 total
+lines of TEST source:
+91 ./tests/todos.test.ts
+
+dependencies declared:
+  runtime : 1 ['express']
+  dev     : 8 ['@types/express', '@types/jest', '@types/node', '@types/supertest', 'jest', 'supertest', 'ts-jest', 'typescript']
+  total   : 9
+  scripts : {'build': 'tsc', 'start': 'tsc && node dist/index.js', 'test': 'jest'}
+packages installed (node_modules top level): 283
+
+------------------------------------------------------------------
+## npm install
+------------------------------------------------------------------
+
+up to date in 619ms
+npm install exit: 0
+
+------------------------------------------------------------------
+## npm test
+------------------------------------------------------------------
+
+> bench2-todo-gar-b@1.0.0 test
+> jest
+
+PASS tests/todos.test.ts
+  Todo API
+    ✓ creates a valid todo (42 ms)
+    ✓ rejects an empty title (4 ms)
+    ✓ rejects a title over 200 chars (4 ms)
+    ✓ filters todos by completed (13 ms)
+    ✓ updates a todo (6 ms)
+    ✓ deletes a todo (7 ms)
+    ✓ returns 404 on a missing id (2 ms)
+    ✓ returns a JSON error body on malformed JSON (4 ms)
+    ✓ returns a JSON error body on a primitive JSON payload (3 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       9 passed, 9 total
+Snapshots:   0 total
+Time:        1.327 s, estimated 2 s
+Ran all test suites.
+npm test exit: 0
+
+------------------------------------------------------------------
+## typescript strict compile
+------------------------------------------------------------------
+  strict = True
+tsc exit: 0
+
+------------------------------------------------------------------
+## README
+------------------------------------------------------------------
+# Todo REST API
+
+A small in-memory todo REST API built with Node.js, TypeScript, and Express.
+
+## Setup
+
+```bash
+npm install
+```
+
+## Run
+
+```bash
+npm start
+```
+
+The server listens on port 3000.
+
+## Test
+
+```bash
+npm test
+```
+
+## Endpoints
+
+END — gar-b

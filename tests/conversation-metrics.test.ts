@@ -49,7 +49,7 @@ describe("priceStretch", () => {
   });
 
   it("an unknown model is UNPRICED, never zero", () => {
-    const p = priceStretch({ model: "gpt-5.6-sol", usedTokens: 500_000 });
+    const p = priceStretch({ model: "qwen2.5:3b", usedTokens: 500_000 });
     expect(p.unpriced).toBe(true);
     expect(p.usd).toBeNull();
     expect((p as any).usdLow).toBeUndefined();
@@ -66,9 +66,34 @@ describe("priceStretch", () => {
       opus: { input: 6.0, output: 30.0, cacheRead: 0.6, cacheWrite: 7.5 },
     }));
     const costs = loadModelCosts(env);
-    expect(costs["gpt-5.6-sol"].input).toBe(2.0);
-    expect(costs.opus.input).toBe(6.0);
+    // The legacy model-costs.json override is no longer the merge point — the
+    // shared table at data/model-rates.json is, with its own override beside it.
+    expect(costs["gpt-5.6-sol"].input).toBe(4.0); // the shared table's list rate
     expect(costs.sonnet.input).toBe(MODEL_COSTS.sonnet.input); // untouched
+  });
+
+  it("the shared rate table prices OpenAI models too — codex spend is not free", () => {
+    const p: any = priceStretch({ model: "gpt-5.6-sol", usedTokens: 1_000_000 });
+    expect(p.unpriced).toBe(false);
+    expect(p.usdLow).toBeCloseTo(4.0);
+    expect(p.usdHigh).toBeCloseTo(20.0);
+  });
+
+  it("per-class usage prices EXACTLY, not as a band", () => {
+    const p: any = priceStretch({
+      model: "claude-opus-5",
+      usage: {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheWrite5mTokens: 1_000_000,
+        cacheWrite1hTokens: 1_000_000,
+        cacheReadTokens: 1_000_000,
+      },
+    });
+    expect(p.unpriced).toBe(false);
+    expect(p.exact).toBe(true);
+    // 5 + 25 + 6.25 + 10 + 0.50, straight off the published rate card.
+    expect(p.usd).toBeCloseTo(46.75, 6);
   });
 });
 
@@ -83,7 +108,7 @@ describe("computeConversationMetrics", () => {
     const m = computeConversationMetrics(store.tail(100));
     expect(m.stretches).toBe(3);
     expect(m.totalUsedTokens).toBe(260_000);
-    expect(m.unpricedStretches).toBe(1); // sol is unpriced
+    expect(m.unpricedStretches).toBe(0); // every model here has a list rate now
     expect(m.usdLow).toBeGreaterThan(0);
     expect(m.digs).toBe(1);
     expect(m.escalations).toHaveLength(1);
@@ -139,10 +164,10 @@ describe("conversationMetrics cache + rollup", () => {
     expect(byDuty.totals.conversations).toBe(2);
     expect(byDuty.totals.stretches).toBe(3);
     expect(byDuty.groups.implement.stretches).toBe(2);
-    expect(byDuty.groups.review.unpriced).toBe(1);
+    expect(byDuty.groups.review.unpriced).toBe(0);
     expect(byDuty.groups.review.escalationRate).toBe(1);
     const byModel = rollupMetrics({ env, groupBy: "model" });
-    expect(byModel.groups["gpt-5.6-sol"].unpriced).toBe(1);
+    expect(byModel.groups["gpt-5.6-sol"].unpriced).toBe(0);
     expect(byModel.groups.sonnet.usdLow).toBeGreaterThan(0);
   });
 });

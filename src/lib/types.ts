@@ -589,6 +589,14 @@ export interface GlobalConfig {
   // runtimes become model-router targets; only the primary runs the
   // orchestrator loop. See src/lib/runtime-selection.ts.
   primary_runtime?: string;
+  // How much of the capability catalogue the assembled Orchestrator prompt
+  // carries. "full" folds each provider's whole for_consumers block in (the
+  // historical behaviour); "index" carries one line per capability and points
+  // at the tool that fetches a specific provider's guidance on demand.
+  // Measured 2026-08-29: the full catalogue is 28,128 tokens on haiku-4-5 and
+  // ~39,000 on sonnet-5, paid by EVERY stretch at boot - 87% of the assembled
+  // prompt and ~36% of the whole prefix.
+  capabilities_detail?: "full" | "index" | "names";
 }
 
 export interface DerivedTasks {

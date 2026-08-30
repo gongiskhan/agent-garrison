@@ -2500,6 +2500,76 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    happens NEXT, so it reads a shade stronger than the cost chips beside it. */
 .cc-stretch-next { border-color: var(--cc-accent); color: var(--cc-accent); }
 
+/* Cost chip on the stretch row. Slightly warmer than a neutral chip so the eye
+   finds the money without it shouting; it sits in the same 10px mono rhythm as
+   its neighbours. An unpriced stretch renders no chip at all. */
+.cc-stretch-chip.cc-stretch-cost {
+  color: var(--cc-accent, #c9a227);
+  border-color: color-mix(in srgb, var(--cc-accent, #c9a227) 40%, transparent);
+}
+
+/* Running conversation cost, in the header beside the title. Uses the
+   .cc-conversation token block (the header renders outside .cc-root). */
+.cc-conv-cost { position: relative; display: inline-flex; }
+.cc-conv-costbtn {
+  font: 500 11px/1.4 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--cc-fg-dim);
+  background: transparent;
+  border: 1px solid var(--cc-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.cc-conv-costbtn:hover { color: var(--cc-fg); border-color: var(--cc-fg-dim); }
+.cc-conv-costbtn-partial { border-style: dashed; }
+.cc-conv-costwarn { color: var(--cc-warn, #d08770); }
+.cc-conv-costpanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 330px;
+  max-width: min(92vw, 420px);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--cc-bg-elev);
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  font: 400 11px/1.6 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--cc-fg);
+}
+.cc-conv-costrow { display: flex; justify-content: space-between; gap: 16px; }
+.cc-conv-costrow > span:first-child { white-space: nowrap; }
+.cc-conv-costrow > span:last-child { white-space: nowrap; text-align: right; }
+/* The four-way token split is too wide to sit opposite its label in a popover.
+   Stack it instead of letting the label shred into one word per line. */
+.cc-conv-costsplit { display: block; }
+.cc-conv-costsplit > span:last-child { display: block; text-align: left; margin-top: 1px; }
+.cc-conv-costhead { font-weight: 600; padding-bottom: 4px; }
+.cc-conv-costsub {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--cc-border);
+  color: var(--cc-fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+.cc-conv-costdim { color: var(--cc-fg-dim); }
+.cc-conv-costfoot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--cc-border);
+  color: var(--cc-fg-dim);
+  font-size: 10px;
+  line-height: 1.5;
+}
+@media (max-width: 560px) {
+  .cc-conv-costpanel { left: auto; right: 0; }
+}
+
 
 /* === web-channel skin (override layer) === */
 /* ============================================================================

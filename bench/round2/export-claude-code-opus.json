@@ -1,0 +1,45 @@
+{
+  "run_label": "runB-opus",
+  "side": "claude-code",
+  "task_id": "todo-api-v1",
+  "source": "jsonl-transcript",
+  "wall_clock_seconds": 289,
+  "api_calls": 23,
+  "input_tokens": 46,
+  "output_tokens": 20492,
+  "cache_write_tokens": 53431,
+  "cache_read_tokens": 929100,
+  "total_cost_usd": 1.51139,
+  "compactions": 0,
+  "stretches": [
+    {
+      "duty": "",
+      "model": "claude-opus-5",
+      "effort": "",
+      "api_calls": 23,
+      "input_tokens": 46,
+      "output_tokens": 20492,
+      "cache_write_tokens": 53431,
+      "cache_read_tokens": 929100,
+      "cost_usd": 1.51139
+    }
+  ],
+  "_meta": {
+    "session_id": "d0e2ac2c-8dcf-43f2-a559-d21689ca1b84",
+    "transcript_files": [
+      "/home/ggomes/.claude/projects/-home-ggomes-dev-bench2-todo-cc-opus/d0e2ac2c-8dcf-43f2-a559-d21689ca1b84.jsonl"
+    ],
+    "transcript_count": 1,
+    "assistant_records": 47,
+    "deduped_api_calls": 23,
+    "unpriced_models": [],
+    "rates_updated": "2026-08-29",
+    "by_model": {
+      "claude-opus-5": {
+        "api_calls": 23,
+        "usd": 1.51139,
+        "unpriced": false
+      }
+    }
+  }
+}
