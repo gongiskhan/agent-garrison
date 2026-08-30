@@ -210,11 +210,11 @@ function freezeAssemblyValue(value) {
 // only needs the capability-doc lookup should not also carry schedule_card and
 // friends. The server itself honours GARRISON_MCP_TOOLS; passing undefined
 // leaves the full inventory, exactly as before.
-function narrowMcpTools(servers, mcpTools, conversationId = null) {
+function narrowMcpTools(servers, mcpTools, conversationId = null, cwd = null) {
   const allow = Array.isArray(mcpTools)
     ? mcpTools.filter((t) => typeof t === "string" && t).join(",")
     : "";
-  if (!servers || typeof servers !== "object" || (!allow && !conversationId)) return servers;
+  if (!servers || typeof servers !== "object" || (!allow && !conversationId && !cwd)) return servers;
   const out = {};
   for (const [name, cfg] of Object.entries(servers)) {
     out[name] = cfg && typeof cfg === "object"
@@ -227,6 +227,11 @@ function narrowMcpTools(servers, mcpTools, conversationId = null) {
             // none. Without it a stretch would have to quote its own id back
             // out of its brief on every call.
             ...(conversationId ? { GARRISON_CONVERSATION_ID: String(conversationId) } : {}),
+            // Where the stretch is actually working, so a finding's anchorPath
+            // may be repo-relative like every other path the model handles.
+            // Without it anchors resolved against the composition dir and every
+            // relative path was rejected as "the file is not there".
+            ...(cwd ? { GARRISON_STRETCH_CWD: String(cwd) } : {}),
           },
         }
       : cfg;
@@ -1443,7 +1448,7 @@ export class RoutedGateway {
       // Nine unused schemas are ~2.3k tokens of boot prefix on every stretch.
       mcpServers: target.mcpServers === null
         ? {}
-        : narrowMcpTools(cloneAssemblyValue(this._agentSdkMcpServers), target.mcpTools, opts.conversationId),
+        : narrowMcpTools(cloneAssemblyValue(this._agentSdkMcpServers), target.mcpTools, opts.conversationId, opts.cwd),
       strictMcpConfig: true,
       streamingInput: opts.streamingInput === true,
     });

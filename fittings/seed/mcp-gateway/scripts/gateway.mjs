@@ -267,6 +267,37 @@ async function discoverTools() {
     });
   }
 
+  // The findings record. A stretch calls this AS IT WORKS, not at the end -
+  // the whole point is that nothing has to be reconstructed from a transcript.
+  if (gatewayBaseUrl()) {
+    tools.push({
+      name: "garrison_finding_add",
+      description:
+        "Record one thing you have ESTABLISHED, as you establish it. This is what the next stretch " +
+        "will see instead of re-discovering it, so write it the moment it is true rather than at the " +
+        "end. One line, pointers not content: \"mintKey lives in src/lib/identity.js and returns a " +
+        "sortable id\" is a finding; pasting identity.js is not, and will be rejected. " +
+        "kind=fact for something you verified about the code, change for something you altered " +
+        "(both REQUIRE anchorPath, the file the claim is about); decision for a choice you made, " +
+        "rejected for an approach you ruled out and why, failure for something that did not work " +
+        "(these three take NO anchor). Put ledger addresses, file paths, symbol names and commit " +
+        "SHAs in pointers so anything you leave out can still be found.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["fact", "decision", "rejected", "change", "failure"],
+            description: "fact | change require anchorPath; decision | rejected | failure take none." },
+          claim: { type: "string", description: "One line, at most 200 characters, what was established. No code." },
+          pointers: { type: "array", items: { type: "string" },
+            description: "Where to look: file paths, symbol names, commit SHAs, ledger addresses like <conversationId>#<seq>." },
+          anchorPath: { type: "string", description: "For fact and change: the file this claim is about, so staleness can be detected later." },
+          anchorCommit: { type: "string", description: "Alternative anchor for a claim about a commit rather than a working file." },
+        },
+        required: ["kind", "claim"],
+      },
+    });
+  }
+
   // A caller may narrow the advertised inventory: every tool schema is paid for
   // in the boot prefix of every session the server is attached to, and a duty
   // that will never call schedule_card should not carry its 997 tokens.
@@ -330,8 +361,23 @@ async function callLayer3(op, input) {
   try { return JSON.parse(text); } catch { return { error: "unparseable layer 3 response" }; }
 }
 
+async function callFindingAdd(input) {
+  const base = gatewayBaseUrl();
+  const id = currentConversationId(input);
+  if (!base) return { error: "no gateway base url in this session's environment" };
+  if (!id) return { error: "no conversation in scope - pass `conversation` with the id from your brief's first line" };
+  const res = await fetch(`${base}/conversation/${encodeURIComponent(id)}/finding`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...input, cwd: process.env.GARRISON_STRETCH_CWD || undefined }),
+  });
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { error: `finding_add: http ${res.status} ${text.slice(0, 200)}` }; }
+}
+
 async function dispatchTool(name, input) {
   if (name === "garrison_capability_doc") return callCapabilityDoc(input);
+  if (name === "garrison_finding_add") return callFindingAdd(input);
   if (name === "garrison_conversation_search") return callLayer3("search", input);
   if (name === "garrison_conversation_fetch") {
     return callLayer3(input?.digest ? "digest" : "record", { ...input, digest: undefined });

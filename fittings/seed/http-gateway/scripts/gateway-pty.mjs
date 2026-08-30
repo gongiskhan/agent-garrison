@@ -4887,6 +4887,55 @@ const server = http.createServer(async (request, response) => {
       // whether a stretch ever looked, and a stretch with no shell in its tool
       // profile cannot grep at all. These two routes are what the MCP tools
       // call, so the reach into history is a recorded, countable act.
+      // ── FINDINGS ──────────────────────────────────────────────────────
+      // A stretch appends to its OWN findings and nothing else; the caller
+      // supplies the stretch id and the store enforces append-only by being
+      // append-only. There is no edit and no delete door on purpose.
+      const findingRoute = /^\/conversation\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/finding$/.exec(url.pathname);
+      if (request.method === "POST" && findingRoute) {
+        const conversationId = findingRoute[1];
+        const body = await readJsonBody(request);
+        const store = openConversation(conversationId, { role: "gateway" });
+        if (store.readSummary() == null) return sendJson(response, 404, { error: "no such conversation" });
+        const { normalizeFinding, assertUnderCap, FindingRejected, FindingsCapReached } = await import("@garrison/claude-pty");
+        const { events } = store.range({ fromIndex: 0, limit: 200_000 });
+        // currentStretch() is the stretch ID as a string, not a record; the
+        // duty comes from that stretch's own stretch-started event.
+        const currentStretchId = store.currentStretch();
+        const startedFor = [...events].reverse().find((e) => e.kind === "stretch-started" && e.stretch === currentStretchId);
+        try {
+          assertUnderCap(events);
+          const entry = normalizeFinding(body, {
+            stretchId: body.stretch ?? currentStretchId ?? null,
+            duty: body.duty ?? startedFor?.payload?.duty ?? startedFor?.duty ?? null,
+            // The stretch's own working directory when it sent one, so a
+            // repo-relative anchorPath resolves where the model is working.
+            cwd: body.cwd || COMPOSITION_DIR,
+          });
+          store.append({ kind: "finding", stretch: entry.stretch, duty: entry.duty, payload: entry });
+          return sendJson(response, 201, { recorded: true, id: entry.id, kind: entry.kind, anchored: Boolean(entry.anchor) });
+        } catch (err) {
+          if (err instanceof FindingsCapReached) {
+            // Surfaced, never compacted: see findings.mjs for why.
+            store.append({ kind: "findings-cap-reached", payload: { count: err.count, cap: err.cap } });
+            return sendJson(response, 409, { error: err.message, code: err.code, count: err.count, cap: err.cap });
+          }
+          if (err instanceof FindingRejected) {
+            return sendJson(response, 400, { error: err.message, code: err.code, detail: err.detail });
+          }
+          throw err;
+        }
+      }
+      if (request.method === "GET" && findingRoute) {
+        const conversationId = findingRoute[1];
+        const store = openConversation(conversationId, { role: "gateway" });
+        if (store.readSummary() == null) return sendJson(response, 404, { error: "no such conversation" });
+        const { composeFindings } = await import("@garrison/claude-pty");
+        const { events } = store.range({ fromIndex: 0, limit: 200_000 });
+        const composed = composeFindings(events, { cwd: url.searchParams.get("cwd") || COMPOSITION_DIR, conversationId });
+        return sendJson(response, 200, { conversationId, entries: composed.entries, staleCount: composed.staleCount, text: composed.text });
+      }
+
       const layer3 = /^\/conversation\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/(search|digest|record)$/.exec(url.pathname);
       if (request.method === "GET" && layer3) {
         const conversationId = layer3[1];
@@ -4945,7 +4994,7 @@ const server = http.createServer(async (request, response) => {
         try {
           store.append({
             kind: "layer3-access",
-            stretch: store.currentStretch()?.stretchId ?? null,
+            stretch: store.currentStretch() ?? null,
             payload: {
               op: what,
               query: Object.fromEntries(q.entries()),

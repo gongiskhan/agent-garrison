@@ -94,12 +94,15 @@ const CAPABILITY_DOC = "garrison_capability_doc";
 // tool-result-free digest. Every call is recorded as a `layer3-access` ledger
 // event so "did any stretch ever look?" stops being unanswerable.
 const LAYER3 = ["garrison_conversation_search", "garrison_conversation_fetch"];
+// The findings record: written DURING a stretch, which means the tool has to be
+// on every working duty's list, not just the ones that read history.
+const FINDINGS = ["garrison_finding_add"];
 
 // One MCP set for every duty, for exactly the reason the tool profile is
 // shared: these schemas live in the tools block, and a block that varies per
 // duty forks the cache prefix. Three schemas, ~1,700 tokens, against a ~43k
 // prefix that six stretches would otherwise each rewrite.
-export const SHARED_MCP_TOOLS = [CAPABILITY_DOC, ...LAYER3];
+export const SHARED_MCP_TOOLS = [CAPABILITY_DOC, ...LAYER3, ...FINDINGS];
 
 export const DUTY_MCP_TOOLS = {};
 

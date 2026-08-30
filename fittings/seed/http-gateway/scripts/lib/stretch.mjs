@@ -36,6 +36,8 @@ import {
   runLog,
   aggregateUsageRows,
   priceAggregate,
+  composeFindings,
+  repetitionReport,
 } from "@garrison/claude-pty";
 import { boardBase, cardById } from "./autonomous-cards.mjs";
 import { resolveRunScope, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
@@ -314,6 +316,25 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
 
 // ── brief ───────────────────────────────────────────────────────────────────
 
+const FINDINGS_CONTRACT = `## Findings (record these AS YOU GO, not at the end)
+
+Every time you establish something the next stretch would otherwise have to
+re-discover, record it immediately with \`mcp__garrison__garrison_finding_add\`.
+A finding is ONE LINE of what you established plus pointers to where it lives -
+never the code itself. "mintKey lives in src/lib/identity.js and returns a
+sortable id" is a finding; pasting identity.js is not, and will be rejected.
+
+  fact      something you verified about the code   REQUIRES anchorPath
+  change    something you altered                   REQUIRES anchorPath
+  decision  a choice you made, and why              no anchor
+  rejected  an approach you ruled out, and why      no anchor
+  failure   something that did not work             no anchor
+
+The anchor is how the next stretch learns your claim went out of date: if that
+file changes afterwards it is shown the entry marked STALE and told to re-read.
+Record rejected and failure entries too - an approach that did not work is the
+most expensive thing for the next stretch to rediscover.`;
+
 const HANDOFF_CONTRACT = `## Exit contract (MANDATORY)
 
 Before you finish, write your handoff as JSON to the ABSOLUTE path given
@@ -373,6 +394,7 @@ export function buildStretchBrief({
   attempt = 1,
   floorLine = null,
   selectedDuties = [],
+  findingsText = "",
 }) {
   const parts = [];
   parts.push(`# Stretch brief — conversation ${conversationId}`);
@@ -409,6 +431,11 @@ export function buildStretchBrief({
     }
     parts.push(`Older handoffs are under ${path.join(conversationDir, "handoffs")}.`);
   }
+  // The findings record from earlier stretches. This is per-task dynamic
+  // material and lives HERE, in the message, after the last cache breakpoint -
+  // putting it in the system prompt would fork the prefix every stretch and
+  // undo cross-stretch cache sharing.
+  if (findingsText) parts.push("", findingsText);
   parts.push("", `## Your duty: ${duty} (level ${level}${attempt > 1 ? `, attempt ${attempt}` : ""})`);
   if (dutyDescription) parts.push(dutyDescription);
   if (skill) parts.push(`Bound skill: ${skill}`);
@@ -428,6 +455,7 @@ export function buildStretchBrief({
     parts.push("", "## Steering");
     for (const s of steering) parts.push(`- ${s}`);
   }
+  parts.push("", FINDINGS_CONTRACT);
   parts.push("", HANDOFF_CONTRACT);
   parts.push("", `handoffPath: ${handoffPath}`);
   parts.push(`stretchId: ${stretchId}`);
@@ -1170,11 +1198,36 @@ export async function runConversation(gateway, {
         gateway.logFn?.({ kind: "conversation-top-tier", conversationId, duty, model: route.target.model });
         onFrame("notification", { kind: "top-tier", duty, model: route.target.model });
       }
+      // Routing provenance. Assignment is static per duty today, so every
+      // reason is "default"; this line is what a router will later be built
+      // and measured against, and it must exist before the router does.
+      store.append({
+        kind: "stretch-routing",
+        stretch: stretchId,
+        duty,
+        payload: {
+          provider: route.target.provider ?? null,
+          account: route.target.account ?? null,
+          model: route.target.model ?? null,
+          effort: route.target.effort ?? null,
+          runtime: route.target.runtime ?? null,
+          target: route.targetId ?? null,
+          reason: "default",
+        },
+      });
       await writeCardTransition(gateway, { cardId: card?.id, conversationId, stretchId, phase: "started", duty });
 
+      // Deterministic concatenation of what earlier stretches recorded, with
+      // every anchor rechecked against the tree the stretch will actually work
+      // in. No model in this path.
+      const composedFindings = composeFindings(
+        store.range({ fromIndex: 0, limit: 200_000 }).events,
+        { cwd: scope.cwd ?? gateway.compositionDir, conversationId }
+      );
       const brief = buildStretchBrief({
         conversationId,
         conversationDir: store.dir,
+        findingsText: composedFindings.text,
         summaryText: store.readSummary(),
         lastHandoffs: store.lastHandoffs(3),
         duty,
@@ -1352,6 +1405,30 @@ export async function runConversation(gateway, {
       };
       store.append({ kind: "stretch-ended", duty, stretch: stretchId, runId, payload: endedPayload });
       onFrame("stretch-ended", endedPayload);
+
+      // THE INSTRUMENTED NUMBER. How many of this stretch's read/search targets
+      // an earlier stretch in the same task had already hit. Written to the
+      // ledger next to the cost figures so the two are read together. Reported,
+      // not judged: nothing in this slice is tuned to move it.
+      try {
+        const rep = repetitionReport(store.range({ fromIndex: 0, limit: 200_000 }).events);
+        const mine = rep.stretches.find((r) => r.stretch === stretchId) ?? null;
+        store.append({
+          kind: "read-repetition",
+          duty,
+          stretch: stretchId,
+          runId,
+          payload: {
+            stretch: mine,
+            task: rep.task,
+            findingsCarriedIn: composedFindings.entries.length,
+            findingsStaleAtCompose: composedFindings.staleCount,
+          },
+        });
+      } catch (err) {
+        // The measurement must never be the reason a stretch fails.
+        store.append({ kind: "read-repetition-failed", stretch: stretchId, payload: { error: String(err?.message ?? err) } });
+      }
       store.releaseStretch(stretchId);
       stretches += 1;
 
