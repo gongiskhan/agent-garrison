@@ -1,0 +1,165 @@
+{
+ "generatedAt": null,
+ "arms": {
+  "A": {
+   "warmRuns": 3,
+   "comparisonRuns": [
+    2,
+    3,
+    4
+   ],
+   "excludedCold": [
+    1
+   ],
+   "cacheStateOfComparisonRuns": "cold",
+   "cost": {
+    "values": [
+     1.65468185,
+     2.8310484000000002,
+     2.58124135
+    ],
+    "median": 2.58124135,
+    "min": 1.65468185,
+    "max": 2.8310484000000002,
+    "spreadPctOfMedian": 0.45573675239628414,
+    "mean": 2.3556572,
+    "sd": 0.619778768221486,
+    "cv": 0.26310227490718346,
+    "mdeAtThisN": 0.7984937750495135,
+    "detects20PctAtThisN": false,
+    "runsNeededFor20Pct": 29
+   },
+   "requests": {
+    "values": [
+     75,
+     134,
+     106
+    ],
+    "median": 106,
+    "min": 75,
+    "max": 134,
+    "spreadPctOfMedian": 0.5566037735849056,
+    "mean": 105,
+    "sd": 29.512709126747414,
+    "cv": 0.28107342025473725,
+    "mdeAtThisN": 0.853034723794993,
+    "detects20PctAtThisN": false,
+    "runsNeededFor20Pct": 33
+   },
+   "wallClock": {
+    "values": [
+     602,
+     1113,
+     832
+    ],
+    "median": 832,
+    "min": 602,
+    "max": 1113,
+    "spreadPctOfMedian": 0.6141826923076923,
+    "mean": 849,
+    "sd": 255.92381678929377,
+    "cv": 0.30144148031718937,
+    "mdeAtThisN": 0.9148501116529661,
+    "detects20PctAtThisN": false,
+    "runsNeededFor20Pct": 37
+   },
+   "toolCalls": {
+    "values": [
+     199,
+     378,
+     344
+    ],
+    "median": 344,
+    "min": 199,
+    "max": 378,
+    "spreadPctOfMedian": 0.5203488372093024,
+    "mean": 307,
+    "sd": 95.06313691436866,
+    "cv": 0.3096519117731878,
+    "mdeAtThisN": 0.9397680961530934,
+    "detects20PctAtThisN": false,
+    "runsNeededFor20Pct": 39
+   }
+  },
+  "B": {
+   "warmRuns": 3,
+   "comparisonRuns": [
+    2,
+    3,
+    4
+   ],
+   "excludedCold": [
+    1
+   ],
+   "cacheStateOfComparisonRuns": "warm",
+   "cost": {
+    "values": [
+     2.3214036,
+     1.9827196,
+     2.2417032
+    ],
+    "median": 2.2417032,
+    "min": 1.9827196,
+    "max": 2.3214036,
+    "spreadPctOfMedian": 0.15108333699126628,
+    "mean": 2.1819421333333335,
+    "sd": 0.1770741420446625,
+    "cv": 0.08115437130046521,
+    "mdeAtThisN": 0.24629684530222623,
+    "detects20PctAtThisN": false,
+    "runsNeededFor20Pct": 4
+   },
+   "requests": {
+    "values": [
+     57,
+     50,
+     47
+    ],
+    "median": 50,
+    "min": 47,
+    "max": 57,
+    "spreadPctOfMedian": 0.2,
+    "mean": 51.333333333333336,
+    "sd": 5.131601439446884,
+    "cv": 0.09996626180740682,
+    "mdeAtThisN": 0.3033893864898881,
+    "detects20PctAtThisN": false,
+    "runsNeededFor20Pct": 6
+   },
+   "wallClock": {
+    "values": [
+     339,
+     358,
+     450
+    ],
+    "median": 358,
+    "min": 339,
+    "max": 450,
+    "spreadPctOfMedian": 0.3100558659217877,
+    "mean": 382.3333333333333,
+    "sd": 59.36609582357032,
+    "cv": 0.15527313641735918,
+    "mdeAtThisN": 0.47124120422529303,
+    "detects20PctAtThisN": false,
+    "runsNeededFor20Pct": 11
+   },
+   "toolCalls": {
+    "values": [
+     62,
+     56,
+     53
+    ],
+    "median": 56,
+    "min": 53,
+    "max": 62,
+    "spreadPctOfMedian": 0.16071428571428573,
+    "mean": 57,
+    "sd": 4.58257569495584,
+    "cv": 0.08039606482378667,
+    "mdeAtThisN": 0.24399544748489016,
+    "detects20PctAtThisN": false,
+    "runsNeededFor20Pct": 4
+   }
+  }
+ }
+}
