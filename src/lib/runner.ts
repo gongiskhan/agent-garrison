@@ -2103,6 +2103,10 @@ function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, str
   if (config.strict_project_resolution !== undefined && config.strict_project_resolution !== null) {
     env.GARRISON_HTTPGATEWAY_STRICT_PROJECT_RESOLUTION = String(config.strict_project_resolution);
   }
+  // The per-duty findings expectation carried in the stretch brief.
+  if (config.triage_findings !== undefined && config.triage_findings !== null) {
+    env.GARRISON_HTTPGATEWAY_TRIAGE_FINDINGS = String(config.triage_findings);
+  }
   for (const [key, envName] of [
     ["prefix_cache_ttl", "GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL"],
     ["prefix_tool_search", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH"],

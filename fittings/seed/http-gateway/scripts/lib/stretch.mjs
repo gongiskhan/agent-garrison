@@ -335,6 +335,49 @@ file changes afterwards it is shown the entry marked STALE and told to re-read.
 Record rejected and failure entries too - an approach that did not work is the
 most expensive thing for the next stretch to rediscover.`;
 
+// Why triage recorded nothing. Across every recorded run the triage stretch read
+// eight or nine files and appended ZERO findings, and none of the obvious causes
+// held: the tool is in SHARED_MCP_TOOLS so every duty carries it, triage runs on
+// agent-sdk (haiku) with the shared tool profile, and FINDINGS_CONTRACT is in
+// every brief. Reading the replies settled it. Triage established exactly the
+// facts the next stretch needed - which file is the persistence choke point,
+// where ids are minted, what the conventions file requires - and put every one
+// of them in its handoff summary and evidenceRefs, because that is what its duty
+// description asks for and what the exit contract validates. The generic "record
+// what the next stretch would re-discover" never says that ORIENTING is itself a
+// finding, so a duty whose stated output is a summary routes everything there.
+//
+// So the brief now states the expectation per duty. This is per-task dynamic
+// material and belongs in the message after the last cache breakpoint, alongside
+// the brief and the findings record - never in the system prompt.
+export const DUTY_FINDINGS_EXPECTATION = {
+  triage: `### What to record on this duty
+
+You are the opening stretch, so everything you establish is something the next
+stretch would otherwise re-read from nothing. Before you hand off, record what
+you learned about the shape of this repo as \`fact\` entries with an anchorPath:
+where the entry point is, where persistence, configuration and id minting live,
+what the conventions file requires, and what is already built. One line each,
+pointers not content.
+
+Naming these in your handoff summary is not recording them. The summary is prose
+for a human and is not carried forward as claims; the findings record is what the
+next stretch is actually handed.`,
+};
+
+// Behind `triage_findings` (default on) so the per-duty expectation can be
+// reverted without touching the shared contract above.
+export function dutyFindingsExpectationEnabled(env = process.env) {
+  const raw = String(env?.GARRISON_HTTPGATEWAY_TRIAGE_FINDINGS ?? "").trim().toLowerCase();
+  if (raw === "false" || raw === "0" || raw === "off" || raw === "no") return false;
+  return true;
+}
+
+export function findingsExpectationFor(duty, env = process.env) {
+  if (!dutyFindingsExpectationEnabled(env)) return null;
+  return DUTY_FINDINGS_EXPECTATION[duty] ?? null;
+}
+
 const HANDOFF_CONTRACT = `## Exit contract (MANDATORY)
 
 Before you finish, write your handoff as JSON to the ABSOLUTE path given
@@ -395,6 +438,7 @@ export function buildStretchBrief({
   floorLine = null,
   selectedDuties = [],
   findingsText = "",
+  findingsExpectation = null,
 }) {
   const parts = [];
   parts.push(`# Stretch brief — conversation ${conversationId}`);
@@ -456,6 +500,7 @@ export function buildStretchBrief({
     for (const s of steering) parts.push(`- ${s}`);
   }
   parts.push("", FINDINGS_CONTRACT);
+  if (findingsExpectation) parts.push("", findingsExpectation);
   parts.push("", HANDOFF_CONTRACT);
   parts.push("", `handoffPath: ${handoffPath}`);
   parts.push(`stretchId: ${stretchId}`);
@@ -1309,6 +1354,7 @@ export async function runConversation(gateway, {
         attempt: startedPayload.attempt,
         floorLine: floorRungId ? `Escalation floor for ${duty}: ${floorRungId} (sticky for this conversation)` : null,
         selectedDuties,
+        findingsExpectation: findingsExpectationFor(duty, env),
       });
 
       const tee = makeStretchEventTee(store, {

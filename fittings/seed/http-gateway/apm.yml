@@ -104,6 +104,17 @@ x-garrison:
         carries a project-unresolved entry naming the requested project, what it
         resolved to, the directory the old fallback would have used, and the
         dev-root rule. Set to false to restore the pre-2026-08-31 fallback.
+    - key: triage_findings
+      type: boolean
+      default: true
+      description: >-
+        Carry a per-duty findings expectation in the stretch brief. Triage read
+        eight or nine files per run and recorded zero findings: it had the tool
+        and the contract, but its duty description names the handoff summary as
+        its output, so orientation facts went there instead of into the record
+        the next stretch is handed. With this on, triage is told to record where
+        things live as anchored `fact` entries before it hands off. Set to false
+        to fall back to the shared contract alone.
     - key: compact_enabled
       type: boolean
       default: true
