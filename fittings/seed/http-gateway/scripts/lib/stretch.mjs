@@ -82,6 +82,72 @@ export const REVIEW_GATE = {
   askedFor: /\b(review|adversarial|audit|scrutinis|scrutiniz)/i,
 };
 
+// The review BUDGET, which is a different question from the review GATE. The
+// gate asks "is this particular change worth a second read"; the budget asks
+// "how many second reads may this task buy at all". Without one the count is a
+// free per-stretch choice by the model: on the 2026-08-31 benchmark the same
+// easy task took zero, one and two adversarial passes across three runs and
+// swung 2.4x in cost as a result. A cap belongs in the orchestrator, because a
+// prompt asking a model to limit its own escalation is the thing that failed.
+//
+// Counted over both review duties, not just the adversarial one: the
+// review-before-done insert picks whichever is selected, so a budget that only
+// covered adversarial-review would be silently satisfied by the other.
+export const REVIEW_BUDGET_DEFAULT = 2;
+export const REVIEW_DUTIES = new Set(CONVERSATION_FLOW.reviewBeforeDone.insert);
+
+// A per-task override, so a task that genuinely wants more (or none) says so in
+// its own brief rather than in global config. `routing.reviewBudget` is the
+// structured form; the text form is what a human writes in a card body.
+const REVIEW_BUDGET_DIRECTIVE = /review[\s_-]*budget\s*[:=]\s*(\d+)/i;
+
+/** Everything a task said about itself: the card, and every message in the
+ *  conversation (the opening task is recorded as the first user-message). This
+ *  is "the brief" as the human wrote it, which is where a per-task override has
+ *  to be readable from. */
+export function briefTextFor(store = null, card = null) {
+  const messages = (store?.tail?.(200, { kinds: ["user-message"] }) ?? [])
+    .map((e) => String(e.payload?.text ?? ""));
+  return [card?.title, card?.description, card?.acceptance, ...messages]
+    .filter((v) => typeof v === "string" && v)
+    .join("\n");
+}
+
+/** The cap for this task, and where it came from. */
+export function reviewBudgetFor({ card = null, env = process.env, briefText = null } = {}) {
+  const routed = card?.routing?.reviewBudget;
+  if (Number.isFinite(Number(routed)) && Number(routed) >= 0) {
+    return { cap: Math.floor(Number(routed)), source: "card.routing.reviewBudget" };
+  }
+  const text = briefText ?? briefTextFor(null, card);
+  const hit = REVIEW_BUDGET_DIRECTIVE.exec(text);
+  if (hit) return { cap: Math.floor(Number(hit[1])), source: "brief" };
+  const fromEnv = Number(env?.GARRISON_HTTPGATEWAY_REVIEW_BUDGET);
+  if (Number.isFinite(fromEnv) && fromEnv >= 0) return { cap: Math.floor(fromEnv), source: "config" };
+  return { cap: REVIEW_BUDGET_DEFAULT, source: "default" };
+}
+
+/** Review stretches this task has already STARTED, off the ledger rather than a
+ *  card counter: the ledger is the record and survives a gateway restart. */
+export function reviewsUsed(store) {
+  return (store?.tail?.(400, { kinds: ["stretch-started"] }) ?? [])
+    .filter((e) => REVIEW_DUTIES.has(e.payload?.duty ?? e.duty)).length;
+}
+
+/** Review stretches ASKED for so far, including any the budget already refused
+ *  - the number worth knowing when the cap looks too tight. */
+export function reviewsRequested(store) {
+  return (store?.tail?.(400, { kinds: ["handoff", "review-budget"] }) ?? [])
+    .filter((e) => (e.kind === "review-budget" ? true : REVIEW_DUTIES.has(e.payload?.nextSteps?.next))).length;
+}
+
+/** May this task start another review? */
+export function reviewBudgetDecision(store, { card = null, env = process.env } = {}) {
+  const { cap, source } = reviewBudgetFor({ card, env, briefText: briefTextFor(store, card) });
+  const used = reviewsUsed(store);
+  return { allowed: used < cap, cap, used, requested: reviewsRequested(store) + 1, source };
+}
+
 /** How much a stretch actually changed, read off the ledger rather than off
  *  git: a conversation's cwd is not always a repo, and the tool calls are the
  *  authoritative record of what was written. Longest input per tool id, because
@@ -258,10 +324,21 @@ export function tripwires(store, { duty, window = 12 } = {}) {
   return { noProgress, testFails, fires };
 }
 
-/** The two flow invariants. Returns {next, rewritten, reason}. */
-export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = null, stretchId = null, handoff = null } = {}) {
+/** The two flow invariants plus the review budget. Returns {next, rewritten, reason}. */
+export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = null, stretchId = null, handoff = null, card = null, env = process.env } = {}) {
+  const budget = reviewBudgetDecision(store, { card, env });
+  let reviewBudget = null;
+  if (REVIEW_DUTIES.has(next)) {
+    // The model asked for another review. Inside the budget this is its call and
+    // nothing here touches it.
+    if (budget.allowed) return { next, rewritten: false, reason: null };
+    // Over the budget: the ask becomes done, and done still has to clear the
+    // invariants below - the budget buys no shortcut out of them.
+    reviewBudget = { ...budget, from: next, to: "done", trigger: "asked" };
+    next = "done";
+  }
   if (next !== "done") return { next, rewritten: false, reason: null };
-  let skippedReview = null;
+  let skippedReview = reviewBudget ? `review budget spent: ${reviewBudget.used}/${reviewBudget.cap}` : null;
   // Triage never closes a conversation as done: its job is to open the work
   // and name the first working duty, and a capable floor model will happily do
   // a small task itself and hand off done (observed on the first live run —
@@ -274,16 +351,23 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   // review-before-done: implement work is not done until someone else read it -
   // when the change is big enough, risky enough, or unfinished enough to be
   // worth another provider's turn. See REVIEW_GATE.
-  if (CONVERSATION_FLOW.reviewBeforeDone.from.includes(duty)) {
+  if (!reviewBudget && CONVERSATION_FLOW.reviewBeforeDone.from.includes(duty)) {
     const insert = CONVERSATION_FLOW.reviewBeforeDone.insert.find((d) => selectedDuties.includes(d));
     if (insert) {
       const gate = reviewGateDecision(store, { stretchId, handoff });
-      if (gate.review) {
+      if (gate.review && budget.allowed) {
         return { next: insert, rewritten: true, reason: `review-before-done: ${gate.reason}` };
       }
-      // Skipping is a decision, recorded as one. `done` still has to clear
-      // done-requires-evidence below, so this is not a shortcut to closing.
-      skippedReview = gate.reason;
+      if (gate.review) {
+        // The gate wanted one and the budget refused. Recorded like an asked-for
+        // review, because that is what it is: the orchestrator asked.
+        reviewBudget = { ...budget, from: insert, to: "done", trigger: "insert" };
+        skippedReview = `review budget spent: ${budget.used}/${budget.cap}`;
+      } else {
+        // Skipping is a decision, recorded as one. `done` still has to clear
+        // done-requires-evidence below, so this is not a shortcut to closing.
+        skippedReview = gate.reason;
+      }
     }
   }
   // done-requires-evidence: somewhere in this conversation a gate/run evidence
@@ -308,10 +392,16 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   if (!hasResolvable) {
     const otherwise = CONVERSATION_FLOW.doneRequiresEvidence.otherwise;
     if (selectedDuties.includes(otherwise) && duty !== otherwise) {
-      return { next: otherwise, rewritten: true, reason: "done-without-evidence" };
+      return { next: otherwise, rewritten: true, reason: "done-without-evidence", skippedReview, reviewBudget };
     }
   }
-  return { next, rewritten: false, reason: null, skippedReview };
+  return {
+    next,
+    rewritten: Boolean(reviewBudget),
+    reason: reviewBudget ? `review-budget: ${reviewBudget.used}/${reviewBudget.cap} spent` : null,
+    skippedReview,
+    reviewBudget,
+  };
 }
 
 // ── brief ───────────────────────────────────────────────────────────────────
@@ -1442,8 +1532,20 @@ export async function runConversation(gateway, {
       const replyRef = store.writeNamedPayload(`stretch-${String(ordinal).padStart(4, "0")}-reply.md`, result.reply ?? "");
       const policy = applyFlowPolicy(gate.handoff.nextSteps.next, {
         store, duty, selectedDuties, cwd: scope.cwd ?? gateway.compositionDir,
-        stretchId, handoff: gate.handoff,
+        stretchId, handoff: gate.handoff, card, env,
       });
+      if (policy.reviewBudget) {
+        // The budget bit. Recorded on its own kind rather than folded into
+        // policy-rewrite, because "how many reviews did this task ask for and
+        // how many did it get" has to be answerable without parsing prose.
+        store.append({
+          kind: "review-budget",
+          duty,
+          stretch: stretchId,
+          payload: { ...policy.reviewBudget, allowed: false },
+        });
+        onFrame("review-budget", policy.reviewBudget);
+      }
       if (policy.skippedReview) {
         store.append({
           kind: "policy-rewrite", duty, stretch: stretchId,

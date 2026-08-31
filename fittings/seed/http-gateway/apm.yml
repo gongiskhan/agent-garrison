@@ -115,6 +115,20 @@ x-garrison:
         the next stretch is handed. With this on, triage is told to record where
         things live as anchored `fact` entries before it hands off. Set to false
         to fall back to the shared contract alone.
+    - key: review_budget
+      type: integer
+      default: 2
+      description: >-
+        How many review stretches (adversarial-review or review) one task may
+        run. The review GATE decides whether a particular change is worth a
+        second read; this is the ceiling on how many second reads the task may
+        buy at all, because without one the count is a free per-stretch choice
+        by the model and swung cost 2.4x across three runs of the same easy
+        task. Over the cap, a request for another review is converted to done
+        and a review-budget entry records the cap, what was used and how many
+        were asked for. A task overrides it in its own brief with a
+        "review budget: N" line or routing.reviewBudget. Set to a large number
+        to disable the cap.
     - key: compact_enabled
       type: boolean
       default: true

@@ -2107,6 +2107,10 @@ function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, str
   if (config.triage_findings !== undefined && config.triage_findings !== null) {
     env.GARRISON_HTTPGATEWAY_TRIAGE_FINDINGS = String(config.triage_findings);
   }
+  // The per-task ceiling on review stretches.
+  if (config.review_budget !== undefined && config.review_budget !== null) {
+    env.GARRISON_HTTPGATEWAY_REVIEW_BUDGET = String(config.review_budget);
+  }
   for (const [key, envName] of [
     ["prefix_cache_ttl", "GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL"],
     ["prefix_tool_search", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH"],
