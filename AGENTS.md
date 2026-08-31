@@ -1,9 +1,11 @@
 # AGENTS.md
 
 See [CLAUDE.md](./CLAUDE.md) for the project entry point. The original
-bootstrap spec is preserved verbatim at
-[docs/SPEC.md](./docs/SPEC.md); the live roadmap is at
-[docs/GARRISON_ROADMAP.md](./docs/GARRISON_ROADMAP.md).
+bootstrap spec is preserved verbatim at [docs/SPEC.md](./docs/SPEC.md).
+
+## Roadmap
+
+The plan of record is [`roadmap.json`](./roadmap.json) at the repo root, edited through the Roadmaps view and the roadmap CLI. Agents are the main authors and maintain it as work lands; notes hold decisions. See [docs/GARRISON_ROADMAP.md](./docs/GARRISON_ROADMAP.md) for the decision log and history.
 
 ## The mesh, in one paragraph
 

@@ -1,0 +1,412 @@
+#!/usr/bin/env node
+// One-shot seed: writes the Garrison roadmap to <repo>/roadmap.json from the brief
+// of 31 August 2026. Kept in the repo rather than run inline so the seed content is
+// reviewable and the write is reproducible; re-running it refuses to clobber an
+// existing file.
+//
+//   node scripts/spike/seed-garrison-roadmap.mjs
+
+import { existsSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const target = path.resolve(__dirname, "..", "..");
+const file = path.join(target, "roadmap.json");
+
+if (existsSync(file)) {
+  process.stderr.write(`${file} already exists - refusing to overwrite it\n`);
+  process.exit(1);
+}
+
+const cat = (id, title, noteRef, items) => ({
+  id,
+  title,
+  noteRef,
+  items: items.map(([itemId, text, itemNote = null]) => ({
+    id: itemId,
+    text,
+    done: false,
+    sentToKanban: null,
+    noteRef: itemNote
+  }))
+});
+
+const roadmap = {
+  title: "Garrison roadmap: from stretches to a system that runs my work",
+  intro:
+    "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
+  updatedAt: null,
+  categories: [
+    cat("c1", "Talk to Zeca instead of the Claude app", "n-c1", [
+      ["c1.1", "One tap to talk. Opening the Garrison PWA on the phone lands on a ready conversation with Zeca: no route, duty, level, machine or account to choose. Sticky defaults (account Auto, home node, general assistant flow) and a visible mic. Text and voice. Launch to talking is one tap, and \"new conversation\" inherits the same defaults. Audit: sticky routing per thread exists (contract §13); the zero-choice entry does not.", "n-c1-parity"],
+      ["c1.2", "Intent inferred, never selected. Zeca decides from context whether a message is a discussion, a quick answer or an actionable request, and routes accordingly: discussion stays in the conversation on a strong model; trivial back-and-forth and memory lookups stay in the conversation on a cheap model and create no card; direct actionable requests create a To do card without discussion. Every decision is logged with its features and is the improver's first training case (ask, then act and check, then act silently as confidence rises).", "n-c1-intent"],
+      ["c1.3", "The discussion register. In a discussion Zeca behaves the way the Claude app behaves with Gonçalo: CTO and CPO at once, devil's advocate before converging, honest pushback, prose suitable for text-to-speech, no em dashes, no flattery, a TLDR at the end of every substantive answer, European Portuguese register when the conversation is in Portuguese. Adapted from Anthropic's published Claude.ai prompts rather than invented; the June 2026 modes brief did that adaptation. Audit: is that what duty-discuss runs today, and at which levels?"],
+      ["c1.4", "Fable-class model on discussion, always. Discussion levels run Fable (or the best available) varying only effort. When a Max account hits its limit, the next stretch continues on the other account or on an API key without Gonçalo noticing beyond a badge. This is the concrete daily payoff of the stretch model.", "n-c1-accounts"],
+      ["c1.5", "Research and reading inside the conversation. Web search and fetch available mid-discussion with sources cited; reading any project under the dev root (Garrison, ekoa-code, client repos); cloning a public repo when asked (\"go look at X\"); reading Cortex through the cortex client. The same things Gonçalo asks the Claude app to do today."],
+      ["c1.6", "Memory in and memory out. Before answering, Zeca reads the relevant memory (profile, preferences, areas, people, topics) from the basic-memory vault, a listing first and targeted reads after, never the whole vault. After a conversation ends or goes quiet for a while, a background pass files what is durable at the same bar the Claude app uses: stated facts, decisions and preferences, never inferences. Visible: \"saved to memory\" markers in the conversation and the vault diff.", "n-c1-memory"],
+      ["c1.7", "Import the Claude app memory. One-shot import of Gonçalo's Claude memory export (profile, preferences, areas, people, topics) into the vault with the same taxonomy, aliases and links preserved, so day one in Garrison knows what the Claude app knows."],
+      ["c1.8", "Past conversations as a tool. \"What did we decide about X\" searches the conversation ledger across all conversations, returns the conversation and the spot, and Zeca answers from it attributing who said what (his statement versus a suggestion of the model's). L3 search exists inside one conversation; extend across conversations and expose as a tool the assistant conversation can call."],
+      ["c1.9", "Briefs and documents at the right moments. When a discussion converges, Zeca writes the brief or plan to disk (Documents fitting, or the project's docs when it is about a project) and returns a link that opens on the phone. \"Run it\" turns the document into a To do card carrying the brief, and that card's conversation starts from it. This closes the loop the Claude app cannot: discuss, brief, run, in one place.", "n-c1-briefs"],
+      ["c1.10", "Resume anywhere. A conversation started on the phone continues on the desktop and back; the conversation list is searchable by text and by project; an unfinished discussion is easy to find and pick up days later."],
+      ["c1.11", "Voice good enough to be the default on the phone. Dictation with the existing voice capture (or Wispr Flow into the composer) and spoken answers via TTS with barge-in, latency measured and shown, the answer also readable as text. The Companion app's car mode reuses this."],
+      ["c1.12", "Leave and come back. A long research turn or a long answer notifies Gonçalo on completion (web push, Companion, Omi) so he does not have to keep the screen open."],
+      ["c1.13", "Response time budget. First visible token under three seconds on a warm account for a discussion turn, measured in conversation metrics and flagged when exceeded. If discussion turns feel slower than the Claude app he will not switch."],
+      ["c1.14", "Acceptance: one full week where every Garrison and Ekoa product conversation starts in Garrison on the phone. Measured by the count of discussion conversations per day in Garrison and by Gonçalo's own verdict that he does not miss the Claude app for this. Then c3 starts."]
+    ]),
+    cat("c2", "Conversations and stretches, the working substrate", "n-c2", [
+      ["c2.1", "Keep the stretch mechanism as the way all work runs: multi-model, multi-provider, multi-account, effort as the only free dial mid-work, duties coarse with a default model and a ceiling, self-escalation with a sticky floor per conversation. Decided 30 and 31 August; the cost thesis is dropped, freedom of provider and account is the reason.", "n-c2-benchmarks"],
+      ["c2.2", "Findings register, slice 2. Claims with pointers written while working and read on demand, across providers and across the cwd boundary; triage writes findings too (it wrote zero in slice 1); dig-to-detail from a claim in the conversation UI. Measured only by use (ledger search hits, re-reads avoided), never by another benchmark."],
+      ["c2.3", "Account and provider indifference. Subscription accounts (the Max accounts, the Codex pro account), API keys and other providers interchangeable per stretch; automatic fallback when one is exhausted; account and provider badges on every stretch. Audit: the balance API exists; what triggers a switch today, and does it happen between stretches without a human?"],
+      ["c2.4", "Adversarial review count is the dominant cost driver (a 2.4x swing between identical runs, chosen freely by the model). Make the number of review cycles a per-duty knob with a default cap, show it in the conversation, and let the model request one more with a reason rather than loop silently."],
+      ["c2.5", "Project path after the last cache breakpoint. The cwd sits inside the cached prefix, so every new project starts cold while plain Claude Code stays warm; move the project path after the last breakpoint with the request shaper that already exists. Small, independent, and the one actionable finding of the third benchmark campaign."],
+      ["c2.6", "Loud failure instead of silent degrade. A project stretch whose project does not resolve (not a git repo directly under the dev root) must fail the stretch with a clear reason and a ledger event, never run in the composition directory."],
+      ["c2.7", "The conversation component is one component. Badges (model, effort, provider, account, node), click-through to handoffs, findings and files in formatted modals, no raw JSON at the first level, shared by the card modal and the web channel. Audit against plan v2 and list what is missing rather than assume."],
+      ["c2.8", "L2 digest and L3 search: keep them only if the findings register does not make them redundant. Decide after slice 2 and fold or remove; do not carry both forever."],
+      ["c2.9", "Served-app comparison over Tailscale: Gonçalo compares the todo app built by the plain Claude Code baseline with the one built by the mechanism, by using them. A manual step, not a measured benchmark."],
+      ["c2.10", "OpenAI and Codex in the ladder for real. The Codex runtime as a delegable target working end to end from a conversation with the pro-ekoa account; cross-provider handoff verified by use in real cards, since making delegation to other runtimes work matters more than seeing costs clearly."],
+      ["c2.11", "Headless main session with auto-approve replaces the old dispatch path (decision of 16 August). Unattended cards run as a conversation under the autonomy bands; the legacy dispatch API and engine path are removed once no card uses them."]
+    ]),
+    cat("c3", "Command Center", "n-cc-principles", [
+      ["c3.1", "Replace Garrison Home with the Command Center at the same route. What goes from the headline: fitting and faculty counts, verify counts, readiness rows (they live in Muster and the composition page). What stays: Run or Restart session, Stop, Full verify run (one collapsed button group on the phone), the live field log terminal (collapsed; logs remain the verification surface), and the pending sends strip. Single column on the phone, grid on desktop.", "n-cc-home"],
+      ["c3.2", "A view, never a store. The Command Center reads from producers that already exist and writes back through their own APIs; it holds no items of its own. Producers today: cards (board), conversations (ledger), pending sends (outbox), routing decisions awaiting a verdict (orchestrator decisions), permission prompts and questions from running conversations, scheduler occurrences, mesh convergence intents, the improver review queue.", "n-cc-principles"],
+      ["c3.3", "The Attention queue widget. One list of everything that needs Gonçalo, nearest deadline first, with the action inline: approve or cancel a send; answer a question or a permission prompt; confirm or correct a routing decision with the correction fields; resume or move a Needs input card; acknowledge a failed schedule or a skipped convergence; open the conversation. Each row shows source, node, age and deadline when known. The empty state is one line, never an empty panel.", "n-cc-queue"],
+      ["c3.4", "The attention read model. A single aggregator endpoint that unions producers into one item shape (id, kind, source, node, title, detail, deadline, actions, href) with a small enumerated action set that posts back to the owning producer. This is the only new server piece; it caches per producer, stays quiet when one is down, and never becomes a queue of its own.", "n-cc-queue"],
+      ["c3.5", "The Loop widget. Three small columns: To do (the top five by order), Running (duty, model, provider, account, node, elapsed), Done today (a one line outcome each); counts for the rest; per-project filter remembered. Tap opens the card modal with its conversation. Replaces the current Board panel."],
+      ["c3.6", "The Conversations widget. Active and recent conversations across nodes, continue on tap, and the one-tap \"talk to Zeca\" entry from c1.1. On the phone this is usually where the day starts."],
+      ["c3.7", "The Decisions and autonomy widget. Generalises the current Router panel: per track the band (ask, act and offer revert, act and inform), confidence, last decision, and the lever to raise or lower the band by hand; below it the recent decisions with verdicts (kept, reverted, corrected) and a redo-with-overrides action. This is the surface of the improver mechanism: confirm until a track has earned it, then flip it.", "n-autonomy"],
+      ["c3.8", "The Numbers widget. What went well and what did not, today and this week: cards done, parks in Needs input, first-pass review acceptance, reverts and corrections, cost per day by provider and account with usage remaining per account, median stretches per card, time to done, convergence status. Small numbers with a seven day sparkline each, per project on tap. Every number comes from an existing ledger or API.", "n-cc-stats"],
+      ["c3.9", "Widgets, defaults and configuration. The Command Center is a list of widgets with a default order (pending sends strip, Attention, Loop, Conversations, Decisions, Numbers, composition controls, field log) and a per-node configuration in state (order, hidden, size). Each widget loads and polls independently and fails quietly. A widget is a plain component with a manifest entry; fittings exposing their own widgets is parked, but the slot must not prevent it.", "n-cc-widgets"],
+      ["c3.10", "Poke discipline. No interrupt for a count. Two fixed reviews a day (times configurable) delivered through the existing notification channels (web push, Companion, Omi, Slack) with a three line summary of the queue; interrupts only for a deadline, a flagged send about to go out, a running loop blocked on him, or a failed scheduled job. Zeca answers \"what needs me\" at any time.", "n-cc-pokes"],
+      ["c3.11", "The Command Center by voice. From the Omi channel or the Companion app: \"Zeca, what's in the command center\" reads the queue; \"approve the first\", \"cancel that send\", \"answer yes to the Garrison question\" act on it. Implemented as gateway tools (list and act) that the assistant conversation calls, never as state injected into the prompt, so the cached prefix stays intact."],
+      ["c3.12", "Cross-node from day one. Cards are pure state and sessions are pinned, so the queue shows items from every node with the node accent, and actions route through the mesh node proxy when the owner is elsewhere. A degraded node is a row saying so, not a missing section."],
+      ["c3.13", "Loop engineering windows. Scheduled windows (for example early morning, lunch, late evening) as scheduled cards visible in the Loop widget. Each window pulls the next N To do cards per project that Gonçalo queued for the loop, runs them as headless conversations under the autonomy bands, and lands results in Done with evidence or in the Attention queue when parked. The Command Center shows the next window, which cards are queued for it, a kill switch, and the last window's report. Constraints: per-project lease, clean tree, never during convergence.", "n-cc-loop"],
+      ["c3.14", "Communications inbox, phase 1: triage only. One channel first (the Ekoa mailbox, then his own Gmail), deterministic fetch every fifteen minutes, one batched cheap model call over what is new and none when nothing changed, every item classified into ignore, card, memory or needs reply, every classification logged and correctable from the Attention queue. No drafting, no sending. Two weeks of corpus and cost curve before phase 2.", "n-cc-inbox"],
+      ["c3.15", "Communications inbox, phase 2: drafting. For needs-reply items, three or four suggested replies in his voice, learned from what he picks and how he edits; choosing or editing is the signal; sending is still by hand."],
+      ["c3.16", "Communications inbox, phase 3: sending through hold windows. Sends go through the outbox with a hold window (zero for himself, ten minutes for collaborators, always ask for money, dates, commitments and first contacts). The middle autonomy band for an irreversible action is the hold window, not a binary switch."],
+      ["c3.17", "Channel reality and the escape hatch. Ekoa mail and personal Gmail: full, through the google connector. WhatsApp: the whatsapp-web fitting (personal number, ban risk accepted, 60 second outbox exists). Slack: per workspace. Teams inside client tenants: not reachable without admin consent; assume no. A share or forward target that creates a card from a screenshot or an email covers the blocked channels at zero maintenance cost.", "n-cc-inbox"],
+      ["c3.18", "Injection tripwire honoured. The ingest and triage lane runs with no vault, no bash, no write tools and no send tool, and treats message bodies as data. Sending is a separate step that receives a structured object (channel, recipient, body) and never reads the original text as instruction. Designed in before the first channel is connected, because it cannot be retrofitted."],
+      ["c3.19", "Phone acceptance. Usable one-handed on an iPhone in the PWA: every action reachable without horizontal scroll, Playwright at the iPhone viewport for every widget, first paint under two seconds on a warm PWA, every action confirmed inline with optimistic UI and rollback on failure."],
+      ["c3.20", "Statistics history stays small. Daily rollups written by a nightly job into state, not raw events, so the Numbers widget never scans logs."],
+      ["c3.21", "The Command Center knows the roadmap. A small \"next up\" row from this file (items sent to Kanban but not started, items proposed by c6.7), so the roadmap is looked at instead of forgotten."]
+    ]),
+    cat("c4", "Graduated autonomy and the improver", "n-autonomy", [
+      ["c4.1", "One autonomy engine for every decision Garrison makes on his behalf: tracks per decision type with three bands, confidence built from kept, reverted and corrected outcomes, adjustable thresholds, everything logged with the evidence used. Exists for routing (tracks and bands landed); extend to triage classifications, sends, card creation from voice, and automation runs."],
+      ["c4.2", "The lever per track lives in the Command Center (c3.7). Gonçalo watches a track behave under \"ask\" until he trusts it, then raises it. Never a global switch, except the day-off mode."],
+      ["c4.3", "Visible learning. What the improver captured (route selector overrides as intent signals, redo-with-overrides as strong signals, corrections, verdicts) with weights, browsable per track; a weekly digest of what changed and why. Gonçalo has not yet seen the improver help; visibility is how he will."],
+      ["c4.4", "Day-off mode. \"Zeca, I'm off today, make the decisions\" moves every reversible track to act-and-inform for the day, keeps irreversible tracks on hold windows, and produces an end of day report of everything decided, sent and built, with one-tap reverts where possible. Depends on c3 and on c5 coverage; the report uses the handoff schema.", "n-day-off"],
+      ["c4.5", "Nightly improvement pass over the day. Decisions, corrections, parked cards, conversation handoffs and later screen stories feed the improver's nightly proposals; proposals in the autonomous band apply themselves, the rest land in the Attention queue. Today the pass proposes and never applies; the band decides."],
+      ["c4.6", "Order of training cases. Mode selection first (daily, cheap to get wrong); inbox triage second (high volume, reversible); reply drafting third. Outbound sending earns autonomy last and only through hold windows."]
+    ]),
+    cat("c5", "Automation through Cortex", "n-cortex", [
+      ["c5.1", "Cortex is the automation champion; Garrison is a client. Every Garrison automation runs through Cortex's integrations API (actions backed by API, CLI, MCP or browser steps; self-extension; lessons per integration), identified by Gonçalo's user API key, with local steps on the Ekoa bridge. No engine in Garrison. Decided July 2026 and restated here so nobody rebuilds it."],
+      ["c5.2", "Garrison automations UI, minimal scope. A natural language session that calls the Cortex automations API with the key configured in the fitting; a planning step when Cortex asks for it; continuation by instance id; steps, results, screenshots, errors and run questions answered inline. Audit cortex-automations and cortex-client for what exists."],
+      ["c5.3", "The list of what Gonçalo actually does on the computer that is not software development, as integrations: Airbnb guest messages and refunds, email replies, messages to colleagues (Slack, WhatsApp, Teams where reachable), calendar, invoices and admin, Trello, Ekoa client support. Each becomes an integration action with its own autonomy track; refunds and anything touching money start at \"ask\"."],
+      ["c5.4", "Coverage, not cleverness. \"Do my work today\" needs c5.3 covered: track which item has an action, which runs unattended, which still asks, and show it as a coverage number in the Command Center."],
+      ["c5.5", "Scheduled integrations (mailbox fetch, Airbnb inbox, Citius-style syncs) as scheduled cards, so they show in the Loop widget with their occurrence ledger and their failures in the Attention queue."],
+      ["c5.6", "Credentials live only in the Cofre and the Vault, never in cards, conversations or prompts; the injection tripwire (c3.18) applies to every integration that ingests third-party content."]
+    ]),
+    cat("c6", "Software development inside Garrison", "n-dev", [
+      ["c6.1", "Work kind flows covering code tasks, ops, automation building, simple tasks (send a message) and discussions of two sizes. A flow is a checklist of done injected at card creation and enforced at exit; levels on flows, duties inherit with pins; escalation only up and recorded."],
+      ["c6.2", "Duties deduplicated and named. One implement duty (not implement and code side by side); every state or list that maps to a duty carries the duty prefix so it is clear what is running."],
+      ["c6.3", "Delegate tool with the fixed signature delegate(duty, card, brief) for Codex, Gemini and cheap executors; adversarial review always delegated for fresh context; returns are handoffs (status, summary, evidence, next steps, blocker), never logs."],
+      ["c6.4", "Drill results MCP. Any session reports test results and the drill fitting renders a drill-style report (steps, images, video, all optional, the session decides) with a phone-clickable link at the end; registered automatically when the drill fitting is equipped; usable from a session already in progress."],
+      ["c6.5", "E2E Project Viewer as designed on 31 July (flows from the drillbook and the e2e tests, code half and description half, navigable states, changes view tied to git, file-to-flows view, cleanup only on request, manifests as truth, a pilot of six flows first). Audit whether any of it was built."],
+      ["c6.6", "Remote-shell runtime: attach to a remote tmux over a transport, stream two-way into the web channel, emit lifecycle events. CSG over the existing Dev Tunnel as the first transport (Garrison reaches in, the VM never calls out), SSH to his own machines as the second. Audit against the 21 August brief."],
+      ["c6.7", "Garrison develops Garrison. A scheduled card reads this roadmap and proposes the next items as cards, each with a short brief, into the Attention queue for approval; once that track earns it, it queues them for the loop windows by itself. Roadmap items get sentToKanban and a back-reference as they do today."],
+      ["c6.8", "Close the roadmap loop. When a card that came from a roadmap item is Done, propose ticking the item as an Attention row; never auto-tick (the v1 bridge is one-way on purpose)."],
+      ["c6.9", "The honesty rule holds for everything but Signals (c8): every capability is a fitting with its own port, flags off by default, a status file, counters and sandboxed tests."]
+    ]),
+    cat("c7", "Ears and mouths: Omi, Companion, screen context", "n-ears", [
+      ["c7.1", "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Audit the 20 August brief's status."],
+      ["c7.2", "Drop the Omi subscription and apps without breaking compatibility. Omi stays a supported channel (for Ekoa users later); the always-on is the responsibility of whoever chooses the device; a setup wizard makes the channel easy for others."],
+      ["c7.3", "Companion app v1 on TestFlight. Deliberate capture (meetings with the consent notice, dictation, car mode), live transcript, wake commands during a session, memories and tasks through the existing triage with its wait-for-context batching, iOS push, spoken answers while foregrounded. Audit ios/ and the fastlane pipeline."],
+      ["c7.4", "Phone screen context to desktop action. During a Companion session, broadcast frames plus voice tell Garrison which app and which conversation Gonçalo is in; the action (\"send her a message\") runs on the desktop through the matching integration (whatsapp-web, Gmail, browser) and shows up on the phone through that app's own sync. A ring buffer of recent frames on the receiver so the frame predates the command. This is the \"iOS thing\" loop, merged into ios/.", "n-screen"],
+      ["c7.5", "Screen stories as memory, phone. During sessions, sample frames on change rather than video; extract app, contact, topic and visible text with a cheap vision call; store a story of the day. The nightly pass turns stories into memories and improver material. Passive all-day capture is not possible on iOS by design; this is session based and stays so.", "n-screen"],
+      ["c7.6", "Screen stories as memory, Macs. The same pipeline on every Mac, cheaper: active app and window title logged continuously (text, near free), screenshots only on app or window change and at most every few minutes, redaction rules (vault, banking, password fields), raw frames kept one week, stories kept. His own machines only, never a client machine, off by default per node.", "n-screen"],
+      ["c7.7", "The story of the day feeds the improver. What he did, in which apps, for which projects; recurring manual sequences become integration candidates for c5.3, proposed in the Attention queue."],
+      ["c7.8", "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Omi push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row."]
+    ]),
+    cat("c8", "Signals, the web channel as system core", "n-signals", [
+      ["c8.1", "Name it. Candidates for the promoted web channel: Signals (the corps that carries orders between command and the units), Adjutant (the officer who transmits the commander's orders), Comms. Lean: Signals; it sits well next to Muster, Quarters, Armory, Vault and Mesh."],
+      ["c8.2", "Write down what the fitting shape costs today and what \"core\" would mean. Costs: the APM contract dance on every UI change, own-port serving and PWA ownership inside a fitting, the extra hops between gateway and fitting for streaming, duplicated transports. Core: lives in src like Muster, served by the app, owns the PWA, push, the conversation component and the sessions rail, cannot be stationed or removed. This audit precedes any move."],
+      ["c8.3", "The exception is written into the docs. The honesty rule stands for every capability except Signals, because no work happens in Garrison without it; other channels (Slack, Omi, Companion, voice) remain fittings with channel parity generalised, not special-cased."],
+      ["c8.4", "Migrate after c1 is in daily use and c3's first widgets exist, in one long autonomous task, with the conversation component shared with the card modal untouched, and the Command Center embedding the conversation widget from core."],
+      ["c8.5", "Until then, no new fitting-specific machinery in the web channel that a move would throw away. c1 work goes into duties, orchestrator, memory and tools, not into the fitting's plumbing."]
+    ]),
+    cat("c9", "Mesh and multi-node", "n-mesh", [
+      ["c9.1", "Cross-node visibility and control in the Command Center (c3.12); the node accent on every row; an instances menu to open the other nodes."],
+      ["c9.2", "Convergence health visible: the nightly card's outcome, skipped dirty nodes, the three-night streak escalation, all in the Numbers widget and the Attention queue."],
+      ["c9.3", "Parked on purpose: cross-machine delegation through the delegate tool (deferred 15 August until the rest works well) and session migration between nodes (out of scope by design; sessions are pinned)."],
+      ["c9.4", "Secrets authority on dev-madrid and online-only positioning stay. When dev-madrid is down, new work blocks with a clear error; a fork of shared state is worse than a stop."]
+    ]),
+    cat("c10", "Memory", "n-memory", [
+      ["c10.1", "The vault uses the same taxonomy as the Claude app: profile, preferences, areas, people, topics, with aliases and links, so the import (c1.7) maps one to one and future exports both ways stay trivial."],
+      ["c10.2", "Capture from every ear with the source tagged: conversations through the background pass (c1.6), Omi and Companion transcripts after the wait-for-context batching, screen stories (c7.5 to c7.7). Nothing written without a source."],
+      ["c10.3", "Consolidation that is useful. The nightly dream rule over the vault exists; judge it by whether recall improves: distillations, merges, contradiction resolution, relative dates made absolute; the risky changes go through the review queue."],
+      ["c10.4", "Recall quality. The assistant reads the right files before answering (a listing plus targeted reads), never the whole vault; a fixed set of questions run weekly tells whether recall got better or worse."],
+      ["c10.5", "Decision pending: memory implemented in Cortex and exposed as an API with the Garrison fitting as a wrapper (the 30 July pattern), versus the vault staying in Garrison. Decide after c1 works; do not start a migration before the assistant is in daily use."]
+    ]),
+    cat("c11", "Ekoa convergence", "n-ekoa", [
+      ["c11.1", "The pattern. Capabilities are implemented in Cortex and exposed as OpenAPI; Garrison fittings are views and wrappers; every call identifies a user by API key; Cortex never special-cases Garrison; Garrison's open source defaults work without Ekoa. Documented as hard rules in both repos' agent docs."],
+      ["c11.2", "Garrison as client zero of Cortex capabilities: automations and integrations first, memory and knowledge later, voice as a candidate."],
+      ["c11.3", "Ports back to Ekoa when proven in Garrison: the tasks app (Kanban concept), the Omi and Companion pipeline, the assistant register. Tracked in ekoa-code's own roadmap (its f3 and f4)."],
+      ["c11.4", "Multi-tenant Garrison parked; tenant isolation stays an Ekoa problem."]
+    ]),
+    cat("c12", "Housekeeping and debt", "n-debt", [
+      ["c12.1", "Retire docs/GARRISON_ROADMAP.md as history with a banner; this file is the plan of record; AGENTS.md points to it. (Done by the seeding session.)"],
+      ["c12.2", "Root clutter. Move the run logs, progress files, handoffs and reports sitting at the repo root into docs/reports with a dated index; keep README, AGENTS, CLAUDE, LICENSE and WHATS-NEW at the root; refresh or delete WHATS-NEW, which describes May."],
+      ["c12.3", "Vocabulary. Finish the operative and outpost purge with the enforcement test; the Discuss list gone everywhere; the legacy dispatch path removed after c2.11."],
+      ["c12.4", "Benchmark artifacts (the bench directory and the evidence of the three campaigns) archived under docs/reports with the conclusions written once; the measuring is over."],
+      ["c12.5", "A monthly roadmap review card: agents propose ticks and new items from the ledger and the handoffs; Gonçalo reviews them in the Attention queue."]
+    ])
+  ],
+  notes: [
+    {
+      id: "n-c1",
+      title: "Why item one is talking to Zeca",
+      body: [
+        "Gonçalo opens the Claude app on his phone many times a day and talks to it: long dictated messages, product and architecture discussion with pushback, \"go clone that repo and look\", web research, briefs written at the right moment, and memory that carries across sessions. That habit is the actual daily interface to his work, and today it lives outside Garrison. Everything Garrison is for (the improver learning from him, cards born from discussions, memory that compounds, the Command Center having something to show) depends on those conversations happening inside it. So the assistant is the producer and the Command Center is the consumer, and the producer comes first.",
+        "",
+        "The first Garrison roadmap (May 2026, Stage 4) already named this outcome: \"PM/Architect discussions happen in Garrison instead of claude.ai, the operative captures decisions into documents, the whole flow inside Garrison\". It was sequenced behind the dev pipeline and then behind everything else. It stops being deferred now.",
+        "",
+        "What was decided on 31 August: the roadmap is done first, then c1 as the first item, then the Command Center. The web channel promotion (c8) is explicitly not part of this work. No more cost benchmarks.",
+        "",
+        "Risk to hold in mind: c1 has a scope trap. The reasons he would keep opening the Claude app are speed, the model, and reliability, not missing features. So the first slice is narrow and shippable in a week: one tap in, Fable on discussion with account fallback, research and repo reading, memory read at start and write at end, brief to disk with a link. Everything else in c1 follows usage, not the list."
+      ].join("\n")
+    },
+    {
+      id: "n-c1-parity",
+      title: "What \"parity with the Claude app\" means, concretely",
+      body: [
+        "Parity is a list of behaviours, not a feeling. In the Claude app, in one conversation on the phone, Gonçalo gets: memory read before the answer (profile, preferences, the relevant area and people), a background pass that files durable facts afterwards without being asked, search of past conversations when he writes as if the assistant already knows (\"the thing we decided\"), web search and fetch with citations, repo cloning and reading, documents produced as files with a link, the CTO and CPO register with devil's advocate before converging, prose for text-to-speech with no em dashes and a TLDR, European Portuguese when he writes in Portuguese, and continuation on any device. Each of those maps to an item in c1 or c10. Anything not in that list is not parity and waits.",
+        "",
+        "Two things Garrison can do that the Claude app cannot, and which are the reason to switch rather than the price of switching: \"run it\" turns a converged brief into a card and a working conversation in the same place (c1.9), and every decision he makes in a conversation trains the improver (c1.2, c4). Those two should be visible early, because they are what makes the move worth the friction."
+      ].join("\n")
+    },
+    {
+      id: "n-c1-intent",
+      title: "Intent without a mode switch",
+      body: [
+        "Decided in August: he never wants to say which mode he is in (project, task, memory, learn, discuss, personal). The classifier decides, and its decision is the improver's first training case because it happens daily and a wrong call is cheap. Since a conversation has no revert, the bands map to: ask (\"dig into this properly or just a quick answer?\"), act and check lightly afterwards (\"I went into discussion here, say the word if you just wanted the task created\"), act silently. Corrections mid-conversation (\"just add the task\") are strong negatives; sustained engagement is a weak positive; an explicit \"good call\" is a strong positive. Log every selection with the features that informed it (message signals, recent context, channel, time of day).",
+        "",
+        "Card routing rules (August): discussion never creates a card by itself, and a converged discussion can be sent to implementation; trivial back-and-forth and memory lookups create nothing; direct actionable requests create a To do card without discussion; the Discuss list no longer exists, it is a state of the conversation."
+      ].join("\n")
+    },
+    {
+      id: "n-c1-accounts",
+      title: "Why account fallback is a c1 item and not a c2 detail",
+      body: "He holds two Max accounts because he hits the weekly limit on one, plus a Codex pro account and API keys. In the Claude app the account is invisible. In Garrison a discussion that dies because an account ran out is a reason to go back to the app. The stretch model already allows the next stretch to run on a different account or provider; c1.4 is about making that automatic and invisible in the discussion path specifically, with only a badge as the trace. Costs are not the point here; the August benchmarks closed that question (see n-c2-benchmarks). Continuity is."
+    },
+    {
+      id: "n-c1-memory",
+      title: "Memory in and out, the Claude app's bar",
+      body: [
+        "The Claude app files memory in a background pass after each turn, at a strict bar: only what the user stated, never inferences, never the assistant's own suggestions unless the user picked them, one line per durable fact, nothing for passing mentions until they recur, and a taxonomy of profile, preferences, areas, people, topics. Garrison should adopt the bar and the taxonomy as they are (c10.1), because they are the result of a lot of iteration and because the import (c1.7) then maps one to one. What Garrison adds: the source tag on every line (conversation, Omi, Companion, screen story), and the vault diff being visible.",
+        "",
+        "Recall matters as much as capture: reading the listing and then only the relevant files before answering, the way the app does. Reading the whole vault into every discussion stretch would blow the prefix and the point."
+      ].join("\n")
+    },
+    {
+      id: "n-c1-briefs",
+      title: "Briefs, documents and \"run it\"",
+      body: [
+        "Today briefs are written in the Claude app, saved to disk by hand, and pasted into a Claude Code session. In Garrison the brief is written by Zeca to the Documents fitting (or into the project's docs when it is about a project), returned as a link that opens on the phone, and can be run with one action: a To do card is created carrying the brief, and its conversation starts from it with the flow the classifier picks (usually develop). The card then shows in the Loop widget and its outcome lands in Done or in the Attention queue. The document remains the durable artifact; the conversation remains the ephemeral one; Zeca decides what to lift into the document, and an explicit \"capture this\" always works.",
+        "",
+        "Preference carried over from the Claude app: briefs and plain implementation instructions, not loop prompts, unless explicitly asked; prompts only when asked; otherwise a fellow developer and product manager in discussion."
+      ].join("\n")
+    },
+    {
+      id: "n-c2",
+      title: "The substrate and its state on 31 August",
+      body: [
+        "The conversations system is implemented and working: one conversation per card lifetime, stretches booted from a brief, structured handoffs out, an exit gate, a three layer store (summary, handoffs, append-only ledger with payloads), a five-state board (To do, Running, Needs input, Scheduled, Done), duty lists removed, Discuss list removed, cost per stretch instrumented and visible. The web channel reached session parity with Claude Code in the terminal (streaming, permissions, interrupt, continuity, routes and errors, prefix guard, live validation) in the M0 to M9 run of mid August. The findings register (claims with pointers instead of a summary) landed as slice 1 on 30 and 31 August.",
+        "",
+        "Design decisions in force: no router (duties stay coarse with a default and a ceiling; the model self-escalates with a sticky floor and mechanical tripwires); effort is the only dial free mid-session; delegation for file-input duties and always for adversarial review; returns are handoffs, never logs; no warm session pools (session reuse only inside a card's active gate loop); a stable prefix by invariant (everything that changes arrives as a message; delegate has a fixed signature; MCPs are attached at spawn); the board demoted to states; the conversation component shared by the card modal and the web channel; mesh explicitly out of scope for the substrate work (single instance first).",
+        "",
+        "Things rejected and not to be reopened: a Garrison-owned runtime or loop (twice: in the Harness analysis of 22 August and again on 29 August when the SDK proved it passes server tool blocks through), sub-agents for switching model inside a session, per-duty tool allowlists (they fork the prefix hash; sharing beat narrowing about ten to one), a preset-free mode (the harness is what makes the model behave; one extra turn costs more than the preset saves), the haiku triage exception (parked as a watch item until triage runs all day and shows on the invoice), and building a restart loop instead of delegation."
+      ].join("\n")
+    },
+    {
+      id: "n-c2-benchmarks",
+      title: "What the three benchmark campaigns concluded, so nobody runs a fourth",
+      body: [
+        "Campaign one (29 August): the mechanism cost 1.6x a plain Claude Code session on the same task; the cause was the boot prefix of each stretch (about 76k tokens of harness: preset, a 41k character CLAUDE.md, tool schemas, eleven gateway tools), not the brief or the conversation context. Campaign two (29 August): cutting the prefix 59 to 61 percent per stretch did not move the bill, because the prefix is paid once per stretch and the invoice is per call, and variance between identical runs (43 percent) exceeded every change. The prefix work still landed and is kept: the request shaper as a seam (the proxy rewrites Anthropic request bodies), tool search through the proxy, a one hour cache TTL on the system breakpoints, credentials symlinked never copied, and the finding that the cwd sits inside the cached prefix (fix in c2.5). Campaign three (30 August, todo app on a seeded repo, frozen spec, four runs per arm): plain Claude Code with a 121k prefix was cheaper and eight times more consistent than Garrison at 16k; cost is driven by the number of stretches (six versus eight stretches swung cost 71 percent) and by the number of adversarial reviews the model chooses (2.4x); n=3 detects only an 80 percent effect and twenty nine runs per arm would be needed. Findings slice 1 (31 August): no detectable cost or quality difference; the register is used but did not reduce re-reads within one provider.",
+        "",
+        "Decision, 31 August: the cost thesis is dropped. Stretches are kept for the freedom they give: subscription, API, different accounts and different providers used indifferently, with cheaper models arriving over time. Measurement is over; the mechanism is improved by using it for real work. Costs are reviewed only later, from the per-stretch numbers already visible. One manual step remains (c2.9): compare the served apps by using them."
+      ].join("\n")
+    },
+    {
+      id: "n-cc-principles",
+      title: "What the Command Center is and is not",
+      body: [
+        "It is the single place where everything that needs Gonçalo lands, the place he looks at on the phone, and the surface from which he steers the loop and flips autonomy. It replaces Garrison Home at the same route.",
+        "",
+        "Principles, decided across the 29 and 31 August conversations:",
+        "",
+        "- A view, never a store. The Needs attention list failed because it was one more place to check. If the Command Center grows its own items, there will be two inboxes and he will check neither. It reads producers (cards, conversations, outbox, decisions, prompts, schedules, convergence, review queue) and writes back to them. Messages from channels are a new producer of cards, not a new subsystem. The loop's questions and decisions are another producer. Same item shape, same ledger, one place.",
+        "- It decides and he overrides. Rather than a \"switch to automated\" button, the system acts within the band each track has earned and he can overrule from the same screen. The decisions panel is inside the Command Center for that reason.",
+        "- Mobile first. It has to work on the phone or it will not be used; the desktop layout is the phone layout in columns.",
+        "- Widgets with defaults. The page is a configured list of independent widgets; the default order is opinionated; per-node configuration is stored in state; each widget fails quietly. Fittings exposing widgets is a later conversation and is parked; the slot must not prevent it.",
+        "- It is the control surface of loop engineering: what runs in the next window, what came out of the last one, the kill switch.",
+        "- The assistant knows it: Zeca can read and act on the queue by voice from the Omi channel or the Companion app.",
+        "",
+        "What it is not: a dashboard of system health. Fitting counts, verify totals and readiness rows leave the headline; they are one tap away in Muster and the composition page. Verification lives in the logs, which stay on the page as a collapsed terminal. The restart buttons stay."
+      ].join("\n")
+    },
+    {
+      id: "n-cc-home",
+      title: "What happens to the current home page",
+      body: [
+        "Current home, in order: greeting and composition state with Run or Restart, Stop and Full verify run; the orchestrator-missing banner; the OutboxStrip (pending sends with a 60 second countdown, only rendered when something is parked, polled every 15 seconds); the active composition dossier (status, verify, faculties, PID); Orders (Muster, Quarters, Vault); Readiness; Board panel; Mesh panel; Router panel (autonomy tracks asking versus autonomous, latest decision with verdict and correction); Tasks panel; live field log terminal.",
+        "",
+        "Kept: the OutboxStrip as the first strip (a cancel window has to be the first thing on the page), the run and restart controls collapsed into one group, the field log collapsed, the orchestrator banner. Replaced: Board panel by the Loop widget, Router panel by the Decisions and autonomy widget, Mesh panel folded into node accents and the Numbers widget. Removed from the headline: dossier stats, Orders, Readiness, Tasks panel (their pages remain). Added: Attention queue, Conversations, Numbers, the roadmap \"next up\" row."
+      ].join("\n")
+    },
+    {
+      id: "n-cc-queue",
+      title: "The Attention item shape and the action set",
+      body: [
+        "One item shape for every producer: id, kind (send, question, permission, decision, needs-input, failure, proposal, tick), source (the producer and the fitting), node, title, detail (one paragraph at most; details open on tap), deadline (when the producer knows one: a send's execute time, a schedule's next run), href (the conversation, card or page), actions. The action set is small and enumerated: approve, cancel, answer (free text or choice), confirm, correct (with fields), resume, move, acknowledge, open. Each action posts back to the owning producer's API; the aggregator never mutates state itself. Rows are sorted by deadline first, then by age. Optimistic UI with rollback on failure, and a settled row stays legible for a few seconds (the OutboxStrip's rule about not hiding a message that went out).",
+        "",
+        "Why one endpoint: every widget polling five producers on the phone is slow and chatty; one read model with per-producer caching and quiet degradation keeps the phone fast and the page honest when a producer is down."
+      ].join("\n")
+    },
+    {
+      id: "n-cc-widgets",
+      title: "The widget framework, kept small",
+      body: [
+        "The temptation is to build a dashboard framework. The product is the Attention queue; the framework is a list of components with an order and a visibility flag stored in state per node. A widget declares a name, a default position, a poll cadence, a phone size (one or two rows) and a desktop size (one or two columns), and renders its own empty and error states. No drag and drop needed in the first version; reordering through settings is enough. The slot is a plain React component in src with a manifest entry, so a fitting-provided widget later would be the same component contract served from the fitting's own port in an iframe or a remote module; that decision is parked, only the contract must not prevent it.",
+        "",
+        "Default order on the phone: pending sends strip, Attention, Loop, Conversations, Decisions and autonomy, Numbers, composition controls, field log, roadmap next up. Desktop: the same in a two or three column grid with Attention spanning the first column."
+      ].join("\n")
+    },
+    {
+      id: "n-cc-stats",
+      title: "Which numbers, and why those",
+      body: "He asked for numbers on what is going well and what is not. Numbers that exist or are one rollup away: cards done per day and per week; parks in Needs input; first-pass review acceptance (cards whose review passed without a second implement stretch); reverts and corrections from the decisions log; cost per day split by provider and account, from the per-stretch metrics; usage remaining per account from the balance API; median stretches per card and median time to done; running conversations right now; the last convergence outcome and the skip streak; loop window results (cards attempted, done, parked); coverage of c5.3 (how many of his recurring tasks have an action and run unattended). Each shown as a number with a seven day sparkline and a per-project view on tap. A nightly rollup writes the daily numbers into state so the widget never scans logs (c3.20). Anything that would require new telemetry is out until the number proves useful by being looked at."
+    },
+    {
+      id: "n-cc-pokes",
+      title: "Poke discipline",
+      body: "He wants to be poked (\"there are five messages for you in the command center\"), and he will mute anything that pokes on counts within a week. The compromise decided on 29 August: two fixed reviews a day, at times he sets, delivered through the channels that already exist (web push with a deep link, Companion push with speech, Omi push, Slack), each a three line summary of the queue. Interrupts outside those times only for a real deadline (a flagged send about to go out, a running loop blocked on him, a failed scheduled job, a convergence that skipped three nights). Everything else waits for the review or for him to ask Zeca. This also keeps the Omi channel useful rather than noisy."
+    },
+    {
+      id: "n-cc-loop",
+      title: "Loop engineering",
+      body: "The idea (29 August): at set times of the day, agents take tasks from the list, implement, review and test them, and he controls what the loop does from the Command Center. In the current system a loop window is a scheduled card (the scheduler and the five-state board already support it): when it fires, it takes the To do cards he queued for the loop (a flag or an ordering he sets from the Loop widget), respects the per-project lease and the clean-tree rule, skips a project under convergence, and runs each card as a headless conversation with auto-approve within its autonomy bands. Results land in Done with evidence or in the Attention queue when parked, and the window writes a short report card. The Command Center shows the next window and its queue, a kill switch that stops new stretches without killing running ones, and the last report. Three windows a day is the starting point (early morning, lunch, late evening) and cost per window shows in the Numbers widget."
+    },
+    {
+      id: "n-cc-inbox",
+      title: "The communications inbox, channel realities and the phases",
+      body: [
+        "The vision (29 August): stop going to WhatsApp, Teams, Slack, two client corporate mailboxes and the Ekoa mailbox; the system checks them every fifteen minutes through integrations and APIs, aggregates into one inbox in Garrison, suggests three or four replies, and learns from what he picks until it can answer alone.",
+        "",
+        "What was pushed back and accepted: drafting is the smallest and riskiest part of the value; most of the cost of those channels is reading, not writing. Triage (nothing needed, becomes a card, becomes a memory, has a deadline, needs a reply) is high volume, low stakes, reversible, and the best training data. So phase 1 is triage only on one channel, phase 2 is drafting, phase 3 is sending through hold windows. Two weeks of triage before drafting.",
+        "",
+        "Channel reality: the Ekoa mailbox and his own Gmail are fully reachable (the google connector already sends Gmail and lists Calendar). Slack depends on the workspace. Teams inside a client tenant needs admin consent he will not get (CSG, Versant). Personal WhatsApp has no legal API; the whatsapp-web fitting works over the WhatsApp Web protocol with a ban risk he accepts, and it already parks agent-triggered sends for 60 seconds. Design for partial coverage from day one and make the escape hatch the share or forward target that creates a card from a screenshot or an email. A half inbox sold as an inbox is worse than none.",
+        "",
+        "Cost discipline: cheap deterministic fetch on a schedule, one batched triage call over whatever is new, no model call when nothing changed, cost per batch instrumented from the first day.",
+        "",
+        "Security: this is the day untrusted content enters the system. See c3.18; the split between an ingest lane with no credentials and no tools and a send step that only receives a structured object is cheap now and impossible later."
+      ].join("\n")
+    },
+    {
+      id: "n-autonomy",
+      title: "Graduated autonomy, the improver mechanism",
+      body: [
+        "The design decided in August: below a lower threshold the system asks before acting; in a middle band (around 80 to 95 percent) it acts and offers to revert; above that it acts and only informs. Feedback comes from what he reverts or corrects. It applies to reversible actions (code with git, deploys of products without users, non-critical messages and emails). Everything is logged with category, band, evidence used, action taken, and outcome (kept, reverted, corrected), browsable and overrulable from the Garrison UI, phone first. Questions surface through the existing channels and answers come back as structured signal.",
+        "",
+        "Bands landed for routing: ask, act-revert, act-inform, with tracks summarised on the home page and decisions carrying verdicts and corrections. What is still missing is the visible learning (he has not yet seen the improver help), tracks for decision types beyond routing, and the lever in the Command Center.",
+        "",
+        "His words on 31 August: help as much as possible with him confirming things, be proactive and pick things up, but do not act until a threshold where he has seen things working well in a specific area; then he turns on the lever for that area. That is a per-track lever, never a global one. The only global mode is the day-off mode (n-day-off), and even it keeps irreversible actions on hold windows.",
+        "",
+        "Irreversible actions get the hold window as their middle band: compose, park, poke, send if he does nothing. Zero minutes for himself, ten for a collaborator, always ask for money, dates, commitments and first contacts."
+      ].join("\n")
+    },
+    {
+      id: "n-day-off",
+      title: "\"I'm off for the day, do my work\"",
+      body: [
+        "The north star sentence from 31 August: he says it on the Omi channel and Garrison replies to colleagues, answers emails, refunds on Airbnb, fixes a bug and tells the colleague it is done. It is a long way off and it decomposes into things already on this roadmap: the inbox (c3.14 to c3.18) for replies, integrations in Cortex (c5) for actions like refunds, the dev loop (c6) for fixes, autonomy tracks (c4) for the decisions, and the Command Center (c3) for the review afterwards. The honest constraint is coverage: Teams inside client tenants will not be reachable, so \"reply to my colleagues\" will be partial by design. Day-off mode itself (c4.4) is small once the pieces exist: every reversible track to act-and-inform for the day, irreversible tracks on hold windows, an evening report with one-tap reverts. It is listed so the pieces are built with the sentence in mind, not to be built first."
+      ].join("\n")
+    },
+    {
+      id: "n-cortex",
+      title: "Automation decisions, so nobody rebuilds an engine",
+      body: [
+        "Decided July 2026 and re-confirmed several times: the automation engine's permanent home is Cortex; the bridge is Cortex's bridge and only Cortex's; Garrison has no engine and no bridge, it has a composer and UI that call Cortex endpoints; the Cortex-as-model-provider base URL is a runtime configuration, not a new runtime type; every call identifies a user by a scoped API key; Cortex never special-cases Garrison; Garrison's open source defaults work without Ekoa. Automations and integrations merged into one concept in Ekoa (an integration exposes actions; browser steps are one backing type; API, CLI and MCP actions are declarative; self-extension creates missing actions at runtime; lessons per integration; reads free, writes confirmed before first run). Garrison is the client zero that pressure-tests those capabilities daily before they get UI in Ekoa.",
+        "",
+        "On 31 August he restated the bet: Cortex is the channel and champion of automation, and the aim is to automate everything he does on the computer except software development, which is Garrison's own loop. The list in c5.3 is where \"everything\" becomes concrete."
+      ].join("\n")
+    },
+    {
+      id: "n-dev",
+      title: "Software development inside Garrison",
+      body: [
+        "He still uses plain Claude Code sessions because the system was not good enough. The mid-August verdict: Garrison was not ready to orchestrate by phases with model and effort per phase; real work needs fluidity (steering mid-way, questions, ops, tests that change with device and type) like a Claude Code session. The reconciliation: a main session that is a normal Claude Code session carrying the conversation and the card, sticky in model and account; conversational duties stay in the session; file-input duties delegate with a small brief; adversarial review always delegates for fresh context; a flow is a checklist of done injected at card creation and enforced at exit, not a script in the system prompt; coordination by lease per project; the old dispatch path replaced by a headless main session with auto-approve once the interactive mode works. The web channel session parity was the first work item and landed. What remains is the flows coverage, the duty cleanup, the delegate tool working with Codex, and the tooling items (drill results MCP, project viewer, remote shell) that make the daily work better.",
+        "",
+        "Naming and vocabulary decided: the assistant is Zeca (renamed from Gary, chosen with his son); \"operative\" and \"outpost\" are retired (Garrison is a system that runs a composition on a node); work kind flows with levels; duties with levels; lists that map to duties carry the duty prefix."
+      ].join("\n")
+    },
+    {
+      id: "n-ears",
+      title: "Omi, Companion, and the pivot on always-on capture",
+      body: [
+        "The Omi channel shipped (M0 to M7) and the live experiment in July showed: wake word to task works and captures reliably; the chat tool is redundant with the web channel; push notifications are among the most important things to get right; memory quality from Omi is poor (loses much of the day, weak on interlocutors, opaque capture on the Mac). Decisions: do not fork Omi; learn from the MIT code and implement the equivalent in Garrison; do not build a Mac DMG app (painful to maintain; the Mac stays PWA plus a daemon); Garrison needs its own iOS companion app in Swift, born in ios/ inside the Garrison repo with the \"iOS thing\" project and the Omi repo as references; App Store Connect automation ported.",
+        "",
+        "The pivot (August): friends frowned at ambient recording, so always-on capture stays with the Omi device and its owner (Omi remains a supported channel of Garrison and later Ekoa, with a setup wizard; the always-on is the user's responsibility); the Companion app is deliberate capture (meetings with a consent notice and a \"don't ask again\" checkbox, dictation, car mode). Revision 2 of the Companion spec made the app Garrison's mouth as well (the pendant cannot speak; push notifications truncate; the app speaks and shows the full text). The 20 August decision moved the pendant connection into the Companion app over BLE, so the device speaker and the audio bytes do not depend on Omi's billing model, with an end to end device mock before any test with his device. Wake word \"Zeca\" with a roughly 30 second aggregation window and sound feedback by phase."
+      ].join("\n")
+    },
+    {
+      id: "n-screen",
+      title: "Screen context and screen stories, what is possible",
+      body: [
+        "From the \"iOS thing\" work (June): iOS forbids passive cross-app observation; no app can know which app is frontmost or read another app's screen; keyboard extensions have no microphone and no screenshot; iPhone Mirroring only works while the phone is locked and is unavailable in the EU. The one sanctioned path is a ReplayKit Broadcast Upload Extension, user-started, with a recording indicator, that streams screen frames and mic audio to a receiver; the phone stays usable. That loop already worked (broadcast to a Node receiver on the Mac, audio meter responding, press-to-record to `claude -p` automating WhatsApp Web through Claude for Chrome) and is what merges into ios/. So on the phone, screen context is session based by design; \"record everything on the phone all day\" is not available and is not pursued. A ring buffer of recent frames on the receiver fixes the \"the frame shows our app, not WhatsApp\" problem of the button-triggered flow.",
+        "",
+        "The desktop is where always-on screen memory is cheap and legal on his own machines: active app and window titles are text and near free to log continuously; screenshots only on change and rate limited; redaction rules; short retention of raw frames. Models are not good at video, and they do not need to be: a sampled story (app, contact, topic, visible text per change) summarised nightly by a cheap model is enough to know what he did and to propose integrations for the sequences he repeats. Never on a client machine (the CSG box is the clearest example), off by default per node, and the story is a memory source tagged as such."
+      ].join("\n")
+    },
+    {
+      id: "n-signals",
+      title: "Promoting the web channel, and its name",
+      body: [
+        "He wants the web channel to stop being a fitting and become part of the system, because all sessions live in it and nothing happens in Garrison without it; because building it under the fitting contract (APM, own port, PWA inside a fitting, the extra hops for streaming) has been slowing the work; and because promoting it lets the Command Center embed a conversation widget directly. He knows this breaks the honesty rule (everything is a fitting) and wants to break it this once, deliberately and documented. Other channels stay fittings, with channel parity generalised rather than special-cased.",
+        "",
+        "Name: he asked for the military term for those who carry orders to the operatives. The closest are Signals (the signal corps carries orders between command and the units), Adjutant (the officer who transmits the commander's orders) and, in naval terms, the bridge or the CIC (which is what the Command Center is). Lean: Signals. It is one word, it is a corps rather than a person, and it sits naturally next to Muster, Quarters, Armory, Vault and Mesh.",
+        "",
+        "Timing: not now. c1 first, then the first Command Center widgets, then the move in one long autonomous task. Until then, no new fitting-specific machinery in the web channel that the move would throw away; c1 work goes into duties, orchestrator, memory and tools."
+      ].join("\n")
+    },
+    {
+      id: "n-mesh",
+      title: "Multi-node, what is settled",
+      body: [
+        "Decided late August and implemented per AGENTS.md: Garrison is a full node on four machines (dev-madrid, Mac Pro, Mac mini, MacBook Air), all live, no main/dev asymmetry; shared state in exactly one place (the state service on dev-madrid, SQLite behind a tailnet-only HTTP API); code moves only through git on permanent node branches, main updated by convergence; session artifacts stay on their node with a nightly one-way backup; memory moves through git via vault-git-sync; nothing synced by ad-hoc copy; sessions pinned to their node but visible and controllable from anywhere through the mesh proxy; merges autonomous with a pre-merge tag and a decision card; the nightly convergence card at 03:00; secrets authority on dev-madrid; online-only. Cross-machine delegation and session migration are parked. The Command Center inherits all of this: rows carry the node, actions route to the owner."
+      ].join("\n")
+    },
+    {
+      id: "n-memory",
+      title: "Memory, the bar and the open decision",
+      body: [
+        "The vault (basic-memory, Obsidian-compatible, synced by git) is the cross-session memory layer and was kept explicitly in the Harness analysis. Consolidation exists (the nightly dream rule) but he considers it not yet useful; the Omi experiment showed memory quality is the weak link of every ear. The bar for capture and the taxonomy are the Claude app's (n-c1-memory). Open: the 30 July inversion (memory implemented in Cortex, exposed as an API, Garrison fitting as a wrapper, Claude Code hook calling the API) was adopted as a pattern but not executed; it is a large migration and should not start before the assistant is in daily use, or memory will be migrated while still nobody reads it."
+      ].join("\n")
+    },
+    {
+      id: "n-ekoa",
+      title: "Convergence, the pattern in one paragraph",
+      body: [
+        "He was bothered by sharing no code between Ekoa and Garrison despite 70 to 80 percent conceptual overlap, and by testing Garrison daily while Ekoa, the real bet, gets no such use. Multi-tenant Garrison was explored and rejected as too large. The pattern adopted (30 July): capabilities live in Cortex behind OpenAPI; Garrison fittings are views and wrappers; every call is a user (API key); Cortex never special-cases Garrison; Garrison's defaults work without Ekoa; Garrison is client zero. The contract is documented as hard rules in both repos' agent docs. Things proven in Garrison are ported back to Ekoa (tasks app, Omi and Companion pipeline) and appear in ekoa-code's own roadmap."
+      ].join("\n")
+    },
+    {
+      id: "n-debt",
+      title: "Housekeeping, why it is on the roadmap",
+      body: "Because the repo root holds thirteen markdown files of run logs, progress and handoffs, WHATS-NEW describes May, and docs/GARRISON_ROADMAP.md has claimed to be the live roadmap since May while the actual plan lived in conversations. Agents read the root first; clutter there costs every stretch. The rule after this seed: reports go to docs/reports with a date, the roadmap is this file, the decision log for large architecture moves stays in docs/decisions, and a monthly review card keeps the roadmap honest."
+    }
+  ]
+};
+
+roadmap.updatedAt = new Date().toISOString();
+writeFileSync(file, JSON.stringify(roadmap, null, 2) + "\n", "utf8");
+process.stdout.write(`${file}\n`);
