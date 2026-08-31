@@ -2111,6 +2111,10 @@ function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, str
   if (config.review_budget !== undefined && config.review_budget !== null) {
     env.GARRISON_HTTPGATEWAY_REVIEW_BUDGET = String(config.review_budget);
   }
+  // Keep per-project and per-commit material out of the cached system block.
+  if (config.static_prefix !== undefined && config.static_prefix !== null) {
+    env.GARRISON_HTTPGATEWAY_STATIC_PREFIX = String(config.static_prefix);
+  }
   for (const [key, envName] of [
     ["prefix_cache_ttl", "GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL"],
     ["prefix_tool_search", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH"],

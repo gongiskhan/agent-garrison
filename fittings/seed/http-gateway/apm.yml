@@ -129,6 +129,19 @@ x-garrison:
         were asked for. A task overrides it in its own brief with a
         "review budget: N" line or routing.reviewBudget. Set to a large number
         to disable the cap.
+    - key: static_prefix
+      type: boolean
+      default: true
+      description: >-
+        Move every per-project and per-commit span out of the cached system
+        block into an uncached one after it, so two projects and two commits
+        produce the same cacheable prefix. Captured live: the primary working
+        directory, the per-project memory directory, preset paragraphs that vary
+        by project, and the trailing git snapshot (branch, status, recent
+        commits) all sit inside the cached region, and the git snapshot changes
+        on every commit, so the prefix forks WITHIN a task. The model sees the
+        same bytes either way, only later. Requires session_log_proxy. Set to
+        false to send the block exactly as the SDK built it.
     - key: compact_enabled
       type: boolean
       default: true

@@ -5355,10 +5355,17 @@ async function main() {
       const keepLoaded = keepRaw.toLowerCase() === "none"
         ? []
         : keepRaw.split(",").map((s) => s.trim()).filter(Boolean);
-      const shape = (ttl || searchVariant)
+      // Default ON: the working directory, the memory path and the git snapshot
+      // all sit inside the cached system block, so without this every project
+      // and every commit forks the prefix and starts cold.
+      const staticPrefix = !/^(0|false|no|off)$/i.test(
+        String(process.env.GARRISON_HTTPGATEWAY_STATIC_PREFIX ?? "true").trim()
+      );
+      const shape = (ttl || searchVariant || staticPrefix)
         ? {
             ...(ttl ? { cacheTtl: ttl } : {}),
             ...(searchVariant ? { toolSearch: { variant: searchVariant, keepLoaded } } : {}),
+            ...(staticPrefix ? { staticPrefix: true } : {}),
           }
         : null;
       const proxy = await startAnthropicLogProxy({ shape });
