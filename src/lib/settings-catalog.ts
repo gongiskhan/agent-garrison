@@ -244,9 +244,8 @@ export const KNOWN_SETTINGS: KnownSetting[] = [
   {
     key: "outputStyle",
     label: "Output style",
-    control: "enum",
+    control: "string",
     group: "model",
-    enumValues: ["default", "Concise", "Proactive", "Explanatory", "Learning"],
     doc: "Output style for responses. Concise (terse, leads with results, skips preamble and narration) is the recommended default. Proactive executes immediately and minimizes interruptions. Explanatory explains implementation choices and codebase patterns. Learning pauses and asks you to write small pieces of code for hands-on practice. Custom styles live in output-styles/.",
     docsUrl: `${DOCS}/output-styles`,
     placeholder: "Concise"
