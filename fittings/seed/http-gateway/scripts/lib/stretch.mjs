@@ -245,7 +245,8 @@ export async function ladderForDuty(gateway, duty, level = 1) {
 
 /**
  * Which rung runs this stretch. Precedence: explicit pin → forced escalation
- * (an adversarial handoff) → tripwire (one rung above the floor) → the
+ * (a forceEscalation handoff: adversarial review, or any duty relaying the
+ * user's ask for a stronger model) → tripwire (one rung above the floor) → the
  * conversation's sticky floor → the duty default. Clamped to the ceiling; a
  * clamp is recorded, and above-ceiling autonomy NEVER happens — the caller
  * turns a clamped force into needs-input when it must.
@@ -517,6 +518,14 @@ Rules: blocked requires a blocker; partial/failed require at least one
 failedApproaches entry; next "done" requires status "complete"; a gate/run/file
 evidence ref must point at a real non-empty file. Update nothing else — the
 exit gate applies your handoff to the conversation summary.
+
+forceEscalation is the model lever: it runs the NEXT stretch one rung above
+the conversation's floor and raises the sticky floor. Set it to a one-line
+reason when the user asked for a stronger model or more effort (relay their
+ask — a plain chat message cannot move the rung by itself), or when your own
+attempt failed for capability rather than missing-information reasons.
+Otherwise keep it null: escalation is paid for, and a reflexive escalation on
+routine work is a cost bug.
 
 The summary is read by a HUMAN — when next is "done" it is shown whole as the
 conversation's final report. Write it tight: lead with the outcome in one short
