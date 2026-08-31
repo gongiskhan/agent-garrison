@@ -393,9 +393,11 @@ export function makeRequestHandler(ctx) {
           push: (() => {
             try {
               const devices = ctx.notifier?.deviceTokens?.() ?? [];
-              const raw = readJSON(path.join(store.root, "devices.json"), { devices: [] });
-              const list = Array.isArray(raw) ? raw : (raw.devices ?? []);
-              const newest = list
+              // The registry key is `tokens`, not `devices` - reading the wrong
+              // one is what made an earlier probe report "0 devices" while APNs
+              // was happily delivering to 1, and sent me chasing registration.
+              const raw = readJSON(store.devicesFile, { tokens: [] });
+              const newest = (raw.tokens ?? [])
                 .map((d) => d?.registered_at ?? d?.registeredAt ?? null)
                 .filter(Boolean)
                 .sort()
