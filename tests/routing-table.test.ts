@@ -145,6 +145,41 @@ describe("plumbing", () => {
   });
 });
 
+describe("the default composition's table encodes the step-5 defaults", () => {
+  const table = readRoutingTable(path.resolve(__dirname, "..", "compositions", "default"))!;
+
+  it("implement and test default to the subscription route", () => {
+    for (const duty of ["implement", "test"]) {
+      expect(table.duties[duty][0].id, duty).toBe("anthropic-sub");
+      expect(table.duties[duty][0].account, duty).toBe("max");
+    }
+  });
+
+  it("review duties have another model family to prefer", () => {
+    for (const duty of ["adversarial-review", "review"]) {
+      const families = new Set(table.duties[duty].map((r: any) => modelFamily(r.model)));
+      expect(families.size, duty).toBeGreaterThan(1);
+    }
+  });
+
+  it("triage and plan stay where they are today - no rows at all", () => {
+    expect(table.duties.triage).toBeUndefined();
+    expect(table.duties.plan).toBeUndefined();
+  });
+
+  it("every duty's list bottoms out on a paid API route", () => {
+    for (const [duty, rows] of Object.entries(table.duties) as [string, any[]][]) {
+      expect(rows[rows.length - 1].paid, duty).toBe(true);
+    }
+  });
+
+  it("rows name no effort, so the duty level cell keeps supplying it", () => {
+    for (const rows of Object.values(table.duties) as any[][]) {
+      for (const row of rows) expect(row.effort).toBeUndefined();
+    }
+  });
+});
+
 describe("the loop consults the table and cools a limited account", () => {
   const CARD = "01M1ROUTINGTABLE0000000001";
   let server: Server | undefined;
