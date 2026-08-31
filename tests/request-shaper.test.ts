@@ -122,7 +122,8 @@ describe("both at once, and the round-trip detector", () => {
     const original = req();
     const { body, changes } = shapeAnthropicRequest(original, {});
     expect(body).toBe(original);
-    expect(changes).toEqual({ cacheTtl: null, toolSearch: null });
+    // Every lever the shaper has is reported, including the ones it did not pull.
+    expect(changes).toEqual({ cacheTtl: null, toolSearch: null, staticPrefix: null });
   });
 
   it("reports tool-search blocks in a response", () => {
