@@ -549,6 +549,10 @@ If something genuinely cannot finish inside this stretch, say exactly that in
 the handoff (status partial, next pointing at the duty that should continue)
 instead of ending your turn without one.`;
 
+// The card-description fold cap. Above it the loop writes the full text to
+// <conversationDir>/card-description.md and the brief points there.
+export const DESCRIPTION_FOLD_CAP = 8000;
+
 export function buildStretchBrief({
   conversationId,
   conversationDir,
@@ -582,7 +586,20 @@ export function buildStretchBrief({
     parts.push("", "## The card");
     parts.push(`Title: ${String(card.title ?? "(untitled)").slice(0, 300)}`);
     if (typeof card.description === "string" && card.description.trim()) {
-      parts.push("", String(card.description).slice(0, 8000));
+      parts.push("", String(card.description).slice(0, DESCRIPTION_FOLD_CAP));
+      // A silently truncated brief is a card the stretch CANNOT do right -
+      // live: a 78k-char roadmap brief was cut to 8k, the stretch burned a
+      // ledger-fetch trying to recover the rest, and the card parked on
+      // "Part B incompletely retrievable". Truncation now says so and points
+      // at the whole text.
+      if (card.description.length > DESCRIPTION_FOLD_CAP) {
+        parts.push(
+          "",
+          card.descriptionPath
+            ? `(the description above is TRUNCATED at ${DESCRIPTION_FOLD_CAP} of ${card.description.length} characters - the FULL text is at ${card.descriptionPath}; Read it before acting on this card)`
+            : `(the description above is TRUNCATED at ${DESCRIPTION_FOLD_CAP} of ${card.description.length} characters)`
+        );
+      }
     }
     if (typeof card.acceptance === "string" && card.acceptance.trim()) {
       parts.push("", `Acceptance: ${String(card.acceptance).slice(0, 2000)}`);
@@ -1544,11 +1561,20 @@ export async function runConversation(gateway, {
       // re-listed attachments per dispatch): a file attached or a checklist
       // edited mid-conversation reaches the next stretch, not the next
       // conversation. Flag off restores the stale single-read card, whole.
-      const briefCard = !card
+      let briefCard = !card
         ? card
         : cardAttachmentsEnabled(env)
           ? (await cardById(conversationId).catch(() => null)) ?? card
           : { ...card, attachments: [] };
+      if (typeof briefCard?.description === "string" && briefCard.description.length > DESCRIPTION_FOLD_CAP) {
+        const fullPath = path.join(store.dir, "card-description.md");
+        try {
+          fs.writeFileSync(fullPath, briefCard.description, "utf8");
+          briefCard = { ...briefCard, descriptionPath: fullPath };
+        } catch {
+          /* the brief still says it is truncated, just without a pointer */
+        }
+      }
       const composedFindings = composeFindings(
         store.range({ fromIndex: 0, limit: 200_000 }).events,
         { cwd: scope.cwd ?? gateway.compositionDir, conversationId }

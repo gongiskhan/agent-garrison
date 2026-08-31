@@ -6,7 +6,7 @@
 // to list one. The fold is back: the card detail read carries `path` on
 // uploaded attachments, the brief folds them, and the card is re-read per
 // stretch so a file attached mid-conversation reaches the NEXT stretch.
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { createServer, Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -25,6 +25,7 @@ let prevHome: string | undefined;
 // `uploadLanded` - the mid-conversation upload, landed at a moment the test
 // controls instead of counting internal reads.
 let uploadLanded = false;
+let longDescription: string | null = null;
 function startBoard(): Promise<number> {
   server = createServer((req, res) => {
     let body = "";
@@ -39,7 +40,7 @@ function startBoard(): Promise<number> {
           attachments.push({ name: "image-2.png", image: true, url: `/cards/${CARD}/artifact?ref=attachment%3Aimage-2.png`, uploaded: true, path: `/data/cards/${CARD}/attachments/image-2.png` });
         }
         res.end(JSON.stringify({
-          card: { id: CARD, rev: 1, title: "describe the images", list: "running", status: "running", conversationId: CARD, autonomous: true },
+          card: { id: CARD, rev: 1, title: "describe the images", list: "running", status: "running", conversationId: CARD, autonomous: true, ...(longDescription ? { description: longDescription } : {}) },
           checklist: [],
           acceptance: null,
           attachments,
@@ -158,6 +159,49 @@ describe("buildStretchBrief attachments", () => {
     const brief = buildStretchBrief({ ...base, card: { id: CARD, title: "t", attachments: [{ name: "legacy.png" }] } });
     expect(brief).not.toContain("Attached files");
   });
+});
+
+describe("an over-cap description says so and points at the whole text", () => {
+  it("buildStretchBrief marks the truncation and names the path", () => {
+    const long = "x".repeat(9000);
+    const brief = buildStretchBrief({
+      conversationId: "conv-t",
+      conversationDir: "/x/conv-t",
+      duty: "implement",
+      handoffPath: "/x/conv-t/handoffs/0001.json",
+      stretchId: "st_1",
+      selectedDuties: ["implement"],
+      card: { id: CARD, title: "t", description: long, descriptionPath: "/x/conv-t/card-description.md" },
+    });
+    expect(brief).toContain("TRUNCATED at 8000 of 9000 characters");
+    expect(brief).toContain("/x/conv-t/card-description.md");
+    // A short description stays unadorned.
+    const short = buildStretchBrief({
+      conversationId: "conv-t",
+      conversationDir: "/x/conv-t",
+      duty: "implement",
+      handoffPath: "/x/conv-t/handoffs/0001.json",
+      stretchId: "st_1",
+      selectedDuties: ["implement"],
+      card: { id: CARD, title: "t", description: "small ask" },
+    });
+    expect(short).not.toContain("TRUNCATED");
+  });
+
+  it("the loop writes card-description.md beside the ledger", async () => {
+    const port = await startBoard();
+    wireBoard(port);
+    longDescription = "Part A. " + "a".repeat(9000) + " Part B ends with THE-TAIL-MARKER";
+    const briefs: Record<string, string> = {};
+    const gateway = fakeGateway(briefs, { triage: "needs-input" });
+    await runConversation(gateway as never, { conversationId: CARD, task: "do the long thing", env });
+    const full = path.join(tmp, "conversations", CARD, "card-description.md");
+    const written = readFileSync(full, "utf8");
+    expect(written).toContain("THE-TAIL-MARKER");
+    expect(briefs.triage).toContain("TRUNCATED at 8000");
+    expect(briefs.triage).toContain(full);
+    longDescription = null;
+  }, 15000);
 });
 
 describe("the loop re-reads the card per stretch", () => {
