@@ -986,17 +986,5 @@
       "security": 5,
       "activity": 5
     }
-  },
-  {
-    "id": "s3ct-drift",
-    "name": "Taste (copy)",
-    "repo": "local:fittings/local/s3ct-drift",
-    "localPath": "fittings/local/s3ct-drift",
-    "summary": "Design-taste skill pair (design-taste-frontend v2 + redesign-existing-projects) vendored MIT from Leonxlnx/taste-skill at a pinned commit; plain SKILL.md, runtime-agnostic.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {},
-    "cloned_from": "taste@0.1.0"
   }
 ]
