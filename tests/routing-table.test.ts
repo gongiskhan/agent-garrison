@@ -164,7 +164,11 @@ describe("the default composition's table encodes the step-5 defaults", () => {
   it("implement and test default to the subscription route", () => {
     for (const duty of ["implement", "test"]) {
       expect(table.duties[duty][0].id, duty).toBe("anthropic-sub");
-      expect(table.duties[duty][0].account, duty).toBe("max");
+      // No account named: the agent-sdk lane RESOLVES accounts against the
+      // vault (ANTHROPIC_ACCOUNT__<name>), and the machine's own login is not
+      // a named account - naming one here parked a live review stretch on
+      // "ANTHROPIC_ACCOUNT__max ... ABSENT from the materialized vault".
+      expect(table.duties[duty][0].account, duty).toBeUndefined();
     }
   });
 
