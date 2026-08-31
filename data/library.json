@@ -650,6 +650,21 @@
     }
   },
   {
+    "id": "email-channel",
+    "name": "Email channel",
+    "repo": "local:fittings/seed/email-channel",
+    "localPath": "fittings/seed/email-channel",
+    "summary": "Inbound email to Kanban cards. Auto-provisions a free mail.tm inbox, polls it, and files each message from an allowed sender as a card with its attachments.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-email-channel",
+      "global": 4.0,
+      "claude_code": 4.0
+    }
+  },
+  {
     "id": "capture-service",
     "name": "iOS companion capture",
     "repo": "local:fittings/seed/capture-service",
