@@ -1116,11 +1116,24 @@ async function writeCardTransition(gateway, { cardId, conversationId, stretchId,
 // ── the conversation loop ───────────────────────────────────────────────────
 
 function unconsumedUserMessages(store) {
-  const all = store.tail(200, { kinds: ["user-message", "handoff"] });
+  const all = store.tail(200, { kinds: ["user-message", "handoff", "messages-consumed"] });
+  // Only a BUILT BRIEF consumes a message. The old rule ("older than the last
+  // handoff") silently ate any message that arrived while a stretch was
+  // running: the stretch's own handoff outranked it though no brief ever
+  // carried it - live, a mid-stretch "hand off to implement" directive
+  // vanished exactly this way. The loop stamps a messages-consumed high-water
+  // mark at every brief build; conversations from before the stamp fall back
+  // to the handoff rule.
+  const lastConsumed = all.reduce(
+    (acc, e) => (e.kind === "messages-consumed" ? Math.max(acc, Number(e.payload?.throughIndex ?? -1)) : acc),
+    -1
+  );
   const lastHandoffIdx = all.reduce((acc, e) => (e.kind === "handoff" ? e.index : acc), -1);
+  const hwm = lastConsumed >= 0 ? lastConsumed : lastHandoffIdx;
   return all
-    .filter((e) => e.kind === "user-message" && e.index > lastHandoffIdx)
+    .filter((e) => e.kind === "user-message" && e.index > hwm)
     .map((e) => ({
+      index: e.index,
       text: String(e.payload?.text ?? "").slice(0, 4000),
       context: typeof e.payload?.context === "string" ? e.payload.context.slice(0, 4000) : null,
       routing: e.payload?.routing && typeof e.payload.routing === "object" && !Array.isArray(e.payload.routing) ? e.payload.routing : null,
@@ -1394,6 +1407,16 @@ export async function runConversation(gateway, {
       const forced = lastHandoff?.forceEscalation ?? false;
       const wire = tripwires(store, { duty });
       const pendingMessages = unconsumedUserMessages(store);
+      // Stamp consumption NOW, at brief build - a message landing during the
+      // stretch stays unconsumed and wakes the responder after it, instead of
+      // being outranked by the stretch's own handoff.
+      if (pendingMessages.length) {
+        store.append({
+          kind: "messages-consumed",
+          duty,
+          payload: { throughIndex: Math.max(...pendingMessages.map((m) => m.index ?? -1)), count: pendingMessages.length },
+        });
+      }
       const rungPick = resolveRung({
         ladder,
         floorRungId,
