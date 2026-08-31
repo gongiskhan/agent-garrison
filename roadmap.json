@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-08-31T20:19:29.285Z",
+  "updatedAt": "2026-08-31T20:34:44.665Z",
   "categories": [
     {
       "id": "c1",
@@ -409,7 +409,7 @@
         },
         {
           "id": "c5.2",
-          "text": "Garrison automations UI, minimal scope. A natural language session that calls the Cortex automations API with the key configured in the fitting; a planning step when Cortex asks for it; continuation by instance id; steps, results, screenshots, errors and run questions answered inline. Audit cortex-automations and cortex-client for what exists.",
+          "text": "Garrison automations UI, minimal scope. A natural language session that calls the Cortex automations API with the key configured in the fitting; a planning step when Cortex asks for it; continuation by instance id; steps, results, screenshots, errors and run questions answered inline. Found: cortex-client and cortex-automations fittings exist and wrap the remote Cortex runner with a user-scoped API key, but cortex-automations ships inert (no repository, origin or credential by default) until configured.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -479,15 +479,15 @@
         },
         {
           "id": "c6.5",
-          "text": "E2E Project Viewer as designed on 31 July (flows from the drillbook and the e2e tests, code half and description half, navigable states, changes view tied to git, file-to-flows view, cleanup only on request, manifests as truth, a pilot of six flows first). Audit whether any of it was built.",
+          "text": "E2E Project Viewer as designed on 31 July (flows from the drillbook and the e2e tests, code half and description half, navigable states, changes view tied to git, file-to-flows view, cleanup only on request, manifests as truth, a pilot of six flows first). Found: absent, nothing matching this design exists; walkthrough and drill are related but distinct fittings.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
         },
         {
           "id": "c6.6",
-          "text": "Remote-shell runtime: attach to a remote tmux over a transport, stream two-way into the web channel, emit lifecycle events. CSG over the existing Dev Tunnel as the first transport (Garrison reaches in, the VM never calls out), SSH to his own machines as the second. Audit against the 21 August brief.",
-          "done": false,
+          "text": "Remote-shell runtime: attach to a remote tmux over a transport, stream two-way into the web channel, emit lifecycle events. CSG over the existing Dev Tunnel as the first transport (Garrison reaches in, the VM never calls out), SSH to his own machines as the second. Found: shipped per the 21 August decision doc (fittings/seed/remote-shell-runtime), with tmux attach over Dev Tunnel and later fixes for scrolling and ledger streaming.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         },
@@ -521,7 +521,7 @@
       "items": [
         {
           "id": "c7.1",
-          "text": "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Audit the 20 August brief's status.",
+          "text": "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -535,7 +535,7 @@
         },
         {
           "id": "c7.3",
-          "text": "Companion app v1 on TestFlight. Deliberate capture (meetings with the consent notice, dictation, car mode), live transcript, wake commands during a session, memories and tasks through the existing triage with its wait-for-context batching, iOS push, spoken answers while foregrounded. Audit ios/ and the fastlane pipeline.",
+          "text": "Companion app v1 on TestFlight. Deliberate capture (meetings with the consent notice, dictation, car mode), live transcript, wake commands during a session, memories and tasks through the existing triage with its wait-for-context batching, iOS push, spoken answers while foregrounded. Found: partial - ios/ has the Companion app, BroadcastExtension, fastlane TestFlight upload, and spoken answers (CaptureProtocol.swift's speak message), but the wait-for-context triage batching path is not confirmed against this fitting.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null

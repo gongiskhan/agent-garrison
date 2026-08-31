@@ -419,9 +419,9 @@ the decision log and old references).
 - **Stage 5** — Autonomous loop (Tasks Faculty, heartbeat-driven pickup,
   plan-then-approve gating). Depends on Stages 2–4.
 
-**Always read [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md)
-for live status before planning new work** — stage state drifts faster
-than this file.
+**Always read [`roadmap.json`](./roadmap.json) (via the Roadmaps view or
+CLI) for live status before planning new work** — stage state drifts
+faster than this file. `docs/GARRISON_ROADMAP.md` is historical only.
 
 ## Instances, ports, and deploying (HARD RULES)
 
@@ -601,8 +601,9 @@ standalone unit on the same jobs file double-fires every scheduled job.
   [`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md),
   [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md).
 - Why a choice was made → [`docs/DECISIONS.md`](./docs/DECISIONS.md).
-- What's queued and what just shipped →
-  [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md).
+- What's queued and what just shipped → [`roadmap.json`](./roadmap.json)
+  (via the Roadmaps view or CLI); [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md)
+  is historical only.
 
 
 ## Memory
