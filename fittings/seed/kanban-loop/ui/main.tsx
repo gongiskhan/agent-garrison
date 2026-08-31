@@ -698,6 +698,7 @@ function CardActions({
   busy,
   withId = false,
   iconOnly = false,
+  created = null,
   handlers
 }: {
   card: CardSummary;
@@ -708,6 +709,10 @@ function CardActions({
   // for the accessibility tree) so the row reads as compact icon buttons and stops
   // hogging the card surface. The DetailSheet footer leaves it off and keeps labels.
   iconOnly?: boolean;
+  // The card's creation instant (card FRONT only). Rendered INSIDE the .btns
+  // flex row, pushed right, so it shares the buttons' last wrapped line instead
+  // of costing the card a line of its own.
+  created?: string | null;
   handlers: CardActionHandlers;
 }) {
   const {
@@ -822,6 +827,7 @@ function CardActions({
       >
         <CloseIcon /> <span className="btn-label">Delete</span>
       </button>
+      {created && <span className="ct-date" title="created">{created}</span>}
       {/* Item 5: the Open button is gone — clicking the card body opens it (see the
           card root's onClick above). */}
     </div>
@@ -1053,7 +1059,6 @@ function Card({
             />
           </div>
         )}
-        {titleDraft === null && fmtCardDate(card.id) && <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>}
       </div>
       {titleError && <div className="card-title-error" role="alert">{titleError}</div>}
       <div className="cmeta">
@@ -1255,6 +1260,7 @@ function Card({
         list={list}
         busy={busy}
         iconOnly
+        created={fmtCardDate(card.id)}
         handlers={{
           onStart, onApprove, onMove, onQuickMove, onDelete, onWatch, onTerminal,
           onInfer, onDiscuss, onContinue, onDrill, onFeedback, onRunSchedule

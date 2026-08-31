@@ -501,7 +501,9 @@ describe("kanban discuss — the card's checklist is part of what it says", () =
   // them, and this is the case that says so.
   it("is wired to the board: Discuss opens the card on its conversation, and navigates nowhere", () => {
     const main = readFileSync(new URL("../fittings/seed/kanban-loop/ui/main.tsx", import.meta.url), "utf8");
-    expect(main).toContain('setOverlay({ kind: "detail", cardId: card.id, focus: "conversation" });');
+    // The conversation now owns the whole modal (the focused conversation
+    // sheet), not a focus flag on the detail sheet.
+    expect(main).toContain('setOverlay({ kind: "conversation", cardId: card.id });');
     expect(main).not.toContain("buildDiscussUrl");
     expect(main).not.toContain("garrison:navigate-fitting");
   });

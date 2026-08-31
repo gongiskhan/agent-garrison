@@ -774,6 +774,14 @@ function promotedFromBody(db, body) {
 export function createCard(db, authNode, input) {
   const id = input.id;
   if (!id || typeof id !== "string") throw new StoreError(422, "invalid-card", "client-minted id required");
+  // Fail closed AT THE DOOR on id shape: every node's board mirrors cards to
+  // disk under cards/<id>/ and routes /cards/:id, so an id with a separator,
+  // dot, or other path metacharacter would be un-openable everywhere and a
+  // traversal hazard on the mirror write. Shape only — no ULID mandate; the
+  // contract stays "client-minted id required".
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id)) {
+    throw new StoreError(422, "invalid-card", "id must be a path-safe token (letters, digits, dash, underscore; max 64 chars)");
+  }
   if (!input.list) throw new StoreError(422, "invalid-card", "list required");
   if (input.placement?.target === "host") {
     throw new StoreError(422, "reserved-placement", '"host" is retired as a placement target — name a node');

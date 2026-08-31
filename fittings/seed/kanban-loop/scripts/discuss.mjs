@@ -22,10 +22,12 @@
 // are bundled into the browser UI, so path-safety is checked with string logic
 // and board.mjs (node:fs/os) is imported LAZILY inside recordBrief (server-only).
 
-// A card id MUST be a ULID (26 Crockford base32 chars, excludes I/L/O/U) — same
-// guard the server uses before a card id touches the filesystem.
+// A card id MUST be a clean path-safe token (no separators, dots, or other path
+// metacharacters) — same guard the server uses before a card id touches the
+// filesystem. Not a ULID check: the state service accepts any client-minted id,
+// so a foreign writer's card must still resolve here.
 export function isValidCardId(id) {
-  return typeof id === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(id);
+  return typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id);
 }
 
 // Kebab a card title into a safe filename stem for the brief: lowercase, ASCII

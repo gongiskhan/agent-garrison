@@ -51,8 +51,8 @@ const LEGACY_NAMESPACE = "board.layout.legacy";
 const FREEZE_REASON = "conversations-migration-v1";
 const FROZEN_AT = "2026-08-26T09:00:00.000Z";
 
-// 26-char Crockford-base32 ids so the /cards/:id routes accept them
-// (isValidCardId: no I, L, O or U).
+// 26-char ULID-shaped ids, matching what Garrison mints (isValidCardId now
+// accepts any path-safe token, but ULIDs stay the house shape).
 const id = (tag: string) => (tag + "0".repeat(26)).slice(0, 26);
 
 // The pre-Conversations board, trimmed: two of its duty columns plus the manual

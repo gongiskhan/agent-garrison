@@ -509,12 +509,16 @@ body {
   line-height: 1.35;
   margin: -1px 0 2px 16px;
 }
-.card .ct .ct-date {
+/* Created instant: lives INSIDE the action row's flex flow, pushed to the right
+   edge, so it shares the buttons' last wrapped line instead of costing the card
+   a line of its own. */
+.card .btns .ct-date {
   flex: none;
+  margin-left: auto;
+  align-self: center;
   font-size: 10px;
   color: var(--mute, #8a8577);
   white-space: nowrap;
-  padding-top: 2px;
 }
 /* status indicator — a small SQUARE (Garrison's "■ RUNNING" motif), not a circle */
 .dot {
