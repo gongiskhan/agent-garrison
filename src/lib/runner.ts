@@ -2115,6 +2115,10 @@ function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, str
   if (config.static_prefix !== undefined && config.static_prefix !== null) {
     env.GARRISON_HTTPGATEWAY_STATIC_PREFIX = String(config.static_prefix);
   }
+  // Card-owned attachment paths folded into the stretch brief.
+  if (config.card_attachments !== undefined && config.card_attachments !== null) {
+    env.GARRISON_HTTPGATEWAY_CARD_ATTACHMENTS = String(config.card_attachments);
+  }
   for (const [key, envName] of [
     ["prefix_cache_ttl", "GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL"],
     ["prefix_tool_search", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH"],

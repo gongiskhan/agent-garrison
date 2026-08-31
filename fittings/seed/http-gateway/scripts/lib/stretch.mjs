@@ -470,6 +470,21 @@ export function dutyFindingsExpectationEnabled(env = process.env) {
   return true;
 }
 
+// ── card attachments ────────────────────────────────────────────────────────
+// Card-owned uploads (kanban cards/<id>/attachments/) reached the model in the
+// duty-list era: buildCardPrompt folded the absolute paths into every dispatch
+// prompt. THE CUT deleted that engine and the conversation brief never picked
+// the fold up, so a card could say "describe the attached images" while no
+// stretch ever saw a path or had a tool to list one. The card detail read now
+// carries `path` on uploaded attachments and the brief folds them back in,
+// re-read per stretch so a file attached mid-conversation reaches the NEXT
+// stretch, not the next conversation.
+export function cardAttachmentsEnabled(env = process.env) {
+  const raw = String(env?.GARRISON_HTTPGATEWAY_CARD_ATTACHMENTS ?? "").trim().toLowerCase();
+  if (raw === "false" || raw === "0" || raw === "off" || raw === "no") return false;
+  return true;
+}
+
 export function findingsExpectationFor(duty, env = process.env) {
   if (!dutyFindingsExpectationEnabled(env)) return null;
   return DUTY_FINDINGS_EXPECTATION[duty] ?? null;
@@ -553,6 +568,13 @@ export function buildStretchBrief({
     }
     if (typeof card.acceptance === "string" && card.acceptance.trim()) {
       parts.push("", `Acceptance: ${String(card.acceptance).slice(0, 2000)}`);
+    }
+    const files = Array.isArray(card.attachments)
+      ? card.attachments.filter((a) => typeof a?.path === "string" && a.path).slice(0, 50)
+      : [];
+    if (files.length) {
+      parts.push("", "Attached files (context for this card - read them with the Read tool; describe an image from its pixels, never from its filename):");
+      for (const a of files) parts.push(`- ${a.path}`);
     }
     const items = Array.isArray(card.checklist) ? card.checklist.slice(0, 100) : [];
     if (items.length) {
@@ -1430,6 +1452,15 @@ export async function runConversation(gateway, {
       // Deterministic concatenation of what earlier stretches recorded, with
       // every anchor rechecked against the tree the stretch will actually work
       // in. No model in this path.
+      // The card is re-read for THIS stretch's brief (the duty-list engine
+      // re-listed attachments per dispatch): a file attached or a checklist
+      // edited mid-conversation reaches the next stretch, not the next
+      // conversation. Flag off restores the stale single-read card, whole.
+      const briefCard = !card
+        ? card
+        : cardAttachmentsEnabled(env)
+          ? (await cardById(conversationId).catch(() => null)) ?? card
+          : { ...card, attachments: [] };
       const composedFindings = composeFindings(
         store.range({ fromIndex: 0, limit: 200_000 }).events,
         { cwd: scope.cwd ?? gateway.compositionDir, conversationId }
@@ -1444,7 +1475,7 @@ export async function runConversation(gateway, {
         level,
         dutyDescription: model?.duties?.[duty]?.description ?? null,
         skill: route.skill ?? baseRoute?.skill ?? null,
-        card,
+        card: briefCard,
         userMessages: pendingMessages,
         handoffPath,
         stretchId,
