@@ -877,7 +877,11 @@ function dispatcherCallOpts(executionModel, resolvedLib, inferenceConfig = {}) {
     maxTurns: 1,
     maxTokens: Number.isFinite(inferenceConfig.maxTokens)
       ? inferenceConfig.maxTokens
-      : Number.isFinite(target.maxTokens) ? target.maxTokens : 256,
+      // 1024, not 256: max_tokens is a CEILING (you pay only for what is
+      // generated), and a tight one turns a wordy-but-valid routing reply
+      // into invalid-response fallback. Measured 2026-08-31: 2 of 102
+      // inference calls fell back invalid-response under 256.
+      : Number.isFinite(target.maxTokens) ? target.maxTokens : 1024,
     timeoutMs: Number.isFinite(inferenceConfig.timeoutMs)
       ? inferenceConfig.timeoutMs
       : Number.isFinite(target.timeoutMs) ? target.timeoutMs : 8000,
