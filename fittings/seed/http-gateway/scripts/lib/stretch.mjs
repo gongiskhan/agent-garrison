@@ -423,7 +423,14 @@ sortable id" is a finding; pasting identity.js is not, and will be rejected.
 The anchor is how the next stretch learns your claim went out of date: if that
 file changes afterwards it is shown the entry marked STALE and told to re-read.
 Record rejected and failure entries too - an approach that did not work is the
-most expensive thing for the next stretch to rediscover.`;
+most expensive thing for the next stretch to rediscover.
+
+When a finding points at a ledger address (\`<conversationId>#<seq>\`) and you need
+the detail behind it, read it with \`mcp__garrison__garrison_conversation_fetch\`
+(\`seq\` returns that record whole, \`digest: true\` returns the conversation as prose
+plus one line per tool call). When you have no address and the handoffs you were
+given are too thin, find one first with
+\`mcp__garrison__garrison_conversation_search\`.`;
 
 // Why triage recorded nothing. Across every recorded run the triage stretch read
 // eight or nine files and appended ZERO findings, and none of the obvious causes

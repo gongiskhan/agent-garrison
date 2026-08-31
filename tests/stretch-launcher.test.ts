@@ -159,6 +159,26 @@ describe("buildStretchBrief", () => {
     expect(brief).toContain("please also fix the header");
     expect(brief).toContain('selected duties for "next": implement, review, done, needs-input');
   });
+
+  // Every duty's prompt IS this brief, so naming the layer-3 tools once here is
+  // what makes them named for every duty. Checked, not assumed: before this the
+  // fetch tool was mentioned only by the composed findings record, which does
+  // not exist on the first stretch or on a task that recorded nothing.
+  it("names the ledger retrieval tools and when to reach for them, on every duty", () => {
+    for (const duty of ["triage", "plan", "implement", "test", "adversarial-review", "responder"]) {
+      const brief = buildStretchBrief({
+        conversationId: "c1",
+        conversationDir: "/x/conversations/c1",
+        duty,
+        handoffPath: "/x/conversations/c1/handoffs/0001.json",
+        stretchId: "st_1",
+        selectedDuties: [duty],
+      });
+      expect(brief, duty).toContain("mcp__garrison__garrison_conversation_fetch");
+      expect(brief, duty).toContain("mcp__garrison__garrison_conversation_search");
+      expect(brief, duty).toContain("ledger address");
+    }
+  });
 });
 
 // ── the loop against a fake gateway ─────────────────────────────────────────
