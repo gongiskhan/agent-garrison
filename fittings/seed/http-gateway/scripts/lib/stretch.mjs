@@ -42,6 +42,15 @@ import {
 import { boardBase, cardById } from "./autonomous-cards.mjs";
 import { resolveRunScope, listProjectNames, readDevRoot, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
 import { applyDutyHarnessProfile, runtimeCodexEnabled } from "./harness-profiles.mjs";
+import {
+  routingTableEnabled,
+  readRoutingTable,
+  pickRoute,
+  applyRouteRow,
+  markCooling,
+  limitShaped,
+  modelFamily,
+} from "./routing-table.mjs";
 
 export const STRETCH_TIMEOUT_MS = Number(process.env.GARRISON_STRETCH_TIMEOUT_MS) > 0
   ? Number(process.env.GARRISON_STRETCH_TIMEOUT_MS)
@@ -1383,12 +1392,56 @@ export async function runConversation(gateway, {
       // Effort comes from the duty LEVEL cell (rung supplies identity only).
       const baseRoute = await gateway.executionRouteFor({ duty, level });
       const effort = baseRoute?.target?.effort ?? null;
-      const route = applyDutyHarnessProfile(
+      let route = applyDutyHarnessProfile(
         ladder.ladder === "synthetic" && baseRoute
           ? baseRoute
           : routeFromRung(rungPick.rung, { effort, duty, level }),
         duty
       );
+
+      // Provider-two step 4: the routing table. Per duty, an ORDERED list of
+      // routes (provider, account, model, effort); the first entry is the
+      // default and the router stays there, moving down only on a cooling
+      // account (a prior rate/usage limit), a capability the duty requires
+      // that a row lacks, or an explicit `route: <id>` in the brief. The
+      // table refines only the DEFAULT lane - a pin, tripwire, or forced
+      // escalation is an explicit choice and keeps today's path untouched.
+      // No table file, no change. Step 5 rides the same walk: a review duty
+      // avoids the model family implement last ran on, whenever the table
+      // has another family to offer.
+      let tableDecision = null;
+      if (
+        routingTableEnabled(env) &&
+        (rungPick.chosenBy === "default" || rungPick.chosenBy === "floor")
+      ) {
+        const table = readRoutingTable(gateway.compositionDir);
+        if (table?.error) gateway.logFn?.({ kind: "routing-table-invalid", error: table.error });
+        const rows = table?.duties?.[duty];
+        if (Array.isArray(rows) && rows.length) {
+          // Step 5: what family did the work under review run on? The most
+          // recent routed stretch of a non-review duty is the thing a review
+          // is reading.
+          const lastWorked = REVIEW_DUTIES.has(duty)
+            ? store
+                .tail(50, { kinds: ["stretch-routing"] })
+                .filter((e) => e.duty && !REVIEW_DUTIES.has(e.duty) && e.payload?.model)
+                .slice(-1)[0] ?? null
+            : null;
+          const avoidFamily = lastWorked ? modelFamily(lastWorked.payload.model) : null;
+          tableDecision = pickRoute({
+            rows,
+            briefText: briefTextFor(store, card),
+            avoidFamily,
+            env,
+          });
+          if (tableDecision) {
+            route = applyRouteRow(route, tableDecision.row);
+            tableDecision = { ...tableDecision, coolingMinutes: table.coolingMinutes };
+          } else {
+            gateway.logFn?.({ kind: "routing-table-exhausted", duty, conversationId });
+          }
+        }
+      }
 
       const stretchId = `st_${newConversationId()}`;
       const ordinal = store.nextHandoffOrdinal();
@@ -1468,7 +1521,14 @@ export async function runConversation(gateway, {
           effort: route.target.effort ?? null,
           runtime: route.target.runtime ?? null,
           target: route.targetId ?? null,
-          reason: "default",
+          // The step-4 router extends this line rather than inventing a new
+          // one: reason says WHY this route ("default", "brief-route",
+          // "cooling until <ts>", "capability:<x>", "cross-family"), and
+          // table carries what was skipped on the way down.
+          reason: tableDecision?.reason ?? "default",
+          ...(tableDecision
+            ? { table: { index: tableDecision.index, id: tableDecision.row?.id ?? null, skipped: tableDecision.skipped } }
+            : {}),
         },
       });
       await writeCardTransition(gateway, { cardId: card?.id, conversationId, stretchId, phase: "started", duty });
@@ -1542,6 +1602,31 @@ export async function runConversation(gateway, {
         signal,
       });
       tee.flush();
+
+      // Step 4: an account that answered with a rate/usage limit is marked
+      // cooling and skipped by later table walks until the interval passes.
+      // Only limit SHAPES cool - a crash or syntax error must not push every
+      // later stretch onto the paid lane.
+      if (!result.ok && routingTableEnabled(env) && limitShaped(result.error) && route.target.provider) {
+        const minutes = tableDecision?.coolingMinutes ?? 30;
+        const until = markCooling(
+          { provider: route.target.provider, account: route.target.account ?? null },
+          minutes,
+          { env }
+        );
+        store.append({
+          kind: "route-cooling",
+          duty,
+          stretch: stretchId,
+          payload: {
+            provider: route.target.provider,
+            account: route.target.account ?? null,
+            until,
+            error: String(result.error ?? "").slice(0, 200),
+          },
+        });
+        gateway.logFn?.({ kind: "route-cooling", provider: route.target.provider, account: route.target.account ?? null, until });
+      }
 
       // Exit gate — with an in-session re-ask only where the session is warm.
       const reAsk = route.target.runtime === "agent-sdk" && result.ok

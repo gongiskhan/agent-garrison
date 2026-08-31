@@ -163,6 +163,22 @@ x-garrison:
         usage limit, timeout - parks the card on Needs input with the reason
         instead of wedging it on running, keeping the findings written so far.
         Set to false to restore the pre-2026-08-31 secondary lane exactly.
+    - key: routing_table
+      type: boolean
+      default: true
+      description: >-
+        Per-duty ordered route lists read from the composition's
+        .garrison/routing-table.json (provider-two step 4). The first entry is
+        the duty's default and the router stays there; it moves down only on a
+        cooling account (a prior rate or usage limit, cooled for
+        cooling_minutes), a capability the duty requires that a row lacks, or
+        an explicit "route: <id>" line in the brief. Review duties prefer a
+        different model family from the stretch under review whenever the
+        table offers one. Every decision extends the stretch-routing ledger
+        line with its reason and what was skipped. Each provider should keep a
+        paid API route at the bottom of its list so a revoked subscription
+        degrades to spend rather than to a stop. No table file, no change.
+        Set to false to ignore the table entirely.
     - key: compact_enabled
       type: boolean
       default: true

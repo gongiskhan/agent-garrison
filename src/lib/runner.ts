@@ -2123,6 +2123,10 @@ function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, str
   if (config.runtime_codex !== undefined && config.runtime_codex !== null) {
     env.GARRISON_HTTPGATEWAY_RUNTIME_CODEX = String(config.runtime_codex);
   }
+  // Per-duty ordered route lists with cooling and brief overrides.
+  if (config.routing_table !== undefined && config.routing_table !== null) {
+    env.GARRISON_HTTPGATEWAY_ROUTING_TABLE = String(config.routing_table);
+  }
   for (const [key, envName] of [
     ["prefix_cache_ttl", "GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL"],
     ["prefix_tool_search", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH"],
