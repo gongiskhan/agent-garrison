@@ -425,6 +425,10 @@ body {
   align-items: flex-start;
   gap: 7px;
   line-height: 1.4;
+  /* The title used to share this row with the created-at timestamp (now in
+     .card-footer at the bottom) - with the row to itself it earns some
+     breathing room instead of sitting flush against the card's top edge. */
+  margin-bottom: 4px;
 }
 .card .ct .title {
   flex: 1 1 auto;
@@ -509,12 +513,19 @@ body {
   line-height: 1.35;
   margin: -1px 0 2px 16px;
 }
-.card .ct .ct-date {
-  flex: none;
+/* The created-at stamp, now anchored to the card's own footer rather than
+   crowding the title row. */
+.card .card-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--rule);
+}
+.card .card-footer .ct-date {
   font-size: 10px;
   color: var(--mute, #8a8577);
   white-space: nowrap;
-  padding-top: 2px;
 }
 /* status indicator — a small SQUARE (Garrison's "■ RUNNING" motif), not a circle */
 .dot {
@@ -2128,6 +2139,24 @@ button:active, .btn:active { transform: translateY(1px); }
 /* The detail sheet has room: the whole plan reads uncapped. */
 .detail-approval .aa-plan { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .detail-approval .aa-actions .btn.primary { flex: 0 1 auto; padding: 8px 22px; }
+
+/* ── conversation quick replies ──────────────────────────────────────────────
+   Sits beside the composer while the conversation is `needs-input` or
+   `awaiting-approval` (see ConversationStateBanner: "Reply below…"). Big,
+   thumb-sized targets so the common answers - approve, ask for options - never
+   require opening the keyboard; "Ask a question" is the one exception, since a
+   real question still needs real words, so it only focuses the composer. */
+.conv-quickreplies { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 8px 0; }
+.conv-quickreply {
+  flex: 1 1 auto; min-height: 40px; padding: 8px 14px;
+  border: 1px solid var(--border-strong, var(--warn)); border-radius: 8px;
+  background: var(--bg-elev, #fff); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.conv-quickreply:hover:not(:disabled) { border-color: var(--accent, var(--warn-ink)); }
+.conv-quickreply:disabled { opacity: 0.5; cursor: default; }
+.conv-quickreply-approve { background: var(--warn-soft); border-color: var(--warn); color: var(--warn-ink); }
+.conv-quickreply-ghost { background: transparent; }
 
 /* Terminal host (copied from dev-env) + the Terminal modal shell. */
 .term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }

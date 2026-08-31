@@ -130,6 +130,14 @@ export interface SessionStreamProps {
    * derivation. Meaningless outside conversation streams.
    */
   conversationLive?: boolean;
+  /**
+   * Fired whenever the stream's own derived activity changes (a conversation
+   * stream only - `none` for a plain runtime session). Lets a host composer
+   * that sits OUTSIDE this component - which owns no events of its own - offer
+   * quick replies while the conversation is `needs-input` or
+   * `awaiting-approval`, without duplicating the derivation.
+   */
+  onActivityChange?: (activity: ConversationActivity) => void;
 }
 
 export interface SessionEventTimelineProps {
@@ -1554,6 +1562,7 @@ export function SessionStream({
   announceLiveUpdates = true,
   focusEventId,
   conversationLive,
+  onActivityChange,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
@@ -1595,6 +1604,7 @@ export function SessionStream({
   // below is gated on it.
   const activity = useMemo<ConversationActivity>(() => conversationActivity(events), [events]);
   const conversationMode = activity.mode !== "none";
+  useEffect(() => { onActivityChange?.(activity); }, [activity, onActivityChange]);
   // A pending state old enough that nothing is plausibly about to run: a
   // message queued hours ago whose launcher never picked it up must not spin
   // forever. Computed when the events change, which is exactly when the answer
@@ -1739,7 +1749,14 @@ export function SessionStream({
     const content = scrollRef.current;
     if (!content) return;
     const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) {
+      // A trackpad keeps delivering decaying wheel events for a few hundred ms
+      // after the reader lifts their fingers. The reader who scrolled UP to
+      // read, then clicked "Jump to bottom", is exactly the reader whose
+      // upward momentum is still trailing off - an unthresholded deltaY<0 read
+      // that residue as a fresh scroll-up and cancelled the jump before it had
+      // moved, which is what "the button does not work" actually was. Real
+      // wheel ticks clear this by a wide margin; residue does not.
+      if (event.deltaY < -2) {
         jumpingRef.current = false;
         setPinned(false);
       }
