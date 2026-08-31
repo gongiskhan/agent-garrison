@@ -102,6 +102,15 @@ const FINDINGS = ["garrison_finding_add"];
 // shared: these schemas live in the tools block, and a block that varies per
 // duty forks the cache prefix. Three schemas, ~1,700 tokens, against a ~43k
 // prefix that six stretches would otherwise each rewrite.
+// Provider-two step 3 revert flag: with this off, a stretch routed to a codex
+// target runs the pre-2026-08-31 secondary lane (no MCP mount, no conversation
+// identity) and a crashed stretch propagates instead of parking the card.
+export function runtimeCodexEnabled(env = process.env) {
+  const raw = String(env?.GARRISON_HTTPGATEWAY_RUNTIME_CODEX ?? "").trim().toLowerCase();
+  if (raw === "false" || raw === "0" || raw === "off" || raw === "no") return false;
+  return true;
+}
+
 export const SHARED_MCP_TOOLS = [CAPABILITY_DOC, ...LAYER3, ...FINDINGS];
 
 export const DUTY_MCP_TOOLS = {};

@@ -2119,6 +2119,10 @@ function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, str
   if (config.card_attachments !== undefined && config.card_attachments !== null) {
     env.GARRISON_HTTPGATEWAY_CARD_ATTACHMENTS = String(config.card_attachments);
   }
+  // Codex as a stretch runtime: MCP mount + fail-loudly discipline.
+  if (config.runtime_codex !== undefined && config.runtime_codex !== null) {
+    env.GARRISON_HTTPGATEWAY_RUNTIME_CODEX = String(config.runtime_codex);
+  }
   for (const [key, envName] of [
     ["prefix_cache_ttl", "GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL"],
     ["prefix_tool_search", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH"],

@@ -34,6 +34,7 @@ import {
   PERSONAL_SCOPE_TOKEN,
   resolveRunScope
 } from "./project-source.mjs";
+import { SHARED_MCP_TOOLS, runtimeCodexEnabled } from "./harness-profiles.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -2396,6 +2397,32 @@ export class RoutedGateway {
   // Run one turn on a secondary runtime (the orchestrator delegating a step to
   // gpt/codex or gemini). One-shot exec; the reply is returned + (by gateway-pty)
   // injected into the rich channel stream.
+  // The Garrison MCP server one codex stretch mounts: the SAME server config
+  // the Agent SDK lane holds (command, args, base-url env), narrowed exactly
+  // like narrowMcpTools does for SDK stretches - shared tool set, conversation
+  // id so the layer-3 tools default to the stretch's own record, stretch cwd
+  // so finding anchors resolve repo-relative. Null when this is not a stretch
+  // turn, not a codex target, the fitting is absent, or the flag is off.
+  _stretchMcpConfig(rt, opts, cwd) {
+    if (rt !== "codex") return null;
+    if (!opts?.conversationId) return null;
+    if (!runtimeCodexEnabled(process.env)) return null;
+    const base = this._agentSdkMcpServers?.garrison;
+    if (!base || typeof base.command !== "string" || !base.command) return null;
+    const narrowed = narrowMcpTools(
+      cloneAssemblyValue({ garrison: base }),
+      SHARED_MCP_TOOLS,
+      opts.conversationId,
+      cwd ?? null
+    ).garrison;
+    return {
+      name: "garrison",
+      command: narrowed.command,
+      args: Array.isArray(narrowed.args) ? narrowed.args : [],
+      env: narrowed.env ?? {},
+    };
+  }
+
   async runSecondaryTurn(route, message, opts = {}) {
     const rt = route.target.runtime;
     const defaults = EXEC_ENGINE_DEFAULTS[rt] ?? {};
@@ -2432,11 +2459,18 @@ export class RoutedGateway {
     const spawnModel = model;
     // Trust the cwd for gemini 0.46 (else it downgrades yolo + blocks); harmless for codex.
     const env = { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" };
+    // Provider-two step 3: a STRETCH turn (identified by its conversation id)
+    // on a codex target mounts the same Garrison MCP server every Claude Code
+    // stretch carries, env-scoped to its conversation and working directory -
+    // findings and ledger reads land in the same record, no runtime-private
+    // variant. Delegation turns (no conversationId) are untouched.
+    const stretchMcp = this._stretchMcpConfig(rt, opts, cwd);
     const session = await adapter.spawn({
       compositionDir: cwd,
       model: spawnModel,
       effort,
       env,
+      ...(stretchMcp ? { mcpServer: stretchMcp } : {}),
       // An in-process HTTP engine resolves its ENDPOINT from the spawn config, not
       // from a CLI's own login state: without provider (and the vault secrets that
       // back its key) it cannot resolve a base URL at all and throws

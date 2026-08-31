@@ -41,7 +41,7 @@ import {
 } from "@garrison/claude-pty";
 import { boardBase, cardById } from "./autonomous-cards.mjs";
 import { resolveRunScope, listProjectNames, readDevRoot, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
-import { applyDutyHarnessProfile } from "./harness-profiles.mjs";
+import { applyDutyHarnessProfile, runtimeCodexEnabled } from "./harness-profiles.mjs";
 
 export const STRETCH_TIMEOUT_MS = Number(process.env.GARRISON_STRETCH_TIMEOUT_MS) > 0
   ? Number(process.env.GARRISON_STRETCH_TIMEOUT_MS)
@@ -801,6 +801,11 @@ export async function runStretch(gateway, {
           onChunk,
           registerStop,
           ...(cwd ? { cwd } : {}),
+          // Stretch identity: the exec lane uses it to mount the Garrison MCP
+          // server scoped to this conversation (provider-two step 3). A
+          // delegation turn has neither and mounts nothing.
+          ...(conversationId ? { conversationId } : {}),
+          ...(stretchId ? { stretchId } : {}),
         });
     const result = await Promise.race([turnPromise, timeout]);
     // The exec lane has no streaming seam, so its rows only exist here, on the
@@ -887,6 +892,7 @@ export async function runExitGate(gateway, {
   resolveEvidence = null,
   reAsk = null, // async (prompt) => replyText — injected; null = not resumable
   repair = null, // async (prompt) => replyText — floor-rung one-shot
+  runtimeError = null, // the runtime's OWN failure reason (crash, auth, limit)
 }) {
   const resolver = resolveEvidence ?? defaultResolveEvidence(gateway.compositionDir);
   const file = store.handoffPath(ordinal);
@@ -952,10 +958,19 @@ export async function runExitGate(gateway, {
       stretchId,
       duty,
       status: "failed",
-      summary: `The stretch ended without a valid handoff (${(verdict.errors ?? []).join("; ") || "no output"}). Raw reply preserved in payloads/.`,
+      // Contract rule 2: when the RUNTIME died (crash, auth expiry, usage
+      // limit, timeout), the reason the reader needs is the runtime's own -
+      // "codex exec exited 1: You've hit your usage limit" - not the generic
+      // no-handoff line. writeCardTransition copies this blocker onto the
+      // card, so the card wears the real reason too.
+      summary: runtimeError
+        ? `The stretch runtime failed: ${String(runtimeError).slice(0, 300)}. Findings recorded before the failure are kept.`
+        : `The stretch ended without a valid handoff (${(verdict.errors ?? []).join("; ") || "no output"}). Raw reply preserved in payloads/.`,
       evidenceRefs: [],
       nextSteps: { next: "needs-input", why: "the exit gate could not extract an honest handoff", items: [] },
-      blocker: { what: "no valid handoff from the stretch", needs: "a human look at the conversation log", who: "user" },
+      blocker: runtimeError
+        ? { what: `${duty} stretch runtime failed: ${String(runtimeError).slice(0, 250)}`, needs: "a human decision - retry, reroute, or park", who: "user" }
+        : { what: "no valid handoff from the stretch", needs: "a human look at the conversation log", who: "user" },
       activeConstraints: [],
       failedApproaches: [{ approach: `run duty ${duty} as a stretch`, why: "no valid handoff produced" }],
       surprises: [],
@@ -1567,6 +1582,9 @@ export async function runConversation(gateway, {
         route,
         reply: result.reply,
         selectedDuties,
+        // Step-3 flag: with runtime_codex off the gate synthesizes the old
+        // generic no-handoff line even for a dead runtime.
+        runtimeError: !result.ok && runtimeCodexEnabled(env) ? (result.error ?? null) : null,
         reAsk,
         repair,
         // Rule 10 (anti-fabrication) must look where the stretch actually

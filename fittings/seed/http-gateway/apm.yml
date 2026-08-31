@@ -152,6 +152,17 @@ x-garrison:
         this per dispatch; THE CUT deleted it and a card could say "describe
         the attached images" while no stretch ever saw a path. Set to false to
         restore the attachment-blind brief and the single card read.
+    - key: runtime_codex
+      type: boolean
+      default: true
+      description: >-
+        Codex as a stretch runtime (provider-two step 3). A stretch routed to a
+        codex target mounts the shared Garrison MCP server scoped to its
+        conversation, so findings and ledger reads land in the same record a
+        Claude Code stretch uses; and a stretch that dies - crash, auth expiry,
+        usage limit, timeout - parks the card on Needs input with the reason
+        instead of wedging it on running, keeping the findings written so far.
+        Set to false to restore the pre-2026-08-31 secondary lane exactly.
     - key: compact_enabled
       type: boolean
       default: true

@@ -35,6 +35,31 @@ export function codexPermissionArgs(config = {}) {
   return ["--sandbox", "read-only"];
 }
 
+// The shared mcp-gateway server, mounted into one `codex exec` through -c
+// config overrides so nothing lands in config.toml. Two unlocks, proven live
+// by the spike (bench/codex-spike-2026-08-31): the per-server approval mode
+// must be "auto", and headless exec pins the GLOBAL approval policy to
+// `never`, which DENIES any MCP tool that still wants approval - so sandboxed
+// lanes carry --approve-for-me (Codex's automatic reviewer). The bypass lane
+// skips approvals wholesale and must NOT carry the flag.
+export function mcpServerArgs(server = {}, { bypassed = false } = {}) {
+  const name = String(server.name ?? "garrison").replace(/[^A-Za-z0-9_-]/g, "_");
+  const out = [];
+  out.push("-c", `mcp_servers.${name}.command=${JSON.stringify(String(server.command ?? "node"))}`);
+  const args = Array.isArray(server.args) ? server.args.map(String) : [];
+  out.push("-c", `mcp_servers.${name}.args=${JSON.stringify(args)}`);
+  const env = server.env && typeof server.env === "object" ? server.env : null;
+  if (env && Object.keys(env).length) {
+    const table = Object.entries(env)
+      .map(([k, v]) => `${String(k).replace(/[^A-Za-z0-9_-]/g, "_")} = ${JSON.stringify(String(v))}`)
+      .join(", ");
+    out.push("-c", `mcp_servers.${name}.env={ ${table} }`);
+  }
+  out.push("-c", `mcp_servers.${name}.default_tools_approval_mode="auto"`);
+  if (!bypassed) out.push("--approve-for-me");
+  return out;
+}
+
 // Build the `codex exec` invocation. Pure + testable: the prompt travels via
 // stdin (returned separately), model + reasoning effort via documented `-c`
 // config overrides, cwd via `--cd`. argv NEVER contains the prompt.
@@ -42,7 +67,15 @@ export function buildExecArgs(config = {}) {
   const argv = ["exec"];
   if (config.model) argv.push("-c", `model=${config.model}`);
   if (config.effort) argv.push("-c", `model_reasoning_effort=${config.effort}`);
-  argv.push(...codexPermissionArgs(config));
+  const permission = codexPermissionArgs(config);
+  argv.push(...permission);
+  // The stretch lane mounts the shared Garrison MCP server into this one exec
+  // via -c overrides - session-scoped, no config.toml residue.
+  if (config.mcpServer && typeof config.mcpServer === "object") {
+    argv.push(...mcpServerArgs(config.mcpServer, {
+      bypassed: permission.includes("--dangerously-bypass-approvals-and-sandbox"),
+    }));
+  }
   if (config.compositionDir) argv.push("--cd", config.compositionDir);
   // `codex exec` refuses to run outside a trusted git dir unless told to skip the
   // check; delegations run in throwaway/non-repo cwds, so always skip it (verified
