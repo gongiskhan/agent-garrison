@@ -117,6 +117,19 @@ describe("plumbing", () => {
     expect(briefRouteFor("the route: is unclear")).toBeNull();
   });
 
+  it("a duty-scoped directive routes one duty and beats the global form", () => {
+    const text = "do it\nroute: implement=codex-sub\nroute: anthropic-sub\n";
+    expect(briefRouteFor(text, "implement")).toBe("codex-sub");
+    expect(briefRouteFor(text, "review")).toBe("anthropic-sub");
+    expect(briefRouteFor("route: implement=codex-sub", "review")).toBeNull();
+    const pick = pickRoute({ rows: ROWS, duty: "implement", briefText: "route: implement=codex-sub", env })!;
+    expect(pick.row.id).toBe("codex-sub");
+    expect(pick.reason).toBe("brief-route");
+    const other = pickRoute({ rows: ROWS, duty: "review", briefText: "route: implement=codex-sub", env })!;
+    expect(other.index).toBe(0);
+    expect(other.reason).toBe("default");
+  });
+
   it("applyRouteRow folds only what the row names", () => {
     const route = { targetId: "t", target: { runtime: "agent-sdk", model: "haiku", effort: "low", skill: "s" } };
     const out = applyRouteRow(route, ROWS[0]);

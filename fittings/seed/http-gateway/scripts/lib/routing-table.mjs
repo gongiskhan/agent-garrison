@@ -113,13 +113,25 @@ export function limitShaped(error) {
 }
 
 // ── the brief's explicit route ──────────────────────────────────────────────
-// `route: <row-id>` anywhere in the card text or a user message.
+// `route: <row-id>` routes every tabled duty; `route: <duty>=<row-id>` routes
+// one duty (so "implement on codex, review on anthropic" is two lines, or one
+// line plus the table's own default). A duty-scoped directive beats a global
+// one for its duty.
 
-const ROUTE_DIRECTIVE = /(?:^|\n)\s*route\s*[:=]\s*([A-Za-z0-9._/-]+)/i;
+const ROUTE_DIRECTIVE = /(?:^|\n)\s*route\s*[:=]\s*(?:([a-z][a-z-]*)\s*=\s*)?([A-Za-z0-9._/-]+)/gi;
 
-export function briefRouteFor(briefText) {
-  const m = ROUTE_DIRECTIVE.exec(String(briefText ?? ""));
-  return m ? m[1].trim() : null;
+export function briefRouteFor(briefText, duty = null) {
+  const text = String(briefText ?? "");
+  let global = null;
+  let scoped = null;
+  for (const m of text.matchAll(ROUTE_DIRECTIVE)) {
+    if (m[1]) {
+      if (duty && m[1].toLowerCase() === String(duty).toLowerCase()) scoped = m[2].trim();
+    } else if (global === null) {
+      global = m[2].trim();
+    }
+  }
+  return scoped ?? global;
 }
 
 // ── model family (step 5's cross-family review lever) ───────────────────────
@@ -144,6 +156,7 @@ export function modelFamily(model) {
  */
 export function pickRoute({
   rows,
+  duty = null,
   briefText = null,
   requiredCapabilities = [],
   avoidFamily = null,
@@ -152,7 +165,7 @@ export function pickRoute({
 }) {
   if (!Array.isArray(rows) || !rows.length) return null;
   const skipped = [];
-  const explicit = briefRouteFor(briefText);
+  const explicit = briefRouteFor(briefText, duty);
   if (explicit) {
     const idx = rows.findIndex((r) => String(r?.id ?? "") === explicit);
     if (idx >= 0) return { row: rows[idx], index: idx, reason: "brief-route", skipped };

@@ -1430,6 +1430,7 @@ export async function runConversation(gateway, {
           const avoidFamily = lastWorked ? modelFamily(lastWorked.payload.model) : null;
           tableDecision = pickRoute({
             rows,
+            duty,
             briefText: briefTextFor(store, card),
             avoidFamily,
             env,
