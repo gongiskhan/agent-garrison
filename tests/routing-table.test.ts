@@ -311,6 +311,59 @@ describe("the loop consults the table and cools a limited account", () => {
     expect(routed[0].table.skipped[0].id).toBe("codex-sub");
   }, 15000);
 
+  it("a responder between implement and review does not re-anchor the family check", async () => {
+    // Live failure this pins: implement ran codex (gpt), a haiku responder
+    // answered a resume message, and the review's avoidFamily anchored to the
+    // RESPONDER's claude - steering the review onto gpt, the same family as
+    // the work under review.
+    const port = await startBoard();
+    writeFileSync(path.join(tmp, "ui-fittings", "kanban-loop.json"), JSON.stringify({ url: `http://127.0.0.1:${port}` }));
+    const comp = path.join(tmp, "comp", ".garrison");
+    mkdirSync(comp, { recursive: true });
+    writeFileSync(path.join(comp, "routing-table.json"), JSON.stringify({
+      cooling_minutes: 30,
+      duties: { "adversarial-review": [
+        { id: "anthropic-sub", runtime: "agent-sdk", provider: "anthropic", model: "claude-sonnet-5" },
+        { id: "codex-sub", runtime: "codex", provider: "openai", account: "chatgpt", model: "gpt-5.6-sol" },
+      ] },
+    }));
+    // Seed a ledger: implement on gpt, then a responder on claude, then a
+    // handoff pointing at adversarial-review.
+    // @ts-ignore — pure .mjs
+    const { openConversation } = await import("../packages/claude-pty/src/conversation-store.mjs");
+    const seedId = "01M1ROUTINGTABLE0000000003";
+    const seed = openConversation(seedId, { role: "test", env });
+    seed.init({ title: "t" });
+    seed.append({ kind: "stretch-routing", duty: "implement", payload: { model: "gpt-5.6-sol", runtime: "codex" } });
+    seed.append({ kind: "stretch-routing", duty: "responder", payload: { model: "claude-haiku-4-5", runtime: "agent-sdk" } });
+    seed.writeHandoff(1, {
+      v: 1, stretchId: "st_seed", duty: "responder", status: "complete", summary: "resume",
+      evidenceRefs: [], nextSteps: { next: "adversarial-review", why: "w", items: [] },
+      blocker: null, activeConstraints: [], failedApproaches: [], surprises: [],
+      forceEscalation: null, synthesized: false,
+    });
+    const briefs: Record<string, string> = {};
+    const gw: any = gatewayWith(() => "ok");
+    gw.executionModel = async () => ({
+      version: 3,
+      selectedDuties: ["adversarial-review"],
+      duties: {},
+      dutyLadder: { "adversarial-review": { ladder: "standard", rungs: [{ id: "floor", target: "sdk-haiku", runtime: "agent-sdk", provider: "anthropic", model: "haiku", params: {} }], defaultIndex: 0, ceilingIndex: 0 } },
+    });
+    const origSdk = gw.runAgentSdkTurn.bind(gw);
+    gw.runAgentSdkTurn = async (route: any, b: string) => { briefs[route.duty] = b; return origSdk(route, b); };
+    gw.runSecondaryTurn = async (route: any) => {
+      throw new Error(`review must not run on ${route.target.runtime}: the responder is not the work under review`);
+    };
+    await runConversation(gw as never, { conversationId: seedId, env });
+    const routed = openConversation(seedId, { role: "test", env })
+      .tail(5, { kinds: ["stretch-routing"] })
+      .map((e: any) => e.payload)
+      .filter((p: any) => p.target === "anthropic-sub" || p.target === "codex-sub");
+    expect(routed[0].target).toBe("anthropic-sub");
+    expect(routed[0].reason).toBe("default");
+  }, 15000);
+
   it("with the flag off the table is ignored entirely", async () => {
     const port = await startBoard();
     writeFileSync(path.join(tmp, "ui-fittings", "kanban-loop.json"), JSON.stringify({ url: `http://127.0.0.1:${port}` }));

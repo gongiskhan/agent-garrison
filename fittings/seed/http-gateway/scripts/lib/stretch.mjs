@@ -1419,12 +1419,15 @@ export async function runConversation(gateway, {
         const rows = table?.duties?.[duty];
         if (Array.isArray(rows) && rows.length) {
           // Step 5: what family did the work under review run on? The most
-          // recent routed stretch of a non-review duty is the thing a review
-          // is reading.
+          // recent routed stretch of a WORKING duty is the thing a review is
+          // reading - responders are excluded along with review duties, or a
+          // haiku responder answering "resume" between implement and review
+          // re-anchors the family check to itself (live: it steered the
+          // rerouted review onto the SAME family implement used).
           const lastWorked = REVIEW_DUTIES.has(duty)
             ? store
                 .tail(50, { kinds: ["stretch-routing"] })
-                .filter((e) => e.duty && !REVIEW_DUTIES.has(e.duty) && e.payload?.model)
+                .filter((e) => e.duty && !REVIEW_DUTIES.has(e.duty) && e.duty !== "responder" && e.payload?.model)
                 .slice(-1)[0] ?? null
             : null;
           const avoidFamily = lastWorked ? modelFamily(lastWorked.payload.model) : null;
