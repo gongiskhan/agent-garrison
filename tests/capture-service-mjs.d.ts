@@ -75,7 +75,13 @@ declare module "*/capture-service/scripts/server.mjs" {
     };
     echoGuard: unknown;
     notifier: unknown;
-    ackSink: { burst: { suppressed: number; timer: unknown } };
+    ackSink: {
+      burst: { suppressed: number; timer: unknown };
+      speakableSession(): { record: { id: string; mode: string; ended?: unknown } } | null;
+      muteSession(sessionId: string, forMs?: number): void;
+      handleAck(ack: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }>;
+      onSpeakTimeout: ((ackId: string) => void) | null;
+    };
   }>;
 }
 
