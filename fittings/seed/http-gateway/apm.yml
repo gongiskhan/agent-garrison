@@ -94,6 +94,16 @@ x-garrison:
         stretch, so a long agentic stretch pays one search plus one expansion
         rather than anything per call. Keeping Bash/Read/Write/Edit leaves 6,562
         of a 7,077-token block on the table.
+    - key: strict_project_resolution
+      type: boolean
+      default: true
+      description: >-
+        Refuse to start a conversation whose card names a project that does not
+        resolve on this machine, instead of silently running its stretches in the
+        composition directory. The card is parked on Needs input and the ledger
+        carries a project-unresolved entry naming the requested project, what it
+        resolved to, the directory the old fallback would have used, and the
+        dev-root rule. Set to false to restore the pre-2026-08-31 fallback.
     - key: compact_enabled
       type: boolean
       default: true

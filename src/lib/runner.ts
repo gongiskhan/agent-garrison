@@ -2098,6 +2098,11 @@ function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, str
   if (config.stretch_claude_home !== undefined && config.stretch_claude_home !== null) {
     env.GARRISON_HTTPGATEWAY_STRETCH_CLAUDE_HOME = String(config.stretch_claude_home);
   }
+  // Strict project resolution: a card naming an unresolvable project fails hard
+  // rather than running its stretches in the composition dir.
+  if (config.strict_project_resolution !== undefined && config.strict_project_resolution !== null) {
+    env.GARRISON_HTTPGATEWAY_STRICT_PROJECT_RESOLUTION = String(config.strict_project_resolution);
+  }
   for (const [key, envName] of [
     ["prefix_cache_ttl", "GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL"],
     ["prefix_tool_search", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH"],

@@ -40,7 +40,7 @@ import {
   repetitionReport,
 } from "@garrison/claude-pty";
 import { boardBase, cardById } from "./autonomous-cards.mjs";
-import { resolveRunScope, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
+import { resolveRunScope, listProjectNames, readDevRoot, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
 import { applyDutyHarnessProfile } from "./harness-profiles.mjs";
 
 export const STRETCH_TIMEOUT_MS = Number(process.env.GARRISON_STRETCH_TIMEOUT_MS) > 0
@@ -1007,6 +1007,50 @@ function consecutiveSameDuty(store, duty) {
  * silently running project work in the wrong directory is the exact incident
  * tests/kanban-turn-cwd.test.ts was written for.
  */
+// Strict project resolution (2026-08-31). A card that names a project which
+// does not resolve on this machine used to fall back to the composition
+// directory and run there anyway: the stretch worked, wrote files, and reported
+// success in a tree nobody asked it to touch. That is silent, and the damage is
+// only visible afterwards. Strict mode refuses to start instead.
+//
+// ON by default. Set the gateway fitting's `strict_project_resolution` to false
+// (env GARRISON_HTTPGATEWAY_STRICT_PROJECT_RESOLUTION=false) to restore the old
+// fallback, which is the revert path rather than a supported mode.
+export function strictProjectResolution(env = process.env) {
+  const raw = String(env?.GARRISON_HTTPGATEWAY_STRICT_PROJECT_RESOLUTION ?? "").trim().toLowerCase();
+  if (raw === "false" || raw === "0" || raw === "off" || raw === "no") return false;
+  return true;
+}
+
+// The rule the resolver actually enforces, in one sentence, so the ledger entry
+// tells a reader what to fix rather than only that something failed.
+export const PROJECT_RESOLUTION_RULE =
+  "a project label must name a directory containing .git directly under the dev-root " +
+  "(~/.garrison/dev-root, default ~/dev) - no path separators, no absolute paths, no " +
+  "dotfiles, and nothing whose realpath leaves the dev-root. The only other accepted " +
+  "scope is the exact token @personal.";
+
+/** The ledger record for a project that did not resolve here: what was asked
+ *  for, what it resolved to, where the old fallback would have run it, and the
+ *  rule that rejected it. */
+export function projectResolutionFailure(scope, { compositionDir = null, devRoot = null } = {}) {
+  return {
+    reason: "project-not-resolvable-here",
+    requestedProject: scope?.label ?? null,
+    resolvedPath: scope?.cwd ?? null,
+    fallbackPath: compositionDir ?? null,
+    devRoot: devRoot ?? null,
+    rule: PROJECT_RESOLUTION_RULE,
+    knownProjects: (() => {
+      try { return listProjectNames().slice(0, 60); } catch { return []; }
+    })(),
+    message:
+      `project ${JSON.stringify(scope?.label ?? null)} resolved to ${scope?.cwd ?? "nothing"} on this machine. ` +
+      `The stretch was NOT started; running it would have used ${compositionDir ?? "the composition directory"} instead. ` +
+      `Rule: ${PROJECT_RESOLUTION_RULE}`,
+  };
+}
+
 export function stretchScopeForCard(card) {
   if (!card) return { label: null, cwd: null, degraded: false };
   const routing = card.routing && typeof card.routing === "object" && !Array.isArray(card.routing) ? card.routing : {};
@@ -1038,8 +1082,32 @@ export async function runConversation(gateway, {
     const card = await cardById(conversationId).catch(() => null);
     const scope = stretchScopeForCard(card);
     if (scope.degraded) {
-      // Project named on the card but absent on this machine: say so in the
-      // ledger rather than silently working in the composition dir.
+      const failure = projectResolutionFailure(scope, {
+        compositionDir: gateway.compositionDir ?? null,
+        devRoot: (() => { try { return readDevRoot(); } catch { return null; } })(),
+      });
+      if (strictProjectResolution(env)) {
+        // Hard failure: no stretch starts. Working in the composition directory
+        // because a project label did not resolve is not a degraded run, it is
+        // the wrong run - and it is only ever noticed after the writes land.
+        store.append({ kind: "project-unresolved", payload: failure });
+        if (card?.id) {
+          await patchCardEngine({
+            id: card.id,
+            patch: {
+              list: "needs-attention",
+              status: "needs-attention",
+              attentionReason: String(failure.message).slice(0, 400),
+            },
+            logFn: (e) => gateway.logFn?.(e),
+          });
+        }
+        gateway.logFn?.({ kind: "conversation-project-unresolved", conversationId, project: scope.label });
+        onFrame("done", { terminal: "needs-input", stretches: 0 });
+        return { stretches: 0, terminal: "needs-input" };
+      }
+      // Legacy fallback, reachable only with strict_project_resolution off: say
+      // so in the ledger and run in the composition dir anyway.
       store.append({ kind: "policy-rewrite", payload: { from: `project:${scope.label}`, to: "composition-dir", reason: "project-not-resolvable-here" } });
     }
     const runId = env.GARRISON_SESSION_LOG_RUN ?? null;
