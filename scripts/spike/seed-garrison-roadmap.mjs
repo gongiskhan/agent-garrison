@@ -23,10 +23,10 @@ const cat = (id, title, noteRef, items) => ({
   id,
   title,
   noteRef,
-  items: items.map(([itemId, text, itemNote = null]) => ({
+  items: items.map(([itemId, text, itemNote = null, done = false]) => ({
     id: itemId,
     text,
-    done: false,
+    done,
     sentToKanban: null,
     noteRef: itemNote
   }))
@@ -39,9 +39,9 @@ const roadmap = {
   updatedAt: null,
   categories: [
     cat("c1", "Talk to Zeca instead of the Claude app", "n-c1", [
-      ["c1.1", "One tap to talk. Opening the Garrison PWA on the phone lands on a ready conversation with Zeca: no route, duty, level, machine or account to choose. Sticky defaults (account Auto, home node, general assistant flow) and a visible mic. Text and voice. Launch to talking is one tap, and \"new conversation\" inherits the same defaults. Audit: sticky routing per thread exists (contract §13); the zero-choice entry does not.", "n-c1-parity"],
+      ["c1.1", "One tap to talk. Opening the Garrison PWA on the phone lands on a ready conversation with Zeca: no route, duty, level, machine or account to choose. Sticky defaults (account Auto, home node, general assistant flow) and a visible mic. Text and voice. Launch to talking is one tap, and \"new conversation\" inherits the same defaults. Confirmed: sticky routing per thread exists (contract §13, gateway-routing.mjs); the zero-choice entry does not.", "n-c1-parity"],
       ["c1.2", "Intent inferred, never selected. Zeca decides from context whether a message is a discussion, a quick answer or an actionable request, and routes accordingly: discussion stays in the conversation on a strong model; trivial back-and-forth and memory lookups stay in the conversation on a cheap model and create no card; direct actionable requests create a To do card without discussion. Every decision is logged with its features and is the improver's first training case (ask, then act and check, then act silently as confidence rises).", "n-c1-intent"],
-      ["c1.3", "The discussion register. In a discussion Zeca behaves the way the Claude app behaves with Gonçalo: CTO and CPO at once, devil's advocate before converging, honest pushback, prose suitable for text-to-speech, no em dashes, no flattery, a TLDR at the end of every substantive answer, European Portuguese register when the conversation is in Portuguese. Adapted from Anthropic's published Claude.ai prompts rather than invented; the June 2026 modes brief did that adaptation. Audit: is that what duty-discuss runs today, and at which levels?"],
+      ["c1.3", "The discussion register. In a discussion Zeca behaves the way the Claude app behaves with Gonçalo: CTO and CPO at once, devil's advocate before converging, honest pushback, prose suitable for text-to-speech, no em dashes, no flattery, a TLDR at the end of every substantive answer, European Portuguese register when the conversation is in Portuguese. Adapted from Anthropic's published Claude.ai prompts rather than invented; the June 2026 modes brief did that adaptation. Partial: duty-discuss (fittings/seed/duty-discuss) runs prose-only replies, no em dash and argue-before-agree at level 1 (cc-sonnet, medium effort) and level 2 (cc-opus, high effort); the CTO/CPO framing and the TLDR requirement are not in the skill text, and neither level targets a Fable-class model."],
       ["c1.4", "Fable-class model on discussion, always. Discussion levels run Fable (or the best available) varying only effort. When a Max account hits its limit, the next stretch continues on the other account or on an API key without Gonçalo noticing beyond a badge. This is the concrete daily payoff of the stretch model.", "n-c1-accounts"],
       ["c1.5", "Research and reading inside the conversation. Web search and fetch available mid-discussion with sources cited; reading any project under the dev root (Garrison, ekoa-code, client repos); cloning a public repo when asked (\"go look at X\"); reading Cortex through the cortex client. The same things Gonçalo asks the Claude app to do today."],
       ["c1.6", "Memory in and memory out. Before answering, Zeca reads the relevant memory (profile, preferences, areas, people, topics) from the basic-memory vault, a listing first and targeted reads after, never the whole vault. After a conversation ends or goes quiet for a while, a background pass files what is durable at the same bar the Claude app uses: stated facts, decisions and preferences, never inferences. Visible: \"saved to memory\" markers in the conversation and the vault diff.", "n-c1-memory"],
@@ -57,7 +57,7 @@ const roadmap = {
     cat("c2", "Conversations and stretches, the working substrate", "n-c2", [
       ["c2.1", "Keep the stretch mechanism as the way all work runs: multi-model, multi-provider, multi-account, effort as the only free dial mid-work, duties coarse with a default model and a ceiling, self-escalation with a sticky floor per conversation. Decided 30 and 31 August; the cost thesis is dropped, freedom of provider and account is the reason.", "n-c2-benchmarks"],
       ["c2.2", "Findings register, slice 2. Claims with pointers written while working and read on demand, across providers and across the cwd boundary; triage writes findings too (it wrote zero in slice 1); dig-to-detail from a claim in the conversation UI. Measured only by use (ledger search hits, re-reads avoided), never by another benchmark."],
-      ["c2.3", "Account and provider indifference. Subscription accounts (the Max accounts, the Codex pro account), API keys and other providers interchangeable per stretch; automatic fallback when one is exhausted; account and provider badges on every stretch. Audit: the balance API exists; what triggers a switch today, and does it happen between stretches without a human?"],
+      ["c2.3", "Account and provider indifference. Subscription accounts (the Max accounts, the Codex pro account), API keys and other providers interchangeable per stretch; automatic fallback when one is exhausted; account and provider badges on every stretch. Confirmed: `GET /api/accounts/balance` exists (src/app/api/accounts/balance); routing-table.mjs cools an account on a rate/usage limit shape and the next stretch routes past it automatically, without a human, per row order in the routing table."],
       ["c2.4", "Adversarial review count is the dominant cost driver (a 2.4x swing between identical runs, chosen freely by the model). Make the number of review cycles a per-duty knob with a default cap, show it in the conversation, and let the model request one more with a reason rather than loop silently."],
       ["c2.5", "Project path after the last cache breakpoint. The cwd sits inside the cached prefix, so every new project starts cold while plain Claude Code stays warm; move the project path after the last breakpoint with the request shaper that already exists. Small, independent, and the one actionable finding of the third benchmark campaign."],
       ["c2.6", "Loud failure instead of silent degrade. A project stretch whose project does not resolve (not a git repo directly under the dev root) must fail the stretch with a clear reason and a ledger event, never run in the composition directory."],
@@ -128,7 +128,7 @@ const roadmap = {
       ["c7.8", "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Omi push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row."]
     ]),
     cat("c8", "Signals, the web channel as system core", "n-signals", [
-      ["c8.1", "Name it. Candidates for the promoted web channel: Signals (the corps that carries orders between command and the units), Adjutant (the officer who transmits the commander's orders), Comms. Lean: Signals; it sits well next to Muster, Quarters, Armory, Vault and Mesh."],
+      ["c8.1", "Name it. Candidates for the promoted web channel: Signals (the corps that carries orders between command and the units), Adjutant (the officer who transmits the commander's orders), Comms. Lean: Signals; it sits well next to Muster, Quarters, Armory, Vault and Mesh.", "n-signals"],
       ["c8.2", "Write down what the fitting shape costs today and what \"core\" would mean. Costs: the APM contract dance on every UI change, own-port serving and PWA ownership inside a fitting, the extra hops between gateway and fitting for streaming, duplicated transports. Core: lives in src like Muster, served by the app, owns the PWA, push, the conversation component and the sessions rail, cannot be stationed or removed. This audit precedes any move."],
       ["c8.3", "The exception is written into the docs. The honesty rule stands for every capability except Signals, because no work happens in Garrison without it; other channels (Slack, Omi, Companion, voice) remain fittings with channel parity generalised, not special-cased."],
       ["c8.4", "Migrate after c1 is in daily use and c3's first widgets exist, in one long autonomous task, with the conversation component shared with the card modal untouched, and the Command Center embedding the conversation widget from core."],
@@ -154,7 +154,7 @@ const roadmap = {
       ["c11.4", "Multi-tenant Garrison parked; tenant isolation stays an Ekoa problem."]
     ]),
     cat("c12", "Housekeeping and debt", "n-debt", [
-      ["c12.1", "Retire docs/GARRISON_ROADMAP.md as history with a banner; this file is the plan of record; AGENTS.md points to it. (Done by the seeding session.)"],
+      ["c12.1", "Retire docs/GARRISON_ROADMAP.md as history with a banner; this file is the plan of record; AGENTS.md points to it. (Done by the seeding session; docs/GARRISON_ROADMAP.md, AGENTS.md, CLAUDE.md.)", null, true],
       ["c12.2", "Root clutter. Move the run logs, progress files, handoffs and reports sitting at the repo root into docs/reports with a dated index; keep README, AGENTS, CLAUDE, LICENSE and WHATS-NEW at the root; refresh or delete WHATS-NEW, which describes May."],
       ["c12.3", "Vocabulary. Finish the operative and outpost purge with the enforcement test; the Discuss list gone everywhere; the legacy dispatch path removed after c2.11."],
       ["c12.4", "Benchmark artifacts (the bench directory and the evidence of the three campaigns) archived under docs/reports with the conclusions written once; the measuring is over."],
@@ -403,6 +403,32 @@ const roadmap = {
       id: "n-debt",
       title: "Housekeeping, why it is on the roadmap",
       body: "Because the repo root holds thirteen markdown files of run logs, progress and handoffs, WHATS-NEW describes May, and docs/GARRISON_ROADMAP.md has claimed to be the live roadmap since May while the actual plan lived in conversations. Agents read the root first; clutter there costs every stretch. The rule after this seed: reports go to docs/reports with a date, the roadmap is this file, the decision log for large architecture moves stays in docs/decisions, and a monthly review card keeps the roadmap honest."
+    },
+    {
+      id: "n-priorities",
+      title: "Why this order, and what is explicitly not now",
+      body: [
+        "Order: c1 (talk to Zeca) first because it produces everything else and because his daily habit is the interface; c2 items that are small and unblock c1 (account fallback, project path, loud failure) alongside; c3 (Command Center) once c1 is in daily use, because a queue with nothing in it teaches him to skip it; c4 grows with c3; c5 and c6 run as the loop's own work items; c7 continues on its own track (the Companion and the pendant are in flight); c8 waits deliberately; c9 is maintenance; c10 and c11 follow c1; c12 is done opportunistically by the loop.",
+        "",
+        "Not now, decided on 31 August: the web channel promotion (c8), fittings as widgets (parked, only the slot shape matters), more cost benchmarks (closed), cross-machine delegation (parked 15 August), memory migration to Cortex (after c1), always-on phone capture (not possible on iOS; deliberately not pursued), a Mac DMG app (rejected), a Garrison runtime (rejected twice), sub-agents for model switching (rejected).",
+        "",
+        "He said on 31 August that there is so much to do in Garrison that he feels lost. This file is the answer to that: one ordered list, one first item, notes that say what was decided so the same discussions are not had again, and a Command Center row that shows what is next."
+      ].join("\n")
+    },
+    {
+      id: "n-open",
+      title: "Open questions to settle as work reaches them",
+      body: [
+        "- c1.2: where does intent classification live today (tier classifier, orchestrator matrix, duty-discuss itself), and which of them should own it so the autonomy track has one home?",
+        "- c1.6: when does the background memory pass run for a conversation that never formally ends (idle timeout, or at each stretch exit)?",
+        "- c1.9: brief destination rules: Documents fitting versus the project's docs folder; a project brief probably belongs with the project (agents read it there) and personal or product notes belong in Documents.",
+        "- c3.4: does the attention read model live in the Next app (src) or on its own port; the Command Center is the home page, so src, unless a producer needs it running without the app.",
+        "- c3.13: how a card is \"queued for the loop\": a flag on the card, or the order of the To do list within a project; the flag is explicit and survives reordering.",
+        "- c3.14: which mailbox first, Ekoa or personal; Ekoa has less noise and more client-relevant deadlines.",
+        "- c7.6: which redaction rules on Mac screenshots are enforceable before a frame is stored (window title allowlist is the cheap first rule).",
+        "- c8.1: Signals versus Adjutant; decide when the audit in c8.2 is written.",
+        "- c10.5: memory in Cortex or in the vault; decide after c1.14 passes."
+      ].join("\n")
     }
   ]
 };

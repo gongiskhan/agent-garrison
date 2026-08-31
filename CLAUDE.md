@@ -3,9 +3,11 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 The full v1 spec lives at [`docs/SPEC.md`](./docs/SPEC.md) (the former
-`AGENTS.md`). The live phased status lives at
-[`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md). All other
-docs are under [`docs/`](./docs/) — drill in as needed.
+`AGENTS.md`). The plan of record is [`roadmap.json`](./roadmap.json) at
+the repo root, edited through the Roadmaps view and the roadmap CLI;
+[`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md) is kept only for
+its decision log and history. All other docs are under
+[`docs/`](./docs/) — drill in as needed.
 
 ## What this project is
 
