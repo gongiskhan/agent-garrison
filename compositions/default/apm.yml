@@ -120,10 +120,17 @@ x-garrison:
             automate_enabled: true
             screen_context_enabled: true
             screen_audio_transcribe: false
+            # whatsapp-web is stationed, so the spoken-send lane goes live:
+            # resolve the contact, park the send in the 60s outbox, speak it
+            # back with recipient AND text, cancel by saying "cancela" - no
+            # wake word. Unpaired, every send falls through to the operative.
             send_enabled: true
             confirm_enabled: true
         - id: whatsapp-web
           config:
+            # 8080 on dev-madrid is held by an unrelated java service, and the
+            # daemon rightly refuses to start on a shifted port. 8087 is free
+            # across the mesh port family.
             port: 8087
             bind_host: 127.0.0.1
             session_dir: ~/.config/garrison/whatsapp-web
