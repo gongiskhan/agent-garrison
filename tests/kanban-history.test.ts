@@ -413,7 +413,11 @@ describe("the frozen card modal (browser)", () => {
     await app.click('.topbar button:text-is("History")');
     await app.waitForSelector(".history-card");
     await app.click(".history-card");
-    await app.waitForSelector(".sheet").catch((err) => {
+    // Wait for the FROZEN sheet specifically: the History modal is itself a
+    // .sheet, so a bare .sheet wait is satisfied before the frozen record's
+    // sheet replaces it and the probe reads the wrong modal (a real race —
+    // this file flaked either way on it).
+    await app.waitForSelector(".sheet .state-callout.frozen").catch((err) => {
       throw new Error(`${err.message}\npage errors: ${pageErrors.join(" | ") || "(none)"}`);
     });
     probe = await app.evaluate(() => {
