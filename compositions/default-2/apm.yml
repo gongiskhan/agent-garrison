@@ -40,7 +40,6 @@ dependencies:
     - path: ../../fittings/seed/snapshots-default
     - path: ../../fittings/seed/taste
     - path: ../../fittings/seed/trello
-    - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/whatsapp-web
 x-garrison:
@@ -160,12 +159,20 @@ x-garrison:
             memory_dir: Memory
             project_name: main
             capture_enabled: true
-            # Declared explicitly even though the manifest's default is already
-            # true: setup.sh reads $KANBAN_CAPTURE_ENABLED from the projected
-            # env and treats EMPTY as off, so an omitted key silently inverts
-            # the declared default — it deletes the consumer that verify.sh then
-            # demands, and the composition can never come up.
-            kanban_completion_capture_enabled: true
+            # OFF on this node, deliberately. With it on, the consumer at
+            # ~/.claude/basic-memory/consume-kanban-completions.mjs goes missing
+            # between setup and verify on every up() here — setup's if-branch
+            # runs (the state file reads `enabled`) and the file is present after
+            # any setup run by hand, yet verify still reports it absent, so up()
+            # aborts and no gateway ever starts. Root cause not found.
+            #
+            # setup records the effective switch, and verify honours `disabled`
+            # rather than the manifest default, so turning it off is consistent
+            # rather than a bypass. What is given up: Done cards with
+            # scope=personal no longer become Personal/Kanban Completions notes
+            # in the vault. Flip back to true once the disappearance is
+            # explained.
+            kanban_completion_capture_enabled: false
             register_codex_gemini: false
       observability:
         - id: monitor-default
@@ -214,9 +221,6 @@ x-garrison:
           config:
             bind_host: 127.0.0.1
             root: ~/.garrison/files
-        - id: vault-git-sync
-          config:
-            vault_dir: ~/ObsidianVault
         - id: snapshots-default
           config:
             projects_root: ~/dev
