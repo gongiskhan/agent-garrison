@@ -24,11 +24,22 @@ git -C "$REPO_DIR" archive "$TAG" services/state | tar -x -C "$RELEASE_DIR" --st
 echo "$TAG" > "$RELEASE_DIR/VERSION"
 
 ln -sfn "$RELEASE_DIR" "$STATE_HOME/current.next"
-mv -T "$STATE_HOME/current.next" "$STATE_HOME/current"
+# `mv -T` is GNU-only; BSD mv (macOS) rejects it and, worse, would move the new
+# link INTO the old one when `current` is a symlink to a directory. Prefer the
+# atomic GNU path where it exists, and fall back to unlink+rename elsewhere.
+if mv --version >/dev/null 2>&1; then
+  mv -T "$STATE_HOME/current.next" "$STATE_HOME/current"
+else
+  rm -f "$STATE_HOME/current"
+  mv "$STATE_HOME/current.next" "$STATE_HOME/current"
+fi
 
 if systemctl --user is-enabled garrison-state.service >/dev/null 2>&1; then
   systemctl --user restart garrison-state.service
   echo "deploy: $TAG live (unit restarted)"
+elif command -v launchctl >/dev/null 2>&1      && launchctl print "gui/$(id -u)/com.garrison.state" >/dev/null 2>&1; then
+  launchctl kickstart -k "gui/$(id -u)/com.garrison.state"
+  echo "deploy: $TAG live (launchd agent kickstarted)"
 else
   echo "deploy: $TAG staged at $STATE_HOME/current (unit not installed yet)"
 fi

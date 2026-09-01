@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.garrison.state</string>
+  <!-- The macOS counterpart of services/state/systemd/garrison-state.service.
+       Deliberately WITHOUT that unit's ExecStartPost tailnet-publish: this is a
+       single-node install with no peers, so the socket stays on loopback and is
+       never published to the tailnet. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/varela/.local/node/bin/node</string>
+    <string>src/server.mjs</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/varela/.garrison-state/current</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>/Users/varela</string>
+    <key>NODE_ENV</key><string>production</string>
+    <key>GARRISON_STATE_PORT</key><string>8460</string>
+    <key>GARRISON_STATE_BIND</key><string>127.0.0.1</string>
+    <key>PATH</key><string>/Users/varela/.local/node/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/varela/.garrison-state/logs/state.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/varela/.garrison-state/logs/state.err.log</string>
+</dict>
+</plist>
