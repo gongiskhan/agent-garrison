@@ -204,6 +204,11 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
       ...(duty ? { duty } : {}),
       ...(label(payload.outcome) ? { outcome: label(payload.outcome) } : {}),
       ...(Number.isFinite(payload.usedTokens) ? { usedTokens: payload.usedTokens } : {}),
+      // Cost rides the block only when it is a real number. An unpriced stretch
+      // shows no cost chip at all rather than a misleading $0.00 — the same
+      // honesty rule the model/effort badges follow.
+      ...(Number.isFinite(payload.cost_usd) ? { costUsd: payload.cost_usd } : {}),
+      ...(Number.isFinite(payload.apiCalls) && payload.apiCalls > 0 ? { apiCalls: payload.apiCalls } : {}),
       ...(Number.isFinite(payload.durationMs) ? { durationMs: payload.durationMs } : {}),
       ...(next ? { next } : {}),
       ...(bag.summary ? { summary: bag.summary } : {}),

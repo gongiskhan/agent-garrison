@@ -1,0 +1,39 @@
+{
+ "arm": "A",
+ "run": 4,
+ "conversationId": "01M18T8PJJRFQJZRQGAMKPH0Q2",
+ "dir": "/home/ggomes/dev/armA-4",
+ "startCommand": "npm install && npm start",
+ "measuredFrom": "conversation ledger (per-API-call usage events)",
+ "started": "2026-08-30T07:48:40.605Z",
+ "ended": "2026-08-30T08:02:33.205Z",
+ "wallClockSeconds": 832,
+ "costUsd": 2.58124135,
+ "unpricedModels": [],
+ "inputTokens": 230092,
+ "outputTokens": 56353,
+ "cacheReadTokens": 3091107,
+ "cacheWriteTokens": 215534,
+ "apiRequests": 106,
+ "assistantTurns": 193,
+ "toolCalls": 344,
+ "toolCallsByName": {
+  "tool": 22,
+  "Agent": 4,
+  "Bash": 115,
+  "Read": 111,
+  "Write": 41,
+  "Edit": 51
+ },
+ "toolSearches": null,
+ "toolSearchesNote": "not visible in the conversation ledger; Arm A tool-search counts are unavailable from this instrument",
+ "stretches": 7,
+ "requestsByModel": {
+  "claude-haiku-4-5": 1,
+  "claude-sonnet-5": 73,
+  "gpt-5.6-sol": 27
+ },
+ "firstRequestCacheRead": 0,
+ "cacheState": "cold",
+ "ratesUpdated": "2026-08-29"
+}

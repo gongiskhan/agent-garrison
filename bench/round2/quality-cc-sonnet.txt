@@ -1,0 +1,90 @@
+==================================================================
+QUALITY + SCOPE — cc-sonnet
+dir: /home/ggomes/dev/bench2-todo-cc-sonnet
+==================================================================
+
+------------------------------------------------------------------
+## scope: what was produced
+------------------------------------------------------------------
+./.gitignore
+./package.json
+./README.md
+./src/app.ts
+./src/server.ts
+./src/store.ts
+./src/types.ts
+./src/validation.ts
+./tests/todos.test.ts
+./tsconfig.json
+./tsconfig.test.json
+
+file count: 11
+lines of source (.ts/.js/.tsx):
+ 283 total
+lines of TEST source:
+90 ./tests/todos.test.ts
+
+dependencies declared:
+  runtime : 1 ['express']
+  dev     : 8 ['@types/express', '@types/jest', '@types/node', '@types/supertest', 'jest', 'supertest', 'ts-jest', 'typescript']
+  total   : 9
+  scripts : {'build': 'tsc', 'start': 'npm run build && node dist/server.js', 'test': 'jest'}
+packages installed (node_modules top level): 282
+
+------------------------------------------------------------------
+## npm install
+------------------------------------------------------------------
+
+up to date in 749ms
+npm install exit: 0
+
+------------------------------------------------------------------
+## npm test
+------------------------------------------------------------------
+
+> bench2-todo-cc-sonnet@1.0.0 test
+> jest
+
+Test Suites: 1 passed, 1 total
+Tests:       7 passed, 7 total
+Snapshots:   0 total
+Time:        1.767 s, estimated 2 s
+Ran all test suites.
+npm test exit: 0
+
+------------------------------------------------------------------
+## typescript strict compile
+------------------------------------------------------------------
+  strict = True
+tsc exit: 0
+
+------------------------------------------------------------------
+## README
+------------------------------------------------------------------
+# Todo API
+
+Small in-memory todo REST API built with Node, TypeScript, and Express.
+
+## Setup
+
+```
+npm install
+```
+
+## Run
+
+```
+npm start
+```
+
+Compiles the TypeScript sources and starts the server on `http://localhost:3000`.
+
+## Test
+
+```
+npm test
+```
+
+Runs the Jest test suite (uses supertest against the Express app in-process).
+
+END — cc-sonnet

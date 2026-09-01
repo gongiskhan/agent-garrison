@@ -50,8 +50,14 @@ export function textSeed(text) {
 // The cache key covers everything that changes the AUDIO, not just the words:
 // swapping voice or model has to MISS, or a voice change would silently keep
 // serving the old voice forever.
-export function clipId({ text, voiceId, model }) {
-  return createHash("sha256").update(`${model} ${voiceId} ${text}`).digest("hex").slice(0, 32);
+export function clipId({ text, voiceId, model, lang = null }) {
+  // `lang` is in the key because it changes the AUDIO: it selects the pt-PT
+  // anchors, and the same sentence rendered with and without them is a
+  // different recording. Absent = "inferred", which is what every clip cached
+  // before this behaved as - so old entries keep their old ids and simply age
+  // out rather than being served for the wrong conditioning.
+  const suffix = lang ? ` ${lang}` : "";
+  return createHash("sha256").update(`${model} ${voiceId} ${text}${suffix}`).digest("hex").slice(0, 32);
 }
 
 // Picks CONDITIONING, never words: the anchors apply only to Portuguese, so
@@ -99,10 +105,10 @@ export class ZecaVoice {
   // socket send, therefore the device haptic, therefore wake_to_device_ack_ms -
   // and the whole point of a wake cue is that it is immediate. A miss here is
   // not a failure: the phone speaks the line in its own voice instead.
-  cachedClipFor(text) {
+  cachedClipFor(text, { lang = null } = {}) {
     const trimmed = String(text ?? "").trim();
     if (!trimmed || !this.available().ok) return null;
-    const id = clipId({ text: trimmed, voiceId: this.cfg.ttsVoiceId, model: this.cfg.ttsModel });
+    const id = clipId({ text: trimmed, voiceId: this.cfg.ttsVoiceId, model: this.cfg.ttsModel, lang });
     return this.readClip(id) ? { id, cached: true } : null;
   }
 
@@ -133,7 +139,12 @@ export class ZecaVoice {
   // Returns { id } for a playable clip, or null when the phone should fall back
   // to its own synthesizer. NEVER throws: the voice is a nicety, and an ack
   // that fails to arrive because the nicety broke is a bug.
-  async clipFor(text) {
+  // `lang` is the language the CALLER already resolved. Passing it matters:
+  // inferring from the text alone silently mis-rendered the lines with no
+  // accents and no Portuguese stopwords - "Deixa comigo.", "Feito." - which
+  // then went out unanchored and drifted Brazilian. Those are short cues the
+  // wearer hears constantly, so the drift was the voice they heard most.
+  async clipFor(text, { lang = null } = {}) {
     const trimmed = String(text ?? "").trim();
     if (!trimmed) return null;
     if (!this.available().ok) return null;
@@ -145,13 +156,13 @@ export class ZecaVoice {
       this.counters.bump("tts_skipped_too_long");
       return null;
     }
-    const id = clipId({ text: trimmed, voiceId: this.cfg.ttsVoiceId, model: this.cfg.ttsModel });
+    const id = clipId({ text: trimmed, voiceId: this.cfg.ttsVoiceId, model: this.cfg.ttsModel, lang });
     if (this.readClip(id)) {
       this.counters.bump("tts_cache_hits");
       return { id, cached: true };
     }
     if (this.inFlight.has(id)) return this.inFlight.get(id);
-    const work = this.generate(trimmed, id)
+    const work = this.generate(trimmed, id, lang)
       .catch((err) => {
         this.counters.bump("tts_failures");
         this.log.error(`[capture-service] tts failed: ${err?.message ?? err}`);
@@ -162,8 +173,10 @@ export class ZecaVoice {
     return work;
   }
 
-  async generate(text, id) {
-    const portuguese = looksPortuguese(text);
+  async generate(text, id, lang = null) {
+    // A known language beats a guess every time; the guess remains for callers
+    // that genuinely have nothing (a raw ack posted by another fitting).
+    const portuguese = lang ? lang === "pt" : looksPortuguese(text);
     const startedAt = this.now();
     const res = await this.fetch(
       `${API_BASE}/text-to-speech/${this.cfg.ttsVoiceId}?output_format=mp3_44100_128`,

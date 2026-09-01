@@ -290,4 +290,35 @@ final class SpeechSinkTests: XCTestCase {
         XCTAssertNil(SpeechSink.localVoice(for: nil))
         XCTAssertNil(SpeechSink.localVoice(for: "de"))
     }
+
+    // The "why is it Brazilian" bug. A stock iPhone has no pt-PT voice, so a
+    // Portuguese line falling back to the synthesizer is read in Brazilian -
+    // and the receipt said nothing but "ok", which is how it hid.
+    func testNeverSettlesForABrazilianVoiceSilently() {
+        if let voice = SpeechSink.bestVoice(for: "pt") {
+            XCTAssertEqual(voice.language, "pt-PT", "European or nothing - pt-BR is the bug")
+        }
+        let reason = SpeechSink.synthReason(for: "pt")
+        // Either we found a European voice, or the receipt SAYS what it settled
+        // for. Never a silent substitution.
+        XCTAssertTrue(
+            reason == "synth:pt-PT" || reason.hasPrefix("synth-default:"),
+            "unexpected synth reason: \(reason)"
+        )
+    }
+
+    // The receipt must distinguish Diogo from the phone's own voice, on
+    // success - the server has no other way to know.
+    func testReceiptSaysWhichVoiceSpoke() {
+        let clips = RecordingClipPlayer()
+        let sink = makeSink(clipPlayer: clips)
+        sink.handle(ack("a1", audioPath: "/speak/abc.mp3"))
+        XCTAssertEqual(receipts.last?.reason, "clip")
+
+        clips.outcome = false
+        let sink2 = makeSink(clipPlayer: clips)
+        sink2.handle(ack("a2", audioPath: "/speak/abc.mp3"))
+        utterer.finishNext()
+        XCTAssertTrue(receipts.last?.reason?.hasPrefix("synth") ?? false, "a fallback must say so")
+    }
 }

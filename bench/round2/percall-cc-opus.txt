@@ -1,0 +1,40 @@
+{"run_label":"","side":"claude-code","task_id":"","source":"jsonl-transcript","wall_clock_seconds":289,"api_calls":23,"input_tokens":46,"output_tokens":20492,"cache_write_tokens":53431,"cache_read_tokens":929100,"total_cost_usd":1.51139,"compactions":0,"stretches":[{"duty":"","model":"claude-opus-5","effort":"","api_calls":23,"input_tokens":46,"output_tokens":20492,"cache_write_tokens":53431,"cache_read_tokens":929100,"cost_usd":1.51139}],"_meta":{"session_id":"d0e2ac2c-8dcf-43f2-a559-d21689ca1b84","transcript_files":["/home/ggomes/.claude/projects/-home-ggomes-dev-bench2-todo-cc-opus/d0e2ac2c-8dcf-43f2-a559-d21689ca1b84.jsonl"],"transcript_count":1,"assistant_records":47,"deduped_api_calls":23,"unpriced_models":[],"rates_updated":"2026-08-29","by_model":{"claude-opus-5":{"api_calls":23,"usd":1.51139,"unpriced":false}}}}
+
+per-call usage rows (cache writes split by TTL):
+(a stretch's `result` row is its settled TOTAL; the `assistant` rows above it are
+ the per-call record of the same tokens. Summing both would double-count, so the
+ arithmetic below runs the same aggregateUsageRows the exported total came from.)
+model                        src                 input     output       cw5m       cw1h  cacheRead
+claude-opus-5                transcript              2        531          0      28229          0
+claude-opus-5                transcript              2       1484          0       1743      28229
+claude-opus-5                transcript              2       1867          0       1489      29972
+claude-opus-5                transcript              2       1482          0       1898      31461
+claude-opus-5                transcript              2       3695          0       1513      33359
+claude-opus-5                transcript              2        688          0       3726      34872
+claude-opus-5                transcript              2       1153          0       1071      38598
+claude-opus-5                transcript              2         85          0       1215      39669
+claude-opus-5                transcript              2       1017          0        479      40884
+claude-opus-5                transcript              2        351          0       1492      41363
+claude-opus-5                transcript              2        595          0        494      42855
+claude-opus-5                transcript              2        417          0        645      43349
+claude-opus-5                transcript              2        471          0        452      43994
+claude-opus-5                transcript              2       1027          0        508      44446
+claude-opus-5                transcript              2        369          0       1375      44954
+claude-opus-5                transcript              2        194          0        437      46329
+claude-opus-5                transcript              2        980          0        532      46766
+claude-opus-5                transcript              2        410          0       1030      47298
+claude-opus-5                transcript              2        440          0        476      48328
+claude-opus-5                transcript              2       1262          0        548      48804
+claude-opus-5                transcript              2       1219          0       2064      49352
+claude-opus-5                transcript              2        141          0       1386      51416
+claude-opus-5                transcript              2        614          0        629      52802
+TOTAL                                               46      20492          0      53431     929100
+
+worked arithmetic, per model, at the rates in data/model-rates.json:
+  claude-opus-5
+    input                 46 x $5      / 1e6 = 0.0002300
+    output             20492 x $25     / 1e6 = 0.5123000
+    cacheWrite1h       53431 x $10     / 1e6 = 0.5343100
+    cacheRead         929100 x $0.5    / 1e6 = 0.4645500
+    subtotal                                    $1.5113900
+  TOTAL $1.5113900   (reported total_cost_usd: 1.51139)

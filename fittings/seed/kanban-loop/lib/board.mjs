@@ -493,8 +493,8 @@ export const cardBriefRel = (id) => `cards/${id}/brief.md`; // relative to kanba
 
 // Card-owned attachments: uploaded files under cards/<id>/attachments/. The
 // LISTING is derived by readdir (like list membership — never stored on the
-// card, so a stray file delete can't desync a manifest). The engine folds the
-// absolute paths into the dispatch prompt; the operative Reads them itself.
+// card, so a stray file delete can't desync a manifest). The conversation
+// brief folds the absolute paths in per stretch; the stretch Reads them itself.
 export const cardAttachmentsDir = (root, id) => path.join(root, "cards", id, "attachments");
 export function listCardAttachments(root, id) {
   const dir = cardAttachmentsDir(root, id);

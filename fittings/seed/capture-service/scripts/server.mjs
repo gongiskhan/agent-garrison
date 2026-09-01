@@ -384,6 +384,51 @@ export function makeRequestHandler(ctx) {
             apnsP8: Boolean(cfg.secrets.apnsP8)
           },
           gatewayConfigured: Boolean(cfg.gatewayUrl),
+          // Push and speech health at a glance. Both failed silently this week
+          // in ways /health could not show: a device token accepted by APNs
+          // while the phone showed nothing, and every spoken line going to a
+          // dead socket that still read as OPEN. "How many devices, how old is
+          // the token, which session would be spoken to" is the difference
+          // between diagnosing that in a minute and guessing for days.
+          push: (() => {
+            try {
+              const devices = ctx.notifier?.deviceTokens?.() ?? [];
+              // The registry key is `tokens`, not `devices` - reading the wrong
+              // one is what made an earlier probe report "0 devices" while APNs
+              // was happily delivering to 1, and sent me chasing registration.
+              const raw = readJSON(store.devicesFile, { tokens: [] });
+              const newest = (raw.tokens ?? [])
+                .map((d) => d?.registered_at ?? d?.registeredAt ?? null)
+                .filter(Boolean)
+                .sort()
+                .pop();
+              return {
+                devices: devices.length,
+                capsToday: {
+                  routine: `${ctx.notifier?.sentToday?.("routine") ?? "?"}/${cfg.notifyMaxPerDay}`,
+                  interactive: `${ctx.notifier?.sentToday?.("interactive") ?? "?"}/${cfg.notifyInteractiveMaxPerDay}`
+                },
+                newestTokenRegisteredAt: newest ?? null
+              };
+            } catch {
+              return { devices: 0 };
+            }
+          })(),
+          speakable: (() => {
+            const sessions = [...(ctx.ingress?.sessions?.values?.() ?? [])];
+            const speakable = sessions.filter(
+              (x) => (x.record.mode === "audio" || x.record.mode === "pendant") && !x.record.ended
+            );
+            return {
+              inMemorySessions: sessions.length,
+              byMode: sessions.reduce((acc, x) => {
+                acc[x.record.mode] = (acc[x.record.mode] ?? 0) + 1;
+                return acc;
+              }, {}),
+              speakableNow: speakable.length,
+              chosen: ctx.ackSink?.speakableSession?.()?.record?.id ?? null
+            };
+          })(),
           liveSessions: ctx.ingress ? ctx.ingress.sessions.size : 0,
           counters: mergedCounters(store.root)
         });
@@ -646,7 +691,9 @@ export async function startServer(cfg = loadConfig()) {
       const text = typeof params.text === "string" ? params.text.trim() : "";
       if (template === "wake_confirmation" && text && ackSinkRef?.speakableSession()) {
         const ackId = `wake-${ulid()}`;
-        const isProgress = params.progress === true;
+        // Progress pings and "didn't catch that" are presence, not information:
+        // spoken when someone is listening, never turned into a banner.
+        const isProgress = params.progress === true || params.speakOnly === true;
         // A question opens the expectation BEFORE the speak leaves, so the
         // phone's {spoken} receipt can arm it - never the other way round, or
         // the receipt races the registration.
@@ -871,7 +918,11 @@ export async function startServer(cfg = loadConfig()) {
         // A deduped wake never reaches here at all: FeedbackBus.emit returns
         // null before calling subscribers, so a swallowed second "Zeca" stays
         // silent for free.
-        const speak = cues.speechFor(event.name, languageMemory.current(event.session_id));
+        // A window that closed on nothing gets no "Deixa comigo." - the
+        // unheard line the wake bus is about to speak is the honest one.
+        const speak = event.empty
+          ? null
+          : cues.speechFor(event.name, languageMemory.current(event.session_id));
         if (speak) {
           // Before the sound exists, not after: the cue comes back through the
           // pendant mic a beat later, and while the capture window is open it

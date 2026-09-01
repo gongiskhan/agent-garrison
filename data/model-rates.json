@@ -1,0 +1,250 @@
+{
+  "rates_updated": "2026-08-29",
+  "currency": "USD",
+  "unit": "per_million_tokens",
+  "_readme": [
+    "Hand-maintained list API prices. ONE table, used by every cost computation on",
+    "both sides of any comparison - the Garrison conversation ledger and the plain",
+    "Claude Code transcript parser both call priceUsage() over this file.",
+    "",
+    "These are LIST API prices. The sessions they price usually run on a Max",
+    "subscription and are not billed per token at all. That is exactly what makes",
+    "them the right yardstick: a subscription-billed session and an API-billed",
+    "session priced at the same public rates are comparable, where 'what the bill",
+    "actually said' is not.",
+    "",
+    "rates_updated above is the staleness signal. Prices move; when this date is",
+    "old, treat every number derived from it as old too. Re-read the provider",
+    "pricing pages listed in 'sources' rather than adjusting from memory.",
+    "",
+    "An unknown model resolves to null, never to zero. A silent zero teaches every",
+    "downstream consumer that the most expensive route is free."
+  ],
+  "sources": [
+    {
+      "provider": "anthropic",
+      "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "read_on": "2026-08-29",
+      "notes": "Cache multipliers relative to base input: 5m write 1.25x, 1h write 2x, read 0.1x. Sonnet 5's $2/$10 introductory rate became the standard price (the scheduled 2026-09-01 rise to $3/$15 was cancelled) - re-read and re-confirmed on the page 2026-08-29. TOKENIZER: the same page states that Claude 4.7 and later use a newer tokenizer producing about 30% MORE tokens for the same text; Sonnet 4.6 and earlier (including Haiku 4.5) use the previous one. Measured against count_tokens on 2026-08-29 with one byte-identical 126KB prompt: haiku-4-5 32,638 tokens vs sonnet-5 / opus-5 / opus-4-8 45,160 - a factor of 1.384 (1.64 on repetitive plain English). A rate ratio alone therefore understates what a Claude 5 model costs for the same text."
+    },
+    {
+      "provider": "anthropic",
+      "url": "measured, not fetched",
+      "read_on": "2026-08-29",
+      "notes": "RESOLVED 2026-08-29 - claude-sonnet-5 is priced here at the published $2/$10/$2.50/$4/$0.20 and that is correct. The disagreement is real but it is LOCAL to the Agent SDK's cost field, not to the rate. Two measurements on the same machine on the same day: (1) a plain `claude -p --model sonnet` session (61 calls, 122 input / 43,491 output / 125,190 1h-cache-write / 4,772,828 cache-read) reports total_cost_usd = 1.8904796000000001, and this table reproduces it to the last digit: 122*2 + 43491*10 + 125190*4 + 4772828*0.2 = 1.8904796. (2) An Agent SDK stretch on the same model reports modelUsage['claude-sonnet-5'].costUSD = 3.34962775 for tokens this table prices at 1.3398511 - exactly 2.500x - while the SAME envelope's claude-haiku-4-5 block (2,058 input / 17 output, costUSD 0.002143) matches this table exactly. So the CLI prices sonnet-5 correctly in its -p lane and at opus rates in its Agent SDK lane. Anything comparing a Garrison figure with an Agent SDK total_cost_usd on sonnet-5 will see a 2.5x gap that is the SDK's, not ours."
+    },
+    {
+      "provider": "openai",
+      "url": "https://developers.openai.com/api/docs/pricing",
+      "read_on": "2026-08-28",
+      "notes": "OpenAI bills no separate cache-write premium: a cache write costs the base input rate, and 'cached input' is the read rate. cacheWrite5m/cacheWrite1h therefore equal input for every OpenAI entry."
+    }
+  ],
+  "models": {
+    "claude-fable-5": {
+      "input": 10.0,
+      "output": 50.0,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20.0,
+      "cacheRead": 1.0
+    },
+    "claude-mythos-5": {
+      "input": 10.0,
+      "output": 50.0,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20.0,
+      "cacheRead": 1.0
+    },
+    "claude-opus-5": {
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5
+    },
+    "claude-opus-4-8": {
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5
+    },
+    "claude-opus-4-7": {
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5
+    },
+    "claude-opus-4-6": {
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5
+    },
+    "claude-opus-4-5": {
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5
+    },
+    "claude-opus-4-1": {
+      "input": 15.0,
+      "output": 75.0,
+      "cacheWrite5m": 18.75,
+      "cacheWrite1h": 30.0,
+      "cacheRead": 1.5
+    },
+    "claude-sonnet-5": {
+      "input": 2.0,
+      "output": 10.0,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4.0,
+      "cacheRead": 0.2
+    },
+    "claude-sonnet-4-6": {
+      "input": 3.0,
+      "output": 15.0,
+      "cacheWrite5m": 3.75,
+      "cacheWrite1h": 6.0,
+      "cacheRead": 0.3
+    },
+    "claude-sonnet-4-5": {
+      "input": 3.0,
+      "output": 15.0,
+      "cacheWrite5m": 3.75,
+      "cacheWrite1h": 6.0,
+      "cacheRead": 0.3
+    },
+    "claude-haiku-4-5": {
+      "input": 1.0,
+      "output": 5.0,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 2.0,
+      "cacheRead": 0.1
+    },
+    "claude-haiku-3-5": {
+      "input": 0.8,
+      "output": 4.0,
+      "cacheWrite5m": 1.0,
+      "cacheWrite1h": 1.6,
+      "cacheRead": 0.08
+    },
+    "gpt-5": {
+      "input": 1.25,
+      "output": 10.0,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 1.25,
+      "cacheRead": 0.125
+    },
+    "gpt-5-codex": {
+      "input": 1.25,
+      "output": 10.0,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 1.25,
+      "cacheRead": 0.125
+    },
+    "gpt-5-mini": {
+      "input": 0.25,
+      "output": 2.0,
+      "cacheWrite5m": 0.25,
+      "cacheWrite1h": 0.25,
+      "cacheRead": 0.025
+    },
+    "gpt-5-nano": {
+      "input": 0.05,
+      "output": 0.4,
+      "cacheWrite5m": 0.05,
+      "cacheWrite1h": 0.05,
+      "cacheRead": 0.005
+    },
+    "gpt-5-pro": {
+      "input": 15.0,
+      "output": 120.0,
+      "cacheWrite5m": 15.0,
+      "cacheWrite1h": 15.0,
+      "cacheRead": 15.0
+    },
+    "gpt-5.1": {
+      "input": 1.25,
+      "output": 10.0,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 1.25,
+      "cacheRead": 0.125
+    },
+    "gpt-5.2": {
+      "input": 1.75,
+      "output": 14.0,
+      "cacheWrite5m": 1.75,
+      "cacheWrite1h": 1.75,
+      "cacheRead": 0.175
+    },
+    "gpt-5.3-codex": {
+      "input": 1.75,
+      "output": 14.0,
+      "cacheWrite5m": 1.75,
+      "cacheWrite1h": 1.75,
+      "cacheRead": 0.175
+    },
+    "gpt-5.4": {
+      "input": 2.5,
+      "output": 15.0,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 2.5,
+      "cacheRead": 0.25
+    },
+    "gpt-5.4-mini": {
+      "input": 0.75,
+      "output": 4.5,
+      "cacheWrite5m": 0.75,
+      "cacheWrite1h": 0.75,
+      "cacheRead": 0.075
+    },
+    "gpt-5.4-nano": {
+      "input": 0.2,
+      "output": 1.25,
+      "cacheWrite5m": 0.2,
+      "cacheWrite1h": 0.2,
+      "cacheRead": 0.02
+    },
+    "gpt-5.5": {
+      "input": 5.0,
+      "output": 30.0,
+      "cacheWrite5m": 5.0,
+      "cacheWrite1h": 5.0,
+      "cacheRead": 0.5
+    },
+    "gpt-5.6-sol": {
+      "input": 4.0,
+      "output": 20.0,
+      "cacheWrite5m": 4.0,
+      "cacheWrite1h": 4.0,
+      "cacheRead": 0.4
+    },
+    "gpt-5.6-terra": {
+      "input": 2.0,
+      "output": 12.0,
+      "cacheWrite5m": 2.0,
+      "cacheWrite1h": 2.0,
+      "cacheRead": 0.2
+    },
+    "gpt-5.6-luna": {
+      "input": 0.2,
+      "output": 1.2,
+      "cacheWrite5m": 0.2,
+      "cacheWrite1h": 0.2,
+      "cacheRead": 0.02
+    }
+  },
+  "aliases": {
+    "fable": "claude-fable-5",
+    "opus": "claude-opus-5",
+    "sonnet": "claude-sonnet-5",
+    "haiku": "claude-haiku-4-5",
+    "sol": "gpt-5.6-sol",
+    "terra": "gpt-5.6-terra",
+    "luna": "gpt-5.6-luna"
+  }
+}

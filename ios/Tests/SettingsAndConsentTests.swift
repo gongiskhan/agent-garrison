@@ -59,4 +59,47 @@ final class SettingsAndConsentTests: XCTestCase {
         XCTAssertEqual(entries.first?.id, "a5") // newest first
         XCTAssertEqual(entries.first?.text, "entry 5")
     }
+
+    // The broadcast runs in another process, so "can Zeca see my screen right
+    // now" is only answerable through the shared App Group. A stale stamp must
+    // read as NOT broadcasting - the extension can be killed without ever
+    // running its teardown, and claiming eyes it does not have is what would
+    // make "reply to her" act on a screen from an hour ago.
+    func testBroadcastLivenessIsAHeartbeatNotAFlag() {
+        AppGroup.clearBroadcast()
+        XCTAssertFalse(AppGroup.isBroadcasting())
+
+        let now = Date()
+        AppGroup.noteBroadcastAlive(now: now)
+        XCTAssertTrue(AppGroup.isBroadcasting(now: now))
+        XCTAssertTrue(AppGroup.isBroadcasting(now: now.addingTimeInterval(AppGroup.broadcastStaleAfter - 1)))
+        XCTAssertFalse(
+            AppGroup.isBroadcasting(now: now.addingTimeInterval(AppGroup.broadcastStaleAfter + 1)),
+            "a stale heartbeat means the extension died - never claim the screen is live"
+        )
+
+        AppGroup.clearBroadcast()
+        XCTAssertFalse(AppGroup.isBroadcasting())
+    }
+
+    // The extension dies in its own process. Without this channel a refusal to
+    // start is invisible and the app can only say "not shared", which is true
+    // and useless - it sends the user back to the developer instead of to the
+    // thing they need to fix.
+    func testTheExtensionCanExplainWhyItRefusedToStart() {
+        AppGroup.clearBroadcast()
+        AppGroup.clearBroadcastError()
+        XCTAssertNil(AppGroup.broadcastError())
+
+        let now = Date()
+        AppGroup.noteBroadcastError("No capture URL set", now: now)
+        XCTAssertEqual(AppGroup.broadcastError(now: now)?.0, "No capture URL set")
+        // An error must never read as a live broadcast.
+        XCTAssertFalse(AppGroup.isBroadcasting(now: now))
+        // ...and it ages out rather than explaining today's silence forever.
+        XCTAssertNil(AppGroup.broadcastError(now: now.addingTimeInterval(7200)))
+
+        AppGroup.clearBroadcastError()
+        XCTAssertNil(AppGroup.broadcastError())
+    }
 }

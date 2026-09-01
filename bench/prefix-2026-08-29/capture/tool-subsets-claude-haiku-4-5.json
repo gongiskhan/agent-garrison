@@ -1,0 +1,68 @@
+{
+ "floor": 8,
+ "all": 7077,
+ "subsets": {
+  "measured-allowlist": {
+   "kept": [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Agent"
+   ],
+   "missing": [
+    "ToolSearch",
+    "TaskOutput",
+    "AskUserQuestion"
+   ],
+   "tokens": 6937
+  },
+  "coding-core": {
+   "kept": [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit"
+   ],
+   "missing": [],
+   "tokens": 5074
+  },
+  "coding-plus-agent": {
+   "kept": [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Agent"
+   ],
+   "missing": [],
+   "tokens": 6937
+  },
+  "read-only": {
+   "kept": [
+    "Read",
+    "Bash"
+   ],
+   "missing": [],
+   "tokens": 4357
+  },
+  "mcp-only": {
+   "kept": [
+    "mcp__garrison__garrison_capability_doc"
+   ],
+   "missing": [],
+   "tokens": 636
+  },
+  "non-mcp-only": {
+   "kept": [
+    "Agent",
+    "Bash",
+    "Edit",
+    "Read",
+    "Write"
+   ],
+   "missing": [],
+   "tokens": 6937
+  }
+ }
+}

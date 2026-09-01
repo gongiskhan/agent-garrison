@@ -147,6 +147,7 @@ export class FeedbackBus {
       // "Card created"), which is the same mixing bug the acks had, one layer
       // down.
       ...(payload.lang !== undefined && payload.lang !== null ? { lang: payload.lang } : {}),
+      ...(payload.empty ? { empty: true } : {}),
       ...(payload.interim ? { interim: true } : {})
     };
 

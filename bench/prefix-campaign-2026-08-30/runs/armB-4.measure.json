@@ -1,0 +1,38 @@
+{
+ "arm": "B",
+ "run": 4,
+ "sessionId": "be173d5c-060b-477e-8e9d-9f7609452578",
+ "dir": "/home/ggomes/dev/armB-4",
+ "startCommand": "npm install && npm start",
+ "measuredFrom": "measurement proxy (per-request usage off the wire)",
+ "started": "2026-08-30T08:24:24Z",
+ "ended": "2026-08-30T08:31:54Z",
+ "wallClockSeconds": 450,
+ "costUsd": 2.2417032,
+ "unpricedModels": [],
+ "inputTokens": 2443,
+ "outputTokens": 44287,
+ "cacheReadTokens": 6891436,
+ "cacheWriteTokens": 103915,
+ "apiRequests": 47,
+ "assistantTurns": 47,
+ "toolCalls": 53,
+ "toolCallsByName": {
+  "Bash": 35,
+  "Read": 9,
+  "Edit": 2,
+  "Write": 6,
+  "Skill": 1
+ },
+ "toolSearches": 0,
+ "stretches": 1,
+ "requestsByModel": {
+  "claude-sonnet-5": 47
+ },
+ "firstRequestCacheRead": 92754,
+ "cacheState": "warm",
+ "cliReportedCostUsd": 2.2417032,
+ "cliNumTurns": 56,
+ "cliIsError": false,
+ "ratesUpdated": "2026-08-29"
+}

@@ -371,6 +371,23 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// A short paste ("ok", a pasted URL) is almost always meant for wherever focus
+// already is, not a new attachment; only a genuinely BIG block of text - the
+// kind too large to comfortably drop into a field - becomes one.
+const PASTE_TEXT_ATTACHMENT_MIN_CHARS = 400;
+
+function textToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+function pastedTextFileName(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return `pasted-${stamp}.txt`;
+}
+
 // A compact "3m ago" / "just now" relative time for timeline + last-activity lines.
 function fmtRelative(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -2912,13 +2929,13 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     setUploading(false);
   }
 
-  // Paste an image straight onto the open card.
+  // Paste an image, or a big block of text, straight onto the open card.
   //
   // Bound to the document while the sheet is open rather than to a drop target,
   // because the natural gesture is "the card is open, hit Cmd+V" without first
-  // clicking a particular box. Typing into a field still wins: a paste with any
-  // text on the clipboard, or one aimed at an input/textarea, is left alone so
-  // this can never eat a normal text paste.
+  // clicking a particular box. Typing into a field still wins: a paste aimed at
+  // an input/textarea/contenteditable is left alone so this can never eat a
+  // normal text paste into the description or an item.
   useEffect(() => {
     // A frozen record takes no uploads: the state service refuses the write and
     // the sheet offers no attach control, so the document-level shortcut must
@@ -2926,14 +2943,28 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     if (readOnlyProp || detail?.card.frozen?.at) return;
     async function onPaste(e: ClipboardEvent) {
       const cd = e.clipboardData;
-      if (!cd) return;
+      if (!cd || !detail) return;
       const target = e.target as HTMLElement | null;
       if (target && target.closest("input, textarea, [contenteditable='true']")) return;
-      if (cd.getData("text")?.trim()) return;
       const files = Array.from(cd.files ?? []).filter((f) => f.type.startsWith("image/"));
-      if (!files.length) return;
+      if (files.length) {
+        e.preventDefault();
+        await uploadFiles(files);
+        return;
+      }
+      const text = cd.getData("text");
+      if (text.length < PASTE_TEXT_ATTACHMENT_MIN_CHARS) return;
       e.preventDefault();
-      await uploadFiles(files);
+      setUploading(true);
+      setActionErr(null);
+      try {
+        await api.uploadAttachment(detail.card.id, pastedTextFileName(), textToBase64(text));
+      } catch (err) {
+        setActionErr(`Upload failed for pasted text: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      await api.card(cardId).then((d) => setDetail(d)).catch(() => { /* poll refreshes */ });
+      onChanged();
+      setUploading(false);
     }
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);

@@ -1,0 +1,128 @@
+{"run_label":"runB","side":"garrison","task_id":"todo-api-v1","source":"sdk-stream","wall_clock_seconds":1189,"api_calls":90,"input_tokens":84997,"output_tokens":30673,"cache_write_tokens":285093,"cache_read_tokens":3162091,"total_cost_usd":2.0653850499999997,"compactions":0,"stretches":[{"duty":"triage","model":"claude-haiku-4-5-20251001","effort":"medium","api_calls":11,"input_tokens":77,"output_tokens":4539,"cache_write_tokens":71877,"cache_read_tokens":266878,"cost_usd":0.14438805},{"duty":"implement","model":"claude-sonnet-5","effort":"medium","api_calls":29,"input_tokens":641,"output_tokens":10229,"cache_write_tokens":100356,"cache_read_tokens":1353729,"cost_usd":0.6273638},{"duty":"adversarial-review","model":"gpt-5.6-sol","effort":"medium","api_calls":12,"input_tokens":37477,"output_tokens":4403,"cache_write_tokens":0,"cache_read_tokens":232448,"cost_usd":0.3309472},{"duty":"implement","model":"claude-sonnet-5","effort":"medium","api_calls":13,"input_tokens":609,"output_tokens":3248,"cache_write_tokens":23645,"cache_read_tokens":599616,"cost_usd":0.2152577},{"duty":"adversarial-review","model":"gpt-5.6-sol","effort":"medium","api_calls":14,"input_tokens":46171,"output_tokens":5151,"cache_write_tokens":0,"cache_read_tokens":305664,"cost_usd":0.40996959999999993},{"duty":"test","model":"claude-sonnet-5","effort":"low","api_calls":11,"input_tokens":22,"output_tokens":3103,"cache_write_tokens":89215,"cache_read_tokens":403756,"cost_usd":0.3374587}],"_meta":{"conversation_id":"01M16CXYWZ57RR478EJH6XFX8Z","unpriced_stretches":0,"sdk_reported_cost_usd":3.083674549999999,"cache_read_share":0.8952233761520149,"rates_updated":"2026-08-29","by_model":{"claude-haiku-4-5-20251001":{"api_calls":14,"usd":0.012358000000000001},"claude-haiku-4-5":{"api_calls":3,"usd":0.13930605},"claude-sonnet-5":{"api_calls":53,"usd":1.1728042},"gpt-5.6-sol":{"api_calls":26,"usd":0.7409168}}}}
+
+per-call usage rows (cache writes split by TTL):
+(a stretch's `result` row is its settled TOTAL; the `assistant` rows above it are
+ the per-call record of the same tokens. Summing both would double-count, so the
+ arithmetic below runs the same aggregateUsageRows the exported total came from.)
+model                        src                 input     output       cw5m       cw1h  cacheRead
+claude-haiku-4-5-20251001    assistant              10          4      29949          0          0
+claude-haiku-4-5-20251001    assistant               6          3       6597          0      23799
+claude-haiku-4-5-20251001    assistant               6          1        237          0      30396
+claude-haiku-4-5-20251001    assistant               6          1        345          0      30633
+claude-haiku-4-5-20251001    assistant               5          1        195          0      30978
+claude-haiku-4-5-20251001    result                 33       1923      37323          0     115806
+claude-haiku-4-5-20251001    assistant              10          4       4739          0      23799
+claude-haiku-4-5-20251001    assistant               7          1       4703          0      23799
+claude-haiku-4-5-20251001    assistant               6          1        134          0      28502
+claude-haiku-4-5-20251001    assistant               5          1        189          0      28636
+claude-haiku-4-5-20251001    assistant               6          1        395          0      28825
+claude-haiku-4-5-20251001    result                 34        697      10160          0     133561
+claude-haiku-4-5-20251001    assistant              10          3      24394          0      17511
+claude-haiku-4-5-20251001    result                 10       1919      24394          0      17511
+claude-sonnet-5              assistant             585          1      42691          0          0
+claude-sonnet-5              assistant               2          8      44354          0          0
+claude-sonnet-5              assistant               2         16        467          0      44354
+claude-sonnet-5              assistant               2         17        352          0      44821
+claude-sonnet-5              assistant               2          3        240          0      45173
+claude-sonnet-5              assistant               2         16        201          0      45413
+claude-sonnet-5              assistant               2          2        604          0      45614
+claude-sonnet-5              assistant               2          4        542          0      46218
+claude-sonnet-5              assistant               2         17        381          0      46760
+claude-sonnet-5              assistant               2         20       1042          0      47141
+claude-sonnet-5              assistant               2          4        221          0      48183
+claude-sonnet-5              assistant               2         20       1261          0      48404
+claude-sonnet-5              assistant               2          3        538          0      49665
+claude-sonnet-5              assistant               2         20        207          0      50203
+claude-sonnet-5              assistant               2          2        276          0      50410
+claude-sonnet-5              assistant               2          7        218          0      50686
+claude-sonnet-5              assistant               2          2        163          0      50904
+claude-sonnet-5              assistant               2          2        303          0      51067
+claude-sonnet-5              assistant               2          2        389          0      51370
+claude-sonnet-5              assistant               2          1        233          0      51759
+claude-sonnet-5              assistant               2          3        612          0      51992
+claude-sonnet-5              assistant               2          1        192          0      52604
+claude-sonnet-5              assistant               2          1        403          0      52796
+claude-sonnet-5              assistant               2          9        743          0      53199
+claude-sonnet-5              assistant               2          4        249          0      53942
+claude-sonnet-5              assistant               2          3        841          0      54191
+claude-sonnet-5              assistant               2          5        702          0      55032
+claude-sonnet-5              assistant               2         21        360          0      55734
+claude-sonnet-5              assistant               2          2       1571          0      56094
+claude-sonnet-5              result                641      10229     100356          0    1353729
+gpt-5.6-sol                  codex-rollout        5863        157          0          0      11008
+gpt-5.6-sol                  codex-rollout         999        197          0          0      16128
+gpt-5.6-sol                  codex-rollout        8795        539          0          0      11008
+gpt-5.6-sol                  codex-rollout        1232        281          0          0      19200
+gpt-5.6-sol                  codex-rollout         657        336          0          0      20224
+gpt-5.6-sol                  codex-rollout        1466        304          0          0      20224
+gpt-5.6-sol                  codex-rollout        6762        223          0          0      16128
+gpt-5.6-sol                  codex-rollout        2292        917          0          0      21248
+gpt-5.6-sol                  codex-rollout        3339       1085          0          0      22272
+gpt-5.6-sol                  codex-rollout        3424        178          0          0      23296
+gpt-5.6-sol                  codex-rollout         735        126          0          0      26368
+gpt-5.6-sol                  codex-rollout        1913         60          0          0      25344
+claude-sonnet-5              assistant             585          4       8364          0      34803
+claude-sonnet-5              assistant               2          1      10111          0      35697
+claude-sonnet-5              assistant               2         17        283          0      45808
+claude-sonnet-5              assistant               2          3        312          0      46091
+claude-sonnet-5              assistant               2         20        264          0      46403
+claude-sonnet-5              assistant               2         20       1337          0      46667
+claude-sonnet-5              assistant               2          2        619          0      48004
+claude-sonnet-5              assistant               2          2        285          0      48623
+claude-sonnet-5              assistant               2          1        274          0      48908
+claude-sonnet-5              assistant               2          1        441          0      49182
+claude-sonnet-5              assistant               2          2        216          0      49623
+claude-sonnet-5              assistant               2         20        129          0      49839
+claude-sonnet-5              assistant               2          2       1010          0      49968
+claude-sonnet-5              result                609       3248      23645          0     599616
+gpt-5.6-sol                  codex-rollout        5923        182          0          0      11008
+gpt-5.6-sol                  codex-rollout        1294        152          0          0      16128
+gpt-5.6-sol                  codex-rollout         666        177          0          0      17152
+gpt-5.6-sol                  codex-rollout        3466        613          0          0      17152
+gpt-5.6-sol                  codex-rollout        1097        216          0          0      20224
+gpt-5.6-sol                  codex-rollout       10607        532          0          0      11008
+gpt-5.6-sol                  codex-rollout        1421        335          0          0      21248
+gpt-5.6-sol                  codex-rollout        1022        126          0          0      22272
+gpt-5.6-sol                  codex-rollout        1543        117          0          0      22272
+gpt-5.6-sol                  codex-rollout         821        862          0          0      23296
+gpt-5.6-sol                  codex-rollout        1969        338          0          0      23296
+gpt-5.6-sol                  codex-rollout       13745       1230          0          0      24320
+gpt-5.6-sol                  codex-rollout        1687        206          0          0      37632
+gpt-5.6-sol                  codex-rollout         910         65          0          0      38656
+claude-sonnet-5              assistant               2          4      41350          0          0
+claude-sonnet-5              assistant               2          1      42835          0          0
+claude-sonnet-5              assistant               2         20        838          0      42835
+claude-sonnet-5              assistant               2          8        429          0      43673
+claude-sonnet-5              assistant               2          1        193          0      44102
+claude-sonnet-5              assistant               2          2        842          0      44295
+claude-sonnet-5              assistant               2          2        219          0      45137
+claude-sonnet-5              assistant               2          2        260          0      45356
+claude-sonnet-5              assistant               2          2        439          0      45616
+claude-sonnet-5              assistant               2          2        632          0      46055
+claude-sonnet-5              assistant               2          2       1178          0      46687
+claude-sonnet-5              result                 22       3103      89215          0     403756
+TOTAL                                            96860      30772     285093          0    3162091
+
+worked arithmetic, per model, at the rates in data/model-rates.json:
+  claude-haiku-4-5-20251001 (priced as claude-haiku-4-5)
+    input              11863 x $1      / 1e6 = 0.0118630
+    output                99 x $5      / 1e6 = 0.0004950
+    subtotal                                    $0.0123580
+  claude-haiku-4-5
+    input                 77 x $1      / 1e6 = 0.0000770
+    output              4539 x $5      / 1e6 = 0.0226950
+    cacheWrite5m       71877 x $1.25   / 1e6 = 0.0898463
+    cacheRead         266878 x $0.1    / 1e6 = 0.0266878
+    subtotal                                    $0.1393060
+  claude-sonnet-5
+    input               1272 x $2      / 1e6 = 0.0025440
+    output             16580 x $10     / 1e6 = 0.1658000
+    cacheWrite5m      213216 x $2.5    / 1e6 = 0.5330400
+    cacheRead        2357101 x $0.2    / 1e6 = 0.4714202
+    subtotal                                    $1.1728042
+  gpt-5.6-sol
+    input              83648 x $4      / 1e6 = 0.3345920
+    output              9554 x $20     / 1e6 = 0.1910800
+    cacheRead         538112 x $0.4    / 1e6 = 0.2152448
+    subtotal                                    $0.7409168
+  TOTAL $2.0653851   (reported total_cost_usd: 2.0653850499999997)

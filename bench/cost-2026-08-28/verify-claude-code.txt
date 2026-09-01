@@ -1,0 +1,225 @@
+==================================================================
+QUALITY + SCOPE — claude-code
+dir: /home/ggomes/dev/bench-todo-cc
+==================================================================
+
+------------------------------------------------------------------
+## scope: what was produced
+------------------------------------------------------------------
+--- tracked-ish file list (excluding .git, node_modules, dist, .codegraph) ---
+./.gitignore
+./package.json
+./README.md
+./src/app.test.ts
+./src/app.ts
+./src/server.ts
+./src/store.ts
+./src/types.ts
+./src/validation.ts
+./tsconfig.json
+
+file count (same exclusions):
+10
+
+lines of source (.ts/.js/.tsx, excluding node_modules/dist):
+  475 total
+
+--- package.json ---
+{
+  "name": "todo-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small in-memory todo REST API",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/server.js",
+    "test": "npm run build && node --test dist/*.test.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.0"
+  }
+}
+
+dependencies declared:
+  runtime : 1 ['express']
+  dev     : 3 ['@types/express', '@types/node', 'typescript']
+  total   : 4
+
+------------------------------------------------------------------
+## npm install
+------------------------------------------------------------------
+
+up to date in 335ms
+npm install exit: 0
+
+------------------------------------------------------------------
+## npm test
+------------------------------------------------------------------
+      ...
+    # Subtest: rejects an empty patch
+    ok 4 - rejects an empty patch
+      ---
+      duration_ms: 6.808089
+      ...
+    # Subtest: returns 404 for a missing id
+    ok 5 - returns 404 for a missing id
+      ---
+      duration_ms: 3.258729
+      ...
+    1..5
+ok 4 - PATCH /todos/:id
+  ---
+  duration_ms: 28.605175
+  type: 'suite'
+  ...
+# Subtest: DELETE /todos/:id
+    # Subtest: deletes a todo
+    ok 1 - deletes a todo
+      ---
+      duration_ms: 6.669759
+      ...
+    # Subtest: returns 404 for a missing id
+    ok 2 - returns 404 for a missing id
+      ---
+      duration_ms: 3.192679
+      ...
+    1..2
+ok 5 - DELETE /todos/:id
+  ---
+  duration_ms: 10.050248
+  type: 'suite'
+  ...
+# Subtest: error handling
+    # Subtest: rejects malformed JSON
+    ok 1 - rejects malformed JSON
+      ---
+      duration_ms: 4.25493
+      ...
+    # Subtest: returns 404 for an unknown route
+    ok 2 - returns 404 for an unknown route
+      ---
+      duration_ms: 3.08316
+      ...
+    1..2
+ok 6 - error handling
+  ---
+  duration_ms: 7.551559
+  type: 'suite'
+  ...
+1..6
+# tests 21
+# suites 6
+# pass 21
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 322.423686
+npm test exit: 0
+
+------------------------------------------------------------------
+## typescript strict compile
+------------------------------------------------------------------
+--- tsconfig strict setting ---
+  strict = True | noEmit not forced here
+--- tsc --noEmit ---
+tsc exit: 0
+
+------------------------------------------------------------------
+## server starts on port 3000
+------------------------------------------------------------------
+GET /todos returned: 000000  (000 = never came up)
+responder check: NOT JSON — a foreign server holds port 3000; endpoint results below are VOID
+--- server log tail ---
+
+> todo-api@1.0.0 start
+> npm run build && node dist/server.js
+
+
+> todo-api@1.0.0 build
+> tsc
+
+Todo API listening on http://localhost:3000
+
+------------------------------------------------------------------
+## teardown
+------------------------------------------------------------------
+port 3000 free: 000yes-free
+
+------------------------------------------------------------------
+## README
+------------------------------------------------------------------
+# Todo API
+
+A small REST API for todos, built with Node, TypeScript and Express. Todos are kept in
+memory only, so all data is lost when the process stops.
+
+## Requirements
+
+- Node.js 20 or newer (uses the built-in `node:test` runner and global `fetch`)
+- npm
+
+## Setup
+
+```bash
+npm install
+```
+
+## Run
+
+```bash
+npm start
+```
+
+The server compiles the TypeScript sources and listens on <http://localhost:3000>.
+Set the `PORT` environment variable to use a different port.
+
+## Test
+
+```bash
+npm test
+```
+
+This type-checks and compiles the project, then runs the test suite against a real HTTP
+server on an ephemeral port.
+
+## Other scripts
+
+- `npm run build` - compile TypeScript to `dist/`
+- `npm run typecheck` - type-check without emitting files
+
+## Data model
+
+| Field       | Type    | Notes                                         |
+| ----------- | ------- | --------------------------------------------- |
+| `id`        | string  | UUID, generated by the server                 |
+| `title`     | string  | Required, non-empty, max 200 characters       |
+| `completed` | boolean | Defaults to `false`                           |
+| `createdAt` | string  | ISO 8601 timestamp, set at creation           |
+
+Titles are trimmed before being stored, and the length limit applies to the trimmed value.
+
+## Endpoints
+
+| Method   | Path         | Description                                |
+| -------- | ------------ | ------------------------------------------ |
+| `POST`   | `/todos`     | Create a todo                              |
+| `GET`    | `/todos`     | List todos, optionally filtered            |
+| `GET`    | `/todos/:id` | Fetch a single todo                        |
+| `PATCH`  | `/todos/:id` | Update a todo's title and/or completed flag |
+| `DELETE` | `/todos/:id` | Delete a todo                              |
+
+
+==================================================================
+END — claude-code
+==================================================================

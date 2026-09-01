@@ -158,6 +158,8 @@ export interface SessionBlock {
   chosenBy?: string | null;
   outcome?: string | null;
   usedTokens?: number | null;
+  costUsd?: number | null;
+  apiCalls?: number | null;
   durationMs?: number | null;
   payloadRef?: string | null;
   seq?: number | null;
@@ -229,6 +231,13 @@ export interface SessionStretchBlock extends SessionBlock {
   /** `ended` only - the handoff status the exit gate recorded. */
   outcome?: string | null;
   usedTokens?: number | null;
+  /** `ended` only - list-rate cost of this stretch, summed from the provider's
+   * own per-call usage over the shared rate table. ABSENT when the stretch could
+   * not be priced (an unknown model, or a runtime that reports no usage) - an
+   * unpriced stretch renders no cost, never a zero. */
+  costUsd?: number | null;
+  /** `ended` only - how many API calls the stretch made. */
+  apiCalls?: number | null;
   durationMs?: number | null;
   /** `ended` only - where the handoff pointed next: another duty, `done`, or
    * `needs-input`. The conversation activity derivation reads this to tell a

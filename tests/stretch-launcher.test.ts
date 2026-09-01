@@ -110,7 +110,12 @@ describe("applyFlowPolicy", () => {
   it("implement → done is rewritten to review-before-done", () => {
     const store = openConversation("f1", { role: "gateway", env });
     const res = applyFlowPolicy("done", { store, duty: "implement", selectedDuties: ["implement", "adversarial-review", "test"] });
-    expect(res).toMatchObject({ next: "adversarial-review", rewritten: true, reason: "review-before-done" });
+    expect(res).toMatchObject({ next: "adversarial-review", rewritten: true });
+    // The reason now carries WHY the gate fired (see REVIEW_GATE in stretch.mjs
+    // and tests/review-gate.test.ts). A store with no recorded tool calls has an
+    // unreadable change size, and unknown is deliberately not treated as small.
+    expect(res.reason).toMatch(/^review-before-done: /);
+    expect(res.reason).toContain("unknown");
   });
 
   it("done without resolvable gate/run evidence is rewritten to test", () => {
@@ -153,6 +158,26 @@ describe("buildStretchBrief", () => {
     expect(brief).toContain("Your duty: implement (level 2");
     expect(brief).toContain("please also fix the header");
     expect(brief).toContain('selected duties for "next": implement, review, done, needs-input');
+  });
+
+  // Every duty's prompt IS this brief, so naming the layer-3 tools once here is
+  // what makes them named for every duty. Checked, not assumed: before this the
+  // fetch tool was mentioned only by the composed findings record, which does
+  // not exist on the first stretch or on a task that recorded nothing.
+  it("names the ledger retrieval tools and when to reach for them, on every duty", () => {
+    for (const duty of ["triage", "plan", "implement", "test", "adversarial-review", "responder"]) {
+      const brief = buildStretchBrief({
+        conversationId: "c1",
+        conversationDir: "/x/conversations/c1",
+        duty,
+        handoffPath: "/x/conversations/c1/handoffs/0001.json",
+        stretchId: "st_1",
+        selectedDuties: [duty],
+      });
+      expect(brief, duty).toContain("mcp__garrison__garrison_conversation_fetch");
+      expect(brief, duty).toContain("mcp__garrison__garrison_conversation_search");
+      expect(brief, duty).toContain("ledger address");
+    }
   });
 });
 

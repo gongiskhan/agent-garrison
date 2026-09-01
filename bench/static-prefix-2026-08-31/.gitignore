@@ -1,0 +1,3 @@
+# Raw captured request bodies: reproducible with capture.mjs, and they carry
+# the working tree and recent commit messages of whatever repo was probed.
+capture-*/

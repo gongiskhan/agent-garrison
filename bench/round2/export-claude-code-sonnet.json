@@ -1,0 +1,45 @@
+{
+  "run_label": "runB-sonnet",
+  "side": "claude-code",
+  "task_id": "todo-api-v1",
+  "source": "jsonl-transcript",
+  "wall_clock_seconds": 524,
+  "api_calls": 61,
+  "input_tokens": 122,
+  "output_tokens": 43491,
+  "cache_write_tokens": 125190,
+  "cache_read_tokens": 4772828,
+  "total_cost_usd": 1.8904796000000001,
+  "compactions": 0,
+  "stretches": [
+    {
+      "duty": "",
+      "model": "claude-sonnet-5",
+      "effort": "",
+      "api_calls": 61,
+      "input_tokens": 122,
+      "output_tokens": 43491,
+      "cache_write_tokens": 125190,
+      "cache_read_tokens": 4772828,
+      "cost_usd": 1.8904796000000001
+    }
+  ],
+  "_meta": {
+    "session_id": "78296ab7-29a9-4ec7-89d9-b9330790d29d",
+    "transcript_files": [
+      "/home/ggomes/.claude/projects/-home-ggomes-dev-bench2-todo-cc-sonnet/78296ab7-29a9-4ec7-89d9-b9330790d29d.jsonl"
+    ],
+    "transcript_count": 1,
+    "assistant_records": 116,
+    "deduped_api_calls": 61,
+    "unpriced_models": [],
+    "rates_updated": "2026-08-29",
+    "by_model": {
+      "claude-sonnet-5": {
+        "api_calls": 61,
+        "usd": 1.8904796000000001,
+        "unpriced": false
+      }
+    }
+  }
+}

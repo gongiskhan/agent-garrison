@@ -79,6 +79,48 @@ export function buildHarness(promptMode = "full", opts = {}) {
   };
 }
 
+// ── tool inventory profiles ─────────────────────────────────────────────────
+//
+// The Agent SDK's `tools` option takes a POSITIVE allow-list of built-in tool
+// names (`string[]`), which is the only lever that actually shrinks the tool
+// schemas in the request. `disallowedTools` also removes them, but it has to
+// name every tool the installed CLI happens to offer, so a CLI upgrade silently
+// re-adds whatever it introduced. An allow-list cannot drift that way.
+//
+// Measured 2026-08-29 on a live first API call: the preset inventory is 37 tools
+// and 31,238 tokens on haiku-4-5 / 41,275 on sonnet-5 - about 40% of the whole
+// boot prefix. Across 33 recorded conversations and 5,829 tool calls, duties
+// invoked exactly NINE distinct tools: Bash, Edit, Write, Read, Agent,
+// ToolSearch, TaskOutput, AskUserQuestion (plus one unnamed). Everything else -
+// Workflow (6,393 tokens on its own), DesignSync, Monitor, the Cron family, the
+// worktree and plan-mode pairs, ScheduleWakeup, SendMessage, PushNotification,
+// RemoteTrigger - was never called once. The profiles below are that
+// measurement, not a guess; `bench/prefix-2026-08-29/tool-usage.json` is the
+// evidence and re-running it is how you revise them.
+export const TOOL_PROFILES = {
+  // THE ONE EVERY STRETCH CARRIES. The union of the tools any duty was ever
+  // measured invoking, so no duty is starved, and identical for every duty so
+  // the cache prefix stays byte-stable across stretches - see the note in the
+  // gateway's harness-profiles.mjs for why sharing beats narrowing by 10x.
+  shared: ["Bash", "Read", "Write", "Edit", "Agent", "TaskOutput", "AskUserQuestion"],
+  // Write and Read are universal: EVERY duty ends by writing its handoff file.
+  code: ["Bash", "Read", "Write", "Edit", "Agent"],
+  "code-web": ["Bash", "Read", "Write", "Edit", "Agent", "WebSearch", "WebFetch"],
+  test: ["Bash", "Read", "Write", "Edit", "TaskOutput"],
+  // A reading duty still writes - its handoff, and nothing else.
+  read: ["Bash", "Read", "Write"],
+  "read-ask": ["Bash", "Read", "Write", "AskUserQuestion"],
+  none: [],
+};
+
+/** Resolve a profile name to the tool list the SDK should be given, or
+ *  undefined for "leave the preset inventory alone". */
+export function toolsForProfile(profile) {
+  if (profile == null) return undefined;
+  if (Array.isArray(profile)) return [...profile];
+  return TOOL_PROFILES[profile] ? [...TOOL_PROFILES[profile]] : undefined;
+}
+
 // Coding / agentic roles default to `full`; chat / classification / media roles
 // default to `lean`. Never silently minimal-by-accident.
 export const CODING_ROLES = new Set(["expert", "standard", "review"]);

@@ -265,6 +265,25 @@ export function RoutingModal({ pins, options, onPin, onClose, focusField, muster
   const detail = (() => {
     const blocked = sectionBlocked(active);
     if (blocked) {
+      // The project section is blocked BY DESIGN once the card owns the working
+      // directory — but a card can still carry a leftover `routing.project` pin
+      // (set before the card had its own Project field, or set directly on the
+      // wire) that this same block then makes impossible to release. Offer the
+      // same "gate card + clear button" the tier-gated execution pane uses,
+      // rather than replacing the whole pane with an inert message.
+      if (active === "project" && project) {
+        return (
+          <div className="cc-rm-pane" data-section="project">
+            <div className="cc-rm-gatecard">
+              <LockGlyph />
+              <div>{blocked}</div>
+              <button type="button" className="cc-rm-ghost" onClick={() => onPin({ project: null })}>
+                Clear project pin ({project})
+              </button>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="cc-rm-pane" data-section={active}>
           <p className="cc-rm-gate">{blocked}</p>

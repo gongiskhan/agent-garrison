@@ -548,7 +548,9 @@ export async function dispatch(model, message, opts = {}) {
     model: opts.model ?? "claude-haiku-4-5",
     prompt: buildDispatchPrompt(model, message, { clarityRubric: opts.clarityRubric }),
     schema: dispatchSchema(),
-    maxTokens: Number.isFinite(opts.maxTokens) ? opts.maxTokens : 256,
+    // A ceiling, not a target - see dispatcherCallOpts: 256 truncated wordy
+    // routing replies into invalid-response fallbacks.
+    maxTokens: Number.isFinite(opts.maxTokens) ? opts.maxTokens : 1024,
     timeoutMs: Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 8000
   };
 

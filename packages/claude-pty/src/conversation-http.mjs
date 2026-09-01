@@ -24,6 +24,8 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { conversationDir, listConversations, openConversation } from "./conversation-store.mjs";
+import { conversationMetrics } from "./conversation-metrics.mjs";
+import { loadModelRates } from "./model-rates.mjs";
 import { ledgerToSessionEvents } from "./conversation-adapt.mjs";
 
 /** The id vocabulary the gateway's /conversation routes already enforce. */
@@ -110,6 +112,10 @@ export async function handleConversationRequest(req, res, opts = {}) {
     handleLog(res, store, query);
     return true;
   }
+  if (method === "GET" && tail.length === 1 && tail[0] === "metrics") {
+    handleMetrics(res, conversationId, env);
+    return true;
+  }
   if (method === "GET" && tail.length === 1 && tail[0] === "summary") {
     noteDig(onDig, conversationId, "summary", "summary.md");
     handleSummary(res, store);
@@ -144,6 +150,32 @@ export async function handleConversationRequest(req, res, opts = {}) {
 }
 
 // -- endpoints ---------------------------------------------------------------
+
+/** Cost and usage for one conversation. Served from the same cached
+ *  computation the improver reads, so the header total and the rollup can
+ *  never disagree. Deliberately NOT a dig: reading the running cost is
+ *  ambient UI, not the model going and looking something up. */
+function handleMetrics(res, conversationId, env) {
+  try {
+    const m = conversationMetrics(conversationId, { env });
+    sendJson(res, 200, {
+      conversationId,
+      stretches: m.stretches,
+      apiCalls: m.apiCalls ?? 0,
+      usage: m.usage ?? null,
+      cacheReadShare: m.cacheReadShare ?? 0,
+      totalCostUsd: m.totalCostUsd ?? null,
+      sdkCostUsd: m.sdkCostUsd ?? null,
+      unpricedStretches: m.unpricedStretches ?? 0,
+      exactlyPricedStretches: m.exactlyPricedStretches ?? 0,
+      byDuty: m.byDuty ?? {},
+      byModel: m.byModel ?? {},
+      ratesUpdated: loadModelRates(env).rates_updated ?? null,
+    });
+  } catch (err) {
+    sendJson(res, 500, { error: err?.message ?? String(err) });
+  }
+}
 
 function handleMeta(res, store, conversationId) {
   const page = store.range({ fromIndex: 0, limit: 0 });

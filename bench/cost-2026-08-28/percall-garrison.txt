@@ -1,0 +1,77 @@
+Per-API-call usage rows, Garrison run 1 (conversation 01M15BNA3C6DRSZ644FW2730VJ)
+source        model                        in      out    cachW    cachR   sdk$
+------------------------------------------------------------------------------------------
+assistant     claude-haiku-4-5-20251001       10       4    40616    17511  
+result        claude-haiku-4-5-20251001       10    1192    40616    17511  0.06069
+assistant     claude-sonnet-5               2566       5    76341        0  
+assistant     claude-sonnet-5                  2       1     2745    76341  
+assistant     claude-sonnet-5                220      20      119    79086  
+assistant     claude-sonnet-5                  2      17      691    79205  
+assistant     claude-sonnet-5                  2      17      367    79896  
+assistant     claude-sonnet-5                  2       3      206    80263  
+assistant     claude-sonnet-5                  2      17      206    80469  
+assistant     claude-sonnet-5                  2       2      600    80675  
+assistant     claude-sonnet-5                131      20     1174    81275  
+assistant     claude-sonnet-5                  2       4      344    82449  
+assistant     claude-sonnet-5                  2      20     1233    82793  
+assistant     claude-sonnet-5                  2       5      597    84026  
+assistant     claude-sonnet-5                  2      20      287    84623  
+assistant     claude-sonnet-5                  2       2      328    84910  
+assistant     claude-sonnet-5                  2       5      159    85238  
+assistant     claude-sonnet-5                  2       5      120    85397  
+assistant     claude-sonnet-5                131       1      233    85517  
+assistant     claude-sonnet-5                  2       6      724    85750  
+assistant     claude-sonnet-5                  2       5      561    86474  
+assistant     claude-sonnet-5                  2       1      233    87035  
+assistant     claude-sonnet-5                  2       8      181    87268  
+assistant     claude-sonnet-5                  2       3      220    87449  
+assistant     claude-sonnet-5                131      20      635    87669  
+assistant     claude-sonnet-5                  2       2      352    88304  
+assistant     claude-sonnet-5                  2       1      379    88656  
+assistant     claude-sonnet-5                  2       3     1296    89035  
+assistant     claude-sonnet-5                  2       2      481    90331  
+assistant     claude-sonnet-5                  2      20      569    90812  
+assistant     claude-sonnet-5                  2       8       91    91381  
+assistant     claude-sonnet-5                131       8    10789    91472  
+assistant     claude-sonnet-5                  2      20      728   102261  
+assistant     claude-sonnet-5                  2       2       78   102989  
+assistant     claude-sonnet-5                  2       1      507   103067  
+assistant     claude-sonnet-5                  2      21      575   103574  
+assistant     claude-sonnet-5                  2       2     1878   104149  
+result        claude-sonnet-5               3368   11522   106027  2979839  2.45958
+codex-rollout gpt-5.6-sol                   5794     189        0    11008  
+codex-rollout gpt-5.6-sol                   3334     374        0    16128  
+codex-rollout gpt-5.6-sol                   1144     964        0    19200  
+codex-rollout gpt-5.6-sol                   1108     171        0    20224  
+codex-rollout gpt-5.6-sol                   1306      58        0    20224  
+assistant     claude-sonnet-5               2566       7    53184    23614  
+assistant     claude-sonnet-5                  2       1     3701    76798  
+assistant     claude-sonnet-5                220      17      498    80499  
+assistant     claude-sonnet-5                  2       3     1494    80997  
+assistant     claude-sonnet-5                  2       5      539    82491  
+assistant     claude-sonnet-5                  2      16      201    83030  
+assistant     claude-sonnet-5                  2      17      795    83231  
+assistant     claude-sonnet-5                131       6      365    84026  
+assistant     claude-sonnet-5                  2       2      496    84391  
+assistant     claude-sonnet-5                  2       2      187    84887  
+assistant     claude-sonnet-5                  2       4      215    85074  
+assistant     claude-sonnet-5                  2       2      331    85289  
+assistant     claude-sonnet-5                  2       2     1234    85620  
+result        claude-sonnet-5               2937    3408    63240  1019947  1.00752
+codex-rollout gpt-5.6-sol                   5783     204        0    11008  
+codex-rollout gpt-5.6-sol                   3514    1004        0    16128  
+codex-rollout gpt-5.6-sol                  10799     325        0    11008  
+codex-rollout gpt-5.6-sol                   1281     506        0    21248  
+codex-rollout gpt-5.6-sol                   1175     253        0    22272  
+codex-rollout gpt-5.6-sol                   4595     145        0    19200  
+codex-rollout gpt-5.6-sol                   6557     160        0    23296  
+codex-rollout gpt-5.6-sol                    775    1253        0    29440  
+codex-rollout gpt-5.6-sol                   2052     182        0    29440  
+codex-rollout gpt-5.6-sol                   1238      62        0    30464  
+assistant     claude-sonnet-5               2566       2    53288    23614  
+assistant     claude-sonnet-5                  2       1     3076    76902  
+assistant     claude-sonnet-5                220       2      836    79978  
+assistant     claude-sonnet-5                  2       2     1256    80814  
+result        claude-sonnet-5               2790    1547    58456   261308  0.55110
+
+72 usage rows total

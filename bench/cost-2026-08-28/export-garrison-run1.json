@@ -1,0 +1,107 @@
+{
+  "run_label": "run1",
+  "side": "garrison",
+  "task_id": "todo-api-v1",
+  "source": "sdk-stream",
+  "wall_clock_seconds": 449,
+  "api_calls": 68,
+  "input_tokens": 59560,
+  "output_tokens": 23519,
+  "cache_write_tokens": 268339,
+  "cache_read_tokens": 4578893,
+  "total_cost_usd": 2.1110926,
+  "compactions": 0,
+  "stretches": [
+    {
+      "duty": "triage",
+      "model": "claude-haiku-4-5-20251001",
+      "effort": "medium",
+      "api_calls": 1,
+      "input_tokens": 10,
+      "output_tokens": 1192,
+      "cache_write_tokens": 40616,
+      "cache_read_tokens": 17511,
+      "cost_usd": 0.0606901
+    },
+    {
+      "duty": "implement",
+      "model": "claude-sonnet-5",
+      "effort": "medium",
+      "api_calls": 35,
+      "input_tokens": 3368,
+      "output_tokens": 11522,
+      "cache_write_tokens": 106027,
+      "cache_read_tokens": 2979839,
+      "cost_usd": 0.9850943000000001
+    },
+    {
+      "duty": "adversarial-review",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "api_calls": 5,
+      "input_tokens": 12686,
+      "output_tokens": 1756,
+      "cache_write_tokens": 0,
+      "cache_read_tokens": 86784,
+      "cost_usd": 0.12057760000000001
+    },
+    {
+      "duty": "implement",
+      "model": "claude-sonnet-5",
+      "effort": "medium",
+      "api_calls": 13,
+      "input_tokens": 2937,
+      "output_tokens": 3408,
+      "cache_write_tokens": 63240,
+      "cache_read_tokens": 1019947,
+      "cost_usd": 0.4044534
+    },
+    {
+      "duty": "adversarial-review",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "api_calls": 10,
+      "input_tokens": 37769,
+      "output_tokens": 4094,
+      "cache_write_tokens": 0,
+      "cache_read_tokens": 213504,
+      "cost_usd": 0.3183576
+    },
+    {
+      "duty": "test",
+      "model": "claude-sonnet-5",
+      "effort": "low",
+      "api_calls": 4,
+      "input_tokens": 2790,
+      "output_tokens": 1547,
+      "cache_write_tokens": 58456,
+      "cache_read_tokens": 261308,
+      "cost_usd": 0.2219196
+    }
+  ],
+  "_meta": {
+    "conversation_id": "01M15BNA3C6DRSZ644FW2730VJ",
+    "unpriced_stretches": 0,
+    "sdk_reported_cost_usd": 4.07888685,
+    "cache_read_share": 0.9331744651087717,
+    "rates_updated": "2026-08-28",
+    "by_model": {
+      "claude-haiku-4-5-20251001": {
+        "api_calls": 4,
+        "usd": 0.00918
+      },
+      "claude-haiku-4-5": {
+        "api_calls": 1,
+        "usd": 0.0584911
+      },
+      "claude-sonnet-5": {
+        "api_calls": 52,
+        "usd": 1.6044863
+      },
+      "gpt-5.6-sol": {
+        "api_calls": 15,
+        "usd": 0.43893519999999997
+      }
+    }
+  }
+}

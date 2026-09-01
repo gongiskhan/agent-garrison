@@ -187,6 +187,45 @@ describe("fusing a spoken command with the screen", () => {
     }
   });
 
+  // The real 07:18 failure: the broadcast was live and streaming, and Zeca
+  // still said it could not see the screen. The screen is pinned at the WAKE
+  // HIT (so a 45s window cannot fuse a screen the user has stopped looking
+  // at), and the first frame of a just-started broadcast lands a beat AFTER
+  // the wake word. Turning sharing on because Zeca asked for it has the same
+  // shape. So a miss is re-checked at dispatch - bounded by the same
+  // freshness window, so a stale screen is still refused.
+  it("binds a screen that only became available AFTER the wake hit", async () => {
+    let frames = 0;
+    const h = bus({
+      screenContextFn: ({ atMs }: any) => {
+        // Nothing at the wake hit; a frame by the time dispatch asks.
+        frames += 1;
+        return frames === 1 ? null : { stale: false, sessionId: "scr", seq: 1, file: "/m/1.jpg", ageMs: 20 };
+      }
+    });
+    try {
+      h.wake.handleSegments({ sessionId: "p", segments: [{ text: "Zeca, responde-lhe que sim.", start: 0, end: 1 }] });
+      const out = await h.wake.close("p", "silence");
+      await h.wake.delegateChain;
+      expect(out.result.intent).toBe("delegate");
+      expect(h.prompts[0]).toContain("/m/1.jpg");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("still refuses when the late re-check also finds nothing", async () => {
+    const h = bus({ screenContextFn: () => null });
+    try {
+      h.wake.handleSegments({ sessionId: "p", segments: [{ text: "Zeca, responde-lhe que sim.", start: 0, end: 1 }] });
+      const out = await h.wake.close("p", "silence");
+      expect(out.result.intent).toBe("delegate_blocked");
+      expect(h.prompts).toHaveLength(0);
+    } finally {
+      h.cleanup();
+    }
+  });
+
   it("attaches a screen to a self-contained command as weak context", async () => {
     const h = bus({
       runFn: async () => ({ reply: JSON.stringify({ intent: "delegate", request: "what is on my board", needs_screen: false, ack: "ok" }) }),

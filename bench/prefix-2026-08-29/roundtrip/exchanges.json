@@ -1,0 +1,89 @@
+[
+ {
+  "n": 0,
+  "status": 200,
+  "changes": {
+   "cacheTtl": null,
+   "toolSearch": null
+  },
+  "sentMessages": [
+   {
+    "role": "user",
+    "blocks": [
+     "text"
+    ]
+   }
+  ],
+  "toolCount": 0,
+  "deferred": 0,
+  "responseHead": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003J-K�+�R�M-.NLO�/.I,*�JI,I�R�V*�,HU�RB�Tҁ񕬪�r�SRs����s\u0012KSRu3\u00123�KuMtMu�\f�L\r\r\f\f�t�2S@f\u0014��\u001b\u0018\u001a:�F�\u0018\u0015�e�{Ty������;\u0019�*�٤��T��\u0003�:��8��$1�DIG)9?�$5�D�*:VG��$� �(5�8?O�*�4'\u0007*T�ZX�����\"��Z���S\f\u0013+\u0005y\u0015��̼�Ғ����Լb%+S\u0013c\u001d��������Ē���xT\u0015\u00060����\u0014\\r0� \u000bR\u000b2RsS�\u0012s�Ms1�#d\r3�eku��KK��g��T�ZT���\u001a_��Z�d�\u0004\n��Ģ\u0014P\u0018祥\u0016��\u001d����d���_\u0012�X��������T[����P��\u0005\u0000\u0000\u0000����64$�r򓳱�9\u0016%`kRR+��@�\u0000�\f�\u0011 �B�JIj\u0005(�����\u0012�b��\u0000\u0000\u0000\u0000����]������\u0014�@",
+  "responseBlocks": []
+ },
+ {
+  "n": 1,
+  "status": 200,
+  "changes": {
+   "cacheTtl": null,
+   "toolSearch": {
+    "variant": "tool_search_tool_regex_20251119",
+    "deferred": 7,
+    "kept": []
+   }
+  },
+  "sentMessages": [
+   {
+    "role": "user",
+    "blocks": [
+     "text",
+     "text",
+     "text"
+    ]
+   }
+  ],
+  "toolCount": 8,
+  "deferred": 7,
+  "responseHead": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003J-K�+�R�M-.NLO�/.I,*�JI,I�R�V*�,HU�RB�Tҁ񕬪�r�SRs����s\u0012KSRu3\u00123�KuMtMu�\f�L\r\r\f\f�t�2S@f\u0014��\u001b\u0018\u001a:�F�\u0018\u0015T89{��8����f\u0015�;*�٤��T��\u0003�:��8��$1�DIG)9?�$5�D�*:VG��$� �(5�8?O�*�4'\u0007*T�ZX�����\"��Z���S\f\u0013+\u0005y\u0015��̼�Ғ����Լb%+C\u0003\u001d��������Ē���x4\u0005F���05E��)h�\u0018�Av�\u0016d��\u0016%�ě�b�G�\u001af��\u001a�l��Q�/-Av���RqjQYfrj|Ifj���\u0012(|R\u0012�R@A���Z\u0004�~|zj���R^~I|bYbfNbRN�Rm�\u0002\u0002�rq\u0001\u0000\u0000\u0000����=4\\�r򓳱�\u0000,J����V(Y��\r�\u001a�\u0011 _CSNIFf^vf^:(�aL+%%\u001d�����Ē�\"P\u001c+",
+  "responseBlocks": []
+ },
+ {
+  "n": 2,
+  "status": 200,
+  "changes": {
+   "cacheTtl": null,
+   "toolSearch": {
+    "variant": "tool_search_tool_regex_20251119",
+    "deferred": 7,
+    "kept": []
+   }
+  },
+  "sentMessages": [
+   {
+    "role": "user",
+    "blocks": [
+     "text",
+     "text",
+     "text"
+    ]
+   },
+   {
+    "role": "assistant",
+    "blocks": [
+     "text",
+     "server_tool_use",
+     "tool_search_tool_result",
+     "tool_use"
+    ]
+   },
+   {
+    "role": "user",
+    "blocks": [
+     "tool_result"
+    ]
+   }
+  ],
+  "toolCount": 8,
+  "deferred": 7,
+  "responseHead": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0004\u0003J-K�+�R�M-.NLO�/.I,*�JI,I�R�V*�,HU�RB�Tҁ񕬪�r�SRs����s\u0012KSRu3\u00123�KuMtMu�\f�L\r\r\f\f�t�2S@f\u0014��\u001b\u0018\u001a:�F�\u0018��eUD�x%�yG�%���(�٤��T��\u0003�:��8��$1�DIG)9?�$5�D�*:VG��$� �(5�8?O�*�4'\u0007*T�ZX�����\"��Z���S\f\u0013+\u0005y\u0015��̼�Ғ����Լb%+3\u001d��������Ē���xTyCCCS\u0003�����\u00144ys\u0013sC�4�\b�-�\u0005\u0019���E�9�hZ\ft�\u0010��\u0019h�`\u000bku��KK��i��T�ZT���\u001a_��Z�d�\u0004\n��Ģ\u0014P`祥\u0016�\u0002 >=5_�J)/�$>�,13'1)'U��V\u0001\u0002j��\u0000\u0000\u0000\u0000����<4T�r򓳱�?\u0016%`�RR+��@!\u0002�\u0018�\u0011 \u001fC�MIj\u0005(�����\u0012��Z..\u0000\u0000\u0000\u0000���",
+  "responseBlocks": []
+ }
+]

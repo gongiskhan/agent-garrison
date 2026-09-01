@@ -75,7 +75,13 @@ declare module "*/capture-service/scripts/server.mjs" {
     };
     echoGuard: unknown;
     notifier: unknown;
-    ackSink: { burst: { suppressed: number; timer: unknown } };
+    ackSink: {
+      burst: { suppressed: number; timer: unknown };
+      speakableSession(): { record: { id: string; mode: string; ended?: unknown } } | null;
+      muteSession(sessionId: string, forMs?: number): void;
+      handleAck(ack: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }>;
+      onSpeakTimeout: ((ackId: string) => void) | null;
+    };
   }>;
 }
 
@@ -250,7 +256,7 @@ declare module "*/capture-service/lib/opus-normalize.mjs" {
 
 declare module "*/capture-service/lib/tts.mjs" {
   export function textSeed(text: string): number;
-  export function clipId(args: { text: string; voiceId: string; model: string }): string;
+  export function clipId(args: { text: string; voiceId: string; model: string; lang?: string | null }): string;
   export function looksPortuguese(text: unknown): boolean;
   export class ZecaVoice {
     constructor(deps: {
@@ -262,8 +268,8 @@ declare module "*/capture-service/lib/tts.mjs" {
     });
     available(): { ok: boolean; reason?: string };
     readClip(id: unknown): Buffer | null;
-    clipFor(text: unknown): Promise<{ id: string; cached?: boolean } | null>;
-    cachedClipFor(text: unknown): { id: string; cached: boolean } | null;
+    clipFor(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached?: boolean } | null>;
+    cachedClipFor(text: unknown, opts?: { lang?: string | null }): { id: string; cached: boolean } | null;
     pin(id: unknown): void;
   }
 }

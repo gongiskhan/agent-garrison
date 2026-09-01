@@ -1,0 +1,1007 @@
+{
+ "perModel": [
+  {
+   "run": "A-1",
+   "model": "claude-haiku-4-5",
+   "requests": 1,
+   "inputTokens": 22825,
+   "outputTokens": 2439,
+   "cacheWrite5mTokens": 14443,
+   "cacheWrite1hTokens": 8876,
+   "cacheReadTokens": 85491,
+   "cacheWriteTokens": 23319,
+   "costUsd": 0.07937485000000001
+  },
+  {
+   "run": "A-1",
+   "model": "claude-sonnet-5",
+   "requests": 48,
+   "inputTokens": 71278,
+   "outputTokens": 26560,
+   "cacheWrite5mTokens": 105628,
+   "cacheWrite1hTokens": 62453,
+   "cacheReadTokens": 1376284,
+   "cacheWriteTokens": 168081,
+   "costUsd": 1.1972948
+  },
+  {
+   "run": "A-1",
+   "model": "gpt-5.6-sol",
+   "requests": 9,
+   "inputTokens": 25922,
+   "outputTokens": 5265,
+   "cacheWrite5mTokens": 0,
+   "cacheWrite1hTokens": 0,
+   "cacheReadTokens": 200448,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.2891672
+  },
+  {
+   "run": "A-2",
+   "model": "claude-haiku-4-5",
+   "requests": 2,
+   "inputTokens": 32268,
+   "outputTokens": 6076,
+   "cacheWrite5mTokens": 15973,
+   "cacheWrite1hTokens": 23809,
+   "cacheReadTokens": 63200,
+   "cacheWriteTokens": 39782,
+   "costUsd": 0.13655225
+  },
+  {
+   "run": "A-2",
+   "model": "claude-sonnet-5",
+   "requests": 43,
+   "inputTokens": 39359,
+   "outputTokens": 19476,
+   "cacheWrite5mTokens": 72528,
+   "cacheWrite1hTokens": 37409,
+   "cacheReadTokens": 1269886,
+   "cacheWriteTokens": 109937,
+   "costUsd": 0.8584111999999999
+  },
+  {
+   "run": "A-2",
+   "model": "gpt-5.6-sol",
+   "requests": 24,
+   "inputTokens": 61343,
+   "outputTokens": 10293,
+   "cacheWrite5mTokens": 0,
+   "cacheWrite1hTokens": 0,
+   "cacheReadTokens": 521216,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.6597184
+  },
+  {
+   "run": "A-3",
+   "model": "claude-haiku-4-5",
+   "requests": 1,
+   "inputTokens": 19139,
+   "outputTokens": 3896,
+   "cacheWrite5mTokens": 12476,
+   "cacheWrite1hTokens": 14805,
+   "cacheReadTokens": 61426,
+   "cacheWriteTokens": 27281,
+   "costUsd": 0.0899666
+  },
+  {
+   "run": "A-3",
+   "model": "claude-sonnet-5",
+   "requests": 91,
+   "inputTokens": 72945,
+   "outputTokens": 42490,
+   "cacheWrite5mTokens": 130110,
+   "cacheWrite1hTokens": 49882,
+   "cacheReadTokens": 2900920,
+   "cacheWriteTokens": 179992,
+   "costUsd": 1.675777
+  },
+  {
+   "run": "A-3",
+   "model": "gpt-5.6-sol",
+   "requests": 36,
+   "inputTokens": 117057,
+   "outputTokens": 13818,
+   "cacheWrite5mTokens": 0,
+   "cacheWrite1hTokens": 0,
+   "cacheReadTokens": 801792,
+   "cacheWriteTokens": 0,
+   "costUsd": 1.0653048
+  },
+  {
+   "run": "A-4",
+   "model": "claude-haiku-4-5",
+   "requests": 1,
+   "inputTokens": 31686,
+   "outputTokens": 4081,
+   "cacheWrite5mTokens": 12449,
+   "cacheWrite1hTokens": 14026,
+   "cacheReadTokens": 52635,
+   "cacheWriteTokens": 26475,
+   "costUsd": 0.10096775
+  },
+  {
+   "run": "A-4",
+   "model": "claude-sonnet-5",
+   "requests": 73,
+   "inputTokens": 118452,
+   "outputTokens": 41132,
+   "cacheWrite5mTokens": 139128,
+   "cacheWrite1hTokens": 49931,
+   "cacheReadTokens": 2367496,
+   "cacheWriteTokens": 189059,
+   "costUsd": 1.6692672000000002
+  },
+  {
+   "run": "A-4",
+   "model": "gpt-5.6-sol",
+   "requests": 27,
+   "inputTokens": 79954,
+   "outputTokens": 11140,
+   "cacheWrite5mTokens": 0,
+   "cacheWrite1hTokens": 0,
+   "cacheReadTokens": 670976,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.8110064
+  },
+  {
+   "run": "B-1",
+   "model": "claude-sonnet-5",
+   "requests": 65,
+   "inputTokens": 2141,
+   "outputTokens": 42451,
+   "cacheReadTokens": 9697349,
+   "cacheWriteTokens": 205828,
+   "costUsd": 3.1915738000000005
+  },
+  {
+   "run": "B-2",
+   "model": "claude-sonnet-5",
+   "requests": 57,
+   "inputTokens": 113,
+   "outputTokens": 29195,
+   "cacheReadTokens": 8601018,
+   "cacheWriteTokens": 77256,
+   "costUsd": 2.3214036
+  },
+  {
+   "run": "B-3",
+   "model": "claude-sonnet-5",
+   "requests": 50,
+   "inputTokens": 99,
+   "outputTokens": 26107,
+   "cacheReadTokens": 7408118,
+   "cacheWriteTokens": 59957,
+   "costUsd": 1.9827196
+  },
+  {
+   "run": "B-4",
+   "model": "claude-sonnet-5",
+   "requests": 47,
+   "inputTokens": 2443,
+   "outputTokens": 44287,
+   "cacheReadTokens": 6891436,
+   "cacheWriteTokens": 103915,
+   "costUsd": 2.2417032
+  }
+ ],
+ "armAShare": {
+  "total": {
+   "requests": 356,
+   "costUsd": 8.632808449999999
+  },
+  "sonnet": {
+   "requests": 255,
+   "costUsd": 5.4007502
+  },
+  "haiku": {
+   "requests": 5,
+   "costUsd": 0.40686144999999996
+  },
+  "other": {
+   "requests": 96,
+   "costUsd": 2.8251968000000005
+  }
+ },
+ "stretches": [
+  {
+   "run": "A-1",
+   "ordinal": 1,
+   "duty": "triage",
+   "model": "claude-haiku-4-5",
+   "target": "sdk-haiku",
+   "requests": 5,
+   "inputTokens": 21072,
+   "outputTokens": 2423,
+   "cacheReadTokens": 85491,
+   "cacheWriteTokens": 23319,
+   "costUsd": 0.07754185000000001,
+   "firstCallPrefix": 11118
+  },
+  {
+   "run": "A-1",
+   "ordinal": 2,
+   "duty": "plan",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 6,
+   "inputTokens": 9268,
+   "outputTokens": 7541,
+   "cacheReadTokens": 215262,
+   "cacheWriteTokens": 32032,
+   "costUsd": 0.2357399,
+   "firstCallPrefix": 15082
+  },
+  {
+   "run": "A-1",
+   "ordinal": 3,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 26,
+   "inputTokens": 20177,
+   "outputTokens": 14008,
+   "cacheReadTokens": 798311,
+   "cacheWriteTokens": 69154,
+   "costUsd": 0.5505112,
+   "firstCallPrefix": 15434
+  },
+  {
+   "run": "A-1",
+   "ordinal": 4,
+   "duty": "adversarial-review",
+   "model": "gpt-5.6-sol",
+   "target": "sol",
+   "requests": 9,
+   "inputTokens": 25922,
+   "outputTokens": 5265,
+   "cacheReadTokens": 200448,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.2891672,
+   "firstCallPrefix": 17214
+  },
+  {
+   "run": "A-1",
+   "ordinal": 5,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 12,
+   "inputTokens": 19748,
+   "outputTokens": 3650,
+   "cacheReadTokens": 285780,
+   "cacheWriteTokens": 42640,
+   "costUsd": 0.258496,
+   "firstCallPrefix": 15746
+  },
+  {
+   "run": "A-1",
+   "ordinal": 6,
+   "duty": "test",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 4,
+   "inputTokens": 8336,
+   "outputTokens": 1234,
+   "cacheReadTokens": 76931,
+   "cacheWriteTokens": 24255,
+   "costUsd": 0.1237797,
+   "firstCallPrefix": 15752
+  },
+  {
+   "run": "A-2",
+   "ordinal": 1,
+   "duty": "triage",
+   "model": "claude-haiku-4-5",
+   "target": "sdk-haiku",
+   "requests": 7,
+   "inputTokens": 17233,
+   "outputTokens": 1920,
+   "cacheReadTokens": 28859,
+   "cacheWriteTokens": 16622,
+   "costUsd": 0.05715339999999999,
+   "firstCallPrefix": 11117
+  },
+  {
+   "run": "A-2",
+   "ordinal": 2,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 29,
+   "inputTokens": 8056,
+   "outputTokens": 16133,
+   "cacheReadTokens": 881512,
+   "cacheWriteTokens": 53198,
+   "costUsd": 0.5188724,
+   "firstCallPrefix": 15132
+  },
+  {
+   "run": "A-2",
+   "ordinal": 3,
+   "duty": "adversarial-review",
+   "model": "gpt-5.6-sol",
+   "target": "sol",
+   "requests": 15,
+   "inputTokens": 34509,
+   "outputTokens": 6395,
+   "cacheReadTokens": 342272,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.4028448,
+   "firstCallPrefix": 16960
+  },
+  {
+   "run": "A-2",
+   "ordinal": 4,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 6,
+   "inputTokens": 12155,
+   "outputTokens": 1638,
+   "cacheReadTokens": 139327,
+   "cacheWriteTokens": 28625,
+   "costUsd": 0.1588439,
+   "firstCallPrefix": 15636
+  },
+  {
+   "run": "A-2",
+   "ordinal": 5,
+   "duty": "adversarial-review",
+   "model": "gpt-5.6-sol",
+   "target": "sol",
+   "requests": 9,
+   "inputTokens": 26834,
+   "outputTokens": 3898,
+   "cacheReadTokens": 178944,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.25687360000000004,
+   "firstCallPrefix": 17081
+  },
+  {
+   "run": "A-2",
+   "ordinal": 6,
+   "duty": "test",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 9,
+   "inputTokens": 9353,
+   "outputTokens": 3484,
+   "cacheReadTokens": 249047,
+   "cacheWriteTokens": 40128,
+   "costUsd": 0.2224014,
+   "firstCallPrefix": 15715
+  },
+  {
+   "run": "A-3",
+   "ordinal": 1,
+   "duty": "triage",
+   "model": "claude-haiku-4-5",
+   "target": "sdk-haiku",
+   "requests": 7,
+   "inputTokens": 5509,
+   "outputTokens": 1798,
+   "cacheReadTokens": 28851,
+   "cacheWriteTokens": 16356,
+   "costUsd": 0.0444861,
+   "firstCallPrefix": 11109
+  },
+  {
+   "run": "A-3",
+   "ordinal": 2,
+   "duty": "plan",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 4,
+   "inputTokens": 11518,
+   "outputTokens": 8729,
+   "cacheReadTokens": 99307,
+   "cacheWriteTokens": 32619,
+   "costUsd": 0.2303964,
+   "firstCallPrefix": 15114
+  },
+  {
+   "run": "A-3",
+   "ordinal": 3,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 33,
+   "inputTokens": 15009,
+   "outputTokens": 14514,
+   "cacheReadTokens": 1014164,
+   "cacheWriteTokens": 52470,
+   "costUsd": 0.5278273000000001,
+   "firstCallPrefix": 15524
+  },
+  {
+   "run": "A-3",
+   "ordinal": 4,
+   "duty": "adversarial-review",
+   "model": "gpt-5.6-sol",
+   "target": "sol",
+   "requests": 12,
+   "inputTokens": 29947,
+   "outputTokens": 3996,
+   "cacheReadTokens": 285696,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.3139864,
+   "firstCallPrefix": 17239
+  },
+  {
+   "run": "A-3",
+   "ordinal": 5,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 28,
+   "inputTokens": 12190,
+   "outputTokens": 8636,
+   "cacheReadTokens": 1005769,
+   "cacheWriteTokens": 43882,
+   "costUsd": 0.4403353,
+   "firstCallPrefix": 15738
+  },
+  {
+   "run": "A-3",
+   "ordinal": 6,
+   "duty": "adversarial-review",
+   "model": "gpt-5.6-sol",
+   "target": "sol",
+   "requests": 13,
+   "inputTokens": 57270,
+   "outputTokens": 6064,
+   "cacheReadTokens": 277248,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.4612592,
+   "firstCallPrefix": 17204
+  },
+  {
+   "run": "A-3",
+   "ordinal": 7,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 26,
+   "inputTokens": 20208,
+   "outputTokens": 10488,
+   "cacheReadTokens": 781680,
+   "cacheWriteTokens": 51021,
+   "costUsd": 0.447948,
+   "firstCallPrefix": 15871
+  },
+  {
+   "run": "A-3",
+   "ordinal": 8,
+   "duty": "adversarial-review",
+   "model": "gpt-5.6-sol",
+   "target": "sol",
+   "requests": 11,
+   "inputTokens": 29840,
+   "outputTokens": 3758,
+   "cacheReadTokens": 238848,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.2900592,
+   "firstCallPrefix": 17272
+  },
+  {
+   "run": "A-4",
+   "ordinal": 1,
+   "duty": "triage",
+   "model": "claude-haiku-4-5",
+   "target": "sdk-haiku",
+   "requests": 6,
+   "inputTokens": 18106,
+   "outputTokens": 2163,
+   "cacheReadTokens": 28869,
+   "cacheWriteTokens": 16754,
+   "costUsd": 0.0594074,
+   "firstCallPrefix": 11127
+  },
+  {
+   "run": "A-4",
+   "ordinal": 2,
+   "duty": "plan",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 6,
+   "inputTokens": 63150,
+   "outputTokens": 12419,
+   "cacheReadTokens": 221894,
+   "cacheWriteTokens": 43264,
+   "costUsd": 0.4216903,
+   "firstCallPrefix": 15049
+  },
+  {
+   "run": "A-4",
+   "ordinal": 3,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 41,
+   "inputTokens": 14357,
+   "outputTokens": 18012,
+   "cacheReadTokens": 1478842,
+   "cacheWriteTokens": 59250,
+   "costUsd": 0.6714024000000001,
+   "firstCallPrefix": 15511
+  },
+  {
+   "run": "A-4",
+   "ordinal": 4,
+   "duty": "adversarial-review",
+   "model": "gpt-5.6-sol",
+   "target": "sol",
+   "requests": 16,
+   "inputTokens": 54042,
+   "outputTokens": 6254,
+   "cacheReadTokens": 398336,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.5005824,
+   "firstCallPrefix": 17211
+  },
+  {
+   "run": "A-4",
+   "ordinal": 5,
+   "duty": "implement",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 16,
+   "inputTokens": 18685,
+   "outputTokens": 6198,
+   "cacheReadTokens": 406620,
+   "cacheWriteTokens": 48350,
+   "costUsd": 0.32032900000000003,
+   "firstCallPrefix": 15805
+  },
+  {
+   "run": "A-4",
+   "ordinal": 6,
+   "duty": "adversarial-review",
+   "model": "gpt-5.6-sol",
+   "target": "sol",
+   "requests": 11,
+   "inputTokens": 25912,
+   "outputTokens": 4886,
+   "cacheReadTokens": 272640,
+   "cacheWriteTokens": 0,
+   "costUsd": 0.310424,
+   "firstCallPrefix": 17175
+  },
+  {
+   "run": "A-4",
+   "ordinal": 7,
+   "duty": "test",
+   "model": "claude-sonnet-5",
+   "target": "cc-sonnet",
+   "requests": 10,
+   "inputTokens": 8387,
+   "outputTokens": 4384,
+   "cacheReadTokens": 260140,
+   "cacheWriteTokens": 38195,
+   "costUsd": 0.2269095,
+   "firstCallPrefix": 15823
+  }
+ ],
+ "costPerStretch": {
+  "n": 27,
+  "median": 0.2900592,
+  "min": 0.0444861,
+  "max": 0.6714024000000001,
+  "mean": 0.31182474999999993,
+  "sd": 0.16840925675470947,
+  "cv": 0.5400766191737811
+ },
+ "perDuty": {
+  "triage": {
+   "n": 4,
+   "median": 0.058280399999999996,
+   "min": 0.0444861,
+   "max": 0.07754185000000001,
+   "mean": 0.0596471875,
+   "sd": 0.013618051675525827,
+   "cv": 0.22831003851649884
+  },
+  "plan": {
+   "n": 3,
+   "median": 0.2357399,
+   "min": 0.2303964,
+   "max": 0.4216903,
+   "mean": 0.2959422,
+   "sd": 0.10893381815703515,
+   "cv": 0.36809153326911526
+  },
+  "implement": {
+   "n": 9,
+   "median": 0.447948,
+   "min": 0.1588439,
+   "max": 0.6714024000000001,
+   "mean": 0.4327295,
+   "sd": 0.1603104139553557,
+   "cv": 0.3704633355372252
+  },
+  "adversarial-review": {
+   "n": 8,
+   "median": 0.31220519999999996,
+   "min": 0.25687360000000004,
+   "max": 0.5005824,
+   "mean": 0.3531496,
+   "sd": 0.08991756257703098,
+   "cv": 0.25461606802621606
+  },
+  "test": {
+   "n": 3,
+   "median": 0.2224014,
+   "min": 0.1237797,
+   "max": 0.2269095,
+   "mean": 0.1910302,
+   "sd": 0.05828424361772227,
+   "cv": 0.30510486623435595
+  }
+ },
+ "extra": {
+  "baseline": {
+   "run": "A-2",
+   "sequence": [
+    "triage",
+    "implement",
+    "adversarial-review",
+    "implement",
+    "adversarial-review",
+    "test"
+   ],
+   "counts": {
+    "triage": 1,
+    "implement": 2,
+    "adversarial-review": 2,
+    "test": 1
+   }
+  },
+  "runs": [
+   {
+    "run": "A-3",
+    "sequence": [
+     "triage",
+     "plan",
+     "implement",
+     "adversarial-review",
+     "implement",
+     "adversarial-review",
+     "implement",
+     "adversarial-review"
+    ],
+    "counts": {
+     "triage": 1,
+     "plan": 1,
+     "implement": 3,
+     "adversarial-review": 3
+    },
+    "surplus": {
+     "plan": 1,
+     "implement": 1,
+     "adversarial-review": 1
+    },
+    "missing": {
+     "test": 1
+    },
+    "extraStretches": [
+     {
+      "ordinal": 2,
+      "duty": "plan",
+      "model": "claude-sonnet-5",
+      "requests": 4,
+      "costUsd": 0.2303964,
+      "precededBy": {
+       "kind": "handoff",
+       "seq": 119,
+       "duty": "triage",
+       "status": "complete",
+       "next": "plan",
+       "why": "Design phase needed to finalize API endpoints, database schema, and test coverage strategy before implementation.",
+       "summary": "Triaged a todo app build request for an Express+SQLite project with strict conventions. Project has established patterns for persistence (store.js), ID generation (identity.js), audit logging (audit.js), and config (settings.js). Zero external dependency constraint applies. Request scope is clear: 7 features across CRUD + filtering + visual overdue indicator, plus passing tests. No blockers identified. Ready for plan duty to design API/DB schema and test strategy."
+      }
+     },
+     {
+      "ordinal": 7,
+      "duty": "implement",
+      "model": "claude-sonnet-5",
+      "requests": 26,
+      "costUsd": 0.447948,
+      "precededBy": {
+       "kind": "handoff",
+       "seq": 726,
+       "duty": "adversarial-review",
+       "status": "complete",
+       "next": "implement",
+       "why": "Correct the browser-local overdue date comparison, then rerun the existing suite and add boundary coverage.",
+       "summary": "Adversarial review found one remaining correctness bug in overdue styling.\n\n- **Finding:** `public/app.js` derives today with `new Date().toISOString().slice(0, 10)`, which is a UTC date, while `<input type=\"date\">` values are local calendar dates. Around local midnight, overdue state is wrong; in `Europe/Lisbon` at 2026-08-30 00:30, a due date of 2026-08-29 is not marked overdue. Build `YYYY-MM-DD` from local `getFullYear()`, `getMonth()`, and `getDate()` values and cover the boundary.\n- The prior findings are fixed: both test files isolate and clean their databases, and impossible calendar dates are rejected.\n- All named structural constraints pass inspection: shared store handle/transactions, centralized IDs and settings, transactional audit records, route-module registration, same-server UI, and no new dependencies.\n- Verified `npm install` succeeds with zero vulnerabilities; `npm te"
+      }
+     },
+     {
+      "ordinal": 8,
+      "duty": "adversarial-review",
+      "model": "gpt-5.6-sol",
+      "requests": 11,
+      "costUsd": 0.2900592,
+      "precededBy": {
+       "kind": "handoff",
+       "seq": 904,
+       "duty": "implement",
+       "status": "complete",
+       "next": "adversarial-review",
+       "why": "This is the second review cycle for this specific finding; a final check confirms the fix is correct and no new issues were introduced before marking the card done.",
+       "summary": "Fixed the overdue-date timezone bug flagged by adversarial review, and added regression coverage.\n\n- Extracted the date logic from `public/app.js` into a new `public/dateUtils.js` module exporting `todayISO(date)` and `isOverdue(todo, date)`, both accepting an injectable `Date` (defaulting to `new Date()`) so they're unit-testable outside a browser.\n- `todayISO` now builds `YYYY-MM-DD` from `getFullYear()`/`getMonth()`/`getDate()` (local calendar date) instead of `new Date().toISOString().slice(0, 10)` (UTC date), fixing the local-midnight boundary bug.\n- `app.js` now imports `isOverdue` from `dateUtils.js` (loaded as an ES module via `<script type=\"module\">`, already the case in `index.html`).\n- Added `test/dateUtils.test.js` (4 tests) covering the exact boundary from the review finding: with `TZ=Europe/Lisbon`, a local time of 2026-08-30 00:30 is 2026-08-29 23:30 UTC — the test asserts"
+      }
+     }
+    ],
+    "extraCostUsd": 0.9684036,
+    "extraRequests": 41
+   },
+   {
+    "run": "A-4",
+    "sequence": [
+     "triage",
+     "plan",
+     "implement",
+     "adversarial-review",
+     "implement",
+     "adversarial-review",
+     "test"
+    ],
+    "counts": {
+     "triage": 1,
+     "plan": 1,
+     "implement": 2,
+     "adversarial-review": 2,
+     "test": 1
+    },
+    "surplus": {
+     "plan": 1
+    },
+    "missing": {},
+    "extraStretches": [
+     {
+      "ordinal": 2,
+      "duty": "plan",
+      "model": "claude-sonnet-5",
+      "requests": 6,
+      "costUsd": 0.4216903,
+      "precededBy": {
+       "kind": "handoff",
+       "seq": 148,
+       "duty": "triage",
+       "status": "complete",
+       "next": "plan",
+       "why": "Scope is clear but requires architectural design decisions (schema, endpoints, audit strategy, test plan) before implementation to avoid rework and convention violations",
+       "summary": "Triaged todo app build request. Project has strict coding conventions (AGENTS.md) for persistence, ID generation, audit trails, and config. Seed project with Express, SQLite, vitest already set up. Routing to plan duty to design database schema, API endpoints, and test strategy before implementation."
+      }
+     }
+    ],
+    "extraCostUsd": 0.4216903,
+    "extraRequests": 6
+   }
+  ]
+ },
+ "coldStart": [
+  {
+   "run": "A-1",
+   "cacheState": "cold",
+   "cacheWriteTokens": 191400,
+   "cacheReadTokens": 1662223,
+   "writeToReadRatio": 0.11514700494458324,
+   "firstRequest": {
+    "inputTokens": 10,
+    "cacheWriteTokens": 11108,
+    "cacheReadTokens": 0,
+    "prefixTokens": 11118,
+    "costUsd": 0.020567000000000002
+   }
+  },
+  {
+   "run": "A-2",
+   "cacheState": "cold",
+   "cacheWriteTokens": 149719,
+   "cacheReadTokens": 1854302,
+   "writeToReadRatio": 0.08074143262532209,
+   "firstRequest": {
+    "inputTokens": 10,
+    "cacheWriteTokens": 11107,
+    "cacheReadTokens": 0,
+    "prefixTokens": 11117,
+    "costUsd": 0.02057075
+   }
+  },
+  {
+   "run": "A-3",
+   "cacheState": "cold",
+   "cacheWriteTokens": 207273,
+   "cacheReadTokens": 3764138,
+   "writeToReadRatio": 0.05506519686578972,
+   "firstRequest": {
+    "inputTokens": 10,
+    "cacheWriteTokens": 11099,
+    "cacheReadTokens": 0,
+    "prefixTokens": 11109,
+    "costUsd": 0.02055575
+   }
+  },
+  {
+   "run": "A-4",
+   "cacheState": "cold",
+   "cacheWriteTokens": 215534,
+   "cacheReadTokens": 3091107,
+   "writeToReadRatio": 0.06972712364858286,
+   "firstRequest": {
+    "inputTokens": 10,
+    "cacheWriteTokens": 11117,
+    "cacheReadTokens": 0,
+    "prefixTokens": 11127,
+    "costUsd": 0.02057825
+   }
+  },
+  {
+   "run": "B-1",
+   "cacheState": "warm",
+   "cacheWriteTokens": 205828,
+   "cacheReadTokens": 9697349,
+   "writeToReadRatio": 0.021225182263730016,
+   "firstRequest": {
+    "inputTokens": 2,
+    "cacheWriteTokens": 15138,
+    "cacheReadTokens": 92754,
+    "prefixTokens": 107894,
+    "costUsd": 0.0821168
+   }
+  },
+  {
+   "run": "B-2",
+   "cacheState": "warm",
+   "cacheWriteTokens": 77256,
+   "cacheReadTokens": 8601018,
+   "writeToReadRatio": 0.008982192573018683,
+   "firstRequest": {
+    "inputTokens": 2,
+    "cacheWriteTokens": 15138,
+    "cacheReadTokens": 92754,
+    "prefixTokens": 107894,
+    "costUsd": 0.0803568
+   }
+  },
+  {
+   "run": "B-3",
+   "cacheState": "warm",
+   "cacheWriteTokens": 59957,
+   "cacheReadTokens": 7408118,
+   "writeToReadRatio": 0.00809341859835386,
+   "firstRequest": {
+    "inputTokens": 2,
+    "cacheWriteTokens": 15138,
+    "cacheReadTokens": 104804,
+    "prefixTokens": 119944,
+    "costUsd": 0.0829068
+   }
+  },
+  {
+   "run": "B-4",
+   "cacheState": "warm",
+   "cacheWriteTokens": 103915,
+   "cacheReadTokens": 6891436,
+   "writeToReadRatio": 0.01507886019691687,
+   "firstRequest": {
+    "inputTokens": 2,
+    "cacheWriteTokens": 15138,
+    "cacheReadTokens": 92754,
+    "prefixTokens": 107894,
+    "costUsd": 0.0806768
+   }
+  }
+ ],
+ "decomposition": [
+  {
+   "run": "A-1",
+   "arm": "A",
+   "stretches": 6,
+   "apiRequests": 62,
+   "assistantTurns": 119,
+   "toolCalls": 282,
+   "toolSearches": null,
+   "toolCallsPerStretch": 47,
+   "requestsPerStretch": 10.333333333333334,
+   "turnsPerRequest": 1.9193548387096775
+  },
+  {
+   "run": "A-2",
+   "arm": "A",
+   "stretches": 6,
+   "apiRequests": 75,
+   "assistantTurns": 159,
+   "toolCalls": 199,
+   "toolSearches": null,
+   "toolCallsPerStretch": 33.166666666666664,
+   "requestsPerStretch": 12.5,
+   "turnsPerRequest": 2.12
+  },
+  {
+   "run": "A-3",
+   "arm": "A",
+   "stretches": 8,
+   "apiRequests": 134,
+   "assistantTurns": 221,
+   "toolCalls": 378,
+   "toolSearches": null,
+   "toolCallsPerStretch": 47.25,
+   "requestsPerStretch": 16.75,
+   "turnsPerRequest": 1.6492537313432836
+  },
+  {
+   "run": "A-4",
+   "arm": "A",
+   "stretches": 7,
+   "apiRequests": 106,
+   "assistantTurns": 193,
+   "toolCalls": 344,
+   "toolSearches": null,
+   "toolCallsPerStretch": 49.142857142857146,
+   "requestsPerStretch": 15.142857142857142,
+   "turnsPerRequest": 1.820754716981132
+  },
+  {
+   "run": "B-1",
+   "arm": "B",
+   "stretches": 1,
+   "apiRequests": 65,
+   "assistantTurns": 65,
+   "toolCalls": 72,
+   "toolSearches": 0,
+   "toolCallsPerStretch": 72,
+   "requestsPerStretch": 65,
+   "turnsPerRequest": 1
+  },
+  {
+   "run": "B-2",
+   "arm": "B",
+   "stretches": 1,
+   "apiRequests": 57,
+   "assistantTurns": 57,
+   "toolCalls": 62,
+   "toolSearches": 0,
+   "toolCallsPerStretch": 62,
+   "requestsPerStretch": 57,
+   "turnsPerRequest": 1
+  },
+  {
+   "run": "B-3",
+   "arm": "B",
+   "stretches": 1,
+   "apiRequests": 50,
+   "assistantTurns": 50,
+   "toolCalls": 56,
+   "toolSearches": 0,
+   "toolCallsPerStretch": 56,
+   "requestsPerStretch": 50,
+   "turnsPerRequest": 1
+  },
+  {
+   "run": "B-4",
+   "arm": "B",
+   "stretches": 1,
+   "apiRequests": 47,
+   "assistantTurns": 47,
+   "toolCalls": 53,
+   "toolSearches": 0,
+   "toolCallsPerStretch": 53,
+   "requestsPerStretch": 47,
+   "turnsPerRequest": 1
+  }
+ ],
+ "perRunCvReference": {
+  "armA": {
+   "cost": 0.263,
+   "requests": 0.281
+  },
+  "armB": {
+   "cost": 0.081,
+   "requests": 0.1
+  }
+ }
+}

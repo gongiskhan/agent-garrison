@@ -170,16 +170,25 @@ function predictBatchId(reviewed) {
   return list.length === 0 ? PREDICT_BATCH_ID : `${PREDICT_BATCH_ID}-${shortHash(list.join(","))}`;
 }
 
+// The pre-refit, per-file scheme's id prefix (one proposal per touch-set miss,
+// id `coordination-predict-<shortHash(file)>`, evidence `{file}` singular).
+// Superseded by the batch scheme above, but records under this prefix still
+// live in old review queues and a human already decided them — they must
+// count as reviewed too, or their path re-asks once under the new scheme.
+const PREDICT_LEGACY_PREFIX = "coordination-predict-";
+
 // Paths already covered by a RESOLVED (non-pending) predict-batch generation
-// in the review queue. A pending generation is deliberately NOT counted: it is
-// still the record the analyzer refreshes, so its members must stay candidates.
+// in the review queue, PLUS any resolved pre-refit per-file record. A pending
+// generation is deliberately NOT counted: it is still the record the analyzer
+// refreshes, so its members must stay candidates.
 export function reviewedPredictPathsFromQueue(queue = []) {
   const out = new Set();
   for (const p of Array.isArray(queue) ? queue : []) {
     if (!p || p.rule !== "coordination") continue;
-    if (typeof p.id !== "string" || !p.id.startsWith(PREDICT_BATCH_ID)) continue;
+    if (typeof p.id !== "string" || !p.id.startsWith(PREDICT_LEGACY_PREFIX)) continue;
     if (!p.status || p.status === "pending") continue;
     for (const f of Array.isArray(p?.evidence?.files) ? p.evidence.files : []) out.add(String(f).trim());
+    if (typeof p?.evidence?.file === "string" && p.evidence.file.trim()) out.add(p.evidence.file.trim());
   }
   return [...out].sort();
 }

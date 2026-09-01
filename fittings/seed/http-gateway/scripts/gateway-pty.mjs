@@ -4880,6 +4880,132 @@ const server = http.createServer(async (request, response) => {
         return sendJson(response, 202, { cancelled: true, conversationId });
       }
 
+      // ── LAYER 3 ACCESS ────────────────────────────────────────────────
+      // Until now the brief told a stretch where log.jsonl was and suggested
+      // grepping it. That is a hint, not an interface: the file interleaves
+      // every event kind with spilled payload pointers, nothing measured
+      // whether a stretch ever looked, and a stretch with no shell in its tool
+      // profile cannot grep at all. These two routes are what the MCP tools
+      // call, so the reach into history is a recorded, countable act.
+      // ── FINDINGS ──────────────────────────────────────────────────────
+      // A stretch appends to its OWN findings and nothing else; the caller
+      // supplies the stretch id and the store enforces append-only by being
+      // append-only. There is no edit and no delete door on purpose.
+      const findingRoute = /^\/conversation\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/finding$/.exec(url.pathname);
+      if (request.method === "POST" && findingRoute) {
+        const conversationId = findingRoute[1];
+        const body = await readJsonBody(request);
+        const store = openConversation(conversationId, { role: "gateway" });
+        if (store.readSummary() == null) return sendJson(response, 404, { error: "no such conversation" });
+        const { normalizeFinding, assertUnderCap, FindingRejected, FindingsCapReached } = await import("@garrison/claude-pty");
+        const { events } = store.range({ fromIndex: 0, limit: 200_000 });
+        // currentStretch() is the stretch ID as a string, not a record; the
+        // duty comes from that stretch's own stretch-started event.
+        const currentStretchId = store.currentStretch();
+        const startedFor = [...events].reverse().find((e) => e.kind === "stretch-started" && e.stretch === currentStretchId);
+        try {
+          assertUnderCap(events);
+          const entry = normalizeFinding(body, {
+            stretchId: body.stretch ?? currentStretchId ?? null,
+            duty: body.duty ?? startedFor?.payload?.duty ?? startedFor?.duty ?? null,
+            // The stretch's own working directory when it sent one, so a
+            // repo-relative anchorPath resolves where the model is working.
+            cwd: body.cwd || COMPOSITION_DIR,
+          });
+          store.append({ kind: "finding", stretch: entry.stretch, duty: entry.duty, payload: entry });
+          return sendJson(response, 201, { recorded: true, id: entry.id, kind: entry.kind, anchored: Boolean(entry.anchor) });
+        } catch (err) {
+          if (err instanceof FindingsCapReached) {
+            // Surfaced, never compacted: see findings.mjs for why.
+            store.append({ kind: "findings-cap-reached", payload: { count: err.count, cap: err.cap } });
+            return sendJson(response, 409, { error: err.message, code: err.code, count: err.count, cap: err.cap });
+          }
+          if (err instanceof FindingRejected) {
+            return sendJson(response, 400, { error: err.message, code: err.code, detail: err.detail });
+          }
+          throw err;
+        }
+      }
+      if (request.method === "GET" && findingRoute) {
+        const conversationId = findingRoute[1];
+        const store = openConversation(conversationId, { role: "gateway" });
+        if (store.readSummary() == null) return sendJson(response, 404, { error: "no such conversation" });
+        const { composeFindings } = await import("@garrison/claude-pty");
+        const { events } = store.range({ fromIndex: 0, limit: 200_000 });
+        const composed = composeFindings(events, { cwd: url.searchParams.get("cwd") || COMPOSITION_DIR, conversationId });
+        return sendJson(response, 200, { conversationId, entries: composed.entries, staleCount: composed.staleCount, text: composed.text });
+      }
+
+      const layer3 = /^\/conversation\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/(search|digest|record)$/.exec(url.pathname);
+      if (request.method === "GET" && layer3) {
+        const conversationId = layer3[1];
+        const what = layer3[2];
+        const store = openConversation(conversationId, { role: "gateway" });
+        if (store.readSummary() == null) return sendJson(response, 404, { error: "no such conversation" });
+        const q = url.searchParams;
+        const started = Date.now();
+        const { events } = store.range({ fromIndex: 0, limit: 200_000 });
+
+        let payload;
+        if (what === "search") {
+          const text = (q.get("q") ?? "").trim().toLowerCase();
+          const kind = q.get("kind");
+          const duty = q.get("duty");
+          const stretch = q.get("stretch");
+          const limit = Math.min(Math.max(Number(q.get("limit") ?? 40) || 40, 1), 200);
+          const hits = [];
+          for (const e of events) {
+            if (kind && e.kind !== kind) continue;
+            if (duty && e.duty !== duty) continue;
+            if (stretch && e.stretch !== stretch) continue;
+            const blob = JSON.stringify(e.payload ?? {});
+            if (text && !blob.toLowerCase().includes(text)) continue;
+            hits.push({
+              seq: e.seq, ts: e.ts, kind: e.kind, duty: e.duty ?? null, stretch: e.stretch ?? null,
+              bytes: blob.length,
+              // Enough context to decide whether to fetch it, never the record.
+              preview: blob.replace(/\s+/g, " ").slice(0, 240),
+            });
+          }
+          payload = { conversationId, total: hits.length, truncated: hits.length > limit, hits: hits.slice(-limit) };
+        } else if (what === "digest") {
+          const { buildConversationDigest } = await import("@garrison/claude-pty");
+          const d = buildConversationDigest(events, {
+            ...(q.get("stretches") ? { stretches: Number(q.get("stretches")) } : {}),
+            ...(q.get("maxChars") ? { maxChars: Number(q.get("maxChars")) } : {}),
+          });
+          payload = { conversationId, counts: d.counts, truncated: d.truncated, markdown: d.markdown };
+        } else {
+          const seq = Number(q.get("seq"));
+          const hit = events.find((e) => e.seq === seq);
+          if (!hit) return sendJson(response, 404, { error: `no record at seq ${q.get("seq")}` });
+          const cap = Math.min(Math.max(Number(q.get("maxChars") ?? 20_000) || 20_000, 100), 200_000);
+          const body = JSON.stringify(hit.payload ?? {});
+          payload = {
+            conversationId, seq: hit.seq, ts: hit.ts, kind: hit.kind, duty: hit.duty ?? null,
+            stretch: hit.stretch ?? null, bytes: body.length, truncated: body.length > cap,
+            record: body.length > cap ? body.slice(0, cap) : body,
+          };
+        }
+
+        // Instrumented on purpose: how often a stretch reaches past its brief,
+        // and how much it pulls back, has never been measurable. Recorded
+        // against the conversation it read, as a first-class ledger event.
+        try {
+          store.append({
+            kind: "layer3-access",
+            stretch: store.currentStretch() ?? null,
+            payload: {
+              op: what,
+              query: Object.fromEntries(q.entries()),
+              resultBytes: JSON.stringify(payload).length,
+              ms: Date.now() - started,
+            },
+          });
+        } catch { /* an access record must never fail the read */ }
+        return sendJson(response, 200, payload);
+      }
+
       if (request.method === "GET" && /^\/conversation\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(url.pathname)) {
         const conversationId = url.pathname.split("/")[2];
         const store = openConversation(conversationId, { role: "gateway" });
@@ -5198,15 +5324,53 @@ const server = http.createServer(async (request, response) => {
 });
 
 async function main() {
+  // A stretch is not the user's Claude Code session. Opt-in via the fitting's
+  // `stretch_claude_home` config; refuses (and leaves the old behaviour) if it
+  // cannot link credentials, so this can never be the reason a turn fails.
+  if (/^(1|true|yes)$/i.test(String(process.env.GARRISON_HTTPGATEWAY_STRETCH_CLAUDE_HOME ?? ""))) {
+    try {
+      const { ensureStretchClaudeHome } = await import("./lib/stretch-claude-home.mjs");
+      const dir = ensureStretchClaudeHome({ log: (e) => logEvent("stdout", e) });
+      if (dir) process.env.GARRISON_STRETCH_CLAUDE_HOME = dir;
+    } catch (err) {
+      logEvent("stderr", { kind: "stretch-claude-home-error", error: String(err?.message ?? err) });
+    }
+  }
   // Session-log proxy (Harness brief §2), opt-in via the fitting's
   // `session_log_proxy` config. Started before the operative spawns so the
   // spawn env can carry the proxy URL.
   if (/^(1|true|yes)$/i.test(String(process.env.GARRISON_HTTPGATEWAY_SESSION_LOG_PROXY ?? ""))) {
     try {
       const { startAnthropicLogProxy } = await import("./lib/anthropic-log-proxy.mjs");
-      const proxy = await startAnthropicLogProxy();
+      const dump = String(process.env.GARRISON_HTTPGATEWAY_SESSION_LOG_PROXY_DUMP ?? "").trim();
+      if (dump) process.env.GARRISON_ANTHROPIC_PROXY_DUMP = dump;
+      // The proxy is also the only seam where Garrison can set request fields
+      // the Agent SDK does not expose. Both default to off.
+      const ttl = String(process.env.GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL ?? "").trim();
+      const searchVariant = String(process.env.GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH ?? "").trim();
+      // "none" is how a composition says KEEP NOTHING - an empty config value
+      // is indistinguishable from an unset one and would silently fall back to
+      // the default four, which is 6,562 of the 7,077-token block.
+      const keepRaw = String(process.env.GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH_KEEP ?? "Bash,Read,Write,Edit").trim();
+      const keepLoaded = keepRaw.toLowerCase() === "none"
+        ? []
+        : keepRaw.split(",").map((s) => s.trim()).filter(Boolean);
+      // Default ON: the working directory, the memory path and the git snapshot
+      // all sit inside the cached system block, so without this every project
+      // and every commit forks the prefix and starts cold.
+      const staticPrefix = !/^(0|false|no|off)$/i.test(
+        String(process.env.GARRISON_HTTPGATEWAY_STATIC_PREFIX ?? "true").trim()
+      );
+      const shape = (ttl || searchVariant || staticPrefix)
+        ? {
+            ...(ttl ? { cacheTtl: ttl } : {}),
+            ...(searchVariant ? { toolSearch: { variant: searchVariant, keepLoaded } } : {}),
+            ...(staticPrefix ? { staticPrefix: true } : {}),
+          }
+        : null;
+      const proxy = await startAnthropicLogProxy({ shape });
       process.env.GARRISON_ANTHROPIC_PROXY_URL = proxy.url;
-      logEvent("stdout", { kind: "session-log-proxy", url: proxy.url });
+      logEvent("stdout", { kind: "session-log-proxy", url: proxy.url, dump: dump || null, shape });
     } catch (err) {
       logEvent("stderr", { kind: "session-log-proxy-failed", error: String(err?.message ?? err) });
     }

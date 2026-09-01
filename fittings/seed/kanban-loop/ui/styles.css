@@ -425,6 +425,10 @@ body {
   align-items: flex-start;
   gap: 7px;
   line-height: 1.4;
+  /* The title used to share this row with the created-at timestamp (now in
+     .card-footer at the bottom) - with the row to itself it earns some
+     breathing room instead of sitting flush against the card's top edge. */
+  margin-bottom: 4px;
 }
 .card .ct .title {
   flex: 1 1 auto;
@@ -511,7 +515,7 @@ body {
 }
 /* Created instant: lives INSIDE the action row's flex flow, pushed to the right
    edge, so it shares the buttons' last wrapped line instead of costing the card
-   a line of its own. */
+   a line of its own (a separate footer line was tried and rejected). */
 .card .btns .ct-date {
   flex: none;
   margin-left: auto;
@@ -2132,6 +2136,24 @@ button:active, .btn:active { transform: translateY(1px); }
 /* The detail sheet has room: the whole plan reads uncapped. */
 .detail-approval .aa-plan { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .detail-approval .aa-actions .btn.primary { flex: 0 1 auto; padding: 8px 22px; }
+
+/* ── conversation quick replies ──────────────────────────────────────────────
+   Sits beside the composer while the conversation is `needs-input` or
+   `awaiting-approval` (see ConversationStateBanner: "Reply below…"). Big,
+   thumb-sized targets so the common answers - approve, ask for options - never
+   require opening the keyboard; "Ask a question" is the one exception, since a
+   real question still needs real words, so it only focuses the composer. */
+.conv-quickreplies { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 8px 0; }
+.conv-quickreply {
+  flex: 1 1 auto; min-height: 40px; padding: 8px 14px;
+  border: 1px solid var(--border-strong, var(--warn)); border-radius: 8px;
+  background: var(--bg-elev, #fff); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.conv-quickreply:hover:not(:disabled) { border-color: var(--accent, var(--warn-ink)); }
+.conv-quickreply:disabled { opacity: 0.5; cursor: default; }
+.conv-quickreply-approve { background: var(--warn-soft); border-color: var(--warn); color: var(--warn-ink); }
+.conv-quickreply-ghost { background: transparent; }
 
 /* Terminal host (copied from dev-env) + the Terminal modal shell. */
 .term-host { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }

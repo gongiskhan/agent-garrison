@@ -189,6 +189,20 @@ describe("coordination rule (S6/D17)", () => {
     expect(paths).toEqual(["a.ts", "b.ts"]);
   });
 
+  it("reviewedPredictPathsFromQueue also counts resolved pre-refit per-file records", () => {
+    // Before the batch refit, each qualifying path got its own proposal:
+    // id `coordination-predict-<hash>`, evidence `{file}` singular. Old queues
+    // still carry these, and a human already decided them — they must count as
+    // reviewed or the path re-asks once under the new batch scheme.
+    const paths = ruleMod.reviewedPredictPathsFromQueue([
+      { id: "coordination-predict-348e10f7", rule: "coordination", status: "rejected", evidence: { file: "a.ts" } },
+      { id: "coordination-predict-3ae7e531", rule: "coordination", status: "applied", evidence: { file: "b.ts" } },
+      // a still-pending legacy record must not count, same rule as the batch scheme
+      { id: "coordination-predict-c0ffee00", rule: "coordination", status: "pending", evidence: { file: "c.ts" } },
+    ]);
+    expect(paths).toEqual(["a.ts", "b.ts"]);
+  });
+
   it("the touch-set-prediction batch lists every qualifying path in evidence.files, beyond the 5-path claim preview", () => {
     const files = ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts", "g.ts"];
     const cards = [card("c1", files.flatMap((f) => [outOfSet([f]), outOfSet([f])]))];

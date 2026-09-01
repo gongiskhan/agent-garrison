@@ -1,0 +1,41 @@
+{
+ "floor": 8,
+ "sections": {
+  "(preamble)": {
+   "chars": 61,
+   "tokens": 15
+  },
+  "## Routing philosophy": {
+   "chars": 732,
+   "tokens": 178
+  },
+  "## Execution policy": {
+   "chars": 3486,
+   "tokens": 804
+  },
+  "## Tools and capabilities available in this Operative": {
+   "chars": 29130,
+   "tokens": 7135
+  },
+  "## Duties and levels": {
+   "chars": 9817,
+   "tokens": 2895
+  },
+  "## Composition readiness": {
+   "chars": 597,
+   "tokens": 165
+  },
+  "## Escalation policy": {
+   "chars": 680,
+   "tokens": 173
+  },
+  "## When to ask vs proceed": {
+   "chars": 706,
+   "tokens": 167
+  },
+  "## Identity": {
+   "chars": 766,
+   "tokens": 180
+  }
+ }
+}
