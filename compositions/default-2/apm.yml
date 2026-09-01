@@ -160,6 +160,12 @@ x-garrison:
             memory_dir: Memory
             project_name: main
             capture_enabled: true
+            # Declared explicitly even though the manifest's default is already
+            # true: setup.sh reads $KANBAN_CAPTURE_ENABLED from the projected
+            # env and treats EMPTY as off, so an omitted key silently inverts
+            # the declared default — it deletes the consumer that verify.sh then
+            # demands, and the composition can never come up.
+            kanban_completion_capture_enabled: true
             register_codex_gemini: false
       observability:
         - id: monitor-default
