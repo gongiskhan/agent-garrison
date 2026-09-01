@@ -158,9 +158,20 @@ export interface SessionBlock {
   chosenBy?: string | null;
   outcome?: string | null;
   usedTokens?: number | null;
+  costUsd?: number | null;
+  apiCalls?: number | null;
   durationMs?: number | null;
   payloadRef?: string | null;
   seq?: number | null;
+  /** `stretch` phase `ended` (where the handoff pointed and, when it blocked,
+   * what it needs) and `ledger` kind `approval-requested` (the duty asking for
+   * a go-ahead). These drive the conversation activity derivation (spinner vs
+   * "needs your input" banner) without parsing ledger prose. */
+  next?: string | null;
+  summary?: string | null;
+  blockerWhat?: string | null;
+  blockerNeeds?: string | null;
+  blockerWho?: string | null;
 }
 
 export interface SessionErrorBlock extends SessionBlock {
@@ -220,7 +231,25 @@ export interface SessionStretchBlock extends SessionBlock {
   /** `ended` only - the handoff status the exit gate recorded. */
   outcome?: string | null;
   usedTokens?: number | null;
+  /** `ended` only - list-rate cost of this stretch, summed from the provider's
+   * own per-call usage over the shared rate table. ABSENT when the stretch could
+   * not be priced (an unknown model, or a runtime that reports no usage) - an
+   * unpriced stretch renders no cost, never a zero. */
+  costUsd?: number | null;
+  /** `ended` only - how many API calls the stretch made. */
+  apiCalls?: number | null;
   durationMs?: number | null;
+  /** `ended` only - where the handoff pointed next: another duty, `done`, or
+   * `needs-input`. The conversation activity derivation reads this to tell a
+   * spinner (more work coming) from a terminal state (banner). */
+  next?: string | null;
+  /** `ended` only - the handoff's one-paragraph summary, capped by the adapter. */
+  summary?: string | null;
+  /** `ended` only, blocked/needs-input handoffs - what stopped the work, what it
+   * needs, and from whom. Rendered verbatim in the needs-input banner. */
+  blockerWhat?: string | null;
+  blockerNeeds?: string | null;
+  blockerWho?: string | null;
 }
 
 /** A conversation-ledger event rendered inline in the timeline. `title` is the
@@ -233,7 +262,8 @@ export type SessionLedgerKind =
   | "delegation-failed"
   | "card-state-changed"
   | "escalation"
-  | "policy-rewrite";
+  | "policy-rewrite"
+  | "approval-requested";
 
 export interface SessionLedgerBlock extends SessionBlock {
   type: "ledger";
@@ -736,9 +766,18 @@ export function mergeSessionEvents(current: SessionEvent[], incoming: SessionEve
         ...retractionsFor(next[acceptedIndex]),
         ...retracts,
       ])].slice(0, SESSION_RETRACT_CAP);
-      next[acceptedIndex] = retainedRetracts.length
-        ? { ...event, retracts: retainedRetracts }
+      // Same carry-forward for reasoning: the SDK settles one message as
+      // several subset envelopes sharing the event id, and only the first
+      // carries the thinking block - so the newest revision (the one a reload
+      // renders) would silently erase it. Thinking, once seen on a stable
+      // event, survives every later revision.
+      const priorThinking = (next[acceptedIndex].blocks ?? []).filter((block) => block.type === "thinking");
+      const merged = priorThinking.length > 0 && !(event.blocks ?? []).some((block) => block.type === "thinking")
+        ? { ...event, blocks: [...priorThinking, ...(event.blocks ?? [])] }
         : event;
+      next[acceptedIndex] = retainedRetracts.length
+        ? { ...merged, retracts: retainedRetracts }
+        : merged;
     }
     rebuildIndexes();
   }
@@ -821,4 +860,163 @@ export function collectRelatedTasks(events: SessionEvent[], live = false): Relat
     }
   }
   return [...byKey.values()];
+}
+
+/**
+ * Drop the exit contract's \`\`\`handoff fence (and everything after it) from a
+ * conversation stretch's displayed prose. The fence is protocol addressed to
+ * the exit gate - already extracted, validated and preserved in the store - and
+ * by contract it is the TAIL of the reply, so cutting from the opener is also
+ * exactly right mid-stream (the partial fence never flashes raw JSON).
+ */
+export function stripHandoffFence(text: string): string {
+  const index = text.indexOf("```handoff");
+  return index === -1 ? text : text.slice(0, index).trimEnd();
+}
+
+// ── Conversation activity ───────────────────────────────────────────────────
+
+/**
+ * What a conversation is doing RIGHT NOW, derived purely from its rendered
+ * events. `none` means the events carry no conversation spine at all (a plain
+ * runtime session) - every consumer should treat that as "this derivation does
+ * not apply", not as idle.
+ *
+ * The launcher's real state machine lives server-side; this is the client's
+ * honest reconstruction from the ledger, and it deliberately says `idle` when
+ * the record is too old to carry `next` on its stretch boundaries.
+ */
+export type ConversationActivityMode =
+  | "none"
+  | "idle"
+  | "starting"
+  | "working"
+  | "handoff"
+  | "awaiting-approval"
+  | "needs-input"
+  | "done";
+
+export interface ConversationActivity {
+  mode: ConversationActivityMode;
+  /** Duty of the governing stretch (the running one, or the last ended one). */
+  duty: string | null;
+  model: string | null;
+  /** Where the last handoff pointed (`done`, `needs-input`, or a duty). */
+  next: string | null;
+  summary: string | null;
+  blockerWhat: string | null;
+  blockerNeeds: string | null;
+  blockerWho: string | null;
+  /** `awaiting-approval` only - the duty asking for a go-ahead and the plan it
+   * intends to execute (the ask's own words, plus its planned items). */
+  approvalNext: string | null;
+  approvalPlan: string | null;
+  /** Epoch ms of the event that established this mode - the spinner's elapsed base. */
+  since: number | null;
+}
+
+function activityLabel(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Derive the conversation's current activity from its event stream.
+ *
+ * Position comparisons use ARRAY ORDER, which is chronological for everything
+ * that matters here: a stretch's `ended` block revises its `started` slot in
+ * place, so the slot position is the stretch's START - and a user message or an
+ * approval ask that arrived after the stretch began always sits later in the
+ * array, which is exactly the "who moved last" question this answers.
+ */
+export function conversationActivity(events: SessionEvent[]): ConversationActivity {
+  let sawSpine = false;
+  let stretchIndex = -1;
+  let stretch: SessionBlock | null = null;
+  let stretchTs: number | null = null;
+  let approvalIndex = -1;
+  let approvalTs: number | null = null;
+  let approvalBlock: SessionBlock | null = null;
+  let userIndex = -1;
+  let userTs: number | null = null;
+
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (event.role === "user") {
+      // Only a HUMAN message counts. The runtime tee also writes user-SHAPED
+      // events (tool results ride as role "user" with toolResultsOnly in the
+      // canonical vocabulary), and counting one of those made every finished
+      // stretch read as "a message is waiting".
+      const isMessage = !event.toolResultsOnly &&
+        (event.blocks ?? []).some((block) => block.type === "text" && typeof block.text === "string" && block.text.trim() !== "");
+      if (isMessage) {
+        userIndex = index;
+        userTs = typeof event.ts === "number" ? event.ts : null;
+      }
+      continue;
+    }
+    for (const block of event.blocks ?? []) {
+      if (block.type === "stretch") {
+        sawSpine = true;
+        stretchIndex = index;
+        stretch = block;
+        stretchTs = typeof event.ts === "number" ? event.ts : null;
+      } else if (block.type === "ledger") {
+        sawSpine = true;
+        if (block.kind === "approval-requested") {
+          approvalIndex = index;
+          approvalTs = typeof event.ts === "number" ? event.ts : null;
+          approvalBlock = block;
+        }
+      }
+    }
+  }
+
+  const empty: Omit<ConversationActivity, "mode" | "since"> = {
+    duty: null,
+    model: null,
+    next: null,
+    summary: null,
+    blockerWhat: null,
+    blockerNeeds: null,
+    blockerWho: null,
+    approvalNext: null,
+    approvalPlan: null,
+  };
+  if (!sawSpine) return { mode: "none", ...empty, since: null };
+
+  const attribution = (stretch?.attribution ?? {}) as Record<string, unknown>;
+  const detail: Omit<ConversationActivity, "mode" | "since"> = {
+    duty: activityLabel(stretch?.duty),
+    model: activityLabel(attribution.model),
+    next: activityLabel(stretch?.next),
+    summary: activityLabel(stretch?.summary),
+    blockerWhat: activityLabel(stretch?.blockerWhat),
+    blockerNeeds: activityLabel(stretch?.blockerNeeds),
+    blockerWho: activityLabel(stretch?.blockerWho),
+    // The approval ask's own content: the duty it wants to run and the plan it
+    // intends to execute (adapter-built from the ask's plan + planned items).
+    approvalNext: activityLabel(approvalBlock?.next),
+    approvalPlan: activityLabel(approvalBlock?.detail),
+  };
+
+  // A user message after everything else: the launcher owes the next stretch.
+  if (userIndex > stretchIndex && userIndex > approvalIndex) {
+    return { mode: "starting", ...detail, since: userTs };
+  }
+  // An unanswered approval ask after the last stretch boundary.
+  if (approvalIndex > stretchIndex) {
+    return { mode: "awaiting-approval", ...detail, since: approvalTs };
+  }
+  if (stretch && stretch.phase === "started") {
+    return { mode: "working", ...detail, since: stretchTs };
+  }
+  if (stretch && stretch.phase === "ended") {
+    if (detail.next === "needs-input") return { mode: "needs-input", ...detail, since: stretchTs };
+    if (detail.next === "done") return { mode: "done", ...detail, since: stretchTs };
+    // A named duty: the exit gate accepted the handoff and the launcher is
+    // choosing what runs next. A record too old to carry `next` reads idle -
+    // claiming a spinner for it would be a guess.
+    if (detail.next) return { mode: "handoff", ...detail, since: stretchTs };
+  }
+  return { mode: "idle", ...detail, since: stretchTs };
 }

@@ -36,6 +36,7 @@ final class PendantController: ObservableObject {
     private var transport: DeviceTransport
     private var uploader: CaptureUploader?
     private let phoneSink: PhoneFeedbackSink?
+    private let speechSink: SpeechSink
     private var codec: PendantCodec = .opusFS320
 
     /// The device haptic vocabulary (ADR D4): patterns composed from the
@@ -65,9 +66,24 @@ final class PendantController: ObservableObject {
         }
     }
 
-    init(transport: DeviceTransport? = nil, phoneSink: PhoneFeedbackSink? = PhoneFeedbackSink()) {
+    /// The app-lifetime pendant.
+    ///
+    /// The controller used to be a `@StateObject` inside PendantView, so
+    /// navigating to Settings - or anywhere - tore it down: BLE dropped, the
+    /// session ended, and the wearable went deaf until you walked back to that
+    /// one screen. A pendant is an always-on device; its owner has to be the
+    /// app, not a view. Views observe this; nobody else constructs one except
+    /// tests, which pass their own transport.
+    static let shared = PendantController()
+
+    init(
+        transport: DeviceTransport? = nil,
+        phoneSink: PhoneFeedbackSink? = PhoneFeedbackSink(),
+        speechSink: SpeechSink = SpeechSink()
+    ) {
         self.transport = transport ?? PendantBLETransport(identifier: AppGroup.pendantIdentifier)
         self.phoneSink = phoneSink
+        self.speechSink = speechSink
         wireTransport()
     }
 
@@ -163,6 +179,32 @@ final class PendantController: ObservableObject {
         uploader.onFeedback = { [weak self] event in
             Task { @MainActor in self?.handleFeedback(event) }
         }
+        // The mouth. Until 2026-08-27 the server refused to speak to a pendant
+        // session at all, so this was never wired - and the moment the server
+        // started forwarding, the message arrived at a nil handler: no speech,
+        // no receipt, silence that looked exactly like a broken voice.
+        //
+        // The wearer of a pendant is precisely who wants to be answered out
+        // loud, and it is the same phone and the same speaker as the companion
+        // lane, so the sink and the receipt path are identical to
+        // CaptureController's.
+        uploader.onSpeak = { [weak self] ack in
+            Task { @MainActor in
+                guard let self else { return }
+                self.speechSink.onReceipt = { receipt in
+                    uploader.sendSpokenReceipt(ackId: receipt.ackId, ok: receipt.ok, reason: receipt.reason)
+                    AckLog.shared.append(AckLogEntry(
+                        id: receipt.ackId,
+                        at: Date(),
+                        kind: ack.kind,
+                        severity: ack.severity,
+                        text: ack.text,
+                        via: receipt.ok ? "spoken" : "dropped:\(receipt.reason ?? "unknown")"
+                    ))
+                }
+                self.speechSink.handle(ack)
+            }
+        }
         self.uploader = uploader
         uploader.connect()
     }
@@ -177,6 +219,21 @@ final class PendantController: ObservableObject {
 
     private func handleFeedback(_ event: FeedbackEvent) {
         phoneSink?.play(event)
+        // The spoken cue, if this event carries one. Non-blocking and dropped
+        // rather than queued, so it can never sit in front of the haptic write
+        // below - the feedback_ack rides that write, and wake_to_device_ack_ms
+        // measures it.
+        if let speak = event.speak {
+            speechSink.speakCue(
+                SpeechSink.Cue(
+                    eventId: event.eventId,
+                    text: speak.text,
+                    lang: speak.lang,
+                    audioPath: speak.audioPath,
+                    at: ISO8601DateFormatter().date(from: event.at)
+                )
+            )
+        }
         let pattern = Self.hapticPattern(for: event.name)
         if let first = pattern.first {
             // The ack rides on the FIRST physical device write - that is the

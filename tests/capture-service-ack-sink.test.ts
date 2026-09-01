@@ -308,4 +308,37 @@ describe("capture-service ack sink", () => {
     expect((handle as any).ackSink.burst.suppressed).toBe(2);
     expect((handle as any).ackSink.burst.timer).toBeTruthy();
   });
+
+  // The failure that silenced the voice for two days. A phone that reconnects
+  // without ending its old session leaves it in the map, and a TCP socket to a
+  // dead app still reports readyState OPEN - so picking the FIRST match sent
+  // every line to the oldest corpse. Live evidence: 104 forwarded, 23
+  // confirmed, 78 receipt timeouts, with sessions from two days earlier still
+  // resident.
+  it("speaks to the NEWEST live session, not the first one in the map", async () => {
+    const { handle } = await boot();
+    const sink = handle.ackSink;
+    const open = { readyState: 1, OPEN: 1, send: () => {} };
+    handle.ingress.sessions.set("old", {
+      record: { id: "old", mode: "pendant", started_at: "2026-08-29T07:00:00Z" },
+      socket: open
+    });
+    handle.ingress.sessions.set("new", {
+      record: { id: "new", mode: "pendant", started_at: "2026-08-31T11:00:00Z" },
+      socket: open
+    });
+    expect(sink.speakableSession()?.record.id).toBe("new");
+
+    // An ENDED session is never spoken to, however open its socket looks.
+    handle.ingress.sessions.set("newer-but-ended", {
+      record: { id: "newer-but-ended", mode: "pendant", started_at: "2026-08-31T12:00:00Z", ended: { reason: "user" } },
+      socket: open
+    });
+    expect(sink.speakableSession()?.record.id).toBe("new");
+
+    // And one that stopped answering is sidelined, so a dead socket cannot
+    // swallow every line while a live session sits behind it.
+    sink.muteSession("new", 60_000);
+    expect(sink.speakableSession()?.record.id).toBe("old");
+  });
 });

@@ -29,6 +29,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         guard let baseURL = AppGroup.baseURL, let token = AppGroup.token else {
+            // Recorded before finishing: this process is about to die and its
+            // error goes nowhere the user will ever read.
+            let missing = AppGroup.baseURL == nil ? "capture URL" : "capture token"
+            AppGroup.noteBroadcastError("No \(missing) set - open Garrison > Settings and fill it in.")
             finishBroadcastWithError(NSError(
                 domain: "com.gomes.garrison.broadcast",
                 code: 1,
@@ -36,6 +40,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             ))
             return
         }
+        AppGroup.clearBroadcastError()
         sessionStart = Date()
         let sessionId = SessionId.generate()
         let uploader = CaptureUploader(
@@ -49,11 +54,16 @@ final class SampleHandler: RPBroadcastSampleHandler {
         )
         self.uploader = uploader
         uploader.connect()
+        // Tell the app it has eyes. Read on the main screen, and by the user
+        // deciding whether to say "her" or a name.
+        AppGroup.noteBroadcastAlive()
         // No speech in screen_audio mode (the server never sends it either):
         // this process has no AEC coupling to the app's speaker.
     }
 
     override func broadcastFinished() {
+        // A clean stop is not an error; leave no stale explanation behind.
+        AppGroup.clearBroadcastError()
         // Drain the converter's tail (the end of the last word) before ending.
         if let encoder, let uploader {
             let ts = Date().timeIntervalSince(sessionStart) * 1000
@@ -64,6 +74,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         uploader?.end(reason: "user")
         uploader = nil
         encoder = nil
+        AppGroup.clearBroadcast()
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
@@ -90,6 +101,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         autoreleasepool {
             guard let jpeg = jpegFromPixelBuffer(pixelBuffer) else { return }
             uploader.sendVideoFrame(jpeg, ts: Date().timeIntervalSince(sessionStart) * 1000)
+            // Cheap: this path is already throttled to ~1.5 fps.
+            AppGroup.noteBroadcastAlive()
         }
     }
 

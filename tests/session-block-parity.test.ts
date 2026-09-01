@@ -155,6 +155,7 @@ describe("ledger blocks round-trip through the channel sanitizer", () => {
     kind: "delegation-returned",
     title: "review returned: 2 findings",
     detail: "findings:\n- unguarded write\n- missing verify",
+    next: "review",
     payloadRef: "delegation-01ABC",
     seq: 42,
   };
@@ -175,6 +176,7 @@ describe("ledger blocks round-trip through the channel sanitizer", () => {
       { ...valid, title: "   " },
       { ...valid, kind: "not-a-ledger-kind" },
       { ...valid, detail: 42 },
+      { ...valid, next: 42 },
       { ...valid, payloadRef: 42 },
       { ...valid, seq: 1.5 },
     ]) {

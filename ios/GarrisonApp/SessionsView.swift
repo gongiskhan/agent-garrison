@@ -24,6 +24,10 @@ struct SessionsView: View {
 
     var body: some View {
         List {
+            // The raw delivery record (every ack and push the phone received),
+            // demoted from the front door: the Conversation screen is the
+            // product surface, this is the debug one.
+            NavigationLink("Delivery log") { AckLogView() }
             if let status {
                 Text(status).font(.footnote).foregroundStyle(.secondary)
             }
@@ -95,7 +99,7 @@ struct AckLogView: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("Messages")
+        .navigationTitle("Delivery log")
         .onAppear { entries = AckLog.shared.entries() }
         .refreshable { entries = AckLog.shared.entries() }
     }

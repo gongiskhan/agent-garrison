@@ -529,6 +529,7 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
       unavailable.model = why;
       unavailable.effort = why;
       unavailable.duty = why;
+      unavailable.level = why;
       unavailable.account = why;
       // The run-plan menus come from the compiled policy, which only the gateway
       // process holds - so they are unavailable for the same reason and must say so
@@ -536,6 +537,7 @@ export async function apiRouteOptions(refresh: boolean): Promise<RouteOptions | 
       unavailable.tier = why;
       unavailable.flow = why;
       unavailable.phasesOff = why;
+      unavailable.phasesOn = why;
     }
     if (sources.board === false) {
       unavailable.project = "the kanban board is not running - it is where the project list comes from";
@@ -1694,6 +1696,16 @@ function ThreadedApp({ url }: { url: UrlState }) {
             routeOptions={routeOptions}
             onPinChange={savePins}
             onOpenRuntimeTranscript={openTranscript}
+            headerExtra={
+              <button
+                type="button"
+                className="wc-conv-id"
+                title="copy the conversation id"
+                onClick={() => { void navigator.clipboard?.writeText(conversationId); }}
+              >
+                {conversationId}
+              </button>
+            }
           />
         ) : (
           <ClaudeChat

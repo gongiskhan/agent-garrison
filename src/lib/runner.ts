@@ -1696,12 +1696,13 @@ export async function assembleSystemPrompt(compositionId: string): Promise<strin
 
 export function substituteCapabilitiesPlaceholder(
   prompt: string,
-  entries: LibraryEntry[]
+  entries: LibraryEntry[],
+  detail: CapabilitiesDetail = "full"
 ): string {
   // Function replacement: the block embeds fitting-authored for_consumers
   // markdown verbatim, and a string second argument would expand $-patterns
   // ($&, $', $$) found in it as replacement directives.
-  const block = renderCapabilitiesBlock(entries);
+  const block = renderCapabilitiesBlock(entries, detail);
   return prompt.replace(/{{capabilities}}/g, () => block);
 }
 
@@ -1883,7 +1884,12 @@ export async function resolveRoutingSection(
   }
 }
 
-export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {
+export type CapabilitiesDetail = "full" | "index" | "names";
+
+export function renderCapabilitiesBlock(
+  entries: LibraryEntry[],
+  detail: CapabilitiesDetail = "full"
+): string {
   const inputs = entries.map((entry) => ({ id: entry.id, metadata: entry.metadata }));
   const result = resolveCapabilities(inputs);
   const providerEntries: Array<{
@@ -1937,6 +1943,27 @@ export function renderCapabilitiesBlock(entries: LibraryEntry[]): string {
   // If any provider ships a for_consumers block we render multi-line entries
   // separated by blank lines so the indented bodies don't run together. When
   // every provider falls back to summary we keep the legacy single-line form.
+  // "names" is the cheapest form that still does the ONE job the catalogue has
+  // to do: stop a stretch inventing a capability that is not installed. 47
+  // capability lines with summaries cost 7,135 tokens on haiku and are carried
+  // by every stretch of every duty; the same 47 as bare `kind:name` cost a few
+  // hundred. Summaries and the provider's full guidance are one
+  // garrison_capability_doc call away, and unlike a per-duty subset this needs
+  // no guess about which fittings a duty "might" need - a guess the tool-usage
+  // measurement showed nobody can make well (zero capability-doc calls in 35
+  // recorded conversations).
+  if (detail === "names") {
+    return providerEntries.map((entry) => `- ${entry.kind}:${entry.name}`).join("\n");
+  }
+  // "index" keeps the inventory - which is what stops a stretch inventing a
+  // capability - and drops the bodies, which are what cost the tokens.
+  if (detail === "index") {
+    const lines = providerEntries.map((entry) => {
+      const has = entry.forConsumers ? "  [usage guidance available]" : "";
+      return `- ${entry.kind}:${entry.name} — ${entry.summary}${has}`;
+    });
+    return lines.join("\n");
+  }
   const anyForConsumers = providerEntries.some((entry) => entry.forConsumers);
   const separator = anyForConsumers ? "\n\n" : "\n";
   return providerEntries
@@ -2089,6 +2116,62 @@ function compactEnv(config: Record<string, unknown>): Record<string, string> {
     } catch {
       /* a non-serialisable override map is dropped rather than aborting spawn */
     }
+  }
+  return env;
+}
+
+// Project the gateway fitting's session-log-proxy config into its spawn env.
+// The keys existed on the fitting and were read by gateway-pty, but nothing
+// ever set them, so turning the proxy on in a composition did nothing at all.
+function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (config.session_log_proxy !== undefined && config.session_log_proxy !== null) {
+    env.GARRISON_HTTPGATEWAY_SESSION_LOG_PROXY = String(config.session_log_proxy);
+  }
+  if (typeof config.session_log_proxy_dump === "string" && config.session_log_proxy_dump.trim()) {
+    env.GARRISON_HTTPGATEWAY_SESSION_LOG_PROXY_DUMP = config.session_log_proxy_dump.trim();
+  }
+  // Request shaping rides the same proxy: the cache TTL that decides whether
+  // stretches share one boot prefix, and deferred tool loading.
+  if (config.stretch_claude_home !== undefined && config.stretch_claude_home !== null) {
+    env.GARRISON_HTTPGATEWAY_STRETCH_CLAUDE_HOME = String(config.stretch_claude_home);
+  }
+  // Strict project resolution: a card naming an unresolvable project fails hard
+  // rather than running its stretches in the composition dir.
+  if (config.strict_project_resolution !== undefined && config.strict_project_resolution !== null) {
+    env.GARRISON_HTTPGATEWAY_STRICT_PROJECT_RESOLUTION = String(config.strict_project_resolution);
+  }
+  // The per-duty findings expectation carried in the stretch brief.
+  if (config.triage_findings !== undefined && config.triage_findings !== null) {
+    env.GARRISON_HTTPGATEWAY_TRIAGE_FINDINGS = String(config.triage_findings);
+  }
+  // The per-task ceiling on review stretches.
+  if (config.review_budget !== undefined && config.review_budget !== null) {
+    env.GARRISON_HTTPGATEWAY_REVIEW_BUDGET = String(config.review_budget);
+  }
+  // Keep per-project and per-commit material out of the cached system block.
+  if (config.static_prefix !== undefined && config.static_prefix !== null) {
+    env.GARRISON_HTTPGATEWAY_STATIC_PREFIX = String(config.static_prefix);
+  }
+  // Card-owned attachment paths folded into the stretch brief.
+  if (config.card_attachments !== undefined && config.card_attachments !== null) {
+    env.GARRISON_HTTPGATEWAY_CARD_ATTACHMENTS = String(config.card_attachments);
+  }
+  // Codex as a stretch runtime: MCP mount + fail-loudly discipline.
+  if (config.runtime_codex !== undefined && config.runtime_codex !== null) {
+    env.GARRISON_HTTPGATEWAY_RUNTIME_CODEX = String(config.runtime_codex);
+  }
+  // Per-duty ordered route lists with cooling and brief overrides.
+  if (config.routing_table !== undefined && config.routing_table !== null) {
+    env.GARRISON_HTTPGATEWAY_ROUTING_TABLE = String(config.routing_table);
+  }
+  for (const [key, envName] of [
+    ["prefix_cache_ttl", "GARRISON_HTTPGATEWAY_PREFIX_CACHE_TTL"],
+    ["prefix_tool_search", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH"],
+    ["prefix_tool_search_keep", "GARRISON_HTTPGATEWAY_PREFIX_TOOL_SEARCH_KEEP"]
+  ] as const) {
+    const value = config[key];
+    if (typeof value === "string" && value.trim()) env[envName] = value.trim();
   }
   return env;
 }
@@ -2515,6 +2598,7 @@ async function spawnGateway(
       (gateway.config.permission_mode as string | undefined) ?? "bypassPermissions",
     GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus",
     ...compactEnv(gateway.config),
+    ...sessionLogProxyEnv(gateway.config),
     ...(extraEnv ?? {})
   };
 

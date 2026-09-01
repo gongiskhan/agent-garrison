@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Marked } from "marked";
 import { filePathMarkedExtension } from "./host-rewrite";
 import { installSafeMarkdownRenderer, loadHostMap } from "./markdown-safety";
@@ -8,6 +8,7 @@ import { railBadges } from "./run-context";
 import type { RouteAttribution } from "./transport";
 import {
   collectRelatedTasks,
+  conversationActivity,
   groupSessionTurns,
   hasVisibleSessionActivity,
   isSessionEvent,
@@ -16,8 +17,9 @@ import {
   presentSessionTurn,
   sessionActivityBeats,
   sessionEventText,
-  sessionThinkingSummary,
   sessionToolSummary,
+  stripHandoffFence,
+  type ConversationActivity,
   type FailureInfo,
   type PermissionAnswer,
   type PermissionDecision,
@@ -119,6 +121,23 @@ export interface SessionStreamProps {
    * behaviour. An id no event carries is inert.
    */
   focusEventId?: string;
+  /**
+   * The HOST's word on whether this conversation is still being driven (a card
+   * on Running, a thread with an active input). The stream derives its own
+   * activity from the events; an explicit `false` here overrides that
+   * derivation's spinners - a crashed launcher must not leave an eternal
+   * "working" strip when the card beside it says stopped. Absent → trust the
+   * derivation. Meaningless outside conversation streams.
+   */
+  conversationLive?: boolean;
+  /**
+   * Fired whenever the stream's own derived activity changes (a conversation
+   * stream only - `none` for a plain runtime session). Lets a host composer
+   * that sits OUTSIDE this component - which owns no events of its own - offer
+   * quick replies while the conversation is `needs-input` or
+   * `awaiting-approval`, without duplicating the derivation.
+   */
+  onActivityChange?: (activity: ConversationActivity) => void;
 }
 
 export interface SessionEventTimelineProps {
@@ -236,6 +255,50 @@ function ActivityDetails({
 
 /** A detail this short reads as the row's own subtitle; longer needs its own line. */
 const NOTICE_INLINE_CHARS = 90;
+
+/**
+ * ChatGPT-style reveal for LIVE prose. The pipeline delivers text in bursts
+ * (the tee throttles, the SSE polls), so without this a fast model's paragraph
+ * lands whole. The shown slice catches up at a bounded rate (~two-thirds of a
+ * second per burst, floor ~120 chars/s) so the text TYPES in and can be read
+ * as it arrives. A mount mid-stream shows everything already present (no
+ * replay); a shrink (a stripped protocol tail) and a giant catch-up snap.
+ */
+function StreamingText({ text, renderMarkdown }: { text: string; renderMarkdown?: (value: string) => string }) {
+  const [shownLength, setShownLength] = useState(text.length);
+  const shownRef = useRef(text.length);
+  if (shownRef.current > text.length) shownRef.current = text.length;
+  useEffect(() => {
+    const backlog = text.length - shownRef.current;
+    if (backlog <= 0) {
+      if (shownLength !== text.length) setShownLength(text.length);
+      return;
+    }
+    if (backlog > 6000) {
+      shownRef.current = text.length;
+      setShownLength(text.length);
+      return;
+    }
+    let raf = 0;
+    const step = () => {
+      const remaining = text.length - shownRef.current;
+      if (remaining <= 0) return;
+      shownRef.current = Math.min(text.length, shownRef.current + Math.max(2, Math.ceil(remaining / 40)));
+      setShownLength(shownRef.current);
+      if (shownRef.current < text.length) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+  return (
+    <TextBlock
+      text={text.slice(0, Math.min(shownLength, text.length))}
+      role="assistant"
+      renderMarkdown={renderMarkdown}
+    />
+  );
+}
 
 function elapsedLabel(elapsedMs: number | null | undefined): string | null {
   if (typeof elapsedMs !== "number" || !Number.isFinite(elapsedMs) || elapsedMs < 0) return null;
@@ -385,21 +448,21 @@ function ToolBlock({
 }
 
 function ThinkingBlock({ block, active }: { block: SessionBlock; active: boolean }) {
-  const summary = sessionThinkingSummary(block.text);
+  // A thinking block opens empty and fills from deltas. Before any text lands
+  // there is nothing to read, and an empty panel is pure noise - a turn that
+  // never produced reasoning text must not leave a "Thought" box behind.
+  if (!String(block.text ?? "").trim()) return null;
+  // Never a <details>: the reasoning is part of the conversation's record, and a
+  // block that collapses the moment the next tool call starts can never be read.
+  // Every thinking block stays fully visible for the life of the transcript.
   return (
-    <ActivityDetails
-      active={active}
-      className="cc-session-thinking"
-      summary={
-        <>
-          <span>{active ? "Thinking" : "Thought"}</span>
-          <span className="cc-session-thinking-hint">{summary}</span>
-          {active && <span className="cc-session-live-dot" aria-hidden="true" />}
-        </>
-      }
-    >
-      <pre className="cc-session-pre">{block.text}</pre>
-    </ActivityDetails>
+    <div className={`cc-session-thinking${active ? " is-live" : " is-complete"}`}>
+      <div className="cc-session-thinking-head">
+        <span>{active ? "Thinking" : "Thought"}</span>
+        {active && <span className="cc-session-live-dot" aria-hidden="true" />}
+      </div>
+      <div className="cc-session-thinking-text">{block.text}</div>
+    </div>
   );
 }
 
@@ -844,6 +907,17 @@ function SessionNotice({
  * badge vocabulary as the Turn Rail. The badges come from `railBadges` and
  * nowhere else, so the honesty rule holds here too - a dimension the stretch's
  * attribution could not report gets NO badge, never a placeholder. */
+/** Money, at a precision that stays readable across four orders of magnitude:
+ * a sub-cent stretch and a ten-dollar conversation both have to be legible. */
+export function formatUsd(usd: number): string {
+  if (!Number.isFinite(usd)) return "";
+  if (usd === 0) return "$0";
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  if (usd < 100) return `$${usd.toFixed(2)}`;
+  return `$${Math.round(usd).toLocaleString("en-US")}`;
+}
+
 function StretchRule({ block }: { block: SessionBlock }) {
   const ended = block.phase === "ended";
   // railBadges is defensive about every field it reads; the two attribution
@@ -859,6 +933,14 @@ function StretchRule({ block }: { block: SessionBlock }) {
       ? Math.round(block.usedTokens)
       : null;
   const duration = elapsedLabel(block.durationMs);
+  const cost =
+    typeof block.costUsd === "number" && Number.isFinite(block.costUsd) && block.costUsd >= 0
+      ? block.costUsd
+      : null;
+  const apiCalls =
+    typeof block.apiCalls === "number" && Number.isFinite(block.apiCalls) && block.apiCalls > 0
+      ? block.apiCalls
+      : null;
   return (
     <div className={`cc-stretch cc-stretch-${ended ? "ended" : "started"}`}>
       <div className="cc-stretch-head">
@@ -873,8 +955,27 @@ function StretchRule({ block }: { block: SessionBlock }) {
         {ended && outcome && (
           <span className="cc-stretch-chip cc-stretch-outcome" title={`outcome ${outcome}`}>{outcome}</span>
         )}
+        {ended && compactNoticeText(block.next) && (
+          <span className="cc-stretch-chip cc-stretch-next" title="where the handoff pointed next">
+            next: {compactNoticeText(block.next)}
+          </span>
+        )}
         {ended && tokens !== null && (
           <span className="cc-stretch-chip" title="tokens this stretch used">{tokens.toLocaleString("en-US")} tok</span>
+        )}
+        {ended && apiCalls !== null && (
+          <span className="cc-stretch-chip" title="API calls this stretch made">
+            {apiCalls} {apiCalls === 1 ? "call" : "calls"}
+          </span>
+        )}
+        {/* An unpriced stretch shows NO cost chip. A zero would read as free. */}
+        {ended && cost !== null && (
+          <span
+            className="cc-stretch-chip cc-stretch-cost"
+            title="list-rate cost of this stretch, from the provider's own per-call usage"
+          >
+            {formatUsd(cost)}
+          </span>
         )}
         {ended && duration && <span className="cc-stretch-chip" title="how long the stretch ran">{duration}</span>}
       </div>
@@ -905,10 +1006,11 @@ const LEDGER_LABELS: Record<string, string> = {
   "card-state-changed": "Card state changed",
   escalation: "Escalation",
   "policy-rewrite": "Policy rewrite",
+  "approval-requested": "Approval requested",
 };
 
 /** Kinds that report something going wrong, and earn the warning tone. */
-const LEDGER_WARN_KINDS = new Set(["delegation-failed", "escalation"]);
+const LEDGER_WARN_KINDS = new Set(["delegation-failed", "escalation", "approval-requested"]);
 
 /** One conversation-ledger row, using the same expand-in-place disclosure the
  * tool rows use. `payloadRef` becomes a control only where a host has supplied a
@@ -980,6 +1082,9 @@ function ActivityTimeline({
   onPermissionDecision,
   permissionGenerationId,
   renderTerminalResult = false,
+  conversationTurn = false,
+  omittedText = null,
+  omitThinking = false,
 }: {
   events: SessionEvent[];
   includeText: boolean;
@@ -993,6 +1098,22 @@ function ActivityTimeline({
   onPermissionDecision?: (answer: PermissionAnswer) => Promise<void>;
   permissionGenerationId?: string;
   renderTerminalResult?: boolean;
+  /** This turn is one stretch of a conversation. A per-stretch "Response
+   * complete" is noise there - the stretch boundary carries the settlement, and
+   * the CONVERSATION's own end gets the banner - so a completed turn_end
+   * renders only its (unduplicated) result prose, never the notice row.
+   * Errors and cancellations keep their notice: a failure must never be the
+   * thing this hides. */
+  conversationTurn?: boolean;
+  /** The prose already shown as this turn's primary text. The tee can carry
+   * the same reply under TWO event ids (the streamed revision and the final
+   * message), and the index-based omission only catches one of them - any text
+   * beat matching this string is skipped. */
+  omittedText?: string | null;
+  /** The host renders this turn's thinking blocks itself (hoisted above the
+   * interim fold so reasoning stays visible on a settled turn) - skip them
+   * here so they do not appear twice. */
+  omitThinking?: boolean;
 }) {
   const beats = sessionActivityBeats(events);
   return (
@@ -1005,7 +1126,10 @@ function ActivityTimeline({
         const eventKey = sourceEvent?.id ?? `event-${beat.eventIndex}`;
         const key = `${eventKey}:${beat.blockIndex}:${beat.type}`;
         if (beat.type === "text") {
-          if (!includeText || beat.eventIndex === omittedTextEventIndex || !beat.text.trim()) return null;
+          if (!includeText || beat.eventIndex === omittedTextEventIndex) return null;
+          const text = conversationTurn ? stripHandoffFence(beat.text) : beat.text;
+          if (!text.trim()) return null;
+          if (omittedText && text.trim() === omittedText.trim()) return null;
           return (
             <div
               key={key}
@@ -1013,7 +1137,9 @@ function ActivityTimeline({
               data-session-event-id={sourceEvent?.id ?? undefined}
               data-session-block-index={beat.blockIndex}
             >
-              <TextBlock text={beat.text} role="assistant" renderMarkdown={renderMarkdown} />
+              {live
+                ? <StreamingText text={text} renderMarkdown={renderMarkdown} />
+                : <TextBlock text={text} role="assistant" renderMarkdown={renderMarkdown} />}
             </div>
           );
         }
@@ -1033,6 +1159,28 @@ function ActivityTimeline({
           const terminalResultDuplicated = block.type === "turn_end" && typeof block.result === "string" && events.some(
             (event) => sessionEventText(event).trim() === block.result!.trim()
           );
+          if (
+            conversationTurn &&
+            block.type === "turn_end" &&
+            String(block.status ?? "completed") === "completed"
+          ) {
+            const raw =
+              !terminalResultDuplicated && typeof block.result === "string" && block.result.trim()
+                ? stripHandoffFence(block.result)
+                : null;
+            const resultText = raw && raw.trim() ? raw : null;
+            if (!resultText) return null;
+            return (
+              <div
+                key={key}
+                className="cc-session-interim-text cc-session-markdown"
+                data-session-event-id={sourceEvent?.id ?? undefined}
+                data-session-block-index={beat.blockIndex}
+              >
+                <TextBlock text={resultText} role="assistant" renderMarkdown={renderMarkdown} />
+              </div>
+            );
+          }
           return (
             <div
               key={key}
@@ -1060,6 +1208,7 @@ function ActivityTimeline({
           );
         }
         if (beat.type === "thinking") {
+          if (omitThinking) return null;
           return <ThinkingBlock key={key} block={block} active={live && activeThinkingBlock === block} />;
         }
         if (beat.type === "permission_request") {
@@ -1114,6 +1263,10 @@ export function SessionEventTimeline({
   );
   const resultsByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_result"), [events]);
   const progressByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
+  const conversationTurn = useMemo(
+    () => events.some((event) => (event.blocks ?? []).some((block) => block.type === "stretch")),
+    [events]
+  );
   const activeThinkingBlock = useMemo(() => {
     if (!live) return null;
     let latest: SessionBlock | null = null;
@@ -1145,6 +1298,7 @@ export function SessionEventTimeline({
         onPermissionDecision={onPermissionDecision}
         permissionGenerationId={permissionGenerationId}
         renderTerminalResult
+        conversationTurn={conversationTurn}
       />
       {modalImage && <ImageModal image={modalImage.image} label={modalImage.label} onClose={() => setModalImage(null)} />}
     </div>
@@ -1297,12 +1451,118 @@ function RelatedTaskModal({ task, onClose }: { task: RelatedTask; onClose: () =>
   );
 }
 
+/** A queued message or a pending handoff older than this is not "about to
+ * run" - the spinner would be a claim nothing supports. */
+const STALE_PENDING_MS = 15 * 60_000;
+
+/** Ticks once a second while mounted; the elapsed base for the working strip. */
+function useNowTick(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+/** The conversation's live pulse: what is running (or being decided) right now,
+ * with the model and a running clock. Renders at the tail of the stream, where
+ * the next content will appear - the reader's eye is already there. */
+function ConversationWorkingStrip({ activity, announce }: { activity: ConversationActivity; announce: boolean }) {
+  const now = useNowTick(true);
+  const elapsed = activity.since ? elapsedLabel(Math.max(0, now - activity.since)) : null;
+  const label = activity.mode === "working"
+    ? `Working${activity.duty ? ` — ${activity.duty}` : ""}`
+    : activity.mode === "handoff"
+      ? "Handing off — choosing what runs next"
+      : "Starting — message queued";
+  return (
+    <div className="cc-conv-working" role={announce ? "status" : undefined}>
+      <span className="cc-working-dots" aria-hidden="true"><i /><i /><i /></span>
+      <span className="cc-conv-working-label">{label}</span>
+      {activity.mode === "working" && activity.model && (
+        <span className="cc-conv-working-model">{activity.model}</span>
+      )}
+      {elapsed && <span className="cc-conv-working-time">{elapsed}</span>}
+    </div>
+  );
+}
+
+/** The conversation's terminal state, said out loud. A needs-input park was a
+ * one-line collapsed ledger row before this - the single most consequential
+ * state a conversation reaches, rendered quieter than a tool call. */
+function ConversationStateBanner({ activity }: { activity: ConversationActivity }) {
+  if (activity.mode === "needs-input") {
+    return (
+      <div className="cc-conv-state cc-conv-state-attn" role="status">
+        <div className="cc-conv-state-title">Needs your input</div>
+        {activity.blockerWhat && <p className="cc-conv-state-line">{activity.blockerWhat}</p>}
+        {activity.blockerNeeds && (
+          <p className="cc-conv-state-line"><b>Needed:</b> {activity.blockerNeeds}</p>
+        )}
+        {!activity.blockerWhat && !activity.blockerNeeds && activity.summary && (
+          <p className="cc-conv-state-line">{activity.summary}</p>
+        )}
+        <p className="cc-conv-state-hint">Reply below to resume this conversation.</p>
+      </div>
+    );
+  }
+  if (activity.mode === "awaiting-approval") {
+    // Say WHAT is being approved, in the ask's own words: the duty it wants to
+    // run next and the plan it intends to execute. A go-ahead prompt that hides
+    // the plan behind a collapsed ledger row is asking for a blind signature.
+    const plan = activity.approvalPlan ?? activity.summary;
+    return (
+      <div className="cc-conv-state cc-conv-state-attn" role="status">
+        <div className="cc-conv-state-title">
+          Waiting for your go-ahead
+          {activity.approvalNext ? ` - next step: ${activity.approvalNext}` : ""}
+        </div>
+        {plan ? (
+          <p className="cc-conv-state-line cc-conv-state-plan">{plan}</p>
+        ) : (
+          <p className="cc-conv-state-line">The work is paused before its next step.</p>
+        )}
+        <p className="cc-conv-state-hint">Reply below to approve or redirect.</p>
+      </div>
+    );
+  }
+  if (activity.mode === "done") {
+    // The closing summary is the conversation's final report - it renders as
+    // real markdown (the handoff writes bullets), full width, never truncated;
+    // a very long one scrolls inside the banner instead of losing its tail.
+    return (
+      <div className="cc-conv-state cc-conv-state-done">
+        <div className="cc-conv-state-title">Conversation complete</div>
+        {activity.summary && (
+          <div
+            className="cc-conv-state-summary cc-md"
+            dangerouslySetInnerHTML={{ __html: md.parse(activity.summary) as string }}
+          />
+        )}
+      </div>
+    );
+  }
+  return null;
+}
+
+/** Header chip vocabulary for a settled conversation state. */
+const CONVERSATION_STATE_CHIPS: Partial<Record<ConversationActivity["mode"], { label: string; tone: "attn" | "done" | "dim" }>> = {
+  "needs-input": { label: "needs input", tone: "attn" },
+  "awaiting-approval": { label: "waiting for approval", tone: "attn" },
+  done: { label: "done", tone: "done" },
+  idle: { label: "idle", tone: "dim" },
+};
+
 export function SessionStream({
   url,
   live = false,
   title: titleProp,
   announceLiveUpdates = true,
   focusEventId,
+  conversationLive,
+  onActivityChange,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
@@ -1312,11 +1572,54 @@ export function SessionStream({
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [relatedView, setRelatedView] = useState<RelatedTask | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const stickRef = useRef(true);
+  /** Whether the view is FOLLOWING the stream (pinned to the tail). Intent-based:
+   * an upward wheel/drag unpins instantly; returning to the bottom (or the pill)
+   * re-pins. The ref is the authority; the state mirrors it for rendering. */
+  const pinnedRef = useRef(true);
+  const [stuck, setStuck] = useState(true);
+  /** The ONE scrolling ancestor this component animates. Resolved lazily - the
+   * host owns the scroll container (ClaudeChat's .cc-scroll, a sheet, a pane),
+   * and scrolling anything else is how the whole modal used to lurch. */
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const lastWrittenTopRef = useRef(-1);
+  const followActiveRef = useRef(false);
+  const hadContentRef = useRef(false);
+  /** A pill-click descent in flight. While set, position-based unpin signals
+   * are ignored - a settling turn can collapse layout mid-descent and the
+   * browser's scroll anchoring then moves scrollTop up, which reads exactly
+   * like a drag-up. Only real reader input (wheel/touch) cancels a jump. */
+  const jumpingRef = useRef(false);
+  /** A pointer is currently held down. A position regression is a reader's
+   * scrollbar drag ONLY while this is true - without it, the browser's scroll
+   * anchoring (layout collapsing above the viewport as a turn settles) writes
+   * the same upward jolt and must never read as intent. */
+  const pointerDownRef = useRef(false);
   const liveRef = useRef(live);
   const previousLiveRef = useRef(live);
   liveRef.current = live;
   const focusPendingRef = useFocusedEvent(scrollRef, focusEventId, events);
+
+  // The conversation's own read of what is happening, derived purely from the
+  // events. `none` for a plain runtime session - every conversation affordance
+  // below is gated on it.
+  const activity = useMemo<ConversationActivity>(() => conversationActivity(events), [events]);
+  const conversationMode = activity.mode !== "none";
+  useEffect(() => { onActivityChange?.(activity); }, [activity, onActivityChange]);
+  // A pending state old enough that nothing is plausibly about to run: a
+  // message queued hours ago whose launcher never picked it up must not spin
+  // forever. Computed when the events change, which is exactly when the answer
+  // could change. `working` is exempt - a long-running stretch is still live.
+  const pendingStale =
+    (activity.mode === "handoff" || activity.mode === "starting") &&
+    activity.since !== null &&
+    Date.now() - activity.since > STALE_PENDING_MS;
+  // The host can veto the derivation's spinners (a card that says stopped),
+  // never assert them.
+  const derivedBusy =
+    conversationMode &&
+    conversationLive !== false &&
+    !pendingStale &&
+    (activity.mode === "working" || activity.mode === "handoff" || activity.mode === "starting");
 
   useEffect(() => {
     const becameLive = live && !previousLiveRef.current;
@@ -1337,7 +1640,9 @@ export function SessionStream({
     setRelatedView(null);
     // A pending jump owns the scroll position for this mount: sticking to the
     // bottom would scroll straight past the hit the reader asked to land on.
-    stickRef.current = !focusPendingRef.current;
+    pinnedRef.current = !focusPendingRef.current;
+    setStuck(pinnedRef.current);
+    hadContentRef.current = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const retryWhileLive = () => {
       if (!liveRef.current || retryTimer) return;
@@ -1390,18 +1695,207 @@ export function SessionStream({
     };
   }, [url, titleProp, retryToken]);
 
+  // ── Smooth stream-follow ────────────────────────────────────────────────────
+  // This component does not own the scroll container: the host does (ClaudeChat's
+  // .cc-scroll, a sheet, a pane). Two rules make the stream readable:
+  //
+  //   1. ONE element scrolls. The nearest scrollable ancestor is resolved once
+  //      and only its scrollTop is ever written - scrollIntoView walked EVERY
+  //      ancestor, which is how the whole modal used to lurch.
+  //   2. Following is smooth and UNPINNING is intent-based. While pinned, a
+  //      per-frame loop eases scrollTop toward the bottom (steady streaming
+  //      reads like a teleprompter; a sudden block eases in over ~250ms instead
+  //      of teleporting). The instant the reader wheels or drags UPWARD the
+  //      follow stops dead - nothing may move a transcript someone is reading -
+  //      and it resumes only when they return to the bottom or press the pill.
+  const setPinned = useCallback((value: boolean) => {
+    pinnedRef.current = value;
+    setStuck(value);
+  }, []);
+  const resolveScroller = useCallback((): HTMLElement | null => {
+    const cached = scrollerRef.current;
+    if (cached && cached.isConnected && cached.scrollHeight > cached.clientHeight + 1) return cached;
+    let node: HTMLElement | null = scrollRef.current;
+    while (node) {
+      if (node.scrollHeight > node.clientHeight + 1) {
+        const overflowY = getComputedStyle(node).overflowY;
+        if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
+          scrollerRef.current = node;
+          return node;
+        }
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }, []);
+  const snapToBottom = useCallback(() => {
+    const el = resolveScroller();
+    if (!el) return;
+    const target = el.scrollHeight - el.clientHeight;
+    lastWrittenTopRef.current = target;
+    el.scrollTop = target;
+  }, [resolveScroller]);
+
+  // Reader-intent listeners. The first cut bound these to the RESOLVED
+  // scroller once content appeared - but a fresh conversation has not
+  // overflowed its container yet, resolveScroller returned null, the
+  // listeners bound to NOTHING, and the follow loop then overwrote every
+  // wheel-up the reader tried, forever ("scrolling up is not allowed").
+  // Bind wheel/touch to OUR OWN content root instead (it always exists, and
+  // pointer events bubble through it regardless of which ancestor scrolls),
+  // and catch scroll in the CAPTURE phase on window (scroll does not bubble;
+  // capture sees every scroller, filtered to the one holding this transcript).
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+    const content = scrollRef.current;
+    if (!content) return;
+    const onWheel = (event: WheelEvent) => {
+      // A trackpad keeps delivering decaying wheel events for a few hundred ms
+      // after the reader lifts their fingers. The reader who scrolled UP to
+      // read, then clicked "Jump to bottom", is exactly the reader whose
+      // upward momentum is still trailing off - an unthresholded deltaY<0 read
+      // that residue as a fresh scroll-up and cancelled the jump before it had
+      // moved, which is what "the button does not work" actually was. Real
+      // wheel ticks clear this by a wide margin; residue does not.
+      if (event.deltaY < -2) {
+        jumpingRef.current = false;
+        setPinned(false);
+      }
+    };
+    let touchY = 0;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY ?? 0;
+      if (y > touchY + 4) {
+        jumpingRef.current = false;
+        setPinned(false);
+      }
+      touchY = y;
+    };
+    const onScroll = (event: Event) => {
+      const el = event.target;
+      if (!(el instanceof HTMLElement) || !el.contains(content)) return;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 4) {
+        if (!pinnedRef.current) setPinned(true);
+      } else if (
+        pointerDownRef.current &&
+        !jumpingRef.current &&
+        lastWrittenTopRef.current >= 0 &&
+        el.scrollTop < lastWrittenTopRef.current - 4
+      ) {
+        // Moved UP from where the follow last wrote WITH the pointer held -
+        // a scrollbar drag, which fires neither wheel nor touch.
+        setPinned(false);
+      }
+    };
+    const onPointerDown = () => { pointerDownRef.current = true; };
+    const onPointerUp = () => { pointerDownRef.current = false; };
+    content.addEventListener("wheel", onWheel, { passive: true });
+    content.addEventListener("touchstart", onTouchStart, { passive: true });
+    content.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    window.addEventListener("mousedown", onPointerDown, { capture: true, passive: true });
+    window.addEventListener("mouseup", onPointerUp, { capture: true, passive: true });
+    return () => {
+      content.removeEventListener("wheel", onWheel);
+      content.removeEventListener("touchstart", onTouchStart);
+      content.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
+      window.removeEventListener("mousedown", onPointerDown, { capture: true } as EventListenerOptions);
+      window.removeEventListener("mouseup", onPointerUp, { capture: true } as EventListenerOptions);
+    };
+  }, [setPinned]);
+
+  // First contentful paint lands AT the bottom instantly - animating a whole
+  // history on open would be two seconds of scrolling nobody asked for.
+  useEffect(() => {
+    if (hadContentRef.current || events.length === 0) return;
+    hadContentRef.current = true;
+    if (pinnedRef.current && !focusPendingRef.current) snapToBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-  };
 
   const resultsByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_result"), [events]);
   const progressByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
-  const streamLive = live && status === "streaming";
+  // A conversation drives itself: the launcher runs stretches whether or not
+  // the HOST considers a turn in flight, so the derivation joins the host's
+  // `live` in deciding whether the tail renders as active work.
+  const streamLive = (live || derivedBusy) && status === "streaming";
+  // The follow loop: while the stream is live and the reader is pinned, ease
+  // scrollTop toward the bottom every frame. Exponential approach - a few px of
+  // token growth tracks exactly; a 300px tool result eases in over ~250ms.
+  const followActive = streamLive || derivedBusy;
+  followActiveRef.current = followActive;
+  useEffect(() => {
+    if (!followActive) return;
+    let raf = 0;
+    const step = () => {
+      raf = requestAnimationFrame(step);
+      if (!pinnedRef.current || focusPendingRef.current) return;
+      const el = resolveScroller();
+      if (!el) return;
+      const target = el.scrollHeight - el.clientHeight;
+      const current = el.scrollTop;
+      // The reader moved UP with the pointer held since the last write: never
+      // fight them. Pointer-gated for the same reason the scroll listener is -
+      // scroll anchoring writes the same jolt with nobody touching anything.
+      if (
+        pointerDownRef.current &&
+        !jumpingRef.current &&
+        lastWrittenTopRef.current >= 0 &&
+        current < lastWrittenTopRef.current - 4 &&
+        target >= lastWrittenTopRef.current
+      ) {
+        setPinned(false);
+        return;
+      }
+      if (target - current <= 0.5) return;
+      const next = Math.min(target, current + Math.max(1, (target - current) * 0.22));
+      lastWrittenTopRef.current = next;
+      el.scrollTop = next;
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followActive]);
+  // A SETTLED transcript keeps the old instant behaviour: late layout growth
+  // (markdown, images) lands with the bottom still in view, no animation.
+  useEffect(() => {
+    const content = scrollRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (!followActiveRef.current && pinnedRef.current && !focusPendingRef.current) snapToBottom();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /** The pill, and the only programmatic way back: pin and ease down. The
+   * jumping flag holds until the descent LANDS, so a mid-descent layout shift
+   * (a turn settling, scroll anchoring) cannot read as reader intent. */
+  const jumpToLatest = useCallback(() => {
+    setPinned(true);
+    jumpingRef.current = true;
+    const el = resolveScroller();
+    if (!el) {
+      jumpingRef.current = false;
+      return;
+    }
+    const animate = () => {
+      if (!pinnedRef.current || !jumpingRef.current) {
+        jumpingRef.current = false;
+        return;
+      }
+      const target = el.scrollHeight - el.clientHeight;
+      const next = Math.min(target, el.scrollTop + Math.max(2, (target - el.scrollTop) * 0.25));
+      lastWrittenTopRef.current = next;
+      el.scrollTop = next;
+      if (target - next > 0.5) requestAnimationFrame(animate);
+      else jumpingRef.current = false;
+    };
+    requestAnimationFrame(animate);
+  }, [resolveScroller, setPinned]);
   const relatedTasks = useMemo(() => collectRelatedTasks(events, streamLive), [events, streamLive]);
   useEffect(() => {
     setRelatedView((selected) => {
@@ -1446,17 +1940,19 @@ export function SessionStream({
     return last?.type === "thinking" ? last : null;
   }, [events, streamLive]);
 
+  const stateChip = conversationMode && !streamLive ? CONVERSATION_STATE_CHIPS[activity.mode] : undefined;
   return (
     <div className="cc-session">
       <div className="cc-session-head">
         <span className="cc-session-head-title">{title ?? "Activity"}</span>
         {status === "connecting" && <span>connecting…</span>}
         {streamLive && <span className="cc-session-live"><span className="cc-session-live-dot" aria-hidden="true" />live</span>}
-        {(status === "ended" || (!live && status === "streaming")) && <span>complete</span>}
+        {stateChip && <span className={`cc-session-statechip is-${stateChip.tone}`}>{stateChip.label}</span>}
+        {!conversationMode && (status === "ended" || (!streamLive && status === "streaming")) && <span>complete</span>}
         {status === "unavailable" && <span>transcript unavailable</span>}
       </div>
       <RelatedTasks tasks={relatedTasks} onOpen={(task) => setRelatedView(task)} />
-      <div className="cc-session-scroll" ref={scrollRef} onScroll={onScroll}>
+      <div className="cc-session-scroll" ref={scrollRef}>
         {visibleEvents.length === 0 && (
           <div className="cc-session-empty">
             {status === "connecting"
@@ -1471,6 +1967,12 @@ export function SessionStream({
         {turns.map((turn, turnIndex) => {
           const turnLive = streamLive && turnIndex === turns.length - 1;
           const presentation = presentSessionTurn(turn, turnLive);
+          const turnIsStretch = turn.assistantEvents.some((event) =>
+            event.blocks.some((block) => block.type === "stretch")
+          );
+          const primaryText = turnIsStretch && presentation.primaryText
+            ? stripHandoffFence(presentation.primaryText)
+            : presentation.primaryText;
           const userText = turn.userEvents.map(sessionEventText).filter((text) => text.trim()).join("\n\n");
           const hasSettlementNotice = turn.assistantEvents.some((event) => event.blocks.some((block) =>
             // A stretch boundary is a settlement, not interim chatter: it carries
@@ -1486,10 +1988,20 @@ export function SessionStream({
             )) ||
             (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback"))
           ));
+          // The turn's reasoning, in order. On a settled turn these render
+          // hoisted above the reply - never inside the interim fold, where a
+          // collapsed disclosure would hide them the moment the turn ends.
+          const settledThinking = turnLive
+            ? []
+            : turn.assistantEvents.flatMap((event, eventIndex) =>
+                event.blocks
+                  .map((block, blockIndex) => ({ block, key: `${turn.key}:think:${eventIndex}:${blockIndex}` }))
+                  .filter(({ block }) => block.type === "thinking" && typeof block.text === "string" && block.text.trim() !== "")
+              );
           const interimCount = turn.assistantEvents.reduce((count, event, eventIndex) => {
             const textCount = eventIndex !== presentation.finalTextEventIndex && sessionEventText(event).trim() ? 1 : 0;
             const activityCount = event.blocks.filter((block) =>
-              block.type === "thinking" || block.type === "tool_use" || block.type === "error" || block.type === "permission_request" ||
+              block.type === "tool_use" || block.type === "error" || block.type === "permission_request" ||
               // Counted for the same reason they are on hasVisibleSessionActivity's
               // whitelist: a settled turn whose only blocks are conversation events
               // would otherwise render as an empty assistant bubble.
@@ -1514,7 +2026,10 @@ export function SessionStream({
               {(turn.assistantEvents.length > 0 || turnLive) && (
                 <div className="cc-session-turn assistant">
                   <span className="cc-session-role">Assistant</span>
-                  {!turnLive && presentation.primaryText && <TextBlock text={presentation.primaryText} role="assistant" />}
+                  {settledThinking.map(({ block, key }) => (
+                    <ThinkingBlock key={key} block={block} active={false} />
+                  ))}
+                  {!turnLive && Boolean(primaryText?.trim()) && <TextBlock text={primaryText!} role="assistant" />}
                   {turnLive && (
                     <>
                       <ActivityTimeline
@@ -1527,17 +2042,18 @@ export function SessionStream({
                         progressByToolUse={progressByToolUse}
                         onImage={(image, label) => setModalImage({ image, label })}
                         renderTerminalResult
+                        conversationTurn={turnIsStretch}
                       />
                     </>
                   )}
-                  {turnLive && !presentation.primaryText && interimCount === 0 && (
+                  {turnLive && !conversationMode && !presentation.primaryText && interimCount === 0 && (
                     <div className="cc-session-awaiting" role={announceLiveUpdates ? "status" : undefined}>Working…</div>
                   )}
                   {!turnLive && interimCount > 0 && (
                     <InterimDetails
                       count={interimCount}
                       openByDefault={
-                        !presentation.primaryText || hasSettlementNotice ||
+                        !primaryText?.trim() || hasSettlementNotice ||
                         // The turn just finished under the reader's eyes: leave
                         // open what they were already watching.
                         watchedLiveTurns.current.has(turn.key)
@@ -1552,6 +2068,9 @@ export function SessionStream({
                         resultsByToolUse={resultsByToolUse}
                         progressByToolUse={progressByToolUse}
                         onImage={(image, label) => setModalImage({ image, label })}
+                        conversationTurn={turnIsStretch}
+                        omittedText={primaryText}
+                        omitThinking
                       />
                     </InterimDetails>
                   )}
@@ -1560,6 +2079,17 @@ export function SessionStream({
             </React.Fragment>
           );
         })}
+        {derivedBusy && status !== "connecting" && (
+          <ConversationWorkingStrip activity={activity} announce={announceLiveUpdates} />
+        )}
+        {conversationMode && !derivedBusy && <ConversationStateBanner activity={activity} />}
+        {!stuck && (
+          <div className="cc-session-jumpwrap">
+            <button type="button" className="cc-session-jump" onClick={jumpToLatest}>
+              Jump to bottom
+            </button>
+          </div>
+        )}
       </div>
       {modalImage && <ImageModal image={modalImage.image} label={modalImage.label} onClose={() => setModalImage(null)} />}
       {relatedView?.streamUrl && relatedView.streamUrl !== url && (

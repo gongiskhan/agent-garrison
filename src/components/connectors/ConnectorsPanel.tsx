@@ -225,6 +225,30 @@ export function ConnectorsPanel() {
 
               <p className={styles.summary}>{c.summary}</p>
 
+              {/* A connector whose Fitting is not stationed has nothing to
+                  connect TO - no daemon, no route a turn can reach. Saying so
+                  here is what turns "I see no way to connect" into one click. */}
+              {!c.equipped && (
+                <div className="banner" style={{ borderColor: "var(--brass)", color: "var(--brass)", marginTop: 8 }}>
+                  Not stationed in the composition — nothing can use it yet.{" "}
+                  <a href="/compose" style={{ color: "inherit", textDecoration: "underline" }}>
+                    Station {c.fittingId} on Composition
+                  </a>
+                  , then come back here.
+                </div>
+              )}
+
+              {/* WhatsApp authenticates by QR pairing against its own daemon,
+                  not by a credential in the Vault - the ONE connector this
+                  page could previously say nothing about. */}
+              {c.id === "whatsapp-web" && c.equipped && (
+                <div className={styles.cardActions}>
+                  <a className="btn small" href="/embed/whatsapp-web">
+                    Open pairing (QR)
+                  </a>
+                </div>
+              )}
+
               <div className={styles.facts}>
                 <span>{AUTH_LABEL[c.auth]}</span>
                 <span>{c.actionCount} action{c.actionCount === 1 ? "" : "s"}</span>

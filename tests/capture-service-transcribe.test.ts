@@ -351,26 +351,29 @@ describe("capture-service transcription", () => {
 
     const events: any[] = [];
     const controller = new AbortController();
-    const ssePromise = fetch(`${base}/sessions/${sessionId}/events`, { signal: controller.signal }).then(
-      async (res) => {
-        expect(res.headers.get("content-type")).toContain("text/event-stream");
-        const reader = res.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (events.filter((e) => e.final).length < 1) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let idx;
-          while ((idx = buffer.indexOf("\n\n")) >= 0) {
-            const chunk = buffer.slice(0, idx);
-            buffer = buffer.slice(idx + 2);
-            const line = chunk.split("\n").find((l) => l.startsWith("data: "));
-            if (line) events.push(JSON.parse(line.slice(6)));
-          }
+    // AWAIT the response headers before streaming another packet: headers back
+    // means the route handler ran and the SSE subscriber is registered. Racing
+    // the packets against the connect intermittently lost the interim - the
+    // mock emitted it before anyone was listening. (Flaked 2 in 6 runs.)
+    const res = await fetch(`${base}/sessions/${sessionId}/events`, { signal: controller.signal });
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const ssePromise = (async () => {
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (events.filter((e) => e.final).length < 1) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) >= 0) {
+          const chunk = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const line = chunk.split("\n").find((l) => l.startsWith("data: "));
+          if (line) events.push(JSON.parse(line.slice(6)));
         }
       }
-    );
+    })();
 
     // Cross the mock's 10-packet threshold: interim + final arrive live.
     const packets = readFixture().slice(9, 12);

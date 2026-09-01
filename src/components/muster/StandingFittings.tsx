@@ -37,6 +37,8 @@ interface StandingFittingView {
   name: string;
   summary: string;
   faculty: string;
+  category: string;
+  dutyFitting?: boolean;
   componentShape: string;
   clonedFrom?: string;
   ownPort: boolean;
@@ -51,7 +53,32 @@ interface StandingCandidate {
   id: string;
   name: string;
   summary: string;
+  category: string;
   clonedFrom?: string;
+}
+
+// The human browsing groups (presentation only; the write path stays keyed on
+// the fitting's faculty). Order is a reading order, not an alphabet.
+const CATEGORY_ORDER = ["Core", "Interfaces", "Building", "Knowledge", "Connections", "Operations"] as const;
+const CATEGORY_BLURBS: Record<string, string> = {
+  Core: "The essentials the composition stands on - gateway, memory, the plumbing everything else uses.",
+  Interfaces: "How you reach it - chat surfaces, voice, screens, and the dev environment.",
+  Building: "How it builds and checks software - implementation aids, QA, design, code intelligence.",
+  Knowledge: "What it knows and how it learns - documentation, research, skills.",
+  Connections: "Outside services it can act on, with credentials sealed in the Vault.",
+  Operations: "What keeps it healthy - schedulers, monitors, backups, self-improvement.",
+};
+
+/** One stationed fitting with the slot facts its actions need. */
+interface StationedItem {
+  fitting: StandingFittingView;
+  faculty: string;
+}
+
+/** One addable library candidate, remembering which slot Add writes into. */
+interface AddableItem {
+  candidate: StandingCandidate;
+  faculty: string;
 }
 
 interface StandingSlot {
@@ -134,6 +161,7 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
   const [health, setHealth] = useState<Record<string, boolean>>({});
   const [orphaned, setOrphaned] = useState<OrphanedConsumer[]>([]);
   const [swap, setSwap] = useState<SwapTarget | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -284,26 +312,70 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
   );
 
   // Runtimes have their own Muster tab (RuntimesPanel); this tab covers the rest.
-  const standingSlots = useMemo(
-    () => (model ? model.slots.filter((s) => s.faculty !== "runtimes") : []),
+  // The faculty slots flatten into ONE list of stationed fittings, grouped for
+  // presentation by CATEGORY - faculty is an internal contract, not a browsing
+  // axis a human should have to learn.
+  const stationed = useMemo<StationedItem[]>(() => {
+    if (!model) return [];
+    return model.slots
+      .filter((slot) => slot.faculty !== "runtimes")
+      .flatMap((slot) => slot.fittings.map((fitting) => ({ fitting, faculty: slot.faculty })));
+  }, [model]);
+  const stationedIds = useMemo(
+    () => new Set((model?.slots ?? []).flatMap((slot) => slot.fittings.map((f) => f.id))),
     [model]
   );
-  const visibleSlots = useMemo(() => {
+  // Everything in the library that could be ADDED: every slot's candidates,
+  // minus what is stationed anywhere, deduped (a fitting is one row even if
+  // two slots could take it - the first slot wins as the write target).
+  const addable = useMemo<AddableItem[]>(() => {
     if (!model) return [];
-    const query = search.trim().toLowerCase();
-    if (!query) return standingSlots;
-    return standingSlots.flatMap((slot) => {
-      const slotMatches = `${slot.faculty} ${slot.facultyName} ${slot.role}`.toLowerCase().includes(query);
-      const fittings = slotMatches
-        ? slot.fittings
-        : slot.fittings.filter((fitting) =>
-            `${fitting.id} ${fitting.name} ${fitting.summary} ${fitting.faculty} ${fitting.componentShape}`
-              .toLowerCase()
-              .includes(query)
-          );
-      return fittings.length > 0 ? [{ ...slot, fittings }] : [];
-    });
-  }, [model, standingSlots, search]);
+    const seen = new Set<string>();
+    const out: AddableItem[] = [];
+    for (const slot of model.slots) {
+      if (slot.faculty === "runtimes") continue;
+      for (const candidate of slot.candidates) {
+        if (stationedIds.has(candidate.id) || seen.has(candidate.id)) continue;
+        seen.add(candidate.id);
+        out.push({ candidate, faculty: slot.faculty });
+      }
+    }
+    return out.sort((a, b) => a.candidate.name.localeCompare(b.candidate.name));
+  }, [model, stationedIds]);
+
+  const query = search.trim().toLowerCase();
+  const visibleStationed = useMemo(() => {
+    if (!query) return stationed;
+    return stationed.filter(({ fitting }) =>
+      `${fitting.id} ${fitting.name} ${fitting.summary} ${fitting.category} ${fitting.faculty} ${fitting.componentShape}`
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [stationed, query]);
+  const matchingAddable = useMemo(() => {
+    if (!query) return [];
+    return addable.filter(({ candidate }) =>
+      `${candidate.id} ${candidate.name} ${candidate.summary} ${candidate.category}`.toLowerCase().includes(query)
+    );
+  }, [addable, query]);
+  // Category sections, in reading order; anything with an unknown category
+  // (a manifest written after this build) lands in a trailing group.
+  const sections = useMemo(() => {
+    const byCategory = new Map<string, StationedItem[]>();
+    for (const item of visibleStationed) {
+      const key = item.fitting.category || "Operations";
+      byCategory.set(key, [...(byCategory.get(key) ?? []), item]);
+    }
+    const known = CATEGORY_ORDER.filter((c) => byCategory.has(c)).map((c) => ({
+      category: c as string,
+      items: (byCategory.get(c) ?? []).sort((a, b) => a.fitting.name.localeCompare(b.fitting.name))
+    }));
+    const unknown = [...byCategory.keys()]
+      .filter((c) => !(CATEGORY_ORDER as readonly string[]).includes(c))
+      .sort()
+      .map((c) => ({ category: c, items: byCategory.get(c) ?? [] }));
+    return [...known, ...unknown];
+  }, [visibleStationed]);
 
   if (status === "loading" && !model) {
     return (
@@ -345,9 +417,18 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
     <section className={styles.section} data-testid="standing-section">
       <div className={styles.sectionHead}>
         <span className={styles.sectionLabel}>
-          Standing Fittings <span className={styles.sectionCount}>· {standingSlots.length} slots</span>
+          Fittings <span className={styles.sectionCount}>· {stationed.length} stationed</span>
         </span>
         {saving ? <span className={styles.saving}>saving…</span> : null}
+        <button
+          type="button"
+          className={styles.addBtn}
+          style={{ marginLeft: "auto" }}
+          onClick={() => setAddOpen(true)}
+          data-testid="standing-add-open"
+        >
+          + Add fitting
+        </button>
       </div>
 
       <div className={styles.standingSearch}>
@@ -355,8 +436,8 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
           type="search"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search standing Fittings…"
-          aria-label="Search standing Fittings"
+          placeholder="Search fittings - stationed and available…"
+          aria-label="Search fittings"
         />
         {search ? (
           <button type="button" onClick={() => setSearch("")}>
@@ -379,30 +460,66 @@ export function StandingFittings({ compositionId }: { compositionId: string }) {
         <OrphanBanner orphaned={orphaned} onRemove={removeOrphan} onDismiss={() => setOrphaned([])} />
       ) : null}
 
-      {visibleSlots.length > 0 ? (
-        <div className={styles.standingGrid}>
-          {visibleSlots.map((slot) => (
-            <SlotCard
-              key={slot.faculty}
-              slot={slot}
-              health={health}
-              onSwap={(fromId) => setSwap({ faculty: slot.faculty, fromId })}
-              onRemoveFitting={removeFitting}
-              onConfig={commitConfig}
-              onEdit={editFitting}
-              isEditable={isEditable}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className={styles.stateBox} data-testid="standing-search-empty">
-          <div className={styles.stateTitle}>No Fittings match that search.</div>
-          <p className={styles.stateBody}>Try a Fitting name, ID, shape, or Faculty.</p>
+      {sections.length > 0 ? (
+        sections.map(({ category, items }) => (
+          <CategorySection
+            key={category}
+            category={category}
+            items={items}
+            health={health}
+            onSwap={(faculty, fromId) => setSwap({ faculty, fromId })}
+            onRemoveFitting={removeFitting}
+            onConfig={commitConfig}
+            onEdit={editFitting}
+            isEditable={isEditable}
+          />
+        ))
+      ) : query ? null : (
+        <div className={styles.stateBox}>
+          <div className={styles.stateTitle}>Nothing stationed yet.</div>
+          <p className={styles.stateBody}>Add a fitting to give this composition its first capability.</p>
         </div>
       )}
 
+      {query && matchingAddable.length > 0 ? (
+        <div style={{ marginTop: sections.length > 0 ? 18 : 0 }} data-testid="standing-addable-results">
+          <div className={styles.sectionHead}>
+            <span className={styles.sectionLabel}>
+              Available to add <span className={styles.sectionCount}>· {matchingAddable.length}</span>
+            </span>
+          </div>
+          <div className={styles.standingGrid}>
+            {matchingAddable.map(({ candidate, faculty }) => (
+              <AddableCard
+                key={candidate.id}
+                candidate={candidate}
+                onAdd={() => void doSwap(faculty, candidate.id, undefined)}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {query && sections.length === 0 && matchingAddable.length === 0 ? (
+        <div className={styles.stateBox} data-testid="standing-search-empty">
+          <div className={styles.stateTitle}>No fittings match that search.</div>
+          <p className={styles.stateBody}>Try a fitting&apos;s name or a word from what it does.</p>
+        </div>
+      ) : null}
+
       {swap && swapSlot ? (
         <SwapModal slot={swapSlot} fromId={swap.fromId} onPick={doSwap} onClose={() => setSwap(null)} />
+      ) : null}
+
+      {addOpen ? (
+        <AddFittingModal
+          addable={addable}
+          onPick={(faculty, toId) => {
+            setAddOpen(false);
+            void doSwap(faculty, toId, undefined);
+          }}
+          onClose={() => setAddOpen(false)}
+        />
       ) : null}
     </section>
   );
@@ -449,9 +566,10 @@ function OrphanBanner({
   );
 }
 
-// ── one standing slot card ───────────────────────────────────────────────────
-function SlotCard({
-  slot,
+// ── one category section: human group header + a grid of fitting cards ──────
+function CategorySection({
+  category,
+  items,
   health,
   onSwap,
   onRemoveFitting,
@@ -459,57 +577,147 @@ function SlotCard({
   onEdit,
   isEditable
 }: {
-  slot: StandingSlot;
+  category: string;
+  items: StationedItem[];
   health: Record<string, boolean>;
-  onSwap: (fromId?: string) => void;
+  onSwap: (faculty: string, fromId?: string) => void;
   onRemoveFitting: (faculty: string, fittingId: string) => void;
   onConfig: (faculty: string, fittingId: string, field: ConfigSchemaField, value: ConfigValue) => void;
   onEdit: (fittingId: string) => void;
   isEditable: (fittingId: string) => boolean;
 }) {
-  const empty = slot.fittings.length === 0;
-  const addLabel = slot.cardinality === "single" ? "Set fitting" : "Add fitting";
   return (
-    <div className={styles.slotCard} data-testid={`standing-slot-${slot.faculty}`}>
-      <div className={styles.slotHead}>
+    <div style={{ marginBottom: 22 }} data-testid={`standing-category-${category}`}>
+      <div className={styles.slotHead} style={{ marginBottom: 10 }}>
         <div className={styles.slotHeadTop}>
-          <span className={styles.slotName}>{slot.facultyName}</span>
-          <span className={styles.slotCardinality}>{slot.cardinality === "single" ? "one" : "many"}</span>
+          <span className={styles.slotName}>{category}</span>
+          <span className={styles.slotCardinality}>{items.length}</span>
         </div>
-        <p className={styles.slotRole}>{slot.role}</p>
+        {CATEGORY_BLURBS[category] ? <p className={styles.slotRole}>{CATEGORY_BLURBS[category]}</p> : null}
       </div>
-
-      {empty ? (
-        <div className={styles.slotEmpty} data-testid={`standing-empty-${slot.faculty}`}>
-          No fitting stationed.
-        </div>
-      ) : (
-        <div className={styles.slotFittings}>
-          {slot.fittings.map((fitting) => (
+      <div className={styles.standingGrid}>
+        {items.map(({ fitting, faculty }) => (
+          <div key={fitting.id} className={styles.slotCard}>
             <FittingBlock
-              key={fitting.id}
               fitting={fitting}
               health={fitting.ownPort ? health[fitting.id] : undefined}
-              onSwap={() => onSwap(fitting.id)}
-              onRemove={slot.cardinality === "multi" ? () => onRemoveFitting(slot.faculty, fitting.id) : undefined}
-              onConfig={(field, value) => onConfig(slot.faculty, fitting.id, field, value)}
+              onSwap={() => onSwap(faculty, fitting.id)}
+              onRemove={() => onRemoveFitting(faculty, fitting.id)}
+              onConfig={(field, value) => onConfig(faculty, fitting.id, field, value)}
               onEdit={isEditable(fitting.id) ? () => onEdit(fitting.id) : undefined}
             />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── one addable library fitting (search results / Add modal) ─────────────────
+function AddableCard({ candidate, onAdd }: { candidate: StandingCandidate; onAdd: () => void }) {
+  return (
+    <div className={styles.slotCard} data-testid={`standing-addable-${candidate.id}`}>
+      <div className={styles.fittingBlock}>
+        <div className={styles.fittingHead}>
+          <span className={styles.fittingName}>{candidate.name}</span>
+          {candidate.clonedFrom ? <span className={styles.cloneTag}>clone</span> : null}
+        </div>
+        {candidate.summary ? <p className={styles.fittingSummary}>{candidate.summary}</p> : null}
+        <div className={styles.runtimeControls} style={{ borderTop: "none", paddingTop: 6, marginTop: 8 }}>
+          <button type="button" className={styles.testBtn} onClick={onAdd} data-testid={`standing-addable-add-${candidate.id}`}>
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── the Add picker: every addable fitting in the library, grouped by category ─
+function AddFittingModal({
+  addable,
+  onPick,
+  onClose
+}: {
+  addable: AddableItem[];
+  onPick: (faculty: string, toId: string) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const results = useMemo(() => {
+    if (!q) return addable;
+    return addable.filter(({ candidate }) =>
+      `${candidate.name} ${candidate.summary} ${candidate.id} ${candidate.category}`.toLowerCase().includes(q)
+    );
+  }, [addable, q]);
+  const groups = useMemo(() => {
+    const byCategory = new Map<string, AddableItem[]>();
+    for (const item of results) {
+      const key = item.candidate.category || "Operations";
+      byCategory.set(key, [...(byCategory.get(key) ?? []), item]);
+    }
+    const order = [...(CATEGORY_ORDER as readonly string[]), ...[...byCategory.keys()].filter(
+      (c) => !(CATEGORY_ORDER as readonly string[]).includes(c)
+    ).sort()];
+    return order.filter((c) => byCategory.has(c)).map((c) => ({ category: c, items: byCategory.get(c) ?? [] }));
+  }, [results]);
+
+  return (
+    <Modal
+      title="Add a fitting"
+      subtitle={`${addable.length} available`}
+      onClose={onClose}
+      testId="standing-add-modal"
+    >
+      <input
+        type="search"
+        className={styles.pickerSearch}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by name or what it does…"
+        aria-label="Search available fittings"
+        data-testid="standing-add-search"
+        autoFocus
+      />
+      {results.length === 0 ? (
+        <div className={styles.pickerEmpty}>No fittings match that search.</div>
+      ) : (
+        <div className={styles.pickerList}>
+          {groups.map(({ category, items }) => (
+            <div key={category}>
+              <div
+                className="font-mono"
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  color: "var(--brass)",
+                  margin: "10px 2px 6px"
+                }}
+              >
+                {category}
+              </div>
+              {items.map(({ candidate, faculty }) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  className={styles.pickerItem}
+                  onClick={() => onPick(faculty, candidate.id)}
+                  data-testid={`standing-add-item-${candidate.id}`}
+                >
+                  <div className={styles.pickerItemTop}>
+                    <span className={styles.pickerItemName}>{candidate.name}</span>
+                    {candidate.clonedFrom ? <span className={styles.cloneTag}>clone</span> : null}
+                  </div>
+                  <span className={styles.pickerItemSummary}>{candidate.summary}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       )}
-
-      <div className={styles.slotFoot}>
-        <button
-          type="button"
-          className={styles.slotFootBtn}
-          onClick={() => onSwap(undefined)}
-          data-testid={`standing-add-${slot.faculty}`}
-        >
-          + {addLabel}
-        </button>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -561,7 +769,11 @@ function FittingBlock({
         </p>
       ) : null}
 
-      {fitting.configSchema.length > 0 || fitting.login ? (
+      {fitting.dutyFitting ? (
+        <p className={styles.cfgEmpty} data-testid={`standing-duty-note-${fitting.id}`}>
+          Runs as a duty - its routing and levels are managed in Orchestrator → Duties.
+        </p>
+      ) : fitting.configSchema.length > 0 || fitting.login ? (
         <>
           <button
             type="button"
@@ -612,24 +824,28 @@ function FittingBlock({
             Edit files
           </button>
         ) : null}
-        <button
-          type="button"
-          className={styles.testBtn}
-          onClick={onSwap}
-          data-testid={`standing-swap-${fitting.faculty}-${fitting.id}`}
-        >
-          Swap
-        </button>
-        {onRemove ? (
-          <button
-            type="button"
-            className={styles.testBtn}
-            onClick={onRemove}
-            data-testid={`standing-remove-${fitting.faculty}-${fitting.id}`}
-          >
-            Remove
-          </button>
-        ) : null}
+        {fitting.dutyFitting ? null : (
+          <>
+            <button
+              type="button"
+              className={styles.testBtn}
+              onClick={onSwap}
+              data-testid={`standing-swap-${fitting.faculty}-${fitting.id}`}
+            >
+              Swap
+            </button>
+            {onRemove ? (
+              <button
+                type="button"
+                className={styles.testBtn}
+                onClick={onRemove}
+                data-testid={`standing-remove-${fitting.faculty}-${fitting.id}`}
+              >
+                Remove
+              </button>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
@@ -816,7 +1032,7 @@ function SwapModal({
   const title = fromId ? `Swap ${fromId}` : `Add to ${slot.facultyName}`;
 
   return (
-    <Modal title={title} subtitle={`${slot.facultyName} · ${slot.candidates.length} available`} onClose={onClose} testId="standing-swap-modal">
+    <Modal title={title} subtitle={`${slot.candidates.length} compatible`} onClose={onClose} testId="standing-swap-modal">
       <input
         type="search"
         className={styles.pickerSearch}

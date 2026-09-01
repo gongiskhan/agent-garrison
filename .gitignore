@@ -22,6 +22,8 @@ data/vault.json.bak-*
 compositions/*/.env
 compositions/*/local.yml
 compositions/*/.garrison/assembled-system-prompt.md
+# Regenerated beside the assembled prompt, from the same entries, at every up().
+compositions/*/.garrison/capability-docs.json
 # Per-primary context-file projections of that assembled prompt (RUNTIMES-V1
 # P8): codex/cursor read AGENTS.md, gemini reads GEMINI.md. Generated at every
 # `up`, marked GARRISON-PROJECTED — derived output, never source.
@@ -117,3 +119,8 @@ docs/autothing/runs/**/owner.lock.json
 # mesh evidence run artifacts (transient)
 evidence/
 .mesh-shots-*.mjs
+# Raw Anthropic request dumps from the logging proxy (megabytes per run,
+# regenerated on demand by session_log_proxy_dump).
+bench/prefix-2026-08-29/live-capture/
+bench/prefix-2026-08-29/shape-capture/
+bench/prefix-2026-08-29/capture/req-*.json

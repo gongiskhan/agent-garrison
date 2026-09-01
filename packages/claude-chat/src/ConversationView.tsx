@@ -1,8 +1,10 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClaudeChat, type ChatFeatures, type ComposerAdornmentApi } from "./ClaudeChat";
+import type { ConversationActivity } from "./journal";
 import { resolvedChatScheme, subscribeChatTheme } from "./chat-theme";
 import { PayloadModal } from "./PayloadModal";
+import { ConversationCost } from "./ConversationCost";
 import { PayloadOpenerContext, type PayloadTarget } from "./payload-context";
 import type { RailOptions } from "./AttributionRail";
 import type { ChatTransport, TurnRouting } from "./transport";
@@ -64,6 +66,14 @@ export interface ConversationViewProps {
    *  (or no search route) turns it off. */
   search?: boolean;
   headerExtra?: React.ReactNode;
+  /** The host's word on whether this conversation is still being driven (a card
+   *  on Running). `false` vetoes the stream's derived working spinners; absent
+   *  leaves the event-derived activity in charge. */
+  live?: boolean;
+  /** Fired whenever the stream's own derived activity changes - lets a host
+   *  composer adornment offer quick replies while the conversation is
+   *  `needs-input` or `awaiting-approval` without re-deriving it. */
+  onActivityChange?: (activity: ConversationActivity) => void;
 }
 
 /** Refuse an absolute base rather than handing the client a URL it cannot reach. */
@@ -103,6 +113,8 @@ export function ConversationView({
   focusSeq = null,
   search = true,
   headerExtra,
+  live,
+  onActivityChange,
 }: ConversationViewProps) {
   const root = useMemo(() => relativeBase(base), [base]);
   // The host's `focusSeq` is the initial/authoritative value; a hit clicked in
@@ -176,6 +188,7 @@ export function ConversationView({
     <div className="cc-conversation" data-theme={themeOn ? scheme : undefined}>
       <div className="cc-conv-head">
         <span className="cc-conv-title" title={title ?? conversationId}>{title ?? conversationId}</span>
+        <ConversationCost conversationId={conversationId} base={root} generation={seq} />
         {search && (
           <div className="cc-conv-search">
             <input
@@ -240,6 +253,8 @@ export function ConversationView({
             features={features}
             transcriptUrl={streamUrl}
             transcriptOnly
+            transcriptLive={live}
+            transcriptOnActivityChange={onActivityChange}
             transcriptFocusEventId={seq == null ? undefined : conversationEventId(conversationId, seq)}
             routing={routing}
             routeOptions={routeOptions}

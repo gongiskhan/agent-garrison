@@ -63,4 +63,34 @@ final class PendantFeedbackMappingTests: XCTestCase {
         XCTAssertEqual(failed.map(\.level), [.medium, .medium, .medium])
         XCTAssertEqual(failed.count, 3)
     }
+
+    // The pendant must outlive the screen. It used to be a @StateObject inside
+    // PendantView, so navigating to Settings tore it down - BLE dropped, the
+    // session ended, and the wearable went deaf until you walked back to that
+    // one view. A source check because the bug lives in OWNERSHIP, which no
+    // runtime assertion in this target can observe.
+    func testPendantIsOwnedByTheAppNotByAView() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(contentsOf: root.appendingPathComponent("GarrisonApp/Pendant/PendantView.swift"))
+        XCTAssertFalse(
+            view.contains("@StateObject private var controller"),
+            "PendantView must OBSERVE the shared controller, never own it - owning it kills the link on navigation"
+        )
+        XCTAssertTrue(view.contains("PendantController.shared"))
+
+        let controller = try String(contentsOf: root.appendingPathComponent("GarrisonApp/Pendant/PendantController.swift"))
+        XCTAssertTrue(controller.contains("static let shared = PendantController()"))
+
+        // And the app reconnects a KNOWN pendant on launch and on foreground,
+        // so wearing it does not require visiting a screen at all.
+        let app = try String(contentsOf: root.appendingPathComponent("GarrisonApp/GarrisonApp.swift"))
+        XCTAssertTrue(app.contains("PendantController.shared.connect()"))
+        XCTAssertTrue(app.contains("scenePhase"))
+        XCTAssertTrue(
+            app.contains("AppGroup.pendantIdentifier != nil"),
+            "auto-connect only for an already-paired pendant; first pairing stays deliberate"
+        )
+    }
 }

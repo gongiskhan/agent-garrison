@@ -645,7 +645,7 @@ export function SessionsRail(props: {
     };
     const meta: React.ReactNode[] = [];
     if (r.source) meta.push(<span key="src" className="wc-thread-src">{r.source}</span>);
-    if (r.running) meta.push(<span key="run" className="wc-thread-src">Working</span>);
+    if (r.running) meta.push(<span key="run" className="wc-thread-src wc-thread-working-label">Working</span>);
     else if (r.queued > 0) meta.push(<span key="q" className="wc-thread-src">{r.queued} queued</span>);
     if (r.kind === "remote" && r.nodeName) meta.push(<span key="node" className="wc-thread-node">{r.nodeName}</span>);
     const when = fmtWhen(r.activity);
@@ -656,6 +656,7 @@ export function SessionsRail(props: {
         className={[
           "wc-thread",
           isActive ? "wc-thread--active" : "",
+          r.running ? "wc-thread--working" : "",
           isUnread ? "wc-thread--unread" : "",
           dragKey === r.key ? "wc-thread--dragging" : "",
           hinted ? "wc-thread--drophint" : ""

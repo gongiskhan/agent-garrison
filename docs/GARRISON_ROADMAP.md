@@ -1,5 +1,9 @@
 # Garrison Roadmap
 
+**Historical.** The plan of record is [`roadmap.json`](../roadmap.json) at the repo root, edited through the Roadmaps view and the roadmap CLI. This document is kept for its decision log and its history; do not update it.
+
+---
+
 **Status:** Live working document. Edited during planning conversations.
 This is the source of truth for Garrison's phased roadmap — the
 restructure of 2026-05-26 replaced the prior Phase 1–9 layout with a

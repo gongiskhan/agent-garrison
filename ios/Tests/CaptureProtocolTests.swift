@@ -69,4 +69,78 @@ final class CaptureProtocolTests: XCTestCase {
         }
         XCTAssertNotEqual(SessionId.generate(), SessionId.generate())
     }
+
+    // The EXACT frame the server emits once a cue is attached, from
+    // scripts/server.mjs: {type:"feedback", event:{...event, speak}}. Pinned
+    // with real bytes because a silently-failing decode here is invisible -
+    // parse() returns nil and the phone simply stays quiet, which is
+    // indistinguishable from "the server sent nothing".
+    func testDecodesAFeedbackEventCarryingASpokenCue() {
+        let json = """
+        {"type":"feedback","event":{"event_id":"01K9","name":"wake_detected",        "session_id":"01SESS","at":"2026-08-28T09:00:00.000Z",        "speak":{"text":"Sim?","lang":"pt","audio_path":"/speak/fb04e04c.mp3","priority":"cue"}}}
+        """
+        guard case .feedback(let event)? = ServerMessage.parse(json) else {
+            return XCTFail("a feedback frame carrying a cue must still decode")
+        }
+        XCTAssertEqual(event.name, "wake_detected")
+        XCTAssertEqual(event.speak?.text, "Sim?")
+        XCTAssertEqual(event.speak?.lang, "pt")
+        XCTAssertEqual(event.speak?.audioPath, "/speak/fb04e04c.mp3")
+    }
+
+    // Backwards compatibility in the other direction: an older server, or any
+    // event with no cue, must still decode rather than dropping the haptic.
+    func testDecodesAFeedbackEventWithNoCue() {
+        let json = """
+        {"type":"feedback","event":{"event_id":"01K9","name":"task_created",        "session_id":"01SESS","at":"2026-08-28T09:00:00.000Z","title":"comprar pao"}}
+        """
+        guard case .feedback(let event)? = ServerMessage.parse(json) else {
+            return XCTFail("an event with no cue must still decode")
+        }
+        XCTAssertNil(event.speak)
+        XCTAssertEqual(event.title, "comprar pao")
+    }
+
+    // The ack lane gained `lang`; an ack without it must keep decoding.
+    func testDecodesAnAckWithAndWithoutLanguage() {
+        let withLang = """
+        {"type":"speak","ack":{"id":"a1","text":"Criei uma tarefa: pao.","lang":"pt"}}
+        """
+        guard case .speak(let a)? = ServerMessage.parse(withLang) else { return XCTFail("ack with lang") }
+        XCTAssertEqual(a.lang, "pt")
+        let noLang = """
+        {"type":"speak","ack":{"id":"a2","text":"Created a task, bread."}}
+        """
+        guard case .speak(let b)? = ServerMessage.parse(noLang) else { return XCTFail("ack without lang") }
+        XCTAssertNil(b.lang)
+    }
+
+    // The transcript the Conversation screen renders. Pinned against the exact
+    // shape /capture/exchanges serves - a silent decode failure here shows the
+    // user an empty conversation over a healthy server.
+    func testDecodesTheExchangesTranscript() throws {
+        let json = """
+        {"exchanges":[{"id":"01K000000000000000000000AA","at":"2026-08-28T09:00:00.000Z",        "command":"Zeca, quantos gramas tem uma onça?","intent":"query",        "confirmation":"Uma onça tem cerca de 28 gramas.","lang":"pt",        "cardId":null,"cardUrl":null,"delivery":"spoken",        "followups":[{"round":0,"at":"2026-08-28T09:00:20.000Z","request":"algo de comida",        "reply":"Queres ideias para o jantar?","ok":true}]}]}
+        """
+        let decoded = try JSONDecoder().decode(ExchangesResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.exchanges.count, 1)
+        let exchange = decoded.exchanges[0]
+        XCTAssertEqual(exchange.confirmation, "Uma onça tem cerca de 28 gramas.")
+        XCTAssertEqual(exchange.delivery, "spoken")
+        XCTAssertEqual(exchange.lang, "pt")
+        XCTAssertEqual(exchange.followups.first?.reply, "Queres ideias para o jantar?")
+    }
+
+    // A feedback event carrying the conversation language - the phone localizes
+    // its own notification bodies from it.
+    func testDecodesAFeedbackEventWithLanguage() {
+        let json = """
+        {"type":"feedback","event":{"event_id":"01K9","name":"task_created",        "session_id":"01SESS","at":"2026-08-28T09:00:00.000Z","title":"comprar pão","lang":"pt"}}
+        """
+        guard case .feedback(let event)? = ServerMessage.parse(json) else {
+            return XCTFail("event with lang must decode")
+        }
+        XCTAssertEqual(event.lang, "pt")
+        XCTAssertEqual(event.title, "comprar pão")
+    }
 }

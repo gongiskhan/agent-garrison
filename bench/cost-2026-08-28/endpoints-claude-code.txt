@@ -1,0 +1,38 @@
+PASS  npm-start port 3000 answers GET /todos
+        200 []
+PASS  POST /todos creates (uuid, completed=false, ISO createdAt)
+        201 {"id":"5b79fb60-4671-4a3f-8fef-ea5664bf41d3","title":"write the report","completed":false,"createdAt":"2026-08-28T23:48:39.088Z"}
+PASS  POST empty title -> 400 {error}
+        400 {"error":"title must not be empty"}
+PASS  POST 201-char title -> 400 {error}
+        400 {"error":"title must be at most 200 characters"}
+PASS  POST 200-char title accepted (boundary)
+        201 {"id":"4cde0e9f-6572-4c32-8f58-8a13b4ab71cf","title":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+PASS  POST missing title -> 400 {error}
+        400 {"error":"title is required"}
+PASS  POST non-string title -> 400 {error}
+        400 {"error":"title must be a string"}
+PASS  GET /todos/:id returns it
+        200 {"id":"5b79fb60-4671-4a3f-8fef-ea5664bf41d3","title":"write the report","completed":false,"createdAt":"2026-08-28T23:48:39.088Z"}
+PASS  GET unknown id -> 404 {error}
+        404 {"error":"todo not found"}
+PASS  PATCH completed=true
+        200 {"id":"5b79fb60-4671-4a3f-8fef-ea5664bf41d3","title":"write the report","completed":true,"createdAt":"2026-08-28T23:48:39.088Z"}
+PASS  PATCH title
+        200 {"id":"5b79fb60-4671-4a3f-8fef-ea5664bf41d3","title":"renamed","completed":true,"createdAt":"2026-08-28T23:48:39.088Z"}
+PASS  PATCH empty title -> 400 {error}
+        400 {"error":"title must not be empty"}
+PASS  PATCH unknown id -> 404 {error}
+        404 {"error":"todo not found"}
+PASS  GET /todos?completed=true filters
+        200 [{"id":"5b79fb60-4671-4a3f-8fef-ea5664bf41d3","title":"renamed","completed":true,"createdAt":"2026-08-28T23:48:39.088Z"}]
+PASS  GET /todos?completed=false filters
+        200 [{"id":"4cde0e9f-6572-4c32-8f58-8a13b4ab71cf","title":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+PASS  DELETE /todos/:id
+        204 ""
+PASS  GET after delete -> 404 {error}
+        404 {"error":"todo not found"}
+PASS  DELETE unknown id -> 404 {error}
+        404 {"error":"todo not found"}
+
+18/18 behaviour checks passed

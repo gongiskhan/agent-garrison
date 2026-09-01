@@ -423,6 +423,10 @@ export async function cardById(cardId) {
     // The launcher's brief needs the items — they are the card's concrete asks.
     if (Array.isArray(doc.checklist)) card.checklist = doc.checklist;
     if (typeof doc.acceptance === "string") card.acceptance = doc.acceptance;
+    // Uploaded attachments ride as a sibling too. Entries carry the absolute
+    // `path` the stretch brief folds in; the legacy description-block entries
+    // have no path and already live inside the description text itself.
+    if (Array.isArray(doc.attachments)) card.attachments = doc.attachments;
     return card;
   } catch {
     return null;

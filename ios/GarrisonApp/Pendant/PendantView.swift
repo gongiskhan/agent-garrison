@@ -5,7 +5,9 @@ import SwiftUI
 /// quality and latency are never invisible), and the live transcript
 /// streaming from the capture service's SSE feed.
 struct PendantView: View {
-    @StateObject private var controller = PendantController()
+    // The controller OUTLIVES this view (PendantController.shared): leaving the
+    // screen must not disconnect the wearable. Observed, never owned.
+    @ObservedObject private var controller = PendantController.shared
     @StateObject private var transcript = TranscriptStream()
     @State private var showAmbientConsent = false
 

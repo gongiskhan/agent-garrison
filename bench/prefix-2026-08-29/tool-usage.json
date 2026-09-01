@@ -1,0 +1,76 @@
+{
+ "conversations": 33,
+ "stretchesByDuty": {
+  "triage": 25,
+  "discuss": 1,
+  "implement": 35,
+  "adversarial-review": 28,
+  "plan": 6,
+  "test": 26,
+  "responder": 5,
+  "review": 1,
+  "writing": 7,
+  "other": 1,
+  "ops": 1,
+  "research": 1
+ },
+ "toolsByDuty": {
+  "triage": {
+   "Read": 13,
+   "Bash": 13,
+   "Write": 95,
+   "AskUserQuestion": 2
+  },
+  "discuss": {
+   "Bash": 17,
+   "Write": 24
+  },
+  "implement": {
+   "Read": 417,
+   "Bash": 1488,
+   "Edit": 1018,
+   "Write": 978,
+   "Agent": 63,
+   "tool": 15
+  },
+  "plan": {
+   "Bash": 184,
+   "Agent": 22,
+   "Write": 158,
+   "Read": 20
+  },
+  "test": {
+   "Read": 6,
+   "Bash": 445,
+   "Write": 123,
+   "ToolSearch": 8,
+   "TaskOutput": 3,
+   "Edit": 5
+  },
+  "review": {
+   "Bash": 15,
+   "Write": 16
+  },
+  "responder": {
+   "Write": 6
+  },
+  "writing": {
+   "Write": 131,
+   "Read": 44,
+   "Bash": 178,
+   "Edit": 369
+  },
+  "other": {
+   "Bash": 3,
+   "Write": 6
+  },
+  "ops": {
+   "Bash": 35,
+   "Write": 15
+  },
+  "research": {
+   "Bash": 2,
+   "Write": 5
+  }
+ }
+}

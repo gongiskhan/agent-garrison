@@ -254,7 +254,7 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
     expect(stdout).toContain("high-water matches the fixture packet count");
   }, 90000);
 
-  it("hears the wake command live, cards it with companion identity, and pushes the confirmation", async () => {
+  it("hears the wake command live, cards it with companion identity, and SPEAKS the confirmation", async () => {
     // The app stand-in: session socket that answers speaks with receipts.
     const ws = new WebSocket(base.replace("http", "ws") + "/capture/stream", {
       headers: { authorization: `Bearer ${TOKEN}` }
@@ -296,7 +296,10 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
       await next((m) => m.type === "ack" && m.seq === seq);
     }
 
-    // Wake -> pinned classify on the stub gateway -> card -> APNs push.
+    // Wake -> pinned classify on the stub gateway -> card -> spoken
+    // confirmation. Speak-first: with THIS very socket live and answering
+    // receipts, the confirmation is heard, not pushed - the push is the
+    // fallback for a phone nothing can reach (pinned in pendant-capture).
     await waitFor(() => cards.some((c) => c.origin_id?.startsWith("companion:wake:")), 15000, "wake card");
     const wakeCard = cards.find((c) => c.origin_id?.startsWith("companion:wake:"))!;
     expect(wakeCard.title).toBe("olá companion");
@@ -304,9 +307,8 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
     expect(wakeCard.originChannel).toEqual({ channel: "companion", threadId: "companion-reports" });
     const classify = gatewayCalls.find((c) => String(c.body.message).includes("spoken wake-word command"))!;
     expect(classify.body.routing).toEqual({ target: "cc-haiku-low" });
-    await waitFor(() => pushes.length >= 1, 10000, "wake confirmation push");
-    expect(pushes[0].topic).toBe("com.gomes.garrison");
-    expect(pushes[0].payload.aps.alert.body).toContain("olá companion");
+    await waitFor(() => spoken.some((t) => t.includes("olá companion")), 10000, "spoken wake confirmation");
+    expect(pushes).toHaveLength(0); // spoken means no banner - one delivery, not two
 
     // The kanban ack arrives (as fanOutAck would): echo registers FIRST,
     // the sink speaks it, the receipt lands.
@@ -316,9 +318,11 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
       body: JSON.stringify({ id: "ack-e2e-1", kind: "created", severity: "info", templateId: "card.created", text: ACK_TEXT, idempotencyKey: "e2e-card-1" })
     }).then((r) => r.json());
     expect(ackRes.delivered).toBe("socket");
-    await waitFor(() => spoken.length === 1, 8000, "spoken ack");
-    expect(spoken[0]).toBe(ACK_TEXT);
-    await waitFor(() => handle.counters.read().speaks_confirmed === 1, 8000, "spoken receipt");
+    // Two spoken lines by now: the wake confirmation (speak-first) and this
+    // kanban ack.
+    await waitFor(() => spoken.length === 2, 8000, "spoken ack");
+    expect(spoken[1]).toBe(ACK_TEXT);
+    await waitFor(() => handle.counters.read().speaks_confirmed === 2, 8000, "spoken receipt");
 
     // The app's own voice comes back through the mic (fragmented) plus real
     // speech; then the session ends.
@@ -418,10 +422,13 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
     expect(c.wake_cards_created).toBe(1);
     expect(c.realtime_echo_suppressed).toBeGreaterThanOrEqual(1);
     expect(c.echo_registered).toBeGreaterThanOrEqual(1);
-    expect(c.acks_in).toBe(1);
-    expect(c.speaks_forwarded).toBe(1);
-    expect(c.speaks_confirmed).toBe(1);
-    expect(c.notifications_sent).toBeGreaterThanOrEqual(3); // wake + triage + ask
+    // Two acks through the sink now: the SPOKEN wake confirmation
+    // (speak-first) and the kanban ack the test posted.
+    expect(c.acks_in).toBe(2);
+    expect(c.speaks_forwarded).toBe(2);
+    expect(c.speaks_confirmed).toBe(2);
+    expect(c.wake_confirmations_spoken).toBe(1);
+    expect(c.notifications_sent).toBeGreaterThanOrEqual(2); // triage + ask (wake spoke instead)
     expect(c.events_emitted).toBeGreaterThanOrEqual(1);
     expect(c.wake_capture_ms_count).toBe(1);
     expect(c.wake_notify_ms_count).toBe(1);

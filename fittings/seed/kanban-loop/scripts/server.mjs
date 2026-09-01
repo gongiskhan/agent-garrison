@@ -1632,7 +1632,11 @@ async function handleGetCard(req, res, opts, id) {
         name: a.name,
         image: /\.(png|jpe?g|gif|webp|svg)$/i.test(a.name),
         url: `/cards/${encodeURIComponent(id)}/artifact?ref=${encodeURIComponent(`attachment:${a.name}`)}`,
-        uploaded: true
+        uploaded: true,
+        // The absolute path is for the conversation brief (same box by the
+        // mesh rule - a card runs on the node that owns it); browsers use the
+        // artifact url above.
+        path: a.path
       })),
       ...parseAttachments(card.description).map((a) => ({
         i: a.i,
@@ -1945,6 +1949,9 @@ async function handleCreateCard(req, res, opts) {
     description,
     project: suppliedProject || explicitWorkspace,
     scope: requestedScope,
+    // Voice cards carry the language they were spoken in; createCard clamps it
+    // to pt|en and drops anything else.
+    lang: typeof body.lang === "string" ? body.lang : null,
     list: storageListId,
     goalMode: body.goalMode === true,
     autonomous: body.autonomous === true,
@@ -3726,8 +3733,8 @@ async function handleRunScheduleNow(req, res, opts, id) {
 // into cards/<id>/attachments/. Same JSON-base64 wire shape as the gateway's
 // /attachments; 10 MB decoded cap; plain filenames only. The listing is derived
 // by readdir (never stored on the card), the serve side is the opaque
-// `attachment:<name>` artifact ref, and the engine folds the absolute paths
-// into the dispatch prompt.
+// `attachment:<name>` artifact ref, and the conversation brief folds the
+// absolute paths in per stretch.
 const MAX_CARD_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 async function handleAttachmentUpload(req, res, opts, id) {
   if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin upload rejected" });

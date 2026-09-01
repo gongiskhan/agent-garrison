@@ -207,6 +207,24 @@ export function loadConfig(env = process.env) {
     // reaction - and the repeat is different transcript text, so nothing else
     // catches it. 0 disables.
     wakeCardDedupeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CARD_DEDUPE_MS, 600000),
+    // The clarifying-question window: after Zeca SPEAKS a question, the next
+    // utterance - no wake word - is taken as the answer. Short on purpose (an
+    // always-on mic must not stay promiscuous), and rounds are capped so a
+    // model that keeps asking stops being answered.
+    wakeFollowupWindowMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_FOLLOWUP_WINDOW_MS, 12000),
+    wakeFollowupMaxRounds: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_FOLLOWUP_MAX_ROUNDS, 3),
+    // "Ainda estou a tratar disso." while a delegated turn runs - spoken only,
+    // never pushed. 0 disables.
+    wakeProgressIntervalMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_PROGRESS_INTERVAL_MS, 60000),
+    // Say "Não percebi - repete?" when a wake window closes with nothing
+    // usable, rather than leaving the wearer in silence after two cues.
+    wakeUnheardEnabled: parseBool(env.GARRISON_OMICHANNEL_WAKE_UNHEARD_ENABLED, false),
+    // Which language the wake path confirms in. "auto" (the default) reads it
+    // off what the user actually said; an explicit pt/en pins it.
+    wakeLanguage: (() => {
+      const v = (env.GARRISON_OMICHANNEL_WAKE_LANGUAGE || "").trim().toLowerCase();
+      return v === "pt" || v === "en" ? v : null;
+    })(),
     wakeContextSegments: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_OMICHANNEL_WAKE_CONTEXT_MAX_AGE_MS, 120000),
 

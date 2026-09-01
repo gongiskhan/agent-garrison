@@ -59,7 +59,9 @@ describe("Kanban Watch Panic UI", () => {
     expect(watch).not.toContain('setTab(');
     expect(source).not.toContain("function SessionViewer");
     expect(detail).toContain("Save & Retry");
-    expect(detail).toContain("initialOpen={parked}");
+    // 2026-08-31 card work: run configuration folded into a Section that a
+    // parked card opens by default, wearing the attention tone.
+    expect(detail).toContain("defaultOpen={parked}");
     expect(detail).toContain("patchCard({ routing:");
   });
 

@@ -50,6 +50,7 @@ import {
   loadHostMap,
 } from "./markdown-safety";
 import { FailureNotice, SessionEventTimeline, SessionStream } from "./SessionTranscript";
+import type { ConversationActivity } from "./journal";
 import {
   hasVisibleSessionActivity,
   isFailureInfo,
@@ -1220,6 +1221,21 @@ export interface ClaudeChatProps {
    */
   transcriptFocusEventId?: string;
   /**
+   * The HOST's word on whether the conversation behind the pinned transcript is
+   * still being driven. Threaded verbatim to {@link SessionStream}'s
+   * `conversationLive`: `false` vetoes the stream's derived working spinners,
+   * anything else leaves the derivation in charge. Only meaningful with
+   * `transcriptOnly`.
+   */
+  transcriptLive?: boolean;
+  /**
+   * Threaded verbatim to {@link SessionStream}'s `onActivityChange`. Only
+   * meaningful with `transcriptOnly` - lets the host's own composer adornment
+   * react to `needs-input` / `awaiting-approval` without re-deriving activity
+   * from events it does not otherwise see.
+   */
+  transcriptOnActivityChange?: (activity: ConversationActivity) => void;
+  /**
    * Stable key for persisting the UNSENT composer draft (typed text + settled
    * attachments) across a re-mount. A multi-thread host re-mounts the component
    * with a fresh `key` when switching threads (see `initialHistory`), which would
@@ -1260,7 +1276,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, transcriptLive, transcriptOnActivityChange, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -2862,6 +2878,8 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             live={busy}
             announceLiveUpdates={false}
             focusEventId={transcriptFocusEventId}
+            conversationLive={transcriptLive}
+            onActivityChange={transcriptOnActivityChange}
           />
         ) : showTranscript && transcriptUrl ? (
           <SessionStream url={transcriptUrl} live={busy} announceLiveUpdates={false} />

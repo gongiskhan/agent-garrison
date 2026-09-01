@@ -34,6 +34,7 @@ import {
   PERSONAL_SCOPE_TOKEN,
   resolveRunScope
 } from "./project-source.mjs";
+import { SHARED_MCP_TOOLS, runtimeCodexEnabled } from "./harness-profiles.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -260,6 +261,40 @@ function freezeAssemblyValue(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
   for (const next of Object.values(value)) freezeAssemblyValue(next);
   return Object.freeze(value);
+}
+
+// Narrow what a session's MCP server advertises. Every tool schema is paid for
+// in the boot prefix of every session the server is attached to, so a duty that
+// only needs the capability-doc lookup should not also carry schedule_card and
+// friends. The server itself honours GARRISON_MCP_TOOLS; passing undefined
+// leaves the full inventory, exactly as before.
+function narrowMcpTools(servers, mcpTools, conversationId = null, cwd = null) {
+  const allow = Array.isArray(mcpTools)
+    ? mcpTools.filter((t) => typeof t === "string" && t).join(",")
+    : "";
+  if (!servers || typeof servers !== "object" || (!allow && !conversationId && !cwd)) return servers;
+  const out = {};
+  for (const [name, cfg] of Object.entries(servers)) {
+    out[name] = cfg && typeof cfg === "object"
+      ? {
+          ...cfg,
+          env: {
+            ...(cfg.env ?? {}),
+            ...(allow ? { GARRISON_MCP_TOOLS: allow } : {}),
+            // Which conversation the layer-3 tools read when the caller names
+            // none. Without it a stretch would have to quote its own id back
+            // out of its brief on every call.
+            ...(conversationId ? { GARRISON_CONVERSATION_ID: String(conversationId) } : {}),
+            // Where the stretch is actually working, so a finding's anchorPath
+            // may be repo-relative like every other path the model handles.
+            // Without it anchors resolved against the composition dir and every
+            // relative path was rejected as "the file is not there".
+            ...(cwd ? { GARRISON_STRETCH_CWD: String(cwd) } : {}),
+          },
+        }
+      : cfg;
+  }
+  return out;
 }
 
 function canonicalToolNames(value) {
@@ -899,7 +934,11 @@ function dispatcherCallOpts(executionModel, resolvedLib, inferenceConfig = {}) {
     maxTurns: 1,
     maxTokens: Number.isFinite(inferenceConfig.maxTokens)
       ? inferenceConfig.maxTokens
-      : Number.isFinite(target.maxTokens) ? target.maxTokens : 256,
+      // 1024, not 256: max_tokens is a CEILING (you pay only for what is
+      // generated), and a tight one turns a wordy-but-valid routing reply
+      // into invalid-response fallback. Measured 2026-08-31: 2 of 102
+      // inference calls fell back invalid-response under 256.
+      : Number.isFinite(target.maxTokens) ? target.maxTokens : 1024,
     timeoutMs: Number.isFinite(inferenceConfig.timeoutMs)
       ? inferenceConfig.timeoutMs
       : Number.isFinite(target.timeoutMs) ? target.timeoutMs : 8000,
@@ -1466,7 +1505,12 @@ export class RoutedGateway {
       ...(target.tools !== undefined ? { tools: cloneAssemblyValue(target.tools) } : {}),
       allowedTools: allowedTools ?? [],
       ...(target.disallowedTools !== undefined ? { disallowedTools: disallowedTools ?? [] } : {}),
-      mcpServers: cloneAssemblyValue(this._agentSdkMcpServers),
+      // A duty harness profile sets `mcpServers: null` to mean "this stretch
+      // carries no MCP server", which is different from leaving it unspecified.
+      // Nine unused schemas are ~2.3k tokens of boot prefix on every stretch.
+      mcpServers: target.mcpServers === null
+        ? {}
+        : narrowMcpTools(cloneAssemblyValue(this._agentSdkMcpServers), target.mcpTools, opts.conversationId, opts.cwd),
       strictMcpConfig: true,
       streamingInput: opts.streamingInput === true,
     });
@@ -1603,6 +1647,7 @@ export class RoutedGateway {
           cwd: opts.cwd,
           permissionMode: opts.permissionMode,
           streamingInput,
+          conversationId: opts.conversationId,
         });
     const fixed = assembly.config;
     let requestedResumeSessionId =
@@ -1642,7 +1687,12 @@ export class RoutedGateway {
       // Inherit the gateway process env (PATH/HOME/CLAUDE_CONFIG_DIR + the
       // Paymaster account pin) — the SDK replaces the subprocess env, so an
       // empty baseEnv would strip config-dir isolation and the account token.
-      env: process.env,
+      // GARRISON_STRETCH_CLAUDE_HOME, when set, redirects the CLI away from the
+      // user's real ~/.claude: see stretch-claude-home.mjs for why a stretch
+      // must not read the user's memory index, skills or agents.
+      env: process.env.GARRISON_STRETCH_CLAUDE_HOME
+        ? { ...process.env, CLAUDE_CONFIG_DIR: process.env.GARRISON_STRETCH_CLAUDE_HOME }
+        : process.env,
       permissionMode: fixed.permissionMode,
       ...(streamingInput ? { streamingInput: true } : {}),
     };
@@ -1928,7 +1978,23 @@ export class RoutedGateway {
       model: value?.model ?? fallbackModel ?? session?.observedModel ?? t.model ?? null,
       sessionId: value?.sessionId ?? session?.sessionId ?? null,
     });
+    // Per-API-call usage, straight from the provider (cost instrumentation).
+    // Rows are forwarded LIVE to opts.onUsage as each call settles, so a stretch
+    // that later times out has still recorded everything it burned, and are also
+    // collected here so the turn's envelope carries the same rows.
+    const usageRows = [];
+    const collectUsage = (row) => {
+      usageRows.push(row);
+      if (typeof opts.onUsage === "function") {
+        try {
+          opts.onUsage(row);
+        } catch {
+          /* a usage consumer must never kill the turn */
+        }
+      }
+    };
     const streamHooks = {
+      onUsage: collectUsage,
       // Keep the callback and turn identity byte-for-byte as supplied. The runtime
       // adapter owns the canonical event vocabulary; the gateway is only a
       // transport boundary and must not reshape channel-neutral events.
@@ -2040,7 +2106,17 @@ export class RoutedGateway {
         spawnArgs.compositionDir,
         resp?.sessionId ?? session.sessionId ?? null
       ),
-      cost_usd: null,
+      // The SDK reports its own cost on every result envelope. Carried up as a
+      // CROSS-CHECK against the rate table, never as the reported figure: if the
+      // two disagree by more than a rounding margin, the table or the parsing is
+      // wrong and the divergence should be investigated, not averaged away.
+      cost_usd: usageRows.reduce(
+        (n, r) => (typeof r?.sdkCostUsd === "number" ? (n ?? 0) + r.sdkCostUsd : n),
+        null
+      ),
+      // Every API call the provider described, verbatim. This is the record the
+      // ledger prices; usedTokens below stays as the legacy scalar.
+      usage: usageRows,
       // The adapter accounts the session's tokens (input+output per turn) —
       // without passing it up, every stretch reports usedTokens null and the
       // Conversations instrumentation prices nothing (found on the first
@@ -2382,6 +2458,32 @@ export class RoutedGateway {
   // Run one turn on a secondary runtime (the orchestrator delegating a step to
   // gpt/codex or gemini). One-shot exec; the reply is returned + (by gateway-pty)
   // injected into the rich channel stream.
+  // The Garrison MCP server one codex stretch mounts: the SAME server config
+  // the Agent SDK lane holds (command, args, base-url env), narrowed exactly
+  // like narrowMcpTools does for SDK stretches - shared tool set, conversation
+  // id so the layer-3 tools default to the stretch's own record, stretch cwd
+  // so finding anchors resolve repo-relative. Null when this is not a stretch
+  // turn, not a codex target, the fitting is absent, or the flag is off.
+  _stretchMcpConfig(rt, opts, cwd) {
+    if (rt !== "codex") return null;
+    if (!opts?.conversationId) return null;
+    if (!runtimeCodexEnabled(process.env)) return null;
+    const base = this._agentSdkMcpServers?.garrison;
+    if (!base || typeof base.command !== "string" || !base.command) return null;
+    const narrowed = narrowMcpTools(
+      cloneAssemblyValue({ garrison: base }),
+      SHARED_MCP_TOOLS,
+      opts.conversationId,
+      cwd ?? null
+    ).garrison;
+    return {
+      name: "garrison",
+      command: narrowed.command,
+      args: Array.isArray(narrowed.args) ? narrowed.args : [],
+      env: narrowed.env ?? {},
+    };
+  }
+
   async runSecondaryTurn(route, message, opts = {}) {
     const rt = route.target.runtime;
     const defaults = EXEC_ENGINE_DEFAULTS[rt] ?? {};
@@ -2418,11 +2520,18 @@ export class RoutedGateway {
     const spawnModel = model;
     // Trust the cwd for gemini 0.46 (else it downgrades yolo + blocks); harmless for codex.
     const env = { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" };
+    // Provider-two step 3: a STRETCH turn (identified by its conversation id)
+    // on a codex target mounts the same Garrison MCP server every Claude Code
+    // stretch carries, env-scoped to its conversation and working directory -
+    // findings and ledger reads land in the same record, no runtime-private
+    // variant. Delegation turns (no conversationId) are untouched.
+    const stretchMcp = this._stretchMcpConfig(rt, opts, cwd);
     const session = await adapter.spawn({
       compositionDir: cwd,
       model: spawnModel,
       effort,
       env,
+      ...(stretchMcp ? { mcpServer: stretchMcp } : {}),
       // An in-process HTTP engine resolves its ENDPOINT from the spawn config, not
       // from a CLI's own login state: without provider (and the vault secrets that
       // back its key) it cannot resolve a base URL at all and throws
@@ -2482,7 +2591,16 @@ export class RoutedGateway {
       // the model id, so both report the requested-but-unapplied state. Read the
       // ADAPTER's own claim rather than an engine allowlist here — an adapter
       // that cannot apply effort simply never sets the flag.
-      effortApplied: effort == null ? null : session.effortApplied === true
+      effortApplied: effort == null ? null : session.effortApplied === true,
+      // Usage used to die here. Every exec/HTTP secondary — codex, cursor,
+      // openai-agents — parses real provider numbers and this return dropped all
+      // of them, so every secondary stretch reached the ledger as
+      // `usedTokens: null, costUnknown: true` while the adapter knew better.
+      // Absent stays absent: an adapter that reports nothing still reports null,
+      // never a fabricated zero.
+      usedTokens: typeof resp?.usedTokens === "number" ? resp.usedTokens : null,
+      usage: Array.isArray(resp?.usage) ? resp.usage : [],
+      usageSource: resp?.usageSource ?? null
     };
   }
 

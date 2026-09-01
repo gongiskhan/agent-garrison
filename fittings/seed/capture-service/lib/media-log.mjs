@@ -120,6 +120,12 @@ export class SessionMedia {
     this.framesDir = path.join(this.dir, "frames");
     if (!this.transient) mkdirSync(this.framesDir, { recursive: true });
     this.audioFile = path.join(this.dir, "audio.log");
+    // The newest frame that is fully on disk. In memory only: after a restart
+    // mid-broadcast there is simply no screen context until the next frame
+    // lands, which at the extension's ~1.5 fps is under a second - a better
+    // trade than a statSync fallback re-deriving an mtime it can only half
+    // trust.
+    this.lastVideo = null;
     const { lastSeq } = this.transient ? { lastSeq: 0 } : scanAudioLog(this.audioFile);
     this.audio = new OrderedStream({
       lastSeq,
@@ -140,7 +146,12 @@ export class SessionMedia {
       dedupeKey: "video_frames_deduped",
       dropKey: "video_frames_dropped_ahead",
       persist: (seq, ts, bytes) => {
-        if (!this.transient) writeFileSync(path.join(this.framesDir, `${seq}.jpg`), bytes);
+        if (this.transient) return;
+        writeFileSync(path.join(this.framesDir, `${seq}.jpg`), bytes);
+        // Recorded AFTER the write returns, never before: this path is a plain
+        // writeFileSync (not the atomic tmp+rename), so ordering is the only
+        // thing guaranteeing that a path handed out names a complete JPEG.
+        this.lastVideo = { seq, tsMs: ts, atMs: Date.now() };
       }
     });
   }
@@ -158,6 +169,19 @@ export class SessionMedia {
       else break;
     }
     return last;
+  }
+
+  // The newest complete frame, or null. `atMs` is SERVER wall clock, which is
+  // what freshness must be measured in - a frame's own ts is milliseconds since
+  // the broadcast started and is not comparable to a wake-hit timestamp.
+  latestFrame() {
+    if (!this.lastVideo) return null;
+    return {
+      seq: this.lastVideo.seq,
+      tsMs: this.lastVideo.tsMs,
+      atMs: this.lastVideo.atMs,
+      file: path.join(this.framesDir, `${this.lastVideo.seq}.jpg`)
+    };
   }
 
   acceptAudio(seq, ts, bytes) {

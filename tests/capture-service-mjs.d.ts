@@ -75,7 +75,13 @@ declare module "*/capture-service/scripts/server.mjs" {
     };
     echoGuard: unknown;
     notifier: unknown;
-    ackSink: { burst: { suppressed: number; timer: unknown } };
+    ackSink: {
+      burst: { suppressed: number; timer: unknown };
+      speakableSession(): { record: { id: string; mode: string; ended?: unknown } } | null;
+      muteSession(sessionId: string, forMs?: number): void;
+      handleAck(ack: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }>;
+      onSpeakTimeout: ((ackId: string) => void) | null;
+    };
   }>;
 }
 
@@ -121,6 +127,7 @@ declare module "*/capture-service/lib/media-log.mjs" {
   export function scanAudioLog(file: string): { lastSeq: number; records: number };
   export function readAudioLog(file: string): Generator<{ seq: number; ts: number; bytes: Buffer }>;
   export class SessionMedia {
+    latestFrame(): { seq: number; tsMs: number; atMs: number; file: string } | null;
     constructor(root: string, sessionId: string, opts?: Record<string, unknown>);
     acceptAudio(seq: number, ts: number, bytes: Buffer): number;
     acceptVideo(seq: number, ts: number, bytes: Buffer): number;
@@ -245,4 +252,142 @@ declare module "*/capture-service/lib/opus-normalize.mjs" {
   // stalls Deepgram live); returns the bytes unchanged when there is nothing
   // to unwrap.
   export function normalizeOpusPacket(bytes: Uint8Array): Uint8Array;
+}
+
+declare module "*/capture-service/lib/tts.mjs" {
+  export function textSeed(text: string): number;
+  export function clipId(args: { text: string; voiceId: string; model: string; lang?: string | null }): string;
+  export function looksPortuguese(text: unknown): boolean;
+  export class ZecaVoice {
+    constructor(deps: {
+      cfg: Record<string, unknown>;
+      counters: unknown;
+      log?: unknown;
+      fetchImpl?: (url: string, init: never) => Promise<unknown>;
+      now?: () => number;
+    });
+    available(): { ok: boolean; reason?: string };
+    readClip(id: unknown): Buffer | null;
+    clipFor(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached?: boolean } | null>;
+    cachedClipFor(text: unknown, opts?: { lang?: string | null }): { id: string; cached: boolean } | null;
+    pin(id: unknown): void;
+  }
+}
+
+declare module "*/capture-service/lib/cues.mjs" {
+  export const CUE_TEXT: Record<string, Record<string, string> | null>;
+  export class Cues {
+    constructor(opts: { cfg: unknown; voice?: unknown; counters?: unknown; log?: unknown });
+    enabled(): boolean;
+    textFor(name: string, lang: string): string | null;
+    speechFor(name: string, lang: string): { text: string; lang: string; audio_path?: string; priority: string } | null;
+    ensure(text: string): Promise<{ id: string } | null>;
+    prewarm(): Promise<number>;
+    registerEcho(echoGuard: unknown, speak: unknown): void;
+  }
+}
+
+declare module "*/capture-service/lib/language-memory.mjs" {
+  export class LanguageMemory {
+    constructor(opts: { stateDir: string; cfg?: unknown; counters?: unknown; now?: () => number; log?: unknown });
+    note(sessionId: string | null, text: unknown): string | null;
+    noteLanguage(sessionId: string | null, lang: unknown): string | null;
+    markCapturing(sessionId: string, open: boolean): void;
+    isCapturing(sessionId: string): boolean;
+    current(sessionId?: string | null): string;
+  }
+}
+
+declare module "*/capture-service/lib/echo-guard.mjs" {
+  export function normalizeTokens(text: unknown): string[];
+  export class EchoGuard {
+    constructor(opts?: { ttlMs?: number; counters?: unknown; now?: () => number; log?: unknown });
+    register(entry: { text: string; echo?: string | null }): boolean;
+    registerShort(text: unknown, opts?: { ttlMs?: number }): boolean;
+    shouldSuppress(segmentText: unknown): boolean;
+  }
+}
+
+declare module "*/capture-service/lib/connector-call.mjs" {
+  export function connectorScriptPath(connectorId: string, env?: Record<string, string | undefined>): string | null;
+  export function makeConnectorFn(opts?: {
+    env?: Record<string, string | undefined>;
+    spawnImpl?: unknown;
+    timeoutMs?: number;
+  }): (connectorId: string, action: string, args?: Record<string, unknown>) => Promise<any>;
+}
+
+declare module "*/capture-service/lib/cortex-cli.mjs" {
+  export function readInstallReceipt(env?: Record<string, string | undefined>): { bin: string; baseUrl: string | null } | null;
+  export class CortexCli {
+    constructor(opts: { cfg: unknown; counters?: unknown; env?: Record<string, string | undefined>; execImpl?: unknown; log?: unknown });
+    resolve(spokenName: string): Promise<{ status: string; id?: string; name?: string; candidates?: string[] }>;
+    run(automationId: string, inputs?: Record<string, unknown>, idempotencyKey?: string | null): Promise<{ runId: string | null; created: boolean }>;
+    status(runId: string): Promise<unknown>;
+  }
+}
+
+declare module "*/capture-service/lib/confirm-bus.mjs" {
+  export function whatsappBase(env?: Record<string, string | undefined>): string | null;
+  export class ConfirmBus {
+    constructor(opts: Record<string, unknown>);
+    enabled(): boolean;
+    watch(): void;
+    stop(): void;
+    poll(): Promise<void>;
+    onSpoken(ackId: string): void;
+    consumeSegment(sessionId: string, text: unknown): boolean;
+  }
+}
+
+// The wake bus is a byte-identical mirror of omi-channel's (companion-lockstep
+// pins it), so the shim mirrors the shape the tests actually use.
+declare module "*/capture-service/lib/wake.mjs" {
+  export const DISCUSS_END: RegExp;
+  export function wakeRegex(variants: string[]): RegExp | null;
+  export function normalizeTitle(title: unknown): string;
+  export function parseWakeReply(reply: string): Record<string, any> | null;
+  export function buildWakePrompt(
+    command: string,
+    projects: string[],
+    context?: Array<{ text: string; isUser: boolean }>,
+    trailing?: string,
+    now?: Date,
+    opts?: { screenContext?: boolean; screenLive?: boolean }
+  ): string;
+  export function buildDelegatePrompt(
+    request: string,
+    opts?: { boardUrl?: string | null; screen?: { file: string; ageMs?: number } | null }
+  ): string;
+  export function buildFollowupPrompt(answer: string, opts?: { lang?: string | null }): string;
+  export function buildVoiceDiscussPrompt(topic: string, opts?: { context?: Array<{ text: string }> }): string;
+  export function buildVoiceDiscussTurn(utterance: string): string;
+  export function splitForSpeech(text: unknown, opts?: { maxChars?: number; maxChunks?: number }): string[];
+  export function humanTime(iso: unknown, now?: Date, lang?: string): string;
+  export class WakeBus {
+    static stripRoutingFooter(text: unknown): string;
+    constructor(deps: Record<string, unknown>);
+    stripLeadingCueEcho(command: unknown): string;
+    delegateChain?: Promise<unknown>;
+    handleSegments(args: { sessionId: string; segments: unknown[] }): void;
+    close(sessionId: string, reason: string): Promise<any>;
+    session(sessionId: string): { state: string; [k: string]: unknown };
+    discussion(sessionId: string): { chain: Promise<unknown>; turns: number; [k: string]: unknown } | null;
+    endDiscussion(sessionId: string, reason: string): { reason: string; turns: number } | null;
+    expectAnswer(
+      sessionId: string,
+      ackId: string,
+      opts?: { lang?: string | null; rounds?: number; eventId?: string | null }
+    ): void;
+    armAnswerWindow(ackId: string): string | null;
+    openAnswerWindow(sessionId: string): { ackId: string; lang: string; rounds: number } | null;
+    resolveLanguage(command: string, parsed?: unknown): string;
+  }
+}
+
+declare module "*/capture-service/lib/screen-context.mjs" {
+  export class ScreenContextIndex {
+    constructor(opts: { ingress: unknown; cfg?: Record<string, unknown>; counters?: unknown; now?: () => number });
+    latest(q?: { atMs?: number | null }): { stale: boolean; sessionId: string; seq: number; file: string; ageMs: number } | null;
+  }
 }

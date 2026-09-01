@@ -1,0 +1,28 @@
+Per-API-call usage rows, Claude Code run 1 (session 1d52eec6-9cdf-427b-b12f-40e14ea75684)
+transcript: /home/ggomes/.claude/projects/-home-ggomes-dev-bench-todo-cc/1d52eec6-9cdf-427b-b12f-40e14ea75684.jsonl
+
+43 assistant records -> 19 unique message ids (deduped by per-field MAX)
+
+message id                          recs      in     out    cachW    cachR
+--------------------------------------------------------------------------------
+msg_011CeW29x2Y6AurVK71qf9Ww           2       2     677    18600    10180
+msg_011CeW2Ak3VBJd9W6NqfwVCX           3       2     998     1521    28780
+msg_011CeW2BZtaYmdYAib8MJrjV           2       2    1139     1018    30301
+msg_011CeW2CVGJ2HGt9Bgz6NNoV           2       2    1175     1170    31319
+msg_011CeW2DFjEqVaBCZVR6dGyx           2       2    1348     1206    32489
+msg_011CeW2EE34tKCwuCse9McK1           2       2    1351     1379    33695
+msg_011CeW2FLhgYEzWKazVkVdu9           2       2    3351     2164    35074
+msg_011CeW2HQYvMsRA7X18deCJG           2       2     740     3382    37238
+msg_011CeW2J5M3Ej2W95YrSoyHB           2       2     342     1267    40620
+msg_011CeW2JdeVNCkudKCjyWQDr           1       2      84      382    41887
+msg_011CeW2Jrf5mXeVanFhHjScc           3       2    1333      472    42269
+msg_011CeW2Kus6GXMbXkRts5jcp           1       2     587     1364    42741
+msg_011CeW2LjDf1zAiXoxAt1SVY           3       2     484     5801    44105
+msg_011CeW2MHFF26F784cvbXMPA           3       2    1215      724    49906
+msg_011CeW2NhpdHToySQLccj7uZ           3       2    1471     1890    50630
+msg_011CeW2QHm5f3LBmeoaNBmsT           3       2    1277     2052    52520
+msg_011CeW2RW2JK314Mmwtt5NaP           3       2     309     1818    54572
+msg_011CeW2S1N9ZWxXfiBEDnjCR           2       2     663      398    56390
+msg_011CeW2T3nXngpfQ4wpPwujC           2       2     829     1292    56788
+--------------------------------------------------------------------------------
+TOTAL                                 43      38   19373    47900   771504

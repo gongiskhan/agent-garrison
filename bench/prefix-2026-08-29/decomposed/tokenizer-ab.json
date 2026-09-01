@@ -1,0 +1,42 @@
+{
+ "claude-haiku-4-5": {
+  "assembled": {
+   "chars": 9471,
+   "tokens": 2416
+  },
+  "sample": {
+   "chars": 9000,
+   "tokens": 2201
+  }
+ },
+ "claude-sonnet-5": {
+  "assembled": {
+   "chars": 9471,
+   "tokens": 3459
+  },
+  "sample": {
+   "chars": 9000,
+   "tokens": 3602
+  }
+ },
+ "claude-opus-5": {
+  "assembled": {
+   "chars": 9471,
+   "tokens": 3459
+  },
+  "sample": {
+   "chars": 9000,
+   "tokens": 3601
+  }
+ },
+ "claude-opus-4-8": {
+  "assembled": {
+   "chars": 9471,
+   "tokens": 3459
+  },
+  "sample": {
+   "chars": 9000,
+   "tokens": 3602
+  }
+ }
+}

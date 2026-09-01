@@ -24,6 +24,8 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { conversationDir, listConversations, openConversation } from "./conversation-store.mjs";
+import { conversationMetrics } from "./conversation-metrics.mjs";
+import { loadModelRates } from "./model-rates.mjs";
 import { ledgerToSessionEvents } from "./conversation-adapt.mjs";
 
 /** The id vocabulary the gateway's /conversation routes already enforce. */
@@ -33,7 +35,7 @@ export const CONVERSATION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const PAYLOAD_REF_RE = /^[A-Za-z0-9._-]{1,200}$/;
 const HANDOFF_ORDINAL_RE = /^\d{1,4}$/;
 
-const STREAM_POLL_MS = 800;
+const STREAM_POLL_MS = 350;
 const KEEPALIVE_MS = 15_000;
 const BODY_CAP_BYTES = 1024 * 1024;
 const DIG_DEBOUNCE_MS = 60_000;
@@ -110,6 +112,10 @@ export async function handleConversationRequest(req, res, opts = {}) {
     handleLog(res, store, query);
     return true;
   }
+  if (method === "GET" && tail.length === 1 && tail[0] === "metrics") {
+    handleMetrics(res, conversationId, env);
+    return true;
+  }
   if (method === "GET" && tail.length === 1 && tail[0] === "summary") {
     noteDig(onDig, conversationId, "summary", "summary.md");
     handleSummary(res, store);
@@ -144,6 +150,32 @@ export async function handleConversationRequest(req, res, opts = {}) {
 }
 
 // -- endpoints ---------------------------------------------------------------
+
+/** Cost and usage for one conversation. Served from the same cached
+ *  computation the improver reads, so the header total and the rollup can
+ *  never disagree. Deliberately NOT a dig: reading the running cost is
+ *  ambient UI, not the model going and looking something up. */
+function handleMetrics(res, conversationId, env) {
+  try {
+    const m = conversationMetrics(conversationId, { env });
+    sendJson(res, 200, {
+      conversationId,
+      stretches: m.stretches,
+      apiCalls: m.apiCalls ?? 0,
+      usage: m.usage ?? null,
+      cacheReadShare: m.cacheReadShare ?? 0,
+      totalCostUsd: m.totalCostUsd ?? null,
+      sdkCostUsd: m.sdkCostUsd ?? null,
+      unpricedStretches: m.unpricedStretches ?? 0,
+      exactlyPricedStretches: m.exactlyPricedStretches ?? 0,
+      byDuty: m.byDuty ?? {},
+      byModel: m.byModel ?? {},
+      ratesUpdated: loadModelRates(env).rates_updated ?? null,
+    });
+  } catch (err) {
+    sendJson(res, 500, { error: err?.message ?? String(err) });
+  }
+}
 
 function handleMeta(res, store, conversationId) {
   const page = store.range({ fromIndex: 0, limit: 0 });
@@ -269,6 +301,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
   // revise the `started` event the client already painted.
   const stretchStarts = new Map();
   const eventSlots = new Map();
+  const handoffBags = new Map();
   const first = store.range({ fromIndex: from, limit: 2000 });
   let cursor = first.nextIndex;
   let size = logBytes(store);
@@ -279,7 +312,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
     type: "init",
     available: true,
     live: true,
-    events: ledgerToSessionEvents(first.events, { conversationId, stretchStarts, eventSlots }),
+    events: ledgerToSessionEvents(first.events, { conversationId, stretchStarts, eventSlots, handoffBags }),
   });
 
   let closed = false;
@@ -314,7 +347,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
       const page = store.range({ fromIndex: cursor, limit: 500 });
       if (!page.events.length) return;
       cursor = page.nextIndex;
-      emit({ type: "events", events: ledgerToSessionEvents(page.events, { conversationId, stretchStarts, eventSlots }) });
+      emit({ type: "events", events: ledgerToSessionEvents(page.events, { conversationId, stretchStarts, eventSlots, handoffBags }) });
     } catch {
       // A transient read miss is retried on the next tick; it must never turn a
       // live conversation into a dead pane.

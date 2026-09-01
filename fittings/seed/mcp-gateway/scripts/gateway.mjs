@@ -14,6 +14,8 @@
 
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -204,11 +206,182 @@ async function discoverTools() {
     }
   });
 
+  // The composition's capability catalogue, on demand. The assembled
+  // Orchestrator prompt can carry either every provider's full for_consumers
+  // block (28k+ tokens on EVERY stretch, whether it consults them or not) or a
+  // one-line index plus this tool. Same text either way - the sidecar is
+  // written from the same entries at the same moment the prompt is assembled.
+  if (capabilityDocsPath()) {
+    tools.push({
+      name: "garrison_capability_doc",
+      description:
+        "Read one installed capability's provider-authored usage guidance. The Orchestrator prompt lists every capability as `kind:name`; pass that, or a fitting id. Call it before using a capability whose interface you would otherwise be guessing at. Omit `capability` to list what has guidance.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          capability: {
+            type: "string",
+            description: "`kind:name` as printed in the capabilities list, or a fitting id. Omit to list the available keys."
+          }
+        }
+      }
+    });
+  }
+
+  // Layer 3, as an interface rather than a hint. The brief used to say "grep
+  // log.jsonl when you need history"; a stretch with no shell in its tool
+  // profile cannot, nothing counted whether any stretch ever did, and the file
+  // interleaves every event kind with spilled pointers. These read through the
+  // gateway, which is what makes each call a recorded `layer3-access` event.
+  if (gatewayBaseUrl()) {
+    tools.push({
+      name: "garrison_conversation_search",
+      description:
+        "Search this conversation's full record (layer 3) for what actually happened, when the handoff summary you were given is too thin. Filters: q (substring), kind (user-message | session-event | handoff | stretch-started | stretch-ended | usage), duty, stretch. Returns POINTERS with a short preview - fetch the ones you need with garrison_conversation_fetch.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          q: { type: "string", description: "Substring to match anywhere in the record." },
+          kind: { type: "string", description: "Restrict to one event kind." },
+          duty: { type: "string", description: "Restrict to one duty." },
+          stretch: { type: "string", description: "Restrict to one stretch id." },
+          limit: { type: "number", description: "Most recent N matches (default 40, max 200)." },
+          conversation: { type: "string", description: "Another conversation's id. Defaults to your own." }
+        }
+      }
+    });
+    tools.push({
+      name: "garrison_conversation_fetch",
+      description:
+        "Read from this conversation's full record. `seq` returns one record whole. `digest` returns the conversation as prose plus one line per tool call (name, arguments, a one-line synopsis of the result and its size) and NEVER tool result bodies - that is the cheap way to see what happened across earlier stretches. Use `stretches` to bound the digest to the last N.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          seq: { type: "number", description: "Ledger sequence of one record, as returned by search." },
+          digest: { type: "boolean", description: "Return the conversation digest instead of a single record." },
+          stretches: { type: "number", description: "Digest only: the last N stretches." },
+          maxChars: { type: "number", description: "Cap on the returned text." },
+          conversation: { type: "string", description: "Another conversation's id. Defaults to your own." }
+        }
+      }
+    });
+  }
+
+  // The findings record. A stretch calls this AS IT WORKS, not at the end -
+  // the whole point is that nothing has to be reconstructed from a transcript.
+  if (gatewayBaseUrl()) {
+    tools.push({
+      name: "garrison_finding_add",
+      description:
+        "Record one thing you have ESTABLISHED, as you establish it. This is what the next stretch " +
+        "will see instead of re-discovering it, so write it the moment it is true rather than at the " +
+        "end. One line, pointers not content: \"mintKey lives in src/lib/identity.js and returns a " +
+        "sortable id\" is a finding; pasting identity.js is not, and will be rejected. " +
+        "kind=fact for something you verified about the code, change for something you altered " +
+        "(both REQUIRE anchorPath, the file the claim is about); decision for a choice you made, " +
+        "rejected for an approach you ruled out and why, failure for something that did not work " +
+        "(these three take NO anchor). Put ledger addresses, file paths, symbol names and commit " +
+        "SHAs in pointers so anything you leave out can still be found.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["fact", "decision", "rejected", "change", "failure"],
+            description: "fact | change require anchorPath; decision | rejected | failure take none." },
+          claim: { type: "string", description: "One line, at most 200 characters, what was established. No code." },
+          pointers: { type: "array", items: { type: "string" },
+            description: "Where to look: file paths, symbol names, commit SHAs, ledger addresses like <conversationId>#<seq>." },
+          anchorPath: { type: "string", description: "For fact and change: the file this claim is about, so staleness can be detected later." },
+          anchorCommit: { type: "string", description: "Alternative anchor for a claim about a commit rather than a working file." },
+        },
+        required: ["kind", "claim"],
+      },
+    });
+  }
+
+  // A caller may narrow the advertised inventory: every tool schema is paid for
+  // in the boot prefix of every session the server is attached to, and a duty
+  // that will never call schedule_card should not carry its 997 tokens.
+  const allow = String(process.env.GARRISON_MCP_TOOLS ?? "").trim();
+  if (allow) {
+    const wanted = new Set(allow.split(/[,\s]+/).filter(Boolean));
+    return tools.filter((t) => wanted.has(t.name));
+  }
   return tools;
 }
 
 // ─────────────────────────────────────────── tool dispatcher
+function capabilityDocsPath() {
+  const dir = String(process.env.GARRISON_COMPOSITION_DIR ?? "").trim();
+  if (!dir) return null;
+  const p = nodePath.join(dir, ".garrison", "capability-docs.json");
+  return nodeFs.existsSync(p) ? p : null;
+}
+
+function callCapabilityDoc(input) {
+  const p = capabilityDocsPath();
+  if (!p) return { error: "no capability-docs.json for this composition" };
+  const docs = JSON.parse(nodeFs.readFileSync(p, "utf8"));
+  const key = typeof input?.capability === "string" ? input.capability.trim() : "";
+  if (!key) return { capabilities: Object.keys(docs).sort() };
+  const hit = docs[key];
+  if (!hit) {
+    return {
+      error: `no guidance for "${key}"`,
+      capabilities: Object.keys(docs).sort()
+    };
+  }
+  return { capability: key, summary: hit.summary, guidance: hit.guidance };
+}
+
+function gatewayBaseUrl() {
+  return String(process.env.GARRISON_HTTP_GATEWAY_BASE_URL ?? "").trim().replace(/\/+$/, "");
+}
+
+function currentConversationId(input) {
+  const named = typeof input?.conversation === "string" ? input.conversation.trim() : "";
+  return named || String(process.env.GARRISON_CONVERSATION_ID ?? "").trim();
+}
+
+async function callLayer3(op, input) {
+  const base = gatewayBaseUrl();
+  const id = currentConversationId(input);
+  if (!base) return { error: "no gateway base url in this session's environment" };
+  if (!id) {
+    return { error: "no conversation in scope - pass `conversation` with the id from your brief's first line" };
+  }
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(input ?? {})) {
+    if (k === "conversation" || v === undefined || v === null) continue;
+    params.set(k === "q" ? "q" : k, String(v));
+  }
+  const url = `${base}/conversation/${encodeURIComponent(id)}/${op}?${params.toString()}`;
+  const res = await fetch(url);
+  const text = await res.text();
+  if (!res.ok) return { error: `layer 3 ${op} failed: http ${res.status} ${text.slice(0, 200)}` };
+  try { return JSON.parse(text); } catch { return { error: "unparseable layer 3 response" }; }
+}
+
+async function callFindingAdd(input) {
+  const base = gatewayBaseUrl();
+  const id = currentConversationId(input);
+  if (!base) return { error: "no gateway base url in this session's environment" };
+  if (!id) return { error: "no conversation in scope - pass `conversation` with the id from your brief's first line" };
+  const res = await fetch(`${base}/conversation/${encodeURIComponent(id)}/finding`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...input, cwd: process.env.GARRISON_STRETCH_CWD || undefined }),
+  });
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { error: `finding_add: http ${res.status} ${text.slice(0, 200)}` }; }
+}
+
 async function dispatchTool(name, input) {
+  if (name === "garrison_capability_doc") return callCapabilityDoc(input);
+  if (name === "garrison_finding_add") return callFindingAdd(input);
+  if (name === "garrison_conversation_search") return callLayer3("search", input);
+  if (name === "garrison_conversation_fetch") {
+    return callLayer3(input?.digest ? "digest" : "record", { ...input, digest: undefined });
+  }
   if (name === "classify_tier") return callClassifyTier(input);
   if (name === "run_tests") return callRunTests(input);
   if (name === "record_improver_feedback") return callRecordImproverFeedback(input);

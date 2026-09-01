@@ -45,6 +45,7 @@ export const RENDERED_LEDGER_KINDS = [
   "card-state-changed",
   "escalation",
   "policy-rewrite",
+  "approval-requested",
 ];
 
 /**
@@ -70,9 +71,9 @@ const LEDGER_KIND_MAP = {
   escalation: "escalation",
   "policy-rewrite": "policy-rewrite",
   "summary-trimmed": "policy-rewrite",
-  // The Autonomous gate's ask — rendered so the pause is visible IN the
-  // conversation, not only as the card's attention reason.
-  "approval-requested": "policy-rewrite",
+  // The Autonomous gate's ask — first-class, so the renderer can style the
+  // pause and the activity derivation can recognise an unanswered ask.
+  "approval-requested": "approval-requested",
 };
 
 const DETAIL_CAP = 4000;
@@ -90,23 +91,28 @@ const DETAIL_CAP = 4000;
  *   is per-batch, which is what a one-shot read wants.
  * @returns {Array<object>} SessionEvents, in record order.
  */
-export function ledgerToSessionEvents(events, { conversationId, stretchStarts = null, eventSlots = null } = {}) {
+export function ledgerToSessionEvents(events, { conversationId, stretchStarts = null, eventSlots = null, handoffBags = null } = {}) {
   const cid = String(conversationId ?? "");
   const starts = stretchStarts ?? new Map();
   // Same continuity contract as stretchStarts, for teed session-events: a
   // later revision of one adapter event must land in the SAME chronological
   // slot with a bumped revision, or every throttle tick paints a new bubble.
   const slots = eventSlots ?? new Map();
+  // And once more for handoffs: the handoff record precedes its stretch-ended
+  // record, and the ended block carries the handoff's next/summary/blocker so
+  // the renderer can say "needs your input" without parsing ledger prose. A
+  // batch boundary between the two must not lose that pairing.
+  const bags = handoffBags ?? new Map();
   const out = [];
   for (const record of events ?? []) {
     if (!record || typeof record !== "object") continue;
-    const adapted = adaptRecord(record, cid, starts, slots);
+    const adapted = adaptRecord(record, cid, starts, slots, bags);
     if (adapted) out.push(adapted);
   }
   return out;
 }
 
-function adaptRecord(record, cid, starts, slots = new Map()) {
+function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
   const index = Number.isInteger(record.index) ? record.index : null;
   if (index === null) return null;
   const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
@@ -186,6 +192,10 @@ function adaptRecord(record, cid, starts, slots = new Map()) {
     const started = stretchId ? starts.get(stretchId) : null;
     const duty = dutyOf(record, payload) ?? started?.duty ?? null;
     const attribution = started?.attribution ?? attributionFromEnded(payload);
+    // The handoff record that preceded this boundary: its summary and blocker
+    // ride the ended block so the terminal banner can quote them.
+    const bag = (stretchId ? bags.get(stretchId) : null) ?? {};
+    const next = label(payload.next) ?? bag.next ?? null;
     const block = {
       type: "stretch",
       phase: "ended",
@@ -194,7 +204,17 @@ function adaptRecord(record, cid, starts, slots = new Map()) {
       ...(duty ? { duty } : {}),
       ...(label(payload.outcome) ? { outcome: label(payload.outcome) } : {}),
       ...(Number.isFinite(payload.usedTokens) ? { usedTokens: payload.usedTokens } : {}),
+      // Cost rides the block only when it is a real number. An unpriced stretch
+      // shows no cost chip at all rather than a misleading $0.00 — the same
+      // honesty rule the model/effort badges follow.
+      ...(Number.isFinite(payload.cost_usd) ? { costUsd: payload.cost_usd } : {}),
+      ...(Number.isFinite(payload.apiCalls) && payload.apiCalls > 0 ? { apiCalls: payload.apiCalls } : {}),
       ...(Number.isFinite(payload.durationMs) ? { durationMs: payload.durationMs } : {}),
+      ...(next ? { next } : {}),
+      ...(bag.summary ? { summary: bag.summary } : {}),
+      ...(bag.blockerWhat ? { blockerWhat: bag.blockerWhat } : {}),
+      ...(bag.blockerNeeds ? { blockerNeeds: bag.blockerNeeds } : {}),
+      ...(bag.blockerWho ? { blockerWho: bag.blockerWho } : {}),
     };
     if (started) {
       return {
@@ -208,6 +228,23 @@ function adaptRecord(record, cid, starts, slots = new Map()) {
       };
     }
     return { ...base, role: "assistant", ...(stretchId ? { turnId: stretchId } : {}), blocks: [block] };
+  }
+
+  if (record.kind === "handoff") {
+    const stretchId = stretchIdOf(record, payload);
+    if (stretchId) {
+      const blocker = payload.blocker && typeof payload.blocker === "object" ? payload.blocker : {};
+      bags.set(stretchId, {
+        next: label(payload?.nextSteps?.next),
+        // The schema's own 4000-char bound: the terminal banner renders this as
+        // the conversation's final report, so a tighter cap here just truncates
+        // what the user most wants to read.
+        summary: label(payload.summary) ? cap(payload.summary, 4000) : null,
+        blockerWhat: label(blocker.what) ? cap(blocker.what, 400) : null,
+        blockerNeeds: label(blocker.needs) ? cap(blocker.needs, 400) : null,
+        blockerWho: label(blocker.who) ? cap(blocker.who, 120) : null,
+      });
+    }
   }
 
   const kind = LEDGER_KIND_MAP[record.kind];
@@ -232,6 +269,7 @@ function ledgerRow(record, payload, kind, index) {
     kind,
     title: built.title,
     ...(built.detail ? { detail: cap(built.detail, DETAIL_CAP) } : {}),
+    ...(built.next ? { next: built.next } : {}),
     ...(payloadRef ? { payloadRef } : {}),
     seq: index,
   };
@@ -260,6 +298,9 @@ function buildTitleAndDetail(record, payload) {
       return {
         title: `Waiting for your go-ahead - next: ${next}`,
         detail: [text(payload.plan), items.trim()].filter(Boolean).join("\n\n") || null,
+        // Structured copy of the ask so the terminal banner can say what it is
+        // approving without parsing the title back apart.
+        next: text(payload.next) || null,
       };
     }
     case "delegation-dispatched": {

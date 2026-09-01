@@ -59,6 +59,7 @@ const EXPORT_FILE_RULES: readonly ExportFileRule[] = [
   { dir: "", pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/, label: "composition doc" },
   { dir: "", pattern: /^routing\.[A-Za-z0-9._-]+\.json$/, label: "alternate routing policy" },
   { dir: ".garrison", pattern: /^routing\.json$/, label: "routing policy" },
+  { dir: ".garrison", pattern: /^routing-table\.json$/, label: "routing table" },
   { dir: ".garrison", pattern: /^orchestrator-authored\.json$/, label: "authored orchestrator blocks" },
   { dir: ".garrison/prompts", pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/, label: "authored prompt" }
 ];

@@ -129,6 +129,78 @@ export function loadConfig(env = process.env) {
       const v = parseCsv(env.GARRISON_CAPTURESERVICE_STT_KEYTERMS);
       return v.length > 0 ? v : ["Zeca", "companion"];
     })(),
+    // Zeca's voice (ADR: ElevenLabs over iOS AVSpeechSynthesizer). OFF by
+    // default like every other pipe (I9); with it off, or with no key, the
+    // phone keeps speaking in its own synthesizer and nothing else changes.
+    ttsEnabled: parseBool(env.GARRISON_CAPTURESERVICE_TTS_ENABLED, false),
+    // Diogo - a NATIVE European Portuguese library voice, warm and
+    // conversational. The 28-palavras forensics are unambiguous that a native
+    // pt voice beats any premade voice plus prompting: premade voices drift to
+    // pt-BR on short clips, which is the shape of everything Zeca says.
+    ttsVoiceId: (env.GARRISON_CAPTURESERVICE_TTS_VOICE_ID || "").trim() || "RlGHmE2fztwdBDat0jYf",
+    // multilingual_v2, NOT v3: v3 rejects previous_text/next_text, and those
+    // unspoken pt-PT anchors are the accent fix.
+    ttsModel: (env.GARRISON_CAPTURESERVICE_TTS_MODEL || "").trim() || "eleven_multilingual_v2",
+    ttsCacheMaxClips: parseIntOr(env.GARRISON_CAPTURESERVICE_TTS_CACHE_MAX_CLIPS, 500),
+    // The two spoken cues ("Sim?" at the wake word, "Ok." when the window
+    // closes). OFF by default like every other pipe (I9); the composition turns
+    // it on. With it off the wearer gets exactly today's haptics and silence.
+    cueEnabled: parseBool(env.GARRISON_CAPTURESERVICE_CUE_ENABLED, false),
+    // Pins the spoken language outright. "auto" (the default) infers it from
+    // what the user last said to Zeca.
+    voiceLanguage: (() => {
+      const v = (env.GARRISON_CAPTURESERVICE_VOICE_LANGUAGE || "").trim().toLowerCase();
+      return v === "pt" || v === "en" ? v : null;
+    })(),
+    // How long a remembered language stays authoritative. Long on purpose: the
+    // ask was "if last time we spoke in english", which is stickiness, not a
+    // per-utterance flip.
+    languageMemoryTtlMs: parseIntOr(env.GARRISON_CAPTURESERVICE_LANGUAGE_MEMORY_TTL_MS, 21600000),
+    // Spoken discussions. A voice discussion spends one duty-class turn PER
+    // UTTERANCE, so it is opt-in, bounded by the idle timer and the turn
+    // ceiling, and counted.
+    discussEnabled: parseBool(env.GARRISON_CAPTURESERVICE_DISCUSS_ENABLED, false),
+    discussLevel: parseIntOr(env.GARRISON_CAPTURESERVICE_DISCUSS_LEVEL, 1),
+    discussIdleMs: parseIntOr(env.GARRISON_CAPTURESERVICE_DISCUSS_IDLE_MS, 180000),
+    discussTurnTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_DISCUSS_TURN_TIMEOUT_MS, 90000),
+    discussMaxTurns: parseIntOr(env.GARRISON_CAPTURESERVICE_DISCUSS_MAX_TURNS, 40),
+    // Spoken sends. The medium default is deliberately whatsapp and must never
+    // be email: email is the one send with no daemon and no cancel window.
+    sendEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SEND_ENABLED, false),
+    sendDefaultMedium: (() => {
+      const v = (env.GARRISON_CAPTURESERVICE_SEND_DEFAULT_MEDIUM || "").trim().toLowerCase();
+      return v === "whatsapp" || v === "slack" ? v : "whatsapp";
+    })(),
+    // Announce-and-cancel for a parked send.
+    confirmEnabled: parseBool(env.GARRISON_CAPTURESERVICE_CONFIRM_ENABLED, false),
+    confirmPollMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CONFIRM_POLL_MS, 1000),
+    confirmWatchMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CONFIRM_WATCH_MS, 90000),
+    // The cancel window opens only once the announcement has actually been
+    // SPOKEN - the announcement contains the word "cancela", and the pendant
+    // hears it. This is the fallback when no spoken receipt arrives.
+    confirmArmDelayMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CONFIRM_ARM_DELAY_MS, 1500),
+    cancelVariants: (() => {
+      const v = parseCsv(env.GARRISON_CAPTURESERVICE_CANCEL_VARIANTS);
+      // Bare "nao"/"no"/"para" are deliberately absent: they are among the
+      // commonest words in spoken Portuguese, and a false cancel is cheap while
+      // a false send is not.
+      return v.length > 0 ? v : ["cancela", "cancelar", "cancel", "stop", "esquece"];
+    })(),
+    // Cortex automations.
+    automateEnabled: parseBool(env.GARRISON_CAPTURESERVICE_AUTOMATE_ENABLED, false),
+    cortexCatalogTtlMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_CATALOG_TTL_MS, 300000),
+    cortexPollIntervalMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_POLL_INTERVAL_MS, 15000),
+    cortexPollMaxMs: parseIntOr(env.GARRISON_CAPTURESERVICE_CORTEX_POLL_MAX_MS, 600000),
+    // Screen context: the broadcast's frames become something the operative can
+    // read. OFF by default (I9) - with it off, frames are stored and ignored
+    // exactly as before.
+    screenContextEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_ENABLED, false),
+    screenContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_MAX_AGE_MS, 30000),
+    // Whether a screen_audio session ALSO transcribes. Defaults true to
+    // preserve the documented behaviour; the composition sets it false, because
+    // with a pendant on, one sentence otherwise reaches two microphones and
+    // dispatches twice.
+    screenAudioTranscribe: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE, true),
     // Zombie-socket watchdog: reconnect the STT socket when we have been
     // feeding it audio this recently and NOTHING has come back for this long.
     // Generous on purpose - Deepgram is legitimately silent through a quiet
@@ -171,6 +243,24 @@ export function loadConfig(env = process.env) {
     wakeContextSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_SEGMENTS, 6),
     wakeContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CONTEXT_MAX_AGE_MS, 120000),
     wakeCardDedupeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_CARD_DEDUPE_MS, 600000),
+    // The clarifying-question window: after Zeca SPEAKS a question, the next
+    // utterance - no wake word - is taken as the answer. Short on purpose (an
+    // always-on mic must not stay promiscuous), and rounds are capped so a
+    // model that keeps asking stops being answered.
+    wakeFollowupWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_WINDOW_MS, 12000),
+    wakeFollowupMaxRounds: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_MAX_ROUNDS, 3),
+    // "Ainda estou a tratar disso." while a delegated turn runs - spoken only,
+    // never pushed. 0 disables.
+    wakeProgressIntervalMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_PROGRESS_INTERVAL_MS, 60000),
+    // Say "Não percebi - repete?" when a wake window closes with nothing
+    // usable, rather than leaving the wearer in silence after two cues.
+    wakeUnheardEnabled: parseBool(env.GARRISON_CAPTURESERVICE_WAKE_UNHEARD_ENABLED, true),
+    // Which language the wake path confirms in. "auto" (the default) reads it
+    // off what the user actually said; an explicit pt/en pins it.
+    wakeLanguage: (() => {
+      const v = (env.GARRISON_CAPTURESERVICE_WAKE_LANGUAGE || "").trim().toLowerCase();
+      return v === "pt" || v === "en" ? v : null;
+    })(),
     // The revision pass (byte-identical wake module): keep listening after a
     // card is created for a spoken correction; one model call, once, at the
     // end. 0 disables.
@@ -201,7 +291,8 @@ export function loadConfig(env = process.env) {
       captureToken: (env.CAPTURE_TOKEN || "").trim(),
       apnsTeamId: (env.APNS_TEAM_ID || "").trim(),
       apnsKeyId: (env.APNS_KEY_ID || "").trim(),
-      apnsP8: (env.APNS_P8 || "").trim()
+      apnsP8: (env.APNS_P8 || "").trim(),
+      elevenLabsApiKey: (env.ELEVENLABS_API_KEY || "").trim()
     }
   };
 }

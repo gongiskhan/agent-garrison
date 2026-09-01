@@ -638,7 +638,12 @@ describe("web-channel apiRouteOptions: per-dimension degradation (contract §11)
   it("names the gateway for every routing dimension when it did not answer", async () => {
     answer({ targets: [], duties: [], efforts: [], accounts: [], projects: ["garrison"], sources: { gateway: false, board: true } });
     const o = await ui.apiRouteOptions(false);
-    for (const field of ["target", "model", "effort", "duty", "account"] as const) {
+    for (const field of ["target", "model", "effort", "duty", "level", "account"] as const) {
+      expect(o?.unavailable?.[field]).toMatch(/gateway is not answering/);
+    }
+    // Run-plan menus (compiled-policy fields) are also gateway-sourced, and phasesOn
+    // must be as unavailable as its phasesOff sibling — the deferred asymmetry fix.
+    for (const field of ["tier", "flow", "phasesOff", "phasesOn"] as const) {
       expect(o?.unavailable?.[field]).toMatch(/gateway is not answering/);
     }
     // The board still answered, so the project menu stays live.

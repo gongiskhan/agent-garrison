@@ -23,7 +23,7 @@
 import path from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 
-const SPEAK_RECEIPT_TIMEOUT_MS = 30_000;
+const SPEAK_RECEIPT_TIMEOUT_MS = 30_000; // default; cfg.speakReceiptTimeoutMs overrides (tests)
 
 // Burst control for error pushes (2026-08-18: ~30 failures in 60 s put ~30
 // buzzes on the phone). The rules, in order of what matters:
@@ -36,7 +36,7 @@ const BURST_WINDOW_MS = 5 * 60_000;
 const BURST_CEILING = 3; // distinct error pushes per window before collapsing
 
 export class AckSink {
-  constructor({ cfg, store, counters, echoGuard, ingress, notifier, log = console, now = () => Date.now() }) {
+  constructor({ cfg, store, counters, echoGuard, ingress, notifier, voice = null, languageMemory = null, log = console, now = () => Date.now() }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -45,7 +45,17 @@ export class AckSink {
     this.notifier = notifier;
     this.log = log;
     this.now = now;
+    this.voice = voice;
+    this.languageMemory = languageMemory;
     this.pendingSpeaks = new Map(); // ack id -> {sentAt, sessionId, timer}
+    // Fired when a forwarded speak gets NO receipt inside the window. A socket
+    // send is not delivery - the app can be suspended with the socket looking
+    // open - and 26 of 44 speaks timing out in one day is what "I didn't get a
+    // reply" looks like from the server. The capture-service uses this to fall
+    // back to a real push.
+    this.onSpeakTimeout = null;
+    // sessionId -> epoch ms until which it is skipped for speech.
+    this.mutedSessions = new Map();
     // In-memory on purpose: a restart is exactly when the operator should hear
     // the next failure again, and the window is minutes, not days.
     this.burst = { startedAt: 0, pushed: 0, suppressed: 0, subjects: new Map(), timer: null };
@@ -114,19 +124,61 @@ export class AckSink {
 
   // A live audio-mode session whose socket is currently connected. The most
   // recently active session wins when several are live (rare on one phone).
+  // The session that can actually be HEARD right now.
+  //
+  // This used to return the FIRST match in Map insertion order while its own
+  // comment claimed "the most recently active session wins". Those differ the
+  // moment a phone reconnects without ending the old session - which is every
+  // app restart - and the loser is silence: a TCP socket to a dead app still
+  // reports readyState OPEN, so every line went to the oldest corpse and timed
+  // out. Live evidence: 104 speaks forwarded, 23 confirmed, 78 receipt
+  // timeouts, with sessions from two days earlier still in the map.
+  //
+  // So: newest first, and a session that has recently failed to answer is
+  // skipped rather than being chosen again and again.
   speakableSession() {
     if (!this.cfg.speakEnabled) return null;
+    const candidates = [];
     for (const session of this.ingress.sessions.values()) {
-      if (session.record.mode === "audio" && session.socket && session.socket.readyState === session.socket.OPEN) {
-        return session;
-      }
+      // "audio" is the companion mic; "pendant" is the wearable. Both are the
+      // same phone with the same speaker, and the wearer of a pendant is
+      // exactly who wants to be answered out loud - excluding it meant Zeca
+      // could not talk to the one session that listens all day. screen_audio
+      // is still excluded (ADR section 6).
+      const speakableMode = session.record.mode === "audio" || session.record.mode === "pendant";
+      if (!speakableMode) continue;
+      if (session.record.ended) continue;
+      if (!session.socket || session.socket.readyState !== session.socket.OPEN) continue;
+      if ((this.mutedSessions.get(session.record.id) ?? 0) > this.now()) continue;
+      candidates.push(session);
     }
-    return null;
+    if (candidates.length === 0) return null;
+    // Newest wins. started_at is an ISO string on the record; ids are ULIDs and
+    // sort the same way, so either ordering agrees.
+    candidates.sort((a, b) => String(b.record.started_at ?? b.record.id).localeCompare(String(a.record.started_at ?? a.record.id)));
+    if (candidates.length > 1) this.counters.bump("speakable_sessions_multiple");
+    return candidates[0];
+  }
+
+  // A session that did not answer a speak is sidelined briefly, so one dead
+  // socket cannot swallow every line while a live session sits behind it.
+  muteSession(sessionId, forMs = 60_000) {
+    if (!sessionId) return;
+    this.mutedSessions.set(sessionId, this.now() + forMs);
+    for (const [id, until] of this.mutedSessions) if (until <= this.now()) this.mutedSessions.delete(id);
   }
 
   async handleAck(ack) {
     if (!ack || typeof ack !== "object" || typeof ack.text !== "string" || ack.text.trim() === "") {
       return { status: 400, body: { error: "ack.text is required" } };
+    }
+    // The other half of the user's rule: "or a reply was in english". An ack
+    // is Zeca speaking, and what he just spoke sets the language of the next
+    // cue. The ack carries its own `lang` when kanban-loop resolved one;
+    // failing that the text itself is the evidence.
+    if (this.languageMemory) {
+      if (typeof ack.lang === "string") this.languageMemory.noteLanguage(null, ack.lang);
+      else this.languageMemory.note(null, ack.text);
     }
     // 1. Echo window opens FIRST — before any speak instruction leaves.
     const registered = this.echoGuard.register({ text: ack.text, echo: ack.echo ?? null });
@@ -136,11 +188,30 @@ export class AckSink {
     const session = this.speakableSession();
     if (session) {
       try {
-        session.socket.send(JSON.stringify({ type: "speak", ack }));
+        // Zeca's own voice when one can be rendered, the phone's synthesizer
+        // otherwise. clipFor NEVER throws and returns null on any failure, so
+        // the acknowledgement is never held hostage to the nicety - the phone
+        // just speaks it itself, exactly as it always did.
+        const clip = this.voice ? await this.voice.clipFor(ack.text, { lang: ack.lang ?? null }) : null;
+        // RELATIVE on purpose: the phone reaches this service over the tailnet,
+        // never on localhost, so an absolute machine-local URL would be
+        // unreachable AND mixed content (the standing house rule).
+        const speak = clip ? { ...ack, audioPath: `/speak/${clip.id}.mp3` } : ack;
+        session.socket.send(JSON.stringify({ type: "speak", ack: speak }));
         this.counters.bump("speaks_forwarded");
         const timer = setTimeout(() => {
-          if (this.pendingSpeaks.delete(ack.id)) this.counters.bump("speak_receipt_timeouts");
-        }, SPEAK_RECEIPT_TIMEOUT_MS);
+          const pending = this.pendingSpeaks.get(ack.id);
+          if (this.pendingSpeaks.delete(ack.id)) {
+            this.counters.bump("speak_receipt_timeouts");
+            // It did not answer: stop choosing it for a while.
+            this.muteSession(pending?.sessionId);
+            try {
+              this.onSpeakTimeout?.(ack.id);
+            } catch (err) {
+              this.log.error(`[capture-service] speak-timeout hook failed: ${err?.message ?? err}`);
+            }
+          }
+        }, this.cfg.speakReceiptTimeoutMs ?? SPEAK_RECEIPT_TIMEOUT_MS);
         timer.unref?.();
         this.pendingSpeaks.set(ack.id, { sentAt: this.now(), sessionId: session.record.id, timer });
         this.logAck({
@@ -211,6 +282,17 @@ export class AckSink {
     if (msg.ok) {
       this.counters.bump("speaks_confirmed");
       this.counters.observe("speak_confirm_ms", this.now() - pending.sentAt);
+      // WHICH voice actually spoke. "ok" alone cannot tell Diogo from a system
+      // voice reading Portuguese in Brazilian - they are both a success, which
+      // is precisely how a Brazilian-sounding assistant went unnoticed for
+      // days. The reason is a short enum-ish string, never content.
+      const via = String(msg.reason ?? "").trim();
+      if (via === "clip") this.counters.bump("speaks_via_clip");
+      else if (via.startsWith("synth")) {
+        this.counters.bump("speaks_via_synth");
+        this.counters.bump(`speaks_via_${via.replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 40)}`);
+        this.log.log(`[capture-service] speak ${msg.spoken} used the phone's own voice (${via})`);
+      }
     } else {
       this.counters.bump("speaks_failed");
       // Reason is a short enum-ish string from the app (muted, interrupted,

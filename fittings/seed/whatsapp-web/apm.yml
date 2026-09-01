@@ -8,7 +8,11 @@ x-garrison:
   faculty: channels
   cardinality_hint: multi
   own_port: true
-  default_port: 8080
+  # 8087, not 8080: dev-madrid holds 8080 with an unrelated java service and
+  # the daemon exits 1 on EADDRINUSE rather than shifting - so a default of
+  # 8080 made every unprojected start bind differently from a projected one
+  # (the composition already said 8087; the declaration here must match).
+  default_port: 8087
   component_shape: script
   platforms:
     - claude-code
@@ -25,7 +29,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 8080
+      default: 8087
       description: HTTP port the Node own-port daemon binds to (internal API; loopback only). Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
     - key: bind_host
       type: string

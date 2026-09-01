@@ -7,13 +7,16 @@
 // client code here is identical on every surface - and every URL it builds stays
 // relative, because the browser is almost never on the Garrison box.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChatTransportError,
   ConversationView,
   type ChatInputReceipt,
-  type ChatTransport
+  type ChatTransport,
+  type ComposerAdornmentApi,
+  type UploadedAttachment
 } from "@garrison/claude-chat";
+import type { ConversationActivity } from "@garrison/claude-chat/journal";
 
 export const CONVERSATION_BASE = "/api/conversation";
 
@@ -113,7 +116,29 @@ export function createConversationTransport(conversationId: string, opts: { froz
     async sendKey() { /* no keyboard: there is no PTY behind a conversation */ },
     async setMode(mode) { return { mode, reached: false }; },
     async interrupt() { /* a stretch is cancelled from the card, not the composer */ },
-    async fetchCommands() { return []; }
+    async fetchCommands() { return []; },
+    // A frozen card refuses the write server-side too, but the transport omits
+    // uploadFile entirely for one so the composer never shows a dead attach
+    // control on a read-only record.
+    ...(opts.frozen ? {} : {
+      async uploadFile(file: { name: string; mime: string; base64: string }): Promise<UploadedAttachment> {
+        // The conversation id IS the card id (see the module comment above), so
+        // a message-composer upload is just a card attachment: it lands under
+        // cards/<id>/attachments/ and therefore folds into every future stretch
+        // brief for free, same as an upload made from the card's Detail sheet.
+        const res = await fetch(`/cards/${encodeURIComponent(conversationId)}/attachments`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ filename: file.name, content_base64: file.base64 })
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null) as { error?: unknown } | null;
+          throw new Error(typeof body?.error === "string" ? body.error : `attachments ${res.status}`);
+        }
+        const body = await res.json().catch(() => ({})) as { path?: unknown; bytes?: unknown };
+        return { path: String(body.path ?? ""), bytes: typeof body.bytes === "number" ? body.bytes : undefined };
+      }
+    })
   };
 }
 
@@ -148,6 +173,56 @@ function useLastStretchScope(conversationId: string | null, generation: string) 
 }
 
 /**
+ * Big buttons beside the composer while the conversation is stalled waiting on
+ * the human - `needs-input` or `awaiting-approval`. Typing "Approve" or "Give
+ * me a few options" by hand every time a card pauses is the friction this
+ * removes; a genuine question still needs real words, so that button only
+ * focuses the composer instead of guessing one.
+ */
+function QuickReplies({ activity, api }: { activity: ConversationActivity; api: ComposerAdornmentApi }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const focusComposer = useCallback(() => {
+    const field = rootRef.current?.closest(".cc-composerrow")?.querySelector("textarea");
+    field?.focus();
+  }, []);
+  if (activity.mode !== "needs-input" && activity.mode !== "awaiting-approval") return null;
+  const approveText = activity.mode === "awaiting-approval"
+    ? "Approve — go ahead with the plan as described."
+    : "Approved — go ahead.";
+  return (
+    <div className="conv-quickreplies" ref={rootRef}>
+      <button
+        type="button"
+        className="conv-quickreply conv-quickreply-approve"
+        disabled={api.busy}
+        title="Send an approval and let the conversation continue"
+        onClick={() => api.send(approveText)}
+      >
+        Approve
+      </button>
+      <button
+        type="button"
+        className="conv-quickreply"
+        disabled={api.busy}
+        title="Ask the conversation for a few options before deciding"
+        onClick={() => api.send("Give me a few options to choose from before I decide.")}
+      >
+        Give options
+      </button>
+      <button
+        type="button"
+        className="conv-quickreply conv-quickreply-ghost"
+        disabled={api.busy}
+        title="Write a question of your own into the composer"
+        onClick={focusComposer}
+      >
+        Ask a question
+      </button>
+    </div>
+  );
+}
+
+/**
  * The card's conversation surface: the stream is the body, the composer writes
  * into it, and the header carries the degraded-cwd marker plus the raw phase log.
  *
@@ -161,6 +236,7 @@ export function CardConversation({
   title,
   generation,
   frozen = false,
+  running,
   onRawLog,
   onOpenRuntimeTranscript
 }: {
@@ -169,6 +245,11 @@ export function CardConversation({
   /** Changes when the card does, so the scope re-reads on a stretch boundary. */
   generation: string;
   frozen?: boolean;
+  /** Whether the CARD says work is being driven right now. `false` vetoes the
+   *  stream's derived working spinners (a wedged ledger must not spin forever
+   *  under a card that says parked); `undefined` trusts the stream's own
+   *  derivation. */
+  running?: boolean;
   onRawLog: () => void;
   onOpenRuntimeTranscript: (sessionId: string) => void;
 }) {
@@ -177,15 +258,21 @@ export function CardConversation({
     [conversationId, frozen]
   );
   const scope = useLastStretchScope(conversationId, generation);
+  const [activity, setActivity] = useState<ConversationActivity | null>(null);
   return (
     <div className={`kanban-conversation${frozen ? " frozen" : ""}`}>
       <ConversationView
         conversationId={conversationId}
         base={CONVERSATION_BASE}
         transport={transport}
+        live={frozen ? false : running ? undefined : false}
         title={title}
         placeholder={frozen ? "This conversation is frozen" : "Write into this conversation"}
         onOpenRuntimeTranscript={onOpenRuntimeTranscript}
+        onActivityChange={frozen ? undefined : setActivity}
+        composerAdornment={
+          frozen || !activity ? undefined : (api) => <QuickReplies activity={activity} api={api} />
+        }
         headerExtra={
           <>
             {scope?.cwdDegraded && (

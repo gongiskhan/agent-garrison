@@ -46,7 +46,7 @@ import { writeFileAtomic } from "@/lib/atomic-write";
 import { resolvePrimaryFromPolicy, writePrimaryRuntimeToPolicy } from "@/lib/routing-primary";
 import { validateCellCompatibility } from "@/lib/router-migrate";
 import { dump as dumpYaml } from "js-yaml";
-import { dutyEfforts } from "@/lib/types";
+import { CATEGORY_BY_FACULTY, dutyEfforts, facultyIds } from "@/lib/types";
 import type {
   Cardinality,
   CapabilityIssue,
@@ -56,6 +56,7 @@ import type {
   DutyLevelCell,
   DutySpec,
   FacultyId,
+  FittingCategory,
   FittingSelectionMap,
   FittingShape,
   LibraryEntry,
@@ -911,27 +912,28 @@ export async function upsertCompositionTarget(
 // re-author apm deps → atomic write — the same discipline the S5a cell/duty
 // writers use, extended to membership changes (which must re-author deps).
 
-// The standing faculty slots this section surfaces: the infrastructure roles.
-// EXCLUDES `orchestrator`/`modes` (behavior — the Orchestrator panel, S5c) and
-// the optional capability faculties (Compose's capability blocks). A fitting
-// that PROVIDES kind:duty is a duty fitting and is filtered out even when it
-// sits inside a standing slot, so the Duties section stays its only home.
-const STANDING_FACULTIES: FacultyId[] = [
-  "channels",
-  "gateway",
-  "runtimes",
-  "memory",
-  "observability",
-  "sessions",
-  "surfaces",
-  "connectors"
-];
+// The standing faculty slots this section surfaces: every faculty EXCEPT
+// `orchestrator` (behavior — the Orchestrator panel, S5c). The capability
+// faculties are included since 2026-08-28: excluding them made every fitting
+// stationed under one (Drill, roadmaps, coordination) INVISIBLE on the
+// Fittings tab — unlisted, unsearchable, unswappable. A fitting that PROVIDES
+// kind:duty is a duty fitting and is filtered out even when it sits inside a
+// standing slot, so the Duties section stays its only home. Faculty remains
+// the write-path contract; the CLIENT groups by category (presentation).
+const STANDING_FACULTIES: FacultyId[] = facultyIds.filter((id) => id !== "orchestrator");
 
 export interface StandingFittingView {
   id: string;
   name: string;
   summary: string;
   faculty: FacultyId;
+  /** Human browsing group (presentation only — never branch contract logic). */
+  category: FittingCategory;
+  /** Provides kind:duty and is equipped via selected_duties, not a faculty
+   * selection. Listed so a human can FIND it (search, health, files); its
+   * membership and routing are managed in Orchestrator → Duties, so the
+   * client offers no Swap/Remove/config on it. */
+  dutyFitting?: boolean;
   componentShape: FittingShape;
   clonedFrom?: string;
   // own-port fitting → the client overlays live health from /api/fittings/views.
@@ -952,6 +954,7 @@ export interface StandingCandidate {
   id: string;
   name: string;
   summary: string;
+  category: FittingCategory;
   clonedFrom?: string;
 }
 
@@ -995,7 +998,14 @@ function providesKind(entry: LibraryEntry, kind: string): boolean {
 // The pure core: composition selections + resolved entries + library in, the
 // standing model out. No fs — callers hand it data, tests hand it fixtures.
 export function buildStandingPayload(args: {
-  composition: { id: string; name: string; selections: FittingSelectionMap; primaryRuntime: string };
+  composition: {
+    id: string;
+    name: string;
+    selections: FittingSelectionMap;
+    primaryRuntime: string;
+    /** Duty-fitting ids equipped via selected_duties — listed read-only. */
+    selectedDuties?: string[];
+  };
   entries: LibraryEntry[];
   library: LibraryEntry[];
   launchedAccounts?: Record<string, string>;
@@ -1014,6 +1024,7 @@ export function buildStandingPayload(args: {
         name: entry.name,
         summary: entry.summary,
         faculty: facultyId,
+        category: entry.category ?? CATEGORY_BY_FACULTY[facultyId],
         componentShape: entry.metadata.component_shape,
         clonedFrom: entry.cloned_from,
         ownPort: entry.metadata.own_port === true,
@@ -1024,9 +1035,39 @@ export function buildStandingPayload(args: {
         ...(entry.metadata.login ? { login: entry.metadata.login } : {})
       });
     }
+    // Duty fittings equipped via selected_duties appear in their faculty's
+    // slot, flagged: without this a stationed, LIVE fitting (Drill) was
+    // invisible on the Fittings tab — unfindable by search, absent from every
+    // list — because its equip path is the duties block, not a selection.
+    for (const dutyId of args.composition.selectedDuties ?? []) {
+      const entry = args.library.find((candidate) => candidate.id === dutyId);
+      if (!entry || entry.faculty !== facultyId) continue;
+      if (fittings.some((existing) => existing.id === entry.id)) continue;
+      fittings.push({
+        id: entry.id,
+        name: entry.name,
+        summary: entry.summary,
+        faculty: facultyId,
+        category: entry.category ?? CATEGORY_BY_FACULTY[facultyId],
+        dutyFitting: true,
+        componentShape: entry.metadata.component_shape,
+        clonedFrom: entry.cloned_from,
+        ownPort: entry.metadata.own_port === true,
+        providesRuntime: false,
+        isPrimaryRuntime: false,
+        configSchema: [],
+        config: {}
+      });
+    }
     const candidates: StandingCandidate[] = args.library
       .filter((entry) => entry.faculty === facultyId && !providesKind(entry, "duty"))
-      .map((entry) => ({ id: entry.id, name: entry.name, summary: entry.summary, clonedFrom: entry.cloned_from }))
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        summary: entry.summary,
+        category: entry.category ?? CATEGORY_BY_FACULTY[facultyId],
+        clonedFrom: entry.cloned_from
+      }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return {
       faculty: facultyId,
@@ -1072,6 +1113,7 @@ export async function assembleStandingModel(compositionId?: string): Promise<Sta
       id: composition.id,
       name: composition.name,
       selections: composition.selections,
+      selectedDuties: composition.selectedDuties,
       primaryRuntime:
         (await resolvePrimaryFromPolicy(composition.directory)) ??
         composition.globalConfig.primary_runtime ??

@@ -15,6 +15,7 @@ dependencies:
     - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
+    - path: ../../fittings/seed/email-channel
     - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/garrison-call
@@ -30,11 +31,11 @@ dependencies:
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/opencode-runtime
-    - path: ../../fittings/seed/remote-shell-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
+    - path: ../../fittings/seed/remote-shell-runtime
     - path: ../../fittings/seed/roadmaps
     - path: ../../fittings/seed/scheduler
     - path: ../../fittings/seed/screen-share-default
@@ -45,6 +46,7 @@ dependencies:
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
     - path: ../../fittings/seed/web-channel-default
+    - path: ../../fittings/seed/whatsapp-web
 x-garrison:
   composition:
     schema: 4
@@ -59,6 +61,7 @@ x-garrison:
         max_spend_per_day: 250
         max_tool_calls_per_tick: 300
       permissions_mode: auto
+      capabilities_detail: names
       observability_config:
         log_sink: runner
     selections:
@@ -105,24 +108,36 @@ x-garrison:
             speak_enabled: true
             pendant_enabled: true
             capture_policy: wake_only
-            # The same wake windows omi-channel above already runs. The shipped
-            # DEFAULTS (silence 4000 / max 20000) are what the pendant path was
-            # started on, and they are the reason a spoken command lost its last
-            # word: speech reaches the wake bus in bursts - across 22 pendant wake
-            # hits only 2 follow-on segments ever landed inside the window - so a
-            # 4s close means the command is whatever the wake-word segment itself
-            # carried, and "Zeca, vamos comer morangos e chocolate mais logo" was
-            # assembled without the "logo" that was the entire time reference.
-            # 15000 is not a guess: it is the value the omi path was raised to
-            # after the same truncation, and it also brings wake_settled_close_ms
-            # (5000) back into play, so a sentence that ends in punctuation still
-            # closes fast.
+            tts_enabled: true
             wake_silence_close_ms: 15000
             wake_min_capture_ms: 0
             wake_max_capture_ms: 45000
             wake_command_window_ms: 45000
             wake_context_segments: 6
             wake_context_max_age_ms: 120000
+            cue_enabled: true
+            discuss_enabled: true
+            automate_enabled: true
+            screen_context_enabled: true
+            screen_audio_transcribe: false
+            send_enabled: true
+            confirm_enabled: true
+        - id: whatsapp-web
+          config:
+            port: 8087
+            bind_host: 127.0.0.1
+            session_dir: ~/.config/garrison/whatsapp-web
+            min_send_delay_ms: 1200
+            max_send_delay_ms: 3500
+        - id: email-channel
+          config:
+            port: 8081
+            bind_host: 127.0.0.1
+            enabled: true
+            poll_seconds: 30
+            allowed_senders: goncalo.p.gomes@gmail.com, goncalo@ekoa.io
+            target_list: todo
+            default_project: ''
       gateway:
         - id: http-gateway
           config:
@@ -130,6 +145,11 @@ x-garrison:
             bind_host: 127.0.0.1
             compact_enabled: true
             compact_threshold_pct: 60
+            session_log_proxy: true
+            stretch_claude_home: true
+            prefix_cache_ttl: 1h
+            prefix_tool_search: regex
+            prefix_tool_search_keep: none
         - id: mcp-gateway
           config: {}
       runtimes:
@@ -147,7 +167,9 @@ x-garrison:
         - id: remote-shell-runtime
           config:
             port: 8098
-            transports: '{"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","agentResumeCommand":"cursor-agent --force resume","label":"CSG work","routingTarget":"csg-work"}}'
+            transports: >-
+              {"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","agentResumeCommand":"cursor-agent
+              --force resume","label":"CSG work","routingTarget":"csg-work"}}
         - id: agent-sdk-runtime
           config:
             provider: anthropic
@@ -299,18 +321,17 @@ x-garrison:
             package_subdir: clients/cortex-cli
     prompt_sources:
       orchestrator: .garrison/prompts/orchestrator.md
-    # Named, ordered model rungs (floor -> top). A rung is a MODEL TIER; a duty
-    # level is DEPTH of work. They are independent axes: the rung picks the
-    # target, the level's cell still owns effort. A duty names its ladder
-    # (default `standard`) plus the rung it starts on and the rung it may
-    # escalate to.
     ladders:
       standard:
-        - { id: floor, target: sdk-haiku }
-        - { id: middle, target: cc-sonnet }
-        - { id: top, target: cc-opus }
+        - id: floor
+          target: sdk-haiku
+        - id: middle
+          target: cc-sonnet
+        - id: top
+          target: cc-opus
       adversarial:
-        - { id: cross, target: sol }
+        - id: cross
+          target: sol
     duties:
       - id: implement
         title: Implement
@@ -513,7 +534,15 @@ x-garrison:
               effort: max
       - id: adversarial-review
         title: Adversarial Review
-        description: A decorrelated second read whose job is to find what the first one missed. Cite only violations that materially change correctness or safety; when your PREVIOUS findings have been addressed and nothing substantive remains, hand off complete with next=done - endless re-refutation is a failure mode, not rigor.
+        description: >-
+          A decorrelated second read whose job is to find what the first one missed. START with the
+          request's own explicit constraints and prohibitions - a stated "do not add X", a named
+          dependency or scope limit, a required output shape - and check the change against each one
+          by name. A violated constraint is a finding even when the code is correct, and it is the
+          class of finding a correctness-only read reliably misses. Then cite behavioural violations
+          that materially change correctness or safety; when your PREVIOUS findings have been
+          addressed and nothing substantive remains, hand off complete with next=done - endless
+          re-refutation is a failure mode, not rigor.
         levels:
           - description: 'quick: the diff against its stated invariants'
             cell:
@@ -638,11 +667,14 @@ x-garrison:
               effort: low
       - id: triage
         title: Triage
-        description: Read the request, write the conversation's opening summary, and name the duty the work starts on. NEVER do the work in this stretch - even a small task goes to a working duty (plan or implement); your handoff's nextSteps.next names it.
+        description: >-
+          Read the request, write the conversation's opening summary, and name the duty the work
+          starts on. NEVER do the work in this stretch - even a small task goes to a working duty
+          (plan or implement); your handoff's nextSteps.next names it.
         levels:
           - description: >-
-              standard: read the request and what is already known, write the opening
-              summary, name the first working duty
+              standard: read the request and what is already known, write the opening summary, name
+              the first working duty
             cell:
               target: sdk-haiku
               effort: medium
@@ -653,8 +685,8 @@ x-garrison:
         description: Answer a user message in a conversation when no work is running.
         levels:
           - description: >-
-              standard: answer from the conversation summary, and record anything
-              promised back into it
+              standard: answer from the conversation summary, and record anything promised back into
+              it
             cell:
               target: sdk-haiku
               effort: medium
@@ -718,10 +750,6 @@ x-garrison:
         model: csg
         params:
           type: secondary
-      # The same machine's HEADLESS face: `transport:model` runs one
-      # `cursor-agent -p` turn on csg and returns a real result object (text,
-      # chat id, token usage) instead of a scraped pane. A bare transport
-      # (csg-work, above) stays the interactive tmux lane.
       - id: csg-exec
         runtime: remote-shell
         model: csg:gpt-5.3-codex-low
@@ -729,8 +757,6 @@ x-garrison:
           type: secondary
       - id: cc-opus
         runtime: agent-sdk
-        # Explicit id: the "opus" alias floats with the CLI's default and served
-        # 4.x — the ladder's top rung is pinned to Opus 5 (locked 2026-08-26).
         model: claude-opus-5
         provider: anthropic
         params:
@@ -739,8 +765,6 @@ x-garrison:
           maxTurns: 500
       - id: cc-sonnet
         runtime: agent-sdk
-        # Explicit id: the "sonnet" alias served 4.6 — the middle rung is
-        # Sonnet 5 (locked 2026-08-26).
         model: claude-sonnet-5
         provider: anthropic
         params:

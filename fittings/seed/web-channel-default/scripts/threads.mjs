@@ -31,6 +31,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import * as fsSync from "node:fs";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -276,6 +277,7 @@ const SESSION_LEDGER_KINDS = new Set([
   "card-state-changed",
   "escalation",
   "policy-rewrite",
+  "approval-requested",
 ]);
 const FAILURE_KINDS = new Set([
   "authentication",
@@ -818,9 +820,15 @@ export function sanitizeSessionBlock(raw) {
     // here on purpose - a second copy of those lists in the channel would be a
     // mirror that silently drifts. An explicit null reads as "not reported", the
     // same as the route attribution's own optional ids, so it is omitted.
-    for (const key of ["duty", "chosenBy", "outcome"]) {
+    for (const key of ["duty", "chosenBy", "outcome", "next", "blockerWho"]) {
       if (!Object.hasOwn(raw, key) || raw[key] === null) continue;
       if (!copyOptionalLabel(out, raw, key, 200)) return null;
+    }
+    // The handoff excerpt the terminal banner quotes: prose, not labels, so it
+    // takes the text cap rather than the label cap.
+    for (const key of ["summary", "blockerWhat", "blockerNeeds"]) {
+      if (!Object.hasOwn(raw, key) || raw[key] === null) continue;
+      if (!copyOptionalText(out, raw, key)) return null;
     }
     if (Object.hasOwn(raw, "usedTokens") && raw.usedTokens !== null) {
       if (!copyOptionalNumber(out, raw, "usedTokens", { integer: true, min: 0 })) return null;
@@ -839,6 +847,11 @@ export function sanitizeSessionBlock(raw) {
     const out = { type, kind, title };
     if (Object.hasOwn(raw, "detail") && raw.detail !== null) {
       if (!copyOptionalText(out, raw, "detail")) return null;
+    }
+    // An approval ask names the duty it wants to run next; opaque label, same
+    // reasoning as the stretch-row labels above.
+    if (Object.hasOwn(raw, "next") && raw.next !== null) {
+      if (!copyOptionalLabel(out, raw, "next", 200)) return null;
     }
     if (Object.hasOwn(raw, "payloadRef") && raw.payloadRef !== null) {
       // An opaque store reference, never a path, and capped like an id: two
@@ -1162,12 +1175,67 @@ function recordThreadSession(thread, rawSessionId) {
 
 function deriveTitle(thread) {
   if (thread.title && String(thread.title).trim()) return String(thread.title).trim();
+  // A conversation thread's messages live in the LEDGER, not thread.messages -
+  // without this every conversation row read "New conversation" forever. The
+  // name is inferred from the conversation itself (objective, else the first
+  // human message) and an explicit thread.title always wins above.
+  const conversationTitle = inferredConversationTitle(conversationIdFor(thread));
+  if (conversationTitle) return conversationTitle;
   const firstUser = (thread.messages ?? []).find((m) => m.role === "user" && m.text?.trim());
   if (firstUser) {
     const firstLine = firstUser.text.split("\n").map((l) => l.trim()).find(Boolean) ?? firstUser.text;
     return firstLine.replace(/^#+\s*/, "").slice(0, 60).trim() || "New conversation";
   }
   return "New conversation";
+}
+
+/** Inferred display name for a conversation, from its own store: the L1
+ * summary's Objective once triage has written a real one, else the first
+ * human message in the ledger. Cached on (summary mtime, log size) - this
+ * runs per thread on a polled list route. Null when nothing usable exists,
+ * so callers keep their own fallback. */
+const inferredTitleCache = new Map();
+export function inferredConversationTitle(conversationId) {
+  if (!conversationId) return null;
+  const dir = path.join(garrisonDir(), "conversations", conversationId);
+  let cacheKey = "";
+  try { cacheKey += `s${fsSync.statSync(path.join(dir, "summary.md")).mtimeMs}`; } catch { /* no summary yet */ }
+  try { cacheKey += `l${fsSync.statSync(path.join(dir, "log.jsonl")).size}`; } catch { return null; }
+  const cached = inferredTitleCache.get(conversationId);
+  if (cached && cached.key === cacheKey) return cached.title;
+  let title = null;
+  try {
+    const summary = fsSync.readFileSync(path.join(dir, "summary.md"), "utf8");
+    const objective = summary.match(/^## Objective\n+([^\n]+)/m)?.[1]?.trim();
+    if (objective && !objective.startsWith("(not yet written")) title = objective;
+  } catch { /* objective is optional */ }
+  if (!title) {
+    // The ledger's HEAD: the first user-message is among the first records, so
+    // one bounded read is enough - never a full-file parse on a list route.
+    try {
+      const fd = fsSync.openSync(path.join(dir, "log.jsonl"), "r");
+      try {
+        const buf = Buffer.alloc(32_768);
+        const bytes = fsSync.readSync(fd, buf, 0, buf.length, 0);
+        for (const line of buf.toString("utf8", 0, bytes).split("\n")) {
+          if (!line.includes('"user-message"')) continue;
+          try {
+            const record = JSON.parse(line);
+            const text = record?.kind === "user-message" ? record?.payload?.text : null;
+            if (typeof text === "string" && text.trim()) {
+              title = text.split("\n").map((l) => l.trim()).find(Boolean) ?? null;
+              break;
+            }
+          } catch { /* a truncated tail line - keep scanning */ }
+        }
+      } finally {
+        fsSync.closeSync(fd);
+      }
+    } catch { /* no readable ledger */ }
+  }
+  title = title ? title.replace(/^#+\s*/, "").slice(0, 60).trim() || null : null;
+  inferredTitleCache.set(conversationId, { key: cacheKey, title });
+  return title;
 }
 
 /** Sparse remote-shell binding carried in a thread's opaque context: which
@@ -2150,4 +2218,72 @@ export function runningSince(threadId) {
 
 export function runningThreadIds() {
   return [...activeInputByThread.keys()];
+}
+
+// ── Conversation-backed liveness ────────────────────────────────────────────
+// A conversation thread's work is driven by the LAUNCHER, not by this server's
+// input lifecycle: its message settles at admission, so activeInputByThread
+// never marks it running and the rail showed every working conversation as
+// idle. Read the truth from the conversation store itself: the
+// `.current-stretch` marker while a stretch runs, else the ledger tail for the
+// between-stretch window (exit gate, routing, a queued user message).
+
+const CONVERSATIONS_DIR = path.join(garrisonDir(), "conversations");
+/** Ledger kinds that decide liveness; everything else in the tail is content. */
+const CONV_TAIL_DECIDERS = new Set([
+  "user-message",
+  "stretch-started",
+  "stretch-ended",
+  "approval-requested",
+  "conversation-opened",
+]);
+
+/**
+ * ISO time since when the conversation has been actively driven, or null when it
+ * is waiting on a human (or on nothing). Sync and bounded on purpose: one stat
+ * plus at most one 16KB tail read per conversation thread, on a poll route.
+ */
+export function conversationRunningSince(conversationId) {
+  if (!conversationId) return null;
+  const dir = path.join(CONVERSATIONS_DIR, conversationId);
+  try {
+    const marker = fsSync.statSync(path.join(dir, ".current-stretch"));
+    return marker.mtime.toISOString();
+  } catch { /* no stretch holds the store - consult the tail */ }
+  let tail;
+  try {
+    const logPath = path.join(dir, "log.jsonl");
+    const size = fsSync.statSync(logPath).size;
+    const span = Math.min(size, 16_384);
+    const fd = fsSync.openSync(logPath, "r");
+    try {
+      const buf = Buffer.alloc(span);
+      fsSync.readSync(fd, buf, 0, span, size - span);
+      tail = buf.toString("utf8");
+    } finally {
+      fsSync.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const lines = tail.split("\n").filter((line) => line.trim());
+  // The first line of a mid-file window is almost always a partial record;
+  // walking backward, JSON.parse failures are simply skipped.
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    let record;
+    try { record = JSON.parse(lines[i]); } catch { continue; }
+    const kind = record?.kind;
+    if (!CONV_TAIL_DECIDERS.has(kind)) continue;
+    const since = typeof record.ts === "string" ? record.ts : new Date().toISOString();
+    if (kind === "user-message" || kind === "stretch-started") return since;
+    if (kind === "stretch-ended") {
+      const next = record?.payload?.next;
+      // A named duty means the launcher owes the next stretch; done and
+      // needs-input are terminal, and an old record without `next` must not
+      // claim liveness it cannot prove.
+      return typeof next === "string" && next && next !== "done" && next !== "needs-input" ? since : null;
+    }
+    return null; // approval-requested and conversation-opened wait on a human
+  }
+  return null;
 }

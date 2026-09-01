@@ -1,0 +1,118 @@
+{
+  "run_label": "runA",
+  "side": "garrison",
+  "task_id": "todo-api-v1",
+  "source": "sdk-stream",
+  "wall_clock_seconds": 974,
+  "api_calls": 132,
+  "input_tokens": 106272,
+  "output_tokens": 40700,
+  "cache_write_tokens": 278637,
+  "cache_read_tokens": 6465617,
+  "total_cost_usd": 2.9576334500000003,
+  "compactions": 0,
+  "stretches": [
+    {
+      "duty": "triage",
+      "model": "claude-haiku-4-5-20251001",
+      "effort": "medium",
+      "api_calls": 2,
+      "input_tokens": 15,
+      "output_tokens": 1520,
+      "cache_write_tokens": 36783,
+      "cache_read_tokens": 23787,
+      "cost_usd": 0.05817945000000001
+    },
+    {
+      "duty": "implement",
+      "model": "claude-sonnet-5",
+      "effort": "medium",
+      "api_calls": 65,
+      "input_tokens": 1181,
+      "output_tokens": 20309,
+      "cache_write_tokens": 130601,
+      "cache_read_tokens": 4039483,
+      "cost_usd": 1.3419941
+    },
+    {
+      "duty": "adversarial-review",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "api_calls": 7,
+      "input_tokens": 25422,
+      "output_tokens": 2974,
+      "cache_write_tokens": 0,
+      "cache_read_tokens": 120064,
+      "cost_usd": 0.2091936
+    },
+    {
+      "duty": "implement",
+      "model": "claude-sonnet-5",
+      "effort": "medium",
+      "api_calls": 16,
+      "input_tokens": 615,
+      "output_tokens": 3733,
+      "cache_write_tokens": 83575,
+      "cache_read_tokens": 685460,
+      "cost_usd": 0.3870195
+    },
+    {
+      "duty": "adversarial-review",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "api_calls": 7,
+      "input_tokens": 16450,
+      "output_tokens": 2960,
+      "cache_write_tokens": 0,
+      "cache_read_tokens": 129280,
+      "cost_usd": 0.176712
+    },
+    {
+      "duty": "implement",
+      "model": "claude-sonnet-5",
+      "effort": "medium",
+      "api_calls": 26,
+      "input_tokens": 635,
+      "output_tokens": 5846,
+      "cache_write_tokens": 27678,
+      "cache_read_tokens": 1244567,
+      "cost_usd": 0.3803684
+    },
+    {
+      "duty": "adversarial-review",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "api_calls": 9,
+      "input_tokens": 61954,
+      "output_tokens": 3358,
+      "cache_write_tokens": 0,
+      "cache_read_tokens": 222976,
+      "cost_usd": 0.40416640000000004
+    }
+  ],
+  "_meta": {
+    "conversation_id": "01M16AWMQ07935ER3XTH8064SG",
+    "unpriced_stretches": 0,
+    "sdk_reported_cost_usd": 5.32097995,
+    "cache_read_share": 0.943813219598028,
+    "rates_updated": "2026-08-29",
+    "by_model": {
+      "claude-haiku-4-5-20251001": {
+        "api_calls": 5,
+        "usd": 0.00931
+      },
+      "claude-haiku-4-5": {
+        "api_calls": 1,
+        "usd": 0.05597245000000001
+      },
+      "claude-sonnet-5": {
+        "api_calls": 107,
+        "usd": 2.1022790000000002
+      },
+      "gpt-5.6-sol": {
+        "api_calls": 23,
+        "usd": 0.790072
+      }
+    }
+  }
+}

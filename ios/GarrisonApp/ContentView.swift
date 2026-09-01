@@ -6,12 +6,18 @@ import SwiftUI
 /// anywhere (invariant I3).
 struct ContentView: View {
     @StateObject private var capture = CaptureController()
+    @ObservedObject private var pendant = PendantController.shared
     @State private var showConsent = false
+    // The broadcast lives in another process; poll the shared heartbeat.
+    @State private var broadcasting = AppGroup.isBroadcasting()
+    @State private var broadcastError: String? = AppGroup.broadcastError()?.0
+    private let broadcastTick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
                 statusHeader
+                liveLines
 
                 if capture.isRunning {
                     Button {
@@ -53,9 +59,9 @@ struct ContentView: View {
                 Spacer()
 
                 List {
+                    NavigationLink("Conversation") { ConversationView() }
                     NavigationLink("Pendant") { PendantView() }
                     NavigationLink("Sessions") { SessionsView() }
-                    NavigationLink("Messages") { AckLogView() }
                     NavigationLink("Settings") { SettingsView() }
                 }
                 .listStyle(.inset)
@@ -74,7 +80,50 @@ struct ContentView: View {
                 )
             }
             .onAppear { PushManager.shared.registerOnLaunch() }
+            .onReceive(broadcastTick) { _ in
+                broadcasting = AppGroup.isBroadcasting()
+                broadcastError = AppGroup.broadcastError()?.0
+            }
         }
+    }
+
+    /// What Zeca can currently hear and see. The pendant now outlives this
+    /// screen, and the broadcast is started from Control Centre and never
+    /// mentions itself, so without this the two things that decide whether a
+    /// spoken command will work are both invisible from the app.
+    @ViewBuilder private var liveLines: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: pendant.isActive ? "dot.radiowaves.left.and.right" : "circle.dashed")
+                    .foregroundStyle(pendant.isActive ? .green : .secondary)
+                Text(pendant.isActive ? "Pendant connected - listening for \u{201C}Zeca\u{201D}" : "Pendant not connected")
+                    .font(.footnote)
+                    .foregroundStyle(pendant.isActive ? .primary : .secondary)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: broadcasting ? "rectangle.on.rectangle" : "rectangle.dashed")
+                    .foregroundStyle(broadcasting ? .green : .secondary)
+                Text(broadcastLine)
+                    .font(.footnote)
+                    .foregroundStyle(broadcastTint)
+                    .multilineTextAlignment(.center)
+            }
+        }
+    }
+
+    /// Never just "not shared": either it is live, or it says WHY it is not -
+    /// the extension's own refusal when there is one, and otherwise how to
+    /// start it. "Screen not shared" with no next step is what sent the user
+    /// back to me instead of to the picker.
+    private var broadcastTint: Color {
+        if broadcasting { return .primary }
+        return broadcastError == nil ? .secondary : .orange
+    }
+
+    private var broadcastLine: String {
+        if broadcasting { return "Screen shared - Zeca can see what you are looking at" }
+        if let broadcastError { return "Screen sharing failed: \(broadcastError)" }
+        return "Screen not shared - tap the broadcast button below, pick Garrison, and turn the microphone OFF"
     }
 
     @ViewBuilder private var statusHeader: some View {

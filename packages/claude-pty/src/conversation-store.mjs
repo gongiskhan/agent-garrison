@@ -482,31 +482,65 @@ export class ConversationStore {
   claimStretch(stretchId) {
     this.#ensureDirs();
     try {
-      writeFileSync(this.#markerPath(), String(stretchId), { flag: "wx" });
+      // Line 2 is the claiming process's pid: a marker whose writer is DEAD
+      // is crash residue, not a running stretch. Without it, a gateway
+      // restart (or a pre-fail-loudly crash) left the marker behind and the
+      // message lane deferred to a runner that would never read - the
+      // conversation went deaf until someone deleted the file by hand.
+      writeFileSync(this.#markerPath(), `${stretchId}\n${process.pid}`, { flag: "wx" });
       return true;
     } catch {
       return false;
     }
   }
 
-  releaseStretch(stretchId) {
+  #parseMarker() {
     try {
-      if (readFileSync(this.#markerPath(), "utf8").trim() === String(stretchId)) {
+      const [id, pid] = readFileSync(this.#markerPath(), "utf8").split("\n");
+      return { id: (id ?? "").trim() || null, pid: Number((pid ?? "").trim()) || null };
+    } catch {
+      return null;
+    }
+  }
+
+  releaseStretch(stretchId) {
+    const m = this.#parseMarker();
+    if (m?.id === String(stretchId)) {
+      try {
         unlinkSync(this.#markerPath());
         return true;
+      } catch {
+        /* raced */
       }
-    } catch {
-      /* absent = already released */
     }
     return false;
   }
 
   currentStretch() {
-    try {
-      return readFileSync(this.#markerPath(), "utf8").trim() || null;
-    } catch {
+    const m = this.#parseMarker();
+    if (!m?.id) return null;
+    // Sweep-on-read: a pid-carrying marker whose writer no longer exists is
+    // removed and reported absent. Old-format markers (no pid) are trusted -
+    // there is no honest way to test their liveness.
+    if (m.pid && !processAlive(m.pid)) {
+      try {
+        unlinkSync(this.#markerPath());
+      } catch {
+        /* raced */
+      }
       return null;
     }
+    return m.id;
+  }
+}
+
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM = alive but not ours; anything else (ESRCH) = gone.
+    return err?.code === "EPERM";
   }
 }
 

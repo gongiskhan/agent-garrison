@@ -66,7 +66,8 @@ import {
   subscribeLive,
   clearRunning,
   runningSince,
-  runningThreadIds
+  runningThreadIds,
+  conversationRunningSince
 } from "./threads.mjs";
 import { SseFrameDecoder, formatSseFrame } from "../lib/live-event-stream.mjs";
 import { getTailnetServeMap } from "../lib/tailnet-serve.mjs";
@@ -2277,6 +2278,10 @@ async function handleThreadsList(res) {
     if (session?.state === "running") {
       return { ...meta, runningSince: session.lastEventAt ?? session.createdAt ?? new Date().toISOString() };
     }
+    // A conversation thread's work is launcher-driven: its liveness lives in the
+    // conversation store, not in this server's input lifecycle.
+    const conversationSince = conversationRunningSince(t.conversationId ?? null);
+    if (conversationSince) return { ...meta, runningSince: conversationSince };
     return meta;
   });
   jsonRes(res, 200, { threads });

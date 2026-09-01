@@ -538,6 +538,98 @@ function logSdkMessage(session, msg, turnId) {
   });
 }
 
+// ── provider-reported usage (cost instrumentation, 2026-08-28) ──────────────
+//
+// The API reports what a call actually consumed on the `assistant` envelope
+// (per API call) and again, cumulatively for the turn, on the `result` envelope
+// (which additionally carries the SDK's own `total_cost_usd` and a per-model
+// `modelUsage` breakdown). Both are forwarded VERBATIM through the optional
+// `onUsage` hook.
+//
+// Two rules here, and they are the whole reason this is a separate seam rather
+// than more arithmetic on session.usedTokens:
+//
+//   - The adapter does no summing and no pricing. It reports what the provider
+//     said. Every derived number is computed downstream from these rows, so a
+//     wrong total can always be traced back to a call the provider described.
+//   - Cache classes survive. session.usedTokens is (input + output) and drops
+//     cache_creation/cache_read entirely, which on a cached agent run is most
+//     of the bill.
+//
+// An assistant id repeated with a LARGER count emits a delta row rather than a
+// second full row, so summing the stream is correct even if the SDK ever
+// repaints a settled envelope.
+
+const USAGE_FIELDS = [
+  "input_tokens",
+  "output_tokens",
+  "cache_creation_input_tokens",
+  "cache_read_input_tokens",
+];
+
+function usageSnapshot(raw) {
+  const u = raw ?? {};
+  const n = (v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  const creation = u.cache_creation ?? null;
+  return {
+    input_tokens: n(u.input_tokens),
+    output_tokens: n(u.output_tokens),
+    cache_creation_input_tokens: n(u.cache_creation_input_tokens),
+    cache_read_input_tokens: n(u.cache_read_input_tokens),
+    ...(creation
+      ? {
+          cache_creation: {
+            ephemeral_5m_input_tokens: n(creation.ephemeral_5m_input_tokens),
+            ephemeral_1h_input_tokens: n(creation.ephemeral_1h_input_tokens),
+          },
+        }
+      : {}),
+  };
+}
+
+function usageIsZero(u) {
+  return USAGE_FIELDS.every((f) => !u[f]);
+}
+
+/** Forward one usage row. `seen` is a per-turn Map for delta suppression. */
+function emitApiUsage(onUsage, seen, { callId, source, model, usage, sdkCostUsd = null, modelUsage = null }) {
+  if (typeof onUsage !== "function") return;
+  const snap = usageSnapshot(usage);
+  if (usageIsZero(snap) && sdkCostUsd == null) return;
+  const key = callId || `${source}:${seen.size}`;
+  const prev = seen.get(key);
+  let record = snap;
+  let delta = false;
+  if (prev) {
+    const grew = {};
+    let any = false;
+    for (const f of USAGE_FIELDS) {
+      const d = snap[f] - (prev[f] ?? 0);
+      if (d > 0) {
+        grew[f] = d;
+        any = true;
+      } else grew[f] = 0;
+    }
+    if (!any) return;
+    record = grew;
+    delta = true;
+  }
+  seen.set(key, snap);
+  try {
+    onUsage({
+      source,
+      callId: callId ?? null,
+      model: model ?? null,
+      usage: record,
+      ...(delta ? { delta: true } : {}),
+      ...(typeof sdkCostUsd === "number" ? { sdkCostUsd } : {}),
+      ...(modelUsage && typeof modelUsage === "object" ? { modelUsage } : {}),
+    });
+  } catch {
+    /* a usage consumer must never kill the turn */
+  }
+}
+
 export class AgentSdkAdapter {
   constructor(opts = {}) {
     this.id = "agent-sdk";
@@ -816,6 +908,8 @@ export class AgentSdkAdapter {
       onThinking: typeof hooks.onThinking === "function" ? hooks.onThinking : null,
       onSession: typeof hooks.onSession === "function" ? hooks.onSession : null,
       onEvent: typeof hooks.onEvent === "function" ? hooks.onEvent : null,
+      onUsage: typeof hooks.onUsage === "function" ? hooks.onUsage : null,
+      usageSeen: new Map(),
       onPermissionRequest: typeof hooks.onPermissionRequest === "function" ? hooks.onPermissionRequest : null,
       eventNormalizer: createAgentSdkSessionEventNormalizer({
         turnId: hooks.turnId ?? null,
@@ -1105,6 +1199,14 @@ export class AgentSdkAdapter {
         throw new Error("AgentSdkAdapter: standing query emitted multiple results before idle");
       }
       turn.resultMessage = message;
+      emitApiUsage(turn.onUsage, turn.usageSeen, {
+        callId: `result:${message.uuid ?? message.session_id ?? turn.usageSeen.size}`,
+        source: "result",
+        model: session.observedModel ?? null,
+        usage: message.usage,
+        sdkCostUsd: typeof message.total_cost_usd === "number" ? message.total_cost_usd : null,
+        modelUsage: message.modelUsage ?? null,
+      });
       const usage = message.usage ?? {};
       const turnTokens = (usage.output_tokens ?? 0) + (usage.input_tokens ?? 0) || (usage.total_tokens ?? 0);
       session.usedTokens += turnTokens;
@@ -1131,6 +1233,13 @@ export class AgentSdkAdapter {
         return;
       }
       if (type !== "assistant") return;
+
+      emitApiUsage(turn.onUsage, turn.usageSeen, {
+        callId: message.message?.id ?? null,
+        source: "assistant",
+        model: message.message?.model ?? session.observedModel ?? null,
+        usage: message.message?.usage,
+      });
 
       const content = message.message?.content ?? [];
       const envelopeText = content
@@ -1286,6 +1395,8 @@ export class AgentSdkAdapter {
     const onSession = typeof hooks.onSession === "function" ? hooks.onSession : null;
     const onEvent = typeof hooks.onEvent === "function" ? hooks.onEvent : null;
     const onPermissionRequest = typeof hooks.onPermissionRequest === "function" ? hooks.onPermissionRequest : null;
+    const onUsage = typeof hooks.onUsage === "function" ? hooks.onUsage : null;
+    const usageSeen = new Map();
     const permissionGenerationId = typeof hooks.generationId === "string" ? hooks.generationId.trim() : "";
     if (onPermissionRequest && !permissionGenerationId) {
       throw new Error("AgentSdkAdapter: a permission resolver requires a generation id");
@@ -1450,6 +1561,12 @@ export class AgentSdkAdapter {
             }
           }
         } else if (type === "assistant") {
+          emitApiUsage(onUsage, usageSeen, {
+            callId: msg.message?.id ?? null,
+            source: "assistant",
+            model: msg.message?.model ?? observedModel ?? null,
+            usage: msg.message?.usage,
+          });
           const content = msg.message?.content ?? [];
           // One SDK `assistant` envelope is one presentable interim message. Text
           // blocks INSIDE that envelope are fragments of the same message and stay
@@ -1505,6 +1622,14 @@ export class AgentSdkAdapter {
             }
           }
         } else if (type === "result") {
+          emitApiUsage(onUsage, usageSeen, {
+            callId: `result:${msg.uuid ?? msg.session_id ?? usageSeen.size}`,
+            source: "result",
+            model: observedModel ?? null,
+            usage: msg.usage,
+            sdkCostUsd: typeof msg.total_cost_usd === "number" ? msg.total_cost_usd : null,
+            modelUsage: msg.modelUsage ?? null,
+          });
           const usage = msg.usage ?? {};
           const turnTokens = (usage.output_tokens ?? 0) + (usage.input_tokens ?? 0) || (usage.total_tokens ?? 0);
           session.usedTokens += turnTokens;

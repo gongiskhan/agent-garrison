@@ -128,6 +128,33 @@ struct AckPayload: Codable {
     let cardId: String?
     let idempotencyKey: String?
     let emittedAt: String?
+    /// Server-relative path to a pre-rendered clip of Zeca's voice
+    /// (`/speak/<hash>.mp3`), when the service could render one. Absent means
+    /// speak `text` with the on-device synthesizer, exactly as before.
+    let audioPath: String?
+    /// Which language the service rendered this in ("pt"/"en"), when it
+    /// resolved one. Drives the on-device voice selection so a fallback to the
+    /// synthesizer does not speak Portuguese with an English voice.
+    let lang: String?
+}
+
+/// A short line the wearer should HEAR alongside a feedback event - "Sim?" the
+/// instant the wake word lands, "Ok." when the capture window closes. Optional
+/// in both directions: an older server omits it and an older app ignores it.
+struct FeedbackSpeech: Codable, Equatable {
+    let text: String
+    let lang: String?
+    /// Server-relative path to a pre-rendered clip. Absent means speak `text`
+    /// with the on-device synthesizer.
+    let audioPath: String?
+    let priority: String?
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case lang
+        case audioPath = "audio_path"
+        case priority
+    }
 }
 
 /// One pendant feedback lifecycle event (wake_detected, segment_captured,
@@ -142,6 +169,10 @@ struct FeedbackEvent: Codable, Equatable {
     let cardId: String?
     let title: String?
     let interim: Bool?
+    let speak: FeedbackSpeech?
+    /// Conversation language when the server knew it - drives the localized
+    /// notification bodies ("Cartão criado" vs "Card created").
+    let lang: String?
 
     enum CodingKeys: String, CodingKey {
         case eventId = "event_id"
@@ -152,6 +183,8 @@ struct FeedbackEvent: Codable, Equatable {
         case cardId = "card_id"
         case title
         case interim
+        case speak
+        case lang
     }
 }
 

@@ -16,11 +16,11 @@
 // in logs or counters — ids, seqs, counts and reasons only.
 
 import { createServer } from "node:http";
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FITTING_ID, loadConfig } from "../lib/config.mjs";
-import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON } from "../lib/store.mjs";
+import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON, ulid } from "../lib/store.mjs";
 import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
 import { TranscriptionLane } from "../lib/deepgram-live.mjs";
 import { WakeBus, wakeRegex } from "../lib/wake.mjs";
@@ -30,8 +30,15 @@ import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
 import { CompanionNotifier, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
 import { AckSink } from "../lib/ack-sink.mjs";
+import { ZecaVoice } from "../lib/tts.mjs";
+import { Cues } from "../lib/cues.mjs";
+import { ConfirmBus } from "../lib/confirm-bus.mjs";
+import { CortexCli } from "../lib/cortex-cli.mjs";
+import { ScreenContextIndex } from "../lib/screen-context.mjs";
+import { makeConnectorFn } from "../lib/connector-call.mjs";
+import { LanguageMemory } from "../lib/language-memory.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
-import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
+import { discussRunFn, inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 
 // Source identity handed to the byte-identical wake module (invariant I2:
 // everything this channel persists carries source "companion-ios").
@@ -276,12 +283,92 @@ function authorizeHttp(cfg, req, counters) {
 }
 
 export function makeRequestHandler(ctx) {
-  const { cfg, store, counters } = ctx;
+  const { cfg, store, counters, voice } = ctx;
   return async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
     const p = url.pathname;
 
     try {
+      // Spoken clips. Unauthenticated like the other own-port surfaces, and
+      // safe to be: the id is a content hash of text the phone was just told to
+      // say, it is validated as hex before it touches a path, and guessing one
+      // requires already knowing the sentence.
+      const speakMatch = p.match(/^\/speak\/([0-9a-f]{8,64})\.mp3$/);
+      if (req.method === "GET" && speakMatch) {
+        const audio = voice?.readClip(speakMatch[1]) ?? null;
+        if (!audio) return json(res, 404, { error: "no such clip" });
+        counters.bump("tts_clips_served");
+        res.writeHead(200, {
+          "content-type": "audio/mpeg",
+          "content-length": audio.length,
+          // Content-addressed: the bytes for an id can never change.
+          "cache-control": "public, max-age=31536000, immutable"
+        });
+        res.end(audio);
+        return;
+      }
+      // The conversation, as data - what the app's Conversation screen renders.
+      // One exchange per wake command: the user's words, what Zeca decided
+      // (intent), what he said back (full text, untruncated - the push banner
+      // is a preview, THIS is the record), how it was delivered, and every
+      // follow-up round of a clarifying-question dialogue threaded under it.
+      //
+      // Same bearer as the capture stream: this is transcript-adjacent content
+      // and never leaves without the token.
+      if (req.method === "GET" && p === "/capture/exchanges") {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const dir = path.join(store.root, "wake-results");
+        let names = [];
+        try {
+          names = readdirSync(dir);
+        } catch {
+          /* no exchanges yet */
+        }
+        const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 50));
+        const bases = names
+          .filter((f) => /^[0-9A-HJKMNP-TV-Z]{26}\.json$/.test(f))
+          .map((f) => {
+            try {
+              return { id: f.slice(0, -5), mtime: statSync(path.join(dir, f)).mtimeMs };
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean)
+          .sort((a, b) => b.mtime - a.mtime)
+          .slice(0, limit);
+        const exchanges = [];
+        for (const { id } of bases) {
+          const record = readJSON(path.join(dir, `${id}.json`));
+          if (!record) continue;
+          const followups = [];
+          const answer = readJSON(path.join(dir, `${id}.delegate.json`));
+          if (answer) followups.push({ round: 0, at: answer.at ?? null, request: answer.request ?? null, reply: answer.reply ?? "", ok: answer.ok !== false });
+          for (const f of names) {
+            const m = f.match(new RegExp(`^${id}\\.followup\\.(\\d+)\\.json$`));
+            if (!m) continue;
+            const doc = readJSON(path.join(dir, f));
+            if (doc) followups.push({ round: Number(m[1]), at: doc.at ?? null, request: doc.request ?? null, reply: doc.reply ?? "", ok: doc.ok !== false });
+          }
+          followups.sort((a, b) => a.round - b.round);
+          exchanges.push({
+            id,
+            at: record.at ?? null,
+            command: record.command ?? "",
+            intent: record.intent ?? null,
+            confirmation: record.confirmation ?? null,
+            lang: record.lang ?? null,
+            cardId: record.cardId ?? null,
+            cardUrl: record.cardUrl ?? null,
+            delivery: record.delivery ?? null,
+            followups
+          });
+        }
+        counters.bump("exchanges_served");
+        return json(res, 200, { exchanges });
+      }
+
       if (req.method === "GET" && (p === "/health" || p === "/api/health")) {
         return json(res, 200, {
           ok: true,
@@ -297,6 +384,51 @@ export function makeRequestHandler(ctx) {
             apnsP8: Boolean(cfg.secrets.apnsP8)
           },
           gatewayConfigured: Boolean(cfg.gatewayUrl),
+          // Push and speech health at a glance. Both failed silently this week
+          // in ways /health could not show: a device token accepted by APNs
+          // while the phone showed nothing, and every spoken line going to a
+          // dead socket that still read as OPEN. "How many devices, how old is
+          // the token, which session would be spoken to" is the difference
+          // between diagnosing that in a minute and guessing for days.
+          push: (() => {
+            try {
+              const devices = ctx.notifier?.deviceTokens?.() ?? [];
+              // The registry key is `tokens`, not `devices` - reading the wrong
+              // one is what made an earlier probe report "0 devices" while APNs
+              // was happily delivering to 1, and sent me chasing registration.
+              const raw = readJSON(store.devicesFile, { tokens: [] });
+              const newest = (raw.tokens ?? [])
+                .map((d) => d?.registered_at ?? d?.registeredAt ?? null)
+                .filter(Boolean)
+                .sort()
+                .pop();
+              return {
+                devices: devices.length,
+                capsToday: {
+                  routine: `${ctx.notifier?.sentToday?.("routine") ?? "?"}/${cfg.notifyMaxPerDay}`,
+                  interactive: `${ctx.notifier?.sentToday?.("interactive") ?? "?"}/${cfg.notifyInteractiveMaxPerDay}`
+                },
+                newestTokenRegisteredAt: newest ?? null
+              };
+            } catch {
+              return { devices: 0 };
+            }
+          })(),
+          speakable: (() => {
+            const sessions = [...(ctx.ingress?.sessions?.values?.() ?? [])];
+            const speakable = sessions.filter(
+              (x) => (x.record.mode === "audio" || x.record.mode === "pendant") && !x.record.ended
+            );
+            return {
+              inMemorySessions: sessions.length,
+              byMode: sessions.reduce((acc, x) => {
+                acc[x.record.mode] = (acc[x.record.mode] ?? 0) + 1;
+                return acc;
+              }, {}),
+              speakableNow: speakable.length,
+              chosen: ctx.ackSink?.speakableSession?.()?.record?.id ?? null
+            };
+          })(),
           liveSessions: ctx.ingress ? ctx.ingress.sessions.size : 0,
           counters: mergedCounters(store.root)
         });
@@ -506,6 +638,10 @@ export async function startServer(cfg = loadConfig()) {
   // `live` is what handlers read; port is corrected to the actually-bound one
   // after listen (tests pass port 0 for an ephemeral bind).
   const live = { ...cfg };
+  // The cue texts double as echo prefixes: a cue plays while the user is
+  // already talking, and its echo sometimes lands fused onto the front of the
+  // command's first segment where the exact-match echo lane cannot reach it.
+  live.wakeEchoPrefixes = ["sim", "yes", "deixa comigo", "on it", "ok", "okay"];
   const store = new CaptureStore(live.stateDir);
   const counters = new Counters(store.root, "server");
   const notifier = new CompanionNotifier({ cfg: live, store, counters, env: cfg.env ?? process.env });
@@ -524,7 +660,88 @@ export async function startServer(cfg = loadConfig()) {
       ? operativeRunFn(live.gatewayUrl, { timeoutMs: live.delegateTimeoutMs })
       : null;
   const board = new BoardClient({ env: cfg.env ?? process.env });
+  // The screen the user was looking at. Assigned once `ingress` exists (it is
+  // constructed below), and reached through a thunk - the same forward
+  // reference transcriber.onSegment already uses for ingress.sessions.
+  // Speak first, push as the fallback - the answer to "the rest of the
+  // messages are just push notifications". Every wake confirmation (query
+  // answers, delegate acks and results, card-command outcomes, fallback notes)
+  // is SPOKEN through the ack sink when a live session can hear it, and only
+  // falls back to the APNs push when nothing can. When the spoken text asks a
+  // question, the answer window opens (wake.mjs expectAnswer/armAnswerWindow)
+  // so the wearer can reply without the wake word.
+  //
+  // Forward references on purpose: ackSink and the buses are constructed
+  // below, and send() only ever runs after startup.
+  let ackSinkRef = null;
+  const answerBuses = [];
+  // Confirmations spoken but never CONFIRMED spoken. A socket send is not
+  // delivery - the app can be suspended with the socket looking open - so the
+  // payload is kept until the receipt lands, and the receipt timeout turns it
+  // into the push it originally skipped. Bounded: entries die with the receipt,
+  // the timeout, or the sweep below.
+  const awaitingReceipt = new Map(); // ackId -> { payload, at }
+  const sweepAwaiting = () => {
+    const cutoff = Date.now() - 10 * 60_000;
+    for (const [id, entry] of awaitingReceipt) if (entry.at < cutoff) awaitingReceipt.delete(id);
+  };
+  const speakingNotifier = {
+    send: async (payload) => {
+      const { template, params = {} } = payload ?? {};
+      const text = typeof params.text === "string" ? params.text.trim() : "";
+      if (template === "wake_confirmation" && text && ackSinkRef?.speakableSession()) {
+        const ackId = `wake-${ulid()}`;
+        // Progress pings and "didn't catch that" are presence, not information:
+        // spoken when someone is listening, never turned into a banner.
+        const isProgress = params.progress === true || params.speakOnly === true;
+        // A question opens the expectation BEFORE the speak leaves, so the
+        // phone's {spoken} receipt can arm it - never the other way round, or
+        // the receipt races the registration.
+        if (!isProgress && text.endsWith("?") && params.sessionId) {
+          for (const bus of answerBuses) {
+            bus.expectAnswer(params.sessionId, ackId, {
+              lang: params.lang ?? null,
+              rounds: params.followupRounds ?? 0,
+              eventId: params.eventId ?? null
+            });
+          }
+        }
+        try {
+          const res = await ackSinkRef.handleAck({
+            id: ackId,
+            kind: "captured",
+            severity: "info",
+            templateId: "wake_confirmation",
+            text,
+            ...(params.lang ? { lang: params.lang } : {})
+          });
+          if (res?.body?.delivered === "socket") {
+            counters.bump("wake_confirmations_spoken");
+            // A progress line is presence, not information: if it was not
+            // heard, there is nothing to recover - never push it.
+            if (!isProgress) {
+              sweepAwaiting();
+              awaitingReceipt.set(ackId, { payload, at: Date.now() });
+            }
+            return [{ means: "companion-speech", ok: true, ackId }];
+          }
+        } catch (err) {
+          console.error(`[capture-service] speak-first confirmation failed, pushing instead: ${err?.message ?? err}`);
+        }
+        // Not spoken: an unarmed answer expectation can never open, so it is
+        // safe to leave behind; the push below is the delivery.
+        if (isProgress) return [{ means: "companion-speech", ok: false, skipped: "progress line, nothing listening" }];
+      }
+      return notifier.send(payload);
+    },
+    cardUrl: (id) => notifier.cardUrl(id)
+  };
+
+  let screenContext = null;
+  const screenContextFn = (q) => screenContext?.latest(q) ?? null;
+
   const wakeBus = new WakeBus({
+    screenContextFn,
     cfg: live,
     store,
     counters,
@@ -532,7 +749,7 @@ export async function startServer(cfg = loadConfig()) {
     operativeFn,
     board,
     memoryWriter: new MemoryWriter({ prefix: "companion", label: "Companion", env: cfg.env ?? process.env }),
-    notifier,
+    notifier: speakingNotifier,
     source: COMPANION_WAKE_SOURCE
   });
 
@@ -540,6 +757,20 @@ export async function startServer(cfg = loadConfig()) {
   // carrying the pendant identity. Same deps, same store, same notifier (the
   // pendant's phone IS the companion phone); the lifecycle hook is inert on
   // the companion bus and live here.
+  // Which language Zeca is speaking. Fed only by text aimed at Zeca (see
+  // language-memory.mjs), consulted by the cues and by the wake bus.
+  const languageMemory = new LanguageMemory({ stateDir: live.stateDir, cfg: live, counters });
+
+  // The spoken-discussion lane: same gateway door, pinned to the composition's
+  // real `discuss` duty cell.
+  const discussFn = live.gatewayUrl
+    ? discussRunFn(live.gatewayUrl, { timeoutMs: live.discussTurnTimeoutMs, level: live.discussLevel })
+    : null;
+  // Connector calls for spoken sends. NOT the automations invoker - see
+  // connector-call.mjs for why that one cannot be used here.
+  const connectorFn = makeConnectorFn({ env: cfg.env ?? process.env });
+  const cortexFn = new CortexCli({ cfg: live, counters, env: cfg.env ?? process.env });
+
   const feedbackBus = new FeedbackBus({
     counters,
     // A CONFIRMED wake legitimately lasts as long as its capture can run. A
@@ -556,10 +787,16 @@ export async function startServer(cfg = loadConfig()) {
     operativeFn,
     board,
     memoryWriter: new MemoryWriter({ prefix: "pendant", label: "Pendant", env: cfg.env ?? process.env }),
-    notifier,
+    notifier: speakingNotifier,
     source: PENDANT_WAKE_SOURCE,
+    language: () => languageMemory.current(),
+    discussFn,
+    connectorFn,
+    cortexFn,
+    screenContextFn,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
+  answerBuses.push(wakeBus, pendantWakeBus);
   // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
   // Deepgram interims so the pendant buzzes fast; the authoritative window
   // still runs on finals through the untouched WakeBus. The FeedbackBus
@@ -577,7 +814,17 @@ export async function startServer(cfg = loadConfig()) {
     // and the settled-close logic keys on smart_format punctuation. The one
     // interim consumer is the pendant's feedback-only wake watcher above.
     onSegment: (sessionId, segment) => {
+      // A cancellation is an ANSWER to a prompt Zeca just spoke, not a command,
+      // so it is checked before the wake gate and before the discussion branch
+      // and it needs no wake word.
+      if (segment.final && confirmBus.consumeSegment(sessionId, segment.text)) return;
       const mode = ingress?.sessions.get(sessionId)?.record.mode ?? null;
+      // Language is learned ONLY from speech aimed at Zeca: a segment carrying
+      // the wake word, or one arriving while the capture window is open.
+      // Ambient television in another language must never flip the cue.
+      if (segment.final && (languageMemory.isCapturing(sessionId) || pendantInterimRegex?.test(segment.text))) {
+        languageMemory.note(sessionId, segment.text);
+      }
       if (mode === "pendant") {
         if (!live.wakeEnabled) return;
         if (!segment.final) {
@@ -603,8 +850,54 @@ export async function startServer(cfg = loadConfig()) {
     // capture_event for the shared triage tick (dedupe by session id).
     onSessionEnd: (record) => emitSessionEvent({ record, store, counters, cfg: live })
   });
-  const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier });
-  ingress.onSpokenReceipt = (msg) => ackSink.handleSpokenReceipt(msg);
+  screenContext = new ScreenContextIndex({ ingress, cfg: live, counters });
+  const voice = new ZecaVoice({ cfg: live, counters });
+  const cues = new Cues({ cfg: live, voice, counters });
+  // Four short clips, once, so the first wake of the day is as fast as the
+  // hundredth. Never awaited: a cold cue costs the phone's own voice, not a
+  // delayed one.
+  void cues.prewarm();
+  const ackSink = new AckSink({ cfg: live, store, counters, echoGuard, ingress, notifier, voice, languageMemory });
+  ackSinkRef = ackSink;
+  // Announce-and-cancel for a parked send. Owns no timer of its own: the
+  // connector's outbox holds the send, this only says it out loud and cancels.
+  const confirmBus = new ConfirmBus({ cfg: live, counters, ackSink, languageMemory, env: cfg.env ?? process.env });
+  // Speaking is the ack lane, which is what registers the echo fingerprint
+  // BEFORE anything leaves - without that, Zeca's own voice comes back through
+  // the pendant mic and, in a discussion where there is no wake gate, becomes
+  // the user's next utterance.
+  pendantWakeBus.speakFn = async (text, { kind = "discuss", lang = null } = {}) => {
+    await ackSink.handleAck({
+      id: `voice-${ulid()}`,
+      kind: "captured",
+      severity: "info",
+      templateId: `voice_${kind}`,
+      text,
+      ...(lang ? { lang } : {})
+    });
+  };
+  // Every delegated or parked action opens the confirmation watch.
+  const wrappedAfter = confirmBus;
+  ackSink.onSpeakTimeout = (ackId) => {
+    const entry = awaitingReceipt.get(ackId);
+    if (!entry) return;
+    awaitingReceipt.delete(ackId);
+    counters.bump("wake_confirmation_push_after_timeout");
+    void notifier.send(entry.payload).catch(() => []);
+  };
+  ingress.onSpokenReceipt = (msg) => {
+    ackSink.handleSpokenReceipt(msg);
+    // The announcement has actually left the speaker now, so the microphone is
+    // hearing the user again rather than us.
+    if (msg?.ok) {
+      const ackId = String(msg?.spoken ?? "");
+      awaitingReceipt.delete(ackId);
+      wrappedAfter.onSpoken(ackId);
+      // A spoken question opens its answer window only now - its own echo,
+      // which the mic hears a beat later, can no longer answer it.
+      for (const bus of answerBuses) bus.armAnswerWindow(ackId);
+    }
+  };
 
   // Feedback delivery: every event goes to the live pendant session's socket
   // as {type:"feedback", event}; the Companion drives the device haptic and
@@ -617,13 +910,39 @@ export async function startServer(cfg = loadConfig()) {
     const ws = session.socket;
     if (ws && ws.readyState === ws.OPEN) {
       try {
-        ws.send(JSON.stringify({ type: "feedback", event }));
+        // The spoken cue rides the event it belongs to. Resolved SYNCHRONOUSLY
+        // (cachedClipFor never touches the network) because everything after
+        // this send - the device haptic, the feedback_ack, and therefore
+        // wake_to_device_ack_ms - is waiting on it.
+        //
+        // A deduped wake never reaches here at all: FeedbackBus.emit returns
+        // null before calling subscribers, so a swallowed second "Zeca" stays
+        // silent for free.
+        // A window that closed on nothing gets no "Deixa comigo." - the
+        // unheard line the wake bus is about to speak is the honest one.
+        const speak = event.empty
+          ? null
+          : cues.speechFor(event.name, languageMemory.current(event.session_id));
+        if (speak) {
+          // Before the sound exists, not after: the cue comes back through the
+          // pendant mic a beat later, and while the capture window is open it
+          // would otherwise land in the command AND re-arm the silence timer.
+          cues.registerEcho(echoGuard, speak);
+        }
+        ws.send(JSON.stringify({ type: "feedback", event: speak ? { ...event, speak } : event }));
         counters.bump("feedback_pushed");
       } catch {
         counters.bump("feedback_push_failed");
       }
     } else {
       counters.bump("feedback_unpushed_no_socket");
+    }
+  });
+  // The capture window drives what counts as speech aimed at Zeca.
+  feedbackBus.subscribeAll((event) => {
+    if (event.name === "wake_detected") languageMemory.markCapturing(event.session_id, true);
+    else if (event.name === "window_closed" || event.name === "wake_lapsed") {
+      languageMemory.markCapturing(event.session_id, false);
     }
   });
   ingress.onFeedbackAck = (sessionId, msg) => {
@@ -644,6 +963,7 @@ export async function startServer(cfg = loadConfig()) {
       feedbackBus,
       echoGuard,
       notifier,
+      voice,
       ackSink
     })
   );
@@ -694,6 +1014,7 @@ export async function startServer(cfg = loadConfig()) {
     feedbackBus,
     echoGuard,
     notifier,
+    voice,
     ackSink
   };
 }

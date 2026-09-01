@@ -3,9 +3,11 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 The full v1 spec lives at [`docs/SPEC.md`](./docs/SPEC.md) (the former
-`AGENTS.md`). The live phased status lives at
-[`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md). All other
-docs are under [`docs/`](./docs/) — drill in as needed.
+`AGENTS.md`). The plan of record is [`roadmap.json`](./roadmap.json) at
+the repo root, edited through the Roadmaps view and the roadmap CLI;
+[`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md) is kept only for
+its decision log and history. All other docs are under
+[`docs/`](./docs/) — drill in as needed.
 
 ## What this project is
 
@@ -421,9 +423,9 @@ the decision log and old references).
 - **Stage 5** — Autonomous loop (Tasks Faculty, heartbeat-driven pickup,
   plan-then-approve gating). Depends on Stages 2–4.
 
-**Always read [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md)
-for live status before planning new work** — stage state drifts faster
-than this file.
+**Always read [`roadmap.json`](./roadmap.json) (via the Roadmaps view or
+CLI) for live status before planning new work** — stage state drifts
+faster than this file. `docs/GARRISON_ROADMAP.md` is historical only.
 
 ## Instances, ports, and deploying (HARD RULES)
 
@@ -664,8 +666,9 @@ file double-fires every scheduled job.
   [`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md),
   [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md).
 - Why a choice was made → [`docs/DECISIONS.md`](./docs/DECISIONS.md).
-- What's queued and what just shipped →
-  [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md).
+- What's queued and what just shipped → [`roadmap.json`](./roadmap.json)
+  (via the Roadmaps view or CLI); [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md)
+  is historical only.
 
 
 ## Memory

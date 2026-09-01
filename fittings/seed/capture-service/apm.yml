@@ -117,6 +117,184 @@ x-garrison:
       type: integer
       default: 60000
       description: How much post-wake speech counts as THE COMMAND; later speech is trailing context for the classifier.
+    - key: tts_enabled
+      type: boolean
+      default: false
+      description: >-
+        Speak Zeca's acknowledgements in an ElevenLabs voice instead of the
+        phone's built-in synthesizer. Off, or with no ELEVENLABS_API_KEY, the
+        phone speaks in its own voice and nothing else changes.
+    - key: tts_voice_id
+      type: string
+      default: RlGHmE2fztwdBDat0jYf
+      description: >-
+        ElevenLabs voice. Default is Diogo, a native European Portuguese
+        library voice - native pt voices hold the accent that premade voices
+        lose on the short lines Zeca speaks.
+    - key: tts_model
+      type: string
+      default: eleven_multilingual_v2
+      description: >-
+        Keep multilingual_v2 unless you know why. eleven_v3 rejects the
+        previous_text/next_text anchors that stop short Portuguese clips
+        drifting into Brazilian.
+    - key: tts_cache_max_clips
+      type: integer
+      default: 500
+      description: Cached spoken clips kept on disk, oldest evicted first. 0 disables pruning.
+    - key: cue_enabled
+      type: boolean
+      default: false
+      description: >-
+        Speak a short cue the moment the wake word lands ("Sim?"/"Yes?") and
+        again when the capture window closes ("Ok."/"Okay."). Without it the
+        wearer hears nothing until the card exists, roughly 25 seconds later,
+        and cannot tell "heard you" from "did not hear you".
+    - key: voice_language
+      type: string
+      default: auto
+      description: >-
+        Language Zeca speaks: pt, en, or auto. Auto follows whatever the user
+        last said to Zeca, so the cue answers "Sim?" or "Yes?" to match.
+    - key: language_memory_ttl_ms
+      type: integer
+      default: 21600000
+      description: >-
+        How long the last spoken language stays authoritative. Long on purpose -
+        this is stickiness across a day, not a per-utterance flip.
+    - key: wake_language
+      type: string
+      default: auto
+      description: >-
+        Language for the wake path's own confirmations (card created, snoozed,
+        note saved). Auto reads it from what was actually said.
+    - key: discuss_enabled
+      type: boolean
+      default: false
+      description: >-
+        Spoken discussions. "Zeca, quero discutir X" opens a conversation that
+        continues without the wake word until you end it. Costs one duty-class
+        turn per utterance, so it is opt-in and bounded.
+    - key: discuss_level
+      type: integer
+      default: 1
+      description: Duty level for a spoken discussion turn. Level 2+ expects research and costs more.
+    - key: discuss_idle_ms
+      type: integer
+      default: 180000
+      description: Silence after which a spoken discussion closes itself.
+    - key: discuss_turn_timeout_ms
+      type: integer
+      default: 90000
+      description: Past this a discussion turn is abandoned and said so, rather than hanging.
+    - key: discuss_max_turns
+      type: integer
+      default: 40
+      description: Hard ceiling on one discussion, so a stuck conversation cannot bill forever.
+    - key: send_enabled
+      type: boolean
+      default: false
+      description: >-
+        Spoken sends ("manda uma mensagem à Marília"). The recipient is resolved
+        against the real contact list and never guessed; the send is parked and
+        announced out loud before it goes.
+    - key: send_default_medium
+      type: string
+      default: whatsapp
+      description: >-
+        Where an unspoken medium goes. Never email - email is the one send with
+        no daemon and no cancel window of its own.
+    - key: confirm_enabled
+      type: boolean
+      default: false
+      description: >-
+        Announce a parked send out loud, with recipient and text, and let the
+        wearer stop it by saying "cancela" - no wake word, since they are
+        answering a prompt.
+    - key: confirm_poll_ms
+      type: integer
+      default: 1000
+      description: How often the parked-send outbox is polled while a confirmation watch is armed.
+    - key: confirm_watch_ms
+      type: integer
+      default: 90000
+      description: How long the confirmation watch stays armed after an action.
+    - key: confirm_arm_delay_ms
+      type: integer
+      default: 1500
+      description: >-
+        Fallback delay before the cancel window opens when no spoken receipt
+        arrives. The announcement itself contains the word "cancela", so the
+        window must not open before it has finished being spoken.
+    - key: cancel_variants
+      type: string
+      default: cancela,cancelar,cancel,stop,esquece
+      description: >-
+        Words that stop a parked send. Bare "não"/"no" are deliberately absent -
+        far too common in speech, and a false cancel is cheaper than a false send.
+    - key: automate_enabled
+      type: boolean
+      default: false
+      description: Run a named Cortex automation by voice, with an idempotency key.
+    - key: cortex_catalog_ttl_ms
+      type: integer
+      default: 300000
+      description: How long the Cortex automation catalog is cached for name resolution.
+    - key: cortex_poll_interval_ms
+      type: integer
+      default: 15000
+      description: Background poll interval for a started automation run.
+    - key: cortex_poll_max_ms
+      type: integer
+      default: 600000
+      description: Give up polling a run after this and say so.
+    - key: screen_context_enabled
+      type: boolean
+      default: false
+      description: >-
+        Let a spoken command use the phone screen being broadcast ("responde-lhe
+        que é melhor amanhã"). The newest frame is handed to the operative as a
+        file path; a command that needs the screen and has none is refused out
+        loud rather than acted on blind.
+    - key: screen_context_max_age_ms
+      type: integer
+      default: 30000
+      description: >-
+        How old the newest frame may be, measured from the moment the user spoke
+        rather than from dispatch.
+    - key: wake_followup_window_ms
+      type: integer
+      default: 12000
+      description: >-
+        After Zeca speaks a clarifying question, how long the next utterance -
+        no wake word needed - counts as the answer. Opens only once the phone
+        confirms the question was actually spoken.
+    - key: wake_followup_max_rounds
+      type: integer
+      default: 3
+      description: >-
+        Ceiling on clarifying-question rounds per exchange. A model that keeps
+        asking stops being answered.
+    - key: wake_unheard_enabled
+      type: boolean
+      default: true
+      description: >-
+        Say "Não percebi - repete?" when a wake window closes with nothing
+        usable. On by default: after the wake cue has already answered, silence
+        is the one outcome the wearer cannot interpret.
+    - key: wake_progress_interval_ms
+      type: integer
+      default: 60000
+      description: >-
+        While a delegated turn runs, speak "Ainda estou a tratar disso." this
+        often. Spoken only, never pushed; 0 disables.
+    - key: screen_audio_transcribe
+      type: boolean
+      default: true
+      description: >-
+        Whether a screen-sharing session also transcribes. Set FALSE when the
+        pendant is worn alongside: otherwise one spoken sentence reaches two
+        microphones, hits two wake buses, and dispatches twice.
     - key: transcribe_mute_timeout_ms
       type: integer
       default: 120000
@@ -178,6 +356,7 @@ x-garrison:
       description: Pendant sessions only — "wake_only" (default) persists nothing but the wake path (no media log, no transcript, no capture_event; counters only), "ambient" persists pendant session transcripts and feeds them into the shared triage tick. Mic sessions are unaffected either way.
   secret_scope:
     - DEEPGRAM_API_KEY
+    - ELEVENLABS_API_KEY
     - CAPTURE_TOKEN
     - APNS_TEAM_ID
     - APNS_KEY_ID

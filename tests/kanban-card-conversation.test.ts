@@ -43,14 +43,21 @@ beforeAll(async () => {
         window.EventSource = FixtureEventSource;
 
         window.__posts = [];
+        window.__attachmentPosts = [];
         window.__meta = { tail: [] };
         window.__messageResponse = { status: 202, body: { accepted: true, seq: 7, recordedBy: "router" } };
+        window.__attachmentResponse = { status: 200, body: { name: "notes.txt", bytes: 12, path: "/abs/cards/01CARD/attachments/notes.txt" } };
         const json = (value, status = 200) => new Response(JSON.stringify(value), {
           status,
           headers: { "content-type": "application/json" },
         });
         window.fetch = (input, init) => {
           const url = typeof input === "string" ? input : String(input && input.url ? input.url : input);
+          if (url.indexOf("/attachments") !== -1) {
+            window.__attachmentPosts.push({ url, body: JSON.parse(init.body) });
+            const r = window.__attachmentResponse;
+            return Promise.resolve(json(r.body, r.status));
+          }
           if (url.indexOf("/message") !== -1) {
             window.__posts.push({ url, body: JSON.parse(init.body) });
             const r = window.__messageResponse;
@@ -218,5 +225,28 @@ describe("the card's conversation surface", () => {
     });
     expect(refusal).toContain("frozen");
     expect(await page.evaluate(() => (window as any).__posts.length)).toBe(0);
+  });
+
+  it("uploads a message-composer attachment as a card-owned upload", async () => {
+    const result = await page.evaluate(async () => {
+      const transport = (window as any).__createTransport("01CARD", {});
+      const up = await transport.uploadFile({ name: "notes.txt", mime: "text/plain", base64: "aGVsbG8=" });
+      return { up, posts: (window as any).__attachmentPosts };
+    });
+    // Same wire shape and endpoint as the Detail sheet's own uploads, so it
+    // folds into the same cards/<id>/attachments/ directory and every future
+    // stretch brief for free.
+    expect(result.posts).toHaveLength(1);
+    expect(result.posts[0].url).toBe("/cards/01CARD/attachments");
+    expect(result.posts[0].body).toEqual({ filename: "notes.txt", content_base64: "aGVsbG8=" });
+    expect(result.up).toEqual({ path: "/abs/cards/01CARD/attachments/notes.txt", bytes: 12 });
+  });
+
+  it("gives a frozen card no message-composer upload door either", async () => {
+    const hasUpload = await page.evaluate(() => {
+      const transport = (window as any).__createTransport("01CARD", { frozen: true });
+      return typeof transport.uploadFile === "function";
+    });
+    expect(hasUpload).toBe(false);
   });
 });

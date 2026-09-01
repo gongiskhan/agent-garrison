@@ -259,7 +259,13 @@ export async function loadOrchestratorPreview(
     selectedDuties: composition.selectedDuties.length ? composition.selectedDuties : undefined
   });
   const authored = await readAuthoredOverrides(composition.directory);
-  return buildOrchestratorPreview({ model, entries, authored });
+  return buildOrchestratorPreview({
+    model,
+    entries,
+    authored,
+    capabilitiesDetail: composition.globalConfig?.capabilities_detail === "names" ? "names"
+      : composition.globalConfig?.capabilities_detail === "index" ? "index" : "full",
+  });
 }
 
 // Materialize the exact layered preview consumed by the live runtime. Keeping
@@ -273,5 +279,33 @@ export async function writeAssembledOrchestratorPrompt(
   const preview = await loadOrchestratorPreview(compositionId);
   const target = path.join(composition.directory, ASSEMBLED_ORCHESTRATOR_REL);
   await writeFileAtomic(target, preview.assembled);
+  await writeCapabilityDocs(compositionId);
   return { path: target, preview };
+}
+
+export const CAPABILITY_DOCS_REL = path.join(".garrison", "capability-docs.json");
+
+// The sidecar the capability-doc MCP tool reads. Written at the same moment the
+// prompt is assembled and from the same entries, so a fetched doc is EXACTLY the
+// text the "full" catalogue would have inlined - a stretch reading it on demand
+// and a stretch that carried it in its prefix see the same words. Written
+// whatever the detail mode, so switching modes needs no relaunch.
+export async function writeCapabilityDocs(
+  compositionId: string = DEFAULT_COMPOSITION_ID
+): Promise<{ path: string; count: number }> {
+  const composition = await readComposition(compositionId);
+  const entries = await selectedLibraryEntries(composition.selections);
+  const docs: Record<string, { summary: string; guidance: string }> = {};
+  for (const entry of entries) {
+    const guidance = entry.metadata.for_consumers?.trim();
+    if (!guidance) continue;
+    const summary = entry.metadata.summary?.trim() || entry.summary || entry.id;
+    for (const provision of entry.metadata.provides) {
+      docs[`${provision.kind}:${provision.name}`] = { summary, guidance };
+    }
+    docs[entry.id] = { summary, guidance };
+  }
+  const target = path.join(composition.directory, CAPABILITY_DOCS_REL);
+  await writeFileAtomic(target, JSON.stringify(docs, null, 1));
+  return { path: target, count: Object.keys(docs).length };
 }
