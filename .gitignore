@@ -108,8 +108,16 @@ docs/autothing/runs/**/owner.lock.json
 # aborted drill-graduation e2e runs leave their temp playwright config behind
 .tmp-drill-graduation-pw-config-*.mjs
 
-# mesh evidence run artifacts (transient)
-evidence/
+# mesh evidence run artifacts (transient), except the versioned gate evidence
+# of the garrison-app run (docs/decisions/2026-09-garrison-app.md, D15).
+evidence/*
+!evidence/garrison-app/
+!evidence/garrison-app/**/*.log
+evidence/garrison-app/**/*.mp4
+evidence/garrison-app/**/*.webm
+evidence/garrison-app/**/*.mov
+evidence/garrison-app/**/*.mp3
+evidence/garrison-app/**/*.wav
 .mesh-shots-*.mjs
 # Raw Anthropic request dumps from the logging proxy (megabytes per run,
 # regenerated on demand by session_log_proxy_dump).
