@@ -15,15 +15,19 @@ x-garrison:
   cardinality_hint: single
   component_shape: plugin
   own_port: true
-  # 8087, in the committed 8xxx base map (f8a21811): a node binds the committed
+  # 8078, in the committed 8xxx base map (f8a21811): a node binds the committed
   # value as-is at offset 0, and only the sandboxes shift — dev +10000, codex
   # +20000. Declaring an already-shifted value as the base is the drift several
   # older seed fittings carry; this one does not.
   #
-  # 8087 and not 8098: remote-shell-runtime holds 8098, and tests/mesh-serve-ports
-  # pins serve = 8400 + (port % 1000), so 8098 and the retired 7098 would both
-  # land on 8498. 8087 is free on both axes.
-  default_port: 8087
+  # 8078 and not 8087: main moved whatsapp-web onto 8087 (8080 is held there by
+  # an unrelated java service). Nor 8098, which is remote-shell-runtime's — and
+  # since tests/mesh-serve-ports pins serve = 8400 + (port % 1000), 8098 and the
+  # retired 7098 would land on the same 8498 anyway. A seed's canonical port is
+  # default_port OR the config_schema `port` default, and a composition may pin
+  # other keys (scheduler's health_port), so check all three before claiming one.
+  # 8078 is free on every one of them.
+  default_port: 8078
   # No `lifecycle`: the parser now warns that it is deprecated and ignored, since
   # every own-port Fitting shares the operative's lifecycle.
   platforms:
@@ -32,7 +36,7 @@ x-garrison:
   config_schema:
     - key: port
       type: integer
-      default: 8087
+      default: 8078
       description: HTTP port. The server exits non-zero when it is taken rather than shifting, because a silent shift would leave the sidebar pointing at nothing.
     - key: target_repo
       type: string

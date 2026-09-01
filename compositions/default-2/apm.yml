@@ -98,7 +98,7 @@ x-garrison:
             wake_idle_timeout_s: 90
         - id: local-voice
           config:
-            port: 8081
+            port: 8100
             bind_host: 127.0.0.1
             kokoro_voice: bm_george
             pause_comma: 0.08
@@ -248,7 +248,7 @@ x-garrison:
       knowledge:
         - id: project-viewer
           config:
-            port: 8087
+            port: 8078
             bind_host: 127.0.0.1
             target_repo: ~/dev/agent-garrison-dev
             language: pt
