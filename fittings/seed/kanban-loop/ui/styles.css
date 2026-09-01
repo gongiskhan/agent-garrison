@@ -513,16 +513,13 @@ body {
   line-height: 1.35;
   margin: -1px 0 2px 16px;
 }
-/* The created-at stamp, now anchored to the card's own footer rather than
-   crowding the title row. */
-.card .card-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
-  padding-top: 4px;
-  border-top: 1px solid var(--rule);
-}
-.card .card-footer .ct-date {
+/* Created instant: lives INSIDE the action row's flex flow, pushed to the right
+   edge, so it shares the buttons' last wrapped line instead of costing the card
+   a line of its own (a separate footer line was tried and rejected). */
+.card .btns .ct-date {
+  flex: none;
+  margin-left: auto;
+  align-self: center;
   font-size: 10px;
   color: var(--mute, #8a8577);
   white-space: nowrap;

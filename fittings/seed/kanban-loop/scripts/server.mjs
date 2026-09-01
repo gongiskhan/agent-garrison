@@ -1040,13 +1040,18 @@ export function confinePath(candidate, roots) {
   return null;
 }
 
-// A card id MUST be a ULID (26 Crockford base32 chars, excludes I/L/O/U). The
-// router matches `/cards/([^/]+)` on the still-ENCODED segment, so a decoded id
-// like `..%2f..%2fsecret` would otherwise reach path.join(root,"cards",id,...) and
-// traverse out of the board root (read via loadCard, write via saveCardCAS). This
-// guard rejects any id that is not a clean ULID before it touches the filesystem.
+// A card id MUST be a clean path-safe token. The router matches `/cards/([^/]+)`
+// on the still-ENCODED segment, so a decoded id like `..%2f..%2fsecret` would
+// otherwise reach path.join(root,"cards",id,...) and traverse out of the board
+// root (read via loadCard, write via saveCardCAS). This guard rejects any id
+// with a separator, dot, or other path metacharacter before it touches the
+// filesystem. It deliberately does NOT require a ULID: the state service's
+// card contract is "client-minted id required" with no shape mandate, so a
+// foreign writer's card (e.g. a benchmark harness minting `benchgar-<n>`) must
+// still be openable and deletable from every node's board. Garrison itself
+// keeps minting ULIDs.
 export function isValidCardId(id) {
-  return typeof id === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(id);
+  return typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id);
 }
 
 // isValidSliceId / isSafeEvidenceName / isEvidenceImage moved to lib/links.mjs
@@ -5739,7 +5744,9 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
   });
 
-  const PTY_ID_RE = /^card-([0-9A-HJKMNP-TV-Z]{26})-shell$/;
+  // The capture is deliberately loose (any token chars); isValidCardId below is
+  // the real gate, so a non-ULID client-minted card id still gets a shell.
+  const PTY_ID_RE = /^card-([A-Za-z0-9][A-Za-z0-9_-]{0,63})-shell$/;
   wss.on("connection", (ws) => {
     let ptyId = null;
     let initializing = false;
@@ -5750,7 +5757,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         let msg;
         try { msg = JSON.parse(data.toString("utf8")); } catch { return; }
         if (msg.type !== "init" || typeof msg.sessionId !== "string") return;
-        // Validate the PTY id shape (`card-<ULID>-shell`) so nothing but a real
+        // Validate the PTY id shape (`card-<id>-shell`) so nothing but a real
         // card id ever reaches loadCard / the spawned shell's cwd.
         const m = PTY_ID_RE.exec(msg.sessionId);
         if (!m || !isValidCardId(m[1])) {

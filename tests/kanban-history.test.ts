@@ -51,8 +51,8 @@ const LEGACY_NAMESPACE = "board.layout.legacy";
 const FREEZE_REASON = "conversations-migration-v1";
 const FROZEN_AT = "2026-08-26T09:00:00.000Z";
 
-// 26-char Crockford-base32 ids so the /cards/:id routes accept them
-// (isValidCardId: no I, L, O or U).
+// 26-char ULID-shaped ids, matching what Garrison mints (isValidCardId now
+// accepts any path-safe token, but ULIDs stay the house shape).
 const id = (tag: string) => (tag + "0".repeat(26)).slice(0, 26);
 
 // The pre-Conversations board, trimmed: two of its duty columns plus the manual
@@ -413,7 +413,11 @@ describe("the frozen card modal (browser)", () => {
     await app.click('.topbar button:text-is("History")');
     await app.waitForSelector(".history-card");
     await app.click(".history-card");
-    await app.waitForSelector(".sheet").catch((err) => {
+    // Wait for the FROZEN sheet specifically: the History modal is itself a
+    // .sheet, so a bare .sheet wait is satisfied before the frozen record's
+    // sheet replaces it and the probe reads the wrong modal (a real race —
+    // this file flaked either way on it).
+    await app.waitForSelector(".sheet .state-callout.frozen").catch((err) => {
       throw new Error(`${err.message}\npage errors: ${pageErrors.join(" | ") || "(none)"}`);
     });
     probe = await app.evaluate(() => {

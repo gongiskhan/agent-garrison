@@ -47,6 +47,17 @@ describe("cards", () => {
     expect(typeof card.position).toBe("number");
   });
 
+  it("rejects a path-unsafe id at the door (422) — boards mirror cards/<id>/ to disk", async () => {
+    for (const bad of ["../escape", "a/b", "a.b", "-lead", "A".repeat(65)]) {
+      const err = await client.createCard({ id: bad, list: "inbox", title: "t" }).catch((e) => e);
+      expect(err, bad).toBeInstanceOf(StateApiError);
+      expect(err.status, bad).toBe(422);
+    }
+    // Non-ULID but path-safe stays accepted: the contract is client-minted, shape-free.
+    const ok = await client.createCard({ id: "benchgar-424242", list: "inbox", title: "t" });
+    expect(ok.id).toBe("benchgar-424242");
+  });
+
   it("CAS: stale rev is a 409 carrying current state", async () => {
     const err = await client.patchCard(ID, { title: "x" }, { ifMatchRev: 99 }).catch((e) => e);
     expect(err).toBeInstanceOf(StateApiError);
