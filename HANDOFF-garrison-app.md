@@ -3,7 +3,7 @@
 What this run did: the September 2026 plan "one app, the web channel home, one
 voice layer, screencast inside conversations" ran as gates G0-G8 on
 `node/goncalos-macbook-pro`, each gate committed and deployed to this node's
-live instance, decisions D1-D44 recorded in
+live instance, decisions D1-D45 recorded in
 `docs/decisions/2026-09-garrison-app.md`, evidence under
 `evidence/garrison-app/<gate>/`. Everything a machine could prove is proven:
 vitest, typecheck, playwright (both configs), XCTest on the mini's simulator,
@@ -24,7 +24,10 @@ on the iPhone and walk this list on the real device against this node
    shows Conversations, Kanban Loop and every equipped fitting.
 2. Conversations at `/talk`: send a message, get the reply, reopen the app and
    find the thread. The record button sits in the composer only because the
-   native bridge is present.
+   native bridge is present. Tap the search field and the message field and
+   confirm the page does not zoom (D45; the 2026-09-02 evening screenshot was
+   the 16/15 focus zoom, fixed in the shell viewport, needs the node on
+   `main` at or after this commit).
 3. Record button: tap, grant the microphone (the consent sheet is native),
    speak, stop. The digest message posts back into the SAME thread (G5,
    D41); the transcript is the digest, summarisation is a follow-up.

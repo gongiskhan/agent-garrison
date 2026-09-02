@@ -62,3 +62,36 @@ upstream, one content conflict in a mirrored memory note whose upstream
 version was a superset). Resolved with a merge commit, pushed, sync re-run
 (`nochange`), then `up` passed. Not an app issue; recorded so the next person
 does not chase it.
+
+## Second phone check: "not adjusting well to mobile" (2026-09-02 19:30 local)
+
+The phone (16 Pro Max, 440x956, pointed at dev-madrid, thread
+`morning-briefing`) showed `+ New` and the Raw toggle cut at the right edge
+and the composer row cut at the bottom, with the left and top edges correct.
+The same thread from the same node in Playwright WebKit at 440x956
+(`webkit-madrid-morning-briefing-440.png`) fits, as does the 17 Pro Max
+simulator against this node.
+
+Measured on the phone shot against the WebKit shot (pt): rail 55 / 52, thread
+chip 114 / 109, search box 257 / 242, `+ New` left edge 378 / 354, title
+run 274 / 253 px. One ratio, 1.066 = 16/15: the WKWebView focus zoom on a
+15px input with no `maximum-scale` in the viewport meta, which persists after
+blur and widens the layout viewport past the screen. Decision D45: the shell
+viewport now carries `maximum-scale=1, user-scalable=no`, and the talk inputs
+are 16px under 600px. Verified served:
+
+```
+goncalos-macbook-pro  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no"/>
+```
+
+`sim-17promax-talk-after-d45.png` (17 Pro Max simulator, this node,
+`/talk/brief-demo-view`): the Brief bar clears the island (it carries the top
+inset now, the head under it no longer double-pads), REC sits in the composer
+between the mic and the attach control, the composer clears the home
+indicator. The focus zoom itself cannot be driven from `simctl` (no tap); the
+cap is the documented WKWebView behaviour Ionic's default viewport relies on.
+
+Voice and settings, for the record: the composer's mic is the streaming voice
+lane and REC is the native capture (both were in the phone's cut-off bottom
+row); the "settings" page is Capture at `/capture` (D34), listed in the
+sidebar's Command group only inside the app (expand the rail, open Command).

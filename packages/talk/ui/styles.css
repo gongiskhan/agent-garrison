@@ -538,9 +538,14 @@
   display: flex;
   align-items: center;
   padding: 8px 12px 8px 50px;
+  /* When present this bar, not the conversation head, is what sits under the
+     iOS status bar (viewport-fit=cover), so it takes the top inset and the head
+     below it gives the inset up. */
+  padding-top: max(8px, env(safe-area-inset-top));
   border-bottom: 1px solid var(--wc-border, #e2ddcf);
   background: var(--wc-bg-raise, #f4f1e8);
 }
+.wc-backbar ~ .cc-conversation .cc-conv-head { padding-top: 8px; }
 .wc-back {
   display: inline-flex;
   align-items: center;
@@ -1588,6 +1593,8 @@
   .cc-attach { min-width: 36px; padding: 0 6px; }
   .cc-send, .cc-stop { padding: 0 11px; }
   .cc-composerrow { gap: 5px; }
+  /* 16px is the size below which iOS zooms the page into a focused field. */
+  .cc-input, .cc-conv-searchinput, .wc-prompt input, .wc-brief-editor { font-size: 16px; }
 }
 
 /* ── Remote-shell terminal pane + sidebar entries ────────────────────────── */

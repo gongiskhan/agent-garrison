@@ -975,6 +975,42 @@ battery, capture state, lost frames, policy, Pair/Connect/Disconnect/Forget by
 state, and a "Hearing" panel over the relay whenever a `sessionId` is present
 (interims replace the open line, finals settle, `{done:true}` closes it).
 
+### D45. The shell viewport caps the scale; phone inputs are 16px (2026-09-02)
+
+The second phone screenshot (Conversations on dev-madrid, converged build)
+showed every right- and bottom-anchored control cut off: `+ New` and the Raw
+toggle half off the right edge, the composer row half off the bottom, while
+the left and top edges (rail, sidebar toggle, status bar clearance) were
+right. WebKit on the Mac and the 17 Pro Max simulator against this node lay
+the same thread out with everything inside the screen. Measuring the phone
+against the WebKit shot: rail 55 vs 52, thread chip 114 vs 109, search box
+257 vs 242, the `+ New` left edge 378 vs 354, all one ratio, 1.066 = 16/15.
+That is the WKWebView focus zoom: with no `maximum-scale` in the viewport
+meta, focusing a field whose font is under 16px zooms the page by 16/font
+size and the zoom stays after blur, so the layout viewport outgrows the
+screen. The 15px composer and 12px search inputs are exactly that.
+
+Two fixes, both in the shell so every node serves them. `generateViewport`
+(`src/app/layout.tsx`) now emits `maximum-scale=1, user-scalable=no` beside
+`viewport-fit=cover`: WKWebView honours the cap and never zooms into a field;
+Safari keeps pinch-zoom for accessibility regardless of the meta and honours
+the cap for the focus zoom, so a phone browser loses nothing. And under
+600px the talk skin sets the composer input, the conversation search, the
+sidebar prompt and the brief editor to 16px, the size at which WebKit does
+not zoom in the first place. No pixel of the Mac layout moves.
+
+On the way: `.wc-backbar` (the Brief / return bar) is the top element of the
+column whenever it renders and had no inset, so inside the app its Brief
+button sat under the Dynamic Island while the conversation head under it
+padded for a status bar it was not touching (the 17 Pro Max simulator shot
+before this change). The bar takes `max(8px, env(safe-area-inset-top))` and
+the head after it gives the inset up (`.wc-backbar ~ .cc-conversation
+.cc-conv-head`).
+
+Not changed: the sidebar Command group is still where the app-only Capture
+page (D34) is reached, the phone rail collapsed and the group folded; that
+is a discoverability question for the operator, not a defect.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
