@@ -54,6 +54,7 @@ const {
   resolveArtifactRef,
   confinePath,
   isValidCardId,
+  isSafeCardIdSegment,
   isValidSliceId,
   isReadableFile
 } = await import(SERVER);
@@ -404,6 +405,35 @@ describe("isValidCardId (router guard against traversal via :id)", () => {
     expect(isValidCardId("ILOU".padEnd(26, "0"))).toBe(false); // excluded letters
     expect(isValidCardId("")).toBe(false);
     expect(isValidCardId(null as any)).toBe(false);
+  });
+});
+
+// The weaker tier the router uses for GET and DELETE on the card itself. A card
+// the board did not mint (a peer node's, an external harness's) must stay
+// inspectable and removable; a card that cannot be deleted is a permanent one.
+describe("isSafeCardIdSegment (the read/delete tier of the router guard)", () => {
+  it("accepts every ULID, so the strict tier is a subset of it", () => {
+    expect(isSafeCardIdSegment("01KVX7G59RE5B12BZ1T3GHXVYF")).toBe(true);
+    expect(isSafeCardIdSegment("A".repeat(26))).toBe(true);
+  });
+  it("accepts a foreign id that is still one safe path segment", () => {
+    expect(isSafeCardIdSegment("benchgar-1787960061")).toBe(true);
+    expect(isSafeCardIdSegment("01EVIDENCEF60TSV1KSMPE9ZY9")).toBe(true); // not a ULID: has I
+    expect(isSafeCardIdSegment("card_42")).toBe(true);
+    expect(isSafeCardIdSegment("a")).toBe(true);
+  });
+  it("still rejects anything that could leave the board root", () => {
+    expect(isSafeCardIdSegment("../../etc/passwd")).toBe(false);
+    expect(isSafeCardIdSegment("a/b")).toBe(false);
+    expect(isSafeCardIdSegment("a\\b")).toBe(false);
+    expect(isSafeCardIdSegment("..")).toBe(false);
+    expect(isSafeCardIdSegment(".hidden")).toBe(false);   // no dots at all
+    expect(isSafeCardIdSegment("a.b")).toBe(false);
+    expect(isSafeCardIdSegment("-leading")).toBe(false);  // must start alphanumeric
+    expect(isSafeCardIdSegment("has space")).toBe(false);
+    expect(isSafeCardIdSegment("a".repeat(65))).toBe(false);
+    expect(isSafeCardIdSegment("")).toBe(false);
+    expect(isSafeCardIdSegment(null as any)).toBe(false);
   });
 });
 

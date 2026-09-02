@@ -88,6 +88,26 @@ describe("cards", () => {
     expect(err.status).toBe(422);
   });
 
+  // A card id becomes a filesystem key on every node that mirrors the card
+  // (cards/<id>/ and .card-locks/<id>.lock), so the one door into the mesh
+  // refuses anything that is not a single safe path segment. A card that could
+  // not be written safely could not be deleted safely either.
+  it("rejects a card id that is not a safe path segment", async () => {
+    for (const id of ["../../etc/passwd", "a/b", "..", ".hidden", "has space", "a".repeat(65), "-leading"]) {
+      const err = await client.createCard({ id, list: "inbox", title: "traversal" }).catch((e) => e);
+      expect(err.status, `id ${JSON.stringify(id)} must be refused`).toBe(422);
+      expect(err.body.error).toBe("invalid-card");
+    }
+  });
+
+  // Deliberately WIDER than a ULID: a peer node or an external harness may mint
+  // its own id, and the board must be able to hold - and later delete - that card.
+  it("accepts a non-ULID id that is still a safe path segment", async () => {
+    const card = await client.createCard({ id: "benchmark-1787960061", list: "inbox", title: "foreign id" });
+    expect(card.id).toBe("benchmark-1787960061");
+    await client.deleteCard("benchmark-1787960061", { ifMatchRev: card.rev });
+  });
+
   it('rejects "host" as a placement target', async () => {
     const err = await client
       .createCard({ id: "01CARDHOSTAAAAAAAAAAAAAAAA", list: "inbox", placement: { target: "host" } })
