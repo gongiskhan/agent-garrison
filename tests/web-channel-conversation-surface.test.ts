@@ -25,10 +25,10 @@ import {
   conversationMessageUrl,
   createConversationTransport,
   postConversationMessage,
-} from "../fittings/seed/web-channel-default/ui/conversation-transport";
+} from "../packages/talk/ui/conversation-transport";
 
 const ROOT = path.resolve(__dirname, "..");
-const MAIN = readFileSync(path.join(ROOT, "fittings/seed/web-channel-default/ui/main.tsx"), "utf8");
+const MAIN = readFileSync(path.join(ROOT, "packages/talk/ui/app.tsx"), "utf8");
 
 type Call = { url: string; body: Record<string, unknown> };
 
@@ -181,7 +181,7 @@ describe("web channel — the conversation surface", () => {
   });
 
   it("polls the record faster than the router's default, because this is the typed-into mount", () => {
-    const server = readFileSync(path.join(ROOT, "fittings/seed/web-channel-default/scripts/server.mjs"), "utf8");
+    const server = readFileSync(path.join(ROOT, "packages/talk/src/router.mjs"), "utf8");
     const mount = server.slice(server.indexOf("handleConversationRequest(req, res, {"));
     expect(mount.slice(0, mount.indexOf("});"))).toContain("pollMs: 300");
     // Measured on the real server: 293ms from POST to the sender seeing their own

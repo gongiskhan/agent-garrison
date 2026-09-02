@@ -1,7 +1,8 @@
 // Which language did the user speak? The one question the whole one-language
 // fix rests on.
 //
-// The corpus runs against BOTH copies of lang.mjs in the same table, so a copy
+// The corpus runs against both copies of lang.mjs (capture-service and
+// kanban-loop; omi-channel lost its copy with its wake bus) in the same table, so a copy
 // that drifts fails here as well as in companion-lockstep - this one says which
 // PHRASE broke, which is the useful half when you are staring at a diff.
 //
@@ -13,12 +14,10 @@
 import { describe, expect, it } from "vitest";
 import { detectLanguage as fromCapture, pickLanguage, t } from "../fittings/seed/capture-service/lib/lang.mjs";
 import { detectLanguage as fromKanban } from "../fittings/seed/kanban-loop/lib/lang.mjs";
-import { detectLanguage as fromOmi } from "../fittings/seed/omi-channel/lib/lang.mjs";
 
 const COPIES: Array<[string, (t: string) => string | null]> = [
   ["capture-service", fromCapture],
-  ["kanban-loop", fromKanban],
-  ["omi-channel", fromOmi]
+  ["kanban-loop", fromKanban]
 ];
 
 const CORPUS: Array<[string, "pt" | "en" | null]> = [

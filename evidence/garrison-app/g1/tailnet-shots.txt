@@ -1,0 +1,20 @@
+# /talk over https://goncalos-macbook-pro.tail31efa.ts.net, 2026-09-02T01:18:41.855Z
+
+## tailnet-desktop 1440x900@2x
+HTTP 200 Conversations - Garrison · goncalos-macbook-pro
+host=goncalos-macbook-pro.tail31efa.ts.net inner=1440x900
+new control: {"x":1343,"y":18,"w":75,"h":40}
+conversation head: {"x":302,"y":0,"w":1138,"h":49} padding-right=112px
+console errors: 0
+  note: cancelled after HTTP 204: /api/power/heartbeat
+  note: cancelled after HTTP 204: /api/power-heartbeat
+
+## tailnet-phone 390x844@3x
+HTTP 200 Conversations - Garrison · goncalos-macbook-pro
+host=goncalos-macbook-pro.tail31efa.ts.net inner=390x844
+new control: {"x":303,"y":10,"w":77,"h":36}
+conversation head: {"x":52,"y":0,"w":338,"h":115} padding-right=96px
+console errors: 0
+  note: cancelled after HTTP 204: /api/power/heartbeat
+  note: cancelled after HTTP 204: /api/power-heartbeat
+

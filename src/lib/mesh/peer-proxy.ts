@@ -5,52 +5,19 @@
 // transport and registry lookups; every decision worth testing is here.
 //
 // THE ALLOW-LIST IS THE WHOLE SECURITY MODEL. A generic peer proxy pointed at
-// a fitting that trusts loopback is remote code execution with extra steps -
-// the peer's web-channel surface also carries /api/attachments, /file and the
-// remote-shell relay, and none of those may be reachable from another machine.
-// So: a closed table of (shape, method) pairs, matched before anything else
-// happens, and an unlisted path is refused without ever being resolved.
+// an app that trusts loopback is remote code execution with extra steps - the
+// peer's app also carries /api/attachments, /api/file, the remote-shell relay
+// and every other Garrison API, and none of those may be reachable from another
+// machine. So: a closed table of (shape, method) pairs, matched before anything
+// else happens, and an unlisted path is refused without ever being resolved.
 //
 // Node-to-node auth, stated honestly: day one there is none beyond the tailnet.
-// The proxy calls the peer's PUBLISHED web-channel serve port over HTTPS, which
-// is the same browser-grade surface a person on the tailnet already reaches;
-// the peer's fitting trusts loopback + tailnet exactly as it does today. A
-// per-node mesh bearer (mint at registration, `$GARRISON_HOME/mesh-token`,
-// resolved back to a node id by the state service) is the phase-4 hardening.
-// State-service tokens are for the state service ONLY - see peer-auth.ts.
-
-import type { SessionInfo } from "@garrison/state-client";
-
-// ── The serve-port invariant ────────────────────────────────────────────────
-// Every node runs the committed port map at offset 0, and
-// `scripts/tailnet-serve-views.mjs` publishes local port P at 8400 + (P % 1000).
-// Together those make a peer's view URL COMPUTABLE - https://<host>:<servePort>
-// - without asking the peer anything. tests/mesh-serve-ports.test.ts pins the
-// formula against the script; tests/mesh-proxy.test.ts pins this copy of it
-// against the same source.
-export const MESH_SERVE_PORT_BASE = 8400;
-
-// The publisher skips these when it picks a serve port (443 and the funnel
-// ports), so the computation must skip them identically or it would name a port
-// nothing is listening on. It does NOT model the publisher's collision bump:
-// every committed own-port default lands on a distinct serve port already
-// (tests/mesh-serve-ports.test.ts), so a bump means a machine-local mapping
-// this formula was never able to predict anyway.
-export const RESERVED_SERVE_PORTS: ReadonlySet<number> = new Set([443, 8443, 8444, 8445]);
-
-export function meshServePort(localPort: number): number {
-  let p = MESH_SERVE_PORT_BASE + (localPort % 1000);
-  while (RESERVED_SERVE_PORTS.has(p)) p += 1;
-  return p;
-}
-
-// The web-channel fitting's committed default port, from
-// fittings/seed/web-channel-default/apm.yml (`config.default_port`). It is the
-// FALLBACK only: a session row's `body.controlPort` is what that node's
-// web-channel actually bound and always wins. Pinned against the manifest by
-// tests/mesh-proxy.test.ts, so a manifest edit fails the suite instead of
-// silently pointing the mesh at a dead port.
-export const WEB_CHANNEL_DEFAULT_PORT = 8083;
+// The proxy calls the peer's PUBLISHED app origin over HTTPS, which is the same
+// browser-grade surface a person on the tailnet already reaches; the peer trusts
+// loopback + tailnet exactly as it does today. A per-node mesh bearer (mint at
+// registration, `$GARRISON_HOME/mesh-token`, resolved back to a node id by the
+// state service) is the phase-4 hardening. State-service tokens are for the
+// state service ONLY - see peer-auth.ts.
 
 export const MAX_BODY_BYTES = 256 * 1024;
 export const PROXY_TIMEOUT_MS = 20_000;
@@ -65,9 +32,11 @@ export const SSE_CONNECT_TIMEOUT_MS = 125_000;
 
 /** Which surface on the peer answers a permitted path. */
 export type PeerUpstream =
-  // The peer's web-channel fitting, on its own published serve port.
-  | "control"
-  // The peer's Garrison app, published at the tailnet root.
+  // The peer's Garrison app, published at the tailnet root. Conversations
+  // (threads, live streams, inputs, interrupt, routing, permissions) are served
+  // by the app itself since the talk engine moved into the shell, so the whole
+  // control surface is one origin per node - no per-fitting serve port to
+  // resolve, and nothing that dies with `down`.
   | "app"
   // Not the peer at all: answered from the shared registry, so it works while
   // the peer is down.
@@ -86,14 +55,14 @@ interface AllowRule {
 // Exactly the endpoints cross-node watch / steer / stop / answer need. Adding a
 // row here widens what every node in the mesh may do to every other node.
 const ALLOW: readonly AllowRule[] = [
-  { shape: ["threads"], methods: ["GET"], upstream: "control" },
-  { shape: ["threads", ID], methods: ["GET"], upstream: "control" },
-  { shape: ["threads", ID, "live"], methods: ["GET"], upstream: "control", sse: true },
-  { shape: ["threads", ID, "inputs"], methods: ["GET", "POST"], upstream: "control" },
-  { shape: ["threads", ID, "inputs", ID, "live"], methods: ["GET"], upstream: "control", sse: true },
-  { shape: ["threads", ID, "interrupt"], methods: ["POST"], upstream: "control" },
-  { shape: ["threads", ID, "routing"], methods: ["GET", "PUT"], upstream: "control" },
-  { shape: ["threads", ID, "permissions", ID], methods: ["POST"], upstream: "control" },
+  { shape: ["threads"], methods: ["GET"], upstream: "app" },
+  { shape: ["threads", ID], methods: ["GET"], upstream: "app" },
+  { shape: ["threads", ID, "live"], methods: ["GET"], upstream: "app", sse: true },
+  { shape: ["threads", ID, "inputs"], methods: ["GET", "POST"], upstream: "app" },
+  { shape: ["threads", ID, "inputs", ID, "live"], methods: ["GET"], upstream: "app", sse: true },
+  { shape: ["threads", ID, "interrupt"], methods: ["POST"], upstream: "app" },
+  { shape: ["threads", ID, "routing"], methods: ["GET", "PUT"], upstream: "app" },
+  { shape: ["threads", ID, "permissions", ID], methods: ["POST"], upstream: "app" },
   { shape: ["mesh", "self"], methods: ["GET"], upstream: "app" },
   { shape: ["sessions"], methods: ["GET"], upstream: "registry" }
 ];
@@ -179,75 +148,10 @@ export function peerAppBase(tailnetHost: string | null | undefined): string | nu
   return `https://${host}`;
 }
 
-// The peer's web-channel surface, rehosted from the LOOPBACK url the session
-// registry honestly records onto the address a peer can actually dial.
-export function peerControlBase(
-  tailnetHost: string | null | undefined,
-  controlPort: number = WEB_CHANNEL_DEFAULT_PORT
-): string | null {
-  const host = String(tailnetHost ?? "").trim().replace(/\.$/, "");
-  if (!host) return null;
-  const port = Number.isFinite(controlPort) && controlPort > 0 ? Math.trunc(controlPort) : WEB_CHANNEL_DEFAULT_PORT;
-  return `https://${host}:${meshServePort(port)}`;
-}
-
-// Which local port that node's web channel bound, per the session registry.
-// Prefer the row for the thread being addressed, then any live row, then the
-// committed default. `controlUrl` is deliberately NOT parsed for a host - it is
-// a loopback URL and rehosting it is the entire job - but its port is a fine
-// second source when an older row carries no `body.controlPort`.
-export function resolvePeerControlPort(sessions: readonly SessionInfo[], threadId?: string | null): number {
-  const ordered = threadId
-    ? [...sessions].sort((a, b) => Number(b.threadId === threadId) - Number(a.threadId === threadId))
-    : sessions;
-  for (const session of ordered) {
-    const fromBody = Number((session.body as { controlPort?: unknown } | undefined)?.controlPort);
-    if (Number.isFinite(fromBody) && fromBody > 0) return Math.trunc(fromBody);
-    let fromUrl = NaN;
-    try {
-      if (session.controlUrl) fromUrl = Number(new URL(session.controlUrl).port);
-    } catch {
-      /* a row with an unparseable controlUrl just does not vote */
-    }
-    if (Number.isFinite(fromUrl) && fromUrl > 0) return Math.trunc(fromUrl);
-  }
-  return WEB_CHANNEL_DEFAULT_PORT;
-}
-
-/** The web-channel deep link for a thread - the "Open on <node>" target. */
+/** The Conversations deep link for a thread on a peer - the "Open on <node>"
+ *  target. Same route the local shell uses, on the peer's app origin. */
 export function peerThreadUrl(base: string, threadId: string | null | undefined): string {
-  return threadId ? `${base}/?thread=${encodeURIComponent(threadId)}` : base;
-}
-
-// A resolved control port per peer, cached briefly. Without it every proxied
-// call would cost a second state round trip just to learn a port that only
-// changes when that node's web channel restarts.
-//
-// It lives here rather than in the route module because a Next route file may
-// only export handlers and the framework's config keys - an extra export there
-// fails `next build`'s generated type check - and a cache with no way to clear
-// it is untestable.
-export const CONTROL_PORT_TTL_MS = 60_000;
-const controlPorts = new Map<string, { at: number; port: number }>();
-
-export function cachedPeerControlPort(node: string, now = Date.now()): number | null {
-  const hit = controlPorts.get(node);
-  if (!hit || now - hit.at >= CONTROL_PORT_TTL_MS) return null;
-  return hit.port;
-}
-
-export function rememberPeerControlPort(node: string, port: number, now = Date.now()): void {
-  controlPorts.set(node, { at: now, port });
-}
-
-/** Called when a peer stops answering, so a restarted node heals on the next
- *  attempt instead of 502ing for the rest of the TTL. */
-export function forgetPeerControlPort(node: string): void {
-  controlPorts.delete(node);
-}
-
-export function resetPeerControlPortCache(): void {
-  controlPorts.clear();
+  return threadId ? `${base}/talk/${encodeURIComponent(threadId)}` : `${base}/talk`;
 }
 
 // ── Forwarding ──────────────────────────────────────────────────────────────

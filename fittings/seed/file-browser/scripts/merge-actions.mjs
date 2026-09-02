@@ -20,8 +20,9 @@
 // `no-reply` and NEVER assumed clean - silence is the one answer you must not
 // interpret optimistically.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 
 import { createStateClient, StateApiError, StateUnavailableError } from "../lib/state-client.mjs";
 import { ulid } from "../lib/ulid.mjs";
@@ -75,13 +76,34 @@ export function projectRoot(project, env = process.env) {
 }
 
 /**
- * Is an agent live in this tree? Merging or committing under a running session
- * commits half-written files, so this is a hard skip, not a warning.
+ * Does a session's cwd sit in this tree? Compared by REAL path on both sides:
+ * `projectRoot` is already canonical, but a session registers whatever path it
+ * was spawned with, and on this mesh that is routinely a symlink (`~/dev` and
+ * `~/Projects` point at each other machine by machine, macOS tmp dirs live under
+ * /private). A string compare there fails OPEN - the guard exists so that never
+ * happens. A session in a subdirectory is in the tree too.
  */
-async function busyWithSession(client, cwd) {
+export function sessionInTree(sessionCwd, root) {
+  if (typeof sessionCwd !== "string" || !sessionCwd) return false;
+  let real;
   try {
-    const sessions = await client.listSessions({ cwd, activeOnly: true });
-    return Array.isArray(sessions) && sessions.length > 0 ? sessions : null;
+    real = realpathSync(sessionCwd);
+  } catch {
+    real = path.resolve(sessionCwd);
+  }
+  return real === root || real.startsWith(`${root}${path.sep}`);
+}
+
+/**
+ * Is an agent live in this tree? Merging or committing under a running session
+ * commits half-written files, so this is a hard skip, not a warning. Only this
+ * node's sessions are consulted: a peer's paths mean nothing on this disk.
+ */
+async function busyWithSession(client, cwd, env = process.env) {
+  try {
+    const sessions = await client.listSessions({ node: nodeName(env), activeOnly: true });
+    const live = (Array.isArray(sessions) ? sessions : []).filter((s) => sessionInTree(s?.cwd, cwd));
+    return live.length > 0 ? live : null;
   } catch {
     // A session registry we cannot read is not a licence to commit blind.
     return "unknown";
@@ -98,7 +120,7 @@ export async function commitPushProject(project, { env = process.env, client, me
   const state = client ?? stateClient(env);
 
   if (!force) {
-    const busy = await busyWithSession(state, cwd);
+    const busy = await busyWithSession(state, cwd, env);
     if (busy === "unknown") {
       return { project, cwd, status: "skipped-unknown-sessions", detail: "the session registry was unreadable; refusing to commit blind" };
     }

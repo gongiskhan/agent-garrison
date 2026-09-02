@@ -5,6 +5,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
 import { waitExit } from "./helpers/wait-exit";
+import { assertPortsFree } from "./helpers/port-free";
 
 // A5/R7/S22/self-test-item-10, real UI: clicking Run under a gated Drill
 // Book shows the plan diff and does NOT run; "Approve and run" then runs it.
@@ -42,6 +43,9 @@ async function waitHealthy(base: string, ms: number) {
 const FIXTURE_URL = "data:text/html," + encodeURIComponent('<div data-testid="answer">The answer.</div>');
 
 beforeAll(async () => {
+  // A stale fixture server on one of these ports would answer the health
+  // poll in place of the one spawned below and hand the test its old runs.
+  await assertPortsFree([BROWSER_PORT, AUTOMATIONS_PORT, DRILL_PORT]);
   browserSrv = spawn("node", [BROWSER_START, "--port", String(BROWSER_PORT), "--host", "127.0.0.1"], {
     stdio: "ignore", env: { ...process.env, GARRISON_HOME: ghome }
   });
@@ -86,11 +90,15 @@ describe("gated autonomy — real UI", () => {
     const p = page!;
     await p.goto(DRILL_BASE);
     await p.getByRole("tab", { name: "Run & results" }).click();
-    await p.getByText("Answer").click();
+    // The drillbook title appears as the label chip AND in the scope/check rows
+    // once the run detail renders; the chip is the one that selects it.
+    await p.getByRole("button", { name: "Answer", exact: true }).click();
     await p.getByRole("button", { name: "Run selected", exact: true }).click();
 
     await p.getByText("Plan ready - gated, awaiting approval").waitFor({ timeout: 10000 });
-    await p.getByText("answer is visible").waitFor({ timeout: 5000 });
+    // The plan diff lists the step with its mode; the same description also
+    // labels the check row and the result, so match the planned form.
+    await p.getByText("answer is visible (e2e)").waitFor({ timeout: 5000 });
     expect(await p.locator(".dr-res").count()).toBe(0); // nothing ran yet
 
     await p.getByRole("button", { name: "Approve and run" }).click();

@@ -141,6 +141,7 @@ describe("vocabulary — 'Operative' left the user-facing surface", () => {
 /** The trees whose copy a user reads while working in a conversation. */
 const CONVERSATION_SURFACES = [
   path.join(ROOT, "src"),
+  path.join(ROOT, "packages/talk/ui"),
   path.join(ROOT, "fittings/seed/web-channel-default/ui"),
   path.join(ROOT, "fittings/seed/kanban-loop/ui")
 ];
@@ -318,11 +319,11 @@ const SESSION_IS_THE_RUNTIME: ReadonlyArray<{ file: string; why: string }> = [
     why: "the runner panel narrates apm install + verify + relaunch of the runtime session, the same lifecycle as the dashboard"
   },
   {
-    file: "fittings/seed/web-channel-default/ui/remote-shell-workbench.tsx",
+    file: "packages/talk/ui/remote-shell-workbench.tsx",
     why: "remote-shell copy is about tmux sessions on the remote host, which really are sessions and outlive any conversation"
   },
   {
-    file: "fittings/seed/web-channel-default/ui/shells-modal.tsx",
+    file: "packages/talk/ui/shells-modal.tsx",
     why: "the shells picker lists tmux sessions per project on a remote host — the tmux vocabulary is the correct one"
   }
 ];
@@ -334,12 +335,12 @@ const SESSION_IS_THE_RUNTIME: ReadonlyArray<{ file: string; why: string }> = [
  */
 const SESSION_LITERALS: ReadonlyArray<{ file: string; literal: string; why: string }> = [
   {
-    file: "fittings/seed/web-channel-default/ui/main.tsx",
+    file: "packages/talk/ui/app.tsx",
     literal: "the gateway is not answering - start the session to pin routing",
     why: "routing options need the RUNTIME session up; the message is about the process being down, not about the conversation"
   },
   {
-    file: "fittings/seed/web-channel-default/ui/main.tsx",
+    file: "packages/talk/ui/app.tsx",
     literal: "could not start a session ( )",
     why: "the remote-shell start path reports a failed tmux session on the remote host, mirroring remote-shell-workbench copy"
   }

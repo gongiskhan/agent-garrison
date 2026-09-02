@@ -125,4 +125,33 @@ export async function materializeEnvViaAuthority(
   return { envPath, source: "authority" };
 }
 
+// The scoped-delivery seam, the per-fitting twin of materializeEnvViaAuthority.
+// A vault consumer's x-garrison.secret_scope names the keys it may read; on an
+// enrolled node those keys live in the SECRET AUTHORITY, not in this node's
+// local vault (which the mesh leaves empty), so scoped delivery has to ask the
+// same place the composition .env came from. Fail-closed at the authority: an
+// ungranted key is a 403 naming the denied keys (StateApiError), an unreachable
+// authority is a StateUnavailableError - both propagate so the caller can say
+// WHY a fitting started keyless. An unenrolled box reads its local vault as
+// before; a locked vault throws exactly as scopedSecrets always has.
+export type ScopedSecretsResult = {
+  source: "authority" | "local-vault";
+  values: Record<string, string>;
+  // Keys the source has no value for. Named so the audit trail can tell "the
+  // key does not exist anywhere" from "the source did not answer".
+  missing: string[];
+};
+
+export async function scopedSecretsViaAuthority(scope: readonly string[]): Promise<ScopedSecretsResult> {
+  const keys = [...new Set(scope)];
+  if (!nodeIsEnrolled()) {
+    const { scopedSecrets } = await import("./vault");
+    const secrets = await scopedSecrets(keys);
+    const values = Object.fromEntries(secrets.map((s) => [s.key, s.value]));
+    return { source: "local-vault", values, missing: keys.filter((k) => !(k in values)) };
+  }
+  const out = await stateClient().resolveSecrets(keys);
+  return { source: "authority", values: out.values, missing: out.missing };
+}
+
 export { StateUnavailableError };

@@ -25,7 +25,7 @@ import { dutyEfforts } from "../src/lib/types";
 import { writeGatewayV4ExecutionModel } from "./helpers/gateway-v4-fixture";
 // @ts-ignore — Web's persistence sanitizer is plain ESM and is exercised here
 // as the receiving half of the gateway's canonical failure-event contract.
-import { sanitizeSessionEvent as sanitizeWebSessionEvent } from "../fittings/seed/web-channel-default/scripts/threads.mjs";
+import { sanitizeSessionEvent as sanitizeWebSessionEvent } from "../packages/talk/src/threads.mjs";
 // @ts-ignore — pure .mjs routing layer, no .d.ts
 import { applyTurnOverride, effortControllable, listVaultAccounts, resolveVaultAccount, readMaterializedSecrets, anthropicAccountEnv, createRoutedGateway, RoutedGateway, TURN_EFFORTS, AGENT_SDK_SESSION_CAP, normalizeFailureInfo } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs adapter assembly resolver

@@ -1,6 +1,6 @@
 name: capture-service
 version: 0.1.0
-description: iOS companion capture channel — session-based websocket ingress (audio + screen stills), Deepgram live transcription, wake-word command pipe over live segments, capture_events into the shared triage inbox, APNs push out, and the spoken-acknowledgement sink.
+description: The voice layer and the iOS companion capture channel - session-based websocket ingress (audio + screen stills), Deepgram live transcription, wake-word command pipe over live segments, capture_events into the shared triage inbox, APNs push out, the spoken-acknowledgement sink, and the Bearer-gated POST /stt and POST /tts clip lanes the browser, the phone and automations call.
 target: claude
 type: hybrid
 includes: auto
@@ -13,16 +13,41 @@ x-garrison:
   default_port: 8097
   platforms:
     - claude-code
-  summary: Makes the Garrison iOS companion app (deliberate, session-based capture — meetings, dictation, car sessions) one of Garrison's ears and its primary mouth, while Garrison remains the only brain. Every pipe behind its own default-off flag.
+  summary: Garrison's one voice layer and the iOS companion capture channel. Speech-to-text and text-to-speech for every surface (the browser through the shell's voice proxy, the phone, omi-channel, automations) live here behind one Bearer-gated REST contract, one backend choice and one clip cache; the companion app's session capture, wake-word pipe, push and spoken acknowledgements ride the same service. Every pipe behind its own default-off flag.
   for_consumers: |
-    Channel id "companion" — the Garrison iOS companion app. Inbound sessions
-    are transcribed and triaged into Kanban cards and memories by the shared
-    heartbeat, NOT by you; treat session transcripts as input evidence only and
-    never surface them as your own output. Wake-word commands spoken during a
-    live session arrive as regular turns on channel "companion". Short
-    confirmations are spoken on the user's phone or delivered as push
-    notifications; message text is always generated on our side. Do not write
-    tasks anywhere but the Kanban Loop — it is the single home for tasks.
+    Channel id "companion" - the Garrison iOS companion app - and the voice
+    layer every other surface speaks through.
+
+    Voice REST (top-level, Bearer CAPTURE_TOKEN, loopback/tailnet only):
+    POST /stt takes a recorded clip as raw bytes (Content-Type of the recording,
+    default audio/webm; optional ?language=) and answers {transcript,
+    confidence, language, model}. POST /tts takes {text, format?: "mp3"} (600
+    characters max per request; the cap is advertised as voice.maxTextChars on
+    /health and callers chunk against it) and answers an audio/mpeg clip with
+    X-Voice-Backend and X-Clip-Id headers; the same clip is later reachable
+    unauthenticated at /speak/<id>.mp3. GET /health carries voice {stt, tts,
+    ttsBackend, restEnabled, maxTextChars}: stt is false without a Deepgram
+    key, tts is false when no backend can speak. Automations reach the same two
+    lanes through connector "voice" (actions transcribe, synthesize).
+
+    Text ingest and the active conversation (same Bearer): POST
+    /capture/ingest/text takes {source: "omi", session_id, segments: [{text,
+    speaker?, is_user?, start?, end?}]} from omi-channel's realtime feed and
+    answers 202 {session, accepted}; the segments run through the shared echo
+    guard and the wake-word bus, nothing is stored, and replies land where every
+    other reply lands (spoken on the phone or pushed). POST
+    /capture/conversation/active {session_id} pins the next spoken requests onto
+    that gateway session for one window and answers {session_id, until}; GET
+    reads the pin, DELETE clears it. The pin is process memory.
+
+    Companion capture: inbound sessions are transcribed and triaged into Kanban
+    cards and memories by the shared heartbeat, NOT by you; treat session
+    transcripts as input evidence only and never surface them as your own
+    output. Wake-word commands spoken during a live session arrive as regular
+    turns on channel "companion". Short confirmations are spoken on the user's
+    phone or delivered as push notifications; message text is always generated
+    on our side. Do not write tasks anywhere but the Kanban Loop - it is the
+    single home for tasks.
   config_schema:
     - key: port
       type: integer
@@ -70,6 +95,14 @@ x-garrison:
       description: >-
         Comma-separated Deepgram keyterm prompts (nova-3). Lifts wake-word
         confidence to ~1.0 and rescues embedded English product words.
+    - key: stt_rest_language
+      type: string
+      default: ''
+      description: >-
+        Deepgram language for the whole-clip lane (POST /stt: browser
+        push-to-talk, the phone's clip fallback, automations). Empty follows
+        stt_language, so the one pin covers both lanes unless a caller
+        deliberately splits them.
     - key: classify_target
       type: string
       default: cc-haiku-low
@@ -142,6 +175,26 @@ x-garrison:
       type: integer
       default: 500
       description: Cached spoken clips kept on disk, oldest evicted first. 0 disables pruning.
+    - key: tts_backend
+      type: select
+      options:
+        - auto
+        - elevenlabs
+        - deepgram
+      default: auto
+      description: >-
+        Which engine renders spoken clips, for the phone, the browser and
+        automations alike. auto = ElevenLabs when ELEVENLABS_API_KEY is sealed,
+        else Deepgram Aura when DEEPGRAM_API_KEY is, else no TTS (the phone
+        speaks in its own voice, the browser hides the speaker). An explicit
+        choice without its key means no TTS rather than a silent swap.
+    - key: tts_deepgram_model
+      type: string
+      default: aura-asteria-en
+      description: >-
+        Aura voice for the Deepgram backend; on Aura the model IS the voice.
+        Portuguese coverage there is Deepgram's, not ours - ELEVENLABS_API_KEY
+        is the credential that buys pt-PT read-aloud.
     - key: cue_enabled
       type: boolean
       default: false
@@ -322,6 +375,17 @@ x-garrison:
       type: integer
       default: 600000
       description: Suppress a second card whose resolved title matches one just created within this window. 0 disables.
+    - key: wake_revise_after_ms
+      type: integer
+      default: 600000
+      description: >-
+        After a card is created, keep listening this long for a spoken
+        correction ("actually, make that tomorrow") and apply it in one model
+        call at the end of the window. 0 disables the revision pass.
+    - key: wake_revise_max_segments
+      type: integer
+      default: 50
+      description: Ceiling on transcript segments the revision pass may read after a card is created; older ones fall off.
     - key: notify_max_per_day
       type: integer
       default: 50
@@ -342,6 +406,14 @@ x-garrison:
       type: integer
       default: 300000
       description: A live session with no frames for this long is closed with reason "timeout".
+    - key: text_session_idle_ms
+      type: integer
+      default: 120000
+      description: A text session (segments forwarded over POST /capture/ingest/text, source omi) with no new segments for this long is closed. Text sessions leave no media, transcript or capture_event behind either way.
+    - key: active_conversation_window_ms
+      type: integer
+      default: 300000
+      description: After a delegated reply, spoken requests within this window resume the gateway session that answered instead of opening a fresh one per capture session; also how long a pin set through POST /capture/conversation/active lasts.
     - key: min_transcript_words
       type: integer
       default: 12
@@ -364,6 +436,33 @@ x-garrison:
   provides:
     - kind: channel
       name: companion
+    - kind: voice
+      name: companion
+    - kind: connector
+      name: voice
+  connector:
+    auth: api_key
+    # The subset of secret_scope a connector call needs: the Bearer for the
+    # running service. An automation child never sees the Deepgram, ElevenLabs
+    # or APNs keys - those stay with the service.
+    secrets:
+      - CAPTURE_TOKEN
+    actions:
+      - name: transcribe
+        args: [audio_base64, path, mime_type, language]
+        mutates: false
+        description: Speech-to-text through the running voice layer (POST /stt) - a base64 clip or a local path in, {transcript, confidence, language, model} out. audio_base64 suits short clips (under about 100 KB - the automation engine hands args over on the command line); pass path for anything longer.
+      - name: synthesize
+        args: [text, inline]
+        mutates: false
+        description: >-
+          Text-to-speech through the running voice layer (POST /tts) - text in,
+          {clip_id, clip_path, mime, bytes, backend} out; the clip stays on the
+          voice layer at clip_path (/speak/<clip_id>.mp3) and audio_base64 is
+          added only when inline is true, because the automation engine keeps
+          every result in the run record. One call speaks at most 600 characters
+          (voice.maxTextChars on /health); split longer text and call once per
+          piece.
   consumes:
     - kind: vault
       cardinality: one

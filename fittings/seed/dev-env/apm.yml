@@ -1,6 +1,6 @@
 name: dev-env
 version: 0.1.0
-description: Consolidated Dev Env — every Claude Code session is a tab with a Claude PTY + shell PTY on the left and a live browser pane on the right; same-branch sessions at the project repo root, with session status built in. Own React UI on port 27086.
+description: Consolidated Dev Env - every Claude Code session is a tab with a Claude PTY + shell PTY on the left and a live browser pane on the right; same-branch sessions at the project repo root, with session status built in. Own React UI on port 8086 (the node profile; sandboxes shift it by their offset).
 target: claude
 type: hybrid
 includes: auto
@@ -13,7 +13,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: One dev surface (default port 27086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; the Claude pane toggles between a raw Terminal view and a rich Chat view (markdown, status line, mode switcher, slash/skill autocomplete) backed by a headless mirror of the same PTY. Sessions are same-branch (they run at the project's repo root); quick prompts and PTY-driven PR/commit flows included.
+  summary: One dev surface (default port 8086). Tabs per Claude Code session (hook-detected), each pairing a Claude PTY + shell PTY with the app's live browser pane; the Claude pane toggles between a raw Terminal view and a rich Chat view (markdown, status line, mode switcher, slash/skill autocomplete) backed by a headless mirror of the same PTY. Sessions are same-branch (they run at the project's repo root); quick prompts and PTY-driven PR/commit flows included.
   config_schema:
     - key: port
       type: integer
@@ -43,6 +43,20 @@ x-garrison:
   provides:
     - kind: dev-env
       name: dev-env
+  consumes:
+    # vault first: vaultEnvForEntry delivers secret_scope only to a declared
+    # vault consumer, so without this CAPTURE_TOKEN below would never arrive.
+    - kind: vault
+      cardinality: one
+    # The voice layer the /voice/* bridge proxies to. The runner projects the
+    # provider's id as GARRISON_VOICE_FITTING_ID; none stationed = the bridge
+    # answers "no voice provider" and the chat hides its voice controls.
+    - kind: voice
+      cardinality: optional-one
+  # The voice provider gates its /stt and /tts with this token; the bridge
+  # forwards it as a Bearer on the upstream hop only (the page never sees it).
+  secret_scope:
+    - CAPTURE_TOKEN
   setup:
     command: node ui/build.mjs && node scripts/install-hooks.mjs
     idempotent: true

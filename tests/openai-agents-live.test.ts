@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 // @ts-ignore - real SDK path (loads @openai/agents)
@@ -12,16 +13,30 @@ import { OpenAiAgentsAdapter } from "../fittings/seed/openai-agents-runtime/lib/
 //       CI / a box without Ollama stays green - the unit + mock suites cover the
 //       wiring), and
 //   (c) a MOCKED OpenAI-compatible endpoint driven by the REAL @openai/agents SDK
-//       (always runs; no cloud key - proves "one OpenAI-compatible endpoint"
+//       (runs wherever the fitting's SDK is installed; no cloud key - proves "one OpenAI-compatible endpoint"
 //       beyond Ollama and that the by-name Vault key reaches the endpoint
 //       server-side, never in argv).
 const REPO = path.resolve(__dirname, "..");
 const BRIDGE = path.join(REPO, "fittings/seed/openai-agents-runtime/scripts/bridge.mjs");
 const MODEL = "qwen2.5:3b";
 
-const OLLAMA_UP = await fetch("http://localhost:11434/api/version", { signal: AbortSignal.timeout(2000) })
-  .then((r) => r.ok)
+// Reachable AND holding the model (see garrison-call-live.test.ts).
+const OLLAMA_UP = await fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(2000) })
+  .then(async (r) => r.ok && ((await r.json()) as { models?: Array<{ name: string }> }).models?.some((m) => m.name === MODEL) === true)
   .catch(() => false);
+// The real SDK is the fitting's own dependency, installed by its setup hook into
+// the STATIONED copy (apm_modules/_local/openai-agents-runtime), not the seed
+// this suite imports from. On a node whose composition does not station the
+// runtime the seed has no node_modules, `openai` does not resolve, and both the
+// live and the mocked block would fail on import rather than on what they test.
+const SDK_INSTALLED = (() => {
+  try {
+    createRequire(path.join(REPO, "fittings/seed/openai-agents-runtime/lib/openai-client.mjs")).resolve("openai");
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 function runBridge(spec: unknown, env: Record<string, string>): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
@@ -35,7 +50,7 @@ function runBridge(spec: unknown, env: Record<string, string>): Promise<{ code: 
 }
 
 // ── (b) LIVE Ollama round trip ───────────────────────────────────────────────
-describe.skipIf(!OLLAMA_UP)("openai-agents LIVE (local Ollama, qwen2.5:3b)", () => {
+describe.skipIf(!OLLAMA_UP || !SDK_INSTALLED)("openai-agents LIVE (local Ollama, qwen2.5:3b)", () => {
   it("bridge delegate() STDIN → STDOUT returns a real {summary, artifacts}", async () => {
     const dataDir = mkdtempSync(path.join(tmpdir(), "openai-agents-live-"));
     const { code, out } = await runBridge(
@@ -76,7 +91,7 @@ describe.skipIf(!OLLAMA_UP)("openai-agents LIVE (local Ollama, qwen2.5:3b)", () 
 });
 
 // ── (c) MOCKED OpenAI-compatible endpoint (real SDK, no cloud key) ────────────
-describe("openai-agents vs a MOCKED OpenAI-compatible endpoint (real SDK)", () => {
+describe.skipIf(!SDK_INSTALLED)("openai-agents vs a MOCKED OpenAI-compatible endpoint (real SDK)", () => {
   it("drives /v1/chat/completions and carries the by-name key as a Bearer header (server-side only)", async () => {
     const captured: any[] = [];
     const server = http.createServer((req, res) => {

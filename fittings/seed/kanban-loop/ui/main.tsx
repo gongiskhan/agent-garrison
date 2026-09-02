@@ -715,6 +715,7 @@ function CardActions({
   busy,
   withId = false,
   iconOnly = false,
+  created = null,
   handlers
 }: {
   card: CardSummary;
@@ -725,6 +726,10 @@ function CardActions({
   // for the accessibility tree) so the row reads as compact icon buttons and stops
   // hogging the card surface. The DetailSheet footer leaves it off and keeps labels.
   iconOnly?: boolean;
+  // The card's creation instant (card FRONT only). Rendered INSIDE the .btns
+  // flex row, pushed right, so it shares the buttons' last wrapped line instead
+  // of costing the card a line of its own.
+  created?: string | null;
   handlers: CardActionHandlers;
 }) {
   const {
@@ -839,6 +844,7 @@ function CardActions({
       >
         <CloseIcon /> <span className="btn-label">Delete</span>
       </button>
+      {created && <span className="ct-date" title="created">{created}</span>}
       {/* Item 5: the Open button is gone — clicking the card body opens it (see the
           card root's onClick above). */}
     </div>
@@ -1271,18 +1277,12 @@ function Card({
         list={list}
         busy={busy}
         iconOnly
+        created={fmtCardDate(card.id)}
         handlers={{
           onStart, onApprove, onMove, onQuickMove, onDelete, onWatch, onTerminal,
           onInfer, onDiscuss, onContinue, onDrill, onFeedback, onRunSchedule
         }}
       />
-      {/* Created-at: pushed to the card's own footer so the title row - the
-          thing you actually read - is not sharing its line with a timestamp. */}
-      {fmtCardDate(card.id) && (
-        <div className="card-footer">
-          <span className="ct-date" title="created">{fmtCardDate(card.id)}</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -5036,9 +5036,9 @@ function App() {
     }
   }, []);
 
-  // /board/runtime carries the live channel id (for Discuss) and the noGateway
-  // flag. Refreshed alongside the board so a gateway start/stop or a channel
-  // install/remove flips the relevant UI within one tick.
+  // /board/runtime carries the gateway state (noGateway, gatewayBaseUrl) and the
+  // Conversations route. Refreshed alongside the board so a gateway start/stop
+  // flips the relevant UI within one tick.
   const loadRuntime = useCallback(async () => {
     try {
       const r = await api.runtime();

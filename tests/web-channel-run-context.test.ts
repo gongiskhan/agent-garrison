@@ -27,9 +27,9 @@ process.env.GARRISON_HOME = TMP_HOME;
 // server.mjs + threads.mjs freeze their dirs from GARRISON_HOME at module load and
 // static imports hoist above the assignment above, so load them dynamically.
 // @ts-ignore - pure .mjs server
-const server = await import("../fittings/seed/web-channel-default/scripts/server.mjs");
+const server = await import("../packages/talk/src/server.mjs");
 // @ts-ignore - pure .mjs store
-const threads = await import("../fittings/seed/web-channel-default/scripts/threads.mjs");
+const threads = await import("../packages/talk/src/threads.mjs");
 
 const { buildGatewayChatBody, agentSdkResumeFromThread, mergeTurnRouting, attributionFromFrame, startServer } = server as any;
 // The shared ambient declaration for threads.mjs (tests/web-channel-mjs.d.ts) predates

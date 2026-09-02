@@ -8,10 +8,10 @@ import { pathToFileURL } from "node:url";
 // it at a temp home BEFORE importing.
 const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "wc-threads-"));
 const MOD = pathToFileURL(
-  path.resolve(__dirname, "../fittings/seed/web-channel-default/scripts/threads.mjs")
+  path.resolve(__dirname, "../packages/talk/src/threads.mjs")
 ).href;
 
-let threads: typeof import("../fittings/seed/web-channel-default/scripts/threads.mjs");
+let threads: typeof import("../packages/talk/src/threads.mjs");
 
 // Same module, run-context view. The shared ambient declaration for this .mjs
 // module (tests/web-channel-mjs.d.ts) predates the 2026-07-25 run-context

@@ -21,7 +21,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { renderMarkdown } from "@/lib/markdown";
 // @ts-ignore — pure .mjs server
-import { buildGatewayChatBody } from "../fittings/seed/web-channel-default/scripts/server.mjs";
+import { buildGatewayChatBody } from "../packages/talk/src/server.mjs";
 import { ClaudeChat, buildSendMeta } from "../packages/claude-chat/src/index";
 
 // A context-unaware transport that records exactly how sendMessage was invoked,
@@ -100,7 +100,7 @@ describe("web-channel exact-message contract — server", () => {
 describe("ClaudeChat — context remains available as UI metadata", () => {
   it("labels the explicit shared-PTY console separately from generated threads", () => {
     const source = readFileSync(
-      path.join(process.cwd(), "fittings/seed/web-channel-default/ui/main.tsx"),
+      path.join(process.cwd(), "packages/talk/ui/app.tsx"),
       "utf8"
     );
     // The conversations rename (C6) moved both labels: the raw PTY surface is the

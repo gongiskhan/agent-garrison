@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
-import { startOwnPortFitting, isValidFittingId, vaultEnvForEntry } from "@/lib/own-port-lifecycle";
-import { operativeEnvForFitting } from "@/lib/runner";
-import { activeCompositionEnvForFitting } from "@/lib/composition-env";
+import { startOwnPortFitting, isValidFittingId } from "@/lib/own-port-lifecycle";
+import { desiredEnvForFitting, operativeEnvForFitting } from "@/lib/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,33 +19,22 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const body = await req.json().catch(() => ({}));
     // Fittings normally start with the operative at up(); this manual start
     // exists for recovery (a crashed fitting, a fitting started while the
-    // operative is down). When a composition is running, hand the fitting the
-    // same env the runner would at up — gateway URL, composition id, selection
-    // config, vault. Otherwise fall back to vault-only (may be locked; then {}
-    // — the Fitting starts without its secrets rather than failing).
-    const compositionEnv = await operativeEnvForFitting(params.id);
-    // A consumer-driven heal (drill's run preflight) must NEVER spawn an
-    // env-less fitting: without the projected env the automations engine
-    // falls back to its default instance ports, comes up healthy, and then
-    // poisons every later run with wrong-instance failures nothing repairs.
-    // Refusing BEFORE the spawn keeps the honest "not running" failure.
-    if (body?.requireCompositionEnv === true && !compositionEnv) {
+    // operative is down). A consumer-driven heal (drill's run preflight) must
+    // NEVER spawn an env-less fitting: without the projected env the
+    // automations engine falls back to its default instance ports, comes up
+    // healthy, and then poisons every later run with wrong-instance failures
+    // nothing repairs. Refusing BEFORE the spawn keeps the honest "not running"
+    // failure.
+    if (body?.requireCompositionEnv === true && !(await operativeEnvForFitting(params.id))) {
       return NextResponse.json(
         { error: `no running composition provides env for ${params.id}` },
         { status: 409 }
       );
     }
-    // No RUNNING composition does not mean no KNOWN config: the active
-    // composition is on disk regardless. Falling back to vault-only here
-    // dropped the fitting's whole config projection - including its port - so
-    // it booted on its baked-in default and answered for another instance.
-    // Project from the active composition instead, with vault underneath.
-    const extraEnv =
-      compositionEnv ?? {
-        ...(await vaultEnvForEntry(entry)),
-        ...(await activeCompositionEnvForFitting(params.id))
-      };
-    const result = await startOwnPortFitting(entry, extraEnv);
+    // The same env the runner would hand it at up (gateway URL, composition
+    // id, selection config, vault) when a composition is running, else the
+    // active composition's projection over vault env - see desiredEnvForFitting.
+    const result = await startOwnPortFitting(entry, await desiredEnvForFitting(entry));
     if (!result.ok) {
       return NextResponse.json({ error: result.error ?? "start failed" }, { status: result.status ?? 500 });
     }

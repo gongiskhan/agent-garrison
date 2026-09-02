@@ -20,6 +20,7 @@ import {
 } from "./own-port-lifecycle";
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
+import { activeCompositionEnvForFitting } from "./composition-env";
 import { deriveViewProvisions } from "./view-instances";
 import { wipeMaterializedEnv } from "./vault";
 import { syncCompositionFromState, materializeEnvViaAuthority } from "./composition-sync";
@@ -81,6 +82,7 @@ import {
 import { writeFileAtomic } from "./atomic-write";
 import { appendRunEvidence } from "./run-evidence";
 import { resolveCapabilities } from "./capabilities";
+import { voiceEnvForEntry, voiceProviderIdFor } from "./voice-provider";
 import { reconcileCoordTeardown } from "./coord-wiring";
 import {
   ensureCompositionRoutingPolicy,
@@ -1217,6 +1219,11 @@ export async function startOperativeBoundFittings(
   // up() projected (a different env elsewhere would drift the fingerprint and
   // double-drive a fitting through a needless heal-restart).
   const envByFitting = new Map<string, Record<string, string>>();
+  // The fitting providing kind:voice (null when none is stationed): every
+  // own-port fitting that consumes voice learns it as GARRISON_VOICE_FITTING_ID
+  // (voiceEnvForEntry), so swapping the provider is an env change that heals
+  // its consumers. Resolved once per up(), from the same selected entries.
+  const voiceProvider = voiceProviderIdFor(entries);
   for (const entry of entries) {
     if (!isOwnPortFitting(entry)) continue;
     // Project the ACTIVE composition id into every operative-bound own-port fitting so a
@@ -1226,6 +1233,7 @@ export async function startOperativeBoundFittings(
     const extraEnv = {
       ...(await vaultEnvForEntry(entry)),
       ...ownPortConfigEnv(entry.id, configById.get(entry.id) ?? {}),
+      ...voiceEnvForEntry(entry, voiceProvider),
       GARRISON_COMPOSITION_ID: compositionId,
       // Project the composition's absolute dir too (the same value spawnGateway
       // hands the gateway as GARRISON_COMPOSITION_DIR): the orchestrator own-port
@@ -1292,6 +1300,9 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
     return {
       ...(await vaultEnvForEntry(entry)),
       ...ownPortConfigEnv(entry.id, config),
+      // Same voice-provider projection as the up() path (one helper, so the
+      // fingerprint cannot drift between a runner boot and a manual restart).
+      ...voiceEnvForEntry(entry, voiceProviderIdFor(entries)),
       GARRISON_COMPOSITION_ID: compositionId,
       // Same composition-dir projection as the up() path (see
       // startOperativeBoundFittings) so an on-demand Views start keys its
@@ -1306,6 +1317,21 @@ export async function operativeEnvForFitting(fittingId: string): Promise<Record<
     };
   }
   return null;
+}
+
+// The env every RECOVERY path hands an own-port fitting: the manual start and
+// restart routes and the post-unlock vault heal. A running composition's
+// projection when there is one; otherwise the ACTIVE composition's projection
+// over vault env (no running composition does not mean no known config - a
+// vault-only fallback dropped the port and booted the fitting onto another
+// instance's). One helper so the three cannot drift from each other or from up().
+export async function desiredEnvForFitting(entry: LibraryEntry): Promise<Record<string, string>> {
+  return (
+    (await operativeEnvForFitting(entry.id)) ?? {
+      ...(await vaultEnvForEntry(entry)),
+      ...(await activeCompositionEnvForFitting(entry.id))
+    }
+  );
 }
 
 // Exported for the fitting-lifecycle vitest gate; the app reaches this through
@@ -2559,6 +2585,10 @@ async function spawnGateway(
     GARRISON_PERMISSION_MODE:
       (gateway.config.permission_mode as string | undefined) ?? "bypassPermissions",
     GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus",
+    // This instance's own app, the same value own-port fittings receive: the
+    // gateway records it as the control surface of every session it announces
+    // (the app hosts Conversations, so that is where a peer steers a thread).
+    GARRISON_APP_URL: garrisonSelfBaseUrl(),
     ...compactEnv(gateway.config),
     ...sessionLogProxyEnv(gateway.config),
     ...(extraEnv ?? {})

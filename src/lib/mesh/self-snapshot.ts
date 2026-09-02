@@ -83,8 +83,8 @@ async function probeComposition(): Promise<CompositionSnapshot | null> {
   }
 }
 
-// The web channel writes one file per thread under
-// <garrison>/web-channel/threads/<id>.json. A directory listing is the whole
+// Conversations (the talk engine, whichever host mounts it) writes one file per
+// thread under <garrison>/web-channel/threads/<id>.json. A directory listing is the whole
 // cost; opening every thread to classify it is not worth a dashboard number,
 // so this counts threads and says so rather than claiming to count live ones.
 async function probeSessions(): Promise<SessionsSnapshot | null> {

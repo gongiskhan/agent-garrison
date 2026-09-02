@@ -1,6 +1,22 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Scratch paths are canonical.
+//
+// On macOS os.tmpdir() is /var/folders/..., a symlink into /private/var. Code
+// under test canonicalises the paths it is handed (dev-root confinement, the
+// drill target repo, the session guard) and reports the real form, while a test
+// that built its fixture from tmpdir() compares against the symlinked form and
+// fails on every Mac while passing on Linux. Node reads TMPDIR on each
+// os.tmpdir() call, so pinning it to the real path here makes every fixture
+// canonical from the start. The user's mesh has the same shape for real (~/dev
+// and ~/Projects point at each other), which is why the code canonicalises.
+try {
+  process.env.TMPDIR = realpathSync(tmpdir());
+} catch {
+  /* an unreadable tmpdir fails loudly at the first mkdtemp instead */
+}
 
 // Global test bypass for the ~/.claude install gate.
 //
@@ -39,3 +55,12 @@ if (!process.env.GARRISON_HOME) {
 // explicitly against tests/state-service-harness.ts.
 delete process.env.GARRISON_STATE_URL;
 delete process.env.GARRISON_STATE_TOKEN;
+
+// Nor the LIVE Conversations surface. The runner projects GARRISON_APP_URL into
+// every fitting and the card / Dev Env PTYs inherit that env, so an agent
+// running `npm test` from a card would otherwise post test notifications to the
+// user's real threads and push subscriptions through the shell's /api/notify.
+// The test-runner home guard above does not cover this: GARRISON_HOME is set
+// here for every test, so a fan-out that keys on it proceeds. Tests that want an
+// app set it explicitly against a local listener.
+delete process.env.GARRISON_APP_URL;

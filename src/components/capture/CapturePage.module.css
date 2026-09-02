@@ -1,0 +1,243 @@
+.header {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1.1rem 0 1.2rem;
+  border-bottom: 1px solid var(--rule-2);
+}
+
+.header h1 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+}
+
+.header p {
+  margin: 0;
+  color: var(--mute);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.sections {
+  display: grid;
+  gap: 1.1rem;
+  margin-top: 1.1rem;
+}
+
+.section {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  padding: 0.9rem 1rem 1rem;
+}
+
+.section h2 {
+  margin: 0 0 0.6rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.rows {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: baseline;
+  font-size: 0.9rem;
+}
+
+.row dt {
+  margin: 0;
+  color: var(--mute);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+.pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--rule);
+  color: var(--mute);
+}
+
+.pillLive {
+  border-color: var(--olive, #6b7f3a);
+  color: var(--olive, #6b7f3a);
+}
+
+.pillAlarm {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+
+.error {
+  margin: 0.6rem 0 0;
+  color: var(--alarm);
+  font-size: 0.85rem;
+}
+
+.form {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.form label {
+  display: grid;
+  gap: 0.25rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.form input {
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface-raised, #fff);
+  color: var(--ink);
+}
+
+.nodes {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.node {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.node b {
+  font-weight: 600;
+}
+
+.node span {
+  color: var(--mute);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.node .spacer {
+  flex: 1 1 auto;
+}
+
+.fallback {
+  margin: 1.5rem 0 0;
+  color: var(--mute);
+  font-size: 0.95rem;
+}
+
+.footer {
+  margin-top: 1.2rem;
+  color: var(--mute);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 560px) {
+  .row {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+}
+
+.transcript {
+  margin-top: 0.9rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper-2, transparent);
+}
+
+.transcriptHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.transcriptEmpty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--mute);
+}
+
+.transcriptLines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.transcriptInterim {
+  color: var(--mute);
+  font-style: italic;
+}

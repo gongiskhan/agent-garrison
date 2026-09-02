@@ -1,0 +1,13 @@
+npm run typecheck: EXIT 0 (tsc --noEmit clean)
+
+vitest targeted (sidebar-grouping, sidebar-pins, view-instances, instance-isolation, mesh-serve-ports, vocabulary):
+ Test Files  6 passed (6)
+      Tests  73 passed (73)
+
+npm run node:reload: EXIT 0
+
+[reload] waiting for http://127.0.0.1:8777
+
+[reload] starting operative (default) — fast path when the composition is unchanged
+
+[reload] done — app reloaded, operative running

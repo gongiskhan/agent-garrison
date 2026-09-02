@@ -41,10 +41,23 @@ export function resolveGarrisonBaseUrl(env = process.env) {
   return null;
 }
 
+// Legacy connector ids, resolved ONCE at the top of the invoke path - before the
+// auth-env fetch and before the script lookup - so no manifest has to declare
+// the old name. `deepgram` was the retired deepgram-voice connector; its actions
+// (transcribe, synthesize) now live on the voice layer's `voice` connector.
+export const CONNECTOR_ID_ALIASES = Object.freeze({ deepgram: "voice" });
+
+export function canonicalConnectorId(connectorId) {
+  return CONNECTOR_ID_ALIASES[connectorId] ?? connectorId;
+}
+
 // Resolve a connector's scoped auth env from the Garrison backend (which owns the
 // Vault). api_key connectors get their scoped secrets; oauth2 connectors get a
 // freshly-refreshed <SERVICE>_ACCESS_TOKEN. The token never returns to a log.
-export async function defaultConnectorAuthEnv(connectorId, fetchImpl = fetch) {
+export async function defaultConnectorAuthEnv(rawConnectorId, fetchImpl = fetch) {
+  // Alias first: auth-env resolves the connector by the name a fitting PROVIDES,
+  // and no fitting provides a legacy alias.
+  const connectorId = canonicalConnectorId(rawConnectorId);
   const base = resolveGarrisonBaseUrl();
   if (!base) {
     throw new Error(
@@ -96,9 +109,12 @@ export function defaultRunConnector({ scriptPath, action, args, authEnv }) {
 }
 
 // Default connector.mjs path for a connector id (mirrors the installed layout).
-export function connectorScriptPath(connectorId) {
+export function connectorScriptPath(rawConnectorId) {
+  const connectorId = canonicalConnectorId(rawConnectorId);
   const base = process.env.GARRISON_COMPOSITION_DIR || process.cwd();
-  // installed connectors live at apm_modules/_local/<id>/scripts/connector.mjs
-  const id = connectorId === "google" ? "google" : connectorId === "slack" ? "slack-channel" : connectorId === "deepgram" ? "deepgram-voice" : connectorId;
+  // installed connectors live at apm_modules/_local/<id>/scripts/connector.mjs;
+  // the connector id and the fitting directory differ where one fitting hosts
+  // the connector under another name (capture-service provides `voice`).
+  const id = connectorId === "google" ? "google" : connectorId === "slack" ? "slack-channel" : connectorId === "voice" ? "capture-service" : connectorId;
   return `${base}/apm_modules/_local/${id}/scripts/connector.mjs`;
 }

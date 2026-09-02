@@ -19,7 +19,7 @@ import WebSocket from "ws";
 import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { startServer } from "../fittings/seed/capture-service/scripts/server.mjs";
 import { ApnsSender, decodeP8 } from "../fittings/seed/capture-service/lib/apns.mjs";
-import { CompanionNotifier, isLoopbackUrl, renderTemplate } from "../fittings/seed/capture-service/lib/notify.mjs";
+import { CompanionNotifier, appPathFor, isLoopbackUrl, renderTemplate } from "../fittings/seed/capture-service/lib/notify.mjs";
 import { CaptureStore, Counters, atomicWriteJSON } from "../fittings/seed/capture-service/lib/store.mjs";
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -153,7 +153,12 @@ describe("companion notifier", () => {
     while (cleanups.length) cleanups.pop()!();
   });
 
-  function makeNotifier(script: Record<string, any>, overrides: Record<string, unknown> = {}, tokens = ["tokenok01"]) {
+  function makeNotifier(
+    script: Record<string, any>,
+    overrides: Record<string, unknown> = {},
+    tokens = ["tokenok01"],
+    { env = {}, fetchImpl }: { env?: Record<string, string>; fetchImpl?: typeof fetch } = {}
+  ) {
     const home = mkdtempSync(path.join(os.tmpdir(), "apns-notify-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const cfg = testCfg(home, overrides);
@@ -166,14 +171,38 @@ describe("companion notifier", () => {
       cfg,
       store,
       counters,
-      env: { GARRISON_HOME: home },
+      env: { GARRISON_HOME: home, ...env },
       apns: new ApnsSender({ cfg, counters, connectFn: fakeHttp2(script, calls) }),
+      ...(fetchImpl ? { fetchImpl } : {}),
       sleepFn: async (ms: number) => {
         sleeps.push(ms);
       }
     });
     return { notifier, store, counters, sleeps, calls, home, cfg };
   }
+
+  it("carries the in-app route as `path`: explicit, or derived from a link on this node's app", async () => {
+    const env = { GARRISON_APP_URL: "https://node.tail.ts.net" };
+    expect(appPathFor({ path: "/talk/abc" }, env)).toBe("/talk/abc");
+    expect(appPathFor({ link: "https://node.tail.ts.net/talk/abc?x=1" }, env)).toBe("/talk/abc?x=1");
+    // A link anywhere else never steers the app, and nothing that is not a
+    // rooted single-slash path gets through.
+    expect(appPathFor({ link: "https://github.com/gongiskhan/garrison/pull/1" }, env)).toBeNull();
+    expect(appPathFor({ link: "https://node.tail.ts.net/talk/abc" }, {})).toBeNull();
+    expect(appPathFor({ path: "//evil.example/x" }, env)).toBeNull();
+    expect(appPathFor({ path: "https://evil.example/x" }, env)).toBeNull();
+    expect(appPathFor({ path: "talk/abc" }, env)).toBeNull();
+
+    const { notifier, calls } = makeNotifier({}, {}, ["tokenok01"], { env });
+    await notifier.send({
+      template: "wake_confirmation",
+      params: { text: "Card created.", cardUrl: "https://node.tail.ts.net/fitting/kanban-loop/card/42" }
+    });
+    const payload = JSON.parse(calls[0].body);
+    expect(payload.link).toBe("https://node.tail.ts.net/fitting/kanban-loop/card/42");
+    expect(payload.path).toBe("/fitting/kanban-loop/card/42");
+    expect(payload.tag).toBe("wake_confirmation");
+  });
 
   it("delivers a template push and counts it against the daily ledger", async () => {
     const { notifier, counters } = makeNotifier({});
@@ -264,6 +293,44 @@ describe("companion notifier", () => {
     const logged = logSpy.mock.calls.flat().join("\n");
     expect(logged).not.toContain(SECRET_TEXT);
     logSpy.mockRestore();
+  });
+
+  it("posts the fallback to the Garrison app when GARRISON_APP_URL names it, ignoring the legacy status file", async () => {
+    const posts: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      posts.push(url);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const { notifier, counters, home } = makeNotifier({}, { notifyEnabled: false }, ["tokenok01"], {
+      env: { GARRISON_APP_URL: "http://app.test/" },
+      fetchImpl
+    });
+    // A legacy host is ALSO advertised; both share one thread store, so only
+    // the app may be posted to or the thread gets the message twice.
+    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
+    writeFileSync(
+      path.join(home, "ui-fittings", "web-channel-default.json"),
+      JSON.stringify({ fittingId: "web-channel-default", port: 1, url: "http://legacy.test" })
+    );
+
+    const receipts = await notifier.send({ template: "relay", params: { text: "Finished." } });
+    expect(receipts[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "notify disabled" });
+    expect(receipts[1]).toMatchObject({ means: "web-channel", ok: true, target: "thread companion-reports" });
+    expect(posts).toEqual([
+      "http://app.test/api/threads",
+      "http://app.test/api/threads/companion-reports/messages"
+    ]);
+    expect(counters.read().notify_fallback_web).toBe(1);
+  });
+
+  it("names both hosts in the skip reason when neither the app nor the legacy fitting is reachable", async () => {
+    const { notifier } = makeNotifier({}, { notifyEnabled: false });
+    const receipts = await notifier.send({ template: "relay", params: { text: "Finished." } });
+    expect(receipts[1]).toMatchObject({
+      means: "web-channel",
+      ok: false,
+      skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting not running"
+    });
   });
 
   it("enforces the per-day cap and strips loopback links", async () => {

@@ -1,7 +1,7 @@
 import Foundation
 
 // Shared between the app and the broadcast extension (compiled into both
-// targets — no framework; the extension must stay small). The App Group is
+// targets - no framework; the extension must stay small). The App Group is
 // the ONLY channel between the two processes: the app writes the endpoint,
 // token and settings; the extension reads them at broadcast start.
 enum AppGroup {
@@ -31,6 +31,13 @@ enum AppGroup {
         static let broadcastHeartbeat = "broadcast.heartbeat" // epoch seconds, written by the extension
         static let broadcastLastError = "broadcast.lastError" // why the extension refused to start
         static let broadcastLastErrorAt = "broadcast.lastErrorAt"
+        static let broadcastConversationId = "broadcast.conversationId" // handed to the extension by the app
+        // Node records (NodeStore). The list is a JSON-encoded [NodeRecord];
+        // the current node is stored by name. Selecting a node mirrors its
+        // capture URL and token into baseURL/token above, so the extension
+        // and every capture-path reader keep working off the legacy keys.
+        static let nodeList = "node.list"
+        static let nodeCurrent = "node.current" // NodeRecord.name
     }
 
     static var pendantIdentifier: UUID? {
@@ -142,6 +149,25 @@ extension AppGroup {
     static func clearBroadcastError() {
         defaults?.removeObject(forKey: Key.broadcastLastError)
         defaults?.removeObject(forKey: Key.broadcastLastErrorAt)
+    }
+
+    /// The app cannot pass arguments to the broadcast extension: the system
+    /// picker starts it. A recording begun from a conversation therefore
+    /// parks the thread id here and the extension consumes it (once) when the
+    /// broadcast starts, so a later Control Center broadcast never inherits
+    /// a stale conversation.
+    static func setBroadcastConversationId(_ id: String?) {
+        if let id, !id.isEmpty {
+            defaults?.set(id, forKey: Key.broadcastConversationId)
+        } else {
+            defaults?.removeObject(forKey: Key.broadcastConversationId)
+        }
+    }
+
+    static func takeBroadcastConversationId() -> String? {
+        let value = defaults?.string(forKey: Key.broadcastConversationId)
+        defaults?.removeObject(forKey: Key.broadcastConversationId)
+        return (value?.isEmpty ?? true) ? nil : value
     }
 
     static func isBroadcasting(now: Date = Date()) -> Bool {

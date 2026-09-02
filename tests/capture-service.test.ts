@@ -30,7 +30,14 @@ describe("capture-service config", () => {
     expect(cfg.notifyEnabled).toBe(false);
     expect(cfg.speakEnabled).toBe(false);
     expect(cfg.port).toBe(DEFAULT_PORT);
+    // The committed 8xxx-family map (D20): the node profile serves it as is,
+    // sandboxes add their offset.
+    expect(DEFAULT_PORT).toBe(8097);
     expect(cfg.bindHost).toBe("127.0.0.1");
+    expect(cfg.ttsBackend).toBe("auto");
+    expect(cfg.ttsDeepgramModel).toBe("aura-asteria-en");
+    expect(cfg.sttRestLanguage).toBe(cfg.sttLanguage);
+    expect(cfg.dgRestBaseUrl).toBe("https://api.deepgram.com");
     expect(cfg.wakeVariants).toEqual(DEFAULT_WAKE_VARIANTS);
     expect(cfg.classifyTarget).toBe("cc-haiku-low");
     expect(cfg.apnsEnvironment).toBe("production");
@@ -57,6 +64,22 @@ describe("capture-service config", () => {
     expect(cfg.secrets.apnsKeyId).toBe("KEYID12345");
   });
 
+  it("derives the Deepgram REST base from the one socket test hook, and pins the clip language separately", () => {
+    const cfg = loadConfig({
+      GARRISON_CAPTURESERVICE_DG_URL: "ws://127.0.0.1:4321/",
+      GARRISON_CAPTURESERVICE_STT_LANGUAGE: "pt",
+      GARRISON_CAPTURESERVICE_STT_REST_LANGUAGE: "en",
+      GARRISON_CAPTURESERVICE_TTS_BACKEND: "Deepgram"
+    });
+    expect(cfg.dgBaseUrl).toBe("ws://127.0.0.1:4321/");
+    expect(cfg.dgRestBaseUrl).toBe("http://127.0.0.1:4321");
+    expect(loadConfig({ GARRISON_CAPTURESERVICE_DG_URL: "wss://mock.example" }).dgRestBaseUrl).toBe("https://mock.example");
+    expect(cfg.sttRestLanguage).toBe("en");
+    expect(cfg.ttsBackend).toBe("deepgram");
+    // An unknown backend name falls back to auto instead of naming an engine that does not exist.
+    expect(loadConfig({ GARRISON_CAPTURESERVICE_TTS_BACKEND: "polly" }).ttsBackend).toBe("auto");
+  });
+
   it("never bakes a gateway port literal", () => {
     expect(resolveGatewayUrl({})).toBeNull();
     expect(resolveGatewayUrl({ GARRISON_GATEWAY_URL: "http://127.0.0.1:5777/" })).toBe(
@@ -66,6 +89,30 @@ describe("capture-service config", () => {
       resolveGatewayUrl({ GARRISON_GATEWAY_HOST: "127.0.0.1", GARRISON_GATEWAY_PORT: "4777" })
     ).toBe("http://127.0.0.1:4777");
     expect(resolveGatewayUrl({ GARRISON_GATEWAY_PORT: "not-a-port" })).toBeNull();
+  });
+
+  it("honours 0 for the knobs whose schema says 0 disables them", () => {
+    const off = loadConfig({
+      GARRISON_CAPTURESERVICE_WAKE_REVISE_AFTER_MS: "0",
+      GARRISON_CAPTURESERVICE_ACTIVE_CONVERSATION_WINDOW_MS: "0",
+      GARRISON_CAPTURESERVICE_TRANSCRIBE_MUTE_TIMEOUT_MS: "0",
+      GARRISON_CAPTURESERVICE_WAKE_PROGRESS_INTERVAL_MS: "0"
+    });
+    expect(off.wakeReviseAfterMs).toBe(0);
+    expect(off.activeConversationWindowMs).toBe(0);
+    expect(off.transcribeMuteTimeoutMs).toBe(0);
+    expect(off.wakeProgressIntervalMs).toBe(0);
+    // Garbage and negatives still fall back to the defaults.
+    const bad = loadConfig({
+      GARRISON_CAPTURESERVICE_WAKE_REVISE_AFTER_MS: "-5",
+      GARRISON_CAPTURESERVICE_ACTIVE_CONVERSATION_WINDOW_MS: "soon",
+      GARRISON_CAPTURESERVICE_TRANSCRIBE_MUTE_TIMEOUT_MS: "-1",
+      GARRISON_CAPTURESERVICE_WAKE_PROGRESS_INTERVAL_MS: "never"
+    });
+    expect(bad.wakeReviseAfterMs).toBe(600000);
+    expect(bad.activeConversationWindowMs).toBe(300000);
+    expect(bad.transcribeMuteTimeoutMs).toBe(120000);
+    expect(bad.wakeProgressIntervalMs).toBe(60000);
   });
 
   it("resolves sandboxed state paths from the injected env, not ambient process.env", () => {
@@ -150,12 +197,25 @@ describe("capture-service server", () => {
     });
     expect(health.secrets).toMatchObject({
       deepgramApiKey: false,
+      elevenLabsApiKey: false,
       captureToken: false,
       apnsTeamId: false,
       apnsKeyId: false,
       apnsP8: false
     });
     expect(health.gatewayConfigured).toBe(false);
+    // The voice block (D20) a surface reads before showing a mic or a speaker:
+    // nothing sealed, nothing enabled -> every lane honestly off. The text
+    // budget is advertised regardless, so a client chunks against the number
+    // the server enforces even before a key is sealed.
+    expect(health.voice).toEqual({ stt: false, tts: false, ttsBackend: null, restEnabled: false, maxTextChars: 600 });
+    expect(health.keyConfigured).toBe(false);
+
+    // The voice REST lanes sit under the same master flag as every authed surface.
+    for (const route of ["/stt", "/tts"]) {
+      const res = await fetch(`${base}${route}`, { method: "POST", body: "x" });
+      expect(res.status).toBe(403);
+    }
 
     // M1 landed: implemented surfaces answer 403 with the master flag off
     // (nothing about routes leaks to an unauthenticated caller); a plain HTTP
@@ -192,7 +252,7 @@ describe("capture-service server", () => {
     expect(ackBody.receipts[1]).toMatchObject({
       means: "web-channel",
       ok: false,
-      skipped: "web channel not running"
+      skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting not running"
     });
     const notifyRes = await fetch(`${base}/notify`, {
       method: "POST",

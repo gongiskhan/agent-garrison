@@ -664,8 +664,62 @@ export const OMI_WAKE_SOURCE = {
   logPrefix: "omi-channel"
 };
 
+// The active-conversation window (D25). A delegate reply comes back with the
+// gateway session that produced it; for a while afterwards the next spoken
+// request belongs to THAT conversation, not to a fresh one keyed on whichever
+// capture session happened to carry the words - a reconnect, or the same
+// person speaking through another source, must not lose the thread. Two
+// inputs, one answer:
+//
+//   - the explicit pin: a client (the app's Conversation screen) names the
+//     gateway session the user is looking at; it wins over everything for one
+//     window from the moment it was set;
+//   - the bus's own last reply {sessionId, at}, resumed while it is younger
+//     than the window.
+//
+// One instance is shared by every bus in the process (the pin is global; each
+// bus keeps its own last reply). Process memory only - a restart forgets it,
+// which is the honest thing, because the gateway it pointed at restarted too.
+export class ActiveConversation {
+  constructor({ windowMs = 300000, now = () => Date.now() } = {}) {
+    this.windowMs = Math.max(0, Number(windowMs) || 0);
+    this.now = now;
+    this.pinned = null; // { sessionId, until }
+  }
+
+  pin(sessionId) {
+    const id = String(sessionId ?? "").trim();
+    if (!id) return null;
+    this.pinned = { sessionId: id, until: this.now() + this.windowMs };
+    return this.current();
+  }
+
+  clear() {
+    this.pinned = null;
+  }
+
+  // The pin as a client sees it: expired pins read as none.
+  current() {
+    if (this.pinned && this.pinned.until <= this.now()) this.pinned = null;
+    return this.pinned
+      ? { session_id: this.pinned.sessionId, until: new Date(this.pinned.until).toISOString() }
+      : { session_id: null, until: null };
+  }
+
+  // Which gateway session a bus should resume, given the bus's own last reply:
+  // { sessionId, via: "pin" | "window" } or null for "start from the key".
+  resumeFor(last) {
+    const pin = this.current();
+    if (pin.session_id) return { sessionId: pin.session_id, via: "pin" };
+    if (last?.sessionId && this.windowMs > 0 && this.now() - last.at < this.windowMs) {
+      return { sessionId: last.sessionId, via: "window" };
+    }
+    return null;
+  }
+}
+
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null, activeConversation = null }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -692,6 +746,11 @@ export class WakeBus {
     // Resolves the phone screen the user was looking at. Null for omi, which
     // has no broadcast lane - every screen branch below is then unreachable.
     this.screenContextFn = screenContextFn;
+    // The active-conversation window (D25), shared across the buses in a
+    // process. Null keeps the deterministic per-capture-session key, which is
+    // exactly what omi-channel's copy of this module does.
+    this.activeConversation = activeConversation;
+    this.lastDelegate = null; // { sessionId, at } of the last reply, this bus only
     this.discussions = new Map(); // sessionId -> discussion state
     // Open clarifying-question windows: Zeca asked something and the NEXT
     // utterance - no wake word - is the answer. sessionId -> window.
@@ -1906,8 +1965,21 @@ export class WakeBus {
       }, progressEveryMs);
       progressTimer.unref?.();
     }
+    // Which gateway session this turn joins. The deterministic per-capture
+    // key ("<prefix>-wake:<capture session>") is the floor: one gateway
+    // session per capture session keeps a follow-up ("send that to Ana too")
+    // attached to the context that produced it. The active-conversation window
+    // sits above it: while the last reply is fresh, or a client pinned a
+    // conversation, the turn resumes THAT gateway session instead, so a
+    // reconnect does not start Zeca over. A follow-up round rides whichever of
+    // the two its parent used, because the parent's reply is what refreshed
+    // the window.
+    const deterministicKey = sessionId ? `${this.source.originPrefix}-wake:${sessionId}` : null;
+    const resume = this.activeConversation?.resumeFor(this.lastDelegate) ?? null;
+    const gatewaySessionId = resume?.sessionId ?? deterministicKey;
+    if (resume) this.counters.bump(resume.via === "pin" ? "wake_delegate_resumed_pin" : "wake_delegate_resumed_window");
     try {
-      const { reply } = await this.operativeFn({
+      const { reply, sessionId: replySessionId = null } = await this.operativeFn({
         // Resolved at call time from the board's status file, exactly like every
         // other board call here - never a baked port. A follow-up rides the SAME
         // gateway session (the sessionId below), so the thin continuation prompt
@@ -1919,11 +1991,15 @@ export class WakeBus {
               screen: screen && !screen.stale ? screen : null,
               lang
             }),
-        // One gateway session per Omi capture session keeps a follow-up request
-        // ("send that to Ana too") attached to the context that produced it.
-        sessionId: sessionId ? `${this.source.originPrefix}-wake:${sessionId}` : null,
+        sessionId: gatewaySessionId,
         sessionTitle: "Omi spoken request"
       });
+      // The gateway names the session that answered; that is what the window
+      // resumes next time. A gateway that returns none leaves the last reply
+      // alone, and the deterministic key keeps doing its job.
+      if (typeof replySessionId === "string" && replySessionId.trim()) {
+        this.lastDelegate = { sessionId: replySessionId.trim(), at: this.now() };
+      }
       text = WakeBus.stripRoutingFooter(reply);
       ok = text.length > 0;
     } catch (err) {

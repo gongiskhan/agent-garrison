@@ -1,27 +1,35 @@
 #!/usr/bin/env node
-// Thorough production verification of the Web Channel session-parity work, run
-// against the DEPLOYED prod instance over the real tailnet HTTPS origins. Each
-// check is a path a user actually takes, and each asserts durable state as well
-// as what the page shows.
+// Thorough production verification of the Conversations (web channel)
+// session-parity work, run against the DEPLOYED node over its real tailnet HTTPS
+// origin. Each check is a path a user actually takes, and each asserts durable
+// state as well as what the page shows.
 //
-//   1  embedded surface     - the web channel inside the Garrison app shell
-//                             (the surface in the original bug report)
+// Conversations is a shell route: the browser opens /talk on the app itself
+// (a thread deep link is /talk/<threadId>) and the talk API answers under the
+// app's /api/*. There is no fitting port on either side of this suite.
+//
+//   1  shell surface        - Conversations mounts at /talk inside the app shell
+//                             and hands the client no machine-local URL
 //   2  desktop full turn    - stream, durable reply, completed terminal
 //   3  permission + reload  - a pending prompt survives F5 and is answerable after
-//   4  restart continuity   - restart the live fitting mid-conversation, reload,
-//                             assert full backfill and a resumed session chain
+//   4  restart continuity   - restart the app mid-conversation, reload, assert
+//                             full backfill and a resumed session chain. The
+//                             restart is the operator's command (see below);
+//                             without one the check is recorded as skipped.
 //   5  two tabs, one thread - a second viewer sees the same turn settle
 //   6  error surfacing      - a bogus target pin renders a typed failure and the
 //                             composer recovers
 //   7  phone viewport       - the whole flow at 390x844 with the notice up
 //
 // Usage: node scripts/web-parity-prod-suite.mjs
-//   WEB_ORIGIN  (default: this node's tailnet host, :8483)
-//   APP_ORIGIN  (default: this node's tailnet host)
-//   LOCAL_WEB   (default http://127.0.0.1:8083)  - control-plane calls only
+//   APP_ORIGIN           (default: this node's tailnet host) - every browser navigation
+//   LOCAL_APP            (default: GARRISON_APP_URL, else the node profile's loopback
+//                        port from scripts/garrison-instance.sh) - control-plane calls only
+//   GARRISON_RESTART_CMD (optional) - shell command that restarts the app for check 4,
+//                        e.g. "npm run node:reload"; unset = check 4 is skipped
 
 import fs, { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +37,7 @@ import { fileURLToPath } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(REPO, "evidence", "web-parity-prod-suite");
 
-// This node's tailnet host — node.json first, then tailscale itself. The old
+// This node's tailnet host - node.json first, then tailscale itself. The old
 // hardcoded dev-madrid literal is exactly the main-instance assumption the
 // mesh removes: parity runs against THIS node unless told otherwise.
 function nodeTailnetHost() {
@@ -45,22 +53,44 @@ function nodeTailnetHost() {
   }
 }
 
-const WEB_ORIGIN = process.env.WEB_ORIGIN ?? `https://${nodeTailnetHost()}:8483`;
-const APP_ORIGIN = process.env.APP_ORIGIN ?? `https://${nodeTailnetHost()}`;
-const LOCAL_WEB = process.env.LOCAL_WEB ?? "http://127.0.0.1:8083";
-const LOCAL_APP = process.env.LOCAL_APP ?? "http://127.0.0.1:8777";
+// The app's loopback base, the way the runner projects it to every fitting.
+// Outside a runner-spawned shell the launcher is the one place the node
+// profile's port is defined, so ask it rather than repeat the number here.
+function localAppBase() {
+  const projected = (process.env.GARRISON_APP_URL ?? process.env.GARRISON_BASE_URL ?? "").trim();
+  if (projected) return projected.replace(/\/+$/, "");
+  const env = execFileSync("bash", [path.join(REPO, "scripts", "garrison-instance.sh"), "node", "env"], { encoding: "utf8" });
+  const port = env.match(/^GARRISON_APP_PORT=(\d+)$/m)?.[1];
+  if (!port) throw new Error("could not resolve the node app port from scripts/garrison-instance.sh; set LOCAL_APP");
+  return `http://127.0.0.1:${port}`;
+}
+
+const APP_ORIGIN = (process.env.APP_ORIGIN ?? `https://${nodeTailnetHost()}`).replace(/\/+$/, "");
+const LOCAL_APP = process.env.LOCAL_APP ?? localAppBase();
+const RESTART_CMD = process.env.GARRISON_RESTART_CMD?.trim() || null;
 const PIN = { target: "fable", duty: "discuss", level: 1 };
 
 fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const record = (name, ok, detail) => {
-  results.push({ name, ok, detail });
+  results.push({ name, ok: Boolean(ok), detail });
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}  ${JSON.stringify(detail).slice(0, 240)}`);
 };
+// A check the environment cannot exercise is neither a pass nor a failure; it
+// is reported as such so the summary never claims coverage it did not have.
+const skip = (name, reason) => {
+  results.push({ name, ok: null, skipped: true, reason });
+  console.log(`SKIP  ${name}  ${reason}`);
+};
 
-const api = (p, init) => fetch(`${LOCAL_WEB}${p}`, init).then((r) => r.json());
+const api = (p, init) => fetch(`${LOCAL_APP}${p}`, init).then((r) => r.json());
 const threadOf = (id) => api(`/api/threads/${encodeURIComponent(id)}`);
+const healthOf = () => fetch(`${LOCAL_APP}/api/health`, { signal: AbortSignal.timeout(2_000) })
+  .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+// The deep-link shape notifications and Discuss links carry.
+const talkUrl = (threadId) => `${APP_ORIGIN}/talk/${encodeURIComponent(threadId)}`;
 
 async function newThread(title, pin = PIN) {
   const created = await api("/api/threads", {
@@ -97,7 +127,7 @@ async function settled(threadId, { minMessages = 1, timeoutMs = 300_000 } = {}) 
   throw new Error(`thread ${threadId} did not settle (${JSON.stringify(saw)}, wanted >= ${minMessages} messages)`);
 }
 
-/** Message count right now — the baseline a following turn must beat. */
+/** Message count right now - the baseline a following turn must beat. */
 async function messageCount(threadId) {
   const t = await threadOf(threadId);
   return (t?.thread?.messages ?? []).length;
@@ -128,38 +158,59 @@ const send = async (page, text) => {
   await page.locator(".cc-send").click();
 };
 
+const LOOPBACK = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i;
+// A loopback url is a leak only when it is not the origin the client itself
+// reached the page on; an operator running the suite against a loopback
+// APP_ORIGIN must not have every same-origin request counted against the page.
+const isOwnOrigin = (url, origin) => url === origin || url.startsWith(`${origin}/`);
+const leaksLoopback = (url, origin) => LOOPBACK.test(url) && !isOwnOrigin(url, origin);
+
 const createdThreads = [];
 
 try {
-  // ── 1. the embedded surface inside the Garrison app shell ────────────────
+  // ── 1. the Conversations surface inside the Garrison app shell ──────────
   {
+    const threadId = await newThread("prod suite · shell");
+    createdThreads.push(threadId);
     const ctx = await desktop();
     const page = await ctx.newPage();
     const errors = [];
+    const loopbackRequests = [];
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text().slice(0, 160)); });
-    await page.goto(`${APP_ORIGIN}/embed/web-channel-default`, { waitUntil: "domcontentloaded" });
-    // The embed is the fitting's own page inside the shell; the chat must mount
-    // and be usable from the app origin, not just from the fitting's own port.
+    // Every request the page makes must be reachable from the CLIENT: a
+    // loopback fetch is a blank pane or a dead link for every device that is
+    // not this machine.
+    page.on("request", (r) => { if (leaksLoopback(r.url(), APP_ORIGIN)) loopbackRequests.push(r.url().slice(0, 160)); });
+    await page.goto(talkUrl(threadId), { waitUntil: "domcontentloaded" });
     // waitFor(), never isVisible() - the latter does NOT auto-wait, so a cold
     // route reads as "broken" when it is merely still rendering.
-    const iframe = page.locator("iframe");
-    await iframe.first().waitFor({ state: "attached", timeout: 90_000 }).catch(() => {});
-    const src = await iframe.first().getAttribute("src").catch(() => null);
-    // frameLocator, not page.frames(): the latter is a SNAPSHOT, so an iframe
-    // that is attached but has not navigated to its src yet is missed entirely
-    // and the check reports a working embed as broken.
-    const chatVisible = await page.frameLocator("iframe").first().locator(".cc-input")
+    const chatVisible = await page.locator(".cc-input")
       .waitFor({ state: "visible", timeout: 90_000 })
       .then(() => true).catch(() => false);
-    const frame = chatVisible;
-    await shot(page, "1-app-embed");
-    // The embedded URL must be reachable from the CLIENT: a loopback src is a
-    // blank pane for every device that is not this machine.
-    const clientReachable = Boolean(src && !/127\.0\.0\.1|localhost/.test(src));
-    record("embedded surface mounts inside the app shell over a client-reachable url", Boolean(frame) && chatVisible && clientReachable, {
-      src,
-      clientReachable,
+    // The shell's own nav entry proves the chat rendered INSIDE the shell, not
+    // on a bare page that happens to share the origin. The menu group holding
+    // it expands only after the pin list has loaded, so wait for it.
+    const inShell = await page.locator('a[href="/talk"]').first()
+      .waitFor({ state: "attached", timeout: 30_000 })
+      .then(() => true).catch(() => false);
+    // Mixed content is dropped before a request event fires, so also read the
+    // DOM for anything already pointed at a loopback host.
+    const loopbackRefs = await page.evaluate(({ src, origin }) => {
+      const re = new RegExp(src, "i");
+      return Array.from(document.querySelectorAll("[src], [href]"))
+        .map((el) => el.getAttribute("src") ?? el.getAttribute("href") ?? "")
+        .filter((v) => re.test(v) && v !== origin && !v.startsWith(`${origin}/`))
+        .slice(0, 5);
+    }, { src: LOOPBACK.source, origin: APP_ORIGIN });
+    await shot(page, "1-app-shell");
+    const clientReachable = loopbackRequests.length === 0 && loopbackRefs.length === 0;
+    record("Conversations mounts inside the app shell without handing the client a loopback url", chatVisible && inShell && clientReachable, {
+      url: talkUrl(threadId),
       chatVisible,
+      inShell,
+      clientReachable,
+      loopbackRequests: loopbackRequests.slice(0, 3),
+      loopbackRefs,
       consoleErrors: errors.filter((e) => !e.startsWith("REQFAIL")).slice(0, 3),
     });
     await ctx.close();
@@ -173,7 +224,7 @@ try {
     const page = await ctx.newPage();
     const errors = [];
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text().slice(0, 160)); });
-    await page.goto(`${WEB_ORIGIN}/?thread=${encodeURIComponent(mainThread)}`, { waitUntil: "domcontentloaded" });
+    await page.goto(talkUrl(mainThread), { waitUntil: "domcontentloaded" });
     await page.locator(".cc-input").waitFor({ state: "visible", timeout: 30_000 });
     const baseTwo = await messageCount(mainThread);
     await send(page, "Reply with exactly: desktop turn ok");
@@ -194,7 +245,7 @@ try {
   {
     const ctx = await desktop();
     const page = await ctx.newPage();
-    await page.goto(`${WEB_ORIGIN}/?thread=${encodeURIComponent(mainThread)}`, { waitUntil: "domcontentloaded" });
+    await page.goto(talkUrl(mainThread), { waitUntil: "domcontentloaded" });
     await page.locator(".cc-input").waitFor({ state: "visible", timeout: 30_000 });
     const baseThree = await messageCount(mainThread);
     await send(page, "Run `cksum /etc/os-release` in the shell and tell me the number.");
@@ -236,55 +287,83 @@ try {
     await ctx.close();
   }
 
-  // ── 4. restart continuity: the fitting dies mid-conversation ─────────────
+  // ── 4. restart continuity: the app dies mid-conversation ─────────────────
   {
-    const before = await threadOf(mainThread);
-    const messagesBefore = (before.thread.messages ?? []).length;
-    const eventsBefore = (before.thread.sessionEvents ?? []).length;
-    const sessionsBefore = before.thread.sessionIds ?? [];
+    const name = "history backfills after a real app restart and the session continues";
+    if (!RESTART_CMD) {
+      skip(name, "GARRISON_RESTART_CMD unset - Conversations runs inside the app, so restarting it is an operator command this suite will not guess");
+    } else {
+      const before = await threadOf(mainThread);
+      const messagesBefore = (before.thread.messages ?? []).length;
+      const eventsBefore = (before.thread.sessionEvents ?? []).length;
+      const sessionsBefore = before.thread.sessionIds ?? [];
+      const pidBefore = (await healthOf())?.pid ?? null;
 
-    const restart = await fetch(`${LOCAL_APP}/api/fittings/web-channel-default/restart`, { method: "POST" })
-      .then((r) => r.json()).catch((e) => ({ error: String(e) }));
-    // Wait for the fitting to answer again on its own port.
-    let healthy = false;
-    for (let i = 0; i < 120; i += 1) {
-      try {
-        const r = await fetch(`${LOCAL_WEB}/api/health`);
-        if (r.ok) { healthy = true; break; }
-      } catch { /* still down */ }
-      await sleep(500);
+      // The command owns the restart end to end (a reload script waits for the
+      // port itself; a service manager returns once the unit is up). Its output
+      // streams to this terminal because a redeploy can run for minutes.
+      const startedAt = Date.now();
+      const run = spawnSync(RESTART_CMD, {
+        shell: true,
+        cwd: REPO,
+        encoding: "utf8",
+        stdio: ["ignore", "inherit", "pipe"],
+        timeout: 15 * 60_000,
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      const restartExit = run.status;
+      const restartStderr = restartExit === 0 ? undefined : (run.error?.message ?? run.stderr ?? "").slice(-400);
+      // Wait for the app to answer again on its loopback port.
+      let health = null;
+      for (let i = 0; i < 240; i += 1) {
+        health = await healthOf();
+        if (health) break;
+        await sleep(500);
+      }
+      const healthy = Boolean(health);
+      // A restart that did not replace the process proves nothing about
+      // continuity - the health pid is the one fact that says it happened.
+      const pidChanged = pidBefore !== null && typeof health?.pid === "number" && health.pid !== pidBefore;
+
+      const ctx = await desktop();
+      const page = await ctx.newPage();
+      await page.goto(talkUrl(mainThread), { waitUntil: "domcontentloaded" });
+      await page.locator(".cc-input").waitFor({ state: "visible", timeout: 60_000 });
+      const backfilled = await page.locator(".cc-scroll").textContent();
+      await shot(page, "4a-after-restart-backfill");
+
+      await send(page, "In one sentence: what did I ask you first in this conversation?");
+      const thread = await settled(mainThread, { minMessages: messagesBefore + 2 });
+      await shot(page, "4b-after-restart-continued");
+      const after = await threadOf(mainThread);
+      record(name, Boolean(
+        restartExit === 0 &&
+        healthy &&
+        pidChanged &&
+        backfilled?.includes("desktop turn ok") &&
+        (after.thread.messages ?? []).length > messagesBefore &&
+        /desktop turn ok/i.test(lastAssistant(thread)) &&
+        terminalsOf(thread).at(-1) === "completed"
+      ), {
+        restartCmd: RESTART_CMD,
+        restartExit,
+        restartStderr,
+        restartMs: Date.now() - startedAt,
+        healthy,
+        pidBefore,
+        pidAfter: health?.pid ?? null,
+        pidChanged,
+        messagesBefore,
+        messagesAfter: (after.thread.messages ?? []).length,
+        eventsBefore,
+        eventsAfter: (after.thread.sessionEvents ?? []).length,
+        sessionsBefore: sessionsBefore.length,
+        sessionsAfter: (after.thread.sessionIds ?? []).length,
+        recalled: lastAssistant(thread).slice(0, 120),
+        recalledTheFirstAsk: /desktop turn ok/i.test(lastAssistant(thread)),
+      });
+      await ctx.close();
     }
-
-    const ctx = await desktop();
-    const page = await ctx.newPage();
-    await page.goto(`${WEB_ORIGIN}/?thread=${encodeURIComponent(mainThread)}`, { waitUntil: "domcontentloaded" });
-    await page.locator(".cc-input").waitFor({ state: "visible", timeout: 60_000 });
-    const backfilled = await page.locator(".cc-scroll").textContent();
-    await shot(page, "4a-after-restart-backfill");
-
-    await send(page, "In one sentence: what did I ask you first in this conversation?");
-    const thread = await settled(mainThread, { minMessages: messagesBefore + 2 });
-    await shot(page, "4b-after-restart-continued");
-    const after = await threadOf(mainThread);
-    record("history backfills after a real fitting restart and the session continues", Boolean(
-      healthy &&
-      backfilled?.includes("desktop turn ok") &&
-      (after.thread.messages ?? []).length > messagesBefore &&
-      /desktop turn ok/i.test(lastAssistant(thread)) &&
-      terminalsOf(thread).at(-1) === "completed"
-    ), {
-      restartOk: Boolean(restart?.ok ?? restart?.status ?? healthy),
-      healthy,
-      messagesBefore,
-      messagesAfter: (after.thread.messages ?? []).length,
-      eventsBefore,
-      eventsAfter: (after.thread.sessionEvents ?? []).length,
-      sessionsBefore: sessionsBefore.length,
-      sessionsAfter: (after.thread.sessionIds ?? []).length,
-      recalled: lastAssistant(thread).slice(0, 120),
-      recalledTheFirstAsk: /desktop turn ok/i.test(lastAssistant(thread)),
-    });
-    await ctx.close();
   }
 
   // ── 5. two tabs on one thread ────────────────────────────────────────────
@@ -296,7 +375,7 @@ try {
     const pageA = await ctxA.newPage();
     const pageB = await ctxB.newPage();
     for (const p of [pageA, pageB]) {
-      await p.goto(`${WEB_ORIGIN}/?thread=${encodeURIComponent(threadId)}`, { waitUntil: "domcontentloaded" });
+      await p.goto(talkUrl(threadId), { waitUntil: "domcontentloaded" });
       await p.locator(".cc-input").waitFor({ state: "visible", timeout: 30_000 });
     }
     await send(pageA, "Reply with exactly: two tab ok");
@@ -321,7 +400,7 @@ try {
     createdThreads.push(threadId);
     const ctx = await desktop();
     const page = await ctx.newPage();
-    await page.goto(`${WEB_ORIGIN}/?thread=${encodeURIComponent(threadId)}`, { waitUntil: "domcontentloaded" });
+    await page.goto(talkUrl(threadId), { waitUntil: "domcontentloaded" });
     await page.locator(".cc-input").waitFor({ state: "visible", timeout: 30_000 });
     await send(page, "This should fail to route.");
     // The gateway refuses an unknown target and falls back to the composition's
@@ -358,7 +437,7 @@ try {
     createdThreads.push(threadId);
     const ctx = await phone();
     const page = await ctx.newPage();
-    await page.goto(`${WEB_ORIGIN}/?thread=${encodeURIComponent(threadId)}`, { waitUntil: "domcontentloaded" });
+    await page.goto(talkUrl(threadId), { waitUntil: "domcontentloaded" });
     await page.locator(".cc-input").waitFor({ state: "visible", timeout: 30_000 });
     const hittable = await page.evaluate(() => {
       const at = (sel) => {
@@ -385,14 +464,16 @@ try {
 }
 
 const summary = {
-  webOrigin: WEB_ORIGIN,
   appOrigin: APP_ORIGIN,
+  localApp: LOCAL_APP,
+  restartCmd: RESTART_CMD,
   threads: createdThreads,
-  passed: results.filter((r) => r.ok).length,
-  failed: results.filter((r) => !r.ok).length,
+  passed: results.filter((r) => r.ok === true).length,
+  failed: results.filter((r) => r.ok === false).length,
+  skipped: results.filter((r) => r.skipped).length,
   results,
 };
 fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(summary, null, 2));
-console.log(`\n${summary.passed} passed, ${summary.failed} failed`);
+console.log(`\n${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped`);
 console.log(`threads to clean up: ${createdThreads.join(" ")}`);
 if (summary.failed > 0) process.exitCode = 1;

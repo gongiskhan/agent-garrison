@@ -269,7 +269,18 @@ describe("capture-service transcription", () => {
   it("leaves an idle session alone - silence is not a fault", async () => {
     const { handle, mock } = await boot({ transcribeMuteTimeoutMs: 200 }, { mute: true });
     (handle.transcriber as { openSession: (id: string) => boolean }).openSession("01DGIDLESESSION1");
-    await new Promise((r) => setTimeout(r, 1200));
+    // Wait for the socket to actually reach the mock before starting the clock:
+    // under the full parallel vitest run the connect alone has been seen to
+    // take most of a second, and judging the watchdog before it is even armed
+    // measures machine load, not the watchdog.
+    const connectedBy = Date.now() + 5000;
+    while (mock.state.connections < 1 && Date.now() < connectedBy) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(mock.state.connections).toBe(1);
+    // The watchdog ticks at max(1000, muteMs / 4) = 1000ms; give it one full
+    // tick plus margin with the session open and nothing fed.
+    await new Promise((r) => setTimeout(r, 1300));
     expect(handle.counters.read().transcribe_mute_reconnects ?? 0).toBe(0);
     expect(mock.state.connections).toBe(1);
   });

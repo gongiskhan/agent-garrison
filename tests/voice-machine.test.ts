@@ -7,7 +7,7 @@ import {
   type VoiceCtx,
   type VoiceEvent,
   type VoiceEffect
-} from "../fittings/seed/web-channel-default/ui/voice-machine";
+} from "../packages/talk/ui/voice-machine";
 
 // S6b / #28 - unit tests for the pure conversation-mode voice state machine.
 // The reducer is pure (ctx, event) -> (nextCtx, effects), so every gating
@@ -79,11 +79,35 @@ describe("PTT release", () => {
     expect(send && send.type === "send" && send.text).toBe("open the vault");
   });
 
-  it("RELEASE_PTT with no meaningful transcript closes capture but does NOT send", () => {
+  it("RELEASE_PTT with no transcript yet finishes the clip and waits, still listening", () => {
     const held = voiceReduce(initialCtx(), { type: "START_PTT" }).ctx;
     const { ctx, effects } = voiceReduce(held, { type: "RELEASE_PTT" });
+    expect(ctx.state).toBe("listening");
+    expect(ctx.mode).toBe("ptt");
+    expect(ctx.pttHeld).toBe(false);
+    expect(effectTypes(effects)).toEqual(["finish-capture"]);
+  });
+
+  it("after release, UTTERANCE_END with the transcript sends, closes capture, returns to idle", () => {
+    const released = drive(initialCtx(), [{ type: "START_PTT" }, { type: "RELEASE_PTT" }]).ctx;
+    const { ctx, effects } = voiceReduce(released, { type: "UTTERANCE_END", transcript: "open the vault" });
+    expect(ctx.state).toBe("idle");
+    expect(ctx.lastSent).toBe("open the vault");
+    expect(effectTypes(effects)).toEqual(["close-capture", "send"]);
+  });
+
+  it("after release, an empty transcription closes capture but does NOT send", () => {
+    const released = drive(initialCtx(), [{ type: "START_PTT" }, { type: "RELEASE_PTT" }]).ctx;
+    const { ctx, effects } = voiceReduce(released, { type: "UTTERANCE_END", transcript: "" });
     expect(ctx.state).toBe("idle");
     expect(effectTypes(effects)).toEqual(["close-capture"]);
+  });
+
+  it("a second RELEASE_PTT while transcribing is ignored", () => {
+    const released = drive(initialCtx(), [{ type: "START_PTT" }, { type: "RELEASE_PTT" }]).ctx;
+    const { ctx, effects } = voiceReduce(released, { type: "RELEASE_PTT" });
+    expect(ctx).toBe(released);
+    expect(effects).toEqual([]);
   });
 
   it("RELEASE_PTT is ignored outside ptt mode", () => {
@@ -123,10 +147,10 @@ describe("conversation: silence sends", () => {
     expect(effects).toEqual([]);
   });
 
-  it("UTTERANCE_END is a no-op in PTT mode", () => {
+  it("UTTERANCE_END while the PTT button is still held is a no-op", () => {
     const held = voiceReduce(initialCtx(), { type: "START_PTT" }).ctx;
     const { ctx, effects } = voiceReduce(held, { type: "UTTERANCE_END", transcript: "hi there" });
-    expect(ctx.state).toBe("listening"); // unchanged; ptt sends on release only
+    expect(ctx.state).toBe("listening"); // unchanged; ptt sends after release only
     expect(effects).toEqual([]);
   });
 });

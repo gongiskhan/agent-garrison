@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { slugify, freshAutomationSlug, buildAutomationKickoff, buildAutomationDiscussUrl, buildDiscussParams } from "../fittings/seed/automations/lib/discuss.mjs";
 
-// H1 — chat-to-build authoring (reuses the Kanban Discuss -> web-channel handoff).
+// H1 - chat-to-build authoring (reuses the Kanban Discuss handoff, aimed at the
+// shell-hosted Conversations route).
 
 describe("discuss-automation handoff (H1)", () => {
   it("slugifies a name into a brief slug", () => {
@@ -66,9 +68,11 @@ describe("discuss-automation handoff (H1)", () => {
     expect(brief1).not.toContain("/automation.md");
   });
 
-  it("discuss URL targets a duty-pinned web thread with base64 context+kickoff", () => {
+  it("discuss URL targets a duty-pinned Conversations thread with base64 context+kickoff", () => {
     const url = buildAutomationDiscussUrl({ name: "Weekly Report" });
-    expect(url.startsWith("/embed/web-channel-default?")).toBe(true);
+    // The talk engine lives in the shell at /talk; an own-port channel embed is
+    // not a Discuss destination.
+    expect(url.startsWith("/talk?")).toBe(true);
     expect(url).toContain("source=discuss");
     const params = new URLSearchParams(url.split("?")[1]);
     // context decodes to JSON describing the automations source
@@ -78,5 +82,49 @@ describe("discuss-automation handoff (H1)", () => {
     // kickoff is persona-free; the host thread pins duty=discuss, level=1.
     const kickoff = Buffer.from(decodeURIComponent(params.get("kickoff")!), "base64").toString("utf8");
     expect(kickoff).toMatch(/^Let's design/);
+  });
+
+  // Conversations is a shell route, so the embedded UI cannot navigate there itself
+  // (a relative URL resolves against the automations own-port origin). It asks the
+  // shell over postMessage with the route contract, and the shell only honours
+  // routes it allow-lists. The three sides of that contract are pinned together so
+  // one cannot move without the others.
+  describe("Discuss opens the shell-hosted Conversations route", () => {
+    const seed = (rel: string) => readFileSync(new URL(`../fittings/seed/automations/${rel}`, import.meta.url), "utf8");
+
+    it("the server returns route + params, never a channel id, a 409, or a guessed port", () => {
+      const server = seed("scripts/server.mjs");
+      const handler = server.slice(server.indexOf('"/api/automations/discuss-url"'), server.indexOf('"/api/automations/plan-from-brief"'));
+      expect(handler).toContain('route: "/talk"');
+      expect(handler).toContain("GARRISON_APP_URL");
+      // The standalone page needs the path on its own to build the tailnet form.
+      expect(handler).toContain("const path = `/talk?${qs}`;");
+      expect(handler).not.toMatch(/127\.0\.0\.1:\d+/);
+      expect(handler).not.toContain("409");
+      expect(server).not.toContain("readWebChannelStatus");
+    });
+
+    it("the UI posts garrison:navigate-route to the top window and resolves the standalone target by page host", () => {
+      const html = seed("dist/index.html");
+      expect(html).toContain('window.top.postMessage({ type: "garrison:navigate-route", route: r.route, params: r.params }, "*")');
+      // The server's `url` is the loopback app address: right only when the page
+      // itself is on loopback. Anywhere else the app is at the page host's
+      // tailnet root, and handing the browser the loopback URL would be
+      // unreachable and mixed content.
+      expect(html).toContain('if (!here || here === "127.0.0.1" || here === "localhost") return r.url || "";');
+      expect(html).toContain("return r.path ? `https://${here}${r.path}` : \"\";");
+      expect(html).not.toContain("window.location.href = r.url");
+      expect(html).not.toContain("garrison:navigate-fitting");
+      expect(html).not.toContain("r.fittingId");
+    });
+
+    it("the shell embed page honours the route message only for allow-listed shell routes", () => {
+      const page = readFileSync(new URL("../src/app/embed/[fittingId]/page.tsx", import.meta.url), "utf8");
+      expect(page).toContain('data.type === "garrison:navigate-route"');
+      expect(page).toContain('new Set(["/talk"])');
+      expect(page).toContain("EMBED_SHELL_ROUTES.has(data.route)");
+      // The fitting contract stays as it was.
+      expect(page).toContain('data.type !== "garrison:navigate-fitting"');
+    });
   });
 });

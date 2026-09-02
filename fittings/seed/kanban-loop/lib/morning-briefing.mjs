@@ -24,6 +24,16 @@ function fittingUrl(fittingId, env = process.env) {
   }
 }
 
+// The Web thread's base. Conversations lives in the Garrison shell, whose
+// loopback base the runner projects into every fitting as GARRISON_APP_URL; its
+// HTTP API is the /api/* form deliverWeb already posts. The legacy own-port
+// web-channel fitting's status file (through the injected fittingUrlFn, so tests
+// stay deterministic) is the fallback for a process the runner did not start.
+function webChannelUrl(env, fittingUrlFn) {
+  const app = env.GARRISON_APP_URL?.trim().replace(/\/+$/, "");
+  return app || fittingUrlFn("web-channel-default");
+}
+
 export function isMorningBriefOccurrence(card) {
   return Boolean(card?.scheduleTemplateId && card?.scheduleSystemKey === MORNING_BRIEF_SYSTEM_KEY);
 }
@@ -149,7 +159,7 @@ async function deliverOmi(base, text, fetchImpl, idempotencyKey) {
 }
 
 async function deliverWeb(base, text, fetchImpl, idempotencyKey) {
-  if (!base) return { status: "degraded", detail: "Web channel is not running.", threadId: MORNING_BRIEF_WEB_THREAD };
+  if (!base) return { status: "degraded", detail: "No web channel base: GARRISON_APP_URL is unset and web-channel-default is not running.", threadId: MORNING_BRIEF_WEB_THREAD };
   try {
     await ensureThread(base, {
       id: MORNING_BRIEF_WEB_THREAD,
@@ -260,7 +270,7 @@ export async function deliverMorningBriefCompletion(root, cardOrId, {
   let web = delivery.web;
   if (!terminalReceipt(web)) {
     web = {
-      ...await deliverWeb(fittingUrlFn("web-channel-default"), webText, fetchImpl, webKey),
+      ...await deliverWeb(webChannelUrl(env, fittingUrlFn), webText, fetchImpl, webKey),
       idempotencyKey: webKey
     };
     if (typeof afterChannelDelivered === "function") {

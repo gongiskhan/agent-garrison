@@ -9,6 +9,7 @@
     ".": "./src/index.tsx",
     "./journal": "./src/journal.ts",
     "./transport": "./src/transport.ts",
+    "./voice": "./src/voice.ts",
     "./styles.css": "./src/claude-chat.css"
   },
   "peerDependencies": {

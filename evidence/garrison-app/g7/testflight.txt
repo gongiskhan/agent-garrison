@@ -1,0 +1,7 @@
+# TestFlight beta after G7 (native code changed: plugin seam + mock harness)
+
+workflow: gongiskhan/ios-thing garrison-ios.yml, lane=beta, garrison_ref=node/goncalos-macbook-pro
+garrison commit: 57129034
+run: https://github.com/gongiskhan/ios-thing/actions/runs/33638822766 (id 33638822766)
+started: 2026-09-02T13:56:20Z
+outcome: completed success at 2026-09-02T14:00:07Z

@@ -6,8 +6,8 @@
 //
 // Primary means: Omi direct notification to the pinned uid (per-day cap from
 // config; the OmiApi client retries 429/5xx internally). Degrade path (I9):
-// the web-channel PWA thread - the repo's mobile-reachable surface - used
-// whenever the Omi means is off, unconfigured, capped, or failing.
+// the Conversations thread on the Garrison app - the mobile-reachable surface
+// - used whenever the Omi means is off, unconfigured, capped, or failing.
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -48,11 +48,11 @@ export function renderTemplate(template, params = {}) {
 // /notify (an APNs push to the phone) and omi's push endpoint, so a test that
 // forgot to isolate its home would buzz the user for real. Naming a home
 // explicitly still exercises this path honestly.
-function underTestRunner(env) {
+export function underTestRunner(env) {
   return Boolean(env.VITEST || env.VITEST_WORKER_ID) || env.NODE_ENV === "test";
 }
 
-function statusFileUrl(fittingId, env = process.env) {
+export function statusFileUrl(fittingId, env = process.env) {
   try {
     if (!env.GARRISON_HOME?.trim() && underTestRunner(env)) return null;
     const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
@@ -61,6 +61,17 @@ function statusFileUrl(fittingId, env = process.env) {
   } catch {
     return null;
   }
+}
+
+// The Conversations host. The Garrison app serves the thread engine at /api/*
+// and the runner projects its loopback base as GARRISON_APP_URL; a node still
+// running the legacy web-channel fitting publishes that host's base through
+// its status file. Both hosts share one thread store, so exactly one is ever
+// posted to - the app whenever it is named.
+function conversationsBaseUrl(env = process.env) {
+  const app = env.GARRISON_APP_URL?.trim().replace(/\/+$/, "");
+  if (app) return app;
+  return statusFileUrl("web-channel-default", env);
 }
 
 // Deep links go to phones that are never on this box: pair the loopback board
@@ -181,13 +192,16 @@ export class Notifier {
     return { means, ok: false, error: result.error };
   }
 
-  // The degrade path: a message into the web-channel PWA thread (the
+  // The degrade path: a message into the Conversations thread on the app (the
   // mobile-reachable surface). Same thread-append contract this fitting also
-  // exposes for inbound system notifications.
+  // exposes for inbound system notifications; the /api/* paths are served by
+  // both hosts conversationsBaseUrl can name.
   async sendWebChannelFallback(message) {
     const means = "web-channel";
-    const base = statusFileUrl("web-channel-default", this.env);
-    if (!base) return { means, ok: false, skipped: "web channel not running" };
+    const base = conversationsBaseUrl(this.env);
+    if (!base) {
+      return { means, ok: false, skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting not running" };
+    }
     try {
       const ensured = await this.fetchImpl(`${base}/api/threads`, {
         method: "POST",

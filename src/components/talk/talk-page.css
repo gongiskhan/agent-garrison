@@ -1,0 +1,31 @@
+/* The /talk route hands @garrison/talk its host box: the shell's content column
+   is a min-height flex column, so the host needs an explicit viewport height for
+   the skin's `height: 100%` (and the sessions shell inside it) to resolve. The
+   skin itself is scoped under .talk-host (packages/talk/ui/styles.css), which is
+   what lets it load here without restyling the rest of the shell. */
+.talk-page {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+}
+.talk-page-loading {
+  width: 100%;
+  height: 100%;
+  background: var(--wc-olive-950, #141a15);
+}
+
+/* The shell's "+ New" control is position:fixed in the top-right corner of every
+   real route (AppShell's CompositionCreator). The conversation bar is the first
+   thing the talk skin puts there, so without clearance the control lands on the
+   bar's trailing chips. The skin already clears the shell-agnostic floating
+   sidebar toggle on the left the same way (padding-left: 50px under 900px);
+   the right-hand clearance is the shell's business, so it lives here, sized to
+   the trigger at each of its two breakpoints (globals.css .composition-creator). */
+.talk-page .wc-backbar,
+.talk-page .cc-conv-head { padding-right: 112px; }
+@media (max-width: 560px) {
+  /* Icon-only trigger, 10px from the edge, measured at 77px wide on a 390px
+     viewport (the "New" label survives as a ::after). */
+  .talk-page .wc-backbar,
+  .talk-page .cc-conv-head { padding-right: 96px; }
+}

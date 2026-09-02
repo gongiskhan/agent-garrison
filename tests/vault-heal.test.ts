@@ -17,8 +17,10 @@ import {
   spawnRecordPath,
   startOwnPortFitting,
   stopOwnPortFitting,
+  vaultEnvForEntry,
   type SpawnRecord
 } from "@/lib/own-port-lifecycle";
+import { resetStateClient } from "@/lib/state-client";
 import { ROOT_DIR } from "@/lib/paths";
 import type { LibraryEntry } from "@/lib/types";
 
@@ -32,17 +34,22 @@ import type { LibraryEntry } from "@/lib/types";
 // Sandbox pattern: real processes under a
 // GARRISON_HOME tmp dir, fixture fittings inside the repo tree (start paths
 // must live under ROOT_DIR), fixture start scripts honour GARRISON_HOME. The
-// real deepgram-voice is never spawned (it writes to the real ~/.garrison and
-// binds 27085); the fixture proves env delivery by writing a probe env var to
+// real capture-service is never spawned (it writes to the real ~/.garrison and
+// binds 8097); the fixture proves env delivery by writing a probe env var to
 // a capture file.
 
 const PROBE_KEY = "HEAL_PROBE_KEY";
 const PROBE_VALUE = "test-secret-value";
 
+// The vault reads as OPEN unless a test flips `vaultUnlocked`: the spawn record's
+// secretsDelivered is derived from the vault state at spawn time, not from the
+// env being non-empty (the runner projects config with the vault locked too).
+let vaultUnlocked = true;
 vi.mock("@/lib/vault", () => ({
   scopedSecrets: vi.fn(async (scope: string[]) =>
     scope.includes("HEAL_PROBE_KEY") ? [{ key: "HEAL_PROBE_KEY", value: "test-secret-value" }] : []
-  )
+  ),
+  vaultStatus: vi.fn(() => ({ unlocked: vaultUnlocked }))
 }));
 vi.mock("@/lib/vault-audit", () => ({
   recordVaultAccess: vi.fn(async () => {})
@@ -130,7 +137,14 @@ function makeEntry(id: string, fittingDir: string, consumesVault: boolean): Libr
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function waitFor(predicate: () => boolean, what: string, timeoutMs = 8000): Promise<void> {
+// Every test here spawns real child processes and polls for their status
+// files. Alone a wait resolves in well under a second; under the full parallel
+// vitest run (hundreds of files, several launching Chromium) the pid-mismatch
+// test was observed missing the old 8s bound, so the per-wait ceiling and the
+// per-test budget are both wide enough that only a genuinely stuck child fails.
+vi.setConfig({ testTimeout: 60000 });
+
+async function waitFor(predicate: () => boolean, what: string, timeoutMs = 15000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -219,6 +233,7 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
   beforeEach(() => {
     sandbox = mkdtempSync(path.join(tmpdir(), "garrison-vault-heal-"));
     process.env.GARRISON_HOME = sandbox;
+    vaultUnlocked = true;
   });
 
   afterEach(async () => {
@@ -278,12 +293,93 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
     expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
   });
 
-  it("writes secretsDelivered true when the env is non-empty, or when vault is not consumed", async () => {
+  it("an enrolled node whose secret authority is unreachable spawns keyless and says so, whatever the local vault claims", async () => {
+    // The mesh leaves every peer's local vault empty, so "the local vault is
+    // unlocked" proves nothing about the env: only the authority answering
+    // does. Point enrollment at a closed port, compose the env the way the
+    // runner does (vaultEnvForEntry), then spawn with the non-secret projection
+    // it would still carry - the record must not claim delivery.
+    const savedUrl = process.env.GARRISON_STATE_URL;
+    const savedToken = process.env.GARRISON_STATE_TOKEN;
+    process.env.GARRISON_STATE_URL = "http://127.0.0.1:1";
+    process.env.GARRISON_STATE_TOKEN = "unreachable-authority";
+    resetStateClient();
+    try {
+      const env = await vaultEnvForEntry(vaultEntry);
+      expect(env).toEqual({});
+      await startRunning(vaultEntry, { GARRISON_GATEWAY_URL: "http://127.0.0.1:0" });
+      expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).secretsDelivered).toBe(false);
+    } finally {
+      if (savedUrl === undefined) delete process.env.GARRISON_STATE_URL;
+      else process.env.GARRISON_STATE_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.GARRISON_STATE_TOKEN;
+      else process.env.GARRISON_STATE_TOKEN = savedToken;
+      resetStateClient();
+    }
+  });
+
+  it("writes secretsDelivered true when the env is non-empty under an open vault, or when vault is not consumed", async () => {
     await startRunning(vaultEntry, { [PROBE_KEY]: PROBE_VALUE });
     expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).secretsDelivered).toBe(true);
 
     await startRunning(plainEntry, {});
     expect(readJson<SpawnRecord>(recordFile(PLAIN_ID)).secretsDelivered).toBe(true);
+  });
+
+  it("a non-empty env under a LOCKED vault is still keyless: secretsDelivered false, healed on unlock", async () => {
+    // The runner projects GARRISON_GATEWAY_URL / composition config whether or
+    // not the vault is open. Before this the record read that env as "secrets
+    // delivered" and the post-unlock heal never fired for exactly the fitting
+    // it exists for.
+    vaultUnlocked = false;
+    const keylessPid = await startRunning(vaultEntry, { GARRISON_GATEWAY_URL: "http://127.0.0.1:0" });
+    expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).secretsDelivered).toBe(false);
+    await waitFor(() => existsSync(captureFile(VAULT_ID)), "keyless env capture");
+    expect(readJson<{ probe: string | null }>(captureFile(VAULT_ID)).probe).toBeNull();
+
+    vaultUnlocked = true;
+    const summary = await healVaultConsumingFittings({
+      library: [vaultEntry],
+      envFor: async () => ({ GARRISON_GATEWAY_URL: "http://127.0.0.1:0", [PROBE_KEY]: PROBE_VALUE })
+    });
+    expect(summary.healed).toEqual([VAULT_ID]);
+    await waitFor(() => !alive(keylessPid), "keyless process to die");
+    await waitFor(() => {
+      const status = readJsonSafe<{ pid: number }>(statusFile(VAULT_ID));
+      return status !== null && status.pid !== keylessPid;
+    }, "healed status file");
+    track(readJson<{ pid: number }>(statusFile(VAULT_ID)).pid);
+    await waitFor(
+      () => readJsonSafe<{ probe: string | null }>(captureFile(VAULT_ID))?.probe === PROBE_VALUE,
+      "healed env capture"
+    );
+    expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).secretsDelivered).toBe(true);
+  });
+
+  it("healVaultConsumingFittings hands the healed process the caller's env projection", async () => {
+    // The unlock route passes the runner's desired env (gateway URL, config,
+    // vault); a heal that fell back to secrets alone would demote the fitting.
+    const keylessPid = await startRunning(vaultEntry, {});
+    const seen: string[] = [];
+    const summary = await healVaultConsumingFittings({
+      library: [vaultEntry, plainEntry],
+      envFor: async (entry) => {
+        seen.push(entry.id);
+        return { [PROBE_KEY]: PROBE_VALUE };
+      }
+    });
+    expect(seen).toEqual([VAULT_ID]);
+    expect(summary.healed).toEqual([VAULT_ID]);
+    await waitFor(() => !alive(keylessPid), "keyless process to die");
+    await waitFor(() => {
+      const status = readJsonSafe<{ pid: number }>(statusFile(VAULT_ID));
+      return status !== null && status.pid !== keylessPid;
+    }, "healed status file");
+    track(readJson<{ pid: number }>(statusFile(VAULT_ID)).pid);
+    await waitFor(
+      () => readJsonSafe<{ probe: string | null }>(captureFile(VAULT_ID))?.probe === PROBE_VALUE,
+      "healed env capture"
+    );
   });
 
   it("stop removes the spawn record", async () => {
@@ -529,12 +625,21 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
     const keylessPid = await startRunning(vaultEntry, {});
     const plainPid = await startRunning(plainEntry, {});
 
+    // envFor stands in for the secret source: it must be asked ONLY about the
+    // fitting the heal is going to respawn. Resolving (and auditing) secrets
+    // for a stopped fitting would claim a delivery that never happened.
+    const askedFor: string[] = [];
     const summary = await healVaultConsumingFittings({
-      library: [vaultEntry, stoppedEntry, plainEntry]
+      library: [vaultEntry, stoppedEntry, plainEntry],
+      envFor: async (entry) => {
+        askedFor.push(entry.id);
+        return { [PROBE_KEY]: PROBE_VALUE };
+      }
     });
     expect(summary.healed).toEqual([VAULT_ID]);
     expect(summary.skipped).toEqual([STOPPED_ID]);
     expect(summary.failed).toEqual([]);
+    expect(askedFor).toEqual([VAULT_ID]);
 
     await waitFor(() => !alive(keylessPid), "keyless process to die");
     await waitFor(() => {
@@ -613,9 +718,9 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
       })
     );
     writeFileSync(
-      path.join(uiDir, "spawn", "deepgram-voice.json"),
+      path.join(uiDir, "spawn", "capture-service.json"),
       JSON.stringify({
-        fittingId: "deepgram-voice",
+        fittingId: "capture-service",
         pid: 54321,
         startedAt: new Date().toISOString(),
         secretsDelivered: false

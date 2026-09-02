@@ -253,6 +253,20 @@ function withUtf8Locale(env) {
   return { ...env, LANG: UTF8_LOCALE, LC_CTYPE: UTF8_LOCALE };
 }
 
+// The vault secrets this fitting's secret_scope (apm.yml) delivers into its
+// process env are for the SERVER - the voice bridge presents CAPTURE_TOKEN on
+// its upstream hop. A shell or a Claude Code session the user opens in a tab
+// must not inherit them: `env` in a terminal would print the token, and every
+// child of that shell would carry it. tests/dev-env-pty-env.test.ts keeps this
+// list in lockstep with the manifest's secret_scope.
+export const PTY_ENV_DENY = ["CAPTURE_TOKEN"];
+
+export function ptySpawnEnv(env = process.env) {
+  const out = withUtf8Locale({ ...env, TERM: "xterm-256color" });
+  for (const key of PTY_ENV_DENY) delete out[key];
+  return out;
+}
+
 export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollbackB64, restoredMarker }) {
   const id = ptyIdFor(sessionId, role);
   const existing = ptys.get(id);
@@ -265,7 +279,7 @@ export function spawnPty({ sessionId, role, cwd, shell, command, restoredScrollb
   const finalShell = shell || defaultShell;
   const finalCwd = cwd && existsSync(cwd) ? cwd : process.env.HOME || "/tmp";
 
-  const spawnEnv = withUtf8Locale({ ...process.env, TERM: "xterm-256color" });
+  const spawnEnv = ptySpawnEnv();
   // tmux panes run under the (possibly already-running) tmux server's
   // environment, which may predate this locale fix, so bake the locale straight
   // into the create command instead of relying on env inheritance.

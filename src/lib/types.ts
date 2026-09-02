@@ -313,6 +313,9 @@ export interface ConnectorSpec {
   actions: ConnectorAction[];
   triggers?: ConnectorTrigger[];
   oauth?: ConnectorOAuth;
+  // The subset of the Fitting's secret_scope a connector CALL receives; absent
+  // = the whole scope (see connectorSecretScope in metadata.ts).
+  secrets?: string[];
 }
 
 // ---------------------------------------------------------------------------

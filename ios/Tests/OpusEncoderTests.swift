@@ -43,7 +43,7 @@ final class OpusEncoderTests: XCTestCase {
         }
         XCTAssertGreaterThan(encoder.gain, 3, "quiet speech should raise the scene gain")
         XCTAssertLessThanOrEqual(encoder.gain, 8.01, "never past the +18 dB cap")
-        // Sub-speech input (noise floor) must not move the gain at all — the
+        // Sub-speech input (noise floor) must not move the gain at all - the
         // 2026-08-14 wall-of-noise regression was exactly this pumping.
         let before = encoder.gain
         for _ in 0 ..< 10 {

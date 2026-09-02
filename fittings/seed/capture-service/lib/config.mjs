@@ -12,7 +12,9 @@ import path from "node:path";
 
 export const FITTING_ID = "capture-service";
 export const CHANNEL_ID = "companion";
-export const DEFAULT_PORT = 7097; // base-family (dev); prod arrives shifted via GARRISON_CAPTURESERVICE_PORT
+// The committed 8xxx-family map (2026-08-24 mesh re-axis): node at offset 0
+// serves this port as-is; sandboxes arrive shifted via GARRISON_CAPTURESERVICE_PORT.
+export const DEFAULT_PORT = 8097;
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set) IS
 // the .garrison root, else ~/.garrison. Sandboxed tests set it so state and
@@ -43,6 +45,12 @@ function parseBool(raw, fallback = false) {
 function parseIntOr(raw, fallback) {
   const n = Number.parseInt(String(raw ?? "").trim(), 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// For knobs where 0 is a meaningful value ("off"), not a typo to paper over.
+function parseNonNegativeIntOr(raw, fallback) {
+  const n = Number.parseInt(String(raw ?? "").trim(), 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
 function parseCsv(raw) {
@@ -76,7 +84,22 @@ export function resolveGatewayUrl(env = process.env) {
   return null;
 }
 
+// The REST half of Deepgram (POST /v1/listen for a whole clip, POST /v1/speak
+// for Aura) lives on the same host as the live socket, so the ONE test hook
+// GARRISON_CAPTURESERVICE_DG_URL (a wss:// base) redirects both: the scheme
+// is flipped to http(s) and every other part of the URL is kept, letting a
+// sandboxed run point the live lane and the REST paths at a single mock.
+export const DEEPGRAM_REST_BASE = "https://api.deepgram.com";
+
+export function deepgramRestBase(dgBaseUrl) {
+  const raw = String(dgBaseUrl ?? "").trim().replace(/\/$/, "");
+  if (!raw) return DEEPGRAM_REST_BASE;
+  return raw.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+}
+
 export function loadConfig(env = process.env) {
+  const dgBaseUrl = (env.GARRISON_CAPTURESERVICE_DG_URL || "").trim() || null;
+  const sttLanguage = (env.GARRISON_CAPTURESERVICE_STT_LANGUAGE || "").trim() || "pt";
   return {
     port: parseIntOr(env.GARRISON_CAPTURESERVICE_PORT, DEFAULT_PORT),
     bindHost:
@@ -122,7 +145,12 @@ export function loadConfig(env = process.env) {
     // packets pinned to pt transcribe near-perfectly. English words inside a
     // PT-pinned stream still come out usable (helped by stt_keyterms).
     sttModel: (env.GARRISON_CAPTURESERVICE_STT_MODEL || "").trim() || "nova-3",
-    sttLanguage: (env.GARRISON_CAPTURESERVICE_STT_LANGUAGE || "").trim() || "pt",
+    sttLanguage,
+    // Language for the whole-clip REST lane (POST /stt: the browser's
+    // push-to-talk, the phone's clip fallback, automations). Empty = follow
+    // stt_language, so the one pin above covers both lanes unless a caller
+    // deliberately splits them.
+    sttRestLanguage: (env.GARRISON_CAPTURESERVICE_STT_REST_LANGUAGE || "").trim() || sttLanguage,
     // Keyterm prompting (nova-3): lifts the wake word from conf ~0.74 to
     // 0.99-1.0 on real captures and rescues embedded English product words.
     sttKeyterms: (() => {
@@ -142,6 +170,18 @@ export function loadConfig(env = process.env) {
     // unspoken pt-PT anchors are the accent fix.
     ttsModel: (env.GARRISON_CAPTURESERVICE_TTS_MODEL || "").trim() || "eleven_multilingual_v2",
     ttsCacheMaxClips: parseIntOr(env.GARRISON_CAPTURESERVICE_TTS_CACHE_MAX_CLIPS, 500),
+    // Which engine renders the clip. "auto" prefers ElevenLabs (the accent
+    // work above) when its key is sealed, else Deepgram Aura when
+    // DEEPGRAM_API_KEY is, else no TTS at all - the phone keeps its own voice
+    // and the browser hides the speaker. Resolution lives in tts.mjs.
+    ttsBackend: (() => {
+      const v = (env.GARRISON_CAPTURESERVICE_TTS_BACKEND || "").trim().toLowerCase();
+      return v === "elevenlabs" || v === "deepgram" ? v : "auto";
+    })(),
+    // Aura voice for the Deepgram backend. The model IS the voice there; Aura's
+    // Portuguese coverage is Deepgram's, not ours (ELEVENLABS_API_KEY is the
+    // credential that buys pt-PT read-aloud).
+    ttsDeepgramModel: (env.GARRISON_CAPTURESERVICE_TTS_DEEPGRAM_MODEL || "").trim() || "aura-asteria-en",
     // The two spoken cues ("Sim?" at the wake word, "Ok." when the window
     // closes). OFF by default like every other pipe (I9); the composition turns
     // it on. With it off the wearer gets exactly today's haptics and silence.
@@ -206,12 +246,13 @@ export function loadConfig(env = process.env) {
     // Generous on purpose - Deepgram is legitimately silent through a quiet
     // room, and the KeepAlive we send when audio goes quiet means a healthy far
     // end is never mute for minutes. 0 disables.
-    transcribeMuteTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_TRANSCRIBE_MUTE_TIMEOUT_MS, 120000),
+    transcribeMuteTimeoutMs: parseNonNegativeIntOr(env.GARRISON_CAPTURESERVICE_TRANSCRIBE_MUTE_TIMEOUT_MS, 120000),
     // Test hooks (omi's OMI_API_BASE_URL precedent): redirect the live STT
-    // socket / the APNs gateway to local mocks so sandboxed E2E runs never
-    // need real keys. Env-only, never in config_schema — production always
-    // talks to the real endpoints.
-    dgBaseUrl: (env.GARRISON_CAPTURESERVICE_DG_URL || "").trim() || null,
+    // socket (and, scheme-flipped, the REST clip lane) / the APNs gateway to
+    // local mocks so sandboxed E2E runs never need real keys. Env-only, never
+    // in config_schema - production always talks to the real endpoints.
+    dgBaseUrl,
+    dgRestBaseUrl: deepgramRestBase(dgBaseUrl),
     apnsBaseUrl: (env.GARRISON_CAPTURESERVICE_APNS_URL || "").trim() || null,
 
     // Classification pin (the 82-second lesson) and delegation budget — same
@@ -251,7 +292,7 @@ export function loadConfig(env = process.env) {
     wakeFollowupMaxRounds: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_MAX_ROUNDS, 3),
     // "Ainda estou a tratar disso." while a delegated turn runs - spoken only,
     // never pushed. 0 disables.
-    wakeProgressIntervalMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_PROGRESS_INTERVAL_MS, 60000),
+    wakeProgressIntervalMs: parseNonNegativeIntOr(env.GARRISON_CAPTURESERVICE_WAKE_PROGRESS_INTERVAL_MS, 60000),
     // Say "Não percebi - repete?" when a wake window closes with nothing
     // usable, rather than leaving the wearer in silence after two cues.
     wakeUnheardEnabled: parseBool(env.GARRISON_CAPTURESERVICE_WAKE_UNHEARD_ENABLED, true),
@@ -264,7 +305,7 @@ export function loadConfig(env = process.env) {
     // The revision pass (byte-identical wake module): keep listening after a
     // card is created for a spoken correction; one model call, once, at the
     // end. 0 disables.
-    wakeReviseAfterMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REVISE_AFTER_MS, 600000),
+    wakeReviseAfterMs: parseNonNegativeIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REVISE_AFTER_MS, 600000),
     wakeReviseMaxSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REVISE_MAX_SEGMENTS, 50),
 
     // Outbound push (M5)
@@ -280,6 +321,14 @@ export function loadConfig(env = process.env) {
 
     // Session lifecycle (M1)
     sessionIdleTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SESSION_IDLE_TIMEOUT_MS, 300000),
+    // Text sessions (D24): a forwarded segment stream (omi) with no new
+    // segments for this long is closed. Shorter than the media idle timeout on
+    // purpose - there is no socket to keep warm and nothing to resume.
+    textSessionIdleMs: parseIntOr(env.GARRISON_CAPTURESERVICE_TEXT_SESSION_IDLE_MS, 120000),
+    // The active-conversation window (D25): how long after a delegate reply
+    // the next spoken request resumes that gateway session, and how long an
+    // explicit pin through /capture/conversation/active lasts.
+    activeConversationWindowMs: parseNonNegativeIntOr(env.GARRISON_CAPTURESERVICE_ACTIVE_CONVERSATION_WINDOW_MS, 300000),
 
     // Triage wait-for-context floor (M4): a session ending under this many
     // transcript words is held as a thin fragment, not carded alone.

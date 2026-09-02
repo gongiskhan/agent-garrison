@@ -193,14 +193,6 @@ final class PendantController: ObservableObject {
                 guard let self else { return }
                 self.speechSink.onReceipt = { receipt in
                     uploader.sendSpokenReceipt(ackId: receipt.ackId, ok: receipt.ok, reason: receipt.reason)
-                    AckLog.shared.append(AckLogEntry(
-                        id: receipt.ackId,
-                        at: Date(),
-                        kind: ack.kind,
-                        severity: ack.severity,
-                        text: ack.text,
-                        via: receipt.ok ? "spoken" : "dropped:\(receipt.reason ?? "unknown")"
-                    ))
                 }
                 self.speechSink.handle(ack)
             }

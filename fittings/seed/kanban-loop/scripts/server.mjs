@@ -1040,13 +1040,18 @@ export function confinePath(candidate, roots) {
   return null;
 }
 
-// A card id MUST be a ULID (26 Crockford base32 chars, excludes I/L/O/U). The
-// router matches `/cards/([^/]+)` on the still-ENCODED segment, so a decoded id
-// like `..%2f..%2fsecret` would otherwise reach path.join(root,"cards",id,...) and
-// traverse out of the board root (read via loadCard, write via saveCardCAS). This
-// guard rejects any id that is not a clean ULID before it touches the filesystem.
+// A card id MUST be a clean path-safe token. The router matches `/cards/([^/]+)`
+// on the still-ENCODED segment, so a decoded id like `..%2f..%2fsecret` would
+// otherwise reach path.join(root,"cards",id,...) and traverse out of the board
+// root (read via loadCard, write via saveCardCAS). This guard rejects any id
+// with a separator, dot, or other path metacharacter before it touches the
+// filesystem. It deliberately does NOT require a ULID: the state service's
+// card contract is "client-minted id required" with no shape mandate, so a
+// foreign writer's card (e.g. a benchmark harness minting `benchgar-<n>`) must
+// still be openable and deletable from every node's board. Garrison itself
+// keeps minting ULIDs.
 export function isValidCardId(id) {
-  return typeof id === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(id);
+  return typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id);
 }
 
 // The weaker guard: ONE path segment of an unambiguous charset. `/`, `\` and `.`
@@ -2802,7 +2807,7 @@ async function handlePatchCard(req, res, opts, id) {
     // look for the brief the Discuss duty was asked to write (briefs/<slug>.md — the
     // buildDiscussUrl convention) and link it onto the card if present + not already
     // linked. The card LINKS the brief (FINDING 10); it never inlines it. This keeps
-    // the web channel generic — the BOARD does the linking, not the channel — so a
+    // Conversations generic - the BOARD does the linking, not the channel - so a
     // brief shows on the card without a manual POST /cards/:id/brief.
     const fromList = getList(board, card.list);
     if (body.list !== card.list && fromList && isInteractive(fromList) && !next.briefPath) {
@@ -5229,63 +5234,30 @@ function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, fittingId: FITTING_ID, port: opts.port, pid: process.pid });
 }
 
-// GET /board/runtime — runtime context the UI needs to wire deep-links the
-// composition's actual fittings serve. Channel embed id is NOT hardcoded
-// (`web-channel-default` is just the seed name); we scan the
-// ~/.garrison/ui-fittings/ status files and pick the first one whose fittingId
-// starts with `web-channel` (the channel id convention) and which carries a
-// reachable live URL. Returns:
-//   - webChannelEmbedId   the fitting id (e.g. "web-channel-default") whose
-//                         /embed/<id> route the board UI should link to. null
-//                         when no web channel is installed/running, so the
-//                         Discuss WatchSheet can show "no web channel
-//                         installed" instead of a dead `<a>`.
-//   - webChannelUrl       the channel's live own-port URL (for callers that
-//                         want the direct, non-embedded URL).
+// GET /board/runtime - runtime context the UI needs to wire deep-links the
+// composition's actual surfaces serve. Returns:
+//   - conversationsRoute  the shell route hosting Conversations ("/talk").
+//                         Always present: Conversations is a route of the
+//                         Garrison shell, not an embedded fitting, so there is
+//                         no status file to scan and nothing to be "not
+//                         installed". RELATIVE on purpose - the browser is
+//                         usually on another machine over the tailnet, so it
+//                         must resolve against the origin the page was reached
+//                         on, never this box's loopback.
 //   - gatewayBaseUrl      the gateway URL injected by the runner.
 //   - noGateway           true when no GARRISON_GATEWAY_URL is set at all,
 //                         so the UI can render a global "no gateway running"
 //                         banner without polling /health.
-export async function readWebChannelStatus(statusDir = STATUS_ROOT) {
-  try {
-    const dir = statusDir;
-    const fs = await import("node:fs/promises");
-    let names;
-    try { names = await fs.readdir(dir); } catch { return { id: null, url: null }; }
-    // Prefer the conventional name when present so the test surface is stable.
-    const preferred = "web-channel-default.json";
-    const sorted = names
-      .filter((n) => n.endsWith(".json") && n.startsWith("web-channel"))
-      .sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b)));
-    for (const name of sorted) {
-      try {
-        const raw = await fs.readFile(path.join(dir, name), "utf8");
-        const parsed = JSON.parse(raw);
-        const fittingId = typeof parsed?.fittingId === "string" ? parsed.fittingId : null;
-        const url = typeof parsed?.url === "string" ? parsed.url : null;
-        // Trust the status file's own pid liveness check: if the pid is dead
-        // the runner's startup sweep removes the file, so a present file is
-        // good enough for a UI hint. We don't HEAD the URL here — the WatchSheet
-        // navigates to /embed/<id> on the parent Next app, not directly to the
-        // channel's port, so a live status file means /embed/<id> will resolve.
-        if (fittingId && fittingId.startsWith("web-channel")) {
-          return { id: fittingId, url };
-        }
-      } catch { /* ignore one bad file */ }
-    }
-  } catch { /* ignore */ }
-  return { id: null, url: null };
-}
+//   - cardsAbsDir         the absolute kanban-store cards dir (below).
+const CONVERSATIONS_ROUTE = "/talk";
 
 async function handleBoardRuntime(req, res, opts) {
-  const channel = await readWebChannelStatus();
-  // Absolute kanban-store cards dir, so the board can hand the web channel an absolute,
+  // Absolute kanban-store cards dir, so the board can hand Conversations an absolute,
   // card-owned briefAbsPath (<cardsAbsDir>/<cardId>/brief.md) for the Brief editor — the
   // same file the Discuss duty writes and the engine reads. Deterministic; no project-dir guessing.
   const cardsAbsDir = path.join(kanbanRoot(), "cards");
   jsonRes(res, 200, {
-    webChannelEmbedId: channel.id,
-    webChannelUrl: channel.url,
+    conversationsRoute: CONVERSATIONS_ROUTE,
     gatewayBaseUrl: opts.gatewayUrl || null,
     noGateway: !opts.gatewayUrl,
     cardsAbsDir
@@ -5766,7 +5738,9 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
   });
 
-  const PTY_ID_RE = /^card-([0-9A-HJKMNP-TV-Z]{26})-shell$/;
+  // The capture is deliberately loose (any token chars); isValidCardId below is
+  // the real gate, so a non-ULID client-minted card id still gets a shell.
+  const PTY_ID_RE = /^card-([A-Za-z0-9][A-Za-z0-9_-]{0,63})-shell$/;
   wss.on("connection", (ws) => {
     let ptyId = null;
     let initializing = false;
@@ -5777,7 +5751,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         let msg;
         try { msg = JSON.parse(data.toString("utf8")); } catch { return; }
         if (msg.type !== "init" || typeof msg.sessionId !== "string") return;
-        // Validate the PTY id shape (`card-<ULID>-shell`) so nothing but a real
+        // Validate the PTY id shape (`card-<id>-shell`) so nothing but a real
         // card id ever reaches loadCard / the spawned shell's cwd.
         const m = PTY_ID_RE.exec(msg.sessionId);
         if (!m || !isValidCardId(m[1])) {

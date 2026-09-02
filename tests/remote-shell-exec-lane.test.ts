@@ -227,7 +227,7 @@ describe("the exec lane is not browser-reachable", () => {
     // spends the account's tokens: neither belongs on a surface a page can call.
     const src = await import("node:fs").then((fs) =>
       fs.readFileSync(
-        new URL("../fittings/seed/web-channel-default/scripts/server.mjs", import.meta.url),
+        new URL("../packages/talk/src/router.mjs", import.meta.url),
         "utf8"
       )
     );

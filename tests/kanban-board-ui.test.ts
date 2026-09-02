@@ -396,13 +396,23 @@ describe("isValidCardId (router guard against traversal via :id)", () => {
     expect(isValidCardId("A".repeat(26))).toBe(true);
     expect(isValidCardId("01KVX7G59RE5B12BZ1T3GHXVYF")).toBe(true);
   });
-  it("rejects traversal / separators / wrong length / non-string", () => {
+  it("accepts a non-ULID client-minted token (the state service's contract)", () => {
+    // The state service requires only a client-minted id; a foreign writer's
+    // card (a benchmark harness, a test) must stay openable/deletable here.
+    expect(isValidCardId("benchgar-1787960061")).toBe(true);
+    expect(isValidCardId("01EVIDENCEF60TSV1KSMPE9ZY9")).toBe(true); // I/L in a 26-char id
+    expect(isValidCardId("a")).toBe(true);
+    expect(isValidCardId("A".repeat(64))).toBe(true); // max length
+  });
+  it("rejects traversal / separators / path metacharacters / non-string", () => {
     expect(isValidCardId("../../etc/passwd")).toBe(false);
     expect(isValidCardId("../../../secret")).toBe(false);
     expect(isValidCardId("a/b")).toBe(false);
-    expect(isValidCardId("A".repeat(25))).toBe(false); // too short
-    expect(isValidCardId("A".repeat(27))).toBe(false); // too long
-    expect(isValidCardId("ILOU".padEnd(26, "0"))).toBe(false); // excluded letters
+    expect(isValidCardId("a\\b")).toBe(false);
+    expect(isValidCardId("..")).toBe(false);
+    expect(isValidCardId("a.b")).toBe(false); // no dots at all
+    expect(isValidCardId("-leading-dash")).toBe(false); // must start alphanumeric
+    expect(isValidCardId("A".repeat(65))).toBe(false); // too long
     expect(isValidCardId("")).toBe(false);
     expect(isValidCardId(null as any)).toBe(false);
   });

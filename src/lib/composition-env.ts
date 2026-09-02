@@ -3,6 +3,8 @@ import { stateEnvForProjection } from "./state-client";
 import { readComposition } from "./compositions";
 import { appPort, applyPortOffsetToConfig } from "./instance-profile";
 import { ownPortConfigEnv } from "./own-port-lifecycle";
+import { selectedLibraryEntries } from "./compositions";
+import { voiceEnvForEntry, voiceProviderIdFor } from "./voice-provider";
 
 // The ACTIVE composition's per-fitting config, profile-shifted and projected
 // into spawn env — the SAME projection startOperativeBoundFittings applies.
@@ -21,12 +23,22 @@ async function compositionEnvById(): Promise<{
   try {
     const compositionId = (await readActiveConfig()).active_composition || "default";
     const composition = await readComposition(compositionId);
+    // The voice-provider projection the runner applies (voiceEnvForEntry): a
+    // Views Start with the operative down must hand a voice consumer the same
+    // GARRISON_VOICE_FITTING_ID up() would, or the heal fingerprint differs and
+    // the next up() restarts it for nothing.
+    const entries = await selectedLibraryEntries(composition.selections);
+    const resolverEntries = entries.map((entry) => ({ id: entry.id, metadata: entry.metadata }));
+    const voiceProvider = voiceProviderIdFor(resolverEntries);
+    const entryById = new Map(resolverEntries.map((entry) => [entry.id, entry]));
     const byId: Record<string, Record<string, string>> = {};
     for (const items of Object.values(composition.selections)) {
       for (const item of items ?? []) {
         const config = applyPortOffsetToConfig((item.config ?? {}) as Record<string, unknown>);
+        const entry = entryById.get(item.id);
         byId[item.id] = {
           ...ownPortConfigEnv(item.id, config),
+          ...(entry ? voiceEnvForEntry(entry, voiceProvider) : {}),
           GARRISON_COMPOSITION_ID: compositionId,
           GARRISON_COMPOSITION_DIR: composition.directory,
           GARRISON_BASE_URL: `http://127.0.0.1:${

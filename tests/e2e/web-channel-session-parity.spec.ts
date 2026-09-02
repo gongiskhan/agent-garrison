@@ -1,29 +1,40 @@
 import { test, expect, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
-import os from "node:os";
-import path from "node:path";
+import { freePort, scratchHome, startTalkApp, type TalkApp } from "./fixtures/talk-app";
 
-// M8 full-stack parity gate for the generated Web thread: the REAL web-channel
-// server, the REAL browser bundle, and a fake gateway that speaks the canonical
-// session-event protocol from fixtures. Everything a terminal session shows must
-// survive the whole path (browser -> durable admission -> gateway -> canonical
-// events -> durable thread -> render), so these specs assert on BOTH ends: what
-// the page renders and what the gateway actually received.
+// M8 full-stack parity gate for the generated Web thread: the REAL Conversations
+// engine mounted in the REAL Garrison shell (/talk, /api/*), the REAL browser
+// bundle, and a fake gateway that speaks the canonical session-event protocol
+// from fixtures. Everything a terminal session shows must survive the whole path
+// (browser -> durable admission -> gateway -> canonical events -> durable thread
+// -> render), so these specs assert on BOTH ends: what the page renders and what
+// the gateway actually received.
 //
 // The component-level Chromium suites (tests/claude-chat-session-events-browser)
 // cover the renderer in isolation; this one covers the wiring between the real
-// processes, including a genuine web-channel process restart.
+// processes, including a genuine restart of the process hosting the engine.
 //
-// Playwright transpiles specs to CJS, so use process.cwd() (it runs from the repo
-// root) rather than import.meta.url.
-const REPO_ROOT = process.cwd();
-const WEB_CHANNEL = path.join(REPO_ROOT, "fittings", "seed", "web-channel-default", "scripts", "server.mjs");
+// One shell process per spec file: a `next dev` boot plus the /talk compile is
+// too slow to pay per test, so the tests share the process and the scratch home
+// and isolate on the thread each one creates. The fake gateway IS per test - the
+// shell reads GARRISON_GATEWAY_URL once at boot, so every gateway binds the same
+// port.
+//
+// Two lanes, deliberately. A thread whose id is a conversation id (every id the
+// engine mints, see conversationIdFor in packages/talk/src/threads.mjs) sends
+// through the conversation door: POST /api/conversation/<id>/message, forwarded
+// to the gateway's /conversation/message, and the gateway is what records and
+// answers it. The chat lane - durable admission, /chat/stream session events,
+// permission prompts, interrupts, queued inputs, restart recovery - is what the
+// parity tests below exercise, and the engine only puts a thread on it when its
+// id is NOT a conversation id (a leading underscore). So the harness mints such
+// an id for those tests, and the fresh-conversation test covers the door a
+// /talk?new=1 thread actually uses.
 
 // A v2 spawn signature is what makes a durable SDK journal resumable across a
-// process restart (server.mjs:agentSdkResumeFromThread). Anything less is a
+// process restart (packages/talk/src/router.mjs: agentSdkResumeFromThread). Anything less is a
 // legacy shape that deliberately forces a clean session.
 const SPAWN_SIGNATURE = {
   version: 2,
@@ -37,7 +48,7 @@ const SPAWN_SIGNATURE = {
   assembly: `a1:${"ab".repeat(32)}`,
 };
 
-// 1x1 transparent PNG — a tool result image small enough to inline in a fixture.
+// 1x1 transparent PNG - a tool result image small enough to inline in a fixture.
 const PNG_1PX =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
@@ -56,18 +67,6 @@ interface PermissionAnswer {
   generationId: string;
   requestId: string;
   decision: string;
-}
-
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const addr = srv.address();
-      const port = typeof addr === "object" && addr ? addr.port : 0;
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {
@@ -98,6 +97,8 @@ class FakeGateway {
   readonly turns: GatewayTurn[] = [];
   readonly interrupts: any[] = [];
   readonly permissionAnswers: PermissionAnswer[] = [];
+  /** Bodies admitted through the conversation door (POST /conversation/message). */
+  readonly conversationMessages: any[] = [];
   /** Per-test script run right after `open`+`route` are written for a turn. */
   onTurn: ((turn: GatewayTurn) => void | Promise<void>) | null = null;
   /** Per-test script run when a permission decision arrives. */
@@ -105,7 +106,7 @@ class FakeGateway {
   server!: http.Server;
   port = 0;
 
-  async listen(): Promise<void> {
+  async listen(port: number): Promise<void> {
     this.server = http.createServer(async (req, res) => {
       const url = req.url ?? "/";
       if (url === "/chat/stream" && req.method === "POST") {
@@ -172,11 +173,25 @@ class FakeGateway {
         res.end(JSON.stringify({ ok: true }));
         return;
       }
+      // The conversation door. The real gateway records the user message in the
+      // conversation store and runs a responder stretch; the engine's router
+      // writes nothing once the gateway has accepted (recorded: true), so what
+      // this fake proves is admission and addressing, not a reply.
+      if (url === "/conversation/message" && req.method === "POST") {
+        const body = JSON.parse((await readBody(req)) || "{}");
+        this.conversationMessages.push(body);
+        res.writeHead(202, { "content-type": "application/json" });
+        res.end(JSON.stringify({ accepted: true, seq: this.conversationMessages.length, pickedUpBy: "responder" }));
+        return;
+      }
       res.statusCode = 404;
       res.setHeader("content-type", "application/json");
       res.end("{}");
     });
-    await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve, reject) => {
+      this.server.once("error", reject);
+      this.server.listen(port, "127.0.0.1", () => resolve());
+    });
     this.port = (this.server.address() as net.AddressInfo).port;
   }
 
@@ -212,82 +227,59 @@ class FakeGateway {
     for (const turn of this.turns) {
       try { turn.res.end(); } catch { /* already gone */ }
     }
+    // The shell keeps idle keep-alive sockets to us; they must go too or the
+    // next test's gateway cannot bind this port.
+    this.server.closeAllConnections();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 }
 
-async function startWebChannel(home: string, gatewayUrl: string, port: number): Promise<ChildProcess> {
-  const proc = spawn("node", [WEB_CHANNEL], {
-    env: {
-      ...process.env,
-      GARRISON_HOME: home,
-      GARRISON_GATEWAY_URL: gatewayUrl,
-      WEB_CHANNEL_PORT: String(port),
-      WEB_CHANNEL_HOST: "127.0.0.1",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  proc.stderr?.on("data", (chunk) => {
-    const text = String(chunk);
-    if (/refusing to start|start failed/i.test(text)) console.error(`[web-channel:e2e] ${text.trim()}`);
-  });
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${port}/api/health`);
-      if (r.ok) return proc;
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error("web-channel did not become healthy");
-}
-
-async function stopWebChannel(proc: ChildProcess | null): Promise<void> {
-  if (!proc || proc.exitCode !== null) return;
-  const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
-  proc.kill("SIGTERM");
-  await Promise.race([exited, new Promise((r) => setTimeout(r, 3_000))]);
-  if (proc.exitCode === null) proc.kill("SIGKILL");
-}
-
 interface Harness {
   gateway: FakeGateway;
-  web: ChildProcess;
-  home: string;
-  port: number;
-  base: string;
+  app: TalkApp;
   threadId: string;
-  restartWeb(): Promise<void>;
+  restartApp(): Promise<void>;
   thread(): Promise<any>;
 }
 
+let app: TalkApp | null = null;
+let gatewayPort = 0;
 let harness: Harness | null = null;
+
+test.beforeAll(async () => {
+  gatewayPort = await freePort();
+  // Scratch GARRISON_HOME: no spec may touch the real ~/.garrison or ~/.claude.
+  app = await startTalkApp({
+    home: scratchHome("wc-parity-"),
+    gatewayUrl: `http://127.0.0.1:${gatewayPort}`,
+    port: await freePort(),
+  });
+});
+
+test.afterAll(async () => {
+  if (!app) return;
+  await app.stop();
+  fs.rmSync(app.home, { recursive: true, force: true });
+  app = null;
+});
 
 test.beforeEach(async () => {
   const gateway = new FakeGateway();
-  await gateway.listen();
-  const port = await freePort();
-  // Scratch GARRISON_HOME: the server refuses to boot over a live install's
-  // status slot, and no spec may touch the real ~/.garrison.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "wc-parity-"));
-  let web = await startWebChannel(home, gateway.url, port);
-  const base = `http://127.0.0.1:${port}`;
+  await gateway.listen(gatewayPort);
+  const base = app!.base;
+  // A leading underscore keeps the thread OFF the conversation lane (see the
+  // header): these tests drive the chat lane's session-event pipeline.
   const created = await fetch(`${base}/api/threads`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: "Parity", source: "e2e" }),
+    body: JSON.stringify({ id: `_parity-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, title: "Parity", source: "e2e" }),
   }).then((r) => r.json());
   harness = {
     gateway,
-    web,
-    home,
-    port,
-    base,
+    app: app!,
     threadId: created.thread.id,
-    async restartWeb() {
-      await stopWebChannel(web);
-      web = await startWebChannel(home, gateway.url, port);
-      this.web = web;
+    async restartApp() {
+      await app!.restart();
     },
     async thread() {
       return fetch(`${base}/api/threads/${encodeURIComponent(created.thread.id)}`).then((r) => r.json());
@@ -297,14 +289,14 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   if (!harness) return;
-  await stopWebChannel(harness.web);
   await harness.gateway.close();
-  fs.rmSync(harness.home, { recursive: true, force: true });
   harness = null;
 });
 
+// The shell's deep link to one conversation (the shape notifications and
+// Discuss links carry).
 function threadUrl(h: Harness): string {
-  return `${h.base}/?thread=${encodeURIComponent(h.threadId)}`;
+  return `${h.app.base}/talk/${encodeURIComponent(h.threadId)}`;
 }
 
 async function sendMessage(page: Page, text: string): Promise<void> {
@@ -313,6 +305,36 @@ async function sendMessage(page: Page, text: string): Promise<void> {
 }
 
 test.describe("web channel session parity", () => {
+  test("the shell's fresh-conversation entry point mints one thread and settles on a clean address", async ({ page }) => {
+    const h = harness!;
+    const listIds = async (): Promise<string[]> =>
+      (await fetch(`${h.app.base}/api/threads`).then((r) => r.json())).threads.map((t: any) => t.id);
+    const before = await listIds();
+
+    // /talk?new=1 is what the shell's "+ New" menu and a peer node's picker open.
+    await page.goto(`${h.app.base}/talk?new=1`);
+    await expect(page.locator(".cc-input")).toBeVisible();
+    // The parameter is consumed on load and dropped from the address bar, so a
+    // reload reopens the conversation instead of minting another.
+    await expect.poll(() => new URL(page.url()).searchParams.get("new")).toBeNull();
+    expect(new URL(page.url()).pathname).toBe("/talk");
+    const after = await waitFor(listIds, (ids) => ids.length === before.length + 1, "one fresh thread");
+    const [freshId] = after.filter((id) => !before.includes(id));
+
+    await page.reload();
+    await expect(page.locator(".cc-input")).toBeVisible();
+    expect((await listIds()).length).toBe(before.length + 1);
+
+    // The fresh conversation is live: its first message goes through the
+    // conversation door and reaches the gateway addressed to ITS id, and the
+    // composer reports admission, not a failure.
+    await sendMessage(page, "hello from a fresh conversation");
+    await waitFor(() => h.gateway.conversationMessages.length, (n) => n === 1, "message at the conversation door");
+    expect(h.gateway.conversationMessages[0]).toMatchObject({ conversationId: freshId, message: "hello from a fresh conversation" });
+    expect(h.gateway.turns).toHaveLength(0);
+    await expect(page.getByText(/Message failed/)).toHaveCount(0);
+  });
+
   test("streams text, thinking, and a tool call whose result attaches after later text", async ({ page }) => {
     const h = harness!;
     h.gateway.onTurn = async (turn) => {
@@ -349,7 +371,7 @@ test.describe("web channel session parity", () => {
     await expect(page.locator("details.cc-session-thinking, .cc-session-thinking").first())
       .toContainText("Checking the fixture file first.", { timeout: 20_000 });
 
-    // Streamed text landed in its final revision, ONCE — three revisions of one
+    // Streamed text landed in its final revision, ONCE - three revisions of one
     // stable event must not become three paragraphs.
     await expect(page.getByText("Reading the fixture, then summarising.", { exact: true })).toHaveCount(1);
     await expect(page.getByText("Reading the fixture", { exact: true })).toHaveCount(0);
@@ -569,7 +591,7 @@ test.describe("web channel session parity", () => {
     ]);
   });
 
-  test("a web-channel restart backfills the full history and resumes the session chain", async ({ page }) => {
+  test("a shell restart backfills the full history and resumes the session chain", async ({ page }) => {
     const h = harness!;
     h.gateway.onTurn = async (turn) => {
       h.gateway.event(turn, `evt-text-${turn.index}`, [{ type: "text", text: `reply ${turn.index + 1}` }], { order: 0 });
@@ -593,11 +615,11 @@ test.describe("web channel session parity", () => {
 
     // Kill the process the way a redeploy does, then bring it back on the same
     // home + port. Nothing may be orphaned.
-    await h.restartWeb();
+    await h.restartApp();
 
     await page.goto(threadUrl(h));
     // Full backfill: the user turn, the assistant text, and the canonical tool
-    // call all come back from durable state — not from the live SSE tail, which
+    // call all come back from durable state - not from the live SSE tail, which
     // died with the old process.
     await expect(page.locator(".cc-scroll")).toContainText("before the restart", { timeout: 20_000 });
     await expect(page.locator(".cc-scroll")).toContainText("reply 1");
@@ -627,7 +649,7 @@ test.describe("web channel session parity", () => {
     await page.goto(threadUrl(h));
     await expect(page.locator(".cc-input")).toBeVisible();
     // Headless Chromium reports notifications as denied, so the "Notifications
-    // blocked" pill is up for real here — the same pill that, pinned to the raw
+    // blocked" pill is up for real here - the same pill that, pinned to the raw
     // viewport bottom, covered the whole composer at phone width.
     await expect(page.locator(".wc-push-notice")).toBeVisible({ timeout: 20_000 });
 
@@ -640,9 +662,18 @@ test.describe("web channel session parity", () => {
         const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
         return el.contains(top) || top === el ? "self" : (top?.className ?? top?.tagName ?? "unknown");
       };
-      return { send: at(".cc-send"), input: at(".cc-input") };
+      const pill = document.querySelector(".wc-push-notice")!.getBoundingClientRect();
+      const composer = document.querySelector(".cc-composer")!.getBoundingClientRect();
+      return {
+        send: at(".cc-send"),
+        input: at(".cc-input"),
+        // The pill belongs to the conversation pane: it starts at or right of
+        // the composer's left edge (not over the shell's sidebar) and ends
+        // above the composer's top edge.
+        pillInsidePane: pill.left >= composer.left && pill.bottom <= composer.top,
+      };
     });
-    expect(hits).toEqual({ send: "self", input: "self" });
+    expect(hits).toEqual({ send: "self", input: "self", pillInsidePane: true });
 
     // And it really is clickable end to end.
     h.gateway.onTurn = async (turn) => {
@@ -677,12 +708,20 @@ test.describe("web channel session parity", () => {
     await page.goto(threadUrl(h));
     await sendMessage(page, "trigger the limit");
 
-    // Two distinct, separately-labelled notices — not one generic error blob.
+    // Two distinct, separately-labelled notices - not one generic error blob.
     const notices = page.locator(".cc-session-notice-label");
     await expect(notices.filter({ hasText: "Rate limit warning" })).toHaveCount(1, { timeout: 20_000 });
     await expect(page.locator(".cc-session-notice-warning")).toContainText("unified 5h");
-    // The limit carries an actionable reset time rather than a bare status.
-    await expect(page.locator(".cc-session-notice-reset time").first()).toBeVisible();
+    // The limit carries an actionable reset time rather than a bare status. A
+    // warning is a one-line trace the reader drills into (only errors open on
+    // arrival), so the reset time is attached but folded until the head is
+    // clicked.
+    const limitNotice = page.locator(".cc-session-notice-warning").filter({ hasText: "Rate limit warning" }).first();
+    const resetTime = limitNotice.locator(".cc-session-notice-reset time");
+    await expect(resetTime).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T/);
+    await expect(resetTime).toBeHidden();
+    await limitNotice.locator("summary").click();
+    await expect(resetTime).toBeVisible();
     await expect(notices.filter({ hasText: "Runtime error" })).toHaveCount(1);
     await expect(page.locator(".cc-session-notice-meta").first()).toContainText("runtime_crashed");
     await expect(page.locator(".cc-scroll")).toContainText("The runtime exited before finishing the turn.");

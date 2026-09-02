@@ -36,7 +36,9 @@ import {
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { GarrisonMark } from "./GarrisonMark";
-import { NodeBadge, useBuildSha, useNodeChrome } from "./NodeBadge";
+import { useBuildSha, useNodeChrome } from "./NodeBadge";
+import { NodeSwitcher } from "./NodeSwitcher";
+import { useNativeBridge } from "@/components/capture/BridgeGate";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
@@ -177,7 +179,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      <NodeBadge />
+      <NodeSwitcher />
 
       <nav className="tabs" aria-label="Garrison">
         <SidebarMenu
@@ -290,9 +292,9 @@ function CollapsedRail({
   );
 }
 
-// Matches NARROW_BREAKPOINT in AppShell — below this width the sidebar
-// auto-collapses, and own-port views open in a new tab instead of the
-// in-app iframe (which would be unusable next to the collapsed sidebar).
+// Matches NARROW_BREAKPOINT in AppShell - below this width the sidebar
+// auto-collapses, and in a browser own-port views open in a new tab instead
+// of the in-app iframe (in the app they embed full-bleed; see the row render).
 const MOBILE_BREAKPOINT = 720;
 
 function useIsMobileViewport(): boolean {
@@ -321,7 +323,9 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
   drill: Drill,
   "monitor-default": Activity,
   "screen-share-default": ScreenShare,
-  "deepgram-voice": Mic,
+  // capture-service lists `channel` first in its provides, so the kind fallback
+  // below would hand it the chat bubble; it is the voice layer, so the mic.
+  "capture-service": Mic,
   "web-channel-default": MessagesSquare,
   "slack-channel": MessagesSquare,
   roadmaps: Milestone
@@ -445,6 +449,13 @@ export const COMMAND_ITEMS: CommandItem[] = [
     isActive: (p) => p === "/connectors" || p.startsWith("/connectors")
   },
   {
+    id: "nav:conversations",
+    href: "/talk",
+    label: "Conversations",
+    Icon: MessagesSquare,
+    isActive: (p) => p === "/talk" || p.startsWith("/talk/")
+  },
+  {
     id: "nav:coordination",
     href: "/coordination",
     label: "Coordination",
@@ -468,6 +479,19 @@ export const COMMAND_ITEMS: CommandItem[] = [
   },
   { id: "nav:vault", href: "/vault", label: "Vault", Icon: Lock, isActive: (p) => p === "/vault" }
 ];
+
+// The one route that exists only inside the Garrison iOS app: the capture page
+// drives the native microphone, the screen broadcast and the pendant through
+// the bridge, and a browser has none of those. It joins the Command group when
+// the bridge is present (BridgeGate decides) and is never pinnable from a
+// browser, which is why it is not in COMMAND_ITEMS.
+export const CAPTURE_ITEM: CommandItem = {
+  id: "nav:capture",
+  href: "/capture",
+  label: "Capture",
+  Icon: Mic,
+  isActive: (p) => p === "/capture" || p.startsWith("/capture/")
+};
 
 type MenuRow =
   | { kind: "command"; id: string; label: string; item: CommandItem }
@@ -494,6 +518,7 @@ function SidebarMenu({
   commandBadges: Record<string, string>;
 }) {
   const isMobile = useIsMobileViewport();
+  const nativeBridge = useNativeBridge() === true;
   const [pinned, setPinned] = useState<string[]>([]);
   // Pins arrive from the server, so an empty list means "not known yet", not
   // "nothing pinned". The auto-expand below has to tell those apart or it fires
@@ -578,7 +603,7 @@ function SidebarMenu({
   const activeFittingId = activeMatch ? activeMatch[1] : null;
   const activeCommand = activeFittingId
     ? null
-    : (COMMAND_ITEMS.find((item) => item.isActive(pathname)) ?? null);
+    : ([...COMMAND_ITEMS, ...(nativeBridge ? [CAPTURE_ITEM] : [])].find((item) => item.isActive(pathname)) ?? null);
   const activeId = activeFittingId ?? activeCommand?.id ?? null;
   const activeGroupId = activeFittingId ? "fittings" : activeCommand ? "command" : null;
   // The dashboard row counts as reachable: the brand link above the menu is the
@@ -600,7 +625,7 @@ function SidebarMenu({
 
   // Command: alphabetical by label, sorted HERE rather than trusted to the
   // declaration order, so a route added to the list lands in the right place.
-  const commandRows: MenuRow[] = [...COMMAND_ITEMS]
+  const commandRows: MenuRow[] = [...COMMAND_ITEMS, ...(nativeBridge ? [CAPTURE_ITEM] : [])]
     .sort((a, b) => a.label.localeCompare(b.label))
     .map((item) => ({ kind: "command", id: item.id, label: item.label, item }));
   for (const row of commandRows) rowById.set(row.id, row);
@@ -849,7 +874,13 @@ function SidebarMenu({
       // Pick the URL reachable from where the browser is: loopback locally,
       // the HTTPS tailnet endpoint over Tailscale, else a host rebind.
       const openUrl = resolveViewUrl(status);
-      if (isMobile) {
+      // A phone BROWSER gets a new tab: the iframe next to the rail is cramped
+      // and a browser tab is a fine surface. The app has no tabs - a
+      // target="_blank" there navigates the one webview to the fitting's own
+      // origin and strands the user outside the shell - so in the app every
+      // own-port view embeds at /embed/<id>, which at phone width drops the
+      // rail and carries its own back bar (G6).
+      if (isMobile && !nativeBridge) {
         return (
           <a
             href={openUrl}

@@ -5,8 +5,6 @@ declare module "*/omi-channel/lib/config.mjs" {
   export const FITTING_ID: string;
   export const CHANNEL_ID: string;
   export const DEFAULT_PORT: number;
-  export const DEFAULT_WAKE_VARIANTS: string[];
-  export function isRetiredWakeVariantSet(variants: unknown): boolean;
   export function garrisonDir(env?: Record<string, string | undefined>): string;
   export function omiDir(env?: Record<string, string | undefined>): string;
   export function statusFilePath(env?: Record<string, string | undefined>): string;
@@ -24,23 +22,19 @@ declare module "*/omi-channel/lib/config.mjs" {
     triageEnabled: boolean;
     wakeEnabled: boolean;
     notifyEnabled: boolean;
-    chatEnabled: boolean;
     backfeedEnabled: boolean;
     tipsEnabled: boolean;
-    publicBaseUrl: string;
     triageCron: string;
     triageBatchCap: number;
+    classifyTarget: string;
     allowedCategories: string[];
     blockedFolders: string[];
     dropDiscarded: boolean;
-    wakeVariants: string[];
-    wakeVariantsRetiredFallback: boolean;
-    wakeSilenceCloseMs: number;
-    wakeMaxCaptureMs: number;
+    chatDeliveryEnabled: boolean;
     notifyMaxPerDay: number;
     tipsMaxPerDay: number;
     backfeedKinds: string[];
-    secrets: { appId: string; appSecret: string; importApiKey: string; webhookSecret: string };
+    secrets: { appId: string; appSecret: string; importApiKey: string; webhookSecret: string; captureToken: string };
   };
 }
 
@@ -59,7 +53,11 @@ declare module "*/omi-channel/scripts/server.mjs" {
   export function statusPage(
     cfg: unknown,
     counters?: Record<string, unknown>,
-    state?: { pinnedUid?: string | null; gateway?: OmiGatewayProbe | null }
+    state?: {
+      pinnedUid?: string | null;
+      gateway?: OmiGatewayProbe | null;
+      forward?: { ok: boolean; reason: string } | null;
+    }
   ): string;
   export function repairDoubleEncodedQuery(
     query: Record<string, unknown>,
@@ -160,7 +158,7 @@ declare module "*/omi-channel/lib/ingress.mjs" {
       cfg: unknown;
       store: unknown;
       counters: unknown;
-      wakeBus?: unknown;
+      forwarder?: unknown;
       log?: unknown;
     });
     authorize(
@@ -332,6 +330,7 @@ declare module "*/omi-channel/lib/backfeed.mjs" {
 
 declare module "*/omi-channel/lib/notify.mjs" {
   export function renderTemplate(template: string, params?: Record<string, unknown>): string;
+  export function statusFileUrl(fittingId: string, env?: Record<string, string | undefined>): string | null;
   export function boardCardUrl(cardId: string | null, env?: Record<string, string | undefined>): Promise<string | null>;
   export class Notifier {
     constructor(opts: {
@@ -354,9 +353,46 @@ declare module "*/omi-channel/lib/notify.mjs" {
   }
 }
 
-declare module "*/omi-channel/lib/wake.mjs" {
-  export function wakeRegex(variants: string[]): RegExp | null;
-  export function normalizeTitle(title: unknown): string;
+declare module "*/omi-channel/lib/forward.mjs" {
+  export const CAPTURE_FITTING_ID: string;
+  export const INGEST_PATH: string;
+  export const DEFAULT_TIMEOUT_MS: number;
+  export type OmiCaptureSegment = { text: string; speaker?: string; is_user?: boolean; start?: number; end?: number };
+  export function toCaptureSegments(segments: unknown): OmiCaptureSegment[];
+  export function captureStatusFile(cfg: unknown, env?: Record<string, string | undefined>): string | null;
+  export class RealtimeForwarder {
+    constructor(opts: {
+      cfg: unknown;
+      counters: unknown;
+      log?: unknown;
+      fetchImpl?: typeof fetch;
+      statusFile?: string | null;
+      timeoutMs?: number;
+      env?: Record<string, string | undefined>;
+      now?: () => number;
+    });
+    token(): string;
+    captureUrl(): string | null;
+    readiness(): { ok: boolean; reason: string };
+    lastFailure: { seq: number; at: number; reason: string } | null;
+    push(args: { sessionId: string; segments: unknown[] }): Promise<void>;
+    send(args: { sessionId: string; segments: unknown[] }): Promise<void>;
+  }
+}
+
+// The omi wake cases that survived the 2026-09-02 move to the voice layer run
+// against capture-service's wake bus (tests/capture-service-wake-omi-source);
+// these merge the members they use into the capture-service shim.
+declare module "*/capture-service/lib/wake.mjs" {
+  export const OMI_WAKE_SOURCE: {
+    id: string;
+    label: string;
+    originPrefix: string;
+    originChannel: { channel: string; threadId: string };
+    sessionProvenanceKey: string;
+    logPrefix: string;
+  };
+  export function vagueTimeAnchors(now?: Date): Array<{ phrases: string[]; iso: string }>;
   export function buildRevisionPrompt(args: {
     command: string;
     title: string;
@@ -369,92 +405,25 @@ declare module "*/omi-channel/lib/wake.mjs" {
     description: string;
     note: string;
   } | null;
-  export function buildWakePrompt(
-    command: string,
-    projects: string[],
-    context?: Array<{ text: string; isUser: boolean }>,
-    trailing?: string,
-    now?: Date
-  ): string;
-  export function vagueTimeAnchors(now?: Date): Array<{ phrases: string[]; iso: string }>;
-  export function buildDelegatePrompt(request: string, opts?: { boardUrl?: string | null }): string;
-  export function parseWakeReply(reply: string): {
-    intent: "create_task" | "create_event" | "query" | "note" | "unknown";
-    title: string;
-    description: string;
-    project: string | null;
-    answer: string;
-    note_content: string;
-  } | null;
-  export class WakeBus {
-    constructor(opts: {
-      cfg: unknown;
-      store: unknown;
-      counters: unknown;
-      runFn: ((args: { prompt: string }) => Promise<{ reply: string }>) | null;
-      operativeFn?: ((args: { prompt: string; sessionId?: string | null; sessionTitle?: string | null }) => Promise<{ reply: string }>) | null;
-      board: unknown;
-      memoryWriter: unknown;
-      notifier: unknown;
-      log?: unknown;
-      now?: () => number;
-    });
-    sessions: Map<string, unknown>;
-    handleSegments(args: { sessionId: string; segments: unknown[] }): void;
-    handleCommand(args: {
-      command: string;
-      eventId: string;
-      context?: Array<{ text: string; isUser: boolean; at: number }>;
-      trailing?: string;
-      sessionId?: string | null;
-    }): Promise<{ confirmation: string; cardUrl: string | null; result: Record<string, unknown> }>;
-    scheduleRevision(args: {
-      sessionId: string | null;
-      cardId: string | null;
-      command: string;
-      title: string;
-      description: string;
-    }): unknown;
-    runRevision(sessionId: string): Promise<{ action: string } | null>;
-    close(sessionId: string, reason: string): Promise<unknown>;
-  }
+  // WakeBus itself is declared in tests/capture-service-mjs.d.ts; a class
+  // cannot be merged across ambient blocks, so the omi-source wake test widens
+  // the instance type locally for the members it drives (sessions,
+  // runRevision).
 }
 
-declare module "*/omi-channel/lib/chat.mjs" {
-  export const ASK_DEADLINE_MS: number;
-  export function buildAskDelegatePrompt(query: string, opts?: { boardUrl?: string | null }): string;
-  export function buildManifest(cfg: unknown): {
-    tools: Array<{
-      name: string;
-      description: string;
-      endpoint: string;
-      method: string;
-      parameters: { properties: Record<string, { type: string; description: string }>; required: string[] };
-      auth_required: boolean;
-      status_message: string;
-    }>;
-  };
-  export function buildAskPrompt(query: string): string;
-  export function manifestFingerprint(cfg: unknown): string;
-  export class ChatTool {
-    constructor(opts: {
-      cfg: unknown;
-      store: unknown;
-      counters: unknown;
-      runFn: ((args: { prompt: string }) => Promise<{ reply: string }>) | null;
-      operativeFn?: ((args: { prompt: string; sessionId?: string | null; sessionTitle?: string | null }) => Promise<{ reply: string }>) | null;
-      notifier?: unknown;
-      deadlineMs?: number;
-      log?: unknown;
-    });
-    authorize(query: Record<string, unknown>, body: Record<string, unknown>):
-      | { ok: true; uid: string }
-      | { ok: false; status: number; error: string };
-    handle(
-      query: Record<string, unknown>,
-      body: Record<string, unknown>
-    ): Promise<{ status: number; body: { result?: string; error?: string } }>;
-    manifest(query: Record<string, unknown>): { status: number; body: Record<string, unknown> };
+declare module "*/capture-service/lib/memory-writer.mjs" {
+  export class MemoryWriter {
+    constructor(opts?: { dir?: string | null; env?: Record<string, string | undefined>; prefix?: string; label?: string });
+    vault: string;
+    dir: string;
+    available(): boolean;
+    write(args: {
+      title: string;
+      content: string;
+      tags?: string[];
+      provenance?: Record<string, string | null | undefined>;
+      now?: Date;
+    }): { ok: true; file: string } | { ok: false; skipped: string };
   }
 }
 

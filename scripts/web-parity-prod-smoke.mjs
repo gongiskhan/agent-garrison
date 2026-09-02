@@ -10,8 +10,9 @@
 //   2. A live tool call whose permission prompt is answered in the UI — proves
 //      the Agent SDK canUseTool bridge end to end on the deployed gateway.
 //
-// Usage: node scripts/web-parity-prod-smoke.mjs [--origin https://host:port]
-//        Defaults to the tailnet URL published for the web-channel port.
+// Usage: node scripts/web-parity-prod-smoke.mjs [--origin https://host]
+//        Defaults to this node's app at its tailnet root, where Conversations
+//        is the shell route /talk and its API is mounted under /api/*.
 
 import fs, { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -39,7 +40,7 @@ function nodeTailnetHost() {
   }
 }
 
-const ORIGIN = args.includes("--origin") ? args[args.indexOf("--origin") + 1] : `https://${nodeTailnetHost()}:8483`;
+const ORIGIN = (args.includes("--origin") ? args[args.indexOf("--origin") + 1] : `https://${nodeTailnetHost()}`).replace(/\/+$/, "");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 fs.mkdirSync(OUT, { recursive: true });
@@ -88,7 +89,7 @@ const shot = (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) })
   .then(() => console.log(`[evidence] evidence/web-parity-prod-smoke/${name}.png`));
 
 try {
-  await page.goto(`${ORIGIN}/?thread=${encodeURIComponent(threadId)}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${ORIGIN}/talk/${encodeURIComponent(threadId)}`, { waitUntil: "domcontentloaded" });
   await page.locator(".cc-input").waitFor({ state: "visible", timeout: 30_000 });
 
   // 1. The composer must be the thing under the composer, at phone size, over HTTPS.

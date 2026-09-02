@@ -199,10 +199,10 @@
   },
   {
     "id": "deepgram-voice",
-    "name": "Voice (Deepgram)",
+    "name": "Voice (Deepgram, legacy)",
     "repo": "local:fittings/seed/deepgram-voice",
     "localPath": "fittings/seed/deepgram-voice",
-    "summary": "Speech I/O on port 27085. Proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side; provides a kind:voice capability that channels consume for push-to-talk and read-aloud.",
+    "summary": "Legacy speech proxy, retired 2026-09-02: capture-service is the one voice layer (POST /stt, POST /tts behind the capture token). Not stationed anywhere; the package stays on disk until the operator triggers the removal patch.",
     "platforms": [
       "claude-code"
     ],
@@ -666,10 +666,10 @@
   },
   {
     "id": "capture-service",
-    "name": "iOS companion capture",
+    "name": "Voice and companion capture",
     "repo": "local:fittings/seed/capture-service",
     "localPath": "fittings/seed/capture-service",
-    "summary": "iOS companion capture channel: session-based websocket ingress (audio + screen stills), Deepgram live transcription, wake-word commands, capture events into the shared triage, APNs push out, spoken-acknowledgement sink.",
+    "summary": "The voice layer: browser push-to-talk and read-aloud (POST /stt, POST /tts behind the capture token), phone capture over a session-based websocket ingress (audio + screen stills) with Deepgram live transcription and wake-word commands, Omi realtime segments forwarded onto the same wake bus, capture events into the shared triage, APNs push out, spoken-acknowledgement sink.",
     "platforms": [
       "claude-code"
     ],
@@ -958,10 +958,10 @@
   },
   {
     "id": "web-channel-default",
-    "name": "Web channel",
+    "name": "Web channel (legacy host)",
     "repo": "local:fittings/seed/web-channel-default",
     "localPath": "fittings/seed/web-channel-default",
-    "summary": "Mobile-first browser chat surface. Serves a React UI on its own port (default 27083) and proxies the http-gateway for streaming replies.",
+    "summary": "Legacy own-port host of Conversations. The shell serves the same engine at /talk; station this only to keep the old port-bound surface (default 8083) alive.",
     "platforms": [
       "claude-code"
     ],

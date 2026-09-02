@@ -3,7 +3,7 @@ import SwiftUI
 
 /// SwiftUI wrapper around RPSystemBroadcastPickerView. `preferredExtension`
 /// targets our broadcast upload extension directly and the microphone button
-/// is shown — mic sample buffers only arrive when the user flips it on in
+/// is shown - mic sample buffers only arrive when the user flips it on in
 /// the system sheet.
 struct BroadcastPicker: UIViewRepresentable {
     static let extensionBundleID = "com.gomes.garrison.broadcast"

@@ -63,15 +63,21 @@ beforeAll(async () => {
 }, 30000);
 
 afterAll(async () => {
+  // Drill first, unconditionally: it holds a fixed port that every later drill
+  // suite refuses to share (assertPortsFree), so it must never be the thing
+  // left behind when the browser-default wait below runs long. waitExit's own
+  // SIGKILL fallback is 12s + 2s reap, which is why this hook gets 30s rather
+  // than the 15s it used to race against under the full parallel run.
+  if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
   await page?.close();
   await browser?.close();
   if (browserSrv && !browserSrv.killed) browserSrv.kill("SIGTERM");
   await waitExit(browserSrv);
-  if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
+  await waitExit(drillSrv, 2000);
   browserSrv = null; drillSrv = null;
-    rmSync(ghome, { recursive: true, force: true });
+  rmSync(ghome, { recursive: true, force: true });
   rmSync(target, { recursive: true, force: true });
-}, 15000);
+}, 30000);
 
 describe("Drill's own UI at phone width", () => {
   it("the FAB toggles the plan sheet open and closed", async () => {

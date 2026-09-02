@@ -144,14 +144,14 @@ describe("composeChangeBrief — the change description Drill's plan agent reads
       {
         completionSummary: "Badges render on every turn.",
         keyDecisions: ["route the override through the gateway, not the client"],
-        filesTouched: ["fittings/seed/web-channel-default/ui/main.tsx"]
+        filesTouched: ["packages/talk/ui/app.tsx"]
       }
     );
     expect(brief).toContain("Turn Rail badges");
     expect(brief).toContain("Show runtime/model badges");
     expect(brief).toContain("Badges render on every turn.");
     expect(brief).toContain("route the override through the gateway");
-    expect(brief).toContain("fittings/seed/web-channel-default/ui/main.tsx");
+    expect(brief).toContain("packages/talk/ui/app.tsx");
     expect(brief).toContain("abcdef1234"); // short sha
     // The scoping instruction is the whole reason the run stays about this card.
     expect(brief).toContain("Scope the Book update to THIS change");

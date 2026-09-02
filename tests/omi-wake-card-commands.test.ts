@@ -1,4 +1,6 @@
 // Spoken card commands + spoken scheduling on the wake bus (2026-08-01).
+// The bus lives in capture-service since 2026-09-02 (omi-channel forwards its
+// realtime segments there); the omi source is what this suite exercises.
 // A scheduled card's due notification tells the wearer exactly:
 //   Tell Zeca: "run card <REF>" to start it, or "snooze card <REF> for 2 hours"
 // (REF = last 4 chars of the card ULID, uppercase). This suite covers the
@@ -15,9 +17,9 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig } from "../fittings/seed/omi-channel/lib/config.mjs";
-import { OmiStore, Counters } from "../fittings/seed/omi-channel/lib/store.mjs";
-import { WakeBus, parseWakeReply } from "../fittings/seed/omi-channel/lib/wake.mjs";
+import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
+import { CaptureStore, Counters } from "../fittings/seed/capture-service/lib/store.mjs";
+import { WakeBus, parseWakeReply, OMI_WAKE_SOURCE } from "../fittings/seed/capture-service/lib/wake.mjs";
 
 // A ULID whose last 4 chars are the spoken ref from the notification text.
 const CARD_ID = "01K1KJ0Z9GXW5B3T2R8D4F7Q2M";
@@ -35,7 +37,7 @@ function makeDeps(
   resolve?: ResolveResult,
   opts: { now?: () => number } = {}
 ) {
-  const store = new OmiStore(path.join(home, "omi"));
+  const store = new CaptureStore(path.join(home, "capture"));
   const counters = new Counters(store.root, "wake");
   const cfg = {
     ...loadConfig({ GARRISON_HOME: home }),

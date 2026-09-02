@@ -46,20 +46,6 @@ final class SettingsAndConsentTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
     }
 
-    func testAckLogAppendsBoundedNewestFirst() {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("acklog-\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let log = AckLog(directory: directory)
-        for i in 1 ... 5 {
-            log.append(AckLogEntry(id: "a\(i)", at: Date(), kind: "created", severity: "info", text: "entry \(i)", via: "push"))
-        }
-        let entries = log.entries()
-        XCTAssertEqual(entries.count, 5)
-        XCTAssertEqual(entries.first?.id, "a5") // newest first
-        XCTAssertEqual(entries.first?.text, "entry 5")
-    }
-
     // The broadcast runs in another process, so "can Zeca see my screen right
     // now" is only answerable through the shared App Group. A stale stamp must
     // read as NOT broadcasting - the extension can be killed without ever

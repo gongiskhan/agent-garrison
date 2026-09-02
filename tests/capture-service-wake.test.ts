@@ -63,15 +63,23 @@ function startMockDeepgram(script: Array<{ afterFrames: number; message: string 
 }
 
 // Stub gateway: answers /chat with a canned classifier reply and records the
-// request bodies (to assert the routing pin).
-function startStubGateway(reply: unknown) {
+// request bodies (to assert the routing pin). A request WITHOUT a routing pin
+// is the full delegate turn; when `delegate` is given it is answered with
+// that reply and session_id (the gateway's own conversation id) so the
+// active-conversation window (D25) can be observed.
+function startStubGateway(reply: unknown, delegate: { reply: string; session_id: string } | null = null) {
   const requests: any[] = [];
   const server = createHttpServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
-      requests.push({ url: req.url, body: JSON.parse(body || "{}") });
+      const parsed = JSON.parse(body || "{}");
+      requests.push({ url: req.url, body: parsed });
       res.writeHead(200, { "content-type": "application/json" });
+      if (delegate && !parsed.routing) {
+        res.end(JSON.stringify(delegate));
+        return;
+      }
       res.end(JSON.stringify({ reply: typeof reply === "string" ? reply : JSON.stringify(reply) }));
     });
   });
@@ -133,10 +141,17 @@ describe("capture-service wake gate", () => {
     while (cleanups.length) cleanups.pop()!();
   });
 
-  async function boot(dgScript: Array<{ afterFrames: number; message: string }>, overrides: Record<string, unknown> = {}) {
+  async function boot(
+    dgScript: Array<{ afterFrames: number; message: string }>,
+    overrides: Record<string, unknown> = {},
+    stub: { classify?: unknown; delegate?: { reply: string; session_id: string } } = {}
+  ) {
     const home = mkdtempSync(path.join(os.tmpdir(), "capture-wake-"));
     const mock = startMockDeepgram(dgScript);
-    const gateway = await startStubGateway({ intent: "create_task", title: "hello companion", description: "A test task from the companion." });
+    const gateway = await startStubGateway(
+      stub.classify ?? { intent: "create_task", title: "hello companion", description: "A test task from the companion." },
+      stub.delegate ?? null
+    );
     const board = await startStubBoard(home);
     const env = { GARRISON_HOME: home, CAPTURE_TOKEN: TOKEN, DEEPGRAM_API_KEY: DG_KEY };
     const cfg = loadConfig(env);
@@ -301,5 +316,70 @@ describe("capture-service wake gate", () => {
     expect(handle.counters.read().realtime_echo_suppressed).toBe(1);
     expect(handle.counters.read().wake_hits ?? 0).toBe(0);
     expect(board.cards.length).toBe(0);
+  });
+
+  // D25 - the active-conversation window. A delegate reply carries the
+  // gateway's session_id; the next delegate inside the window resumes THAT
+  // conversation instead of the bus's deterministic key, an explicit pin
+  // wins over both, and after the window the deterministic key is back.
+  const DELEGATE_COMMAND = "Zeca, send Ana the report.";
+  const DELEGATE_STUB = {
+    classify: { intent: "delegate", request: "send Ana the report", ack: "On it." },
+    delegate: { reply: "Sent the report to Ana.", session_id: "gw-1" }
+  };
+
+  async function delegateOnce(ctx: Awaited<ReturnType<typeof boot>>, sessionId: string) {
+    const answered = ctx.handle.counters.read().wake_delegates_answered ?? 0;
+    const { ws } = await streamAudio(ctx.base, sessionId, 8);
+    await waitFor(() => (ctx.handle.counters.read().wake_delegates_answered ?? 0) === answered + 1);
+    ws.close();
+    return ctx.gateway.requests.filter((r) => r.url === "/chat" && !r.body.routing).map((r) => r.body);
+  }
+
+  it("resumes the gateway conversation of the last delegate reply inside the window", async () => {
+    const ctx = await boot([{ afterFrames: 5, message: dgResults(DELEGATE_COMMAND) }], {}, DELEGATE_STUB);
+    let delegates = await delegateOnce(ctx, "01WAKESESSION0005");
+    expect(delegates.length).toBe(1);
+    expect(delegates[0].sessionId).toBe("companion-wake:01WAKESESSION0005");
+    expect(delegates[0].message).toContain("send Ana the report");
+
+    delegates = await delegateOnce(ctx, "01WAKESESSION0006");
+    expect(delegates.length).toBe(2);
+    expect(delegates[1].sessionId).toBe("gw-1");
+
+    const counters = ctx.handle.counters.read();
+    expect(counters.wake_delegates).toBe(2);
+    expect(counters.wake_delegate_resumed_window).toBe(1);
+    expect(counters.wake_delegate_resumed_pin ?? 0).toBe(0);
+    // The window is the bus's memory, not the pin: GET shows nothing pinned.
+    const res = await fetch(`${ctx.base}/capture/conversation/active`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    expect(await res.json()).toEqual({ session_id: null, until: null });
+  });
+
+  it("falls back to the deterministic key once the window has passed", async () => {
+    const ctx = await boot([{ afterFrames: 5, message: dgResults(DELEGATE_COMMAND) }], { activeConversationWindowMs: 200 }, DELEGATE_STUB);
+    await delegateOnce(ctx, "01WAKESESSION0007");
+    await new Promise((r) => setTimeout(r, 320));
+    const delegates = await delegateOnce(ctx, "01WAKESESSION0008");
+    expect(delegates.length).toBe(2);
+    expect(delegates[1].sessionId).toBe("companion-wake:01WAKESESSION0008");
+    expect(ctx.handle.counters.read().wake_delegate_resumed_window ?? 0).toBe(0);
+  });
+
+  it("lets an explicit pin win over the window", async () => {
+    const ctx = await boot([{ afterFrames: 5, message: dgResults(DELEGATE_COMMAND) }], {}, DELEGATE_STUB);
+    await delegateOnce(ctx, "01WAKESESSION0009");
+    const pin = await fetch(`${ctx.base}/capture/conversation/active`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ session_id: "gw-pinned" })
+    });
+    expect(pin.status).toBe(200);
+    const delegates = await delegateOnce(ctx, "01WAKESESSION0010");
+    expect(delegates.length).toBe(2);
+    expect(delegates[1].sessionId).toBe("gw-pinned");
+    const counters = ctx.handle.counters.read();
+    expect(counters.wake_delegate_resumed_pin).toBe(1);
+    expect(counters.wake_delegate_resumed_window ?? 0).toBe(0);
   });
 });

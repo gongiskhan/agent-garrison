@@ -29,23 +29,26 @@ import { detectLanguage, isLanguage, LANGUAGES } from "./lang.mjs";
 
 // ---- the wake-word guard ----------------------------------------------------
 
-// Mirrors wakeRegex in the omi-channel fitting. Fittings are self-contained APM
-// packages and cross-fitting imports are forbidden, so this is copied rather than
-// imported (the gateway-client precedent). It is a SAFETY check, not a feature:
-// drift here fails closed (a stricter regex rejects more templates, it never lets
-// a wake word through unnoticed).
+// Mirrors wakeRegex in the capture-service fitting (the one voice layer since
+// 2026-09-02; the bus lived in omi-channel before that). Fittings are
+// self-contained APM packages and cross-fitting imports are forbidden, so this is
+// copied rather than imported (the gateway-client precedent). It is a SAFETY
+// check, not a feature: drift here fails closed (a stricter regex rejects more
+// templates, it never lets a wake word through unnoticed).
 //
-// This guard carries MORE weight than it looks like it should. omi-channel's gate
-// matches the token anywhere in a segment, with no address-position requirement,
-// so a spoken sentence carrying the word ANYWHERE opens a capture window. That
-// makes render-time rejection here the only thing standing between a voice sink
-// and the pendant it speaks into.
-const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
+// This guard carries MORE weight than it looks like it should. capture-service's
+// gate matches the token anywhere in a segment, with no address-position
+// requirement, so a spoken sentence carrying the word ANYWHERE opens a capture
+// window. That makes render-time rejection here the only thing standing between
+// a voice sink and the pendant it speaks into.
+//
+// Kept in step with DEFAULT_WAKE_VARIANTS in capture-service/lib/config.mjs.
+const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca", "zecke"];
 
-// Kept in step with omi-channel's config.mjs: a stored value made up entirely of
-// the retired name's spellings is ignored there, so honouring it here would guard
-// the WRONG word - the guard would pass an ack containing the live wake word.
-// That is the one way this check can fail open, so the fallback is mirrored too.
+// The operative was renamed once already. A stored value made up entirely of
+// the retired name's spellings would make this guard police the WRONG word and
+// pass an ack containing the live one - the single way this check can fail
+// open - so such a value is ignored and the defaults govern.
 const RETIRED_WAKE_VARIANTS = new Set(["gary", "garry", "gerry", "geri", "géri"]);
 
 function fold(v) {
@@ -56,8 +59,13 @@ function fold(v) {
     .trim();
 }
 
+// The variants are capture-service's config key, projected into ITS process as
+// GARRISON_CAPTURESERVICE_WAKE_VARIANTS. The runner projects each fitting only
+// its own config, so this process normally sees no value and the defaults above
+// govern; the env read exists for the harness and for an operator who mirrors
+// the key deliberately.
 export function wakeVariants(env = process.env) {
-  const raw = String(env.GARRISON_OMICHANNEL_WAKE_VARIANTS ?? "")
+  const raw = String(env.GARRISON_CAPTURESERVICE_WAKE_VARIANTS ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);

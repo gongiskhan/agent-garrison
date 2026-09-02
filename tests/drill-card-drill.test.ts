@@ -191,6 +191,7 @@ describe("broadcastOutcome — every means, independently", () => {
   const savedWebhook = process.env.GARRISON_DRILL_NOTIFY_WEBHOOK;
   const savedChannel = process.env.GARRISON_DRILL_NOTIFY_SLACK_CHANNEL;
   const savedBase = process.env.GARRISON_BASE_URL;
+  const savedApp = process.env.GARRISON_APP_URL;
 
   beforeAll(() => {
     process.env.GARRISON_HOME = home;
@@ -200,6 +201,9 @@ describe("broadcastOutcome — every means, independently", () => {
     delete process.env.GARRISON_DRILL_NOTIFY_WEBHOOK;
     delete process.env.GARRISON_DRILL_NOTIFY_SLACK_CHANNEL;
     delete process.env.GARRISON_BASE_URL;
+    // A shell that names the app (a dev-env session projects GARRISON_APP_URL)
+    // would win over the status file every test below relies on.
+    delete process.env.GARRISON_APP_URL;
   });
 
   afterAll(() => {
@@ -207,6 +211,7 @@ describe("broadcastOutcome — every means, independently", () => {
     if (savedWebhook === undefined) delete process.env.GARRISON_DRILL_NOTIFY_WEBHOOK; else process.env.GARRISON_DRILL_NOTIFY_WEBHOOK = savedWebhook;
     if (savedChannel === undefined) delete process.env.GARRISON_DRILL_NOTIFY_SLACK_CHANNEL; else process.env.GARRISON_DRILL_NOTIFY_SLACK_CHANNEL = savedChannel;
     if (savedBase === undefined) delete process.env.GARRISON_BASE_URL; else process.env.GARRISON_BASE_URL = savedBase;
+    if (savedApp === undefined) delete process.env.GARRISON_APP_URL; else process.env.GARRISON_APP_URL = savedApp;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -255,6 +260,45 @@ describe("broadcastOutcome — every means, independently", () => {
     expect(calls.some((c) => c.url.includes("/api/threads/thr-42/messages"))).toBe(true);
     // An existing thread is never re-created (that would clobber its routing).
     expect(calls.some((c) => c.url.endsWith("/api/threads"))).toBe(false);
+  });
+
+  it("posts to the Garrison app when GARRISON_APP_URL names it, ignoring the legacy status file", async () => {
+    // Both hosts share one thread store: with the app named AND the legacy
+    // fitting's status file present, only the app may be posted to.
+    process.env.GARRISON_APP_URL = "http://app.test/";
+    try {
+      const { calls, fetchImpl } = recorder();
+      const receipts = await broadcastOutcome({
+        card: { id: "01CARD", title: "Turn Rail badges" },
+        outcome: { state: "passed", findings: 0, checks: 4 },
+        fetchImpl
+      });
+      expect(receipts.find((r: any) => r.means === "web-channel")).toMatchObject({ ok: true, target: "drill-reports" });
+      const threadCalls = calls.filter((c) => c.url.includes("/api/threads")).map((c) => c.url);
+      expect(threadCalls).toEqual([
+        "http://app.test/api/threads",
+        "http://app.test/api/threads/drill-reports/messages"
+      ]);
+      expect(calls.some((c) => c.url.startsWith("http://web.test"))).toBe(false);
+    } finally {
+      delete process.env.GARRISON_APP_URL;
+    }
+  });
+
+  it("names both hosts in the skip reason when neither the app nor the legacy fitting is reachable", async () => {
+    const bare = mkdtempSync(join(tmpdir(), "drill-bcast-nohost-"));
+    process.env.GARRISON_HOME = bare;
+    try {
+      const { fetchImpl } = recorder();
+      const receipts = await broadcastOutcome({ card: { id: "01CARD", title: "t" }, outcome: { state: "passed" }, fetchImpl });
+      expect(receipts.find((r: any) => r.means === "web-channel")).toMatchObject({
+        ok: false,
+        skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting is not running"
+      });
+    } finally {
+      process.env.GARRISON_HOME = home;
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 
   it("posts to a configured webhook with both prose and structured fields", async () => {
@@ -438,8 +482,10 @@ describe("POST /api/card-drill — plan, scope, run, notify", () => {
         DRILL_CARD_POLL_MS: "200",
         // No Garrison shell + no automations status file: the run terminates on
         // a missing engine, which is the "could not finish" path this asserts
-        // still notifies.
+        // still notifies. GARRISON_APP_URL cleared too, so the outcome lands on
+        // the fake web host named by the status file, never a real app.
         GARRISON_BASE_URL: "",
+        GARRISON_APP_URL: "",
         GARRISON_AUTOMATIONS_URL: ""
       }
     });

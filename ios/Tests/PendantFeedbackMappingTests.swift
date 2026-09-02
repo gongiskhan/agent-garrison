@@ -65,20 +65,23 @@ final class PendantFeedbackMappingTests: XCTestCase {
     }
 
     // The pendant must outlive the screen. It used to be a @StateObject inside
-    // PendantView, so navigating to Settings tore it down - BLE dropped, the
+    // a SwiftUI view, so navigating away tore it down - BLE dropped, the
     // session ended, and the wearable went deaf until you walked back to that
-    // one view. A source check because the bug lives in OWNERSHIP, which no
-    // runtime assertion in this target can observe.
+    // one view. The screen is now a web page behind GarrisonPendantPlugin, and
+    // a plugin instance dies with its bridge on every node switch, so the same
+    // bug would come back the moment the plugin built its own controller. A
+    // source check because the bug lives in OWNERSHIP, which no runtime
+    // assertion in this target can observe.
     func testPendantIsOwnedByTheAppNotByAView() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let view = try String(contentsOf: root.appendingPathComponent("GarrisonApp/Pendant/PendantView.swift"))
+        let plugin = try String(contentsOf: root.appendingPathComponent("GarrisonApp/Plugins/GarrisonPendantPlugin.swift"))
+        XCTAssertTrue(plugin.contains("PendantController.shared"))
         XCTAssertFalse(
-            view.contains("@StateObject private var controller"),
-            "PendantView must OBSERVE the shared controller, never own it - owning it kills the link on navigation"
+            plugin.contains("= PendantController("),
+            "the plugin must OBSERVE the shared controller, never own a second one - owning it kills the link with the bridge"
         )
-        XCTAssertTrue(view.contains("PendantController.shared"))
 
         let controller = try String(contentsOf: root.appendingPathComponent("GarrisonApp/Pendant/PendantController.swift"))
         XCTAssertTrue(controller.contains("static let shared = PendantController()"))

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dev-env backend — the consolidated Dev Env Fitting (base port 7086). One server
+// dev-env backend - the consolidated Dev Env Fitting (base port 8086). One server
 // folds the retired dev-work Fittings into a single surface:
 //   - PTY terminals (ptys.mjs, from terminal-armory-default)
 //   - session state + Claude Code hook receiver + session CRUD (state.mjs,
@@ -84,7 +84,7 @@ import {
 } from "./claude-message.mjs";
 
 const FITTING_ID = "dev-env";
-const DEFAULT_PORT = 7086;
+const DEFAULT_PORT = 8086;
 
 const HOME = os.homedir();
 // GARRISON_HOME (when set) IS the .garrison root - the sandbox convention every
@@ -92,7 +92,15 @@ const HOME = os.homedir();
 const STATUS_ROOT = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 const BROWSER_STATUS_FILE = path.join(STATUS_ROOT, "browser-default.json");
-const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
+// The voice provider is whichever fitting provides kind:voice in the running
+// composition; the runner projects its id as GARRISON_VOICE_FITTING_ID (absent
+// when none is stationed). No baked-in id: without the env the bridge reports
+// "no voice provider" rather than reading a fitting that is not there.
+const VOICE_FITTING_ID_RE = /^[a-z0-9][a-z0-9_-]*$/i;
+function voiceStatusFile() {
+  const id = (process.env.GARRISON_VOICE_FITTING_ID || "").trim();
+  return VOICE_FITTING_ID_RE.test(id) ? path.join(STATUS_ROOT, `${id}.json`) : null;
+}
 
 const EXTERNAL_STATUSES = new Set(["working", "waiting", "starting"]);
 
@@ -857,75 +865,149 @@ function handleClaudeInterrupt(req, res, sessionId) {
 }
 
 // ─────────────────────────── voice proxy (/voice/* and /sessions/:id/voice/*)
-// Thin same-origin bridge to the deepgram-voice fitting (base port 7085) so the
-// browser never needs to cross-origin to it. The voice URL is rediscovered from
-// the status file on EVERY request (the port can change / the fitting can come
-// and go); if the file is missing or its /health fails we return 503 with a
-// clear body and the UI disables voice. The Deepgram API key stays server-side
-// in the voice fitting — this proxy only forwards bytes.
+// Thin same-origin bridge to the voice provider (the fitting providing
+// kind:voice, named by GARRISON_VOICE_FITTING_ID) so the browser never needs to
+// cross-origin to it. The voice URL is rediscovered from the provider's status
+// file on EVERY request (the port can change / the fitting can come and go); if
+// no provider is projected, the file is missing or its /health fails we return
+// 503 with a named reason and the UI disables voice. The provider gates /stt
+// and /tts with the capture token (CAPTURE_TOKEN, this fitting's secret_scope):
+// the bridge adds it as a Bearer on the upstream hop only, so the page never
+// holds it, and the Deepgram key never leaves the provider.
 
-async function readVoiceUrl() {
-  const raw = await readFile(VOICE_STATUS_FILE, "utf8");
-  const parsed = JSON.parse(raw);
-  if (!parsed || typeof parsed.url !== "string") throw new Error("voice status file invalid");
-  return parsed.url.replace(/\/$/, "");
-}
+// The same operator-facing strings the talk router uses (packages/talk
+// router.mjs VOICE_*), so the two voice surfaces read alike. This host learns
+// the token from its env at spawn, so it cannot tell a locked vault from an
+// unsealed CAPTURE_TOKEN: both read as "voice locked" here (the shell's
+// /api/voice/health, which reads the vault directly, tells them apart).
+const VOICE_NO_PROVIDER = "no voice provider";
+const VOICE_NOT_RUNNING = "voice provider not running";
+const VOICE_LOCKED = "voice locked";
+const VOICE_REST_DISABLED = "voice rest disabled";
+const VOICE_UNREACHABLE = "voice unreachable";
 
-async function readRawBody(req, limit = 25 * 1024 * 1024) {
-  const chunks = [];
-  let size = 0;
-  for await (const c of req) {
-    size += c.length;
-    if (size > limit) throw new Error("payload too large");
-    chunks.push(c);
-  }
-  return Buffer.concat(chunks);
-}
-
-// GET /voice/health -> { available, url?, keyConfigured? }. Never throws to the
-// client: any failure (no status file, fitting down, key missing) collapses to
-// available:false so the UI degrades gracefully.
-async function handleVoiceHealth(req, res) {
-  let voiceUrl;
+// { url, fitting } of the running provider, or { reason, fitting? } naming why
+// there is none. The url is for THIS process's upstream hop only and never
+// reaches the page (the browser is usually on another machine).
+async function readVoiceTarget() {
+  const fitting = (process.env.GARRISON_VOICE_FITTING_ID || "").trim() || null;
+  const statusFile = voiceStatusFile();
+  if (!statusFile) return { reason: VOICE_NO_PROVIDER };
   try {
-    voiceUrl = await readVoiceUrl();
+    const parsed = JSON.parse(await readFile(statusFile, "utf8"));
+    if (!parsed || typeof parsed.url !== "string") return { reason: VOICE_NOT_RUNNING, fitting };
+    return { url: parsed.url.replace(/\/$/, ""), fitting };
   } catch {
-    return jsonRes(res, 200, { available: false });
+    return { reason: VOICE_NOT_RUNNING, fitting };
   }
+}
+
+function voiceToken() {
+  const token = process.env.CAPTURE_TOKEN || "";
+  return token.length > 0 ? token : null;
+}
+
+function readRawBody(req, limit = 25 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > limit) {
+        const err = new Error(`payload too large (over ${limit} bytes)`);
+        err.code = "PAYLOAD_TOO_LARGE";
+        // Drain the rest instead of destroying the socket, so the 413 the
+        // caller answers with can still reach the client.
+        req.removeAllListeners("data");
+        req.resume();
+        reject(err);
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+// The 4xx for a body readRawBody refused: 413 (and close the connection the
+// oversized body is still streaming on) or a plain 400.
+function answerBadBody(res, err, what) {
+  if (err?.code === "PAYLOAD_TOO_LARGE") {
+    res.setHeader("Connection", "close");
+    return jsonRes(res, 413, { error: err.message });
+  }
+  return jsonRes(res, 400, { error: `bad ${what}: ${err.message}` });
+}
+
+// GET /voice/health -> { available, keyConfigured, tts, backend, maxTextChars,
+// fitting } or { available: false, reason, fitting? }. The provider's /health
+// carries a `voice` block ({stt, tts, ttsBackend, restEnabled, maxTextChars}):
+// `available`/`keyConfigured` mirror `voice.stt` (the mic needs a transcriber),
+// `tts` says whether read-aloud can work, `backend` names the synthesiser and
+// `maxTextChars` is the /tts per-request budget the client chunks against. A
+// provider whose REST lane is off would refuse every hop, so it reads as
+// unavailable with a reason. Never throws to the client: every failure
+// collapses to available:false with a reason so the UI degrades.
+async function handleVoiceHealth(req, res) {
+  const target = await readVoiceTarget();
+  const fitting = target.fitting ?? null;
+  if (!target.url) return jsonRes(res, 200, { available: false, reason: target.reason, ...(fitting ? { fitting } : {}) });
+  if (!voiceToken()) return jsonRes(res, 200, { available: false, reason: VOICE_LOCKED, fitting });
   try {
-    const probe = await fetch(`${voiceUrl}/health`, { signal: AbortSignal.timeout(2500) });
-    if (!probe.ok) return jsonRes(res, 200, { available: false, url: voiceUrl });
+    const probe = await fetch(`${target.url}/health`, { signal: AbortSignal.timeout(2500) });
+    if (!probe.ok) return jsonRes(res, 200, { available: false, reason: VOICE_UNREACHABLE, fitting });
     const h = await probe.json().catch(() => ({}));
+    const block = h && typeof h.voice === "object" && h.voice ? h.voice : {};
+    if (block.restEnabled === false) return jsonRes(res, 200, { available: false, reason: VOICE_REST_DISABLED, fitting });
+    const stt = Boolean(block.stt);
+    const maxTextChars = Number.isInteger(block.maxTextChars) && block.maxTextChars > 0 ? block.maxTextChars : null;
     return jsonRes(res, 200, {
-      available: true,
-      url: voiceUrl,
-      keyConfigured: h.keyConfigured !== false
+      available: stt,
+      keyConfigured: stt,
+      tts: Boolean(block.tts),
+      backend: block.ttsBackend ?? null,
+      maxTextChars,
+      fitting
     });
   } catch {
-    return jsonRes(res, 200, { available: false, url: voiceUrl });
+    return jsonRes(res, 200, { available: false, reason: VOICE_UNREACHABLE, fitting });
   }
+}
+
+// The provider + token pair a proxy call needs, or the 503 already answered.
+// A missing provider or token is OUR 503 with a named reason, so the provider's
+// own 403 ("no token sealed") never reads as a forbidden user; an upstream
+// 401/403 that does come back means our token does not match the sealed one,
+// which the operator must see as-is.
+async function voiceUpstream(res) {
+  const target = await readVoiceTarget();
+  if (!target.url) { jsonRes(res, 503, { error: target.reason }); return null; }
+  const token = voiceToken();
+  if (!token) { jsonRes(res, 503, { error: VOICE_LOCKED }); return null; }
+  return { url: target.url, headers: { authorization: `Bearer ${token}` } };
 }
 
 // POST /voice/tts -> forward JSON {text,format?} to <voiceUrl>/tts, stream the
 // audio bytes back with the upstream content-type.
 async function handleVoiceTts(req, res) {
-  let voiceUrl;
-  try { voiceUrl = await readVoiceUrl(); }
-  catch { return jsonRes(res, 503, { error: "voice fitting not running" }); }
+  const upstream = await voiceUpstream(res);
+  if (!upstream) return;
   let body;
   try { body = await readRawBody(req, 1 * 1024 * 1024); }
-  catch (err) { return jsonRes(res, 400, { error: `bad body: ${err.message}` }); }
+  catch (err) { return answerBadBody(res, err, "body"); }
   try {
-    const up = await fetch(`${voiceUrl}/tts`, {
+    const up = await fetch(`${upstream.url}/tts`, {
       method: "POST",
-      headers: { "content-type": req.headers["content-type"] || "application/json" },
+      headers: { ...upstream.headers, "content-type": req.headers["content-type"] || "application/json" },
       body,
-      // Bounded: a hung voice fitting must not hang this request forever.
+      // Bounded: a hung voice provider must not hang this request forever.
       signal: AbortSignal.timeout(20000)
     });
     const buf = Buffer.from(await up.arrayBuffer());
     if (!up.ok) {
-      // Bubble the upstream status (e.g. 503 = key missing) and body verbatim.
+      // Bubble the upstream status (e.g. 503 = no backend, 401 = token
+      // mismatch) and body verbatim.
       res.statusCode = up.status;
       res.setHeader("Content-Type", up.headers.get("content-type") || "application/json");
       return res.end(buf);
@@ -944,18 +1026,17 @@ async function handleVoiceTts(req, res) {
 // POST /voice/stt -> forward raw audio bytes to <voiceUrl>/stt, return the JSON
 // { transcript, confidence }.
 async function handleVoiceStt(req, res) {
-  let voiceUrl;
-  try { voiceUrl = await readVoiceUrl(); }
-  catch { return jsonRes(res, 503, { error: "voice fitting not running" }); }
+  const upstream = await voiceUpstream(res);
+  if (!upstream) return;
   let body;
   try { body = await readRawBody(req); }
-  catch (err) { return jsonRes(res, 400, { error: `bad audio body: ${err.message}` }); }
+  catch (err) { return answerBadBody(res, err, "audio body"); }
   try {
-    const up = await fetch(`${voiceUrl}/stt`, {
+    const up = await fetch(`${upstream.url}/stt`, {
       method: "POST",
-      headers: { "content-type": req.headers["content-type"] || "audio/webm" },
+      headers: { ...upstream.headers, "content-type": req.headers["content-type"] || "audio/webm" },
       body,
-      // Bounded: a hung voice fitting must not hang this request forever.
+      // Bounded: a hung voice provider must not hang this request forever.
       signal: AbortSignal.timeout(20000)
     });
     const text = await up.text();

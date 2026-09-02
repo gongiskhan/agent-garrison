@@ -13,7 +13,14 @@ Open `/vault` on the prod shell and add:
 - `DEEPGRAM_API_KEY` — does not exist yet anywhere (verified against the
   vault on 2026-08-13): create an API key at console.deepgram.com (any
   project, default scopes). Without it sessions store media but no
-  transcripts (`transcribe_skipped` counts on /health).
+  transcripts (`transcribe_skipped` counts on /health), and `POST /stt` -
+  the browser's push-to-talk and every automation transcription - answers
+  503 (`voice.stt: false` on /health). The same key also buys Deepgram Aura
+  read-aloud when ElevenLabs is not configured.
+- `ELEVENLABS_API_KEY` - OPTIONAL. Seal it for the pt-PT voice (`tts_backend`
+  `auto` prefers it); leave it out and spoken clips come from Deepgram Aura
+  on the key above, or from nothing at all (the phone speaks in its own
+  voice, the browser hides the speaker) when neither key is sealed.
 - `APNS_TEAM_ID` — `N3AN3Z32JN` (the Apple team; recorded from ios-thing's
   deployment).
 - `APNS_KEY_ID` + `APNS_P8` — an APNs AUTH KEY (NOT the App Store Connect
@@ -29,8 +36,14 @@ Open `/vault` on the prod shell and add:
 
 Then flip the composition flags you want (Compose -> capture-service):
 `enabled`, `transcribe_enabled`, `wake_enabled`, `notify_enabled`,
-`speak_enabled` — and `up`. Verify: `/health` on the fitting shows every
-secret `true` and the flags you enabled.
+`speak_enabled`, `tts_enabled` - and `up`. Verify: `/health` on the fitting
+shows every secret `true` and the flags you enabled.
+
+Browser voice (the mic and speaker buttons in Conversations) needs exactly
+two of these: `DEEPGRAM_API_KEY` and `CAPTURE_TOKEN`, plus `enabled` on.
+The shell's voice proxy presents `CAPTURE_TOKEN` to this fitting's
+`POST /stt` and `POST /tts` for you; nothing is typed into the browser.
+`/health` -> `voice.stt: true` is the check.
 
 ## 2. The five browser minutes the APIs refuse to do (one time)
 

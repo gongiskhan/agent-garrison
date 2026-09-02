@@ -78,7 +78,7 @@ and never syncing a working tree into a checkout a service is executing from
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. **16 in total** (`facultyIds` in `src/lib/types.ts`): **8 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers. Legacy `modes` selections are removed during composition migration; live identity is authored inside Orchestrator.
+- **Faculty** - a **role** slot in a composition. **16 in total** (`facultyIds` in `src/lib/types.ts`): **8 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) - the purpose-named homes the promoted Claude Code primitives fill (the primitive type - skill/hook/mcp/plugin - survives only as an internal `component_shape`, never as a user-facing label) - plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, WhatsApp, the `voice` connector on capture-service, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** - they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers. Legacy `modes` selections are removed during composition migration; live identity is authored inside Orchestrator.
 - **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
 - **The menu (sidebar)** — three groups: **Pinned** on top (always open), then **Command** and **Fittings**, both collapsible and both FLAT alphabetical (the 2026-08-26 refit dropped the category sub-groups; category survives as the Compose/library axis). Pinned takes both kinds — a `nav:`-prefixed Command route or a Fitting id — dragged in and dragged out, and it lives in the state service (`sidebar.pins` / `global`), so **the menu is the same on every node**; `~/.garrison/sidebar-pins.json` is only the standalone store and this node's degraded-read materialisation, and a pin write REFUSES when the service is unreachable. The Fittings group is auto-populated for the current composition and lists EVERY equipped Fitting (2026-07-29 refit: every Fitting has a view). Embedded views open at `/fitting/<id>` (the view IS the page — the old per-fitting overview/config page is gone); own-port live links embed at `/embed/<id>` (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
 - **Lifecycle for own-port Fittings** — fittings share the operative's lifecycle, always (2026-07-29 refit: the eager/detached split is gone; `x-garrison.lifecycle` is parsed-and-ignored with a deprecation warning). `up` starts EVERY own-port Fitting with the runner-projected env (gateway URL, composition id, selection config, vault) and heals running ones on env drift; `down` stops every one by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. The startup orphan sweep reaps anything not protected by a RUNNING composition. `/api/fittings/[id]/start|restart` remain as recovery/code-reload controls (env parity via `operativeEnvForFitting`). Every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock or `up`.
@@ -90,7 +90,7 @@ and never syncing a working tree into a checkout a service is executing from
   **mesh**. The word survives only in internal identifiers and historical
   docs; `tests/vocabulary.test.ts` keeps it out of UI copy and manifest
   prose. Zeca remains the assistant persona defined inside a composition.
-- **Channel** — the way external surfaces (Slack, Web Channel) reach the Operative through the gateway. Garrison does not ship a built-in chat surface.
+- **Channel** — the way external surfaces (Slack, WhatsApp, Omi, email) reach the Operative through the gateway. Garrison ships no chat surface, with one documented exception: **Conversations** at `/talk`, the former Web Channel, is served by the shell from `packages/talk` (AGENTS.md "The web channel exception"). The legacy own-port host `web-channel-default` is unstationed by default.
 - **`x-garrison`** — Garrison's metadata block inside the APM `apm.yml` manifest. APM preserves `x-*` keys. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
 
 Legacy aliases the parser still accepts (with deprecation warnings):
@@ -146,6 +146,10 @@ packages/claude-pty/ PTY substrate — drives the interactive Claude Code TUI
                      streaming, xterm screen reader. Used by dev-env Fitting
                      and web-channel. Entry: src/index.mjs.
 packages/claude-chat/ Chat client built on claude-pty.
+packages/talk/       The conversation engine (threads, chat/SSE, push, voice
+                     REST, notify) + its React UI. Mounted by the shell at
+                     /talk and /api/* (src/app/api/[[...path]]/route.ts);
+                     the legacy own-port host web-channel-default imports it.
 compositions/<id>/   apm.yml = source of truth per composition.
                      Filesystem is authoritative; no JSON shadow.
                      Portable form: a single `<id>.garrison.json` bundle
@@ -166,10 +170,22 @@ Quarters**, plus the collapsible sidebar **Quarters** and **Fittings** groups
 `/fitting/<id>/...`. As of the 2026-06-18 shell refit the **Run panel
 merged into the Garrison dashboard** (the home route; `/run` redirects to
 `/`) and the **Armory folded into Composition** (Fitting discovery is the
-cross-Faculty search box on `/compose`; `/armory` redirects there). There is
-no built-in Chat surface. Operative interaction goes through Channel
-Fittings; observability is the runtime log on the dashboard plus per-Fitting
-logs under `/fitting/<id>`.
+cross-Faculty search box on `/compose`; `/armory` redirects there). The one
+shell-hosted conversation surface is **Conversations** at `/talk` (2026-09-01,
+the web channel moved into the shell for the iOS app; the talk API is mounted
+by the `/api` catch-all). Every other Operative interaction goes through
+Channel Fittings; observability is the runtime log on the dashboard plus
+per-Fitting logs under `/fitting/<id>`.
+
+**The Garrison iOS app (2026-09-02).** `ios/` is one app: the Companion Swift
+project plus a Capacitor webview pointed at a node's shell over the tailnet, so
+the phone sees the same shell (Conversations, Kanban Loop, every fitting view, a
+node switcher) and the capture page only when the native bridge is present.
+Audio never crosses the webview: Swift streams it to `capture-service`, the one
+voice layer. Native plugins: `GarrisonCapturePlugin`, `GarrisonPendantPlugin`,
+`GarrisonPushPlugin`, `GarrisonNodePlugin`. TestFlight through `ios-thing`
+(`garrison-ios.yml`, `fastlane beta`); XCTest on the mini. Decisions and gates:
+`docs/decisions/2026-09-garrison-app.md`; open phone checks: `HANDOFF-garrison-app.md`.
 
 ### Faculties — 8 core roles (Quarters pivot + 2026-06-18 sessions split)
 
@@ -186,8 +202,11 @@ Context, Plans — is now a **Quarters platform primitive** surfaced over the re
 
 **Own-port runtime residue** — survives at runtime under
 `sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
-flag: `dev-env` (27086), `screen-share` (27079), `outposts` (27082),
-`monitor` (27077), `web-channel` (27083), `browser` (27084), `voice` (27085).
+flag: `dev-env` (8086), `screen-share` (8079), `drill` (8096, the outpost stream),
+`monitor` (8077), `browser` (8084), `capture-service` (8097, the voice layer
+since 2026-09-02 - `deepgram-voice` is retired); `web-channel` (8083)
+survives as the legacy host of the shell-served Conversations and is
+unstationed by default.
 The Dev Env Fitting is one tabbed surface: every Claude Code session is a tab
 holding a Claude PTY + shell PTY (left) and the live browser pane (right), with
 PR / commit-and-push actions on the current branch in the menu. Sessions run in
@@ -399,7 +418,7 @@ depends on none; these rules keep such a Fitting swappable, honest, and safe on 
   bridge. This repo ships no counterpart daemon, no inbound listener, no delegation endpoint.
 
 The "talks only to `localhost`" positioning above describes Garrison's own shell. User-equipped Fittings have
-always egressed with vault-held keys (`deepgram-voice`, the model runtimes). An opt-in, key-scoped capability
+always egressed with vault-held keys (`capture-service` speaking to Deepgram and ElevenLabs, the model runtimes). An opt-in, key-scoped capability
 client is that same shape, not a new category.
 
 ## Roadmap status

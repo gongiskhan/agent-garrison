@@ -3,6 +3,11 @@
 @tailwind utilities;
 
 :root {
+  /* Inside the iOS app the page runs edge to edge (viewport-fit=cover), so the
+     shell chrome clears the status bar: sidebar, rail and the fixed "New"
+     trigger offset by the top inset. Hosted pages that fill the column
+     (Conversations) read env(safe-area-inset-top) themselves. */
+  --shell-safe-top: env(safe-area-inset-top, 0px);
   color-scheme: light;
   --canvas: #efe8d9;
   --surface: #f7f2e8;
@@ -207,6 +212,63 @@ button:disabled {
 .shell-content > iframe {
   flex: 1 1 auto;
 }
+/* /embed/<id>: the Fitting's own UI in an iframe. Desktop: the full viewport
+   beside the sidebar. Phone width: the shell drops its rail (.shell-embed-full)
+   and the view carries a back bar that also absorbs the safe-area inset. */
+.embed-view {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+}
+.embed-view > iframe {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  display: block;
+  background: var(--paper);
+}
+.app-shell.shell-embed-full {
+  grid-template-columns: minmax(0, 1fr);
+}
+.app-shell.shell-embed-full > .side-rail {
+  display: none;
+}
+.embed-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: var(--shell-safe-top, 0px) 6px 0;
+  background: var(--ink, #1c1a15);
+  color: var(--paper, #f3eee2);
+}
+.embed-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.embed-bar-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.embed-bar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
 .shell-main-anchor {
   position: absolute;
   top: 0;
@@ -277,7 +339,7 @@ button:disabled {
   color: var(--shell-ink);
   /* Bottom padding lives on .side-foot so the sticky footer reaches the true
      bottom edge - otherwise scrolled nav items peek out beneath it. */
-  padding: 20px 14px 0;
+  padding: calc(20px + var(--shell-safe-top, 0px)) 14px 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -585,7 +647,7 @@ nav.tabs .item .ct.tone-off::before { background: var(--rule-2); }
 .side-rail {
   align-items: center;
   overflow: hidden;
-  padding: 12px 6px;
+  padding: calc(12px + var(--shell-safe-top, 0px)) 6px 12px;
 }
 .side-rail-toggle {
   width: 100%;
@@ -620,7 +682,9 @@ main {
   font-size: 10.5px;
   letter-spacing: 0.08em;
   color: var(--mute);
-  padding: clamp(18px, 2.5vw, 30px) clamp(24px, 5vw, 72px) 0;
+  /* The crumb line is the first thing on every non-talk page, so inside the
+     app (viewport-fit=cover) it carries the status-bar inset for the page. */
+  padding: calc(clamp(18px, 2.5vw, 30px) + var(--shell-safe-top, 0px)) clamp(24px, 5vw, 72px) 0;
   text-transform: uppercase;
 }
 .crumbs b {
@@ -1044,7 +1108,7 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
    dossier dialog, shared across every route without page-specific positioning. */
 .composition-creator {
   position: fixed;
-  top: 18px;
+  top: calc(18px + var(--shell-safe-top, 0px));
   right: 22px;
   z-index: 40;
   display: flex;
@@ -1269,7 +1333,7 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
 @media (max-width: 560px) {
   .route-skeleton-head { grid-template-columns: 1fr; }
   .route-skeleton-mark { width: 52px; }
-  .composition-creator { top: 10px; right: 10px; }
+  .composition-creator { top: calc(10px + var(--shell-safe-top, 0px)); right: 10px; }
   .composition-creator-trigger-wrap { padding: 2px; }
   .composition-creator-trigger { min-height: 30px; padding: 5px 8px; }
   .composition-creator-trigger { font-size: 0; }

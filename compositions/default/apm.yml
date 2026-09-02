@@ -12,7 +12,6 @@ dependencies:
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/cortex-automations
     - path: ../../fittings/seed/cortex-client
-    - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/email-channel
@@ -45,7 +44,6 @@ dependencies:
     - path: ../../fittings/seed/taste
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
-    - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/whatsapp-web
 x-garrison:
   composition:
@@ -67,36 +65,23 @@ x-garrison:
     selections:
       orchestrator:
         - id: orchestrator
-          config:
-            port: 8087
-            bind_host: 127.0.0.1
+          config: {}
       channels:
         - id: slack-channel
           config:
             slack_port: 9512
             gateway_url: http://127.0.0.1:5777
             chat_timeout_ms: 600000
-        - id: web-channel-default
-          config:
-            port: 8083
-            bind_host: 127.0.0.1
-            gateway_url: ''
         - id: omi-channel
           config:
             port: 8094
             bind_host: 127.0.0.1
-            public_base_url: https://dev-madrid.tail31efa.ts.net:8443
             enabled: true
             triage_enabled: true
             wake_enabled: true
-            chat_enabled: true
             notify_enabled: true
-            wake_silence_close_ms: 15000
-            wake_min_capture_ms: 0
-            wake_max_capture_ms: 45000
-            wake_command_window_ms: 45000
-            wake_context_segments: 6
-            wake_context_max_age_ms: 120000
+            # Wake tuning moved with the wake bus to capture-service (2026-09-02);
+            # this fitting only forwards transcripts there now.
         - id: capture-service
           config:
             port: 8097
@@ -120,10 +105,17 @@ x-garrison:
             automate_enabled: true
             screen_context_enabled: true
             screen_audio_transcribe: false
+            # whatsapp-web is stationed, so the spoken-send lane goes live:
+            # resolve the contact, park the send in the 60s outbox, speak it
+            # back with recipient AND text, cancel by saying "cancela" - no
+            # wake word. Unpaired, every send falls through to the operative.
             send_enabled: true
             confirm_enabled: true
         - id: whatsapp-web
           config:
+            # 8080 on dev-madrid is held by an unrelated java service, and the
+            # daemon rightly refuses to start on a shifted port. 8087 is free
+            # across the mesh port family.
             port: 8087
             bind_host: 127.0.0.1
             session_dir: ~/.config/garrison/whatsapp-web
@@ -297,12 +289,6 @@ x-garrison:
         - id: scroll-world
           config: {}
       connectors:
-        - id: deepgram-voice
-          config:
-            port: 8085
-            bind_host: 127.0.0.1
-            stt_model: nova-2
-            tts_model: aura-asteria-en
         - id: trello
           config:
             board_id: vl1Z8KFH

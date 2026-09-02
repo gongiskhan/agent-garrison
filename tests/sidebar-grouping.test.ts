@@ -31,7 +31,11 @@ describe("the menu is two flat alphabetical groups", () => {
   it("sorts both groups by label rather than trusting declaration order", () => {
     // Command rows are declared as data; a route appended to the list must land
     // in alphabetical position without anyone remembering to place it.
-    expect(SIDEBAR).toContain("[...COMMAND_ITEMS]\n    .sort((a, b) => a.label.localeCompare(b.label))");
+    // The app-only Capture entry joins the same spread, so it sorts with the
+    // rest instead of being pinned to one end.
+    expect(SIDEBAR).toContain(
+      "[...COMMAND_ITEMS, ...(nativeBridge ? [CAPTURE_ITEM] : [])]\n    .sort((a, b) => a.label.localeCompare(b.label))"
+    );
     expect(SIDEBAR).toContain("fittingRows.sort((a, b) => a.label.localeCompare(b.label));");
   });
 
@@ -55,6 +59,7 @@ describe("the menu is two flat alphabetical groups", () => {
       "/coordination",
       "/mesh",
       "/quarters",
+      "/talk",
       "/vault"
     ]);
   });

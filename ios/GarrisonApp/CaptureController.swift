@@ -8,7 +8,7 @@ import SwiftUI
 ///
 /// The audio session uses .playAndRecord + .voiceChat + .defaultToSpeaker:
 /// the voice-processing I/O unit applies hardware echo cancellation, which is
-/// what makes speaking while the mic is hot survivable (ADR §6) — the echo
+/// what makes speaking while the mic is hot survivable (ADR §6) - the echo
 /// guard server-side mops up the residue. VPIO also attenuates the input;
 /// that cost is paid back by the encoder's guarded normalization, not by
 /// giving up AEC. Interruptions (calls, Siri) pause the tap and resume when
@@ -44,7 +44,7 @@ final class CaptureController: ObservableObject {
         ) { [weak self] notification in
             Task { @MainActor in self?.handleInterruption(notification) }
         }
-        // A route change mid-session (Bluetooth/CarPlay/headset — routine for
+        // A route change mid-session (Bluetooth/CarPlay/headset - routine for
         // the car use case) changes the input hardware format and stops the
         // engine; without this observer capture dies silently under a UI that
         // still says live.
@@ -66,14 +66,14 @@ final class CaptureController: ObservableObject {
 
     var isRunning: Bool { phase == .live || phase == .connecting || phase == .interrupted }
 
-    func start(consent: ConsentState) {
+    func start(consent: ConsentState, conversationId: String? = nil) {
         guard !isRunning else { return }
         guard let baseURL = AppGroup.baseURL, let token = AppGroup.token else {
             phase = .failed("Set the base URL and token in Settings first.")
             return
         }
         // Without this gate a denied-permission session streams valid Opus
-        // packets of pure silence under a live UI — the least diagnosable
+        // packets of pure silence under a live UI - the least diagnosable
         // failure the capture path can produce.
         switch AVAudioApplication.shared.recordPermission {
         case .denied:
@@ -85,7 +85,7 @@ final class CaptureController: ObservableObject {
                 let granted = await AVAudioApplication.requestRecordPermission()
                 if granted {
                     self.phase = .idle
-                    self.beginSession(baseURL: baseURL, token: token, consent: consent)
+                    self.beginSession(baseURL: baseURL, token: token, consent: consent, conversationId: conversationId)
                 } else {
                     self.phase = .failed("Microphone access is denied. Enable it in Settings > Privacy > Microphone.")
                 }
@@ -94,10 +94,10 @@ final class CaptureController: ObservableObject {
         default:
             break
         }
-        beginSession(baseURL: baseURL, token: token, consent: consent)
+        beginSession(baseURL: baseURL, token: token, consent: consent, conversationId: conversationId)
     }
 
-    private func beginSession(baseURL: URL, token: String, consent: ConsentState) {
+    private func beginSession(baseURL: URL, token: String, consent: ConsentState, conversationId: String? = nil) {
         guard !isRunning else { return }
         let id = SessionId.generate()
         sessionId = id
@@ -115,6 +115,7 @@ final class CaptureController: ObservableObject {
             consent: consent,
             spoolDirectory: AppGroup.spoolDirectory(sessionId: id)
         )
+        uploader.conversationId = conversationId
         self.uploader = uploader
         uploader.onStateChange = { [weak self] state in
             Task { @MainActor in
@@ -138,14 +139,6 @@ final class CaptureController: ObservableObject {
                 guard let self else { return }
                 self.speechSink.onReceipt = { receipt in
                     uploader.sendSpokenReceipt(ackId: receipt.ackId, ok: receipt.ok, reason: receipt.reason)
-                    AckLog.shared.append(AckLogEntry(
-                        id: receipt.ackId,
-                        at: Date(),
-                        kind: ack.kind,
-                        severity: ack.severity,
-                        text: ack.text,
-                        via: receipt.ok ? "spoken" : "dropped:\(receipt.reason ?? "unknown")"
-                    ))
                 }
                 self.speechSink.handle(ack)
             }
@@ -222,7 +215,7 @@ final class CaptureController: ObservableObject {
         }
     }
 
-    /// Drain the converter's buffered tail (the end of the last spoken word —
+    /// Drain the converter's buffered tail (the end of the last spoken word -
     /// wake commands end on their payload, so this tail is never filler) and
     /// ship it before the session closes.
     private func flushEncoderTail() {

@@ -63,7 +63,7 @@ def picket(draw, x, top_y, width, bottom_y, peak_h):
 
 
 def vignette(img):
-    """Push the corners back so the mark sits forward — same trick as the
+    """Push the corners back so the mark sits forward - same trick as the
     Garrison icon, and it keeps the palisade from crowding iOS's rounded
     mask."""
     n = 128
@@ -104,7 +104,7 @@ def render(variant="palisade"):
         else:
             picket(draw, x, tall_top, width, body_bottom, tall_peak)
 
-    # The rail — Garrison's brass, in the companion's green.
+    # The rail - Garrison's brass, in the companion's green.
     rail_y, rail_h = 496, 56
     rail_x0, rail_x1 = left - 24, xs[-1] + width + 24
     # Contact shadow, so the rail sits ON the pickets instead of beside them.

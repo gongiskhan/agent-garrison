@@ -67,7 +67,9 @@ test("Compose: a stationed tile's sub-line describes the Fitting, not its name a
 
 test("Compose: search filters the Fitting grid", async ({ page }) => {
   await openFittingsTab(page);
-  const search = page.getByRole("searchbox", { name: "Search standing Fittings" });
+  // 2026-08-28: the tab search covers stationed AND available fittings; the
+  // picker dialog carries a second "Search fittings" box, so take the tab's.
+  const search = page.getByRole("searchbox", { name: "Search fittings" }).first();
   await expect(search).toBeVisible({ timeout: 30_000 });
   await search.fill("zz-no-such-fitting-zz");
   await expect(page.getByText(/No Fittings match that search/i).first()).toBeVisible({
@@ -82,6 +84,10 @@ test("Sidebar: own-port view statuses carry a tone class for the at-a-glance dot
 }) => {
   await page.goto("/", { timeout: 60_000 });
   await openSidebarIfCollapsed(page);
+  // The Fittings group is collapsible (2026-08-26 refit) and may start folded.
+  const group = page.getByRole("button", { name: /^Fittings/ });
+  await expect(group).toBeVisible({ timeout: 30_000 });
+  if ((await group.getAttribute("aria-expanded")) !== "true") await group.click();
   const toned = page.locator("nav.tabs .ct.tone-live, nav.tabs .ct.tone-down, nav.tabs .ct.tone-off");
   await expect(toned.first()).toBeVisible({ timeout: 30_000 });
 });

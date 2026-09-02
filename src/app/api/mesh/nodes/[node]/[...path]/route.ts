@@ -2,18 +2,7 @@ import type { NextRequest } from "next/server";
 import { StateUnavailableError, stateDegraded, withState } from "@/lib/state-client";
 import { readNodeIdentity } from "@/lib/node-identity";
 import { crossSiteBlocked } from "@/lib/mesh/peer-auth";
-import {
-  MAX_BODY_BYTES,
-  cachedPeerControlPort,
-  classifyPeerPath,
-  forgetPeerControlPort,
-  forwardToPeer,
-  peerAppBase,
-  peerControlBase,
-  peerThreadUrl,
-  rememberPeerControlPort,
-  resolvePeerControlPort
-} from "@/lib/mesh/peer-proxy";
+import { MAX_BODY_BYTES, classifyPeerPath, forwardToPeer, peerAppBase, peerThreadUrl } from "@/lib/mesh/peer-proxy";
 import type { SessionInfo } from "@garrison/state-client";
 
 export const runtime = "nodejs";
@@ -51,24 +40,6 @@ async function sessionsFor(node: string): Promise<SessionInfo[]> {
   return withState((client) => client.listSessions({ node }));
 }
 
-// The peer's web-channel port, from the registry and then cached (the cache
-// itself lives in peer-proxy.ts: a route module may only export handlers).
-async function controlPortFor(node: string, threadId: string | null): Promise<number> {
-  const cached = cachedPeerControlPort(node);
-  if (cached !== null) return cached;
-  // A registry hiccup must not take session control down when a perfectly good
-  // committed default exists; resolvePeerControlPort([]) IS that default.
-  let sessions: SessionInfo[] = [];
-  try {
-    sessions = await sessionsFor(node);
-  } catch {
-    sessions = [];
-  }
-  const port = resolvePeerControlPort(sessions, threadId);
-  rememberPeerControlPort(node, port);
-  return port;
-}
-
 async function handle(request: NextRequest, { params }: Params): Promise<Response> {
   const blocked = crossSiteBlocked(request);
   if (blocked) return blocked;
@@ -92,7 +63,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
   // uniformly across the roster. Only a genuine FORWARD to self is refused.
   if (isSelf && route.upstream !== "registry") {
     // Not an error the caller should paper over by proxying to itself: the
-    // local API is same-process, has no serve-port dependency, and answers when
+    // local API is same-process, has no tailnet dependency, and answers when
     // this machine's own tailnet publication is broken.
     return json(421, { error: "self", node, hint: "call the local API directly" });
   }
@@ -120,8 +91,8 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
 
   // The convenience read: served from the REGISTRY, never from the peer, so a
   // node that is offline still lists what it was running. `openUrl` is computed
-  // here because the serve-port invariant belongs on the server; the browser
-  // gets a ready-to-navigate HTTPS tailnet URL (a navigation, not an embed).
+  // here so the browser gets a ready-to-navigate HTTPS tailnet URL on the peer's
+  // app origin (a navigation, not an embed).
   if (route.upstream === "registry") {
     let sessions: SessionInfo[];
     try {
@@ -133,8 +104,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
       }
       return json(502, { error: "sessions-read-failed", node, detail: err instanceof Error ? err.message : String(err) });
     }
-    const port = resolvePeerControlPort(sessions, null);
-    const base = peerControlBase(tailnetHost, port);
+    const base = peerAppBase(tailnetHost);
     return json(200, {
       node,
       isSelf,
@@ -147,10 +117,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     });
   }
 
-  const base =
-    route.upstream === "app"
-      ? peerAppBase(tailnetHost)
-      : peerControlBase(tailnetHost, await controlPortFor(node, route.threadId));
+  const base = peerAppBase(tailnetHost);
   if (!base) {
     return json(502, {
       error: "peer-unaddressable",
@@ -186,8 +153,6 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     // watch leaks its peer connection for the life of the process.
     signal: request.signal
   });
-
-  if (response.status === 502) forgetPeerControlPort(node);
   return response;
 }
 

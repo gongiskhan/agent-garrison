@@ -65,10 +65,10 @@ function shortSession(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
 }
 
-// Web Channel session deep-link. The channel keys threads by an opaque id, so
-// this is the same handle the sidebar Fittings entry opens.
+// Conversation deep-link. Threads are keyed by an opaque id, so this is the
+// same handle the Conversations route opens.
 function sessionHref(id: string): string {
-  return `/fitting/web-channel-default/?thread=${encodeURIComponent(id)}`;
+  return `/talk/${encodeURIComponent(id)}`;
 }
 
 const VERDICT_LABEL: Record<Verdict, string> = {

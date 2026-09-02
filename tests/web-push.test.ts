@@ -16,7 +16,7 @@ import {
   encryptPayload,
   decryptPayload,
   sendPush
-} from "../fittings/seed/web-channel-default/lib/webpush.mjs";
+} from "../packages/talk/src/webpush.mjs";
 
 // The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
 // Boot one for this file and project its discovery env before anything reads a

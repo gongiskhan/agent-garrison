@@ -6,8 +6,8 @@
 //
 // Delivery chain: companion-push (APNs to every registered device, per-day
 // cap, Retry-After-honouring backoff, dead-token pruning) degrading to the
-// web-channel PWA thread when the push means is off, unconfigured, capped or
-// persistently failing.
+// Conversations thread on the Garrison app when the push means is off,
+// unconfigured, capped or persistently failing.
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -70,7 +70,7 @@ export function priorityForTag(tag) {
 }
 
 // A process that never named a GARRISON_HOME must not inherit the real one
-// (2026-08-18): this resolves the live web-channel used as the push fallback.
+// (2026-08-18): this resolves the live fittings used as the push fallback.
 function underTestRunner(env) {
   return Boolean(env.VITEST || env.VITEST_WORKER_ID) || env.NODE_ENV === "test";
 }
@@ -81,6 +81,44 @@ function statusFileUrl(fittingId, env = process.env) {
     const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
     const doc = JSON.parse(readFileSync(path.join(home, "ui-fittings", `${fittingId}.json`), "utf8"));
     return typeof doc.url === "string" && doc.url.length ? doc.url : null;
+  } catch {
+    return null;
+  }
+}
+
+// The Conversations host. The Garrison app serves the thread engine at /api/*
+// and the runner projects its loopback base as GARRISON_APP_URL; a node still
+// running the legacy web-channel fitting publishes that host's base through
+// its status file. Both hosts share one thread store, so exactly one is ever
+// posted to - the app whenever it is named.
+export function conversationsBaseUrl(env = process.env) {
+  const app = env.GARRISON_APP_URL?.trim().replace(/\/+$/, "");
+  if (app) return app;
+  return statusFileUrl("web-channel-default", env);
+}
+
+// The in-app route a notification opens (the Garrison iOS app reads `path`
+// from the APNs payload and navigates its webview there). Accepts an explicit
+// shell path, or derives one from a link that lives on this node's app origin
+// (GARRISON_APP_URL); a link to anywhere else yields no path, so a foreign URL
+// can never steer the app. Returns null for anything that is not a rooted,
+// single-slash path.
+export function appPathFor({ path, link }, env = process.env) {
+  const rooted = (candidate) => {
+    const value = String(candidate ?? "").trim();
+    if (!value.startsWith("/") || value.startsWith("//") || value.includes("://")) return null;
+    return value.length > 2048 ? null : value;
+  };
+  const explicit = rooted(path);
+  if (explicit) return explicit;
+  if (!link) return null;
+  const app = env.GARRISON_APP_URL?.trim().replace(/\/+$/, "");
+  if (!app) return null;
+  try {
+    const target = new URL(link);
+    const origin = new URL(app);
+    if (target.origin !== origin.origin) return null;
+    return rooted(`${target.pathname}${target.search}${target.hash}`);
   } catch {
     return null;
   }
@@ -231,15 +269,16 @@ export class CompanionNotifier {
       title: TEMPLATE_TITLES[template] ?? "Garrison",
       body: message,
       link: cleanParams.cardUrl ?? null,
+      path: appPathFor({ path: cleanParams.path, link: cleanParams.cardUrl }, this.env),
       tag: template,
       priority: INTERACTIVE_TEMPLATES.has(template) ? "interactive" : "routine"
     });
   }
 
-  // The real chain: push, degrading to the web-channel thread. Receipts for
+  // The real chain: push, degrading to the Conversations thread. Receipts for
   // every means attempted, in delivery order.
-  async deliver({ title, body, link, tag, priority = "routine" }) {
-    const push = await this.sendPush({ title, body, link, tag, priority });
+  async deliver({ title, body, link, path = null, tag, priority = "routine" }) {
+    const push = await this.sendPush({ title, body, link, path, tag, priority });
     const receipts = [push];
     if (!push.ok) {
       receipts.push(await this.sendWebChannelFallback(body));
@@ -252,7 +291,7 @@ export class CompanionNotifier {
     return receipts;
   }
 
-  async sendPush({ title, body, link, tag, priority = "routine" }) {
+  async sendPush({ title, body, link, path = null, tag, priority = "routine" }) {
     const means = "companion-push";
     if (!this.cfg.notifyEnabled) return { means, ok: false, skipped: "notify disabled" };
     if (!this.apns.enabled()) return { means, ok: false, skipped: "APNS_TEAM_ID/APNS_KEY_ID/APNS_P8 not sealed" };
@@ -263,7 +302,7 @@ export class CompanionNotifier {
       return { means, ok: false, skipped: `daily ${priority} cap ${this.capFor(priority)} reached` };
     }
 
-    const data = { ...(link ? { link } : {}), ...(tag ? { tag } : {}) };
+    const data = { ...(link ? { link } : {}), ...(path ? { path } : {}), ...(tag ? { tag } : {}) };
     let lastOutcome = null;
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       const outcome = await this.apns.notify(tokens, { title, body, data });
@@ -292,12 +331,15 @@ export class CompanionNotifier {
     return { means, ok: false, error: `push failed (${reasons.join(", ") || "no outcome"})` };
   }
 
-  // The degrade path: a message into the web-channel PWA thread (the
-  // mobile-reachable surface), same thread-append contract omi uses.
+  // The degrade path: a message into the Conversations thread on the app (the
+  // mobile-reachable surface), same thread-append contract omi uses. The
+  // /api/* paths are served by both hosts conversationsBaseUrl can name.
   async sendWebChannelFallback(message) {
     const means = "web-channel";
-    const base = statusFileUrl("web-channel-default", this.env);
-    if (!base) return { means, ok: false, skipped: "web channel not running" };
+    const base = conversationsBaseUrl(this.env);
+    if (!base) {
+      return { means, ok: false, skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting not running" };
+    }
     try {
       const ensured = await this.fetchImpl(`${base}/api/threads`, {
         method: "POST",

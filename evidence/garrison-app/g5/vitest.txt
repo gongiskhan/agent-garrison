@@ -1,0 +1,5 @@
+# npx vitest run - full suite, 2026-09-02T12:58:13Z, after the G5 changes
+ Test Files  607 passed | 7 skipped (614)
+      Tests  7021 passed | 23 skipped (7044)
+   Duration  460.12s (transform 24.70s, setup 8.23s, collect 132.35s, tests 1266.96s, environment 384ms, prepare 103.96s)
+EXIT 0

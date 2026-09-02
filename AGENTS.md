@@ -37,6 +37,12 @@ placement target.
 `up()` and project bootstrap render secrets from the state service's secret
 authority, and there is no offline mode, no cache, and no write queue by
 design. A running session keeps running; new work blocks with a clear error.
+The same authority serves the per-fitting scoped delivery: an own-port
+fitting's `secret_scope` is resolved through `POST /v1/secrets/resolve`
+(`scopedSecretsViaAuthority` in `src/lib/composition-sync.ts`), never from the
+node's local vault, which the mesh leaves empty. A fitting started while the
+authority is unreachable or refuses the grant runs keyless with a spawn record
+that says so (`secretsDelivered: false`), and the next `up()` heals it.
 This is consistent with Garrison's online-only positioning: a fork of shared
 state is worse than a clear stop. The state DB itself is snapshotted hourly
 (VACUUM INTO) and the newest daily snapshot ships off-box to a Mac -
@@ -77,6 +83,43 @@ Every node works on its permanent `node/<id>` branch, dev-madrid included;
 `main` is updated by the nightly card (or an on-demand converge). The
 no-new-branches hard rule stands: node branches are created ONCE by
 `scripts/install-node.sh`, never by an agent.
+
+## The web channel exception
+
+Garrison's rule is that it ships no chat surface: talking to the operative is
+Channel-Fitting work. Since 2026-09-01 there is one bounded exception. The
+conversation surface (the former `web-channel-default` UI and API) is served by
+the shell at `/talk` as "Conversations", from the `@garrison/talk` package
+mounted by the app's `/api` catch-all. The reason is the Garrison iOS app: a
+webview needs one origin for the shell, the conversation and web push, and a
+channel on its own port breaks that (a second origin, a second service worker,
+mixed-content over the tailnet). What did NOT move: the gateway still owns the
+turn, the thread store stays at `<GARRISON_HOME>/web-channel/threads/`, and
+Slack, WhatsApp, Omi and email stay Fittings. The legacy own-port host is kept
+in `fittings/seed/web-channel-default`, unstationed by default, until the
+operator triggers its removal (`docs/decisions/2026-09-garrison-app.md`, D2,
+D16, I12). Servers reach Conversations through `GARRISON_APP_URL`; browsers
+through the relative `/talk` routes (docs/UI-FITTINGS.md "Conversations is a
+shell route").
+
+## The Garrison iOS app
+
+`ios/` is the one Garrison app (September 2026, `docs/decisions/2026-09-garrison-app.md`):
+the former Companion Swift project with a Capacitor webview pointed at a node
+over the tailnet (`server.url`, one origin for the shell, Conversations and
+push). The webview is a viewer: the phone's real work stays in Swift
+(`GarrisonCapturePlugin` for the microphone and broadcast lanes,
+`GarrisonPendantPlugin` for the pendant, `GarrisonPushPlugin` for APNs,
+`GarrisonNodePlugin` for the node list) and the audio never crosses the bridge;
+it goes from the phone straight to `capture-service`, the one voice layer
+(`deepgram-voice` is retired and goes out with the same operator-triggered
+patch as `web-channel-default`). The shell shows the capture page only when the
+native bridge is present. Secrets stay on the node: the phone holds the capture
+token and the node URL. Builds go to TestFlight through the `ios-thing`
+repository's `garrison-ios.yml` workflow (`fastlane beta`); XCTest runs on the
+mini (no Xcode on the MacBook Pro). The phone, not the simulator, is the
+criterion for every native gate; what still needs a real phone is listed in
+`HANDOFF-garrison-app.md`.
 
 ## Codex on macOS
 

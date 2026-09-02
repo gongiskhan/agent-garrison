@@ -1,6 +1,6 @@
 name: omi-channel
 version: 0.1.0
-description: Bidirectional Omi wearable channel — webhook ingress, heartbeat triage into Kanban cards and memories, wake-word command pipe, outbound Omi notifications, ask_zeca chat tool, and a backfeed into Omi memories.
+description: Bidirectional Omi wearable channel - webhook ingress, heartbeat triage into Kanban cards and memories, realtime transcript forward to the voice layer (capture-service), outbound Omi notifications, and a backfeed into Omi memories.
 target: claude
 type: hybrid
 includes: auto
@@ -13,17 +13,19 @@ x-garrison:
   default_port: 8094
   platforms:
     - claude-code
-  summary: Makes Omi (always-on wearable capture) Garrison's ears and one of its mouths while Garrison remains the only brain. Four pipes plus a backfeed, each behind its own default-off flag.
+  summary: Makes Omi (always-on wearable capture) Garrison's ears and one of its mouths while Garrison remains the only brain. Ingress, triage, notifications and a realtime forward to the voice layer, plus a backfeed, each behind its own default-off flag.
   for_consumers: |
-    Channel id "omi" — the Omi wearable ecosystem (Mac desktop app, iPhone,
+    Channel id "omi" - the Omi wearable ecosystem (Mac desktop app, iPhone,
     Watch, pendant). Inbound conversations and day summaries are triaged into
     Kanban cards and memories by the fitting's heartbeat, NOT by you; treat Omi
     structured data as input evidence only and never surface Omi-generated
-    prose as your own output. Wake-word commands arrive as
-    regular turns on channel "omi". Short confirmations and tips are delivered
-    to the user's devices via Omi direct notifications; message text is always
-    generated on our side. Do not write tasks into Omi or any Omi-connected
-    task tool — the Kanban Loop is the single home for tasks.
+    prose as your own output. Realtime transcript segments are forwarded to
+    the voice layer (capture-service), which runs the wake gate; spoken
+    commands therefore reach you the way every voice command does, and the
+    reply arrives through the Garrison app, not through this fitting. Short
+    confirmations and tips are delivered to the user's devices via Omi direct
+    notifications; message text is always generated on our side. Do not write tasks into Omi or any Omi-connected
+    task tool - the Kanban Loop is the single home for tasks.
   config_schema:
     - key: port
       type: integer
@@ -44,15 +46,15 @@ x-garrison:
     - key: wake_enabled
       type: boolean
       default: false
-      description: Wake-word bus over the realtime transcript webhook. Non-matching segments are dropped in memory and never persisted or logged with content.
+      description: >-
+        Forward realtime transcript segments to the voice layer (capture-service), which runs the
+        wake gate and answers spoken commands. Needs CAPTURE_TOKEN in the vault and a running
+        capture-service; otherwise segments are counted and dropped. Segments are held in memory
+        only and never persisted or logged with content.
     - key: notify_enabled
       type: boolean
       default: false
       description: Outbound Omi direct notifications (confirmations, card-created notices, tips). Off or failing degrades to the web-channel PWA thread.
-    - key: chat_enabled
-      type: boolean
-      default: false
-      description: The ask_zeca chat tool endpoint plus its manifest, so Omi's chat UI can answer with Garrison's orchestrator on a bounded fast path.
     - key: backfeed_enabled
       type: boolean
       default: false
@@ -61,10 +63,6 @@ x-garrison:
       type: boolean
       default: false
       description: Allow triage to emit tip notifications (subject to tips_max_per_day).
-    - key: public_base_url
-      type: string
-      default: ''
-      description: Public HTTPS base handed to Omi (the Funnel address, e.g. https://host.ts.net:8443). Used to build absolute URLs in the chat-tools manifest.
     - key: triage_cron
       type: string
       default: '*/5 * * * *'
@@ -73,33 +71,13 @@ x-garrison:
       type: integer
       default: 20
       description: Maximum pending events consumed per triage tick; overflow carries to the next tick.
-    - key: wake_settled_close_ms
-      type: integer
-      default: 5000
-      description: >-
-        Shorter capture close used only when the last segment ends a sentence ('.', '?' or '!').
-        The full silence window must assume a mid-utterance gap; a punctuated ending says there is
-        no more coming. 0 = always wait the full window. Ignored unless shorter than it.
     - key: classify_target
       type: string
       default: cc-haiku-low
       description: >-
-        Routing target every classification call is pinned to (wake intent, wake revision, batch
-        triage). Unpinned these land on the composition's other/L1 duty cell - a full Sonnet turn
-        carrying the session's whole toolset, measured at 82s for one classification, while the
-        wearer waits. Empty = no pin.
-    - key: delegate_enabled
-      type: boolean
-      default: true
-      description: >-
-        Allow a spoken command or an Omi chat question to be handed to the full session (its
-        tools and connected services) when the fast lane cannot do it. The answer arrives as a
-        follow-up notification. Off = spoken requests are limited to cards, notes and card
-        commands, and chat can only answer from general knowledge.
-    - key: delegate_timeout_ms
-      type: integer
-      default: 600000
-      description: Wall-clock budget for one delegated session turn. Nobody is blocked on this; it is a work budget, not a response budget.
+        Routing target the batch triage classification is pinned to. Unpinned it lands on the
+        composition's other/L1 duty cell - a full Sonnet turn carrying the whole toolset, measured
+        at 82s for one classification. Empty = no pin.
     - key: allowed_categories
       type: string
       default: ''
@@ -112,23 +90,6 @@ x-garrison:
       type: boolean
       default: true
       description: Drop conversations Omi marked discarded at the rule layer.
-    - key: wake_variants
-      type: string
-      default: 'zeca,zeka,zecca,zéca,ze ca'
-      description: >-
-        Comma-separated spellings of the agent's name (Zeca), matched case-insensitively on word boundaries; a
-        space inside a spelling also matches a hyphen, for transcripts that split the name. Portuguese and English
-        transcripts both occur. Position is not considered: the name ANYWHERE in a segment opens a capture window,
-        mid-sentence included. A value left over from the retired name (gary, garry, gerry, géri) is ignored in
-        favour of this default.
-    - key: wake_silence_close_ms
-      type: integer
-      default: 4000
-      description: Close a wake capture after this much silence (no new segment) and dispatch the assembled command.
-    - key: wake_max_capture_ms
-      type: integer
-      default: 20000
-      description: Hard cap on a single wake capture window.
     - key: notify_max_per_day
       type: integer
       default: 50
@@ -146,6 +107,7 @@ x-garrison:
     - OMI_APP_SECRET
     - OMI_IMPORT_API_KEY
     - OMI_WEBHOOK_SECRET
+    - CAPTURE_TOKEN
   provides:
     - kind: channel
       name: omi

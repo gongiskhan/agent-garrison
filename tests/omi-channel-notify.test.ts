@@ -189,7 +189,11 @@ describe("Notifier routing and degrade path", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  function makeNotifier(overrides: Record<string, unknown> = {}, apiScript: Array<number | Error> = [200]) {
+  function makeNotifier(
+    overrides: Record<string, unknown> = {},
+    apiScript: Array<number | Error> = [200],
+    env: Record<string, string> = {}
+  ) {
     const store = new OmiStore(path.join(home, `omi-${Math.random().toString(36).slice(2, 8)}`));
     store.pinUid(UID);
     const counters = new Counters(store.root, "test");
@@ -200,7 +204,7 @@ describe("Notifier routing and degrade path", () => {
       store,
       counters,
       omiApi: api,
-      env: { GARRISON_HOME: home },
+      env: { GARRISON_HOME: home, ...env },
       log: { log: () => {}, error: () => {} }
     });
     return { notifier, store, counters, apiCalls: calls };
@@ -227,6 +231,45 @@ describe("Notifier routing and degrade path", () => {
         JSON.stringify(r.body).includes("fallback please")
     );
     expect(posted).toBeTruthy();
+  });
+
+  it("posts the fallback to the Garrison app when GARRISON_APP_URL names it, ignoring the legacy status file", async () => {
+    // The app hosts the Conversations engine at /api/* and shares the thread
+    // store with the legacy fitting whose status file this suite writes: with
+    // both advertised, only the app may be posted to or the thread gets the
+    // message twice.
+    const appStub = makeWebChannelStub();
+    await new Promise<void>((r) => appStub.server.listen(0, "127.0.0.1", r));
+    const appAddr = appStub.server.address();
+    const appPort = typeof appAddr === "object" && appAddr ? appAddr.port : 0;
+    const legacyBefore = webStub.received.length;
+    try {
+      const { notifier } = makeNotifier({ notifyEnabled: false }, [200], {
+        GARRISON_APP_URL: `http://127.0.0.1:${appPort}/`
+      });
+      const receipts = await notifier.send({ template: "tip", params: { text: "app first" } });
+      expect(by(receipts, "web-channel")).toMatchObject({ means: "web-channel", ok: true, target: "thread omi-reports" });
+      expect(appStub.received.map((r) => r.path)).toEqual(["/api/threads", "/api/threads/omi-reports/messages"]);
+      expect(JSON.stringify(appStub.received[1].body)).toContain("app first");
+      expect(webStub.received.length).toBe(legacyBefore);
+    } finally {
+      await new Promise<void>((r) => appStub.server.close(() => r()));
+    }
+  });
+
+  it("names both hosts in the skip reason when neither the app nor the legacy fitting is reachable", async () => {
+    const bare = mkdtempSync(path.join(os.tmpdir(), "omi-notify-nohost-"));
+    try {
+      const { notifier } = makeNotifier({ notifyEnabled: false }, [200], { GARRISON_HOME: bare });
+      const receipts = await notifier.send({ template: "tip", params: { text: "nowhere" } });
+      expect(by(receipts, "web-channel")).toMatchObject({
+        means: "web-channel",
+        ok: false,
+        skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting not running"
+      });
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 
   it("can suppress Web fallback when the caller delivers Web independently", async () => {
@@ -455,7 +498,7 @@ describe("RelayNotifier (secretless triage process -> server push relay)", () =>
     };
     const cfg = { ...loadConfig({ GARRISON_HOME: home }), secrets: {} };
     const server = createServer(
-      makeRequestHandler({ cfg, store, counters, ingress: null, notifier: notifierStub, chatTool: null })
+      makeRequestHandler({ cfg, store, counters, ingress: null, notifier: notifierStub })
     );
     try {
       await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));

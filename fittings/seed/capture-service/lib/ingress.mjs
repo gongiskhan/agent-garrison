@@ -21,6 +21,13 @@
 //
 // Log privacy (invariant I5): nothing here logs payload bytes or transcript
 // text — only ids, seqs, counts and reasons.
+//
+// Text sessions (D24): a second, socket-less kind of session for transcript
+// segments another service already produced (omi-channel's realtime feed,
+// forwarded over POST /capture/ingest/text). They live in the same map so the
+// wake buses and /health see one population, but they carry no media log, no
+// transcript file and no capture_event - the forwarding channel keeps its own
+// memory path, so nothing is ingested twice. They end on idle silence alone.
 
 import crypto from "node:crypto";
 import path from "node:path";
@@ -40,6 +47,13 @@ const SESSION_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
 // untouched. Pendant sessions are additionally gated on cfg.pendantEnabled
 // and are the ONLY sessions capture_policy applies to (ADR D6).
 const MODES = new Set(["audio", "screen_audio", "pendant"]);
+// Sources allowed to open a text session (D24). The source doubles as the
+// session mode, so a text session can never be mistaken for a microphone.
+export const TEXT_SOURCES = new Set(["omi"]);
+// The forwarding service's own session id, kept verbatim inside the key
+// "<source>:<id>". Wider than SESSION_ID_RE on purpose (Omi ids are opaque),
+// still bounded and path-safe; the colon keeps the key out of the WS id space.
+export const TEXT_SESSION_ID_RE = /^[A-Za-z0-9_.:-]{1,80}$/;
 const CONSENT = new Set(["shown", "suppressed"]);
 const END_REASONS = new Set(["user", "error", "timeout"]);
 const PENDANT_CODECS = new Set(["opus", "opus_fs320"]);
@@ -78,6 +92,11 @@ export function encodeMediaFrame(kind, seq, ts, bytes) {
   return Buffer.concat([header, bytes]);
 }
 
+// The Conversations thread a recording was started from (plan G5). Same
+// vocabulary as the thread store's safeThreadId: the digest is posted back to
+// exactly this id, so anything the store would rewrite is refused up front.
+const CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
+
 function validateSessionStart(msg) {
   if (typeof msg.session_id !== "string" || !SESSION_ID_RE.test(msg.session_id)) {
     return "session_id must be 10-40 chars of [A-Za-z0-9_-]";
@@ -86,6 +105,10 @@ function validateSessionStart(msg) {
   if (!CONSENT.has(msg.consent)) return 'consent must be "shown" or "suppressed"';
   if (msg.started_at !== undefined && Number.isNaN(Date.parse(msg.started_at))) {
     return "started_at must be an ISO timestamp when present";
+  }
+  if (msg.conversation_id !== undefined && msg.conversation_id !== null &&
+      (typeof msg.conversation_id !== "string" || !CONVERSATION_ID_RE.test(msg.conversation_id))) {
+    return "conversation_id must be 1-80 chars of [A-Za-z0-9_-] when present";
   }
   return null;
 }
@@ -101,7 +124,9 @@ export class CaptureIngress {
     this.onSessionEnd = onSessionEnd;
     // M2: the Deepgram lane; null when the flag or key is absent.
     this.transcriber = transcriber;
-    this.sessions = new Map(); // session_id -> {record, media, socket, idleTimer}
+    // session_id -> {record, media, socket, idleTimer}; a text session (D24)
+    // has media null, socket null and text true.
+    this.sessions = new Map();
     this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES + FRAME_HEADER });
   }
 
@@ -286,6 +311,8 @@ export class CaptureIngress {
       // Consent context travels in provenance (invariant I6).
       consent: msg.consent,
       started_at: msg.started_at ?? null,
+      // The conversation the record button lived in; the digest posts there.
+      ...(typeof msg.conversation_id === "string" ? { conversation_id: msg.conversation_id } : {}),
       // Informational (pendant sessions): which Opus framing the device ships.
       ...(msg.mode === "pendant" && PENDANT_CODECS.has(msg.codec) ? { codec: msg.codec } : {}),
       status: "live",
@@ -370,9 +397,83 @@ export class CaptureIngress {
     session.idleTimer.unref?.();
   }
 
+  // ---- Text sessions (D24) --------------------------------------------------
+
+  static textSessionKey(source, sessionId) {
+    return `${source}:${sessionId}`;
+  }
+
+  // Open, or extend, the socket-less text session for one forwarded stream.
+  // Nothing touches disk: the record lives in memory until the idle timer
+  // closes it. Returns { session, created }.
+  openTextSession({ source, sessionId }) {
+    if (!TEXT_SOURCES.has(source)) throw new Error(`unknown text source: ${source}`);
+    const id = CaptureIngress.textSessionKey(source, sessionId);
+    const existing = this.sessions.get(id);
+    if (existing) {
+      this.armTextIdleTimer(existing);
+      return { session: existing, created: false };
+    }
+    const record = {
+      id,
+      source,
+      // The mode IS the source: never "audio"/"pendant", so the speakable-session
+      // pick and the screen-context index skip it without knowing about it.
+      mode: source,
+      external_session_id: sessionId,
+      // No device, no consent screen of ours: the forwarding app owns both.
+      device_name: null,
+      consent: null,
+      started_at: new Date(this.now()).toISOString(),
+      status: "live",
+      text: true,
+      segments: 0,
+      ended: null
+    };
+    const session = { record, media: null, socket: null, idleTimer: null, text: true };
+    this.sessions.set(id, session);
+    this.armTextIdleTimer(session);
+    this.counters.bump("text_sessions_opened");
+    return { session, created: true };
+  }
+
+  // Segments arrived: count them on the record and push the idle close out.
+  noteTextSegments(session, count) {
+    session.record.segments += count;
+    this.armTextIdleTimer(session);
+  }
+
+  armTextIdleTimer(session) {
+    if (session.idleTimer) clearTimeout(session.idleTimer);
+    session.idleTimer = setTimeout(() => {
+      this.finalizeTextSession(session.record.id, "timeout");
+    }, this.cfg.textSessionIdleMs);
+    session.idleTimer.unref?.();
+  }
+
+  // The text session's ONLY exit. Deliberately not finalizeSession: no media
+  // high-water, no transcript flush, no session record on disk, and above all
+  // no onSessionEnd - a capture_event here would ingest the forwarding
+  // channel's conversation a second time.
+  finalizeTextSession(id, reason) {
+    const session = this.sessions.get(id);
+    if (!session || !session.text) return false;
+    if (session.idleTimer) clearTimeout(session.idleTimer);
+    this.sessions.delete(id);
+    session.record.status = "ended";
+    session.record.ended = { reason };
+    this.counters.bump("text_sessions_closed");
+    return true;
+  }
+
   async finalizeSession(id, reason) {
     const session = this.sessions.get(id);
     if (!session) return;
+    // A text session takes its own exit whoever asks (see above).
+    if (session.text) {
+      this.finalizeTextSession(id, reason);
+      return;
+    }
     if (session.idleTimer) clearTimeout(session.idleTimer);
     this.sessions.delete(id);
 
