@@ -830,6 +830,40 @@ Capacitor webview (which extends under the status bar with
 simulator screenshot in `evidence/garrison-app/g3/` is the check that the top
 bar clears the status bar.
 
+### D37. The shell reads `window.Capacitor` in exactly one module (2026-09-02)
+
+`src/lib/native-bridge.ts` is the only place the shell touches the Capacitor
+global: feature detection (`isNativeApp()`), typed facades for the five
+plugins, and `isShellPath()` (the same rule `PushRouter.swift` applies). Pages
+decide "native or not" through `BridgeGate` / `useNativeBridge()`, resolved
+after mount so the server renders one markup for every client. There is no
+React provider in `layout.tsx` (the plan's premise): a hook that checks a
+global after mount needs none, and a provider would put a client boundary
+around the whole tree.
+
+### D38. Node switching: peer URL in a browser, stored record in the app (2026-09-02)
+
+`NodeSwitcher` replaces `NodeBadge` in the sidebar and reads `/api/mesh/nodes`
+on open. In a browser a row navigates to the same `pathname + search` on the
+peer's tailnet host (`src/lib/node-switch.ts`; a peer without a tailnet host is
+listed but disabled). In the app the peer must ALSO be one of the app's stored
+nodes (`GarrisonNode.list()` matched by origin), because the token lives there
+(D35); a mesh node the app has not been given is disabled with the reason "not
+added in the app". Selecting calls `GarrisonNode.select` then `reload` - the
+plan's `set()` does not exist; select + reload is the plugin's contract.
+
+### D39. Push deep links carry `data.path`, derived on the node (2026-09-02)
+
+capture-service's `appPathFor()` turns an explicit `path` or a `cardUrl` /
+`link` on this node's `GARRISON_APP_URL` into a rooted shell path and the APNs
+payload carries it beside `link` and `tag`. A link on any other origin yields
+no path: the app must never open a peer's route as its own. The shell follows
+routes through `PushRouteListener` (the `pushRoute` event, plus a drained
+`pendingRoute()` for cold start); the iOS side was already reading `data.path`
+in G3, so G4 changes no Swift beyond `ios/Tests/PushRoutingTests.swift`. The
+device registry does not gain a `node` column (plan premise): a device registers
+against the node it is loaded from, and the token is per node already.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

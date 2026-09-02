@@ -625,7 +625,9 @@ main {
   font-size: 10.5px;
   letter-spacing: 0.08em;
   color: var(--mute);
-  padding: clamp(18px, 2.5vw, 30px) clamp(24px, 5vw, 72px) 0;
+  /* The crumb line is the first thing on every non-talk page, so inside the
+     app (viewport-fit=cover) it carries the status-bar inset for the page. */
+  padding: calc(clamp(18px, 2.5vw, 30px) + var(--shell-safe-top, 0px)) clamp(24px, 5vw, 72px) 0;
   text-transform: uppercase;
 }
 .crumbs b {

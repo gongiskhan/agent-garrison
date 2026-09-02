@@ -1,0 +1,27 @@
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.006 (0.008) seconds
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.040 (0.044) seconds
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.038 (0.040) seconds
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.038 (0.040) seconds
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.237 (0.238) seconds
+	 Executed 6 tests, with 0 failures (0 unexpected) in 13.936 (13.939) seconds
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.009 (0.013) seconds
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.008 (0.014) seconds
+Test Suite 'PushRoutingTests' started at 2026-09-02 13:16:54.677.
+Test Case '-[GarrisonTests.PushRoutingTests testFlatPathIsAcceptedForHandBuiltPushes]' started.
+Test Case '-[GarrisonTests.PushRoutingTests testFlatPathIsAcceptedForHandBuiltPushes]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PushRoutingTests testMissingPathIsNil]' started.
+Test Case '-[GarrisonTests.PushRoutingTests testMissingPathIsNil]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.PushRoutingTests testNestedDataPathWins]' started.
+Test Case '-[GarrisonTests.PushRoutingTests testNestedDataPathWins]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PushRoutingTests testOnlyBareShellPathsPass]' started.
+Test Case '-[GarrisonTests.PushRoutingTests testOnlyBareShellPathsPass]' passed (0.000 seconds).
+Test Suite 'PushRoutingTests' passed at 2026-09-02 13:16:54.682.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.004 (0.005) seconds
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.010 (0.011) seconds
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.013 (0.014) seconds
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.191 (0.195) seconds
+	 Executed 3 tests, with 0 failures (0 unexpected) in 1.449 (1.451) seconds
+	 Executed 91 tests, with 0 failures (0 unexpected) in 15.983 (16.018) seconds
+	 Executed 91 tests, with 0 failures (0 unexpected) in 15.983 (16.019) seconds
+** TEST SUCCEEDED **

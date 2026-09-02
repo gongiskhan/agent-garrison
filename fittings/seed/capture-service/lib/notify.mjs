@@ -97,6 +97,33 @@ function conversationsBaseUrl(env = process.env) {
   return statusFileUrl("web-channel-default", env);
 }
 
+// The in-app route a notification opens (the Garrison iOS app reads `path`
+// from the APNs payload and navigates its webview there). Accepts an explicit
+// shell path, or derives one from a link that lives on this node's app origin
+// (GARRISON_APP_URL); a link to anywhere else yields no path, so a foreign URL
+// can never steer the app. Returns null for anything that is not a rooted,
+// single-slash path.
+export function appPathFor({ path, link }, env = process.env) {
+  const rooted = (candidate) => {
+    const value = String(candidate ?? "").trim();
+    if (!value.startsWith("/") || value.startsWith("//") || value.includes("://")) return null;
+    return value.length > 2048 ? null : value;
+  };
+  const explicit = rooted(path);
+  if (explicit) return explicit;
+  if (!link) return null;
+  const app = env.GARRISON_APP_URL?.trim().replace(/\/+$/, "");
+  if (!app) return null;
+  try {
+    const target = new URL(link);
+    const origin = new URL(app);
+    if (target.origin !== origin.origin) return null;
+    return rooted(`${target.pathname}${target.search}${target.hash}`);
+  } catch {
+    return null;
+  }
+}
+
 // The phone is never on this box: a loopback URL in a notification is both
 // unreachable and mixed content (spec §11 failure 8's cousin — it already
 // shipped once). Links are tailnet-paired upstream; anything still loopback
@@ -242,6 +269,7 @@ export class CompanionNotifier {
       title: TEMPLATE_TITLES[template] ?? "Garrison",
       body: message,
       link: cleanParams.cardUrl ?? null,
+      path: appPathFor({ path: cleanParams.path, link: cleanParams.cardUrl }, this.env),
       tag: template,
       priority: INTERACTIVE_TEMPLATES.has(template) ? "interactive" : "routine"
     });
@@ -249,8 +277,8 @@ export class CompanionNotifier {
 
   // The real chain: push, degrading to the Conversations thread. Receipts for
   // every means attempted, in delivery order.
-  async deliver({ title, body, link, tag, priority = "routine" }) {
-    const push = await this.sendPush({ title, body, link, tag, priority });
+  async deliver({ title, body, link, path = null, tag, priority = "routine" }) {
+    const push = await this.sendPush({ title, body, link, path, tag, priority });
     const receipts = [push];
     if (!push.ok) {
       receipts.push(await this.sendWebChannelFallback(body));
@@ -263,7 +291,7 @@ export class CompanionNotifier {
     return receipts;
   }
 
-  async sendPush({ title, body, link, tag, priority = "routine" }) {
+  async sendPush({ title, body, link, path = null, tag, priority = "routine" }) {
     const means = "companion-push";
     if (!this.cfg.notifyEnabled) return { means, ok: false, skipped: "notify disabled" };
     if (!this.apns.enabled()) return { means, ok: false, skipped: "APNS_TEAM_ID/APNS_KEY_ID/APNS_P8 not sealed" };
@@ -274,7 +302,7 @@ export class CompanionNotifier {
       return { means, ok: false, skipped: `daily ${priority} cap ${this.capFor(priority)} reached` };
     }
 
-    const data = { ...(link ? { link } : {}), ...(tag ? { tag } : {}) };
+    const data = { ...(link ? { link } : {}), ...(path ? { path } : {}), ...(tag ? { tag } : {}) };
     let lastOutcome = null;
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       const outcome = await this.apns.notify(tokens, { title, body, data });

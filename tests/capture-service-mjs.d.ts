@@ -206,6 +206,10 @@ declare module "*/capture-service/lib/notify.mjs" {
   export function renderTemplate(template: string, params?: Record<string, unknown>): string;
   export function isLoopbackUrl(url: string): boolean;
   export function boardCardUrl(cardId: string | null, env?: Record<string, string | undefined>): Promise<string | null>;
+  export function appPathFor(
+    args: { path?: unknown; link?: string | null },
+    env?: Record<string, string | undefined>
+  ): string | null;
   export class CompanionNotifier {
     constructor(deps: Record<string, unknown>);
     cfg: Record<string, unknown>;
@@ -217,7 +221,7 @@ declare module "*/capture-service/lib/notify.mjs" {
     alreadyDelivered(idempotencyKey: string | null): boolean;
     markDelivered(idempotencyKey: string | null): void;
     send(args: { template: string; params?: Record<string, unknown> }): Promise<Array<Record<string, unknown> & { means: string; ok: boolean }>>;
-    deliver(args: { title: string; body: string; link?: string | null; tag?: string | null }): Promise<Array<Record<string, unknown> & { means: string; ok: boolean }>>;
+    deliver(args: { title: string; body: string; link?: string | null; path?: string | null; tag?: string | null }): Promise<Array<Record<string, unknown> & { means: string; ok: boolean }>>;
     sendWebChannelFallback(message: string): Promise<Record<string, unknown> & { means: string; ok: boolean }>;
   }
 }

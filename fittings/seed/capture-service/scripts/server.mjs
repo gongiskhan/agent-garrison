@@ -35,7 +35,7 @@ import { FeedbackBus } from "../lib/feedback.mjs";
 import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
-import { CompanionNotifier, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
+import { CompanionNotifier, appPathFor, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
 import { AckSink } from "../lib/ack-sink.mjs";
 import { MAX_TEXT_CHARS, ZecaVoice } from "../lib/tts.mjs";
 import { UpstreamError, transcribeClip } from "../lib/deepgram-rest.mjs";
@@ -822,6 +822,9 @@ export function makeRequestHandler(ctx) {
           title: String(parsed.title ?? "Garrison").slice(0, 120),
           body: link && !text.includes(link) ? `${text}\n${link}` : text,
           link,
+          // The in-app route: explicit `path`, or the link's path when the link
+          // is on this node's app. The iOS app opens it on tap.
+          path: appPathFor({ path: parsed.path, link }, process.env),
           tag,
           // A relayed confirmation/ask answers something the user did, so it
           // draws on the interactive budget too — otherwise the fan-out's

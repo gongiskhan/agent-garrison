@@ -1,0 +1,9 @@
+TestFlight dispatch for G3
+
+  gh workflow run garrison-ios.yml -R gongiskhan/ios-thing -f lane=beta -f garrison_ref=node/goncalos-macbook-pro
+
+run:        https://github.com/gongiskhan/ios-thing/actions/runs/33626756490
+started:    2026-09-02T11:51:11Z
+conclusion: success
+result:     "Uploaded build 25 to TestFlight" (fastlane beta, 11:54:00Z)
+garrison:   node/goncalos-macbook-pro at 12cd0255 (the G3 commit)

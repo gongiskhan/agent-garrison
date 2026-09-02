@@ -12,6 +12,7 @@ import {
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
+import { PushRouteListener } from "./PushRouteListener";
 import { FittingEditor } from "@/components/FittingEditor";
 import { TourEngine } from "@/components/tours/TourEngine";
 import type {
@@ -589,6 +590,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
+      <PushRouteListener />
       <div className={`app-shell ${sidebarCollapsed || narrowViewport ? "shell-rail" : ""}`}>
         <Sidebar />
         <div className="shell-content">

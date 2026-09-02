@@ -19,7 +19,7 @@ import WebSocket from "ws";
 import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { startServer } from "../fittings/seed/capture-service/scripts/server.mjs";
 import { ApnsSender, decodeP8 } from "../fittings/seed/capture-service/lib/apns.mjs";
-import { CompanionNotifier, isLoopbackUrl, renderTemplate } from "../fittings/seed/capture-service/lib/notify.mjs";
+import { CompanionNotifier, appPathFor, isLoopbackUrl, renderTemplate } from "../fittings/seed/capture-service/lib/notify.mjs";
 import { CaptureStore, Counters, atomicWriteJSON } from "../fittings/seed/capture-service/lib/store.mjs";
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -180,6 +180,29 @@ describe("companion notifier", () => {
     });
     return { notifier, store, counters, sleeps, calls, home, cfg };
   }
+
+  it("carries the in-app route as `path`: explicit, or derived from a link on this node's app", async () => {
+    const env = { GARRISON_APP_URL: "https://node.tail.ts.net" };
+    expect(appPathFor({ path: "/talk/abc" }, env)).toBe("/talk/abc");
+    expect(appPathFor({ link: "https://node.tail.ts.net/talk/abc?x=1" }, env)).toBe("/talk/abc?x=1");
+    // A link anywhere else never steers the app, and nothing that is not a
+    // rooted single-slash path gets through.
+    expect(appPathFor({ link: "https://github.com/gongiskhan/garrison/pull/1" }, env)).toBeNull();
+    expect(appPathFor({ link: "https://node.tail.ts.net/talk/abc" }, {})).toBeNull();
+    expect(appPathFor({ path: "//evil.example/x" }, env)).toBeNull();
+    expect(appPathFor({ path: "https://evil.example/x" }, env)).toBeNull();
+    expect(appPathFor({ path: "talk/abc" }, env)).toBeNull();
+
+    const { notifier, calls } = makeNotifier({}, {}, ["tokenok01"], { env });
+    await notifier.send({
+      template: "wake_confirmation",
+      params: { text: "Card created.", cardUrl: "https://node.tail.ts.net/fitting/kanban-loop/card/42" }
+    });
+    const payload = JSON.parse(calls[0].body);
+    expect(payload.link).toBe("https://node.tail.ts.net/fitting/kanban-loop/card/42");
+    expect(payload.path).toBe("/fitting/kanban-loop/card/42");
+    expect(payload.tag).toBe("wake_confirmation");
+  });
 
   it("delivers a template push and counts it against the daily ledger", async () => {
     const { notifier, counters } = makeNotifier({});

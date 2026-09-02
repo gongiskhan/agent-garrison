@@ -40,6 +40,13 @@ struct GarrisonApp: App {
         // Before the first body: seeding in onAppear would first build a
         // no-node bridge (bootstrap page) and tear it down a frame later.
         NodeStore.shared.seedFromEnvironmentIfRequested()
+        // GARRISON_OPEN_PATH=/capture takes the cold-start route lane: the
+        // path waits in PushRouter until the first load settles, exactly as a
+        // push tap on a closed app does. Simulator iteration only.
+        if let path = ProcessInfo.processInfo.environment["GARRISON_OPEN_PATH"],
+           PushRouter.path(fromNotification: ["path": path]) != nil {
+            PushRouter.shared.route(path: path)
+        }
         #endif
     }
 
