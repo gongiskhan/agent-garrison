@@ -26,7 +26,7 @@ clear the island; the composer clears the home indicator.
 
 ## What the phone was looking at
 
-The mesh peers still serve the pre-plan shell. Checked 2026-09-02 15:25Z:
+The mesh peers were still serving the pre-plan shell. Checked 2026-09-02 15:25Z:
 
 ```
 dev-madrid            data-build-sha="af213250"  <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -39,4 +39,26 @@ Without `viewport-fit=cover` a `contentInset: never` web view lays the page out
 under the status bar and `env(safe-area-inset-*)` reads 0px, which is exactly
 the screenshot. Nothing in the app or in this node's shell changed for this
 check; the fix for a phone pointed at a peer is that peer's `npm run
-node:redeploy` from a converged `main` (HANDOFF-garrison-app.md, section 2).
+node:redeploy` from a converged `main`.
+
+## Peers converged and redeployed (2026-09-02 18:30Z)
+
+`main` was fast-forwarded to this node's work (`ae135cf7`), dev-madrid's
+uncommitted card-id hardening landed as `e164f9f9` and was merged
+(`d88a54cb`, one content conflict in `services/state/src/store.mjs` resolved
+to the exported `isSafeCardId` version), and both reachable peers redeployed
+from it. Re-checked over the tailnet:
+
+```
+dev-madrid            data-build-sha="d88a54cb"  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>  /talk 200
+goncalos-mac-mini-1   data-build-sha="ae135cf7"  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>  /talk 200
+goncalos-macbook-air  (offline; still on its pre-plan build until its own redeploy)
+goncalos-macbook-pro  data-build-sha="cb9c9fbf"  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>  /talk 200
+```
+
+The mini's first `up` failed on `vault-git-sync` verify: its Obsidian vault
+had been in `conflict` since 2026-08-31 (16 local sync commits vs 155
+upstream, one content conflict in a mirrored memory note whose upstream
+version was a superset). Resolved with a merge commit, pushed, sync re-run
+(`nochange`), then `up` passed. Not an app issue; recorded so the next person
+does not chase it.

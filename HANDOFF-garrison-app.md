@@ -73,11 +73,17 @@ the simulator and where the code is.
   loaded, and the old `:8445 -> 7777` mapping in the memory note is dead;
   the shell is at the bare host (443 -> 8777). Nothing to fix for the app;
   clean up when convenient.
-- Mesh peers (dev-madrid, mini, Air) still run the pre-plan code until their
-  next `npm run node:redeploy` from a converged `main`. Visible from the phone:
-  a peer's shell has no `viewport-fit=cover`, so inside the app it paints under
-  the status bar (the 2026-09-02 screenshot). Against this node the same build
-  clears the island; see `evidence/garrison-app/phone/README.md`.
+- Mesh peers: dev-madrid (`d88a54cb`) and the mini (`ae135cf7`) were
+  converged and redeployed on 2026-09-02 18:30Z and now serve the
+  `viewport-fit=cover` shell; only the Air (offline that day) still runs the
+  pre-plan code until its own `npm run node:redeploy` from `main`. The phone
+  symptom this fixed: a peer's shell without `viewport-fit=cover` paints under
+  the status bar inside the app (the 2026-09-02 screenshot); against a
+  converged node the same build clears the island. Details, including the
+  mini's unrelated vault-git-sync conflict that blocked its first `up`, in
+  `evidence/garrison-app/phone/README.md`. This node still runs its own
+  `cb9c9fbf` build; `main` is two commits ahead of it (dev-madrid's kanban
+  card-id hardening), which reaches it on its next redeploy.
 
 ## 3. Operator-triggered follow-ups
 
