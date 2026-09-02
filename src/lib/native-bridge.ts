@@ -120,8 +120,11 @@ export const nativeNode = {
   list: async (): Promise<NodeInfo[]> => (await call<{ nodes?: NodeInfo[] }>("GarrisonNode", "list")).nodes ?? [],
   add: (args: { shellOrigin: string; token: string; name?: string; captureBaseURL?: string }) =>
     call<NodeInfo>("GarrisonNode", "add", args),
-  /** Selecting does not navigate; call reload() to land on the new node. */
-  select: (name: string) => call<{ name: string }>("GarrisonNode", "select", { name }),
+  /** Selecting rebuilds the webview on the new node's landing (/talk); pass a
+   *  bare shell `path` to land on that page there instead (a conversation
+   *  opened from another node's list). Older app builds ignore the path. */
+  select: (name: string, path?: string) =>
+    call<{ name: string }>("GarrisonNode", "select", path ? { name, path } : { name }),
   remove: (name: string) => call<Record<string, never>>("GarrisonNode", "remove", { name }),
   reload: () => call<Record<string, never>>("GarrisonNode", "reload"),
   info: () => call<AppInfo>("GarrisonNode", "info")

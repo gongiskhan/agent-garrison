@@ -46,8 +46,11 @@
 /* The bar carries New now; nothing floats over the skin's chrome. */
 .shell-phone .talk-page .wc-backbar,
 .shell-phone .talk-page .cc-conv-head { padding-right: 12px; }
-/* The Threads button in the app bar replaces the floating toggle. */
-.shell-phone .talk-page .wc-sidebar-toggle { display: none; }
+/* The past-conversations toggle sits first in the conversation row (the skin's
+   .wc-threads-toggle); the floating one only backs the lanes without that row,
+   and starts under the app bar rather than under the status bar. */
+.shell-phone .talk-page .wc-sidebar-toggle { top: 8px; }
+.shell-phone .talk-page .wc-threads-toggle { width: 36px; height: 36px; min-height: 36px; margin-left: -2px; }
 .shell-phone .talk-page .cc-conv-head,
 .shell-phone .talk-page .wc-main .cc-conversation .cc-header,
 .shell-phone .talk-page .wc-wb-head { padding-left: 12px; }

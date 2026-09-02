@@ -52,12 +52,19 @@ on the iPhone and walk this list on the real device against this node
 9. Phone chrome (D46): every page has the app bar (menu button, page name,
    node name with the session dot, New); the menu slides in from the left
    and closes on a tap outside or on a row. Conversations: one conversation
-   row (name, search), no floating toggle, no chat status row; the Threads
-   button in the bar opens the thread list. Kanban Loop: one column at a
+   row (past-conversations toggle at the far left, then name, then search),
+   no floating toggle, no chat status row. Kanban Loop: one column at a
    time with the column strip above it, cards and sheets sized for a thumb.
    Verified in WebKit at 390x844 and 440x956 against this node's prod build
    (`evidence/garrison-app/phone/webkit-*.png`); the phone and the simulator
    are yours.
+10. Conversations on other nodes (D47): in the thread list, tap a row from
+   another node (or "+ New" on another node). In Safari the page navigates
+   there, no new tab. In the app the webview switches to that node and lands
+   on `/talk/<id>` there; that landing needs the TestFlight build carrying
+   `GarrisonNode.select(path)` (older builds land on the peer's `/talk`). A
+   node not added in the app opens in Safari instead. The node switcher in
+   the app now keeps the current page across a switch as well.
 8. Pendant (G7): with the real pendant, Pair, Connect, watch `connected` and
    the battery, speak and see the words in the "Hearing" panel, Disconnect
    (stays paired), Forget (drops the pairing). No hardware was in reach of

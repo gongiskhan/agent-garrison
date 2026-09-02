@@ -1226,10 +1226,33 @@
 .cc-conv-hitkind,
 .cc-conv-hitseq { font-family: var(--wc-mono); }
 
+/* The past-conversations toggle INSIDE the conversation bar: first in the row,
+   in flow, so the bar needs no clearance for a floating button. Wide layouts
+   show the sidebar inline and hide it, like the floating toggle. */
+.wc-threads-toggle { display: none; }
+
 @media (max-width: 899px) {
-  /* The floating sidebar toggle now overlaps the CONVERSATION bar, so the
-     clearance moves with it and the chat header below goes back to its gutter. */
-  .cc-conv-head { padding-left: 50px; }
+  /* Specific enough to hold its 34px against the coarse-pointer 44px button
+     minimum below: the row stays one compact line, the search beside it is
+     the same height. */
+  .wc-shell .cc-conv-head .wc-threads-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    margin-left: -4px;
+    background: #f4ede0;
+    border: 1px solid #c4b89f;
+    border-radius: 3px;
+    color: #18211c;
+    cursor: pointer;
+  }
+  /* The floating toggle is gone from the conversation lane; the chat header
+     below the bar goes back to its gutter. */
   .wc-main .cc-conversation .cc-header { padding-left: var(--cc-gutter); }
 }
 

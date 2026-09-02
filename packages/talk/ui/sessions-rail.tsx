@@ -293,6 +293,11 @@ export function SessionsRail(props: {
   onToggleList: () => void;
   onSelect: (id: string) => void;
   onNewLocal: () => void;
+  /** Opens a page another node owns (a remote row's conversation, a peer's
+   *  "+ New") IN THIS WINDOW: a same-window navigation in a browser, a node
+   *  switch in the Garrison app. Never a new tab - the host decides how the
+   *  window gets there, the rail only says where. */
+  onOpenRemote: (url: string) => void;
   onOpenRemoteShell: (t: RailTransport) => void;
   onDeleteLocal: (id: string) => void;
   onRenameLocal: (id: string, title: string) => Promise<void>;
@@ -302,7 +307,7 @@ export function SessionsRail(props: {
 }) {
   const {
     threads, meshNodes, self, transports, activeId,
-    listOpen, onToggleList, onSelect, onNewLocal, onOpenRemoteShell, onDeleteLocal, onRenameLocal,
+    listOpen, onToggleList, onSelect, onNewLocal, onOpenRemote, onOpenRemoteShell, onDeleteLocal, onRenameLocal,
     onOpenShells
   } = props;
 
@@ -524,7 +529,7 @@ export function SessionsRail(props: {
       items.push({
         label: `Open on ${r.nodeName}`,
         disabled: !r.openUrl,
-        onPick: () => { if (r.openUrl) { window.open(r.openUrl, "_blank", "noopener"); markRead(r.key); } }
+        onPick: () => { if (r.openUrl) { markRead(r.key); onOpenRemote(r.openUrl); } }
       });
     }
     items.push(
@@ -641,7 +646,7 @@ export function SessionsRail(props: {
     const hinted = dropHint?.beforeKey === r.key;
     const open = () => {
       if (r.kind === "local") { onSelect(r.id); markRead(r.key); }
-      else if (r.openUrl) { window.open(r.openUrl, "_blank", "noopener"); markRead(r.key); }
+      else if (r.openUrl) { markRead(r.key); onOpenRemote(r.openUrl); }
     };
     const meta: React.ReactNode[] = [];
     if (r.source) meta.push(<span key="src" className="wc-thread-src">{r.source}</span>);
@@ -752,7 +757,7 @@ export function SessionsRail(props: {
                   className="wc-ctx-item"
                   onClick={() => {
                     setNewOpen(false);
-                    window.open(`${n.openBase}/?new=1`, "_blank", "noopener");
+                    onOpenRemote(`${n.openBase}/?new=1`);
                   }}
                 >
                   <span className="wc-row-dot" style={{ background: n.accentColor || "#6a746b" }} aria-hidden />

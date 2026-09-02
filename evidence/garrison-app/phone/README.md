@@ -125,3 +125,20 @@ and the mini took `git merge --ff-only origin/main` (their build-output
 over the tailnet at 440x956: app bar with Back and "DEV-MADRID", the fitting's
 phone layout below; `/talk/morning-briefing` there measures composer y 893
 h 63 in a 956 viewport, document width 440.
+
+## Fourth phone check: "conversations should not open in a new window; the past-conversations icon leads the header" (2026-09-03)
+
+Decision D47. Measured in Playwright WebKit against this node's prod build
+after `node:reload`:
+
+| shot | viewport | what it shows |
+|---|---|---|
+| `webkit-390-talk-row-toggle.png` | 390x844 | `/talk/companion-reports`: the app bar carries no Threads action; the conversation row starts with the past-conversations toggle (`.wc-threads-toggle` x 10, 36x36), then the name, then the search; no floating toggle over the messages |
+| `webkit-390-talk-row-toggle-open.png` | 390x844 | the toggle pressed: the thread drawer at x 0 under the app bar |
+| `webkit-390-talk-remote-open.json` | 390x844 | tapping the dev-madrid "Morning Briefing" row: `before` is this node's conversation, `after` is `https://dev-madrid.tail31efa.ts.net/talk/morning-briefing`, `popups: 0`, `pages: 1` - the same window navigated, nothing opened |
+
+At 800px the in-row toggle is present (the skin's overlay breakpoint is
+899px); at 1280px it is hidden and the rail is always visible. In the app the
+same tap becomes a native node switch carrying `/talk/<id>` (needs the
+TestFlight build with `GarrisonNode.select(path)`); the simulator and the
+phone are the operator's.

@@ -1073,6 +1073,44 @@ whole page in a phone browser, where that topbar is its only header. Served
 from the fitting's `dist/`, rebuilt by `ui/build.mjs` in the setup hook;
 every node rebuilds it on `node:redeploy`.
 
+### D47. A conversation another node owns opens in this window; the past-conversations toggle leads the conversation row (2026-09-03)
+
+The operator, on the phone: "conversations should not open in a new window,
+and the past conversations icon should be in the conversation header all
+the way to the left side."
+
+Opening. Threads are home-node-owned (D17): a row from another node points
+at `https://<that node>/talk/<id>`. The rail used to hand that URL to
+`window.open(_blank)` at three sites (the row, its "Open on <node>" menu
+item, and a peer's "+ New"), which on a phone is a new Safari tab and inside
+the app is either a tab the app cannot show or a hand-off to Safari. The
+rail now says only WHERE (`SessionsRail onOpenRemote(url)`); the host decides
+HOW this window gets there (`TalkApp openRemote`, default a same-window
+`location.assign`). The shell supplies `openOnNode`
+(`src/components/talk/open-on-node.ts`): in a browser it navigates; in the
+Garrison app, whose webview is bound to one origin so a cross-origin
+navigation would land in Safari, it finds the app's node record for the
+URL's host (`sameNodeOrigin`) and switches to it, carrying the path across
+the switch. That path is the one native change: `GarrisonNode.select` takes
+an optional bare shell `path`, armed in `PushRouter` (`arm(path:)`) for the
+bridge the switch builds, which delivers it after its first load exactly as
+a cold-start push route is delivered; anything but a bare shell path is
+rejected before the switch. The node switcher rides the same lane, so a
+switch from `/mesh` in the app now lands on `/mesh` rather than `/talk`. A
+peer the app does not know falls back to the navigation: reaching the
+conversation in Safari beats a tap that does nothing. Older app builds
+ignore the path and land on the peer's `/talk`.
+
+Toggle. The D46 app-bar Threads button and the `threadsToggle` counter prop
+are gone. `ConversationView` gains `headerLeading`, rendered first in
+`.cc-conv-head`; the talk surface puts the past-conversations toggle there
+(`.wc-threads-toggle`, in flow, shown under 900px, hidden where the sidebar
+is inline), so on a phone the row reads toggle, name, search. The skin's
+floating `.wc-sidebar-toggle` survives only for the lanes with no
+conversation row (loading, the chat lane) and under the app bar it starts
+at 8px, the bar already owning the status-bar inset. The 899px clearance
+`padding-left: 50px` on the conversation bar goes with the floating button.
+
 Not changed: the desktop shell (rail, fixed `+ New`, sidebar) is untouched
 above 720px; the Fittings rows still open own-port views in a new tab in a
 phone browser (D43). The Playwright specs that opened the drawer through the

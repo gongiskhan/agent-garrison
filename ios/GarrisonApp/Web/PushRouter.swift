@@ -28,6 +28,19 @@ final class PushRouter {
         }
     }
 
+    /// Parks a route for the NEXT bridge without offering it to the live one.
+    /// A node switch tears the current VC down and builds a fresh one on the
+    /// new origin; a path armed just before the switch is what that VC lands
+    /// on after its first load, so a conversation opened from another node's
+    /// list arrives at `/talk/<id>` there, not at the bare landing. Returns
+    /// false (and arms nothing) for anything but a bare shell path.
+    @discardableResult
+    func arm(path: String) -> Bool {
+        guard Self.isShellPath(path) else { return false }
+        pendingPath = path
+        return true
+    }
+
     /// Returns and clears, so a route is delivered exactly once whichever side
     /// (native fallback or the page) gets to it first.
     func takePendingPath() -> String? {

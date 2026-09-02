@@ -954,28 +954,26 @@ async function applyStickyProject(thread: Thread | null): Promise<TurnRouting | 
   }
 }
 
+/** Default remote open: this window goes there. A host with a better way (the
+ *  Garrison app switching its node) supplies its own through TalkAppProps. */
+function navigateHere(url: string): void {
+  window.location.assign(url);
+}
+
 function ThreadedApp({
   url,
   captureBridge,
-  threadsToggle = 0
+  openRemote = navigateHere
 }: {
   url: UrlState;
   captureBridge: CaptureBridge | null;
-  threadsToggle?: number;
+  openRemote?: (url: string) => void | Promise<void>;
 }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  // The host's own toggle (the shell's app bar on a phone): every change of the
-  // counter flips the narrow drawer. Zero is the untouched initial value.
-  const threadsToggleSeen = useRef(threadsToggle);
-  useEffect(() => {
-    if (threadsToggleSeen.current === threadsToggle) return;
-    threadsToggleSeen.current = threadsToggle;
-    setSidebarOpen((v) => !v);
-  }, [threadsToggle]);
   // The WIDE-layout session list, independent of the narrow drawer above.
   // Collapsed by default (the list is navigation, not the work) and sticky: a
   // preference you set once should survive the next visit, so it is read from
@@ -1602,18 +1600,33 @@ function ThreadedApp({
       .catch(() => { kickoffSentRef.current = null; });
   }, [conversationId, kickoff]);
 
+  // The narrow-layout drawer toggle (past conversations). Inside a conversation
+  // it is the FIRST thing in the conversation's own header row, where a phone
+  // user looks for it; the lanes without that row (loading, the chat lane) keep
+  // the floating button at the top-left corner of the column.
+  const inConversation = Boolean(!loading && activeId && conversationId && conversationTransport);
+  const threadsIcon = (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+  const threadsButton = (floating: boolean) => (
+    <button
+      type="button"
+      className={floating ? "wc-sidebar-toggle" : "wc-threads-toggle"}
+      aria-label={sidebarOpen ? "Hide conversations" : "Show conversations"}
+      aria-expanded={sidebarOpen}
+      onClick={() => setSidebarOpen((v) => !v)}
+      title="Conversations"
+    >
+      {threadsIcon}
+    </button>
+  );
+
   return (
     <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}${listOpen ? "" : " wc-shell--rail"}`}>
-      <button
-        className="wc-sidebar-toggle"
-        aria-label={sidebarOpen ? "Hide conversations" : "Show conversations"}
-        onClick={() => setSidebarOpen((v) => !v)}
-        title="Conversations"
-      >
-        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-          <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
-        </svg>
-      </button>
+      {!inConversation && threadsButton(true)}
       <aside className="wc-sidebar" aria-label="Conversations">
         <SessionsRail
           threads={threads}
@@ -1625,6 +1638,7 @@ function ThreadedApp({
           onToggleList={() => setListOpen((v) => !v)}
           onSelect={(id) => { void selectThread(id); }}
           onNewLocal={() => { void newChat(); }}
+          onOpenRemote={(target) => { void openRemote(target); }}
           onOpenRemoteShell={(t) => { void openRemoteShell(t as RemoteShellTransport); }}
           onOpenShells={rshTransports.length > 0 ? () => setShellsOpen(true) : undefined}
           onDeleteLocal={(id) => { void removeThread(id); }}
@@ -1729,6 +1743,7 @@ function ThreadedApp({
             routeOptions={routeOptions}
             onPinChange={savePins}
             onOpenRuntimeTranscript={openTranscript}
+            headerLeading={threadsButton(false)}
             headerExtra={
               <button
                 type="button"
@@ -1796,9 +1811,10 @@ export interface TalkAppProps {
   /** The native capture bridge when the host is the Garrison app; puts the
    *  record button in every conversation's composer. Absent in a browser. */
   captureBridge?: CaptureBridge | null;
-  /** Host-driven toggle of the narrow threads drawer: each change flips it.
-   *  The shell's phone app bar uses this so the page needs no second menu button. */
-  threadsToggle?: number;
+  /** How this window opens a page another node owns (a remote conversation, a
+   *  peer's "+ New"). Default: a same-window navigation. The Garrison app
+   *  switches its node instead, since its webview is bound to one origin. */
+  openRemote?: (url: string) => void | Promise<void>;
 }
 
 
@@ -2080,7 +2096,7 @@ export function TalkApp(props: TalkAppProps = {}) {
     };
   }, []);
 
-  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} threadsToggle={props.threadsToggle} /><PushEnroller /></>);
+  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} openRemote={props.openRemote} /><PushEnroller /></>);
   // Explicit ?console=1: the rich session console (live PTY surface).
   return (
     <>

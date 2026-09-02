@@ -89,7 +89,9 @@ export function NodeSwitcher() {
       if (!record) return;
       setBusy(row.id);
       try {
-        await nativeNode.select(record.name);
+        // The same page on the other node, as in a browser: the path rides the
+        // switch and the rebuilt webview lands on it after its first load.
+        await nativeNode.select(record.name, `${pathname}${search}`);
         await nativeNode.reload();
       } catch (err) {
         setBusy(null);

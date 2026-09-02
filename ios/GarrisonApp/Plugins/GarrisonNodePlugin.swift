@@ -94,15 +94,25 @@ final class GarrisonNodePlugin: CAPPlugin, CAPBridgedPlugin {
     /// which tears down the web view this promise answers into. The result is
     /// queued to the page first and the store mutates on the next main tick,
     /// so the page hears the resolution before it disappears.
+    ///
+    /// An optional `path` (a bare shell path such as `/talk/<id>`) is armed in
+    /// PushRouter for the bridge the switch builds, so the new node opens on
+    /// that page rather than its landing. A path that is not a shell path is
+    /// rejected before anything switches.
     @objc func select(_ call: CAPPluginCall) {
         guard let name = call.getString("name"), !name.isEmpty else {
             call.reject("name is required", "UNKNOWN_NODE")
             return
         }
+        let path = call.getString("path")
         Task { @MainActor in
             let store = NodeStore.shared
             guard store.nodes.contains(where: { $0.name == name }) else {
                 call.reject("no node named \(name)", "UNKNOWN_NODE")
+                return
+            }
+            if let path, !path.isEmpty, !PushRouter.shared.arm(path: path) {
+                call.reject("path must be a bare shell path", "INVALID_PATH")
                 return
             }
             call.resolve(["name": name])

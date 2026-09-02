@@ -65,6 +65,10 @@ export interface ConversationViewProps {
   /** The header's search field. Default true; a host with its own search chrome
    *  (or no search route) turns it off. */
   search?: boolean;
+  /** Rendered FIRST in the conversation's header row, before the title: the
+   *  host's leading control (the talk surface puts its past-conversations
+   *  toggle here on narrow layouts). */
+  headerLeading?: React.ReactNode;
   headerExtra?: React.ReactNode;
   /** The host's word on whether this conversation is still being driven (a card
    *  on Running). `false` vetoes the stream's derived working spinners; absent
@@ -112,6 +116,7 @@ export function ConversationView({
   onOpenRuntimeTranscript,
   focusSeq = null,
   search = true,
+  headerLeading,
   headerExtra,
   live,
   onActivityChange,
@@ -187,6 +192,7 @@ export function ConversationView({
   return (
     <div className="cc-conversation" data-theme={themeOn ? scheme : undefined}>
       <div className="cc-conv-head">
+        {headerLeading}
         <span className="cc-conv-title" title={title ?? conversationId}>{title ?? conversationId}</span>
         <ConversationCost conversationId={conversationId} base={root} generation={seq} />
         {search && (
