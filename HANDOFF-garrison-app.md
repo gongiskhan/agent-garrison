@@ -45,9 +45,19 @@ on the iPhone and walk this list on the real device against this node
 6. Node switch: Settings, pick a second node, the webview reloads on the new
    origin, Conversations show that node's threads. The list is web, the
    reload is native (D38).
-7. Embedded fitting views inside the app (G6): open an own-port fitting from
-   the sidebar; it embeds full-width with the back bar; the desktop browser
-   still gets the side-by-side layout.
+7. Embedded fitting views inside the app (G6, D46): open an own-port fitting
+   from the menu; it embeds full-width under the app bar, which shows Back,
+   the fitting's name and the menu; the desktop browser still gets the
+   side-by-side layout.
+9. Phone chrome (D46): every page has the app bar (menu button, page name,
+   node name with the session dot, New); the menu slides in from the left
+   and closes on a tap outside or on a row. Conversations: one conversation
+   row (name, search), no floating toggle, no chat status row; the Threads
+   button in the bar opens the thread list. Kanban Loop: one column at a
+   time with the column strip above it, cards and sheets sized for a thumb.
+   Verified in WebKit at 390x844 and 440x956 against this node's prod build
+   (`evidence/garrison-app/phone/webkit-*.png`); the phone and the simulator
+   are yours.
 8. Pendant (G7): with the real pendant, Pair, Connect, watch `connected` and
    the battery, speak and see the words in the "Hearing" panel, Disconnect
    (stays paired), Forget (drops the pairing). No hardware was in reach of

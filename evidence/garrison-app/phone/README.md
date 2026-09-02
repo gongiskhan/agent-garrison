@@ -95,3 +95,25 @@ Voice and settings, for the record: the composer's mic is the streaming voice
 lane and REC is the native capture (both were in the phone's cut-off bottom
 row); the "settings" page is Capture at `/capture` (D34), listed in the
 sidebar's Command group only inside the app (expand the rail, open Command).
+
+## Third phone check: "make the menu a sliding menu, add a header" (2026-09-02 22:00 local)
+
+Decision D46. Under 720px the shell drops the rail for an app bar and a
+sliding drawer; Conversations and the embedded views fold under the bar; the
+Kanban Loop view gains a phone layout of its own. Measured in Playwright
+WebKit against this node after `node:reload`:
+
+| shot | viewport | what it shows |
+|---|---|---|
+| `webkit-390-home-appbar.png` | 390x844 | app bar 48px: menu 44x44 at x 4, title + node name, `+ New` in the bar's flow (x 312); document width 390 = viewport (was 452 before, 400 with the session-log domain strip unwrapped) |
+| `webkit-390-home-menu-open.png` | 390x844 | the drawer at 316px over a scrim: brand, node picker, Pinned, Command, Fittings, composition footer |
+| `webkit-390-talk-thread.png` | 390x844 | `/talk/g5-live-mtk3hh1n`: one conversation row (name, search), Threads button in the bar, composer y 781 h 63 = bottom edge 844 (it was at 829, below the screen, while `.wc-shell` kept the skin's `100dvh`) |
+| `webkit-390-talk-threads-drawer.png` | 390x844 | Threads button pressed: `.wc-sidebar` x 0 y 48, under the app bar |
+| `webkit-390-talk-brief.png` | 390x844 | `/talk/brief-demo-view`: the Brief button sits in the conversation row instead of a 61px bar of its own |
+| `webkit-440-embed-kanban.png` | 440x956 | `/embed/kanban-loop`: Back, "Kanban Board", menu in the bar; the fitting's phone layout below (column strip, one column with the next peeking, thumb-sized card actions) |
+
+| `webkit-390-kanban-overflow.png` | 390x844 | the fitting alone on :8089: the topbar's overflow menu (History, Export, Import) over the column strip |
+| `webkit-390-kanban-card-sheet.png` | 390x844 | a card opened from the carousel: full-height sheet, 44px close, chips wrapping, Raw log and Terminal side by side |
+
+`/compose` at 390: document width 390. Every shot is the served prod build
+(`.next-prod`), not the dev server.

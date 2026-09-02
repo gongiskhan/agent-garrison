@@ -1011,6 +1011,74 @@ Not changed: the sidebar Command group is still where the app-only Capture
 page (D34) is reached, the phone rail collapsed and the group folded; that
 is a discoverability question for the operator, not a defect.
 
+### D46. A phone gets an app bar and a sliding menu; Conversations and Kanban fold under it (2026-09-02)
+
+The operator's third phone check, against the converged build: "make the
+menu one of those sliding menus, add a header with the button to open it
+like mobile apps usually do, fix the responsiveness of the conversation area,
+make the Kanban board and cards nice on mobile". What the phone showed was a
+desktop layout squeezed: a 52px collapsed rail down the left of every page,
+the `+ New` control floating over whatever the page put in its corner,
+Conversations stacking three headers of its own (the floating thread toggle,
+the conversation row, the chat status row) under the shell's rail, and the
+Kanban view's desktop topbar and five side-by-side columns in a 390px frame.
+
+Shell. Under 720px `AppShell` sets `.shell-phone` instead of `.shell-rail`:
+one grid column, no rail. An in-flow sticky `<header class="app-bar">`
+(`src/components/chrome/AppBar.tsx`) is the page header: menu button, the
+page's name over the node name with a session-state dot, the page's own
+controls, and the `+ New` control in the bar's flow (`CompositionCreator
+inBar`) instead of fixed in the viewport corner. It absorbs the status-bar
+inset (`--app-bar-h: 48px + env(safe-area-inset-top)`), so `.crumbs` drops
+its own and the pages that fill the column (`.talk-page`, `.embed-view`)
+subtract the bar's height. A page contributes through `useAppBar({title,
+back, actions})`; with nothing registered the bar derives the title from the
+route (`COMMAND_ITEMS` / `CAPTURE_ITEM` `isActive`, or the fitting's library
+name under `/fitting` and `/embed`). The menu is the same `Sidebar`, now
+always mounted at phone width as a drawer that slides in from the left
+(`transform` plus a delayed `visibility` flip so its controls leave the tab
+order when closed) behind a fading scrim; the close button is an X and the
+dialog is labelled "Garrison menu". Tapping a row still closes it.
+
+Embedded views. The G6 `.embed-bar` inside `/embed/<id>` is gone; the page
+registers `useAppBar({title: <fitting name>, back: true})` and the app bar
+puts Back where the menu button was and the menu at the trailing end. One
+header component owns every phone header, so the safe-area inset is handled
+in exactly one place.
+
+Conversations. The talk skin is left alone; the shell's `talk-page.css`
+scopes every phone rule under `.shell-phone .talk-page`, so the tablet,
+desktop and standalone-host layouts do not move. The skin's floating thread
+toggle is hidden and the app bar gets a Threads button that flips the
+drawer through a counter prop (`TalkApp threadsToggle`, the only API added
+to the package); the chat's status row (connection dot, model, ctx, theme,
+Raw) is hidden inside a conversation; the conversation row is one compact
+line, name then search, the id chip and cost chip hidden (they copy and read
+from the desktop), the search widening over the name on focus; the thread
+drawer and its scrim start under the app bar. The `padding-right` clearance
+for the fixed `+ New` control no longer applies at phone width because the
+control is in the bar.
+
+Kanban Loop. The fitting's UI (`fittings/seed/kanban-loop/ui/`) gains a
+phone layout under 640px (`PHONE_LAYOUT_QUERY` in `ui/phone-layout.ts`, one
+query shared by the stylesheet and the components that change shape): a
+compact topbar (title, card count, New card, and one 44px overflow control
+holding History, Export and Import), a strip of column names and counts
+above a one-column-at-a-time carousel (scroll-snapped, the next column
+peeking, a chip tap scrolls to its column, the strip follows the scroll),
+cards with 44px action buttons and wrapping chips, and the card sheet
+full-height with a 44px close. The fitting's own topbar stays when it is
+embedded, so under the app bar the name reads twice; the fitting is also the
+whole page in a phone browser, where that topbar is its only header. Served
+from the fitting's `dist/`, rebuilt by `ui/build.mjs` in the setup hook;
+every node rebuilds it on `node:redeploy`.
+
+Not changed: the desktop shell (rail, fixed `+ New`, sidebar) is untouched
+above 720px; the Fittings rows still open own-port views in a new tab in a
+phone browser (D43). The Playwright specs that opened the drawer through the
+old rail's "Expand sidebar" now use the bar's "Open menu"; the embed spec
+reads `app-bar` instead of `embed-bar`.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
