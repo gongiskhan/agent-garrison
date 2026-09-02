@@ -909,6 +909,29 @@ for this run is spent on the gates that remain. The record button therefore
 renders only where a native bridge exists; a browser on the Mac shows the
 composer unchanged. Listed in `HANDOFF-garrison-app.md` with the file plan.
 
+### D43. Own-port views embed inside the app; a phone browser keeps the new tab (2026-09-02)
+
+The sidebar's own-port rows had one phone rule: open the fitting's own origin
+in a new tab, because the iframe beside the rail is cramped. The app has no
+tabs: a `target="_blank"` there navigates the ONE webview to the fitting's
+origin and strands the user outside the shell (no menu, no back). So the rule
+is now split on the bridge, not on width: a phone BROWSER keeps the new tab; the
+app (a native bridge is present) embeds every own-port view at `/embed/<id>`,
+same as desktop. At phone width the embed route drops the rail
+(`shell-embed-full`) and carries its own bar: safe-area inset on top, Back
+(history back, home when there is none), the fitting's library name, and a
+Menu button that opens the drawer. Desktop and tablet are unchanged: rail plus
+iframe, no bar. The `allow` list stays `clipboard-read; clipboard-write;
+microphone; autoplay` - no stationed fitting asked for `camera`.
+
+Found on the way: the runner's one-shot orphan sweep
+(`reconcileOrphanedOwnPortFittings`, fired by the first
+`/api/runner/<id>/state` read of a server process) SIGTERMs the pid named in any
+own-port status file whose composition is not running. The G6 e2e spec had
+written the Playwright worker's own pid into its fake `kanban-loop.json`, so
+the sweep killed the test runner mid-test and Playwright reported it as a
+browser closed early. The spec now triggers the sweep first and names no pid.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
@@ -1503,17 +1526,24 @@ Pre-run plan for the Mac path (not shipped, see D42):
 
 ### G6 - fittings in the app
 
-- edit `src/components/chrome/Sidebar.tsx:293-296` and `AppShell.tsx` (in the
-  app, own-port views embed instead of opening a new tab; `BridgeGate`
-  decides), `src/app/embed/[fittingId]/page.tsx` (native back affordance,
-  `allow` list gains `camera` only if a fitting needs it),
-  `src/components/fitting-views/browser-view-url.ts` (page-host resolution
-  already works over tailnet; verify from the app).
-- tests: `tests/sidebar-pins.test.ts`, `tests/view-instances.test.ts`,
-  `tests/instance-isolation.test.ts`, `tests/mesh-serve-ports.test.ts`.
-- evidence: `evidence/garrison-app/g6/` (phone screenshots of kanban-loop,
-  dev-env, file-browser inside the app). TestFlight build only if native code
-  changed.
+As shipped (2026-09-02, D43):
+
+- `src/components/chrome/Sidebar.tsx` (own-port healthy row: new tab only for
+  a phone browser, `useNativeBridge()` decides; the app embeds at `/embed/<id>`),
+  `src/components/chrome/AppShell.tsx` (`shell-embed-full` at narrow width on
+  the embed route hides the rail), `src/app/embed/[fittingId]/page.tsx`
+  (phone-width bar: Back, library name, Menu; `useAppShell()`),
+  `src/app/globals.css` (`.embed-view`, `.embed-bar*`, `.shell-embed-full`).
+  `browser-view-url.ts` unchanged: page-host resolution already picks the
+  tailnet URL inside the app.
+- tests: `tests/e2e/embed-in-app.spec.ts` (new: phone browser new tab, app
+  embed + bar + menu + back, desktop unchanged); `tests/e2e/shell-overhaul.spec.ts`
+  (two stale tests repaired: the 2026-08-28 searchbox label, the folded Fittings
+  group). Vitest: `sidebar-grouping`, `sidebar-pins`, `view-instances`,
+  `instance-isolation`, `mesh-serve-ports`, `vocabulary`.
+- evidence: `evidence/garrison-app/g6/` (simulator screenshot of kanban-loop
+  embedded in the app with the bar; the phone criterion is on the operator, see
+  the handoff). No native code changed: no TestFlight build for this gate.
 
 ### G7 - pendant through the plugin, mock first
 

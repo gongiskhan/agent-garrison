@@ -10,6 +10,7 @@ import {
   useState
 } from "react";
 import type { ReactNode } from "react";
+import clsx from "clsx";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { PushRouteListener } from "./PushRouteListener";
@@ -591,7 +592,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         Skip to main content
       </a>
       <PushRouteListener />
-      <div className={`app-shell ${sidebarCollapsed || narrowViewport ? "shell-rail" : ""}`}>
+      {/* At phone width an embedded Fitting view takes the whole screen: the
+          52px rail would squeeze the iframe to ~340px and the view's own
+          header would sit under the status bar. The embed page renders its own
+          back bar instead (the drawer still opens from it). */}
+      <div
+        className={clsx(
+          "app-shell",
+          (sidebarCollapsed || narrowViewport) && "shell-rail",
+          narrowViewport && isEmbeddedView && "shell-embed-full"
+        )}
+      >
         <Sidebar />
         <div className="shell-content">
           <span id="main-content" className="shell-main-anchor" tabIndex={-1} />

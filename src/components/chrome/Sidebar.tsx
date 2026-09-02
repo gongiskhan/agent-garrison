@@ -292,9 +292,9 @@ function CollapsedRail({
   );
 }
 
-// Matches NARROW_BREAKPOINT in AppShell — below this width the sidebar
-// auto-collapses, and own-port views open in a new tab instead of the
-// in-app iframe (which would be unusable next to the collapsed sidebar).
+// Matches NARROW_BREAKPOINT in AppShell - below this width the sidebar
+// auto-collapses, and in a browser own-port views open in a new tab instead
+// of the in-app iframe (in the app they embed full-bleed; see the row render).
 const MOBILE_BREAKPOINT = 720;
 
 function useIsMobileViewport(): boolean {
@@ -874,7 +874,13 @@ function SidebarMenu({
       // Pick the URL reachable from where the browser is: loopback locally,
       // the HTTPS tailnet endpoint over Tailscale, else a host rebind.
       const openUrl = resolveViewUrl(status);
-      if (isMobile) {
+      // A phone BROWSER gets a new tab: the iframe next to the rail is cramped
+      // and a browser tab is a fine surface. The app has no tabs - a
+      // target="_blank" there navigates the one webview to the fitting's own
+      // origin and strands the user outside the shell - so in the app every
+      // own-port view embeds at /embed/<id>, which at phone width drops the
+      // rail and carries its own back bar (G6).
+      if (isMobile && !nativeBridge) {
         return (
           <a
             href={openUrl}
