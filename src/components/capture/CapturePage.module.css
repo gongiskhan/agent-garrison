@@ -197,3 +197,47 @@
     gap: 0.1rem;
   }
 }
+
+.transcript {
+  margin-top: 0.9rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper-2, transparent);
+}
+
+.transcriptHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.transcriptEmpty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--mute);
+}
+
+.transcriptLines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.transcriptInterim {
+  color: var(--mute);
+  font-style: italic;
+}

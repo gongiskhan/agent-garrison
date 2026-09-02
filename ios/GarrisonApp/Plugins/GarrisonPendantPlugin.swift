@@ -22,6 +22,16 @@ final class GarrisonPendantPlugin: CAPPlugin, CAPBridgedPlugin {
     /// warm reconnect; one event per burst is all the page can show.
     private static let minEmitInterval: TimeInterval = 0.15
 
+    /// Test seam only: the mock harness (PendantPluginMockTests) hands the
+    /// plugin a controller built on MockPendantTransport. The app never sets
+    /// it, so production always talks to `PendantController.shared`.
+    static var controllerOverride: PendantController?
+
+    @MainActor
+    private var pendant: PendantController {
+        Self.controllerOverride ?? PendantController.shared
+    }
+
     private var cancellables: Set<AnyCancellable> = []
     private var emitScheduled = false
     private var lastEmitAt = Date.distantPast
@@ -29,7 +39,7 @@ final class GarrisonPendantPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Runs once after registration, when notifyListeners can reach the page.
     override func load() {
         Task { @MainActor in
-            let pendant = PendantController.shared
+            let pendant = self.pendant
             // @Published fires on willSet; the Task hop in each sink lands after
             // the write so the payload carries the NEW value.
             pendant.$connectionState
@@ -62,14 +72,14 @@ final class GarrisonPendantPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func connect(_ call: CAPPluginCall) {
         Task { @MainActor in
-            PendantController.shared.connect()
+            self.pendant.connect()
             call.resolve(self.statusPayload())
         }
     }
 
     @objc func disconnect(_ call: CAPPluginCall) {
         Task { @MainActor in
-            PendantController.shared.disconnect()
+            self.pendant.disconnect()
             call.resolve(self.statusPayload())
         }
     }
@@ -78,7 +88,7 @@ final class GarrisonPendantPlugin: CAPPlugin, CAPBridgedPlugin {
     /// reconnecting to it. The next connect() is a deliberate first pairing.
     @objc func forget(_ call: CAPPluginCall) {
         Task { @MainActor in
-            PendantController.shared.disconnect()
+            self.pendant.disconnect()
             AppGroup.pendantIdentifier = nil
             call.resolve(self.statusPayload())
         }
@@ -88,7 +98,7 @@ final class GarrisonPendantPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @MainActor
     private func statusPayload() -> [String: Any] {
-        let pendant = PendantController.shared
+        let pendant = self.pendant
         var payload: [String: Any] = [
             "connectionState": Self.connectionName(pendant.connectionState),
             "paired": AppGroup.pendantIdentifier != nil,

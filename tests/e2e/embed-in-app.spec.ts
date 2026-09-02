@@ -36,7 +36,7 @@ function installNativeStub(page: import("@playwright/test").Page) {
           pendingRoute: resolve({}),
           ...events()
         },
-        GarrisonPendant: { status: resolve({ state: "idle" }), ...events() }
+        GarrisonPendant: { status: resolve({ connectionState: "disconnected", paired: false, lostFrames: 0, ambientConsent: false, uploaderState: "idle" }), ...events() }
       }
     };
   });

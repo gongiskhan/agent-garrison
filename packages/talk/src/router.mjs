@@ -484,6 +484,46 @@ async function handleVoiceProxy(req, res, subpath, voice) {
   upstream.end(body);
 }
 
+// A capture session id as the provider mints them (SessionId.generate on the
+// phone, the same alphabet on the service): anything else never reaches the
+// upstream path, so the relay cannot be steered at another route.
+const VOICE_SESSION_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
+
+// GET /api/voice/sessions/<id>/events -> the provider's live transcript stream
+// for one capture session (interims, finals, then {done:true}), relayed as-is.
+// This is how the capture page shows what the pendant is hearing: the phone
+// streams audio to the provider directly (I2, the webview is never in the data
+// path) and the page reads the words back through the shell, same origin, no
+// provider port and no token on the phone. The provider's own SSE route trusts
+// loopback and the tailnet; the token rides only when the host holds one.
+async function handleVoiceSessionEvents(req, res, sessionId, voice) {
+  if (!VOICE_SESSION_ID_RE.test(sessionId)) {
+    jsonRes(res, 400, { error: "bad session id" });
+    return;
+  }
+  const fittingId = await voiceFittingId(voice);
+  if (!fittingId) {
+    jsonRes(res, 503, { error: VOICE_NO_PROVIDER });
+    return;
+  }
+  const info = readVoiceInfo(fittingId);
+  if (!info?.url) {
+    jsonRes(res, 503, { error: VOICE_NOT_RUNNING });
+    return;
+  }
+  const token = await voiceToken(voice);
+  const target = new URL(`/sessions/${sessionId}/events`, info.url);
+  const headers = { Accept: "text/event-stream" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  pipeUpstreamSse(req, res, {
+    method: "GET",
+    hostname: target.hostname,
+    port: target.port,
+    path: target.pathname,
+    headers
+  });
+}
+
 function readRawBody(req, limit = 25 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -3370,6 +3410,10 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname === "/api/voice" && method === "GET") { settle(res, handleVoiceInfo(res, liveOpts.voice), log); return true; }
       if (pathname === "/api/voice/stt" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/stt", liveOpts.voice), log); return true; }
       if (pathname === "/api/voice/tts" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/tts", liveOpts.voice), log); return true; }
+      {
+        const m = method === "GET" ? /^\/api\/voice\/sessions\/([^/]+)\/events$/.exec(pathname) : null;
+        if (m) { settle(res, handleVoiceSessionEvents(req, res, decodeURIComponent(m[1]), liveOpts.voice), log); return true; }
+      }
       if (pathname === "/api/stream" && method === "GET") { settle(res, handleStream(req, res, liveOpts), log); return true; }
       if (pathname === "/api/chat/answer" && method === "POST") { settle(res, handleChatAnswer(req, res, liveOpts), log); return true; }
       if (pathname === "/api/chat/interrupt" && method === "POST") { settle(res, handleChatInterrupt(req, res, liveOpts), log); return true; }

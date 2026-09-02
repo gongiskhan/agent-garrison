@@ -41,7 +41,7 @@ test("capture page: with the native bridge the controls render and the menu list
           pendingRoute: resolve({}),
           ...events()
         },
-        GarrisonPendant: { status: resolve({ state: "idle" }), ...events() }
+        GarrisonPendant: { status: resolve({ connectionState: "disconnected", paired: false, lostFrames: 0, ambientConsent: false, uploaderState: "idle" }), ...events() }
       }
     };
   });
@@ -93,7 +93,7 @@ test("conversation composer: the record button appears with the native bridge an
           ...events()
         },
         GarrisonPush: { status: resolve({ authorization: "notDetermined", registered: false, detail: "" }), pendingRoute: resolve({ path: null }), ...events() },
-        GarrisonPendant: { status: resolve({ state: "idle", supported: false }), ...events() }
+        GarrisonPendant: { status: resolve({ connectionState: "disconnected", paired: false, lostFrames: 0, ambientConsent: false, uploaderState: "idle" }), ...events() }
       }
     };
   });
@@ -105,4 +105,77 @@ test("conversation composer: the record button appears with the native bridge an
   await expect(button).toHaveAttribute("aria-label", "Stop recording");
   const calls = await page.evaluate(() => (window as unknown as { __captureCalls: unknown[] }).__captureCalls);
   expect(calls).toEqual([{ kind: "screen_audio", conversationId: id }]);
+});
+
+// G7: the pendant reaches the page through GarrisonPendant alone, in the
+// plugin's own vocabulary (connectionState / paired / lostFrames / uploaderState
+// / sessionId), and the words the pendant is hearing come back through the
+// shell's /api/voice/sessions/<id>/events relay - never from the device or the
+// provider port. The stub is a connected, streaming pendant; the relay is a
+// fulfilled route with one interim, one final, and the done frame.
+test("capture page: a connected pendant shows its state and streams the session's words", async ({ page }) => {
+  await page.route("**/api/voice/sessions/pend_abcDEF123/events", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: 'data: {"text":"buy milk","final":false}\n\ndata: {"text":"buy milk tomorrow","final":true}\n\ndata: {"done":true}\n\n'
+    })
+  );
+  await page.addInitScript(() => {
+    const status = { phase: "idle", ackedFrames: 0, broadcasting: false, microphone: "undetermined", consentSuppressed: false };
+    const pendant = {
+      connectionState: "connected",
+      paired: true,
+      lostFrames: 2,
+      ambientConsent: false,
+      uploaderState: "streaming",
+      battery: 87,
+      sessionId: "pend_abcDEF123",
+      hapticSupported: true
+    };
+    const calls: string[] = [];
+    (window as unknown as { __pendantCalls: string[] }).__pendantCalls = calls;
+    const resolve = (value: unknown) => () => Promise.resolve(value);
+    const events = () => ({ addListener: () => Promise.resolve({ remove: () => Promise.resolve() }) });
+    (window as unknown as { Capacitor: unknown }).Capacitor = {
+      isNativePlatform: () => true,
+      Plugins: {
+        GarrisonNode: {
+          current: resolve({ name: "sim", shellOrigin: location.origin, captureBaseURL: location.origin, hasToken: true }),
+          list: resolve({ nodes: [] }),
+          info: resolve({ appVersion: "1.0", build: "0", platform: "ios", bundleId: "test" }),
+          ...events()
+        },
+        GarrisonCapture: { status: resolve(status), ...events() },
+        GarrisonPush: { status: resolve({ authorization: "notDetermined", registered: false, detail: "" }), pendingRoute: resolve({ path: null }), ...events() },
+        GarrisonPendant: {
+          status: resolve(pendant),
+          disconnect: () => {
+            calls.push("disconnect");
+            return Promise.resolve({ ...pendant, connectionState: "disconnected", uploaderState: "ended", sessionId: undefined });
+          },
+          ...events()
+        }
+      }
+    };
+  });
+  await page.goto("/capture");
+  const section = page.getByTestId("capture-pendant");
+  await expect(section.getByTestId("capture-pendant-state")).toHaveText("connected");
+  await expect(section.getByText("remembered")).toBeVisible();
+  await expect(section.getByText("87%")).toBeVisible();
+  await expect(section.getByText("streaming")).toBeVisible();
+  await expect(section.getByText("Lost frames")).toBeVisible();
+  await expect(section.getByRole("button", { name: "Disconnect" })).toBeVisible();
+  await expect(section.getByRole("button", { name: "Forget" })).toBeVisible();
+
+  const transcript = section.getByTestId("capture-pendant-transcript");
+  await expect(transcript.locator("li")).toHaveText(["buy milk tomorrow"]);
+  await expect(transcript).toContainText("done");
+
+  await section.getByRole("button", { name: "Disconnect" }).click();
+  await expect(section.getByTestId("capture-pendant-state")).toHaveText("disconnected");
+  await expect(section.getByRole("button", { name: "Connect" })).toBeVisible();
+  await expect(transcript).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __pendantCalls: string[] }).__pendantCalls)).toEqual(["disconnect"]);
 });

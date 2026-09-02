@@ -369,3 +369,107 @@ describe("/api/voice/stt and /api/voice/tts proxy", () => {
     }
   });
 });
+
+describe("/api/voice/sessions/<id>/events live transcript relay", () => {
+  // The capture page reads a pendant session's words back through the shell:
+  // same origin, no provider port on the phone (D44). This stub is the
+  // provider's SSE route: two segments, then done.
+  const seen: Array<{ path: string; accept: string | undefined; authorization: string | undefined }> = [];
+  let sse: http.Server;
+  let sseUrl = "";
+
+  beforeAll(async () => {
+    sse = http.createServer((req, res) => {
+      seen.push({ path: req.url ?? "", accept: req.headers.accept, authorization: req.headers.authorization });
+      if (!/^\/sessions\/[A-Za-z0-9_-]{10,40}\/events$/.test(req.url ?? "")) {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/event-stream");
+      res.write(`event: transcript\ndata: ${JSON.stringify({ text: "buy milk", final: false })}\n\n`);
+      res.write(`event: transcript\ndata: ${JSON.stringify({ text: "buy milk tomorrow", final: true })}\n\n`);
+      res.end(`data: ${JSON.stringify({ done: true })}\n\n`);
+    });
+    sseUrl = await listen(sse);
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => sse.close(() => r()));
+  });
+
+  it("relays the provider's stream as-is and carries the token only on the upstream hop", async () => {
+    writeStatus("capture-service", sseUrl);
+    const srv = await serveRouter({ fittingId: () => "capture-service", token: () => "cap-token" });
+    try {
+      const res = await fetch(`${srv.url}/api/voice/sessions/pend_abcDEF123/events`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("text/event-stream");
+      const text = await res.text();
+      expect(text).toContain('"text":"buy milk"');
+      expect(text).toContain('"text":"buy milk tomorrow","final":true');
+      expect(text).toContain('{"done":true}');
+      const call = seen[seen.length - 1];
+      expect(call.path).toBe("/sessions/pend_abcDEF123/events");
+      expect(call.accept).toBe("text/event-stream");
+      expect(call.authorization).toBe("Bearer cap-token");
+    } finally { await srv.close(); }
+  });
+
+  it("still relays without a token (the provider trusts loopback and the tailnet for this route)", async () => {
+    writeStatus("capture-service", sseUrl);
+    const srv = await serveRouter({ fittingId: () => "capture-service", token: () => null });
+    try {
+      const res = await fetch(`${srv.url}/api/voice/sessions/pend_abcDEF123/events`);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('{"done":true}');
+      expect(seen[seen.length - 1].authorization).toBeUndefined();
+    } finally { await srv.close(); }
+  });
+
+  it("refuses a session id outside the provider's alphabet before any upstream hop", async () => {
+    writeStatus("capture-service", sseUrl);
+    const srv = await serveRouter({ fittingId: () => "capture-service", token: () => "cap-token" });
+    try {
+      const before = seen.length;
+      for (const bad of ["short", "a".repeat(41), encodeURIComponent("../health"), "x%20y%20z%20w%20v"]) {
+        const res = await fetch(`${srv.url}/api/voice/sessions/${bad}/events`);
+        expect(res.status, bad).toBe(400);
+        expect((await res.json()).error).toBe("bad session id");
+      }
+      expect(seen.length).toBe(before);
+    } finally { await srv.close(); }
+  });
+
+  it("answers 503 with the named reason when there is no provider or it is not running", async () => {
+    const none = await serveRouter(undefined);
+    try {
+      const res = await fetch(`${none.url}/api/voice/sessions/pend_abcDEF123/events`);
+      expect(res.status).toBe(503);
+      expect((await res.json()).error).toBe(router.VOICE_NO_PROVIDER);
+    } finally { await none.close(); }
+    const down = await serveRouter({ fittingId: () => "voice-not-up", token: () => "cap-token" });
+    try {
+      const res = await fetch(`${down.url}/api/voice/sessions/pend_abcDEF123/events`);
+      expect(res.status).toBe(503);
+      expect((await res.json()).error).toBe(router.VOICE_NOT_RUNNING);
+    } finally { await down.close(); }
+  });
+
+  it("turns an upstream 404 into an SSE error event, not a hung stream", async () => {
+    const gone = http.createServer((_req, res) => { res.statusCode = 404; res.end("no such session"); });
+    const goneUrl = await listen(gone);
+    writeStatus("gone-voice", goneUrl);
+    const srv = await serveRouter({ fittingId: () => "gone-voice", token: () => "cap-token" });
+    try {
+      const res = await fetch(`${srv.url}/api/voice/sessions/pend_abcDEF123/events`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("text/event-stream");
+      expect(await res.text()).toContain('event: error\ndata: {"error":"upstream 404"}');
+    } finally {
+      await srv.close();
+      await new Promise<void>((r) => gone.close(() => r()));
+    }
+  });
+});

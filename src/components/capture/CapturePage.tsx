@@ -11,6 +11,7 @@ import {
   type AppInfo,
   type CaptureKind,
   type CaptureStatus,
+  type ListenerHandle,
   type NodeInfo,
   type PendantStatus,
   type PushStatus
@@ -450,16 +451,89 @@ function PushSection() {
 }
 
 // ---------------------------------------------------------------------------
-// Pendant: the BLE companion. Status only until G7 lands the mock harness; the
-// plugin already exposes connect/disconnect/forget so the buttons are wired.
+// Pendant: the BLE companion, reached only through GarrisonPendant (D44). The
+// plugin owns nothing: it observes the app-lifetime PendantController and
+// pushes pendantState / pendantBattery; the page shows what it is told and
+// asks for connect / disconnect / forget. The audio never comes near this
+// page (I2): the phone streams it to capture-service, and the words come back
+// here through the shell's /api/voice/sessions/<id>/events relay.
+
+interface TranscriptLine {
+  text: string;
+  final: boolean;
+}
+
+const PENDANT_LIVE_STATES = new Set(["connected", "reconnecting"]);
+const PENDANT_ALARM_STATES = new Set(["pairingLost", "bluetoothOff"]);
+
+function pendantStateLabel(state: string | undefined): string {
+  switch (state) {
+    case undefined:
+      return "reading";
+    case "pairingLost":
+      return "pairing lost";
+    case "bluetoothOff":
+      return "bluetooth off";
+    default:
+      return state;
+  }
+}
+
+// The live words of one capture session, as capture-service streams them:
+// interims replace the open line, finals settle into the list, {done:true}
+// closes the stream. Session-keyed so a new session starts a clean panel.
+function useLiveTranscript(sessionId: string | undefined) {
+  const [lines, setLines] = useState<TranscriptLine[]>([]);
+  const [streamState, setStreamState] = useState<"idle" | "live" | "done" | "error">("idle");
+
+  useEffect(() => {
+    setLines([]);
+    if (!sessionId || typeof EventSource === "undefined") {
+      setStreamState("idle");
+      return;
+    }
+    setStreamState("live");
+    const source = new EventSource(`/api/voice/sessions/${encodeURIComponent(sessionId)}/events`);
+    source.onmessage = (event) => {
+      let payload: { text?: unknown; final?: unknown; done?: unknown };
+      try {
+        payload = JSON.parse(event.data) as typeof payload;
+      } catch {
+        return;
+      }
+      if (payload.done === true) {
+        setStreamState("done");
+        source.close();
+        return;
+      }
+      if (typeof payload.text !== "string" || !payload.text) return;
+      const line = { text: payload.text, final: payload.final === true };
+      // Finals accumulate; the one open interim is always the last line and
+      // is replaced by whatever comes next.
+      setLines((prev) => [...prev.filter((l) => l.final), line]);
+    };
+    source.addEventListener("error", () => {
+      // A relay-side error frame (provider down, session unknown) and a
+      // dropped connection both land here; the panel says so once and stops
+      // rather than reconnecting into the same wall.
+      setStreamState("error");
+      source.close();
+    });
+    return () => source.close();
+  }, [sessionId]);
+
+  return { lines, streamState };
+}
 
 function PendantSection() {
   const [status, setStatus] = useState<PendantStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { lines, streamState } = useLiveTranscript(status?.sessionId);
 
   useEffect(() => {
-    let handle: { remove: () => Promise<void> | void } | null = null;
+    let stateHandle: ListenerHandle | null = null;
+    let batteryHandle: ListenerHandle | null = null;
     let cancelled = false;
     nativePendant
       .status()
@@ -471,12 +545,20 @@ function PendantSection() {
       .onState((s) => setStatus(s))
       .then((h) => {
         if (cancelled) void h.remove();
-        else handle = h;
+        else stateHandle = h;
+      })
+      .catch(() => undefined);
+    nativePendant
+      .onBattery(({ battery }) => setStatus((prev) => (prev ? { ...prev, battery } : prev)))
+      .then((h) => {
+        if (cancelled) void h.remove();
+        else batteryHandle = h;
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
-      if (handle) void handle.remove();
+      if (stateHandle) void stateHandle.remove();
+      if (batteryHandle) void batteryHandle.remove();
     };
   }, []);
 
@@ -492,7 +574,11 @@ function PendantSection() {
     }
   };
 
-  const connected = status?.state === "connected" || status?.state === "streaming";
+  const state = status?.connectionState;
+  const live = state !== undefined && PENDANT_LIVE_STATES.has(state);
+  const alarm = state !== undefined && PENDANT_ALARM_STATES.has(state);
+  const inFlight = state === "scanning" || state === "connecting";
+  const showTranscript = Boolean(status?.sessionId);
 
   return (
     <section className={styles.section} data-testid="capture-pendant">
@@ -501,9 +587,17 @@ function PendantSection() {
         <div className={styles.row}>
           <dt>State</dt>
           <dd>
-            <span className={clsx(styles.pill, connected && styles.pillLive)}>{status?.state ?? "reading"}</span>
+            <span className={clsx(styles.pill, live && styles.pillLive, alarm && styles.pillAlarm)} data-testid="capture-pendant-state">
+              {pendantStateLabel(state)}
+            </span>
           </dd>
         </div>
+        {status ? (
+          <div className={styles.row}>
+            <dt>Pairing</dt>
+            <dd>{status.paired ? "remembered" : "none"}</dd>
+          </div>
+        ) : null}
         {typeof status?.battery === "number" ? (
           <div className={styles.row}>
             <dt>Battery</dt>
@@ -512,25 +606,60 @@ function PendantSection() {
         ) : null}
         {status?.uploaderState ? (
           <div className={styles.row}>
-            <dt>Uploader</dt>
+            <dt>Capture</dt>
             <dd>{status.uploaderState}</dd>
+          </div>
+        ) : null}
+        {status && status.lostFrames > 0 ? (
+          <div className={styles.row}>
+            <dt>Lost frames</dt>
+            <dd>{status.lostFrames}</dd>
+          </div>
+        ) : null}
+        {status?.capturePolicy ? (
+          <div className={styles.row}>
+            <dt>Policy</dt>
+            <dd>{status.capturePolicy}</dd>
           </div>
         ) : null}
       </dl>
       <div className={styles.actions}>
-        {connected ? (
+        {live || inFlight ? (
           <button type="button" className="btn small" disabled={busy} onClick={() => void run(nativePendant.disconnect)}>
             Disconnect
           </button>
         ) : (
-          <button type="button" className="btn small primary" disabled={busy} onClick={() => void run(nativePendant.connect)}>
-            Connect
+          <button type="button" className="btn small primary" disabled={busy || !status} onClick={() => void run(nativePendant.connect)}>
+            {status?.paired ? "Connect" : "Pair"}
           </button>
         )}
-        <button type="button" className="btn small ghost" disabled={busy} onClick={() => void run(nativePendant.forget)}>
-          Forget
-        </button>
+        {status?.paired ? (
+          <button type="button" className="btn small ghost" disabled={busy} onClick={() => void run(nativePendant.forget)}>
+            Forget
+          </button>
+        ) : null}
       </div>
+      {showTranscript ? (
+        <div className={styles.transcript} data-testid="capture-pendant-transcript" aria-live="polite">
+          <p className={styles.transcriptHead}>
+            <span>Hearing</span>
+            <span className={clsx(styles.pill, streamState === "live" && styles.pillLive, streamState === "error" && styles.pillAlarm)}>
+              {streamState}
+            </span>
+          </p>
+          {lines.length === 0 ? (
+            <p className={styles.transcriptEmpty}>{streamState === "live" ? "Listening for words" : "Nothing heard"}</p>
+          ) : (
+            <ol className={styles.transcriptLines}>
+              {lines.map((line, i) => (
+                <li key={`${i}-${line.final ? "f" : "i"}`} className={clsx(!line.final && styles.transcriptInterim)}>
+                  {line.text}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      ) : null}
       {status?.uploaderError ? <p className={styles.error}>{status.uploaderError}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
     </section>

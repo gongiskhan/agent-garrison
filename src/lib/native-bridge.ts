@@ -43,8 +43,16 @@ export interface PushStatus {
   detail: string;
 }
 
+// The GarrisonPendant payload, keyed exactly as GarrisonPendantPlugin.swift
+// builds it (statusPayload). connectionState carries the PendantConnectionState
+// case names: disconnected | scanning | connecting | connected | reconnecting |
+// pairingLost | bluetoothOff. uploaderState is the capture session's state on
+// the phone: idle | connecting | streaming | ended | failed.
 export interface PendantStatus {
-  state: string;
+  connectionState: string;
+  paired: boolean;
+  lostFrames: number;
+  ambientConsent: boolean;
   uploaderState?: string;
   uploaderError?: string;
   battery?: number;

@@ -932,6 +932,49 @@ written the Playwright worker's own pid into its fake `kanban-loop.json`, so
 the sweep killed the test runner mid-test and Playwright reported it as a
 browser closed early. The spec now triggers the sweep first and names no pid.
 
+### D44. The pendant reaches the page through the plugin, and its words come back through the shell (2026-09-02)
+
+Two seams, both chosen so the hardware can be swapped for the mock without
+touching the page or the plugin.
+
+The plugin side: `GarrisonPendantPlugin` already exposed the D7 surface but
+was hard-wired to `PendantController.shared`, so the only way to drive it was
+a paired device. It now reads its controller through a computed `pendant`
+property with one test-only static override (`controllerOverride`); production
+never sets it, the source check in `PendantFeedbackMappingTests` (the plugin
+observes the shared controller and never builds its own) still holds, and
+`PendantPluginMockTests` drives `status/connect/disconnect/forget` plus the
+`pendantState` / `pendantBattery` listeners exactly as the bridge does
+(`CAPPluginCall` in, resolved payload out) against a `PendantController` built
+on `MockPendantTransport`. Capacitor detail worth knowing: a bare `CAPPlugin`
+init has no listener tables; the bridge's `load(on:)` creates them, so the
+harness mirrors that (`eventListeners`, `retainedEventArguments`, ids, then
+`load()`) or `notifyListeners` silently drops every event. The plan's
+CoreBluetoothMock-through-the-plugin variant is not needed: the scripted
+peripheral is already proven against `PendantBLETransport` in
+`PendantMockPeripheralTests`, and the plugin only sees the controller.
+
+The page side: the plan named `/api/capture/sessions/<id>/events` behind a new
+`src/app/api/capture/[...path]/route.ts`. The voice surface already lives in
+the talk router (D9, D20, D22), so the live transcript is one more route there,
+`GET /api/voice/sessions/<id>/events`, relayed by the existing
+`pipeUpstreamSse` to capture-service's `/sessions/<id>/events`. The session id
+is validated against the provider's own alphabet before any upstream hop; no
+provider, not running, and an upstream error are the same named answers the
+other voice routes give (503 / 503 / an SSE `error` frame). The token rides
+only on the upstream hop when the host holds one (the provider's SSE route
+trusts loopback and the tailnet, so it is not required). Nothing new in
+`src/app/api`: the `/api` catch-all already mounts the router.
+
+What the page shows changed with it: `PendantStatus` in `native-bridge.ts`
+had a `state` key the plugin never emits (the old `PendantSection` was reading
+`undefined` and would have shown "reading" forever on a real phone). The type
+now matches `statusPayload` byte for byte (`connectionState`, `paired`,
+`lostFrames`, `ambientConsent`, ...), and the section shows state, pairing,
+battery, capture state, lost frames, policy, Pair/Connect/Disconnect/Forget by
+state, and a "Hearing" panel over the relay whenever a `sessionId` is present
+(interims replace the open line, finals settle, `{done:true}` closes it).
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
@@ -1547,19 +1590,32 @@ As shipped (2026-09-02, D43):
 
 ### G7 - pendant through the plugin, mock first
 
-- ios: `GarrisonPendantPlugin.swift` full surface (D7:
-  `status/connect/disconnect/forget`, events `pendantState`, `pendantBattery`),
-  `ios/Tests/PendantPluginMockTests.swift` (CoreBluetoothMock scripted
-  peripheral through the plugin), `GarrisonCapturePlugin` mode `pendant`.
-- shell: `src/components/capture/PendantPanel.tsx` (status, battery, connect,
-  forget; live transcript over `/api/capture/sessions/<id>/events` proxied by
-  `src/app/api/capture/[...path]/route.ts` with the token server-side, replacing
-  `PendantView.TranscriptStream`).
-- docs: `docs/adr-pendant-direct.md`, `docs/pendant-protocol.md` (plugin
-  section). Tests: `npm run e2e:pendant` unchanged and green.
-- evidence: `evidence/garrison-app/g7/` (mock run log from the mini, phone
-  screenshots with the real pendant if it is in reach; if not, the handoff says
-  so). TestFlight build.
+As shipped (2026-09-02, D44):
+
+- ios: `GarrisonApp/Plugins/GarrisonPendantPlugin.swift` (computed `pendant`
+  over `PendantController.shared` with the test-only `controllerOverride`
+  seam; surface unchanged from D7), `Tests/PendantPluginMockTests.swift` (six
+  cases: status vocabulary before connect, connect -> `pendantState` connected
+  + `pendantBattery` 87 + haptics advertised, disconnect keeps the pairing,
+  forget clears `AppGroup.pendantIdentifier`, a dropped packet is one
+  `lostFrames`, `ambientConsent` mirrors AppGroup). `GarrisonCapturePlugin`
+  untouched: the pendant session is the controller's, not the mic lane's.
+- shell: `packages/talk/src/router.mjs` (`GET /api/voice/sessions/<id>/events`
+  relay, `VOICE_SESSION_ID_RE`), `src/lib/native-bridge.ts` (`PendantStatus`
+  in the plugin's vocabulary), `src/components/capture/CapturePage.tsx`
+  (`PendantSection` rewrite + `useLiveTranscript`), `CapturePage.module.css`
+  (`.transcript*`). The plan's `PendantPanel.tsx` and
+  `src/app/api/capture/[...path]/route.ts` were not created (D44).
+- tests: `tests/talk-voice-router.test.ts` (+5 relay cases, 24 total),
+  `tests/e2e/capture-page.spec.ts` (+1: connected pendant shows state and
+  streams the session's words through a fulfilled relay route; the
+  GarrisonPendant stubs in the capture and embed specs speak the plugin
+  vocabulary), `npm run e2e:pendant` unchanged and green.
+- evidence: `evidence/garrison-app/g7/` (XCTest mock run log from the mini,
+  playwright, vitest, reload, live relay probe over the tailnet). The pendant
+  hardware was not in reach of this run: the phone criterion (pair, connect,
+  see the words) is the operator's, listed in the handoff. TestFlight build:
+  `evidence/garrison-app/g7/testflight.txt`.
 
 ### G8 - close
 
