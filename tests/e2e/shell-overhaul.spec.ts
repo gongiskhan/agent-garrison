@@ -15,10 +15,11 @@ async function openSidebarIfCollapsed(page: import("@playwright/test").Page) {
   const nav = page.locator("nav.tabs");
   const expand = page.getByRole("button", { name: "Expand sidebar" });
   if ((page.viewportSize()?.width ?? Infinity) < 720) {
-    // The server render is expanded; the narrow-viewport effect collapses it
-    // after hydration. Wait for that stable rail before exercising the tap.
-    await expect(expand).toBeVisible();
-    await expand.click();
+    // The server render is expanded; the narrow-viewport effect swaps in the
+    // app bar after hydration. Wait for that stable bar before the tap.
+    const openMenu = page.getByRole("button", { name: "Open menu" });
+    await expect(openMenu).toBeVisible();
+    await openMenu.click();
     await expect(page.getByRole("dialog", { name: "Garrison menu" })).toBeVisible();
   } else if (!(await nav.isVisible().catch(() => false))) {
     await expect(expand).toBeVisible();

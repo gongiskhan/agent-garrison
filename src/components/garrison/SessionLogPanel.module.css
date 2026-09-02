@@ -20,7 +20,7 @@
   padding: 4px 6px;
   max-width: 320px;
 }
-.domains { display: flex; gap: 4px; margin-left: auto; }
+.domains { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; min-width: 0; }
 .domainBtn {
   font: 10.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   border: 1px solid var(--line, #d9d2c2);

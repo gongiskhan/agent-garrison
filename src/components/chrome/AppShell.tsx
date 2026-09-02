@@ -12,7 +12,9 @@ import {
 import type { ReactNode } from "react";
 import clsx from "clsx";
 import { usePathname } from "next/navigation";
-import { Sidebar } from "./Sidebar";
+import { CAPTURE_ITEM, COMMAND_ITEMS, Sidebar } from "./Sidebar";
+import { AppBar, AppBarProvider } from "./AppBar";
+import { useNodeChrome } from "./NodeBadge";
 import { PushRouteListener } from "./PushRouteListener";
 import { FittingEditor } from "@/components/FittingEditor";
 import { TourEngine } from "@/components/tours/TourEngine";
@@ -586,26 +588,51 @@ export function AppShell({ children }: { children: ReactNode }) {
     ]
   );
 
+  const node = useNodeChrome();
+  const sessionState: "running" | "idle" | "error" | null = runnerState
+    ? runnerState.status === "running"
+      ? "running"
+      : runnerState.status === "failed"
+        ? "error"
+        : "idle"
+    : null;
+  const creator = isEmbeddedView ? null : (
+    <CompositionCreator
+      activeName={composition?.name ?? composition?.id ?? null}
+      disabled={switching || activeExternal || !composition}
+      onCreate={createAndSwitch}
+      inBar={narrowViewport}
+    />
+  );
+
   return (
     <Ctx.Provider value={value}>
+      <AppBarProvider>
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
       <PushRouteListener />
-      {/* At phone width an embedded Fitting view takes the whole screen: the
-          52px rail would squeeze the iframe to ~340px and the view's own
-          header would sit under the status bar. The embed page renders its own
-          back bar instead (the drawer still opens from it). */}
+      {/* Phone width (.shell-phone): no rail. The app bar at the top of the
+          content column carries the menu button and the shell controls, and
+          the sidebar is a drawer that slides in over the page. */}
       <div
         className={clsx(
           "app-shell",
-          (sidebarCollapsed || narrowViewport) && "shell-rail",
-          narrowViewport && isEmbeddedView && "shell-embed-full"
+          narrowViewport ? "shell-phone" : sidebarCollapsed && "shell-rail"
         )}
       >
         <Sidebar />
         <div className="shell-content">
           <span id="main-content" className="shell-main-anchor" tabIndex={-1} />
+          {narrowViewport ? (
+            <AppBar
+              fallbackTitle={routeTitle(pathname, library)}
+              subtitle={node?.name ?? null}
+              state={sessionState}
+              onMenu={toggleSidebar}
+              trailing={creator}
+            />
+          ) : null}
           {children}
         </div>
       </div>
@@ -627,13 +654,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           PROJECT selector). Embedded views are the Fitting's surface, not a
           Garrison page; composition creation stays one click away on every
           real route. */}
-      {isEmbeddedView ? null : (
-        <CompositionCreator
-          activeName={composition?.name ?? composition?.id ?? null}
-          disabled={switching || activeExternal || !composition}
-          onCreate={createAndSwitch}
-        />
-      )}
+      {narrowViewport ? null : creator}
       {editingFitting ? (
         <FittingEditor
           entry={editingFitting}
@@ -643,8 +664,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* WS6: the in-app tour engine — watches ?tour=<name>&mode= and overlays
           the demo/guided player on the current surface. */}
       <TourEngine />
+      </AppBarProvider>
     </Ctx.Provider>
   );
+}
+
+// The app bar's title when the page registers none: the Command item that owns
+// the route, or the Fitting a /fitting or /embed route shows.
+function routeTitle(pathname: string, library: LibraryEntry[]): string {
+  const fitting = /^\/(?:fitting|embed)\/([^/]+)/.exec(pathname);
+  if (fitting) {
+    const id = decodeURIComponent(fitting[1]);
+    return library.find((entry) => entry.id === id)?.name ?? id;
+  }
+  const item = [...COMMAND_ITEMS, CAPTURE_ITEM].find((entry) => entry.isActive(pathname));
+  return item?.label ?? "Garrison";
 }
 
 // Creation remains a shell-level action because it clones the active
@@ -676,11 +710,15 @@ const NEW_TARGETS: ReadonlyArray<{ label: string; href: string; hint: string }> 
 function CompositionCreator({
   activeName,
   disabled,
-  onCreate
+  onCreate,
+  inBar = false
 }: {
   activeName: string | null;
   disabled: boolean;
   onCreate: (name: string) => Promise<boolean>;
+  // Inside the phone app bar the control sits in the bar's flow instead of
+  // floating in the viewport corner.
+  inBar?: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -754,7 +792,7 @@ function CompositionCreator({
   }, [createOpen]);
 
   return (
-    <div className="composition-creator">
+    <div className={clsx("composition-creator", inBar && "composition-creator--bar")}>
       {/* menuRef must wrap BOTH the trigger and the menu. It was declared but
           never attached, so `menuRef.current?.contains(...)` was always
           undefined and the outside-click handler below treated EVERY mousedown

@@ -954,12 +954,28 @@ async function applyStickyProject(thread: Thread | null): Promise<TurnRouting | 
   }
 }
 
-function ThreadedApp({ url, captureBridge }: { url: UrlState; captureBridge: CaptureBridge | null }) {
+function ThreadedApp({
+  url,
+  captureBridge,
+  threadsToggle = 0
+}: {
+  url: UrlState;
+  captureBridge: CaptureBridge | null;
+  threadsToggle?: number;
+}) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // The host's own toggle (the shell's app bar on a phone): every change of the
+  // counter flips the narrow drawer. Zero is the untouched initial value.
+  const threadsToggleSeen = useRef(threadsToggle);
+  useEffect(() => {
+    if (threadsToggleSeen.current === threadsToggle) return;
+    threadsToggleSeen.current = threadsToggle;
+    setSidebarOpen((v) => !v);
+  }, [threadsToggle]);
   // The WIDE-layout session list, independent of the narrow drawer above.
   // Collapsed by default (the list is navigation, not the work) and sticky: a
   // preference you set once should survive the next visit, so it is read from
@@ -1780,6 +1796,9 @@ export interface TalkAppProps {
   /** The native capture bridge when the host is the Garrison app; puts the
    *  record button in every conversation's composer. Absent in a browser. */
   captureBridge?: CaptureBridge | null;
+  /** Host-driven toggle of the narrow threads drawer: each change flips it.
+   *  The shell's phone app bar uses this so the page needs no second menu button. */
+  threadsToggle?: number;
 }
 
 
@@ -2061,7 +2080,7 @@ export function TalkApp(props: TalkAppProps = {}) {
     };
   }, []);
 
-  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} /><PushEnroller /></>);
+  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} threadsToggle={props.threadsToggle} /><PushEnroller /></>);
   // Explicit ?console=1: the rich session console (live PTY surface).
   return (
     <>

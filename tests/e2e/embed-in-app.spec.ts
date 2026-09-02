@@ -7,8 +7,8 @@ import { GARRISON_SANDBOX } from "./sandbox";
 
 // G6: own-port Fitting views inside the app. A phone BROWSER opens them in a
 // new tab (the iframe beside the rail is cramped); the app has no tabs, so there
-// every own-port row embeds at /embed/<id>, which at phone width drops the rail
-// and carries a back bar (safe-area inset, Back, Menu). The fake own-port view
+// every own-port row embeds at /embed/<id>, which at phone width has no rail:
+// the shell's app bar carries Back, the Fitting's name and Menu. The fake own-port view
 // below stands in for a running fitting: the shell only knows a view through
 // its ~/.garrison/ui-fittings/<id>.json status file and a /health probe.
 
@@ -82,9 +82,9 @@ test.afterAll(async () => {
   await new Promise<void>((done) => server.close(() => done()));
 });
 
-// Phone width starts on the collapsed rail with the Fittings group folded.
+// Phone width starts with the menu drawer closed and the Fittings group folded.
 async function openFittingsGroup(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: "Expand sidebar" }).click();
+  await page.getByRole("button", { name: "Open menu" }).click();
   const group = page.getByRole("button", { name: /^Fittings/ });
   if ((await group.getAttribute("aria-expanded")) !== "true") await group.click();
 }
@@ -102,7 +102,7 @@ test("phone browser: a live own-port row opens in a new tab", async ({ page }) =
   await expect(row).toHaveAttribute("target", "_blank");
 });
 
-test("app at phone width: the row embeds and the view carries a back bar", async ({ page }) => {
+test("app at phone width: the row embeds and the app bar carries Back", async ({ page }) => {
   test.skip(!phoneWidth(page), "phone-width behaviour");
   await installNativeStub(page);
   await page.goto("/");
@@ -113,11 +113,11 @@ test("app at phone width: the row embeds and the view carries a back bar", async
   // The row's right edge carries the mobile pin toggle; tap the label.
   await row.locator("> span").first().click();
   await expect(page).toHaveURL(new RegExp(`/embed/${FITTING}$`));
-  const bar = page.getByTestId("embed-bar");
+  const bar = page.getByTestId("app-bar");
   await expect(bar).toBeVisible();
   await expect(bar).toContainText("Kanban");
-  // The rail is gone: the iframe has the whole width.
-  await expect(page.locator(".side-rail")).toBeHidden();
+  // No rail at phone width: the iframe has the whole width.
+  await expect(page.locator(".side-rail")).toHaveCount(0);
   const frame = page.frameLocator(`iframe[title="${FITTING}"]`);
   await expect(frame.locator("#fake-view")).toBeVisible();
   const width = await page.locator(`iframe[title="${FITTING}"]`).evaluate((el) => el.getBoundingClientRect().width);
@@ -130,12 +130,12 @@ test("app at phone width: the row embeds and the view carries a back bar", async
   await expect(page).toHaveURL(/\/$/);
 });
 
-test("desktop: the embedded view keeps the sidebar and shows no bar", async ({ page }) => {
+test("desktop: the embedded view keeps the sidebar and shows no app bar", async ({ page }) => {
   test.skip(phoneWidth(page), "desktop behaviour");
   await installNativeStub(page);
   await page.goto(`/embed/${FITTING}`);
   const frame = page.frameLocator(`iframe[title="${FITTING}"]`);
   await expect(frame.locator("#fake-view")).toBeVisible();
-  await expect(page.getByTestId("embed-bar")).toHaveCount(0);
+  await expect(page.getByTestId("app-bar")).toHaveCount(0);
   await expect(page.locator(".side")).toBeVisible();
 });

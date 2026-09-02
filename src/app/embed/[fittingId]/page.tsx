@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Menu } from "lucide-react";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 import { useAppShell } from "@/components/chrome/AppShell";
+import { useAppBar } from "@/components/chrome/AppBar";
 
 // Shell routes an embedded Fitting may ask the shell to open through the
 // "garrison:navigate-route" message. An allow-list, not a pattern: the message
@@ -27,7 +27,7 @@ export default function EmbedPage() {
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { narrowViewport, toggleSidebar, library } = useAppShell();
+  const { library } = useAppShell();
   // Derive fittingId from pathname as the source of truth — useParams has been
   // observed returning stale values when navigating between sibling dynamic
   // routes in Next 14, which causes the iframe to keep showing the previous
@@ -40,6 +40,11 @@ export default function EmbedPage() {
   const [reloadNonce, setReloadNonce] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const label = library.find((e) => e.id === fittingId)?.name ?? fittingId;
+  // Phone width: the shell's app bar shows the Fitting's name with a Back
+  // control in place of the menu (the menu moves to the trailing end), so the
+  // view itself renders nothing but the frame. Desktop keeps the sidebar.
+  useAppBar({ title: label, back: true });
 
   async function publishNow() {
     setPublishing(true);
@@ -183,37 +188,8 @@ export default function EmbedPage() {
   }
 
   const iframeSrc = qs ? `${base}${base.includes("?") ? "&" : "?"}${qs}` : base;
-  const label = library.find((e) => e.id === fittingId)?.name ?? fittingId;
   return (
     <div className="embed-view">
-      {/* Phone width: the shell hides its rail under an embedded view (see
-          AppShell), so this bar is the only way back and the only thing
-          keeping the Fitting's own header out from under the status bar
-          (it carries the safe-area inset). Desktop keeps the sidebar and no bar. */}
-      {narrowViewport ? (
-        <div className="embed-bar" data-testid="embed-bar">
-          <button
-            type="button"
-            className="embed-bar-btn"
-            aria-label="Back"
-            onClick={() => {
-              if (window.history.length > 1) router.back();
-              else router.push("/");
-            }}
-          >
-            <ChevronLeft size={20} aria-hidden />
-          </button>
-          <span className="embed-bar-title">{label}</span>
-          <button
-            type="button"
-            className="embed-bar-btn"
-            aria-label="Open menu"
-            onClick={toggleSidebar}
-          >
-            <Menu size={18} aria-hidden />
-          </button>
-        </div>
-      ) : null}
       <iframe
         key={fittingId}
         src={iframeSrc}

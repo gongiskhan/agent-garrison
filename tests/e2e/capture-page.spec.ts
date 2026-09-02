@@ -50,8 +50,9 @@ test("capture page: with the native bridge the controls render and the menu list
   await expect(page.getByTestId("capture-fallback")).toHaveCount(0);
   await expect(page.getByTestId("capture-phase")).toHaveText("idle");
   await expect(page.getByRole("button", { name: "Record microphone" })).toBeVisible();
-  // Narrow viewports start on the collapsed rail, which carries no rows.
-  const expand = page.getByRole("button", { name: "Expand sidebar" });
+  // Narrow viewports start with the menu drawer closed (the app bar opens it);
+  // a collapsed desktop rail carries no rows either.
+  const expand = page.getByRole("button", { name: /^(Open menu|Expand sidebar)$/ });
   if (await expand.count()) await expand.click();
   await expect(page.locator('a[href="/capture"]')).not.toHaveCount(0);
 });

@@ -29,3 +29,83 @@
   .talk-page .wc-backbar,
   .talk-page .cc-conv-head { padding-right: 96px; }
 }
+
+/* PHONE SHELL. The shell's app bar (globals.css .app-bar) is the one header on
+   a phone: it holds the menu, the page name, New and the Threads button, so the
+   talk skin's own top chrome collapses to the conversation row alone. Every
+   rule here is scoped to .shell-phone (set by AppShell under 720px) so the
+   desktop and tablet layouts, and the standalone talk host, are untouched. */
+.shell-phone .talk-page {
+  height: calc(100vh - var(--app-bar-h));
+  height: calc(100dvh - var(--app-bar-h));
+}
+/* The skin sizes its shell and main column to the viewport; under the app bar
+   they take the host's box instead, or the composer lands below the screen. */
+.shell-phone .talk-page .wc-shell,
+.shell-phone .talk-page .wc-main { height: 100%; }
+/* The bar carries New now; nothing floats over the skin's chrome. */
+.shell-phone .talk-page .wc-backbar,
+.shell-phone .talk-page .cc-conv-head { padding-right: 12px; }
+/* The Threads button in the app bar replaces the floating toggle. */
+.shell-phone .talk-page .wc-sidebar-toggle { display: none; }
+.shell-phone .talk-page .cc-conv-head,
+.shell-phone .talk-page .wc-main .cc-conversation .cc-header,
+.shell-phone .talk-page .wc-wb-head { padding-left: 12px; }
+/* The chat's status row (connection dot, model, ctx, theme, Raw) is desk
+   furniture; on a phone the composer's stop and the thread's messages are the
+   status. Inside a conversation it goes; the console at ?console=1 keeps it. */
+.shell-phone .talk-page .cc-conversation .cc-header { display: none; }
+/* One compact row: the name, then the search. The id chip and the cost chip
+   yield entirely (the id copies from the sidebar's row, the cost from the
+   desktop); the search opens wide on focus and the name steps aside. */
+.shell-phone .talk-page .cc-conv-head {
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-height: 48px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.shell-phone .talk-page .wc-backbar ~ .cc-conversation .cc-conv-head { padding-top: 6px; }
+.shell-phone .talk-page .cc-conv-title { flex: 1 1 auto; font-size: 15px; }
+.shell-phone .talk-page .wc-conv-id,
+.shell-phone .talk-page .cc-conv-cost { display: none; }
+.shell-phone .talk-page .cc-conv-search {
+  flex: 0 1 44%;
+  order: 0;
+  margin-left: auto;
+  transition: flex-basis .18s ease;
+}
+.shell-phone .talk-page .cc-conv-search:focus-within { flex: 1 1 100%; }
+.shell-phone .talk-page .cc-conv-head:has(.cc-conv-search:focus-within) .cc-conv-title { display: none; }
+.shell-phone .talk-page .cc-conv-searchinput { min-height: 36px; }
+/* The threads drawer and its scrim start under the app bar, not under the
+   status bar: the bar already owns that inset. */
+.shell-phone .talk-page .wc-sidebar {
+  top: var(--app-bar-h);
+  height: auto;
+  padding-top: 0;
+  z-index: 44;
+}
+.shell-phone .talk-page .wc-sidebar-scrim { top: var(--app-bar-h); z-index: 43; }
+/* The brief bar's inset moves to the app bar too, and the bar tightens. */
+.shell-phone .talk-page .wc-backbar { padding: 6px 12px; gap: 8px; }
+.shell-phone .talk-page .wc-back,
+.shell-phone .talk-page .wc-briefbtn { min-height: 34px; padding: 3px 10px; font-size: 12px; }
+/* With only the Brief button in it the bar is a whole row for one control; it
+   overlays the conversation row's trailing end instead and the row clears it. */
+.shell-phone .talk-page .wc-backbar:not(:has(.wc-back)) {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 5;
+  padding: 7px 12px 0 0;
+  border: 0;
+  background: transparent;
+}
+.shell-phone .talk-page .wc-backbar:not(:has(.wc-back)) ~ .cc-conversation .cc-conv-head { padding-right: 90px; }
+/* The brief editor and the transcript slide over that floating button. */
+.shell-phone .talk-page .wc-brief,
+.shell-phone .talk-page .wc-xscript { z-index: 6; }
+/* The conversation column is the page; no rounded card edges on a phone. */
+.shell-phone .talk-page .wc-shell,
+.shell-phone .talk-page .wc-main { border-radius: 0; }

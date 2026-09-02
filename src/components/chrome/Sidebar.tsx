@@ -32,6 +32,7 @@ import {
   Plug,
   Pin,
   PinOff,
+  X,
   type LucideIcon
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
@@ -113,19 +114,24 @@ export function Sidebar() {
     };
   }, [overlay, toggleSidebar]);
 
-  if (sidebarCollapsed) {
+  if (sidebarCollapsed && !narrowViewport) {
     return (
       <CollapsedRail onExpand={toggleSidebar} switching={switching} switchError={switchError} />
     );
   }
 
+  // Phone width: the drawer stays mounted so it can slide in and out (the
+  // transition needs the element on both sides of the toggle); closed, it is
+  // translated off-screen and visibility-hidden, so nothing in it can take focus.
+  const phone = narrowViewport;
   const expanded = (
     <aside
       ref={drawerRef}
-      className={clsx("side", overlay && "side-overlay")}
-      role={overlay ? "dialog" : undefined}
+      className={clsx("side", phone && "side-overlay", phone && overlay && "is-open")}
+      role={phone ? "dialog" : undefined}
       aria-modal={overlay ? true : undefined}
-      aria-label={overlay ? "Garrison menu" : "Primary navigation"}
+      aria-hidden={phone && !overlay ? true : undefined}
+      aria-label={phone ? "Garrison menu" : "Primary navigation"}
       onClick={
         overlay
           ? (event) => {
@@ -171,11 +177,11 @@ export function Sidebar() {
         <button
           type="button"
           onClick={toggleSidebar}
-          title="Collapse sidebar"
+          title={phone ? "Close menu" : "Collapse sidebar"}
           className="side-collapse"
           aria-label="Collapse sidebar"
         >
-          <ChevronLeft size={14} aria-hidden />
+          {phone ? <X size={18} aria-hidden /> : <ChevronLeft size={14} aria-hidden />}
         </button>
       </div>
 
@@ -227,15 +233,17 @@ export function Sidebar() {
     </aside>
   );
 
-  if (!overlay) return expanded;
-  // The 48px grid column sits empty behind the drawer - rendering the rail
-  // there would leave invisible controls in the tab order under the scrim.
+  if (!phone) return expanded;
+  // The scrim fades with the drawer; closed, it is visibility-hidden too, so it
+  // neither catches taps nor sits in the tab order.
   return (
     <>
       <button
         type="button"
-        className="side-scrim"
+        className={clsx("side-scrim", overlay && "is-open")}
         aria-label="Close menu"
+        aria-hidden={overlay ? undefined : true}
+        tabIndex={overlay ? undefined : -1}
         onClick={toggleSidebar}
       />
       {expanded}

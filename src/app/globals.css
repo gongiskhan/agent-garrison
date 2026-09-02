@@ -8,6 +8,9 @@
      trigger offset by the top inset. Hosted pages that fill the column
      (Conversations) read env(safe-area-inset-top) themselves. */
   --shell-safe-top: env(safe-area-inset-top, 0px);
+  /* The phone app bar (.app-bar) is 48px plus the top inset it absorbs; the
+     pages that fill the column (Conversations, an embedded view) subtract it. */
+  --app-bar-h: calc(48px + var(--shell-safe-top, 0px));
   color-scheme: light;
   --canvas: #efe8d9;
   --surface: #f7f2e8;
@@ -213,8 +216,8 @@ button:disabled {
   flex: 1 1 auto;
 }
 /* /embed/<id>: the Fitting's own UI in an iframe. Desktop: the full viewport
-   beside the sidebar. Phone width: the shell drops its rail (.shell-embed-full)
-   and the view carries a back bar that also absorbs the safe-area inset. */
+   beside the sidebar. Phone width: the app bar above it carries Back, the
+   Fitting's name and the menu, and the view takes the rest of the screen. */
 .embed-view {
   display: flex;
   flex-direction: column;
@@ -230,24 +233,36 @@ button:disabled {
   display: block;
   background: var(--paper);
 }
-.app-shell.shell-embed-full {
+.shell-phone .embed-view {
+  height: calc(100vh - var(--app-bar-h));
+  height: calc(100dvh - var(--app-bar-h));
+}
+
+/* PHONE SHELL (.shell-phone, < 720px): one column, no rail. The app bar is the
+   page header a phone expects - menu, name, node and session state, New, and
+   the page's own controls - and it is sticky, so it stays while a long page
+   scrolls under it. It absorbs the status-bar inset for everything below. */
+.app-shell.shell-phone {
   grid-template-columns: minmax(0, 1fr);
 }
-.app-shell.shell-embed-full > .side-rail {
-  display: none;
-}
-.embed-bar {
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 45;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   flex: 0 0 auto;
-  min-height: 44px;
-  padding: var(--shell-safe-top, 0px) 6px 0;
-  background: var(--ink, #1c1a15);
-  color: var(--paper, #f3eee2);
+  min-height: var(--app-bar-h);
+  padding: var(--shell-safe-top, 0px) 6px 0 4px;
+  background: var(--shell);
+  color: var(--shell-ink);
+  border-bottom: 1px solid var(--shell-rule);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .18);
 }
-.embed-bar-btn {
+.app-bar-btn {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   width: 44px;
@@ -255,19 +270,78 @@ button:disabled {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: inherit;
+  color: var(--shell-ink);
   cursor: pointer;
 }
-.embed-bar-btn:hover { background: rgba(255, 255, 255, 0.08); }
-.embed-bar-title {
+.app-bar-btn:hover,
+.app-bar-btn:active { background: rgba(255, 255, 255, 0.08); }
+.app-bar-title {
+  display: flex;
   flex: 1 1 auto;
   min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 4px;
+  line-height: 1.15;
+}
+.app-bar-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 15px;
+  font-family: var(--font-display), Georgia, serif;
   font-weight: 600;
-  text-align: center;
+  font-size: 17px;
+  letter-spacing: .005em;
+}
+.app-bar-sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+  font-family: var(--font-mono), 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--shell-mute);
+}
+.app-bar-state {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--shell-mute);
+}
+.app-bar-state.is-running { background: #78a284; box-shadow: 0 0 0 2px rgba(120, 162, 132, .25); }
+.app-bar-state.is-error { background: #c86659; }
+.app-bar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+.app-bar-actions .app-bar-btn { color: var(--shell-ink); }
+/* The shell's New control inside the bar: in the bar's flow, its menu still
+   anchored under the trigger. */
+.composition-creator.composition-creator--bar {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  max-width: none;
+}
+.composition-creator--bar .composition-creator-trigger-wrap {
+  padding: 0;
+  border-color: var(--shell-rule);
+  box-shadow: none;
+}
+.composition-creator--bar .composition-creator-trigger { min-height: 34px; }
+.shell-phone .crumbs {
+  /* The bar carries the inset now. */
+  padding-top: 14px;
 }
 .shell-main-anchor {
   position: absolute;
@@ -1376,6 +1450,26 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
   height: 100dvh;
   z-index: 60;
   box-shadow: 22px 0 60px rgba(12, 18, 14, .36);
+  /* Slides in from the left edge; parked off-screen and hidden when closed so
+     its controls leave the tab order. The visibility flip waits for the slide. */
+  transform: translateX(-104%);
+  visibility: hidden;
+  transition: transform .28s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .28s;
+}
+.side.side-overlay.is-open {
+  transform: none;
+  visibility: visible;
+  transition: transform .28s cubic-bezier(.2, .8, .2, 1);
+}
+.side-scrim {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .28s ease, visibility 0s linear .28s;
+}
+.side-scrim.is-open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity .28s ease;
 }
 
 /* ── Touch targets (iPad / iPhone over Tailscale) ───────────────────────────
