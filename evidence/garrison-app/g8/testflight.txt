@@ -4,4 +4,4 @@ workflow: gongiskhan/ios-thing garrison-ios.yml, lane=beta, garrison_ref=node/go
 native code at: 57129034 (G7; nothing under ios/ changed in G8, which is docs, roadmap, patch, handoff, evidence)
 run: https://github.com/gongiskhan/ios-thing/actions/runs/33645788251 (id 33645788251)
 started: 2026-09-02T15:00:52Z
-outcome: pending at commit time; the G7 build of the same native code (run 33638822766) completed success at 2026-09-02T14:00:07Z
+outcome: success at 2026-09-02T15:03:48Z (checked after the G8 commit); the G7 build of the same native code (run 33638822766) completed success at 2026-09-02T14:00:07Z

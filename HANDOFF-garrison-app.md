@@ -74,7 +74,10 @@ the simulator and where the code is.
   the shell is at the bare host (443 -> 8777). Nothing to fix for the app;
   clean up when convenient.
 - Mesh peers (dev-madrid, mini, Air) still run the pre-plan code until their
-  next `npm run node:redeploy` from a converged `main`.
+  next `npm run node:redeploy` from a converged `main`. Visible from the phone:
+  a peer's shell has no `viewport-fit=cover`, so inside the app it paints under
+  the status bar (the 2026-09-02 screenshot). Against this node the same build
+  clears the island; see `evidence/garrison-app/phone/README.md`.
 
 ## 3. Operator-triggered follow-ups
 
