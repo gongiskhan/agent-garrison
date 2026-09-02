@@ -177,6 +177,16 @@ by the `/api` catch-all). Every other Operative interaction goes through
 Channel Fittings; observability is the runtime log on the dashboard plus
 per-Fitting logs under `/fitting/<id>`.
 
+**The Garrison iOS app (2026-09-02).** `ios/` is one app: the Companion Swift
+project plus a Capacitor webview pointed at a node's shell over the tailnet, so
+the phone sees the same shell (Conversations, Kanban Loop, every fitting view, a
+node switcher) and the capture page only when the native bridge is present.
+Audio never crosses the webview: Swift streams it to `capture-service`, the one
+voice layer. Native plugins: `GarrisonCapturePlugin`, `GarrisonPendantPlugin`,
+`GarrisonPushPlugin`, `GarrisonNodePlugin`. TestFlight through `ios-thing`
+(`garrison-ios.yml`, `fastlane beta`); XCTest on the mini. Decisions and gates:
+`docs/decisions/2026-09-garrison-app.md`; open phone checks: `HANDOFF-garrison-app.md`.
+
 ### Faculties — 8 core roles (Quarters pivot + 2026-06-18 sessions split)
 
 Faculties are now **roles only** (`facultyIds` in `src/lib/types.ts`):

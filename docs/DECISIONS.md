@@ -868,3 +868,24 @@ Conversations go through the peer's app origin.
 
 **Source:** [`docs/decisions/2026-09-garrison-app.md`](./decisions/2026-09-garrison-app.md)
 (D2, D10, D16-D19). **Status:** Settled; the removal follow-up is operator-triggered.
+
+## 2026-09-02 · One Garrison app, one voice layer, the phone as the criterion
+
+The Companion became the Garrison iOS app: the existing `ios/` Swift project
+with a Capacitor webview pointed at a node's shell over the tailnet. The webview
+is a viewer, never in the data path: Swift owns the microphone, the broadcast
+picker, the pendant (`GarrisonPendant`), APNs and the node list, and the audio
+goes from the phone straight to `capture-service`, which is now the ONE voice
+layer for every surface (record button in Conversations, capture page, pendant;
+`deepgram-voice` retired). Secrets stay on the node: Deepgram, ElevenLabs and
+APNs keys live in the vault, the phone holds the capture token and the node URL.
+Consent stays native. Push carries deep links and no action buttons. Node
+switching is a web list plus a native reload. The simulator is for iteration;
+a native gate is done on a phone, and the phone checks the run could not make
+are the operator's, listed in `HANDOFF-garrison-app.md`. The legacy
+`web-channel-default` and `deepgram-voice` directories leave only through the
+operator-triggered patch `evidence/garrison-app/g8/remove-web-channel-default.patch`.
+
+**Source:** [`docs/decisions/2026-09-garrison-app.md`](./decisions/2026-09-garrison-app.md)
+(D1-D44, invariants I1-I12, gates G0-G8). **Status:** Shipped on this node;
+mesh peers pick it up at their next redeploy.

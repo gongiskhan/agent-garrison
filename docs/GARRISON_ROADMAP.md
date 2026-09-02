@@ -941,6 +941,19 @@ Skills evolution direction) feeds detailed planning.
 
 ## Decision log (live)
 
+- **2026-09-02** - One Garrison app. The Companion Swift project became the
+  Garrison iOS app: a Capacitor webview over a node's shell (one origin over the
+  tailnet for shell, Conversations and push), the capture page shown only with
+  the native bridge, node switching, APNs push with deep links, a record button
+  in every conversation whose digest posts back into the thread, screencast in
+  conversations, the pendant through the `GarrisonPendant` plugin with a mock
+  harness first. `capture-service` is the one voice layer (`deepgram-voice`
+  retired); the web channel is the shell route Conversations (`/talk`) and
+  `web-channel-default` is unstationed pending the operator-triggered removal
+  patch. Gates G0-G8 and decisions D1-D44 in
+  `docs/decisions/2026-09-garrison-app.md`; open items in
+  `HANDOFF-garrison-app.md`.
+
 - **2026-08-05** — Orchestrator became the single routing and identity surface.
   Pre-session routing uses deterministic bypasses and a bounded explicit
   `dispatch` target for ambiguous human requests; schema-v4 no longer starts

@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-08-31T20:34:44.665Z",
+  "updatedAt": "2026-09-02T14:05:00.000Z",
   "categories": [
     {
       "id": "c1",
@@ -521,7 +521,7 @@
       "items": [
         {
           "id": "c7.1",
-          "text": "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed.",
+          "text": "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed. Update 2026-09-02 (G7): the pendant reaches the app through the GarrisonPendant plugin with a mock harness on MockPendantTransport (ios/Tests/PendantPluginMockTests.swift) and the session words relayed to the capture page through /api/voice/sessions/<id>/events; the device criterion on a real phone is still the operator's (HANDOFF-garrison-app.md).",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -535,7 +535,7 @@
         },
         {
           "id": "c7.3",
-          "text": "Companion app v1 on TestFlight. Deliberate capture (meetings with the consent notice, dictation, car mode), live transcript, wake commands during a session, memories and tasks through the existing triage with its wait-for-context batching, iOS push, spoken answers while foregrounded. Found: partial - ios/ has the Companion app, BroadcastExtension, fastlane TestFlight upload, and spoken answers (CaptureProtocol.swift's speak message), but the wait-for-context triage batching path is not confirmed against this fitting.",
+          "text": "Companion app v1 on TestFlight. Deliberate capture (meetings with the consent notice, dictation, car mode), live transcript, wake commands during a session, memories and tasks through the existing triage with its wait-for-context batching, iOS push, spoken answers while foregrounded. Found: partial - ios/ has the Companion app, BroadcastExtension, fastlane TestFlight upload, and spoken answers (CaptureProtocol.swift's speak message), but the wait-for-context triage batching path is not confirmed against this fitting. Update 2026-09-02: the Companion is now the one Garrison iOS app (Capacitor webview over the shell, capture page only with the native bridge, node switcher, APNs push with deep links, TestFlight through ios-thing garrison-ios.yml); docs/decisions/2026-09-garrison-app.md.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -570,7 +570,7 @@
         },
         {
           "id": "c7.8",
-          "text": "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Omi push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row.",
+          "text": "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Omi push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row. Update 2026-09-02 (G4): native APNs push from the app with deep links into /talk and Kanban, no action buttons, web push kept as the fallback.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -584,36 +584,36 @@
       "items": [
         {
           "id": "c8.1",
-          "text": "Name it. Candidates for the promoted web channel: Signals (the corps that carries orders between command and the units), Adjutant (the officer who transmits the commander's orders), Comms. Lean: Signals; it sits well next to Muster, Quarters, Armory, Vault and Mesh.",
-          "done": false,
+          "text": "Name it. Candidates for the promoted web channel: Signals (the corps that carries orders between command and the units), Adjutant (the officer who transmits the commander's orders), Comms. Lean: Signals; it sits well next to Muster, Quarters, Armory, Vault and Mesh. Done 2026-09-02 (Garrison app plan, D11): the name is Conversations, the shell route is /talk.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": "n-signals"
         },
         {
           "id": "c8.2",
-          "text": "Write down what the fitting shape costs today and what \"core\" would mean. Costs: the APM contract dance on every UI change, own-port serving and PWA ownership inside a fitting, the extra hops between gateway and fitting for streaming, duplicated transports. Core: lives in src like Muster, served by the app, owns the PWA, push, the conversation component and the sessions rail, cannot be stationed or removed. This audit precedes any move.",
-          "done": false,
+          "text": "Write down what the fitting shape costs today and what \"core\" would mean. Costs: the APM contract dance on every UI change, own-port serving and PWA ownership inside a fitting, the extra hops between gateway and fitting for streaming, duplicated transports. Core: lives in src like Muster, served by the app, owns the PWA, push, the conversation component and the sessions rail, cannot be stationed or removed. This audit precedes any move. Done 2026-09-02: the audit is docs/decisions/2026-09-garrison-app.md sections 1 and 2 (D10, D11); the fitting shape cost the APM dance, own-port serving and duplicated transports, and the move removed all three.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         },
         {
           "id": "c8.3",
-          "text": "The exception is written into the docs. The honesty rule stands for every capability except Signals, because no work happens in Garrison without it; other channels (Slack, Omi, Companion, voice) remain fittings with channel parity generalised, not special-cased.",
-          "done": false,
+          "text": "The exception is written into the docs. The honesty rule stands for every capability except Signals, because no work happens in Garrison without it; other channels (Slack, Omi, Companion, voice) remain fittings with channel parity generalised, not special-cased. Done 2026-09-02: AGENTS.md \"The web channel exception\" and CLAUDE.md name Conversations as the one shell-hosted conversation surface; every other channel stays a fitting.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         },
         {
           "id": "c8.4",
-          "text": "Migrate after c1 is in daily use and c3's first widgets exist, in one long autonomous task, with the conversation component shared with the card modal untouched, and the Command Center embedding the conversation widget from core.",
-          "done": false,
+          "text": "Migrate after c1 is in daily use and c3's first widgets exist, in one long autonomous task, with the conversation component shared with the card modal untouched, and the Command Center embedding the conversation widget from core. Done 2026-09-02 with the preconditions overridden by the plan (D11): the migration ran as gate G1 of the Garrison app plan before c1 was in daily use and before the c3 widgets existed. packages/talk holds the engine and UI, mounted by the shell at /talk and /api/*; the legacy own-port host web-channel-default is unstationed and its deletion is the operator-triggered patch evidence/garrison-app/g8/remove-web-channel-default.patch.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         },
         {
           "id": "c8.5",
-          "text": "Until then, no new fitting-specific machinery in the web channel that a move would throw away. c1 work goes into duties, orchestrator, memory and tools, not into the fitting's plumbing.",
-          "done": false,
+          "text": "Until then, no new fitting-specific machinery in the web channel that a move would throw away. c1 work goes into duties, orchestrator, memory and tools, not into the fitting's plumbing. Closed 2026-09-02: moot once the move landed.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         }

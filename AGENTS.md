@@ -102,6 +102,25 @@ D16, I12). Servers reach Conversations through `GARRISON_APP_URL`; browsers
 through the relative `/talk` routes (docs/UI-FITTINGS.md "Conversations is a
 shell route").
 
+## The Garrison iOS app
+
+`ios/` is the one Garrison app (September 2026, `docs/decisions/2026-09-garrison-app.md`):
+the former Companion Swift project with a Capacitor webview pointed at a node
+over the tailnet (`server.url`, one origin for the shell, Conversations and
+push). The webview is a viewer: the phone's real work stays in Swift
+(`GarrisonCapturePlugin` for the microphone and broadcast lanes,
+`GarrisonPendantPlugin` for the pendant, `GarrisonPushPlugin` for APNs,
+`GarrisonNodePlugin` for the node list) and the audio never crosses the bridge;
+it goes from the phone straight to `capture-service`, the one voice layer
+(`deepgram-voice` is retired and goes out with the same operator-triggered
+patch as `web-channel-default`). The shell shows the capture page only when the
+native bridge is present. Secrets stay on the node: the phone holds the capture
+token and the node URL. Builds go to TestFlight through the `ios-thing`
+repository's `garrison-ios.yml` workflow (`fastlane beta`); XCTest runs on the
+mini (no Xcode on the MacBook Pro). The phone, not the simulator, is the
+criterion for every native gate; what still needs a real phone is listed in
+`HANDOFF-garrison-app.md`.
+
 ## Codex on macOS
 
 Every machine in the mesh runs its own full Garrison node, so a Mac is no

@@ -1,0 +1,11 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /Users/ggomes/dev/garrison
+...
+
+ Test Files  607 passed | 7 skipped (614)
+      Tests  7026 passed | 23 skipped (7049)
+   Start at  15:01:44
+   Duration  299.12s (transform 8.94s, setup 1.98s, collect 37.62s, tests 709.40s, environment 78ms, prepare 24.78s)
+
+EXIT 0
