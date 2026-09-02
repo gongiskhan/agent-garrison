@@ -1,20 +1,20 @@
 // Cross-node session control: the allow-list that IS the security model, the
-// serve-port arithmetic that makes a peer's address computable, and the wire
-// behaviour of a forwarded request.
+// peer addressing (the app at the tailnet root), and the wire behaviour of a
+// forwarded request.
 //
 // Two lanes:
 //
-//   - pure units for everything a decision depends on (allow-list, ports, body
-//     cap, self-detection), and
+//   - pure units for everything a decision depends on (allow-list, addressing,
+//     body cap, self-detection), and
 //   - a real stub peer over real HTTP for the things only a socket can prove:
 //     that the method/body/headers arrive, that an SSE stream relays chunk by
 //     chunk, that a 409 comes back VERBATIM, and that a client hanging up
 //     actually closes the upstream connection instead of leaking it.
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import http from "node:http";
 import path from "node:path";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { StateClient } from "@garrison/state-client";
 import { startStateService } from "./state-service-harness";
@@ -22,21 +22,15 @@ import {
   MAX_BODY_BYTES,
   PROXY_TIMEOUT_MS,
   SSE_CONNECT_TIMEOUT_MS,
-  WEB_CHANNEL_DEFAULT_PORT,
   allowListDescription,
   classifyPeerPath,
   forwardToPeer,
-  meshServePort,
   peerAppBase,
-  peerControlBase,
   peerThreadUrl,
-  resetPeerControlPortCache,
-  resolvePeerControlPort,
   validIdSegment
 } from "@/lib/mesh/peer-proxy";
 import { crossSiteVerdict, isTrustedHost, tokenMatches } from "@/lib/mesh/peer-auth";
 
-const ROOT = path.resolve(__dirname, "..");
 
 // ── The allow-list ──────────────────────────────────────────────────────────
 
@@ -127,9 +121,11 @@ describe("peer proxy allow-list", () => {
   });
 
   it("routes each permitted path to the surface that actually answers it", () => {
+    // Conversations live in the app since the talk engine moved into the shell,
+    // so every thread path is answered by the peer's app origin.
     const thread = classifyPeerPath("GET", ["threads", "t-1", "live"]);
     expect(thread.ok && thread.route).toMatchObject({
-      upstream: "control",
+      upstream: "app",
       path: "/api/threads/t-1/live",
       sse: true,
       threadId: "t-1"
@@ -156,71 +152,23 @@ describe("peer proxy allow-list", () => {
 // ── Peer addressing ─────────────────────────────────────────────────────────
 
 describe("peer addressing", () => {
-  it("computes the serve port with the published formula", () => {
-    expect(meshServePort(8083)).toBe(8483); // web channel
-    expect(meshServePort(8086)).toBe(8486);
-    expect(meshServePort(8777)).toBe(9177); // the app's own port
-  });
-
-  it("skips the ports the publisher reserves", () => {
-    // 8400 + 43 = 8443, which tailscale serve already owns, so the publisher
-    // walks past 8443/8444/8445. Computing 8443 here would name a port nothing
-    // is listening on.
-    expect(meshServePort(43)).toBe(8446);
-    expect(meshServePort(443 - 400)).toBe(8446);
-  });
-
-  it("agrees with the committed publisher script", () => {
-    const src = readFileSync(path.join(ROOT, "scripts", "tailnet-serve-views.mjs"), "utf8");
-    expect(src).toContain("8400 + (localPort % 1000)");
-    expect(src).toContain("p === 8443 || p === 8444 || p === 8445 || p === 443");
-  });
-
-  it("the web-channel fallback port matches the committed manifest", () => {
-    const manifest = readFileSync(
-      path.join(ROOT, "fittings", "seed", "web-channel-default", "apm.yml"),
-      "utf8"
-    );
-    const match = /default_port:\s*(\d+)/.exec(manifest);
-    expect(match).not.toBeNull();
-    expect(Number(match![1])).toBe(WEB_CHANNEL_DEFAULT_PORT);
-  });
-
-  it("rehosts a loopback control url onto the peer's tailnet address", () => {
-    expect(peerControlBase("mac-pro.tail31efa.ts.net", 8083)).toBe("https://mac-pro.tail31efa.ts.net:8483");
-    // Trailing dot: `tailscale status --json` reports DNSName with one.
-    expect(peerControlBase("mac-pro.tail31efa.ts.net.", 8083)).toBe("https://mac-pro.tail31efa.ts.net:8483");
+  it("addresses the peer's app at its tailnet root", () => {
     expect(peerAppBase("mac-pro.tail31efa.ts.net")).toBe("https://mac-pro.tail31efa.ts.net");
+    // Trailing dot: `tailscale status --json` reports DNSName with one.
+    expect(peerAppBase("mac-pro.tail31efa.ts.net.")).toBe("https://mac-pro.tail31efa.ts.net");
   });
 
   it("is null - never a guess - when a node has no tailnet host", () => {
-    expect(peerControlBase(null)).toBeNull();
-    expect(peerControlBase("")).toBeNull();
+    expect(peerAppBase(null)).toBeNull();
+    expect(peerAppBase("")).toBeNull();
     expect(peerAppBase(undefined)).toBeNull();
   });
 
-  it("prefers the session row's real control port over the committed default", () => {
-    const rows = [
-      { threadId: "t-other", body: { controlPort: 9099 }, controlUrl: "http://localhost:9099" },
-      { threadId: "t-1", body: { controlPort: 8083 }, controlUrl: "http://localhost:8083" }
-    ] as never;
-    expect(resolvePeerControlPort(rows, "t-1")).toBe(8083);
-    expect(resolvePeerControlPort(rows, "t-other")).toBe(9099);
-  });
-
-  it("falls back to the controlUrl port, then to the committed default", () => {
-    const urlOnly = [{ threadId: null, body: {}, controlUrl: "http://127.0.0.1:8090" }] as never;
-    expect(resolvePeerControlPort(urlOnly, null)).toBe(8090);
-    expect(resolvePeerControlPort([], null)).toBe(WEB_CHANNEL_DEFAULT_PORT);
-    const junk = [{ threadId: null, body: {}, controlUrl: "not a url" }] as never;
-    expect(resolvePeerControlPort(junk, null)).toBe(WEB_CHANNEL_DEFAULT_PORT);
-  });
-
-  it("deep-links a thread on the peer's own surface", () => {
-    expect(peerThreadUrl("https://mac-pro.tail31efa.ts.net:8483", "t 1")).toBe(
-      "https://mac-pro.tail31efa.ts.net:8483/?thread=t%201"
+  it("deep-links a thread on the peer's Conversations route", () => {
+    expect(peerThreadUrl("https://mac-pro.tail31efa.ts.net", "t 1")).toBe(
+      "https://mac-pro.tail31efa.ts.net/talk/t%201"
     );
-    expect(peerThreadUrl("https://x", null)).toBe("https://x");
+    expect(peerThreadUrl("https://x", null)).toBe("https://x/talk");
   });
 
   it("holds the documented caps", () => {
@@ -500,10 +448,6 @@ describe("the mesh proxy route", () => {
     resetNodeIdentityCache();
   });
 
-  afterEach(() => {
-    resetPeerControlPortCache();
-  });
-
   function req(url: string, init: RequestInit = {}) {
     return new Request(`http://127.0.0.1:8777${url}`, {
       headers: { host: "127.0.0.1:8777", ...(init.headers as Record<string, string>) },
@@ -582,14 +526,15 @@ describe("the mesh proxy route", () => {
     const body = await response.json();
     expect(body.node).toBe("beta");
     expect(body.tailnetHost).toBe("beta.tail31efa.ts.net");
-    expect(body.controlBase).toBe("https://beta.tail31efa.ts.net:8483");
+    expect(body.controlBase).toBe("https://beta.tail31efa.ts.net");
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0].id).toBe("run-7");
     expect(body.sessions[0].homeNode).toBe("beta");
     expect(body.sessions[0].cwd).toBe("/home/ggomes/dev/garrison");
-    // Rehosted, not the loopback URL the registry honestly stores.
+    // The registry keeps the loopback URL it was honestly given; the open link
+    // is the peer's app origin, where Conversations answer.
     expect(body.sessions[0].controlUrl).toBe("http://localhost:8083");
-    expect(body.sessions[0].openUrl).toBe("https://beta.tail31efa.ts.net:8483/?thread=t-1");
+    expect(body.sessions[0].openUrl).toBe("https://beta.tail31efa.ts.net/talk/t-1");
   });
 
   it("blocks a cross-site call before anything else", async () => {

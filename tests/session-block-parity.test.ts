@@ -15,7 +15,7 @@ import { SESSION_BLOCK_TYPES } from "../packages/claude-chat/src/journal";
 // and round-trips each new type through the sanitizer it must survive.
 
 const JOURNAL_PATH = path.resolve(__dirname, "../packages/claude-chat/src/journal.ts");
-const THREADS_PATH = path.resolve(__dirname, "../fittings/seed/web-channel-default/scripts/threads.mjs");
+const THREADS_PATH = path.resolve(__dirname, "../packages/talk/src/threads.mjs");
 
 type Loose = Record<string, any>;
 let sanitizeSessionBlock: (raw: unknown) => Loose | null;

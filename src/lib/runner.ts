@@ -2559,6 +2559,10 @@ async function spawnGateway(
     GARRISON_PERMISSION_MODE:
       (gateway.config.permission_mode as string | undefined) ?? "bypassPermissions",
     GARRISON_MODEL: (gateway.config.model as string | undefined) ?? "opus",
+    // This instance's own app, the same value own-port fittings receive: the
+    // gateway records it as the control surface of every session it announces
+    // (the app hosts Conversations, so that is where a peer steers a thread).
+    GARRISON_APP_URL: garrisonSelfBaseUrl(),
     ...compactEnv(gateway.config),
     ...sessionLogProxyEnv(gateway.config),
     ...(extraEnv ?? {})

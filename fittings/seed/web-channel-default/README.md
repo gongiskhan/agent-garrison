@@ -1,8 +1,12 @@
 # web-channel-default
 
-Mobile-first browser chat surface (default port **27083**). Relays browser turns
-to the http-gateway and streams replies back. Provides the `channel:web`
-capability.
+Legacy own-port host of the Conversations engine. Since 2026-09-01 the engine
+lives in `packages/talk` (`@garrison/talk`) and the Garrison shell serves it at
+`/talk` with its API under `/api/*`; this fitting mounts the same router and UI
+on its own port (default **8083**) and shares the thread store, so it is
+unstationed by default and kept only until the operator triggers its removal
+(`docs/decisions/2026-09-garrison-app.md`, D2/D16). Relays browser turns to the
+http-gateway and streams replies back. Provides the `channel:web` capability.
 
 ## Voice (push-to-talk + read-aloud)
 

@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
 
+// Shell routes an embedded Fitting may ask the shell to open through the
+// "garrison:navigate-route" message. An allow-list, not a pattern: the message
+// comes from an iframe on another origin, so it names a destination the shell
+// chose to expose, never an arbitrary path.
+const EMBED_SHELL_ROUTES: ReadonlySet<string> = new Set(["/talk"]);
+
 interface ViewEntry {
   fittingId: string;
   port: number;
@@ -54,14 +60,26 @@ export default function EmbedPage() {
 
   // Cross-Fitting navigation: an embedded Fitting can ask Garrison to swap to
   // another Fitting (with optional query params forwarded to the destination
-  // iframe). Without this, a Fitting calling `window.location.href = otherUrl`
-  // would swap its iframe content but leave Garrison's outer URL stale — the
-  // sidebar would still highlight the old Fitting and clicking its link would
-  // be a no-op.
+  // iframe), or to open one of the shell's own routes. Without this, a Fitting
+  // calling `window.location.href = otherUrl` would swap its iframe content but
+  // leave Garrison's outer URL stale - the sidebar would still highlight the old
+  // Fitting and clicking its link would be a no-op. A shell route is worse: an
+  // own-port iframe's relative URL resolves against the Fitting's own origin
+  // (the automations server has no /talk), and an absolute one would nest the
+  // whole Garrison shell inside the pane. Only the shell can push its own route,
+  // and only the routes listed in EMBED_SHELL_ROUTES are reachable this way.
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       const data = event.data;
       if (!data || typeof data !== "object") return;
+      if (data.type === "garrison:navigate-route") {
+        if (typeof data.route !== "string" || !EMBED_SHELL_ROUTES.has(data.route)) return;
+        const qs = new URLSearchParams(
+          data.params && typeof data.params === "object" ? data.params : {}
+        ).toString();
+        router.push(`${data.route}${qs ? `?${qs}` : ""}`);
+        return;
+      }
       if (data.type !== "garrison:navigate-fitting") return;
       if (typeof data.fittingId !== "string" || !/^[a-z0-9][a-z0-9-]*$/i.test(data.fittingId)) return;
       const qs = new URLSearchParams(

@@ -83,6 +83,41 @@ A Fitting (or the Garrison Next.js app) that wants to surface a link to another 
 
 The Garrison Next.js layer ships one such consumer today: the sidebar **Fittings** group. Its hook (`src/components/fitting-views/useFittingViewStatus.ts`) polls `/api/fittings/views`, which aggregates the status files and probes `/health` server-side. A Fitting that shows up there as a live link is one that declares the `own_port` metadata flag in its `x-garrison` block (detected by `isOwnPortFitting` in `src/lib/faculties.ts` — the old `OWN_PORT_FACULTIES` set is gone with the Quarters pivot) and that has registered a status file. Other Fittings are free to add their own consumers using the same file/health contract.
 
+## Conversations is a shell route, not a Fitting view
+
+The conversation surface (threads, the streamed operative turn, voice, push) is
+served by the Garrison app itself at `/talk` (a thread deep link is
+`/talk/<threadId>`; `/talk?new=1` opens a fresh thread). The engine is the
+`@garrison/talk` package (`packages/talk`), mounted on the app by the optional
+catch-all `src/app/api/[[...path]]/route.ts`, so the talk API lives at
+`/api/threads`, `/api/chat`, `/api/notify`, `/api/push/*`, `/api/voice/*` and
+the rest on the app origin. This is the one deliberate exception to "Garrison
+ships no chat surface" (docs/GOVERNANCE.md, AGENTS.md "The web channel
+exception"); the legacy own-port host `web-channel-default` keeps the same code
+and is unstationed by default.
+
+What that means for a Fitting:
+
+- **Linking to a conversation.** Use the shell route. In a message body,
+  `garrison://talk/<threadId>` renders as `/talk/<threadId>`; a Discuss link is
+  `/talk?source=discuss&...` (`buildDiscussUrl` in kanban-loop and
+  `buildAutomationDiscussUrl` in automations default to that base). Never link
+  to `/embed/web-channel-default`.
+- **Opening it from an embedded Fitting.** An iframe cannot navigate the outer
+  shell, so post `{ type: "garrison:navigate-route", route: "/talk", params }`
+  to `window.top`; the shell (`src/app/embed/[fittingId]/page.tsx`) pushes the
+  route with `params` as the query string. `route` is allow-listed to `/talk`.
+  The sibling `garrison:navigate-fitting` still swaps to another Fitting.
+- **Posting into a thread from a server.** Resolve the host app-first: the
+  runner projects `GARRISON_APP_URL` (the app's loopback base) into every
+  own-port Fitting, setup hook and the gateway; post to
+  `${GARRISON_APP_URL}/api/threads`, `.../api/threads/<id>/messages` or
+  `.../api/notify`. Fall back to the legacy `ui-fittings/web-channel-default.json`
+  status file only when the variable is unset, and never post to both: the two
+  hosts share one thread store under `<GARRISON_HOME>/web-channel/threads/`.
+- **Never hand a browser a loopback URL for it.** `GARRISON_APP_URL` is
+  server-to-server; a client-facing link is the relative shell route.
+
 ## Runner lifecycle and the secrets-heal contract
 
 Fittings share the operative's lifecycle, always — implemented in `src/lib/own-port-lifecycle.ts` and `src/lib/runner.ts`:
@@ -134,6 +169,7 @@ It writes `dist/index.html`, `dist/<name>.bundle.js`, `dist/<name>.css`. No `nod
 
 - **Importing another Fitting's React components.** Don't. The whole point of the URL-link pattern is that UI Fittings can be written in different frameworks, restarted independently, and uninstalled cleanly.
 - **Storing the port in the consumer's source.** Don't hardcode `27077` anywhere; read the status file every time.
+- **Discovering the conversation surface through a status file.** Conversations is the app; resolve `GARRISON_APP_URL` first (see above). A `web-channel*` status file is the legacy host and must not be a second delivery target.
 - **Sharing state across Fittings.** Don't push events from one Fitting's UI into another's. If you find yourself needing a shared store, that's a sign one Fitting wants to consume a non-UI capability the other provides — declare it as a `provides`/`consumes` pair in `x-garrison`, not as a UI cross-call.
 - **Long-lived status files.** Clean up on `SIGTERM` and `SIGINT`. A stale file pointing at a dead URL is worse than no file.
 

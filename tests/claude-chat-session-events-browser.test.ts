@@ -11,7 +11,7 @@ let page: Page;
 let bundle = "";
 const css = [
   readFileSync(path.join(REPO, "packages/claude-chat/src/claude-chat.css"), "utf8"),
-  readFileSync(path.join(REPO, "fittings/seed/web-channel-default/ui/styles.css"), "utf8"),
+  readFileSync(path.join(REPO, "packages/talk/ui/styles.css"), "utf8"),
 ].join("\n");
 
 beforeAll(async () => {
@@ -143,9 +143,14 @@ beforeEach(async () => {
   await page.setContent(
     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
     `<style>${css.replace(/<\/style/gi, "<\\/style")}</style>` +
+    // Every real host mounts the talk UI under a `.talk-host` element (the
+    // fitting's `#root`, the shell's `/talk` page); the skin's tokens live
+    // there, so the document needs the same ancestor or nothing resolves.
+    `<div class="talk-host" style="height:100%">` +
     `<div class="wc-xscript" style="position:relative;height:700px">` +
     `<div class="wc-xscript-head"><button type="button" class="wc-xscript-close" aria-label="Close session transcript">×</button></div>` +
-    `<div class="wc-xscript-body"><div id="root"></div></div></div>`
+    `<div class="wc-xscript-body"><div id="root"></div></div></div>` +
+    `</div>`
   );
   await page.addScriptTag({ content: bundle });
   // Reset Chromium's focus-visible input modality between cases. Pointer clicks
@@ -197,6 +202,23 @@ describe("claude-chat canonical timeline in a real browser", () => {
     });
 
     await mount([{ ...first[0], revision: 2, blocks: [{ type: "text", text: "```js\nconst answer = 42;\n```" }] }], true);
+    // Live prose TYPES in (StreamingText reveals a few chars per frame), so the
+    // revision passes through intermediate renders on its way to the closed
+    // fence: "...42;" (auto-closed, already equal to the target), then a stray
+    // backtick, then the real fence. Sampling once, or waiting for the first
+    // equal frame, both catch a transient. The claim is about the settled
+    // text, so require it to hold across more frames than the reveal can
+    // spend on the eight-char backlog.
+    await page.waitForFunction(
+      () => {
+        const w = window as any;
+        const equal = document.querySelector("pre code")?.textContent === "const answer = 42;\n";
+        w.__settledFrames = equal ? (w.__settledFrames ?? 0) + 1 : 0;
+        return w.__settledFrames >= 6;
+      },
+      undefined,
+      { polling: "raf", timeout: 5000 }
+    );
     expect(await page.evaluate(() => (window as any).__stableNode === document.querySelector('[data-session-event-id="stable-text"]'))).toBe(true);
     expect(await page.locator("pre code").textContent()).toBe("const answer = 42;\n");
   });

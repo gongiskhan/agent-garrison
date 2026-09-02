@@ -1,8 +1,9 @@
-// Chat-to-build authoring. Reuses the Kanban Discuss -> web-channel handoff.
-// The thread pins the explicit Discuss duty and the kickoff carries everything
-// load-bearing. "Discuss an automation" opens a conversation that settles
-// the design and writes a brief to ~/.garrison/automations/briefs/<slug>.md; the
-// planner (Router-routed) then turns the brief into reviewable steps.
+// Chat-to-build authoring. Reuses the Kanban Discuss handoff, aimed at the
+// shell-hosted Conversations route (/talk). The thread pins the explicit Discuss
+// duty and the kickoff carries everything load-bearing. "Discuss an automation"
+// opens a conversation that settles the design and writes a brief to
+// ~/.garrison/automations/briefs/<slug>.md; the planner (Router-routed) then
+// turns the brief into reviewable steps.
 
 import os from "node:os";
 import path from "node:path";
@@ -84,10 +85,10 @@ export function buildAutomationKickoff({ name, slug } = {}) {
   ].join("\n");
 }
 
-// The query params the web channel reads (source + base64 context + kickoff). Used
-// for the postMessage("garrison:navigate-fitting") path so the embedded UI can
-// ask Garrison's top window to open /embed/<channel>?<params> — a relative or
-// own-port URL would resolve against the automations server, not Garrison.
+// The query params Conversations reads (source + base64 context + kickoff). Used
+// for the postMessage("garrison:navigate-route") path so the embedded UI can ask
+// Garrison's top window to push /talk?<params> - a relative or own-port URL would
+// resolve against the automations server, not Garrison.
 export function buildDiscussParams({ name, slug } = {}) {
   const s = slug || slugify(name);
   const briefsPath = `${automationBriefsDir()}${path.sep}`;
@@ -96,7 +97,7 @@ export function buildDiscussParams({ name, slug } = {}) {
     name: name ?? null,
     briefsPath,
     suggestedSlug: s,
-    // Absolute path (with ~) to this automation's brief, so the web channel's Brief
+    // Absolute path (with ~) to this automation's brief, so the Conversations Brief
     // editor can read/write it directly (confined to ~/**/briefs/*.md server-side).
     briefAbsPath: automationBriefPath(s)
   };
@@ -107,16 +108,18 @@ export function buildDiscussParams({ name, slug } = {}) {
     // Stable thread key per automation so reopening Discuss returns to the same
     // session + history; the channel decodes these like context/kickoff.
     thread: b64(`automation-${s}`),
-    // Prominent "Back to Automations" target (the Garrison embed route). The web
-    // channel shows a Back button that navigates the top window here.
+    // Prominent "Back to Automations" target (the Garrison embed route).
+    // Conversations shows a Back button that navigates the top window here.
     returnUrl: b64("/embed/automations"),
     returnLabel: b64("Automations"),
     ...(name ? { title: b64(String(name)) } : {})
   };
 }
 
-// Build the web-channel Discuss URL (same shape as kanban-loop/discuss.mjs).
-export function buildAutomationDiscussUrl({ name, slug, webChannelBase = "/embed/web-channel-default" } = {}) {
+// Build the Conversations Discuss URL (same shape as kanban-loop/discuss.mjs). The
+// default base is the shell route; a caller passes its own only when the thread
+// should open somewhere else (a legacy own-port channel embed, a test fixture).
+export function buildAutomationDiscussUrl({ name, slug, webChannelBase = "/talk" } = {}) {
   const s = slug || slugify(name);
   const briefsPath = `${automationBriefsDir()}${path.sep}`;
   const context = {
@@ -124,7 +127,7 @@ export function buildAutomationDiscussUrl({ name, slug, webChannelBase = "/embed
     name: name ?? null,
     briefsPath,
     suggestedSlug: s,
-    // Absolute path (with ~) to this automation's brief, so the web channel's Brief
+    // Absolute path (with ~) to this automation's brief, so the Conversations Brief
     // editor can read/write it directly (confined to ~/**/briefs/*.md server-side).
     briefAbsPath: automationBriefPath(s)
   };

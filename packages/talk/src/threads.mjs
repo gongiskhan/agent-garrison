@@ -35,8 +35,8 @@ import * as fsSync from "node:fs";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { LiveEventStreamRegistry } from "../lib/live-event-stream.mjs";
-import { noteThread, forgetThread } from "../lib/thread-registry.mjs";
+import { LiveEventStreamRegistry } from "./live-event-stream.mjs";
+import { noteThread, forgetThread } from "./thread-registry.mjs";
 
 function garrisonDir() {
   const override = process.env.GARRISON_HOME?.trim();

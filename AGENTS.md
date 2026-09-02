@@ -78,6 +78,24 @@ Every node works on its permanent `node/<id>` branch, dev-madrid included;
 no-new-branches hard rule stands: node branches are created ONCE by
 `scripts/install-node.sh`, never by an agent.
 
+## The web channel exception
+
+Garrison's rule is that it ships no chat surface: talking to the operative is
+Channel-Fitting work. Since 2026-09-01 there is one bounded exception. The
+conversation surface (the former `web-channel-default` UI and API) is served by
+the shell at `/talk` as "Conversations", from the `@garrison/talk` package
+mounted by the app's `/api` catch-all. The reason is the Garrison iOS app: a
+webview needs one origin for the shell, the conversation and web push, and a
+channel on its own port breaks that (a second origin, a second service worker,
+mixed-content over the tailnet). What did NOT move: the gateway still owns the
+turn, the thread store stays at `<GARRISON_HOME>/web-channel/threads/`, and
+Slack, WhatsApp, Omi and email stay Fittings. The legacy own-port host is kept
+in `fittings/seed/web-channel-default`, unstationed by default, until the
+operator triggers its removal (`docs/decisions/2026-09-garrison-app.md`, D2,
+D16, I12). Servers reach Conversations through `GARRISON_APP_URL`; browsers
+through the relative `/talk` routes (docs/UI-FITTINGS.md "Conversations is a
+shell route").
+
 ## Codex on macOS
 
 Every machine in the mesh runs its own full Garrison node, so a Mac is no

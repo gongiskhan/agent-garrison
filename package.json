@@ -44,6 +44,7 @@
     "@garrison/claude-chat": "file:packages/claude-chat",
     "@garrison/claude-pty": "file:packages/claude-pty",
     "@garrison/state-client": "file:packages/garrison-state-client",
+    "@garrison/talk": "file:packages/talk",
     "@monaco-editor/react": "^4.7.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",

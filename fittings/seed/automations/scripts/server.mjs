@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile, unlink, readFile, readdir } from "node:fs/promises";
+import { mkdir, writeFile, unlink, readFile } from "node:fs/promises";
 import { listAutomations, getAutomation, saveAutomation, deleteAutomation, listRuns, getRun, getMatrixRun, readStepEvidence, automationsDir } from "../lib/store.mjs";
 import { runAutomation, runAutomationMatrix } from "../lib/engine.mjs";
 import { planFromBrief } from "../lib/planner.mjs";
@@ -23,7 +23,10 @@ import { readFile as readFileAsync } from "node:fs/promises";
 // catalog still lets the planner use api_call/local_command/browser steps.
 async function discoverCatalog() {
   try {
-    const base = process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777";
+    // Runner-projected; unprojected (a bare `node scripts/server.mjs`) the
+    // catalog is empty rather than aimed at one instance's port.
+    const base = (process.env.GARRISON_APP_URL || process.env.GARRISON_BASE_URL || "").replace(/\/+$/, "");
+    if (!base) return [];
     const res = await fetch(`${base}/api/library`);
     if (!res.ok) return [];
     const data = await res.json();
@@ -99,30 +102,6 @@ const STATUS_ROOT = path.join(GARRISON_DIR, "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, `${FITTING_ID}.json`);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
-
-// Resolve the running web-channel fitting id (the channel id is NOT hardcoded —
-// `web-channel-default` is just the seed name). Scan the ui-fittings status dir
-// for the first fitting whose id starts with `web-channel`. Mirrors kanban-loop's
-// readWebChannelStatus so Discuss links the composition's actual channel.
-async function readWebChannelStatus(statusDir = STATUS_ROOT) {
-  try {
-    const names = await readdir(statusDir);
-    const preferred = "web-channel-default.json";
-    const sorted = names
-      .filter((n) => n.endsWith(".json") && n.startsWith("web-channel"))
-      .sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b)));
-    for (const name of sorted) {
-      try {
-        const parsed = JSON.parse(await readFile(path.join(statusDir, name), "utf8"));
-        const fittingId = typeof parsed?.fittingId === "string" ? parsed.fittingId : null;
-        if (fittingId && fittingId.startsWith("web-channel")) {
-          return { id: fittingId, url: typeof parsed?.url === "string" ? parsed.url : null };
-        }
-      } catch { /* skip one bad file */ }
-    }
-  } catch { /* no status dir */ }
-  return { id: null, url: null };
-}
 
 function send(res, code, body, headers = {}) {
   const data = typeof body === "string" ? body : JSON.stringify(body);
@@ -316,12 +295,10 @@ async function handle(req, res) {
         return send(res, 502, { error: err.message });
       }
     }
+    // Discuss opens Conversations, a shell route (/talk) that is always present on
+    // the app, so there is no channel to discover and nothing to refuse.
     if (pathname === "/api/automations/discuss-url" && req.method === "GET") {
       const name = url.searchParams.get("name") || undefined;
-      const channel = await readWebChannelStatus();
-      if (!channel.id) {
-        return send(res, 409, { error: "no web channel installed/running — add a web-channel fitting" });
-      }
       // A new automation has no name yet — mint a FRESH unique slug so this click
       // opens a brand-new Discuss conversation. Without it every click reuses the
       // one thread key `automation-automation` and lands back on the previous
@@ -330,8 +307,15 @@ async function handle(req, res) {
       const slug = name ? undefined : freshAutomationSlug();
       const params = buildDiscussParams({ name, slug });
       const qs = new URLSearchParams(params).toString();
-      const base = (process.env.GARRISON_BASE_URL || "http://127.0.0.1:7777").replace(/\/+$/, "");
-      return send(res, 200, { fittingId: channel.id, params, url: `${base}/embed/${channel.id}?${qs}` });
+      // `route` + `params` are what the embedded UI posts to the shell. The
+      // standalone page resolves its own target by page host: `path` against
+      // the tailnet root (every node publishes its app there), `url` - the
+      // runner-projected loopback address - only when the page itself is on
+      // loopback. A port literal here would name one instance and send
+      // another's clicks there.
+      const app = (process.env.GARRISON_APP_URL || process.env.GARRISON_BASE_URL || "").replace(/\/+$/, "");
+      const path = `/talk?${qs}`;
+      return send(res, 200, { route: "/talk", params, path, url: `${app}${path}` });
     }
     // Plan an automation from a Discuss brief, routed through the Model Router.
     if (pathname === "/api/automations/plan-from-brief" && req.method === "POST") {

@@ -41,7 +41,7 @@ process.setMaxListeners(0);
 // @ts-ignore — pure .mjs server, no d.ts (matches the repo's server.mjs test convention)
 const voiceServerMod: any = await import("../fittings/seed/deepgram-voice/scripts/server.mjs");
 // @ts-ignore — pure .mjs server
-const webChannelServerMod: any = await import("../fittings/seed/web-channel-default/scripts/server.mjs");
+const webChannelServerMod: any = await import("../packages/talk/src/server.mjs");
 const startVoiceServer = voiceServerMod.startServer;
 const startWebChannelServer = webChannelServerMod.startServer;
 

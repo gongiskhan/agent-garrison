@@ -192,7 +192,7 @@ describe("capture-service server", () => {
     expect(ackBody.receipts[1]).toMatchObject({
       means: "web-channel",
       ok: false,
-      skipped: "web channel not running"
+      skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting not running"
     });
     const notifyRes = await fetch(`${base}/notify`, {
       method: "POST",

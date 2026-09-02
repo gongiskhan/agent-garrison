@@ -958,10 +958,10 @@
   },
   {
     "id": "web-channel-default",
-    "name": "Web channel",
+    "name": "Web channel (legacy host)",
     "repo": "local:fittings/seed/web-channel-default",
     "localPath": "fittings/seed/web-channel-default",
-    "summary": "Mobile-first browser chat surface. Serves a React UI on its own port (default 27083) and proxies the http-gateway for streaming replies.",
+    "summary": "Legacy own-port host of Conversations. The shell serves the same engine at /talk; station this only to keep the old port-bound surface (default 8083) alive.",
     "platforms": [
       "claude-code"
     ],

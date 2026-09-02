@@ -101,7 +101,7 @@ test.beforeAll(async ({ request }) => {
 // ───────────────────────────────────────────────────────────────────────
 test("FINDING 9 — single runner-managed board, correct port (status file)", async ({ page }) => {
   await waitForBoard(page);
-  const runtime = await fetchJson<{ webChannelEmbedId: string | null; noGateway: boolean; gatewayBaseUrl: string | null }>(
+  const runtime = await fetchJson<{ conversationsRoute: string; noGateway: boolean; gatewayBaseUrl: string | null }>(
     page,
     "/embed/kanban-loop/board/runtime"
   ).catch(() => null);
@@ -114,7 +114,7 @@ test("FINDING 9 — single runner-managed board, correct port (status file)", as
     runtime ? "OK" : "TODO",
     [a],
     runtime
-      ? `runtime: noGateway=${runtime.noGateway} channel=${runtime.webChannelEmbedId} gateway=${runtime.gatewayBaseUrl}`
+      ? `runtime: noGateway=${runtime.noGateway} conversations=${runtime.conversationsRoute} gateway=${runtime.gatewayBaseUrl}`
       : "operative: open ~/.garrison/ui-fittings/kanban-loop.json and confirm port + pid match the embed url"
   );
 });

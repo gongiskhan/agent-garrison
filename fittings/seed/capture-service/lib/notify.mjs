@@ -6,8 +6,8 @@
 //
 // Delivery chain: companion-push (APNs to every registered device, per-day
 // cap, Retry-After-honouring backoff, dead-token pruning) degrading to the
-// web-channel PWA thread when the push means is off, unconfigured, capped or
-// persistently failing.
+// Conversations thread on the Garrison app when the push means is off,
+// unconfigured, capped or persistently failing.
 
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -70,7 +70,7 @@ export function priorityForTag(tag) {
 }
 
 // A process that never named a GARRISON_HOME must not inherit the real one
-// (2026-08-18): this resolves the live web-channel used as the push fallback.
+// (2026-08-18): this resolves the live fittings used as the push fallback.
 function underTestRunner(env) {
   return Boolean(env.VITEST || env.VITEST_WORKER_ID) || env.NODE_ENV === "test";
 }
@@ -84,6 +84,17 @@ function statusFileUrl(fittingId, env = process.env) {
   } catch {
     return null;
   }
+}
+
+// The Conversations host. The Garrison app serves the thread engine at /api/*
+// and the runner projects its loopback base as GARRISON_APP_URL; a node still
+// running the legacy web-channel fitting publishes that host's base through
+// its status file. Both hosts share one thread store, so exactly one is ever
+// posted to - the app whenever it is named.
+function conversationsBaseUrl(env = process.env) {
+  const app = env.GARRISON_APP_URL?.trim().replace(/\/+$/, "");
+  if (app) return app;
+  return statusFileUrl("web-channel-default", env);
 }
 
 // The phone is never on this box: a loopback URL in a notification is both
@@ -236,7 +247,7 @@ export class CompanionNotifier {
     });
   }
 
-  // The real chain: push, degrading to the web-channel thread. Receipts for
+  // The real chain: push, degrading to the Conversations thread. Receipts for
   // every means attempted, in delivery order.
   async deliver({ title, body, link, tag, priority = "routine" }) {
     const push = await this.sendPush({ title, body, link, tag, priority });
@@ -292,12 +303,15 @@ export class CompanionNotifier {
     return { means, ok: false, error: `push failed (${reasons.join(", ") || "no outcome"})` };
   }
 
-  // The degrade path: a message into the web-channel PWA thread (the
-  // mobile-reachable surface), same thread-append contract omi uses.
+  // The degrade path: a message into the Conversations thread on the app (the
+  // mobile-reachable surface), same thread-append contract omi uses. The
+  // /api/* paths are served by both hosts conversationsBaseUrl can name.
   async sendWebChannelFallback(message) {
     const means = "web-channel";
-    const base = statusFileUrl("web-channel-default", this.env);
-    if (!base) return { means, ok: false, skipped: "web channel not running" };
+    const base = conversationsBaseUrl(this.env);
+    if (!base) {
+      return { means, ok: false, skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting not running" };
+    }
     try {
       const ensured = await this.fetchImpl(`${base}/api/threads`, {
         method: "POST",

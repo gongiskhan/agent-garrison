@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const REPO = path.resolve(__dirname, "..");
-const MAIN = readFileSync(path.join(REPO, "fittings/seed/web-channel-default/ui/main.tsx"), "utf8");
+const MAIN = readFileSync(path.join(REPO, "packages/talk/ui/app.tsx"), "utf8");
 const CHAT = readFileSync(path.join(REPO, "packages/claude-chat/src/ClaudeChat.tsx"), "utf8");
 
 describe("Discuss kickoff is sent exactly once", () => {

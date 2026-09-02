@@ -639,8 +639,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 // Sidebar selector. The selector itself lives in Sidebar; keeping this component
 // creation-only avoids two controls with the same composition-switcher id.
 // The non-composition "New" targets. Each points at the surface that OWNS the
-// create affordance, verified to exist rather than guessed: the web channel has a
-// "+ New" conversation button, the Kanban board has a new-card sheet, and Muster
+// create affordance, verified to exist rather than guessed: Conversations honours
+// ?new=1 (a fresh thread on load), the Kanban board has a new-card sheet, and Muster
 // owns both duty creation and Fitting stationing/cloning. Deep-linking straight
 // into each create dialog would need a query contract per fitting; landing on the
 // right surface is honest and never dead-ends.
@@ -654,7 +654,7 @@ const NEW_TARGETS: ReadonlyArray<{ label: string; href: string; hint: string }> 
     href: "/muster?section=transfer",
     hint: "import a .garrison.json bundle"
   },
-  { label: "Conversation", href: "/fitting/web-channel-default", hint: "a new Web Channel conversation" },
+  { label: "Conversation", href: "/talk?new=1", hint: "a new conversation" },
   { label: "Card", href: "/fitting/kanban-loop", hint: "a new Kanban card" },
   { label: "Duty", href: "/muster", hint: "add a duty to the composition" },
   { label: "Fitting", href: "/compose", hint: "station or clone a Fitting" }

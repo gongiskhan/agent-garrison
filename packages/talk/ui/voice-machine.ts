@@ -6,19 +6,24 @@
 // behaviour (silence-sends, barge-in, re-arm) unit-testable in a Node vitest run
 // with zero mocking (tests/voice-machine.test.ts).
 //
-// Two capture modes share one AudioWorklet capture path (voice-capture.ts):
-//   • conversation — hands-free: press once → listen; SILENCE (Deepgram
-//     utterance_end) SENDS the utterance; the reply is ALWAYS read aloud (streaming
-//     TTS); speaking while the reply plays BARGES IN (stops TTS, re-listens); on
-//     TTS end it re-arms. Capture stays open for the whole session so barge-in is
-//     detectable.
-//   • ptt — push-to-talk: hold to talk, release to send, then idle.
+// Two capture modes share one clip capture path (voice-clip.ts):
+//   • conversation — hands-free: press once → listen; SILENCE (the capture's
+//     utterance end) SENDS the utterance; the reply is ALWAYS read aloud; speaking
+//     while the reply plays BARGES IN (stops TTS, re-listens); on TTS end it
+//     re-arms. Capture stays open for the whole session so barge-in is detectable.
+//   • ptt — push-to-talk: hold to talk, release to transcribe, the transcript
+//     sends, then idle. Release asks the capture to `finish` (transcribe the
+//     clip); the send happens on the UTTERANCE_END that transcription produces.
+//     A release with a transcript already in hand sends at once.
 //
 // State chart (conversation):
 //   idle --START_CONVERSATION--> listening --UTTERANCE_END(meaningful)--> sending
 //   sending --REPLY_READY(text)--> speaking --TTS_DONE--> listening   (re-arm)
 //   speaking --SPEECH_STARTED/INTERIM(barge-in)--> listening          (stop TTS)
 //   any --STOP/ERROR--> idle
+// State chart (ptt):
+//   idle --START_PTT--> listening(held) --RELEASE_PTT--> listening(transcribing)
+//   listening(transcribing) --UTTERANCE_END--> idle  (send when meaningful)
 
 export type VoiceState = "idle" | "listening" | "sending" | "speaking";
 export type VoiceMode = "conversation" | "ptt";
@@ -57,6 +62,8 @@ export type VoiceEvent =
 export type VoiceEffect =
   | { type: "open-capture" }
   | { type: "close-capture" }
+  /** Push-to-talk released: stop recording and transcribe what was held. */
+  | { type: "finish-capture" }
   | { type: "send"; text: string }
   | { type: "start-tts"; text: string }
   | { type: "stop-tts" };
@@ -110,15 +117,14 @@ export function voiceReduce(ctx: VoiceCtx, ev: VoiceEvent): Reduced {
     }
 
     case "RELEASE_PTT": {
-      if (ctx.mode !== "ptt") return { ctx, effects: [] };
+      if (ctx.mode !== "ptt" || !ctx.pttHeld) return { ctx, effects: [] };
       const text = transcriptOf(ctx);
-      const effects: VoiceEffect[] = [{ type: "close-capture" }];
-      let lastSent = ctx.lastSent;
       if (isMeaningfulTranscript(text)) {
-        effects.push({ type: "send", text });
-        lastSent = text;
+        // A transcript already arrived while the button was held: send now.
+        return { ctx: { ...initialCtx(), lastSent: text }, effects: [{ type: "close-capture" }, { type: "send", text }] };
       }
-      return { ctx: { ...initialCtx(), lastSent }, effects };
+      // Nothing transcribed yet: finish the clip and wait for its UTTERANCE_END.
+      return { ctx: { ...ctx, pttHeld: false }, effects: [{ type: "finish-capture" }] };
     }
 
     case "STREAM_READY":
@@ -161,6 +167,19 @@ export function voiceReduce(ctx: VoiceCtx, ev: VoiceEvent): Reduced {
     }
 
     case "UTTERANCE_END": {
+      if (ctx.mode === "ptt") {
+        // The released clip finished transcribing. While the button is still
+        // held the capture is not finished, so nothing ends here.
+        if (ctx.pttHeld || ctx.state !== "listening") return { ctx, effects: [] };
+        const text = (ev.transcript && ev.transcript.trim()) || transcriptOf(ctx);
+        const effects: VoiceEffect[] = [{ type: "close-capture" }];
+        let lastSent = ctx.lastSent;
+        if (isMeaningfulTranscript(text)) {
+          effects.push({ type: "send", text });
+          lastSent = text;
+        }
+        return { ctx: { ...initialCtx(), lastSent }, effects };
+      }
       // Silence endpoint. In conversation mode this is the auto-send trigger.
       if (ctx.mode !== "conversation") return { ctx, effects: [] };
       if (ctx.state !== "listening") return { ctx, effects: [] };

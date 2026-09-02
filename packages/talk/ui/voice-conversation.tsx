@@ -10,8 +10,7 @@ import {
   voiceReduce, initialCtx, transcriptOf,
   type VoiceCtx, type VoiceEvent, type VoiceEffect,
 } from "./voice-machine";
-import { startCapture, isCaptureSupported, captureUnsupportedReason, type CaptureHandle } from "./voice-capture";
-import { startTts, type TtsHandle } from "./voice-tts";
+import { startCapture, startTts, isCaptureSupported, captureUnsupportedReason, type CaptureHandle, type TtsHandle } from "./voice-clip";
 import { LatencyTracker, type BudgetVerdict } from "./voice-latency";
 
 export interface VoiceConversationProps {
@@ -24,9 +23,8 @@ export interface VoiceConversationProps {
   /** Latest SETTLED assistant reply; changes id once per completed turn. */
   lastReply: { id: string; text: string; clientRequestId?: string } | null;
   // ── test overrides ──
-  streamUrl?: string;
+  sttUrl?: string;
   ttsUrl?: string;
-  workletUrl?: string;
   /** Skip the /api/voice/health probe and assume available (tests). */
   assumeAvailable?: boolean;
 }
@@ -199,7 +197,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
         onDone: () => dispatchRef.current({ type: "TTS_DONE" }),
         onError: (e) => { if (mountedRef.current) setError(e); dispatchRef.current({ type: "TTS_DONE" }); },
       },
-      { streamUrl: props.ttsUrl, audioContext: playbackCtxRef.current ?? undefined },
+      { ttsUrl: props.ttsUrl, audioContext: playbackCtxRef.current ?? undefined },
     );
   }, [stopPlayback, ensurePlaybackCtx, props.ttsUrl]);
 
@@ -208,10 +206,16 @@ export function VoiceConversation(props: VoiceConversationProps) {
     setLevel(0);
   }, []);
 
+  const finishCapture = useCallback(() => {
+    captureRef.current?.finish();
+    setLevel(0);
+  }, []);
+
   const openCapture = useCallback(async () => {
     if (captureRef.current) return;
     if (!supported) { setError(captureUnsupportedReason()); dispatchRef.current({ type: "ERROR" }); return; }
     ensurePlaybackCtx();
+    const mode = ctxRef.current.mode ?? "conversation";
     try {
       const handle = await startCapture(
         {
@@ -228,15 +232,18 @@ export function VoiceConversation(props: VoiceConversationProps) {
           onLevel: (l) => { if (mountedRef.current) setLevel(l); },
           onError: (e) => { if (mountedRef.current) setError(e); dispatchRef.current({ type: "ERROR", error: e }); },
         },
-        { streamUrl: props.streamUrl, workletUrl: props.workletUrl },
+        { sttUrl: props.sttUrl, mode },
       );
       if (!mountedRef.current || ctxRef.current.state === "idle") { handle.stop(); return; }
       captureRef.current = handle;
+      // Push-to-talk released before the mic even opened: finish at once so
+      // the (empty) clip still produces the UTTERANCE_END the machine awaits.
+      if (mode === "ptt" && !ctxRef.current.pttHeld) handle.finish();
     } catch (e: any) {
       if (mountedRef.current) setError(e?.message || "microphone error");
       dispatchRef.current({ type: "ERROR" });
     }
-  }, [supported, ensurePlaybackCtx, props.streamUrl, props.workletUrl]);
+  }, [supported, ensurePlaybackCtx, props.sttUrl]);
 
   // Effect interpreter - reassigned each render so it closes over current props.
   runEffectRef.current = (eff: VoiceEffect) => {
@@ -246,6 +253,9 @@ export function VoiceConversation(props: VoiceConversationProps) {
         break;
       case "close-capture":
         closeCapture();
+        break;
+      case "finish-capture":
+        finishCapture();
         break;
       case "send":
         latencyRef.current.mark("send");
@@ -380,8 +390,9 @@ export function VoiceConversation(props: VoiceConversationProps) {
   const pttActive = ctx.mode === "ptt";
   const showPanel = ctx.state !== "idle" || Boolean(error);
   const finalText = ctx.finals.map((s) => s.trim()).filter(Boolean).join(" ");
+  const transcribing = ctx.mode === "ptt" && !ctx.pttHeld && ctx.state === "listening";
   const stateLabel =
-    ctx.state === "listening" ? "Listening"
+    ctx.state === "listening" ? (transcribing ? "Transcribing" : "Listening")
       : ctx.state === "sending" ? "Sending"
         : ctx.state === "speaking" ? "Speaking"
           : "";
@@ -491,7 +502,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
               {finalText && ctx.interim ? " " : ""}
               {ctx.interim && <span className="wcv-interim" data-testid="wcv-interim">{ctx.interim}</span>}
               {!finalText && !ctx.interim && (
-                <span className="wcv-hint">{ctx.state === "listening" ? "Listening… speak now" : ctx.state === "sending" ? "…" : "Reply is playing"}</span>
+                <span className="wcv-hint">{transcribing ? "…" : ctx.state === "listening" ? "Listening… speak now" : ctx.state === "sending" ? "…" : "Reply is playing"}</span>
               )}
             </div>
           )}

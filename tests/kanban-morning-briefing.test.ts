@@ -33,6 +33,19 @@ afterAll(async () => {
 beforeEach(async () => {
   await __kanbanState?.reset();
 });
+// The web channel base is GARRISON_APP_URL first (Conversations in the shell),
+// the legacy web-channel-default status file second. A vitest process can
+// inherit the runner's GARRISON_APP_URL; the tests that inject fittingUrlFn
+// without an env are exercising the fallback seam, so the inherited value is
+// cleared for the file and restored after.
+const INHERITED_APP_URL = process.env.GARRISON_APP_URL;
+beforeAll(() => {
+  delete process.env.GARRISON_APP_URL;
+});
+afterAll(() => {
+  if (INHERITED_APP_URL === undefined) delete process.env.GARRISON_APP_URL;
+  else process.env.GARRISON_APP_URL = INHERITED_APP_URL;
+});
 
 
 function root() {
@@ -124,6 +137,29 @@ describe("Morning briefing delivery", () => {
       calendar: { status: "reported", eventCount: 0 }
     });
     expect(stored.events.filter((event: any) => event.kind === "morning-brief-delivery")).toHaveLength(1);
+  });
+
+  it("posts Web to the shell's talk API when GARRISON_APP_URL is set, never asking for the legacy fitting", async () => {
+    const dir = root();
+    const card = await occurrence(dir, "Calendar: no events today. Active work: two cards. Focus: finish routing.");
+    const calls: Array<{ url: string; body: any }> = [];
+    const asked: string[] = [];
+    const result = await deliverMorningBriefCompletion(dir, card.id, deliveryOptions(calls, {
+      env: { GARRISON_APP_URL: "http://app/" },
+      fittingUrlFn: (id: string) => {
+        asked.push(id);
+        return id === "omi-channel" ? "http://omi" : null;
+      }
+    }));
+    expect(result).toMatchObject({
+      web: { status: "delivered", threadId: MORNING_BRIEF_WEB_THREAD },
+      omi: { status: "delivered" }
+    });
+    // The talk API is mounted under /api/* on the app; the trailing slash on the
+    // projected URL must not double up.
+    const webPosts = calls.filter((call) => call.url === `http://app/api/threads/${MORNING_BRIEF_WEB_THREAD}/messages`);
+    expect(webPosts).toHaveLength(1);
+    expect(asked).not.toContain("web-channel-default");
   });
 
   it("makes missing Calendar and Omi visible without failing or publishing fabricated Calendar prose", async () => {

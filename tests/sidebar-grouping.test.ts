@@ -55,6 +55,7 @@ describe("the menu is two flat alphabetical groups", () => {
       "/coordination",
       "/mesh",
       "/quarters",
+      "/talk",
       "/vault"
     ]);
   });

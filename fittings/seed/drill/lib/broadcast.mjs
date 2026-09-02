@@ -9,10 +9,11 @@
 // believe you would have heard.
 //
 // Means, in the order they are attempted (all attempted, none short-circuits):
-//   1. web-channel  — a message in the PWA chat surface. Lands in the thread
-//                     that ASKED for the work when the card came from one,
-//                     else a dedicated "drill-reports" thread. This is the
-//                     mobile-reachable one.
+//   1. web-channel  - a message in the Conversations thread on the Garrison
+//                     app (or the legacy web-channel fitting when no app is
+//                     named). Lands in the thread that ASKED for the work when
+//                     the card came from one, else a dedicated "drill-reports"
+//                     thread. This is the mobile-reachable one.
 //   2. kanban-card  — stamps the originating card so the board itself shows
 //                     the verdict (the surface the button was pressed on).
 //   3. slack        — via the Garrison `slack` connector's Vault-sealed token,
@@ -49,6 +50,17 @@ async function statusFileUrl(fittingId) {
   } catch {
     return null;
   }
+}
+
+// The Conversations host. The Garrison app serves the thread engine at /api/*
+// and the runner projects its loopback base as GARRISON_APP_URL; a node still
+// running the legacy web-channel fitting publishes that host's base through
+// its status file. Both hosts share one thread store, so exactly one is ever
+// posted to - the app whenever it is named.
+async function conversationsBaseUrl() {
+  const app = (process.env.GARRISON_APP_URL || "").trim().replace(/\/+$/, "");
+  if (app) return app;
+  return statusFileUrl("web-channel-default");
 }
 
 function internalToken() {
@@ -93,10 +105,13 @@ export function outcomeText({ card, outcome, links = {} }) {
 // ── means 1: web channel ────────────────────────────────────────────────────
 // Delivered into the ORIGINATING thread when the card came from one, so the
 // conversation that asked for the change hears that the change was tested.
-// Otherwise a stable "drill-reports" thread, ensured idempotently.
+// Otherwise a stable "drill-reports" thread, ensured idempotently. The /api/*
+// paths are served by both hosts conversationsBaseUrl can name.
 async function deliverWebChannel({ card, text, fetchImpl }) {
-  const base = await statusFileUrl("web-channel-default");
-  if (!base) return { means: "web-channel", ok: false, skipped: "web channel fitting is not running" };
+  const base = await conversationsBaseUrl();
+  if (!base) {
+    return { means: "web-channel", ok: false, skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting is not running" };
+  }
   const originThread =
     card?.originChannel && String(card.originChannel.channel).toLowerCase() === "web" && card.originChannel.threadId
       ? String(card.originChannel.threadId)

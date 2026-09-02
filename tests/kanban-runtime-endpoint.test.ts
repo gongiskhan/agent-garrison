@@ -1,9 +1,10 @@
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, beforeAll, afterAll } from "vitest";
-// @ts-expect-error — plain ESM .mjs sibling, no .d.ts; vitest resolves it
-import { readWebChannelStatus } from "../fittings/seed/kanban-loop/scripts/server.mjs";
+// @ts-ignore - pure .mjs
+import { makeRequestHandler } from "../fittings/seed/kanban-loop/scripts/server.mjs";
 
 // The card store is the STATE SERVICE now, not files under GARRISON_KANBAN_DIR.
 // Boot one for this file and project its discovery env before anything reads a
@@ -17,85 +18,93 @@ afterAll(async () => {
   await __kanbanState?.stop();
 });
 
+// GET /board/runtime is the board UI's one source for where Conversations lives
+// and whether a gateway is up. Conversations is a route of the Garrison shell,
+// not an embedded fitting, so the endpoint names that route and scans no
+// web-channel status file (no webChannelEmbedId / webChannelUrl fields). These
+// drive the endpoint over HTTP against a sandboxed home so the assertions never
+// depend on what this machine runs.
 
-// /board/runtime discovers the live web channel by scanning the status-file
-// directory (~/.garrison/ui-fittings) for `web-channel*` entries. These tests
-// drive the discovery helper directly with a sandboxed dir so the assertions
-// don't depend on whatever the host machine has installed.
-
-interface ChannelStatus {
-  id: string | null;
-  url: string | null;
+interface RuntimeBody {
+  conversationsRoute: string;
+  gatewayBaseUrl: string | null;
+  noGateway: boolean;
+  cardsAbsDir: string;
+  [key: string]: unknown;
 }
 
-let tmp: string;
-
-function writeStatus(name: string, body: Record<string, unknown>) {
-  writeFileSync(path.join(tmp, name), JSON.stringify(body, null, 2), "utf8");
-}
+let home: string;
+let board: string;
+let priorHome: string | undefined;
+let priorBoard: string | undefined;
+const servers: http.Server[] = [];
 
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), "kanban-runtime-"));
-  mkdirSync(tmp, { recursive: true });
+  home = mkdtempSync(path.join(os.tmpdir(), "kanban-runtime-"));
+  board = path.join(home, "kanban-loop");
+  mkdirSync(board, { recursive: true });
+  priorHome = process.env.GARRISON_HOME;
+  priorBoard = process.env.GARRISON_KANBAN_DIR;
+  process.env.GARRISON_HOME = home;
+  process.env.GARRISON_KANBAN_DIR = board;
 });
 
-afterEach(() => {
-  rmSync(tmp, { recursive: true, force: true });
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  if (priorHome === undefined) delete process.env.GARRISON_HOME;
+  else process.env.GARRISON_HOME = priorHome;
+  if (priorBoard === undefined) delete process.env.GARRISON_KANBAN_DIR;
+  else process.env.GARRISON_KANBAN_DIR = priorBoard;
+  rmSync(home, { recursive: true, force: true });
 });
 
-describe("/board/runtime — readWebChannelStatus (V1d channel discovery)", () => {
-  it("returns null id when no web channel status file is present", async () => {
-    // Other fittings present must not be misread as a channel.
-    writeStatus("dev-env.json", { fittingId: "dev-env", url: "http://127.0.0.1:27086", pid: 1 });
-    writeStatus("monitor-default.json", { fittingId: "monitor-default", url: "http://127.0.0.1:27077", pid: 2 });
-    const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
-    expect(got).toEqual({ id: null, url: null });
+async function runtime(gatewayUrl: string | null): Promise<RuntimeBody> {
+  const server = http.createServer(makeRequestHandler({ root: board, cwd: board, gatewayUrl, cap: 10 }, board));
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const res = await fetch(`http://127.0.0.1:${port}/board/runtime`);
+  expect(res.status).toBe(200);
+  return (await res.json()) as RuntimeBody;
+}
+
+describe("/board/runtime - Conversations is a shell route", () => {
+  it("names the relative /talk route and carries no embedded-channel fields", async () => {
+    const body = await runtime(null);
+    expect(body.conversationsRoute).toBe("/talk");
+    // Relative by contract: the browser is usually on another machine over the
+    // tailnet, so an absolute loopback here would be unreachable + mixed content.
+    expect(body.conversationsRoute.startsWith("/")).toBe(true);
+    expect(body.conversationsRoute).not.toMatch(/^\/\/|^https?:/);
+    expect(body).not.toHaveProperty("webChannelEmbedId");
+    expect(body).not.toHaveProperty("webChannelUrl");
   });
 
-  it("returns the channel id + url when one web channel is installed", async () => {
-    writeStatus("web-channel-default.json", {
-      fittingId: "web-channel-default",
-      url: "http://127.0.0.1:27083",
-      pid: 12345,
-      startedAt: "2026-06-25T00:00:00.000Z"
-    });
-    const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
-    expect(got).toEqual({ id: "web-channel-default", url: "http://127.0.0.1:27083" });
+  it("reports the gateway the runner injected, and its absence", async () => {
+    const down = await runtime(null);
+    expect(down.gatewayBaseUrl).toBeNull();
+    expect(down.noGateway).toBe(true);
+
+    const up = await runtime("http://127.0.0.1:1");
+    expect(up.gatewayBaseUrl).toBe("http://127.0.0.1:1");
+    expect(up.noGateway).toBe(false);
   });
 
-  it("prefers the conventional `web-channel-default.json` when multiple channels exist", async () => {
-    // Sort would surface the alphabetically-first file otherwise — explicitly
-    // preferring the seed name keeps the test surface (and the UI choice)
-    // stable when a composition adds a second channel.
-    writeStatus("web-channel-alpha.json", { fittingId: "web-channel-alpha", url: "http://127.0.0.1:7100", pid: 1 });
-    writeStatus("web-channel-default.json", { fittingId: "web-channel-default", url: "http://127.0.0.1:27083", pid: 2 });
-    const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
-    expect(got.id).toBe("web-channel-default");
-    expect(got.url).toBe("http://127.0.0.1:27083");
+  it("hands Conversations the absolute, card-owned cards dir for the Brief editor", async () => {
+    const body = await runtime(null);
+    expect(body.cardsAbsDir).toBe(path.join(board, "cards"));
   });
 
-  it("falls through to the next file when one is malformed JSON", async () => {
-    writeFileSync(path.join(tmp, "web-channel-bad.json"), "{ not valid json", "utf8");
-    writeStatus("web-channel-default.json", { fittingId: "web-channel-default", url: "http://127.0.0.1:27083", pid: 1 });
-    const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
-    expect(got.id).toBe("web-channel-default");
-  });
-
-  it("does not match unrelated fitting ids that happen to live in the same dir", async () => {
-    // A status file whose name starts with web-channel but whose fittingId
-    // disagrees must not be returned; we trust the file body, not the name.
-    writeStatus("web-channel-faux.json", { fittingId: "monitor-default", url: "http://x", pid: 1 });
-    const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
-    // The filename starts with web-channel so the helper inspects it; the body
-    // says monitor-default, which the helper does accept (today's implementation
-    // requires the fittingId to start with "web-channel" too). This pins the
-    // safer behavior.
-    expect(got.id).toEqual(null);
-  });
-
-  it("returns {id: null, url: null} when the directory itself is missing", async () => {
-    rmSync(tmp, { recursive: true, force: true });
-    const got = (await readWebChannelStatus(tmp)) as ChannelStatus;
-    expect(got).toEqual({ id: null, url: null });
+  it("does not scan ui-fittings: a web-channel status file changes nothing", async () => {
+    // A node still running the legacy own-port web channel writes this file; the
+    // route is the shell's regardless of it.
+    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
+    writeFileSync(
+      path.join(home, "ui-fittings", "web-channel-default.json"),
+      JSON.stringify({ fittingId: "web-channel-default", url: "http://127.0.0.1:1", pid: 1 })
+    );
+    const body = await runtime(null);
+    expect(body.conversationsRoute).toBe("/talk");
+    expect(Object.keys(body).sort()).toEqual(["cardsAbsDir", "conversationsRoute", "gatewayBaseUrl", "noGateway"]);
   });
 });

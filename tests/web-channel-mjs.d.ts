@@ -1,6 +1,6 @@
 // Ambient types for the Web Channel fitting's plain-JS (.mjs) lib modules so the
 // TS tests can import them under tsc --noEmit without implicit-any errors.
-declare module "*/web-channel-default/scripts/threads.mjs" {
+declare module "*/talk/src/threads.mjs" {
   interface ThreadMeta {
     id: string;
     /** The conversation this thread IS the channel surface of - derived from the
@@ -54,14 +54,14 @@ declare module "*/web-channel-default/scripts/threads.mjs" {
   export function _readThreadSync(id: string): Thread | null;
 }
 
-declare module "*/web-channel-default/ui/pwa-assets.mjs" {
+declare module "*/talk/ui/pwa-assets.mjs" {
   export function renderIconPng(size: number): Buffer;
   export function iconSvg(size?: number): string;
   export function emitPwaAssets(opts: { srcDir: string; distDir: string }): Promise<string[]>;
   export const PWA_DIST_ASSETS: string[];
 }
 
-declare module "*/web-channel-default/lib/webpush.mjs" {
+declare module "*/talk/src/webpush.mjs" {
   export function b64url(buf: Uint8Array | Buffer): string;
   export function unb64url(str: string): Buffer;
   export function generateVapidKeys(): { publicKey: string; privateKey: string };
@@ -95,7 +95,7 @@ declare module "*/web-channel-default/lib/webpush.mjs" {
   }): Promise<{ ok: boolean; status: number; gone: boolean; error?: string }>;
 }
 
-declare module "*/web-channel-default/lib/push-store.mjs" {
+declare module "*/talk/src/push-store.mjs" {
   interface PushSubscriptionRow {
     endpoint: string;
     keys: { p256dh: string; auth: string };

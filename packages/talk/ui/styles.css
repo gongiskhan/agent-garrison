@@ -12,17 +12,21 @@
    mono micro-labels, Source Serif headlines, sharp (near-zero-radius) chrome.
    ============================================================================ */
 
-* { box-sizing: border-box; }
+.talk-host * { box-sizing: border-box; }
 
-html, body {
-  margin: 0;
+/* .talk-host is the element a HOST hands the UI: the fitting's #root (sized to
+   the document by index.html), or the Garrison shell's /talk page wrapper (sized
+   to the content column). Everything document-level used to sit on html/body;
+   it lives here so the same stylesheet can load inside the shell without
+   restyling every other page. */
+.talk-host {
   background: #fbf8f1; /* paper - fills any area outside the centered column */
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
-  /* Pin the document to the viewport (or, when embedded, to the iframe) and let
-     the shell scroll INTERNALLY. Without this the body grows to its content and
-     the whole page scrolls, which is what pushed the composer off-screen when
-     the channel is opened inside Garrison's frame. */
+  /* Pin the UI to its host box and let the sessions shell scroll INTERNALLY.
+     Without this the box grows to its content and the whole page scrolls,
+     which is what pushed the composer off-screen when the channel was opened
+     inside Garrison's frame. */
   height: 100%;
   overflow: hidden;
 }
@@ -851,7 +855,7 @@ html, body {
 /* ==========================================================================
    Fortress operations-room refit
    ========================================================================== */
-:root {
+.talk-host {
   --wc-olive-950: #141a15;
   --wc-olive-900: #202920;
   --wc-olive-800: #2b372c;
@@ -880,8 +884,7 @@ html, body {
   --wc-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
 }
 
-html,
-body {
+.talk-host {
   background: var(--wc-olive-950);
   font-family: var(--wc-sans);
 }
@@ -1349,20 +1352,20 @@ body {
 /* ── Scrollbars — near-invisible, still scrollable ────────────────────────
    Dark ink thumb by default (the app's scrollable panes are warm stone); the
    light variant is re-declared on the olive sidebar and the ink code cards. */
-:root {
+.talk-host {
   --sb-thumb: rgba(32, 40, 32, 0.16);
   --sb-thumb-hover: rgba(32, 40, 32, 0.34);
 }
-* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
-::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
+.talk-host * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+.talk-host ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+.talk-host ::-webkit-scrollbar-track { background: transparent; }
+.talk-host ::-webkit-scrollbar-thumb {
   background: var(--sb-thumb);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
-::-webkit-scrollbar-corner { background: transparent; }
+.talk-host *::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+.talk-host ::-webkit-scrollbar-corner { background: transparent; }
 
 .wc-sidebar,
 .wc-side-scroll,

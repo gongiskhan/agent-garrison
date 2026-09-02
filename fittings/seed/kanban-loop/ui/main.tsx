@@ -5036,9 +5036,9 @@ function App() {
     }
   }, []);
 
-  // /board/runtime carries the live channel id (for Discuss) and the noGateway
-  // flag. Refreshed alongside the board so a gateway start/stop or a channel
-  // install/remove flips the relevant UI within one tick.
+  // /board/runtime carries the gateway state (noGateway, gatewayBaseUrl) and the
+  // Conversations route. Refreshed alongside the board so a gateway start/stop
+  // flips the relevant UI within one tick.
   const loadRuntime = useCallback(async () => {
     try {
       const r = await api.runtime();

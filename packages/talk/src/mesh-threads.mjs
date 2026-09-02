@@ -1,22 +1,19 @@
-// Cross-node thread visibility for the web channel sidebar.
+// Cross-node thread visibility for the Conversations sidebar.
 //
-// Every node's web channel mirrors its thread INDEX into the state service
-// (thread-registry.mjs, config doc "web-channel.threads"/"node:<name>").
+// Every node's Conversations engine mirrors its thread INDEX into the state
+// service (thread-registry.mjs, config doc "web-channel.threads"/"node:<name>").
 // This module reads every OTHER node's index plus the node registry, and
 // hands the UI ready-made rows: node identity + its recent threads + an
-// absolute openUrl on that node's own web channel (the serve-port formula is
-// a mesh invariant, so the URL is computable without asking the peer).
-// Conversations stay HOME-NODE-OWNED: opening one is a cross-origin
-// navigation to the node that holds the transcript, never a proxy of the
-// message bodies.
+// absolute openUrl on that node's own app (`/talk/<id>` on the peer's tailnet
+// origin, computable without asking the peer). Conversations stay
+// HOME-NODE-OWNED: opening one is a cross-origin navigation to the node that
+// holds the transcript, never a proxy of the message bodies.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { createStateClient } from "./state-client.mjs";
+import { createStateClient } from "@garrison/state-client";
 
-const WEB_CHANNEL_BASE_PORT = 8083;
-const SERVE_PORT = 8400 + (WEB_CHANNEL_BASE_PORT % 1000);
 const CACHE_MS = 20_000;
 
 let cachedClient;
@@ -98,7 +95,7 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
       threads = [];
     }
     if (!peer.tailnetHost && threads.length === 0) continue;
-    const base = peer.tailnetHost ? `https://${peer.tailnetHost}:${SERVE_PORT}` : null;
+    const base = peer.tailnetHost ? `https://${peer.tailnetHost.replace(/\.$/, "")}` : null;
     nodes.push({
       node: peer.name,
       accentColor: peer.accentColor ?? null,
@@ -110,7 +107,7 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
         title: t.title ?? null,
         lastMessageAt: t.lastMessageAt ?? null,
         messageCount: t.messageCount ?? null,
-        openUrl: base ? `${base}/?thread=${encodeURIComponent(t.id)}` : null
+        openUrl: base ? `${base}/talk/${encodeURIComponent(t.id)}` : null
       }))
     });
   }

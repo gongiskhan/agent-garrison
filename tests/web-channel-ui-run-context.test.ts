@@ -75,7 +75,7 @@ const reactMod = await import("react");
 (globalThis as any).React = (reactMod as any).default ?? reactMod;
 const { renderToStaticMarkup } = await import("react-dom/server");
 
-const ui = await import("../fittings/seed/web-channel-default/ui/main");
+const ui = await import("../packages/talk/ui/app");
 
 describe("web-channel Discuss kickoff admission guard", () => {
   it("arms only a truly pristine thread across admission crash and reload windows", () => {

@@ -23,7 +23,8 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { load as parseYaml } from "js-yaml";
 
-const SEED_DIR = join(__dirname, "..", "fittings", "seed");
+const REPO_ROOT = join(__dirname, "..");
+const SEED_DIR = join(REPO_ROOT, "fittings", "seed");
 
 interface OwnPortSeed {
   id: string;
@@ -52,6 +53,23 @@ function canonicalPort(meta: any): number | null {
 //     orchestrator, including its real guard). Hence: no stripping, precise patterns.
 const FIND_FREE_PORT_CALL = /\bfindFreePort\s*\(/; // a call or a declaration, never prose
 const EADDRINUSE_GUARD = /["']EADDRINUSE["']/; // the string literal in `err.code === "EADDRINUSE"`
+
+// A seed whose scripts/server.mjs is only the historical entry point of a
+// workspace package (`export * from "@garrison/<pkg>/server"`) keeps its
+// listener in that package, so the contract is checked where the listen() call
+// actually is. The shim's own text rides along: a findFreePort call in either
+// file is a violation.
+const PACKAGE_SERVER_REEXPORT = /export \* from ["']@garrison\/([a-z0-9-]+)\/server["']/;
+
+function listenerSource(shimSrc: string): string {
+  const m = PACKAGE_SERVER_REEXPORT.exec(shimSrc);
+  if (!m) return shimSrc;
+  const pkgDir = join(REPO_ROOT, "packages", m[1]);
+  const exportsMap = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")).exports ?? {};
+  const rel = exportsMap["./server"];
+  if (typeof rel !== "string") throw new Error(`@garrison/${m[1]} declares no ./server export`);
+  return `${shimSrc}\n${readFileSync(join(pkgDir, rel), "utf8")}`;
+}
 
 function ownPortSeeds(): OwnPortSeed[] {
   const out: OwnPortSeed[] = [];
@@ -106,7 +124,7 @@ describe("own-port fittings — canonical port contract", () => {
     it(`${id} binds its configured port or exits — no findFreePort shift`, () => {
       const server = join(dir, "scripts", "server.mjs");
       if (!existsSync(server)) return; // start.mjs-only fittings are covered elsewhere
-      const src = readFileSync(server, "utf8");
+      const src = listenerSource(readFileSync(server, "utf8"));
 
       expect(
         FIND_FREE_PORT_CALL.test(src),

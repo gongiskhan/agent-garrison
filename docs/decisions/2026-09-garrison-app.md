@@ -87,12 +87,23 @@ So:
 
 - Route: `src/app/talk` (list) and `src/app/talk/[conversationId]`. Sidebar
   Command entry "Conversations". The old surface `web-channel-default` keeps its
-  code and its port and is **disabled by default** in `compositions/default`;
-  removal is a later, operator-triggered follow-up (plan section 7, invariant
-  I12).
-- The gateway stays where it is; the shell reaches it through Next API routes
-  under `src/app/api/talk/*` (server-to-server loopback on the box, which the
-  port rules allow). The browser only ever sees same-origin URLs.
+  code and its port and is **unstationed by default** in `compositions/default`
+  and `compositions/openai` (D16); removal of the code is a later,
+  operator-triggered follow-up (plan section 7, invariant I12).
+- The gateway stays where it is; the shell reaches it through ONE Next route,
+  the optional catch-all `src/app/api/[[...path]]/route.ts`, which mounts the
+  talk router (`createTalkRouter` from `@garrison/talk`) behind the
+  Request/Response shim in `src/lib/node-handler-shim.ts`. Next's route
+  precedence keeps every specific `src/app/api/<name>/` route ahead of it, so
+  the shell's own API is untouched and the talk paths (`/api/chat`,
+  `/api/threads`, `/api/push/*`, `/api/voice/*`, `/api/stream`,
+  `/api/session-stream`, `/api/claude/*`, `/api/notify`, ...) resolve on the
+  app at the paths the transports already used. One engine per process on
+  `globalThis.__garrisonTalkMount`; the gateway URL is read live from
+  `activeGatewayBaseUrl()`. The browser only ever sees same-origin URLs.
+  (G0 had planned one mount per path family; a single catch-all is what shipped
+  because the router already dispatches on pathname and eleven near-identical
+  mounts would have been eleven places to keep the shim contract.)
 - The follow-up "ready commit on a branch" the plan asks for in section 7
   collides with the repository's no-new-branches hard rule (CLAUDE.md, AGENTS.md
   "Branch discipline"). Resolution: the removal is prepared as a **patch file**
@@ -273,6 +284,71 @@ per-gate evidence committed, so `.gitignore` now ignores `evidence/*` except
 `evidence/garrison-app/` (large media types under it stay ignored). Reader
 output is kept verbatim as JSON so a later gate can cite a file:line without
 re-reading the tree.
+
+### D16. "Disabled by default" means unstationed
+
+A composition selection has no `enabled` flag (`x-garrison.composition.selections`
+carries `id` + `config` only; `compositions/default/apm.yml`). The two honest
+states are stationed (started by `up()`) and absent. G1 therefore removes
+`web-channel-default` from the `channels` selection and the `dependencies.apm`
+list of `compositions/default` and `compositions/openai` and from their
+lockfiles; the fitting stays in `fittings/seed/` and `data/library.json`, so
+re-stationing it is one Compose click. A stationed-but-stopped state would have
+needed a new schema field for a surface that is on its way out.
+
+### D17. Cross-node Conversations run through the peer's app origin
+
+Before G1 the mesh reached a peer's threads on the web-channel fitting's
+published serve port (`8400 + 8083 % 1000`) and deep-linked to
+`https://<peer>:8483/?thread=`. With the talk API on the app, the peer's app
+origin (`https://<peer-tailnet-host>`, root serve to the app port) answers
+`/api/threads...` directly, so `src/lib/mesh/peer-proxy.ts` loses the
+serve-port arithmetic, the control-port cache and `peerControlBase`; every
+thread row in the allow-list is `upstream: "app"`, and `peerThreadUrl()` builds
+`https://<peer>/talk/<id>`. `packages/talk/src/mesh-threads.mjs` builds the same
+link for the Conversations sidebar. The http-gateway session registry
+(`scripts/lib/session-registry.mjs` `controlSurface()`) reports the app as each
+session's control surface from `GARRISON_APP_URL`, which `spawnGateway` now
+projects exactly as own-port fittings receive it; the legacy status-file read
+remains the fallback for a gateway started without it. Live `tailscale serve
+status` had no 8483 mapping on this machine, so the old path was already
+unreachable off-box.
+
+### D18. The talk skin is scoped to a host element; the shell service worker carries push
+
+`packages/talk/ui/styles.css` used to style `html`/`body`/`#root` because the
+fitting owned its document. Inside the shell those selectors would restyle
+Garrison itself, so every document-level rule now hangs off `.talk-host`: the
+fitting's `#root.talk-host` and the shell's `<div class="talk-host talk-page">`
+(`src/components/talk/TalkPage.tsx`). Tests that mount the UI in a bare
+document must add the same ancestor or no token resolves (the focus-ring test
+in `tests/claude-chat-session-events-browser.test.ts` is the example). Web push
+is a per-origin service-worker concern, so `public/sw.js` (already registered
+by the root layout) gained the fitting's `push`, `notificationclick` and
+`pushsubscriptionchange` handlers with `/talk` as the default deep link; the
+fitting's `ui/sw.js` survives for the legacy host only.
+
+### D19. Consumers reach Conversations app-first; Discuss opens a shell route
+
+Every fitting that posted into the web channel located it through
+`~/.garrison/ui-fittings/web-channel-default.json`. With the fitting
+unstationed that file is gone, so the resolution order becomes: the app
+(`GARRISON_APP_URL`, which the runner projects into every own-port fitting,
+setup hook and the gateway) first, the legacy status file second, else skipped
+with a reason that names both. The thread API paths already start with
+`/api/`, which both hosts accept. Because both hosts share one thread store
+(`<GARRISON_HOME>/web-channel/threads/`), the notify fan-outs (kanban-loop
+`notify-origin.mjs`, improver `probe-notify.mjs`) add the app as a target and
+skip any `web-channel*` status file while `GARRISON_APP_URL` is set, so a
+reminder lands once. Discuss links stop targeting `/embed/web-channel-default`:
+`buildDiscussUrl` (kanban-loop) and `buildAutomationDiscussUrl` (automations)
+default to `/talk`, kanban's `/board/runtime` reports `conversationsRoute:
+"/talk"` in place of `webChannelEmbedId`/`webChannelUrl`, and an embedded
+fitting asks the shell to open it with a second window-message contract,
+`garrison:navigate-route` (`{route, params}`, route allow-listed to `/talk`)
+beside the existing `garrison:navigate-fitting`, handled in
+`src/app/embed/[fittingId]/page.tsx`. A fitting never hands the browser an
+absolute loopback URL; the shell route is relative.
 
 ## 2. Stale premises (plan or docs vs code; code wins)
 
@@ -512,68 +588,104 @@ gate are the suites that must stay green or be re-pointed in that gate.
 - create `docs/decisions/2026-09-garrison-app.md`,
   `evidence/garrison-app/g0/{README.md,xctest-baseline.log,recon-environment.json,recon-round2.json}`.
 
-### G1 - web channel into the shell
+### G1 - web channel into the shell (as shipped; the G0 plan for this gate is superseded by this list)
 
-- create `packages/talk/package.json` (`@garrison/talk`, source-only like
-  `claude-chat`); edit `package.json` (`"@garrison/talk": "file:packages/talk"`)
-  + `package-lock.json` via `npm install`.
-- move `fittings/seed/web-channel-default/scripts/threads.mjs` ->
-  `packages/talk/src/threads.mjs`; `lib/{live-event-stream,thread-registry,webpush,push-store,mesh-threads,session-transcript}.mjs`
-  -> `packages/talk/src/`; `lib/state-client.mjs` is compared with
-  `@garrison/state-client` and deduplicated or moved.
-- extract the handlers of `scripts/server.mjs` into
-  `packages/talk/src/handlers/{chat,threads,push,voice,brief,route-options,session-stream,attachments,claude-proxy,mesh-threads}.mjs`
-  and one `packages/talk/src/router.mjs` (`handleTalkRequest(req, res, ctx)`);
-  `scripts/server.mjs` keeps listener, static serving, upgrade relays,
-  `/host-map`, `/file`, `/power-heartbeat`, `/notify` and imports the rest.
-- move `ui/main.tsx` -> `packages/talk/ui/TalkApp.tsx` (component export; the
-  fitting's `ui/main.tsx` becomes a `createRoot` wrapper),
-  `ui/{conversation-transport,orchestrator-transport,voice-machine,push-client,terminal-scroll}.ts`,
-  `ui/{voice-conversation,sessions-rail,shells-modal,remote-shell-workbench,remote-shell-pane}.tsx`,
-  `ui/styles.css` -> `packages/talk/ui/`; `ui/voice-capture.ts`,
-  `ui/voice-tts.ts`, `ui/pcm-worklet.js`, `ui/voice-latency.ts` are replaced by
-  `packages/talk/ui/voice-clip.ts` (record clip -> `/api/voice/stt`, play
-  `/api/voice/tts` clip) per D9; `ui/__tests__` move with their subjects.
-- create `src/app/talk/layout.tsx` (CSS: `@xterm/xterm/css/xterm.css`,
-  `@garrison/claude-chat/styles.css`, `@garrison/talk/ui/styles.css`),
-  `src/app/talk/page.tsx`, `src/app/talk/[conversationId]/page.tsx`,
-  `src/components/talk/TalkPage.tsx` (client wrapper reading the route param).
-- create `src/lib/node-handler-shim.ts` (the `RequestShim`/`ResponseShim` lifted
-  out of `src/app/api/conversation/[...path]/route.ts`, which then imports it)
-  and the mounts
-  `src/app/api/{chat,threads,push,voice,stream,route-options,mesh-threads,brief,claude,attachments,session-stream}/[[...path]]/route.ts`
-  (each a few lines calling `handleTalkRequest` with `activeGatewayBaseUrl()`
-  and the vault-read VAPID keys + capture token).
-- edit `public/sw.js` (add `push` + `notificationclick` from the fitting's
-  `ui/sw.js`), `src/app/manifest.ts` (start_url stays `/`; `/talk` shortcut),
-  `src/components/chrome/Sidebar.tsx` (`COMMAND_ITEMS` + `nav:conversations`,
-  href `/talk`, `MessageSquare` icon; drop the `deepgram-voice` icon key later
-  in G2), `src/lib/sidebar-pins.ts` only if the default pin set is touched.
-- edit `compositions/default/apm.yml` (web-channel-default `enabled: false`
-  by default - stationed, not started; the intended hunk only, D8) and
-  `fittings/seed/web-channel-default/apm.yml` (description says it is the
-  legacy host of `@garrison/talk`).
-- edit `playwright.web-channel.config.ts` (re-pointed at the shell: reuse the
-  base `webServer`, `testMatch` unchanged), `tests/e2e/web-channel-chat.spec.ts`
-  and `tests/e2e/web-channel-session-parity.spec.ts` (`page.goto(baseURL + '/talk?console=1')`,
-  fake gateway injected through `GARRISON_GATEWAY_URL` the shell's
-  `activeGatewayBaseUrl()` honours in the sandbox; restart-survival restarts
-  the Next server), `tests/vocabulary.test.ts:143-145,321-342` (scan
-  `packages/talk/ui` and `src/app/talk`; move allowances),
-  `tests/sidebar-grouping.test.ts:47-59` (add `/talk`), the 13
-  `tests/web-channel-*.test.ts` suites (import paths -> `@garrison/talk`),
-  `tests/voice-machine.test.ts` (path), delete `tests/voice-latency.test.ts`
-  with its subject.
-- docs: `docs/UI-FITTINGS.md` (the conversation surface is core; fittings link
-  to `/talk/<id>` with `garrison://talk/<id>`), `AGENTS.md` (new section "The
-  web channel exception"), `docs/GOVERNANCE.md:80-86` (rewritten as the
-  exception), `CLAUDE.md` (two "no built-in chat surface" sentences, the
-  own-port list, architecture tree gains `src/app/talk`), `docs/DECISIONS.md`
-  (pointer to this file).
+- `packages/talk/` (`@garrison/talk`, `file:` dependency in `package.json`):
+  `src/{router,server,threads,sidebar-state,live-event-stream,thread-registry,webpush,push-store,mesh-threads,session-transcript,tailnet-serve}.mjs`
+  moved out of `fittings/seed/web-channel-default/{scripts,lib}` (git renames;
+  `router.mjs` is the former `server.mjs` minus its listener, `server.mjs` is
+  the own-port listener the legacy host calls); `ui/{app,index}.tsx` and the
+  transports, rails, modals, `styles.css`, `voice-machine.ts`,
+  `voice-conversation.tsx`, `voice-clip.ts` (D9; `voice-capture.ts`,
+  `voice-tts.ts`, `pcm-worklet.js` and the Playwright voice harness under
+  `ui/__tests__` deleted). `lib/state-client.mjs` deduplicated into
+  `@garrison/state-client` (`scripts/sync-state-client.mjs`).
+- `fittings/seed/web-channel-default/`: `scripts/server.mjs` (25 lines) and
+  `ui/main.tsx` (7 lines) are hosts importing the package; `apm.yml`
+  description/summary and `README.md` say legacy host; `dist/` rebuilt;
+  `data/library.json` entry relabelled "Web channel (legacy host)".
+- shell: `src/app/talk/page.tsx`, `src/app/talk/[conversationId]/page.tsx`,
+  `src/components/talk/{TalkPage.tsx,talk-page.css}`; the ONE API mount
+  `src/app/api/[[...path]]/route.ts` over `src/lib/node-handler-shim.ts` (D2);
+  `src/app/api/conversation/[...path]/route.ts` deleted (its shim moved).
+  `next.config.mjs` adds `@garrison/talk` to `serverComponentsExternalPackages`.
+- shell chrome: `src/components/chrome/Sidebar.tsx` (`nav:conversations`,
+  `/talk`, `MessagesSquare`), `AppShell.tsx` (`+ New` -> `/talk?new=1`),
+  `src/components/muster/DecisionsPanel.tsx` (`/talk/<id>` deep links),
+  `src/app/manifest.ts` (`/talk` shortcut), `public/sw.js` (push handlers,
+  D18).
+- mesh (D17): `src/lib/mesh/peer-proxy.ts`,
+  `src/app/api/mesh/nodes/[node]/[...path]/route.ts`,
+  `packages/talk/src/mesh-threads.mjs`, `src/lib/mesh/self-snapshot.ts`
+  (comment); gateway: `src/lib/runner.ts` (`GARRISON_APP_URL` into
+  `spawnGateway`), `fittings/seed/http-gateway/scripts/lib/session-registry.mjs`.
+- consumers (D19): `fittings/seed/kanban-loop/{lib/notify-origin.mjs,lib/morning-briefing.mjs,scripts/server.mjs,scripts/discuss.mjs,ui/api.ts}`,
+  `fittings/seed/automations/{lib/discuss.mjs,scripts/server.mjs,dist/index.html}`,
+  `src/app/embed/[fittingId]/page.tsx` (`garrison:navigate-route`),
+  `fittings/seed/{capture-service,omi-channel}/lib/notify.mjs`,
+  `fittings/seed/drill/lib/broadcast.mjs`,
+  `fittings/seed/improver/lib/probe-notify.mjs`,
+  `scripts/web-parity-prod-suite.mjs`.
+- compositions (D16): `compositions/{default,openai}/apm.yml` and
+  `apm.lock.yaml` drop `web-channel-default` (the intended hunk only, D8).
+- tests: the `tests/web-channel-*.test.ts` suites and `tests/voice-machine.test.ts`
+  import `@garrison/talk`; `tests/claude-chat-session-events-browser.test.ts`
+  mounts under `.talk-host`; `tests/sidebar-grouping.test.ts` pins `/talk`;
+  `tests/mesh-proxy.test.ts`, `tests/session-registry.test.ts` follow D17;
+  `tests/kanban-*.test.ts`, `tests/automations-discuss.test.ts`,
+  `tests/capture-service-apns.test.ts`, `tests/omi-channel*.test.ts`,
+  `tests/drill-card-drill.test.ts`, `tests/improver-probe-out-of-band.test.ts`
+  follow D19; new `tests/voice-clip.test.ts`; `playwright.web-channel.config.ts`
+  + `tests/e2e/web-channel-{chat,session-parity}.spec.ts` drive `/talk` on the
+  Next app; `tests/voice-latency.test.ts` deleted with its subject.
+- docs: `docs/UI-FITTINGS.md` ("Conversations is a shell route"), `AGENTS.md`
+  ("The web channel exception"), `docs/GOVERNANCE.md` (the exception inside the
+  Honesty Test list), `CLAUDE.md` (Channel term, shell surfaces, tree,
+  own-port list), `docs/DECISIONS.md` (2026-09-01 entry), this file.
+- consumers, second pass: `fittings/seed/kanban-loop` `/board/runtime` answers
+  `conversationsRoute` (the shell path, not a channel URL) and `ui/main.tsx`
+  reads it; `tests/live-vision/kanban-loop-v1d.spec.ts` follows.
+- test guards: `tests/setup.ts` clears `GARRISON_APP_URL` for every test (the
+  runner projects it into fittings and card PTYs inherit it, so `npm test` from
+  a card would otherwise post fan-outs to the user's real threads through the
+  shell's `/api/notify`) and pins `TMPDIR` to its realpath (macOS mounts
+  `/var/folders` as `/private/var`; ten suites compared a canonicalised path
+  with an uncanonicalised one). `tests/e2e/fixtures/talk-app.ts` boots one
+  `next dev` per Playwright spec on a scratch `GARRISON_HOME` so the restart
+  contract is provable. `tests/helpers/port-free.ts` refuses to start a fixture
+  suite whose fixed port already has a listener - a killed run's servers had
+  been answering `drill-gate-ui`'s health poll with yesterday's runs.
+  `tests/own-port-canonical-port.test.ts` follows an
+  `export * from "@garrison/<pkg>/server"` shim to the package listener before
+  asserting the EADDRINUSE guard.
+- fixed along the way (real bugs the Mac nodes hit, surfaced by the suite, not
+  caused by G1): the live-session guard in
+  `fittings/seed/file-browser/scripts/merge-actions.mjs` and
+  `src/lib/mesh/git-executor.ts` compared cwd strings and failed OPEN on a
+  symlinked or subdirectory session - both now use `sessionInTree` (realpath,
+  subtree, this node's active sessions only);
+  `src/lib/own-port-lifecycle.ts` trusted a recorded pid whenever `/proc` was
+  absent, so a stale status file could kill an unrelated process - it now
+  reads the birth time from `ps -o etime=` off Linux; `cortex-client`'s
+  `resolve_abs` used `realpath -m`, which BSD realpath lacks, so the R5
+  symlink escape went undetected on macOS. `tests/workspace-git.test.ts`
+  serialises its pump (overlapping intervals doubled replies).
+- suite hardening (five full runs to a green one; each run surfaced one more
+  load-induced flake, fixed at its root and recorded in
+  `evidence/garrison-app/g1/vitest.txt`): `vitest.config.ts` `hookTimeout`
+  30s (the browser fixture suites blew the 10s hook default under the parallel
+  run); `tests/garrison-call-live.test.ts` and `tests/openai-agents-live.test.ts`
+  gate on the model being pulled and the fitting's SDK being installed, not on
+  Ollama answering; `tests/drill-gate-ui.test.ts` asserts its ports are free;
+  `tests/pendant-capture.test.ts` waits for the operative request, which is
+  deliberately deferred past the ack; `tests/claude-chat-session-events-browser.test.ts`
+  waits for the revealed text to SETTLE (live prose types in a few chars per
+  frame, and an auto-closed intermediate render equals the target before the
+  stray-backtick frame).
 - evidence: `evidence/garrison-app/g1/` (playwright report, phone-width and
-  desktop screenshots of `/talk` from the tailnet origin, `npm test` summary).
-- deploy: `npm run node:reload` for the shell, then `npm run node:redeploy`
-  because `compositions/default/apm.yml` and the fitting changed.
+  desktop screenshots of `/talk` from the tailnet origin, test summaries).
+- deploy: `npm run node:redeploy` (the composition and `packages/` changed, so
+  the fingerprint takes the full path).
 
 ### G2 - one voice layer
 

@@ -45,7 +45,6 @@ dependencies:
     - path: ../../fittings/seed/taste
     - path: ../../fittings/seed/trello
     - path: ../../fittings/seed/vault-git-sync
-    - path: ../../fittings/seed/web-channel-default
     - path: ../../fittings/seed/whatsapp-web
 x-garrison:
   composition:
@@ -76,11 +75,6 @@ x-garrison:
             slack_port: 9512
             gateway_url: http://127.0.0.1:5777
             chat_timeout_ms: 600000
-        - id: web-channel-default
-          config:
-            port: 8083
-            bind_host: 127.0.0.1
-            gateway_url: ''
         - id: omi-channel
           config:
             port: 8094

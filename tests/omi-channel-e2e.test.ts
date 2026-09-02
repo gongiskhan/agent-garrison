@@ -168,6 +168,11 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
       prevEnv[k] = process.env[k];
       process.env[k] = v;
     }
+    // The server's notifier reads process.env: an app named by the runner (a
+    // dev-env shell projects GARRISON_APP_URL) would win over the web-channel
+    // stub below and post the fallback into the real Conversations store.
+    prevEnv.GARRISON_APP_URL = process.env.GARRISON_APP_URL;
+    delete process.env.GARRISON_APP_URL;
     mkdirSync(vaultDir, { recursive: true });
     mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
     writeFileSync(

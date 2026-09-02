@@ -1,6 +1,6 @@
 name: web-channel-default
 version: 0.1.0
-description: Default Web Channel Fitting for Agent Garrison — mobile-first browser chat surface that proxies the http-gateway.
+description: Legacy own-port host of the Conversations engine (packages/talk). The shell serves the same engine at /talk; station this only to keep the old port-bound surface alive.
 target: claude
 type: hybrid
 includes: auto
@@ -13,7 +13,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Serves a React chat UI on its own port (the `port` config value, shifted by the instance profile). Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay. Each thread is a conversation; it talks to the gateway and never spawns Claude itself.
+  summary: Legacy host. Serves the @garrison/talk conversation UI and API on its own port (the `port` config value, shifted by the instance profile); the Garrison shell serves the same engine at /talk and /api/*, sharing the thread store, so this fitting is unstationed by default. Proxies the http-gateway's POST /chat/stream for outbound turns and GET /channels/web/stream for live + last-100-event replay; it never spawns Claude itself.
   config_schema:
     - key: port
       type: integer

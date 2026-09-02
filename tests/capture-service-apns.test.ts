@@ -153,7 +153,12 @@ describe("companion notifier", () => {
     while (cleanups.length) cleanups.pop()!();
   });
 
-  function makeNotifier(script: Record<string, any>, overrides: Record<string, unknown> = {}, tokens = ["tokenok01"]) {
+  function makeNotifier(
+    script: Record<string, any>,
+    overrides: Record<string, unknown> = {},
+    tokens = ["tokenok01"],
+    { env = {}, fetchImpl }: { env?: Record<string, string>; fetchImpl?: typeof fetch } = {}
+  ) {
     const home = mkdtempSync(path.join(os.tmpdir(), "apns-notify-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     const cfg = testCfg(home, overrides);
@@ -166,8 +171,9 @@ describe("companion notifier", () => {
       cfg,
       store,
       counters,
-      env: { GARRISON_HOME: home },
+      env: { GARRISON_HOME: home, ...env },
       apns: new ApnsSender({ cfg, counters, connectFn: fakeHttp2(script, calls) }),
+      ...(fetchImpl ? { fetchImpl } : {}),
       sleepFn: async (ms: number) => {
         sleeps.push(ms);
       }
@@ -264,6 +270,44 @@ describe("companion notifier", () => {
     const logged = logSpy.mock.calls.flat().join("\n");
     expect(logged).not.toContain(SECRET_TEXT);
     logSpy.mockRestore();
+  });
+
+  it("posts the fallback to the Garrison app when GARRISON_APP_URL names it, ignoring the legacy status file", async () => {
+    const posts: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      posts.push(url);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const { notifier, counters, home } = makeNotifier({}, { notifyEnabled: false }, ["tokenok01"], {
+      env: { GARRISON_APP_URL: "http://app.test/" },
+      fetchImpl
+    });
+    // A legacy host is ALSO advertised; both share one thread store, so only
+    // the app may be posted to or the thread gets the message twice.
+    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
+    writeFileSync(
+      path.join(home, "ui-fittings", "web-channel-default.json"),
+      JSON.stringify({ fittingId: "web-channel-default", port: 1, url: "http://legacy.test" })
+    );
+
+    const receipts = await notifier.send({ template: "relay", params: { text: "Finished." } });
+    expect(receipts[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "notify disabled" });
+    expect(receipts[1]).toMatchObject({ means: "web-channel", ok: true, target: "thread companion-reports" });
+    expect(posts).toEqual([
+      "http://app.test/api/threads",
+      "http://app.test/api/threads/companion-reports/messages"
+    ]);
+    expect(counters.read().notify_fallback_web).toBe(1);
+  });
+
+  it("names both hosts in the skip reason when neither the app nor the legacy fitting is reachable", async () => {
+    const { notifier } = makeNotifier({}, { notifyEnabled: false });
+    const receipts = await notifier.send({ template: "relay", params: { text: "Finished." } });
+    expect(receipts[1]).toMatchObject({
+      means: "web-channel",
+      ok: false,
+      skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting not running"
+    });
   });
 
   it("enforces the per-day cap and strips loopback links", async () => {

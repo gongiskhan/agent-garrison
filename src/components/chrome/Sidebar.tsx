@@ -445,6 +445,13 @@ export const COMMAND_ITEMS: CommandItem[] = [
     isActive: (p) => p === "/connectors" || p.startsWith("/connectors")
   },
   {
+    id: "nav:conversations",
+    href: "/talk",
+    label: "Conversations",
+    Icon: MessagesSquare,
+    isActive: (p) => p === "/talk" || p.startsWith("/talk/")
+  },
+  {
     id: "nav:coordination",
     href: "/coordination",
     label: "Coordination",

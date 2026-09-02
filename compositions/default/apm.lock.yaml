@@ -334,12 +334,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/vault-git-sync
-- repo_url: _local/web-channel-default
-  name: web-channel-default
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/web-channel-default
 - repo_url: _local/whatsapp-web
   name: whatsapp-web
   version: 0.1.0

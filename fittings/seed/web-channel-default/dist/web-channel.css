@@ -1203,7 +1203,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-tool { border: 0; border-radius: 6px; background: transparent; }
 .cc-session-tool > summary {
   cursor: pointer; display: flex; align-items: center; gap: 8px; min-width: 0;
-  padding: 3px 6px; font-size: 12.5px; list-style: none; border-radius: 6px;
+  /* The hover/open background bleeds 6px past the row on each side for a
+     comfortable hit target, but MARGIN cancels that same 6px so the icon
+     still starts flush with the assistant text column above it - without
+     the negative margin the row read as indented relative to its own text. */
+  margin: 0 -6px; padding: 3px 6px; font-size: 12.5px; list-style: none; border-radius: 6px;
 }
 .cc-session-tool > summary::-webkit-details-marker { display: none; }
 .cc-session-tool > summary:hover { background: var(--cc-bg-sunk); }

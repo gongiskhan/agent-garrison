@@ -90,7 +90,7 @@ and never syncing a working tree into a checkout a service is executing from
   **mesh**. The word survives only in internal identifiers and historical
   docs; `tests/vocabulary.test.ts` keeps it out of UI copy and manifest
   prose. Zeca remains the assistant persona defined inside a composition.
-- **Channel** — the way external surfaces (Slack, Web Channel) reach the Operative through the gateway. Garrison does not ship a built-in chat surface.
+- **Channel** — the way external surfaces (Slack, WhatsApp, Omi, email) reach the Operative through the gateway. Garrison ships no chat surface, with one documented exception: **Conversations** at `/talk`, the former Web Channel, is served by the shell from `packages/talk` (AGENTS.md "The web channel exception"). The legacy own-port host `web-channel-default` is unstationed by default.
 - **`x-garrison`** — Garrison's metadata block inside the APM `apm.yml` manifest. APM preserves `x-*` keys. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
 
 Legacy aliases the parser still accepts (with deprecation warnings):
@@ -146,6 +146,10 @@ packages/claude-pty/ PTY substrate — drives the interactive Claude Code TUI
                      streaming, xterm screen reader. Used by dev-env Fitting
                      and web-channel. Entry: src/index.mjs.
 packages/claude-chat/ Chat client built on claude-pty.
+packages/talk/       The conversation engine (threads, chat/SSE, push, voice
+                     REST, notify) + its React UI. Mounted by the shell at
+                     /talk and /api/* (src/app/api/[[...path]]/route.ts);
+                     the legacy own-port host web-channel-default imports it.
 compositions/<id>/   apm.yml = source of truth per composition.
                      Filesystem is authoritative; no JSON shadow.
                      Portable form: a single `<id>.garrison.json` bundle
@@ -166,10 +170,12 @@ Quarters**, plus the collapsible sidebar **Quarters** and **Fittings** groups
 `/fitting/<id>/...`. As of the 2026-06-18 shell refit the **Run panel
 merged into the Garrison dashboard** (the home route; `/run` redirects to
 `/`) and the **Armory folded into Composition** (Fitting discovery is the
-cross-Faculty search box on `/compose`; `/armory` redirects there). There is
-no built-in Chat surface. Operative interaction goes through Channel
-Fittings; observability is the runtime log on the dashboard plus per-Fitting
-logs under `/fitting/<id>`.
+cross-Faculty search box on `/compose`; `/armory` redirects there). The one
+shell-hosted conversation surface is **Conversations** at `/talk` (2026-09-01,
+the web channel moved into the shell for the iOS app; the talk API is mounted
+by the `/api` catch-all). Every other Operative interaction goes through
+Channel Fittings; observability is the runtime log on the dashboard plus
+per-Fitting logs under `/fitting/<id>`.
 
 ### Faculties — 8 core roles (Quarters pivot + 2026-06-18 sessions split)
 
@@ -187,7 +193,9 @@ Context, Plans — is now a **Quarters platform primitive** surfaced over the re
 **Own-port runtime residue** — survives at runtime under
 `sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
 flag: `dev-env` (27086), `screen-share` (27079), `outposts` (27082),
-`monitor` (27077), `web-channel` (27083), `browser` (27084), `voice` (27085).
+`monitor` (27077), `browser` (27084), `voice` (27085); `web-channel` (27083)
+survives as the legacy host of the shell-served Conversations and is
+unstationed by default.
 The Dev Env Fitting is one tabbed surface: every Claude Code session is a tab
 holding a Claude PTY + shell PTY (left) and the live browser pane (right), with
 PR / commit-and-push actions on the current branch in the menu. Sessions run in

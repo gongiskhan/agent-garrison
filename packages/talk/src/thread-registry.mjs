@@ -28,7 +28,7 @@
 // service is down, keeps writing threads to disk exactly as before.
 
 import { readFileSync } from "node:fs";
-import { createStateClient } from "./state-client.mjs";
+import { createStateClient } from "@garrison/state-client";
 
 const NAMESPACE = "web-channel.threads";
 const DEBOUNCE_MS = 2000;

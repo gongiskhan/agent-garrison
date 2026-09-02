@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RemoteShellPane, type RemoteShellMeta } from "./remote-shell-pane";
-import type { RemoteShellTransport } from "./main";
+import type { RemoteShellTransport } from "./app";
 
 const DELEGATE_MIN = 280;
 const DELEGATE_MAX = 520;

@@ -850,3 +850,21 @@ Device login to mint a named account its own credential; a bare API key stays
 importable because copying a static credential is inert.
 
 **Source:** [`docs/decisions/2026-08-16-rotating-credentials-are-linked-never-copied.md`](./decisions/2026-08-16-rotating-credentials-are-linked-never-copied.md). **Status:** Settled.
+
+## 2026-09-01 · The web channel moves into the shell as Conversations (`/talk`)
+
+The Garrison iOS app is a webview over the shell, and a webview needs ONE origin
+for the shell, the conversation and web push. The web channel on its own port
+gave it a second origin, a second service worker and mixed content over the
+tailnet, so the conversation engine moved into `packages/talk` (`@garrison/talk`)
+and the shell mounts it: the UI at `/talk` ("Conversations", a sidebar Command
+entry), the API through the app's `/api` catch-all at the paths the transports
+already used. The gateway still owns the turn; the thread store did not move;
+Slack, WhatsApp, Omi and email stay Channel Fittings. `web-channel-default`
+survives as a thin legacy host, unstationed by default, until the operator
+triggers its removal. Servers reach Conversations app-first through
+`GARRISON_APP_URL`; browsers through the relative `/talk` routes; cross-node
+Conversations go through the peer's app origin.
+
+**Source:** [`docs/decisions/2026-09-garrison-app.md`](./decisions/2026-09-garrison-app.md)
+(D2, D10, D16-D19). **Status:** Settled; the removal follow-up is operator-triggered.

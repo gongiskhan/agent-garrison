@@ -18,7 +18,7 @@ import { handleConversationRequest } from "../packages/claude-pty/src/conversati
 // @ts-ignore — pure .mjs
 import { conversationEventId, ledgerToSessionEvents } from "../packages/claude-pty/src/conversation-adapt.mjs";
 // @ts-ignore — pure .mjs (the SERVER half of the block-type whitelist)
-import { sanitizeSessionEvent } from "../fittings/seed/web-channel-default/scripts/threads.mjs";
+import { sanitizeSessionEvent } from "../packages/talk/src/threads.mjs";
 import { conversationEventId as conversationEventIdTsx } from "../packages/claude-chat/src/ConversationView";
 
 let tmp: string;
