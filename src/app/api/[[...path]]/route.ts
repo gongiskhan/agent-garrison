@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { activeGatewayBaseUrl } from "@/lib/runner";
+import { voiceProviderId, voiceToken, voiceTokenReason } from "@/lib/voice-provider";
 import { NodeRequestShim, NodeResponseShim, requestBodyFor } from "@/lib/node-handler-shim";
 // @ts-ignore - pure .mjs (the Conversations engine, shared with the legacy fitting host)
 import { createTalkRouter, initTalkRuntime, recoverStartupInputs } from "@garrison/talk";
@@ -50,6 +51,12 @@ function mount(): TalkMount {
     port: appPort(),
     scheme: "http",
     conversationRole: "garrison-app",
+    // The voice layer (D22, D31): the provider is whichever fitting provides
+    // kind:voice in the active composition; the capture token comes from this
+    // node's secret source per request (the mesh authority when enrolled, the
+    // local vault otherwise), and a failed read names its reason in the
+    // router's words (locked, not sealed, not granted, authority unreachable).
+    voice: { fittingId: voiceProviderId, token: voiceToken, tokenReason: voiceTokenReason },
   };
   const router = createTalkRouter(liveOpts, { distDir: null, log: console }) as Router;
   const ready = Promise.resolve()

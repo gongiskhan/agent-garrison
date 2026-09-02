@@ -20,6 +20,8 @@
 // (gesture-unlocked) AudioContext; the next chunk is fetched while the current
 // one plays. stop() halts playback and aborts pending fetches (barge-in).
 
+import { chunkSpeech, DEFAULT_CHUNK_CHARS } from "@garrison/claude-chat/voice";
+
 export interface CaptureCallbacks {
   /** Microphone open and the recorder running. */
   onReady?(): void;
@@ -369,41 +371,11 @@ export interface TtsHandle {
   readonly closed: boolean;
 }
 
-// Deepgram Speak rejects requests over 2000 characters; stay well under it.
-const DEFAULT_CHUNK_CHARS = 1800;
-
-/** Split text into synthesis-sized chunks at sentence, then clause, boundaries. */
-export function chunkSpeech(text: string, maxChars: number = DEFAULT_CHUNK_CHARS): string[] {
-  const clean = (text || "").replace(/\s+/g, " ").trim();
-  if (!clean) return [];
-  if (clean.length <= maxChars) return [clean];
-  const sentences = clean.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) ?? [clean];
-  const out: string[] = [];
-  let cur = "";
-  const push = () => { if (cur.trim()) out.push(cur.trim()); cur = ""; };
-  for (const s of sentences) {
-    if (s.length > maxChars) {
-      push();
-      // A single overlong sentence: cut at clause marks, then hard.
-      let rest = s.trim();
-      while (rest.length > maxChars) {
-        const window = rest.slice(0, maxChars);
-        const at = Math.max(window.lastIndexOf(", "), window.lastIndexOf("; "), window.lastIndexOf(" "));
-        const cut = at > maxChars / 2 ? at + 1 : maxChars;
-        out.push(rest.slice(0, cut).trim());
-        rest = rest.slice(cut).trim();
-      }
-      // The sentence match carried its own trailing space; trimming the
-      // remainder dropped it, so restore the separator before the next one.
-      cur = rest ? `${rest} ` : "";
-      continue;
-    }
-    if ((cur + s).length > maxChars) push();
-    cur += s;
-  }
-  push();
-  return out;
-}
+// The splitter and its 600-character default live in @garrison/claude-chat/voice
+// so both read-aloud paths (this one and ClaudeChat's) cut replies the same way
+// against the same cap; re-exported here for the callers and tests that already
+// import them from this module.
+export { chunkSpeech, DEFAULT_CHUNK_CHARS };
 
 /** Synthesize and play `text`. Chunks are fetched one ahead of playback. */
 export function startTts(text: string, cb: TtsCallbacks, opts: TtsOptions = {}): TtsHandle {

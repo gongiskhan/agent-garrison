@@ -53,6 +53,9 @@ x-garrison:
     - VAPID_PUBLIC_KEY
     - VAPID_PRIVATE_KEY
     - VAPID_SUBJECT
+    # The voice provider gates its /stt and /tts with this token; the router
+    # forwards it as a Bearer on the upstream hop only (the page never sees it).
+    - CAPTURE_TOKEN
   setup:
     command: node ui/build.mjs
     idempotent: true
@@ -94,7 +97,7 @@ x-garrison:
       POST /api/voice/tts    → binary proxy to the voice Fitting's /tts ({text} → audio bytes)
       GET  /                 → React chat UI (dist/index.html)
 
-    Voice is optional: when a kind:voice Fitting (e.g. deepgram-voice) is
+    Voice is optional: when a kind:voice Fitting (capture-service) is
     stationed, the browser UI shows a mic button (push-to-talk → /api/voice/stt),
     a per-reply speaker button, and a "read aloud" toggle (auto-speaks completed
     replies via /api/voice/tts). The voice Fitting holds the API key; the browser

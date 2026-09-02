@@ -3,7 +3,8 @@
 // fitting. Everything request-shaped lives in router.mjs; this file owns what a
 // standalone process needs and the shell host does not: the listening socket
 // (optional TLS), the status file the runner tracks the pid through, the
-// WebSocket relays (Next has no upgrade path), the static bundle, and shutdown.
+// remote-shell WebSocket relay (Next has no upgrade path), the static bundle,
+// and shutdown.
 
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
@@ -17,8 +18,7 @@ import {
   createTalkRouter,
   initTalkRuntime,
   recoverStartupInputs,
-  readRemoteShellInfo,
-  readVoiceInfo
+  readRemoteShellInfo
 } from "./router.mjs";
 
 export * from "./router.mjs";
@@ -52,10 +52,15 @@ export function parseArgs(argv) {
   return out;
 }
 
-// Cap on frames buffered before the upstream voice socket opens (codex S6a
+// Cap on frames buffered before the upstream socket opens (codex S6a
 // finding: an unbounded relay buffer is a memory-DoS if the upstream stalls).
 const MAX_RELAY_PENDING = 256;
 
+// Pure passthrough WS relay: browser WS <-> a fitting's WS endpoint. Binary and
+// text frames are forwarded verbatim in both directions; frames sent before the
+// upstream opens are buffered briefly. Born as the voice STT/TTS relay (those
+// routes are gone: the voice layer speaks REST clips through the router's
+// /api/voice/* proxy); today its one caller is the remote-shell /io terminal.
 function relayVoiceStream(client, voiceHttpUrl, search, subpath = "/stream") {
   const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + subpath + (search || "");
   const upstream = new WebSocket(upstreamUrl);
@@ -164,43 +169,24 @@ export async function startServer(opts = parseArgs(process.argv.slice(2)), { dis
   const recoveryController = new AbortController();
   server.once("close", () => recoveryController.abort());
 
-  // Streaming voice: pure passthrough WS relay browser ⇄ voice Fitting.
-  // /api/voice/stream → the Fitting's STT /stream; /api/voice/tts-stream → its
-  // read-aloud /tts-stream. No parsing - all Deepgram logic stays in the voice
-  // Fitting; the key never reaches the browser. The page connects with wss when
-  // this server is TLS, and we forward the query (sample_rate, etc.) verbatim.
-  const VOICE_WS_ROUTES = {
-    "/api/voice/stream": "/stream",
-    "/api/voice/tts-stream": "/tts-stream"
-  };
+  // The one WebSocket this host relays: the terminal stream for remote-shell
+  // threads, pointed at the remote-shell fitting's /io. The page connects with
+  // wss when this server is TLS, and the query is forwarded verbatim.
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
     const parsed = url.parse(request.url || "/", true);
-    // Terminal stream for remote-shell threads: same passthrough relay as
-    // voice, pointed at the remote-shell fitting's /io.
-    if (parsed.pathname === "/remote-shell/io") {
-      const rsh = readRemoteShellInfo();
-      if (!rsh?.url) {
-        socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-      wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, rsh.url, parsed.search || "", "/io"));
-      return;
-    }
-    const subpath = VOICE_WS_ROUTES[parsed.pathname || ""];
-    if (!subpath) {
+    if (parsed.pathname !== "/remote-shell/io") {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
       return;
     }
-    const info = readVoiceInfo();
-    if (!info?.url) {
+    const rsh = readRemoteShellInfo();
+    if (!rsh?.url) {
       socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || "", subpath));
+    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, rsh.url, parsed.search || "", "/io"));
   });
 
   // Bind the CONFIGURED port only - no findFreePort auto-shift. A busy port is a

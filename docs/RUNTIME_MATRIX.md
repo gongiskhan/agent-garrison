@@ -12,6 +12,12 @@
 - node v20.19.4 - opencode 1.17.15 - codex authed (~/.codex/auth.json present)
 - claude /home/ggomes/.local/bin/claude - ollama up (qwen2.5:3b)
 
+> **2026-09-02 note (not a regenerated run):** `deepgram-voice` is retired and
+> unstationed; `capture-service` (channels) is the voice provider and the
+> `voice` connector. The rows below are the 2026-07-12 harness output and are
+> left as written; regenerate with `node scripts/matrix-harness.mjs` to get a
+> table that reflects the current composition.
+
 ## Primary boot + one served turn
 
 | Primary | Status | Engine | Served-turn evidence |

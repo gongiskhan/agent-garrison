@@ -24,19 +24,52 @@
 // with another app, so every clip is cached on disk under its content hash:
 // Zeca's acks repeat constantly ("Card created: ...", "On it"), and a cache hit
 // costs nothing and also freezes that line's accent forever.
+//
+// Two backends since the voice layer folded in here (2026-09): ElevenLabs is
+// still the voice with the accent work above; Deepgram Aura is the fallback
+// that turns the DEEPGRAM_API_KEY the STT lane already needs into a read-aloud
+// voice, so browser voice works with one key. `tts_backend` picks (auto =
+// ElevenLabs if keyed, else Aura if keyed, else none); the phone, the browser
+// and the automations connector all come through clipFor, so they share the
+// one choice and the one cache.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { atomicWrite } from "./store.mjs";
 import { detectLanguage } from "./lang.mjs";
+import { SPEAK_TIMEOUT_MS, UpstreamError, speakClip, upstreamSignal } from "./deepgram-rest.mjs";
+
+export { UpstreamError };
 
 const API_BASE = "https://api.elevenlabs.io/v1";
 // Unspoken conditioning that holds the accent on short lines. Never rendered -
 // ElevenLabs uses it only to decide how the surrounding speech should sound.
 const PT_ANCHOR_BEFORE = "Bom dia. Vamos ver com calma o que temos para hoje.";
 const PT_ANCHOR_AFTER = " Muito bem. E assim mesmo que se diz aqui em Portugal.";
-const MAX_TEXT_CHARS = 600;
+export const MAX_TEXT_CHARS = 600;
+export const TTS_BACKENDS = ["elevenlabs", "deepgram"];
+
+// Which engine renders a clip, given the config and the sealed keys. The
+// answer is null with a reason when nothing can speak; "auto" walks the
+// preference order, an explicit choice is honoured or refused, never
+// silently swapped for the other backend.
+export function resolveBackend(cfg) {
+  const mode = String(cfg?.ttsBackend ?? "auto").trim().toLowerCase() || "auto";
+  const hasEleven = Boolean(cfg?.secrets?.elevenLabsApiKey);
+  const hasDeepgram = Boolean(cfg?.secrets?.deepgramApiKey);
+  if (mode === "elevenlabs") {
+    if (!hasEleven) return { backend: null, reason: "no ElevenLabs key" };
+    if (!cfg.ttsVoiceId) return { backend: null, reason: "no voice configured" };
+    return { backend: "elevenlabs" };
+  }
+  if (mode === "deepgram") {
+    return hasDeepgram ? { backend: "deepgram" } : { backend: null, reason: "no DEEPGRAM_API_KEY" };
+  }
+  if (hasEleven && cfg.ttsVoiceId) return { backend: "elevenlabs" };
+  if (hasDeepgram) return { backend: "deepgram" };
+  return { backend: null, reason: "no TTS backend: neither ELEVENLABS_API_KEY nor DEEPGRAM_API_KEY is sealed" };
+}
 
 export function textSeed(text) {
   let hash = 0x811c9dc5;
@@ -48,16 +81,22 @@ export function textSeed(text) {
 }
 
 // The cache key covers everything that changes the AUDIO, not just the words:
-// swapping voice or model has to MISS, or a voice change would silently keep
-// serving the old voice forever.
-export function clipId({ text, voiceId, model, lang = null }) {
+// swapping voice, model or backend has to MISS, or a voice change would
+// silently keep serving the old voice forever.
+export function clipId({ text, voiceId, model, lang = null, backend = "elevenlabs" }) {
   // `lang` is in the key because it changes the AUDIO: it selects the pt-PT
   // anchors, and the same sentence rendered with and without them is a
   // different recording. Absent = "inferred", which is what every clip cached
   // before this behaved as - so old entries keep their old ids and simply age
   // out rather than being served for the wrong conditioning.
   const suffix = lang ? ` ${lang}` : "";
-  return createHash("sha256").update(`${model} ${voiceId} ${text}${suffix}`).digest("hex").slice(0, 32);
+  // The ElevenLabs key input is the pre-backend one on purpose: every clip on
+  // disk today was rendered by ElevenLabs, and re-keying them would re-render
+  // (and re-bill, and un-freeze the accent of) every line Zeca has ever said.
+  // Aura clips carry the backend name, so the two can never collide; on Aura
+  // the model IS the voice, so no voice id enters the key.
+  const input = backend === "deepgram" ? `deepgram ${model} ${text}${suffix}` : `${model} ${voiceId} ${text}${suffix}`;
+  return createHash("sha256").update(input).digest("hex").slice(0, 32);
 }
 
 // Picks CONDITIONING, never words: the anchors apply only to Portuguese, so
@@ -108,15 +147,33 @@ export class ZecaVoice {
   cachedClipFor(text, { lang = null } = {}) {
     const trimmed = String(text ?? "").trim();
     if (!trimmed || !this.available().ok) return null;
-    const id = clipId({ text: trimmed, voiceId: this.cfg.ttsVoiceId, model: this.cfg.ttsModel, lang });
-    return this.readClip(id) ? { id, cached: true } : null;
+    const id = this.idFor(trimmed, lang);
+    return this.readClip(id) ? { id, cached: true, backend: this.backend() } : null;
+  }
+
+  // The resolved engine name ("elevenlabs" | "deepgram") or null. Read by
+  // /health and stamped on /tts as X-Voice-Backend; resolved on every call so
+  // a config or key change at restart is reflected without a rebuild.
+  backend() {
+    return resolveBackend(this.cfg).backend;
   }
 
   available() {
     if (!this.cfg.ttsEnabled) return { ok: false, reason: "tts disabled" };
-    if (!this.cfg.secrets?.elevenLabsApiKey) return { ok: false, reason: "no ElevenLabs key" };
-    if (!this.cfg.ttsVoiceId) return { ok: false, reason: "no voice configured" };
-    return { ok: true };
+    const { backend, reason } = resolveBackend(this.cfg);
+    if (!backend) return { ok: false, reason };
+    return { ok: true, backend };
+  }
+
+  idFor(text, lang) {
+    const backend = this.backend();
+    return clipId({
+      text,
+      voiceId: this.cfg.ttsVoiceId,
+      model: backend === "deepgram" ? this.cfg.ttsDeepgramModel : this.cfg.ttsModel,
+      lang,
+      backend
+    });
   }
 
   clipPath(id) {
@@ -145,42 +202,74 @@ export class ZecaVoice {
   // then went out unanchored and drifted Brazilian. Those are short cues the
   // wearer hears constantly, so the drift was the voice they heard most.
   async clipFor(text, { lang = null } = {}) {
+    try {
+      return await this.render(text, { lang });
+    } catch {
+      // Counted and logged where it happened (render); here it is only the
+      // fallback contract: null, and the phone speaks the line itself.
+      return null;
+    }
+  }
+
+  // clipFor without the safety net: same cache, same in-flight dedupe, but an
+  // upstream failure PROPAGATES (as UpstreamError when the far end answered).
+  // The voice REST surface needs the failure to answer an honest 502 with the
+  // upstream status; the ack lane keeps using clipFor.
+  async render(text, { lang = null } = {}) {
     const trimmed = String(text ?? "").trim();
     if (!trimmed) return null;
-    if (!this.available().ok) return null;
+    const avail = this.available();
+    if (!avail.ok) return null;
     if (trimmed.length > MAX_TEXT_CHARS) {
-      // Long text is the operative answering a question. Speaking it is
+      // Long text is the session answering a question. Speaking it is
       // desirable, but it is also the whole monthly budget in a handful of
       // replies - so it stays on the phone's own voice until someone raises
       // the cap deliberately.
       this.counters.bump("tts_skipped_too_long");
       return null;
     }
-    const id = clipId({ text: trimmed, voiceId: this.cfg.ttsVoiceId, model: this.cfg.ttsModel, lang });
+    const backend = avail.backend;
+    const id = this.idFor(trimmed, lang);
     if (this.readClip(id)) {
       this.counters.bump("tts_cache_hits");
-      return { id, cached: true };
+      return { id, cached: true, backend };
     }
     if (this.inFlight.has(id)) return this.inFlight.get(id);
-    const work = this.generate(trimmed, id, lang)
+    const work = this.generate(trimmed, id, lang, backend)
       .catch((err) => {
         this.counters.bump("tts_failures");
-        this.log.error(`[capture-service] tts failed: ${err?.message ?? err}`);
-        return null;
+        this.counters.bump(`tts_failures_${backend}`);
+        this.log.error(`[capture-service] tts failed (${backend}): ${err?.message ?? err}`);
+        throw err;
       })
       .finally(() => this.inFlight.delete(id));
     this.inFlight.set(id, work);
     return work;
   }
 
-  async generate(text, id, lang = null) {
+  async generate(text, id, lang = null, backend = "elevenlabs") {
+    const startedAt = this.now();
+    const audio =
+      backend === "deepgram"
+        ? await speakClip({ cfg: this.cfg, text, fetchImpl: this.fetch })
+        : await this.generateElevenLabs(text, lang);
+    mkdirSync(this.dir, { recursive: true });
+    atomicWrite(this.clipPath(id), audio);
+    this.counters.bump("tts_generated");
+    this.counters.bump(`tts_generated_${backend}`);
+    this.counters.observe("tts_generate_ms", this.now() - startedAt);
+    this.counters.observe("tts_characters", text.length);
+    this.pruneCache();
+    return { id, cached: false, backend };
+  }
+
+  async generateElevenLabs(text, lang = null) {
     // A known language beats a guess every time; the guess remains for callers
     // that genuinely have nothing (a raw ack posted by another fitting).
     const portuguese = lang ? lang === "pt" : looksPortuguese(text);
-    const startedAt = this.now();
-    const res = await this.fetch(
-      `${API_BASE}/text-to-speech/${this.cfg.ttsVoiceId}?output_format=mp3_44100_128`,
-      {
+    let res;
+    try {
+      res = await this.fetch(`${API_BASE}/text-to-speech/${this.cfg.ttsVoiceId}?output_format=mp3_44100_128`, {
         method: "POST",
         headers: {
           "xi-api-key": this.cfg.secrets.elevenLabsApiKey,
@@ -194,25 +283,22 @@ export class ZecaVoice {
           ...(portuguese ? { previous_text: PT_ANCHOR_BEFORE, next_text: PT_ANCHOR_AFTER } : {}),
           voice_settings: { stability: 0.75, similarity_boost: 0.75 },
           seed: textSeed(text)
-        })
-      }
-    );
+        }),
+        signal: upstreamSignal(SPEAK_TIMEOUT_MS)
+      });
+    } catch (err) {
+      throw new UpstreamError("elevenlabs", 0, err?.message ?? String(err), { cause: err });
+    }
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       // 401 is a dead key and 429 is the monthly wall. Both deserve their own
       // counter: degrading quietly for a month is how you find out in November.
       this.counters.bump(res.status === 429 ? "tts_quota_exhausted" : "tts_http_errors");
-      throw new Error(`elevenlabs ${res.status}: ${detail.slice(0, 200)}`);
+      throw new UpstreamError("elevenlabs", res.status, detail);
     }
     const audio = Buffer.from(await res.arrayBuffer());
-    if (audio.length === 0) throw new Error("elevenlabs returned empty audio");
-    mkdirSync(this.dir, { recursive: true });
-    atomicWrite(this.clipPath(id), audio);
-    this.counters.bump("tts_generated");
-    this.counters.observe("tts_generate_ms", this.now() - startedAt);
-    this.counters.observe("tts_characters", text.length);
-    this.pruneCache();
-    return { id, cached: false };
+    if (audio.length === 0) throw new UpstreamError("elevenlabs", res.status, "empty audio");
+    return audio;
   }
 
   // Oldest-first prune. The cache exists to make REPEATS free, so it only has

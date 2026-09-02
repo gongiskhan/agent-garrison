@@ -80,11 +80,13 @@ Three references, none of them dependencies:
 - **I8 Secrets via vault.** `DEEPGRAM_API_KEY`, `CAPTURE_TOKEN`, `APNS_TEAM_ID`,
   `APNS_KEY_ID`, `APNS_P8` (or a path convention the vault supports),
   `APP_BUNDLE_ID` as config. Nothing sensitive in code, fixtures, or Info.plist.
-  **[R2] `DEEPGRAM_API_KEY` is NOT currently in the vault** (verified 2026-08-09:
-  the vault holds Anthropic, Cortex, Google OAuth, five OMI keys and VAPID, and
-  nothing else). The `deepgram-voice` fitting is equipped but inert for this
-  reason. M0 preflight must report it as a pending human action, not discover it
-  in M2.
+  **[R2, corrected 2026-09-02] `DEEPGRAM_API_KEY` IS in the vault** and is read
+  by capture-service, which is the voice layer (`kind: voice`) since the
+  `deepgram-voice` fitting was retired. `ELEVENLABS_API_KEY` is optional and,
+  when sealed, selects ElevenLabs for read-aloud (`tts_backend: auto`). M0
+  preflight reports which keys are sealed: no `DEEPGRAM_API_KEY` means no live
+  transcription and `/stt` answers 503; no ElevenLabs key only changes the TTS
+  backend.
 - **I9 Flags default off.** The capture-service fitting ships inert like the omi
   channel did. The app ships with no hardcoded hosts; base URL and token are
   settings.
@@ -200,8 +202,10 @@ All messages over one websocket per session, Bearer `CAPTURE_TOKEN` on connect.
 - `session_end`: `{ reason: "user" | "error" | "timeout" }`
 - Device registration (plain HTTPS, same token): `POST /capture/devices { apns_token, device_name }`
 - **[R2] Speech delivery** (server → app, same socket when a session is live):
-  `{ type: "speak", ack: <ack payload per §5b> }`. Out of session the app is
-  reached by APNs instead. The app replies `{ spoken: <ack id>, ok, reason? }` so
+  `{ type: "speak", ack: <ack payload per §5b> }`. When the voice layer produced a
+  clip the ack carries `audioPath: "/speak/<clip id>.mp3"` (fetched from the
+  capture-service origin with the capture token); without it the app synthesizes
+  on device. Out of session the app is reached by APNs instead. The app replies `{ spoken: <ack id>, ok, reason? }` so
   the server knows whether the utterance actually happened - a sink that silently
   drops is indistinguishable from one that is off.
 - Offline behavior: the extension and app write to the App Group container while
@@ -252,8 +256,13 @@ Behaviour, unchanged in intent from the voice brief:
   time reference, never as if it just happened.
 - Errors speak even when info-level acks are muted, unless the sink is off.
 - Duck other audio rather than interrupting.
-- On-device synthesis (`AVSpeechSynthesizer`). Voice, rate and volume are
-  settings. No cloud TTS - latency dominates timbre for confirmations.
+- **Clip first, on-device fallback** (D3, 2026-09-02). The voice layer
+  (capture-service) decides what is said and produces the clip - ElevenLabs when
+  `ELEVENLABS_API_KEY` is sealed, else Deepgram Aura - and the ack ships with
+  `audioPath`; the app plays that clip. `AVSpeechSynthesizer` is used ONLY when
+  the ack arrives without `audioPath` (no TTS backend, or the remote call
+  failed): a robotic ack beats a silent one. Voice, rate and volume of the
+  fallback are settings.
 - **Controls**: master on/off reachable in one tap; info acks separately from
   errors; quiet hours; mute-for-N-minutes (the realistic failure is a meeting
   starting).
@@ -407,11 +416,13 @@ one line in `DECISIONS.md`.
 ### M5b [R2] Speech sink
 - `POST /ack` on the capture-service: registers the echo fingerprint, then
   forwards to a live session socket as `{type: "speak"}` or falls through to APNs.
-- App side: `AVSpeechSynthesizer`, queue ceiling 3, staleness window, errors
-  always audible, controls per §5b, `{spoken: ...}` receipt back.
+- App side: plays the `audioPath` clip when present, `AVSpeechSynthesizer` only
+  as the fallback, queue ceiling 3, staleness window, errors always audible,
+  controls per §5b, `{spoken: ...}` receipt back.
 - Acceptance: an ack emitted with the app foregrounded is spoken within 2s of the
-  action completing; with the app closed nothing is spoken and the push still
-  arrives; toggling the sink off silences speech within one ack with no restart;
+  action completing, through the clip when the ack carries `audioPath` and
+  through the synthesizer otherwise; with the app closed nothing is spoken and
+  the push still arrives; toggling the sink off silences speech within one ack with no restart;
   ten acks in five seconds do not produce ten sentences; **speaking during a live
   session does not create a card** (the echo guard suppresses the app's own voice
   in the transcript - assert on the stored transcript, not just on counters).

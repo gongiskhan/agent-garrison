@@ -10,8 +10,10 @@ import { publishPortToTailnet } from "./tailnet-publish";
 import { ROOT_DIR } from "./paths";
 import { isOwnPortFitting } from "./faculties";
 import { readLibrary } from "./library";
-import { scopedSecrets } from "./vault";
+import { vaultStatus } from "./vault";
 import { recordVaultAccess } from "./vault-audit";
+import { scopedSecretsViaAuthority } from "./composition-sync";
+import { StateApiError, StateUnavailableError } from "./state-client";
 import type { LibraryEntry } from "./types";
 
 // The lifecycle-managed env keys whose drift triggers a heal. Adding a key here
@@ -211,12 +213,21 @@ function withFittingLock<T>(fittingId: string, task: () => Promise<T>): Promise<
 
 // Own-port Fittings are spawned detached with a copy of process.env — they do
 // NOT see the materialized .env that the Operative reads. A Fitting that
-// declares `consumes: vault` (e.g. deepgram-voice needs DEEPGRAM_API_KEY) gets
+// declares `consumes: vault` (e.g. capture-service needs DEEPGRAM_API_KEY) gets
 // its vault secrets injected into the spawn env here. Gated on the declared
 // consumption so we never leak one Fitting's secrets into another that did not
-// ask for the vault. Tolerant of a locked vault: returns {} so the manual
-// /api/fittings/<id>/start path (no unlock guarantee, unlike `up`) still
-// starts the Fitting — minus secrets — instead of crashing.
+// ask for the vault. Tolerant of a locked vault or an unreachable authority:
+// returns {} so the manual /api/fittings/<id>/start path (no unlock guarantee,
+// unlike `up`) still starts the Fitting - minus secrets - instead of crashing;
+// the delivery ledger below records that it ran keyless so the next up() or
+// unlock heals it.
+//
+// The secrets come from wherever the composition .env comes from
+// (scopedSecretsViaAuthority): the state service on an enrolled node, the
+// local vault on a standalone box. Reading the local vault on a mesh node
+// delivered nothing - every peer's vault is empty by design - and the spawn
+// record still said secretsDelivered:true because the empty vault was
+// "unlocked", so the voice layer ran keyless on every node but the authority.
 export async function vaultEnvForEntry(entry: LibraryEntry): Promise<Record<string, string>> {
   const consumesVault = entry.metadata.consumes.some((c) => c.kind === "vault");
   if (!consumesVault) return {};
@@ -229,16 +240,65 @@ export async function vaultEnvForEntry(entry: LibraryEntry): Promise<Record<stri
       `[garrison] ${entry.id} consumes vault but declares no x-garrison.secret_scope; delivering no secrets.`
     );
     await recordVaultAccess({ connector: entry.id, secrets: [], action: "denied", outcome: "denied", detail: "no-secret-scope" });
+    secretDeliveryLedger.set(entry.id, { answered: true, values: {} });
     return {};
   }
   try {
     // Deliver ONLY the secrets the Fitting declared in its scope.
-    const secrets = await scopedSecrets(scope);
-    await recordVaultAccess({ connector: entry.id, secrets: secrets.map((s) => s.key), action: "deliver", outcome: "ok" });
-    return Object.fromEntries(secrets.map((s) => [s.key, s.value]));
-  } catch {
+    const out = await scopedSecretsViaAuthority(scope);
+    const keys = Object.keys(out.values);
+    await recordVaultAccess({
+      connector: entry.id,
+      secrets: keys,
+      action: "deliver",
+      outcome: "ok",
+      detail: out.missing.length ? `${out.source}; missing: ${out.missing.join(",")}` : out.source
+    });
+    // The source answered: whatever it did not have does not exist anywhere,
+    // so a heal could not do better and the spawn is not keyless by accident.
+    secretDeliveryLedger.set(entry.id, { answered: true, values: out.values });
+    return out.values;
+  } catch (err) {
+    secretDeliveryLedger.set(entry.id, { answered: false, values: {} });
+    if (err instanceof StateApiError && err.status === 403) {
+      // The authority refused: this node holds no grant for (some of) the keys.
+      // Start keyless and name the denial - adding the grant and running up()
+      // is the fix, and the record below says the process is still keyless.
+      const denied = (err.body as { denied?: string[] } | undefined)?.denied;
+      await recordVaultAccess({
+        connector: entry.id,
+        secrets: Array.isArray(denied) ? denied : [...scope],
+        action: "denied",
+        outcome: "denied",
+        detail: "authority-grant"
+      });
+      return {};
+    }
+    // Unreachable authority or a locked local vault: keyless for now, healed
+    // when the source is back (up() re-runs delivery; unlock heals directly).
+    const reason = err instanceof StateUnavailableError ? "authority-unreachable" : "vault-locked";
+    await recordVaultAccess({ connector: entry.id, secrets: [], action: "deliver", outcome: "error", detail: reason });
     return {};
   }
+}
+
+// The compose -> spawn handoff: what the last vaultEnvForEntry for a fitting
+// could prove about the env it produced. `answered` is true when the secret
+// source ANSWERED (the scoped keys it holds are in `values`), false when it
+// could not (locked vault, unreachable or refusing authority). The spawn takes
+// the entry (one-shot: it describes one composed env, and every start is
+// preceded by a fresh compose) and writes an honest secretsDelivered from it -
+// delivered only if the source answered AND every value it handed over is in
+// the env actually being spawned. A fitting with no entry (a caller that
+// composed its env some other way) falls back to the local vault's unlock
+// state, which is all a standalone box has to go on.
+const secretDeliveryLedger = new Map<string, { answered: boolean; values: Record<string, string> }>();
+
+function takeSecretDelivery(fittingId: string, spawnEnv: Record<string, string>): boolean {
+  const entry = secretDeliveryLedger.get(fittingId);
+  if (!entry) return vaultStatus().unlocked;
+  secretDeliveryLedger.delete(fittingId);
+  return entry.answered && Object.entries(entry.values).every(([k, v]) => spawnEnv[k] === v);
 }
 
 export interface StartResult {
@@ -437,9 +497,15 @@ function publishToTailnetAfterStart(fittingId: string): void {
   })();
 }
 
+// The caller's env, or a thunk producing it. A thunk is resolved under the
+// per-fitting lock and only once the start is going ahead: the vault-heal pass
+// hands one so a fitting that is not running never has its secrets fetched
+// (and audited as delivered) for a spawn that will not happen.
+export type ExtraEnvSource = Record<string, string> | (() => Promise<Record<string, string>>);
+
 export async function startOwnPortFitting(
   entry: LibraryEntry,
-  extraEnv?: Record<string, string>,
+  extraEnv?: ExtraEnvSource,
   options: StartOptions = {}
 ): Promise<StartResult> {
   if (!isValidFittingId(entry.id)) {
@@ -456,21 +522,13 @@ export async function startOwnPortFitting(
 
 async function startOwnPortFittingLocked(
   entry: LibraryEntry,
-  extraEnv?: Record<string, string>,
+  extraEnvSource?: ExtraEnvSource,
   options: StartOptions = {}
 ): Promise<StartResult> {
   if (!isOwnPortFitting(entry)) {
     return { ok: false, error: `fitting ${entry.id} is not an own-port Fitting`, status: 400 };
   }
   const consumesVault = entryConsumesVault(entry);
-  // Derived from the CALLER's env, before the port guarantee below fills a gap:
-  // the injected port is Garrison's own bookkeeping, not evidence that the
-  // caller delivered secrets/config, and treating it as such would flip the
-  // vault-heal semantics for a caller that legitimately passed nothing.
-  const hasExtraEnv = extraEnv !== undefined && Object.keys(extraEnv).length > 0;
-  // From here on the env ALWAYS names a port for this instance. Applied before
-  // the fingerprint so drift detection and the spawn agree on one env.
-  extraEnv = withGuaranteedPort(entry, extraEnv);
   const record = await readSpawnRecord(entry.id);
   let livePid = await runningStatusPid(entry.id);
   // Boot window: a child Garrison spawned that has not yet written its status
@@ -487,6 +545,17 @@ async function startOwnPortFittingLocked(
     // any stale record is left for the next real start/sweep to reconcile.
     return { ok: true, notRunning: true };
   }
+  // The start is going ahead: resolve the caller's env now (a thunk fetches
+  // secrets here, under the lock, for a fitting that IS running or about to).
+  const callerEnv = typeof extraEnvSource === "function" ? await extraEnvSource() : extraEnvSource;
+  // Derived from the CALLER's env, before the port guarantee below fills a gap:
+  // the injected port is Garrison's own bookkeeping, not evidence that the
+  // caller delivered secrets/config, and treating it as such would flip the
+  // vault-heal semantics for a caller that legitimately passed nothing.
+  const hasExtraEnv = callerEnv !== undefined && Object.keys(callerEnv).length > 0;
+  // From here on the env ALWAYS names a port for this instance. Applied before
+  // the fingerprint so drift detection and the spawn agree on one env.
+  const extraEnv = withGuaranteedPort(entry, callerEnv);
   if (livePid === null && record !== null) {
     if (isProcessAlive(record.pid) && (await pidMatchesRecord(record.pid, record.startedAt))) {
       // The recorded process is still alive with no status file (clobbered
@@ -614,9 +683,14 @@ async function startOwnPortFittingLocked(
     pid: child.pid,
     startedAt: new Date().toISOString(),
     // True whenever this spawn could not have run keyless: either the Fitting
-    // never asked for the vault, or the secrets are in its env right now.
-    // After a heal this is always true, so the heal can never loop.
-    secretsDelivered: !consumesVault || hasExtraEnv,
+    // never asked for the vault, or the secret source ANSWERED when its env
+    // was composed (so the scoped secrets it holds are in there). A non-empty
+    // env alone is not evidence: the runner projects gateway URL, composition
+    // id and config whether or not the source answered, and a fitting started
+    // that way under a locked vault or an unreachable authority is exactly the
+    // one the heal exists for. After a heal (source answered by definition)
+    // this is true, so it cannot loop.
+    secretsDelivered: !consumesVault || (hasExtraEnv && takeSecretDelivery(entry.id, extraEnv)),
     envFingerprint: envFingerprintForExtraEnv(extraEnv)
   });
   publishToTailnetAfterStart(entry.id);
@@ -777,15 +851,28 @@ export interface HealSummary {
 // startOwnPortFitting's heal branch (spawn record + non-empty env). Start
 // failures land in `failed` — the keyless process may be dead by then, so
 // burying them as skips would hide a fitting the unlock just broke.
+//
+// `envFor` is the env the healed process gets. The default is the vault
+// projection alone; the shell's unlock route passes the runner's full desired
+// env (gateway URL, composition id, selection config over vault) so a heal
+// never demotes a fitting that was running WITH its operative env to one
+// running with secrets only. This module cannot import the runner (cycle), so
+// the caller hands the projection in.
 export async function healVaultConsumingFittings(
-  options: { library?: LibraryEntry[] } = {}
+  options: {
+    library?: LibraryEntry[];
+    envFor?: (entry: LibraryEntry) => Promise<Record<string, string>>;
+  } = {}
 ): Promise<HealSummary> {
   const summary: HealSummary = { healed: [], skipped: [], failed: [] };
   const library = options.library ?? (await readLibrary());
+  const envFor = options.envFor ?? vaultEnvForEntry;
   for (const entry of library) {
     if (!isOwnPortFitting(entry)) continue;
     if (!entryConsumesVault(entry)) continue;
-    const result = await startOwnPortFitting(entry, await vaultEnvForEntry(entry), {
+    // Lazy: a fitting that is not running never has its secrets resolved (and
+    // audited as delivered) for a heal that will not happen.
+    const result = await startOwnPortFitting(entry, () => envFor(entry), {
       onlyIfRunning: true
     });
     if (result.notRunning) {

@@ -7,7 +7,20 @@
 // path.
 
 export * from "@garrison/talk/server";
-import { startServer } from "@garrison/talk/server";
+import { parseArgs, startServer } from "@garrison/talk/server";
+
+// The voice pair the router needs (createTalkRouter's `voice` option). The
+// runner projects GARRISON_VOICE_FITTING_ID (the fitting providing kind:voice,
+// absent when none is stationed) and delivers CAPTURE_TOKEN through this
+// fitting's secret_scope; the shell host resolves the same two from the
+// capability graph and the vault per request. Read at call time so a heal
+// restart with new env is the only refresh needed - no copy is cached here.
+export function voiceOptionsFromEnv(env = process.env) {
+  return {
+    fittingId: () => env.GARRISON_VOICE_FITTING_ID?.trim() || null,
+    token: () => env.CAPTURE_TOKEN || null
+  };
+}
 
 const isDirect = (() => {
   try {
@@ -18,7 +31,7 @@ const isDirect = (() => {
 })();
 
 if (isDirect) {
-  startServer().catch((err) => {
+  startServer({ ...parseArgs(process.argv.slice(2)), voice: voiceOptionsFromEnv() }).catch((err) => {
     console.error("[web-channel] start failed:", err);
     process.exit(1);
   });

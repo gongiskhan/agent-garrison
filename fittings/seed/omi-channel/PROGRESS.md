@@ -315,8 +315,41 @@ key + app_id + uid and reads `query`), so a stale manifest still gets a real
 answer; what is stale is the name and description Omi's own model sees when
 deciding to call the tool. See HUMAN_SETUP.md §10.
 
+## M9 - Realtime forwarder: the omi side of the one voice layer (2026-09-02)
+
+Decision D24 (`docs/decisions/2026-09-garrison-app.md`): Garrison has one
+voice layer, capture-service. This fitting stops being a second one.
+
+Shipped:
+- `lib/forward.mjs`: `RealtimeForwarder` posts accepted realtime segments to
+  `POST <capture-service>/capture/ingest/text` (`source: "omi"`, the Omi
+  session id, `{text, speaker, is_user, start, end}` segments) with
+  `Authorization: Bearer <CAPTURE_TOKEN>`. Fire-and-forget from
+  `Ingress.acceptRealtime`, bounded timeout, fail closed: no token ->
+  `realtime_forward_skipped`; no status-file url / connection error /
+  non-2xx -> `realtime_forward_failed`. No local fallback. Warnings are
+  rate-limited and describe the shape only (I5). `capture-service`'s url is
+  read from `$GARRISON_HOME/ui-fittings/capture-service.json`.
+- `/health` gains `forward: {ok, reason}`; the status page shows the reason
+  beside "Realtime forward". `wake_enabled` keeps its name and gates the
+  forward.
+- Removed: `lib/wake.mjs`, `lib/chat.mjs`, `lib/echo-guard.mjs`,
+  `lib/lang.mjs` (capture-service holds the live copies), the `/omi/chat`,
+  `/omi/tools-manifest` and `/ack` routes (404), `scripts/speak.mjs ask`,
+  and the `chat_enabled`, `public_base_url`, `delegate_*` and `wake_*`
+  tuning config keys. `secret_scope` gains `CAPTURE_TOKEN`.
+- Tests: the omi wake cases that capture-service's suite did not already
+  cover moved to `tests/capture-service-wake-omi-source.test.ts` and run
+  against capture-service's `WakeBus` with `OMI_WAKE_SOURCE`;
+  `tests/omi-channel-forward.test.ts` covers the forwarder against a stub
+  capture-service on port 0.
+
+Replies to spoken commands arrive through the Garrison app (and the pendant
+speaker), not through this fitting.
+
 ## Done
 
-All milestones M0-M7 complete, 2026-07-30; M8 (rename) 2026-08-13.
-75 omi-channel tests plus the kanban pinning suites green; typecheck
-clean; validation pipeline PASS. Live wiring is HUMAN_SETUP.md.
+All milestones M0-M7 complete, 2026-07-30; M8 (rename) 2026-08-13; M9
+(forwarder) 2026-09-02. omi-channel tests plus the kanban pinning suites
+green; typecheck clean; validation pipeline PASS. Live wiring is
+HUMAN_SETUP.md.

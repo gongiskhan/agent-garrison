@@ -26,6 +26,12 @@ declare module "*/capture-service/lib/config.mjs" {
     capturePolicy: "wake_only" | "ambient";
     sttModel: string;
     sttLanguage: string;
+    sttRestLanguage: string;
+    ttsEnabled: boolean;
+    ttsBackend: "auto" | "elevenlabs" | "deepgram";
+    ttsDeepgramModel: string;
+    dgBaseUrl: string | null;
+    dgRestBaseUrl: string;
     classifyTarget: string;
     delegateEnabled: boolean;
     delegateTimeoutMs: number;
@@ -38,10 +44,15 @@ declare module "*/capture-service/lib/config.mjs" {
     wakeContextSegments: number;
     wakeContextMaxAgeMs: number;
     wakeCardDedupeMs: number;
+    wakeReviseAfterMs: number;
     notifyMaxPerDay: number;
     apnsEnvironment: "production" | "sandbox";
     apnsTopic: string;
     sessionIdleTimeoutMs: number;
+    textSessionIdleMs: number;
+    activeConversationWindowMs: number;
+    transcribeMuteTimeoutMs: number;
+    wakeProgressIntervalMs: number;
     minTranscriptWords: number;
     secrets: {
       deepgramApiKey: string;
@@ -60,6 +71,7 @@ declare module "*/capture-service/scripts/server.mjs" {
   export function makeRequestHandler(ctx: unknown): (req: unknown, res: unknown) => Promise<void>;
   export const COMPANION_WAKE_SOURCE: Record<string, unknown>;
   export const PENDANT_WAKE_SOURCE: Record<string, unknown>;
+  export const OMI_TEXT_WAKE_SOURCE: Record<string, unknown>;
   export function startServer(cfg?: unknown): Promise<{
     server: Server;
     cfg: { port: number; statusFile: string; stateDir: string };
@@ -69,6 +81,12 @@ declare module "*/capture-service/scripts/server.mjs" {
     transcriber: unknown;
     wakeBus: unknown;
     pendantWakeBus: unknown;
+    omiWakeBus: unknown;
+    activeConversation: {
+      pin(sessionId: string): { session_id: string; until: string };
+      clear(): void;
+      current(): { session_id: string | null; until: string | null };
+    };
     feedbackBus: {
       recentEvents(sessionId: string): Array<Record<string, unknown> & { event_id: string; name: string }>;
       emit(name: string, payload?: Record<string, unknown>): Record<string, unknown> | null;
@@ -112,10 +130,16 @@ declare module "*/capture-service/lib/ingress.mjs" {
   export function bearerToken(req: { headers?: Record<string, string> }): string | null;
   export function parseMediaFrame(buf: Buffer): { kind: number; seq: number; ts: number; bytes: Buffer } | null;
   export function encodeMediaFrame(kind: number, seq: number, ts: number, bytes: Buffer): Buffer;
+  export const TEXT_SOURCES: Set<string>;
+  export const TEXT_SESSION_ID_RE: RegExp;
   export class CaptureIngress {
     constructor(deps: Record<string, unknown>);
     sessions: Map<string, unknown>;
+    static textSessionKey(source: string, sessionId: string): string;
     handleUpgrade(req: unknown, socket: unknown, head: unknown): void;
+    openTextSession(args: { source: string; sessionId: string }): { session: { record: Record<string, any>; text: true }; created: boolean };
+    noteTextSegments(session: unknown, count: number): void;
+    finalizeTextSession(id: string, reason: string): boolean;
     finalizeSession(id: string, reason: string): void;
     close(): void;
   }
@@ -256,8 +280,25 @@ declare module "*/capture-service/lib/opus-normalize.mjs" {
 
 declare module "*/capture-service/lib/tts.mjs" {
   export function textSeed(text: string): number;
-  export function clipId(args: { text: string; voiceId: string; model: string; lang?: string | null }): string;
+  export function clipId(args: {
+    text: string;
+    voiceId?: string;
+    model: string;
+    lang?: string | null;
+    backend?: "elevenlabs" | "deepgram";
+  }): string;
   export function looksPortuguese(text: unknown): boolean;
+  export const MAX_TEXT_CHARS: number;
+  export const TTS_BACKENDS: string[];
+  export function resolveBackend(cfg: Record<string, unknown>): {
+    backend: "elevenlabs" | "deepgram" | null;
+    reason?: string;
+  };
+  export class UpstreamError extends Error {
+    backend: string;
+    status: number;
+    detail: string;
+  }
   export class ZecaVoice {
     constructor(deps: {
       cfg: Record<string, unknown>;
@@ -266,9 +307,11 @@ declare module "*/capture-service/lib/tts.mjs" {
       fetchImpl?: (url: string, init: never) => Promise<unknown>;
       now?: () => number;
     });
-    available(): { ok: boolean; reason?: string };
+    available(): { ok: boolean; reason?: string; backend?: string };
+    backend(): "elevenlabs" | "deepgram" | null;
     readClip(id: unknown): Buffer | null;
-    clipFor(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached?: boolean } | null>;
+    clipFor(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached?: boolean; backend?: string } | null>;
+    render(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached: boolean; backend: string } | null>;
     cachedClipFor(text: unknown, opts?: { lang?: string | null }): { id: string; cached: boolean } | null;
     pin(id: unknown): void;
   }
@@ -305,6 +348,7 @@ declare module "*/capture-service/lib/echo-guard.mjs" {
     register(entry: { text: string; echo?: string | null }): boolean;
     registerShort(text: unknown, opts?: { ttlMs?: number }): boolean;
     shouldSuppress(segmentText: unknown): boolean;
+    prune(): void;
   }
 }
 
@@ -364,12 +408,29 @@ declare module "*/capture-service/lib/wake.mjs" {
   export function buildVoiceDiscussTurn(utterance: string): string;
   export function splitForSpeech(text: unknown, opts?: { maxChars?: number; maxChunks?: number }): string[];
   export function humanTime(iso: unknown, now?: Date, lang?: string): string;
+  export const OMI_WAKE_SOURCE: Record<string, unknown>;
+  export class ActiveConversation {
+    constructor(opts?: { windowMs?: number; now?: () => number });
+    pin(sessionId: string): { session_id: string; until: string };
+    clear(): void;
+    current(): { session_id: string | null; until: string | null };
+    resumeFor(last: { sessionId: string; at: number } | null): { sessionId: string; via: "pin" | "window" } | null;
+  }
   export class WakeBus {
     static stripRoutingFooter(text: unknown): string;
     constructor(deps: Record<string, unknown>);
     stripLeadingCueEcho(command: unknown): string;
     delegateChain?: Promise<unknown>;
     handleSegments(args: { sessionId: string; segments: unknown[] }): void;
+    handleCommand(args: {
+      command: string;
+      eventId: string;
+      context?: Array<{ text: string; isUser: boolean; at: number }>;
+      trailing?: string;
+      sessionId?: string | null;
+      screen?: unknown;
+      onLanguage?: ((lang: string) => void) | null;
+    }): Promise<{ confirmation: string; cardUrl: string | null; result: Record<string, unknown> }>;
     close(sessionId: string, reason: string): Promise<any>;
     session(sessionId: string): { state: string; [k: string]: unknown };
     discussion(sessionId: string): { chain: Promise<unknown>; turns: number; [k: string]: unknown } | null;
@@ -390,4 +451,39 @@ declare module "*/capture-service/lib/screen-context.mjs" {
     constructor(opts: { ingress: unknown; cfg?: Record<string, unknown>; counters?: unknown; now?: () => number });
     latest(q?: { atMs?: number | null }): { stale: boolean; sessionId: string; seq: number; file: string; ageMs: number } | null;
   }
+}
+
+declare module "*/capture-service/lib/deepgram-rest.mjs" {
+  export class UpstreamError extends Error {
+    backend: string;
+    status: number;
+    detail: string;
+  }
+  export function transcribeClip(args: {
+    cfg: Record<string, unknown>;
+    bytes: Buffer;
+    contentType?: string;
+    language?: string | null;
+    fetchImpl?: unknown;
+    timeoutMs?: number;
+  }): Promise<{ transcript: string; confidence: number | null; language: string; model: string }>;
+  export function speakClip(args: { cfg: Record<string, unknown>; text: string; fetchImpl?: unknown; timeoutMs?: number }): Promise<Buffer>;
+  export const LISTEN_TIMEOUT_MS: number;
+  export const SPEAK_TIMEOUT_MS: number;
+  export function upstreamSignal(timeoutMs: number): AbortSignal | undefined;
+}
+
+declare module "*/capture-service/scripts/connector.mjs" {
+  export const CATALOG: {
+    service: string;
+    auth: string;
+    actions: Array<{ name: string; args: string[]; mutates: boolean; description: string }>;
+  };
+  export function runAction(args: {
+    action: string;
+    args?: Record<string, unknown>;
+    env?: Record<string, string | undefined>;
+    fetchImpl?: unknown;
+    statusFile?: string | null;
+  }): Promise<Record<string, unknown> & { transcript?: string }>;
 }

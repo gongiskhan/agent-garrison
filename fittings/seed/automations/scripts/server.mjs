@@ -253,6 +253,9 @@ async function handle(req, res) {
         "cache-control": "no-cache",
         connection: "keep-alive"
       });
+      // Node holds the status line until the first body write; a run with no
+      // events yet would leave the subscriber "connecting" until one arrived.
+      res.flushHeaders();
       const b = busFor(runId);
       const write = (ev) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
       for (const ev of b.events) write(ev);

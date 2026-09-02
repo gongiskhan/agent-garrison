@@ -29,7 +29,25 @@ export interface VoiceConversationProps {
   assumeAvailable?: boolean;
 }
 
-interface VoiceHealth { available: boolean; keyConfigured?: boolean }
+interface VoiceHealth { available: boolean; keyConfigured?: boolean; tts?: boolean; maxTextChars?: number | null; reason?: string }
+
+// The operator-facing line for a mic that is off. The router's reasons
+// (VOICE_* in packages/talk/src/router.mjs) are short lower-case phrases meant
+// to be shown verbatim; this maps the ones with an obvious next step to that
+// step and passes the rest through.
+function unavailableReason(reason: string | undefined): string {
+  switch (reason) {
+    case "no voice provider": return "Voice unavailable: no voice fitting in this composition";
+    case "voice provider not running": return "Voice provider not running";
+    case "voice locked": return "Voice unavailable: unlock the vault";
+    case "capture token not sealed": return "Voice unavailable: seal CAPTURE_TOKEN in the vault";
+    case "capture token not granted to this node": return "Voice unavailable: grant CAPTURE_TOKEN to this node";
+    case "secret authority unreachable": return "Voice unavailable: the node's secret authority is unreachable";
+    case "voice rest disabled": return "Voice unavailable: the voice provider's capture ingress is off";
+    case "voice unreachable": return "Voice provider unreachable";
+    default: return reason ? `Voice unavailable: ${reason}` : "Voice unavailable: the provider has no transcriber";
+  }
+}
 
 // If a voice send produces no settled reply within this window, recover the
 // state machine rather than deadlock in `sending` (codex S6b finding).
@@ -106,6 +124,15 @@ export function VoiceConversation(props: VoiceConversationProps) {
   const supported = useMemo(() => isCaptureSupported(), []);
   const [ctx, setCtx] = useState<VoiceCtx>(() => initialCtx());
   const [available, setAvailable] = useState<boolean>(Boolean(props.assumeAvailable));
+  // Read-aloud is a second gate: the mic needs a transcriber (`available`), the
+  // hands-free conversation also needs a synthesiser (`tts` on the health
+  // block). Push-to-talk stays usable when only the transcriber is there.
+  const [ttsAvailable, setTtsAvailable] = useState<boolean>(Boolean(props.assumeAvailable));
+  // Why the mic is off, in the router's words (see unavailableReason).
+  const [healthReason, setHealthReason] = useState<string | undefined>(undefined);
+  // The /tts per-request budget the provider advertised; startTts falls back
+  // to its own default when the probe named none.
+  const chunkCharsRef = useRef<number | undefined>(undefined);
   const [level, setLevel] = useState(0);
   const [latency, setLatency] = useState<BudgetVerdict | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -154,13 +181,20 @@ export function VoiceConversation(props: VoiceConversationProps) {
 
   // ── /api/voice/health probe (unless a test forces availability) ──
   useEffect(() => {
-    if (props.assumeAvailable) { setAvailable(true); return; }
+    if (props.assumeAvailable) { setAvailable(true); setTtsAvailable(true); return; }
     let cancelled = false;
     const probe = () => {
       fetch("/api/voice/health")
         .then((r) => (r.ok ? r.json() : { available: false }))
-        .then((h: VoiceHealth) => { if (!cancelled) setAvailable(Boolean(h.available) && h.keyConfigured !== false); })
-        .catch(() => { if (!cancelled) setAvailable(false); });
+        .then((h: VoiceHealth) => {
+          if (cancelled) return;
+          const mic = Boolean(h.available) && h.keyConfigured !== false;
+          setAvailable(mic);
+          setTtsAvailable(mic && h.tts === true);
+          setHealthReason(mic ? undefined : h.reason);
+          chunkCharsRef.current = typeof h.maxTextChars === "number" && h.maxTextChars > 0 ? h.maxTextChars : undefined;
+        })
+        .catch(() => { if (!cancelled) { setAvailable(false); setTtsAvailable(false); setHealthReason("voice unreachable"); } });
     };
     probe();
     const id = window.setInterval(probe, 15000);
@@ -197,7 +231,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
         onDone: () => dispatchRef.current({ type: "TTS_DONE" }),
         onError: (e) => { if (mountedRef.current) setError(e); dispatchRef.current({ type: "TTS_DONE" }); },
       },
-      { ttsUrl: props.ttsUrl, audioContext: playbackCtxRef.current ?? undefined },
+      { ttsUrl: props.ttsUrl, audioContext: playbackCtxRef.current ?? undefined, chunkChars: chunkCharsRef.current },
     );
   }, [stopPlayback, ensurePlaybackCtx, props.ttsUrl]);
 
@@ -359,15 +393,18 @@ export function VoiceConversation(props: VoiceConversationProps) {
 
   // ── Controls ──
   const usable = supported && available;
+  // Hands-free reads every reply aloud, so it needs the synthesiser too.
+  const conversationUsable = usable && ttsAvailable;
   const disabledReason = !supported
     ? captureUnsupportedReason()
     : !available
-      ? "Voice fitting not running"
+      ? unavailableReason(healthReason)
       : "";
+  const noTtsReason = "Read-aloud unavailable: the voice provider has no speech backend";
   const queueLockedReason = "Wait for pending messages to finish before starting voice";
 
   const onToggleConversation = useCallback(() => {
-    if (!usable) return;
+    if (!conversationUsable) return;
     if (ctxRef.current.mode === "conversation") {
       dispatch({ type: "STOP" });
     } else if (!props.queueLocked && ctxRef.current.state === "idle") {
@@ -376,7 +413,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
       latencyRef.current.reset();
       dispatch({ type: "START_CONVERSATION" });
     }
-  }, [usable, props.queueLocked, dispatch]);
+  }, [conversationUsable, props.queueLocked, dispatch]);
 
   const onPttDown = useCallback(() => {
     if (!usable || props.queueLocked) return;
@@ -405,8 +442,8 @@ export function VoiceConversation(props: VoiceConversationProps) {
       {voiceSheetOpen && (
         <VoiceSheet
           conversationOn={conversationOn}
-          disabled={!usable || (props.queueLocked && !conversationOn)}
-          reason={usable ? (props.queueLocked ? queueLockedReason : "") : disabledReason}
+          disabled={!conversationUsable || (props.queueLocked && !conversationOn)}
+          reason={!usable ? disabledReason : !ttsAvailable ? noTtsReason : props.queueLocked ? queueLockedReason : ""}
           onToggleConversation={() => { setVoiceSheetOpen(false); onToggleConversation(); }}
           onClose={() => setVoiceSheetOpen(false)}
         />

@@ -54,15 +54,11 @@ Omi's cloud must reach the fitting over public HTTPS.
    `curl https://dev-madrid.tail31efa.ts.net:8443/omi/memory` returns
    HTTP 4xx JSON (403 while the flag is off; 401 without the key) — NOT
    a timeout.
-4. Set the fitting config `public_base_url` to
-   `https://dev-madrid.tail31efa.ts.net:8443` (garrison:manage), restart
-   the fitting.
-
 Your webhook base is then:
 `https://dev-madrid.tail31efa.ts.net:8443/omi/<endpoint>?key=<OMI_WEBHOOK_SECRET>&uid=` —
 Omi appends the uid itself on webhook deliveries.
 
-## 4. The private Omi app (notifications + chat tool + import)
+## 4. The private Omi app (notifications + import)
 
 In the Omi iPhone app:
 
@@ -70,11 +66,11 @@ In the Omi iPhone app:
    do NOT submit to the store (this stays a private app).
 2. Enable the **External Integration** capability.
    - Webhook URL: not needed here if you use Developer Mode webhooks
-     (step 5) — but the capability must be on for chat tools and import.
+     (step 5) - but the capability must be on for import.
    - App Home URL: `https://dev-madrid.tail31efa.ts.net:8443`
-   - **Chat Tools Manifest URL**:
-     `https://dev-madrid.tail31efa.ts.net:8443/omi/tools-manifest?key=<OMI_WEBHOOK_SECRET>`
-     (re-save the app whenever the manifest changes — Omi caches it).
+   - Chat Tools Manifest URL: leave EMPTY. The `ask_zeca` chat tool was
+     removed on 2026-09-02 (spoken replies come through the Garrison app
+     now); an old value here makes Omi fetch a 404 on every save.
    - Under Imports, enable creating **memories**.
 3. Install the app in your own account and enable it (Import calls fail
    403 until the user has the app enabled).
@@ -118,16 +114,16 @@ verifying each:
    for Omi to close the memory (or trigger the webhook manually), then
    wait one triage tick (default 5 min): a card appears in the Kanban
    backlog with `origin: omi` and a `card_created` push arrives.
-4. `wake_enabled` — the spoken smoke test below.
-5. `chat_enabled` — in Omi chat, type: "ask Zeca how my board looks".
-   Omi should call `ask_zeca` and answer with Garrison's reply within
-   ~10s. If Omi's model doesn't pick the tool, re-save the app (manifest
-   refresh) and phrase with "Zeca".
-6. `backfeed_enabled` (+ optionally add `daily_digest` to
+4. `wake_enabled` - the realtime forward to the voice layer. Needs
+   `CAPTURE_TOKEN` in the vault (the same value capture-service holds) and
+   capture-service running; `/health` -> `forward.ok: true` says both are
+   met, `forward.reason` says which one is not. Then the spoken smoke test
+   below.
+5. `backfeed_enabled` (+ optionally add `daily_digest` to
    `backfeed_kinds`) — complete a card, wait <=30 min (or run
    `node scripts/backfeed.mjs --run`), then in the Omi app check
    Memories for "Garrison completed: ...".
-7. `tips_enabled` — optional; capped by `tips_max_per_day`.
+6. `tips_enabled` - optional; capped by `tips_max_per_day`.
 
 ## 7. Spoken smoke test
 
@@ -135,28 +131,30 @@ Wearing/near the mic, say:
 
 > "Zeca, create a test task called hello garrison."
 
-Expected, in order:
+Since 2026-09-02 the segments only pass through this fitting: it forwards
+them to capture-service, which runs the wake gate and answers. Expected, in
+order:
 
-1. Within a few seconds of you pausing (silence window 4s): phone push
-   "Card created: ..." with a card link (total expected
-   wake-to-notification: 5-20s depending on the realtime webhook lag —
-   the actual number lands in `wake_hit_to_notification_ms_last` on
-   /health).
-2. The card sits in the Kanban backlog, `origin: omi`,
+1. omi-channel `/health`: `realtime_segments` and `realtime_forwarded` both
+   grew; `realtime_forward_failed` and `realtime_forward_skipped` did not.
+2. capture-service `/health`: `wake_hits: 1`, `wake_dispatches: 1`, and the
+   wake-to-notification number in `wake_hit_to_notification_ms_last`.
+3. The card sits in the Kanban backlog, `origin: omi`,
    `origin_id: omi:wake:...`, with the spoken command quoted as source
-   context.
-3. `/health`: `wake_hits: 1`, `wake_dispatches: 1`.
+   context; the reply reaches you through the Garrison app (and the phone
+   push, if `notify_enabled` is on).
 
 Negative checks - none of these may push or card, and each should only
-increment `wake_segments_dropped`:
+increment capture-service's `wake_segments_dropped` (they still count as
+`realtime_forwarded` here - this fitting does not look at the words):
 
 - "the garrison deploy is fine" - no wake token at all.
 - "a roupa ainda está seca" / "fui à biblioteca com a Rebeca" - words that
   carry the name's sound or its letters. These are the ONLY class of
   non-hit, which is why `seca` and `sega` are excluded from the variants.
 
-**Position does not matter.** The name ANYWHERE in a segment wakes the
-operative, mid-sentence included: "manda ao Zeca a factura" opens a capture
+**Position does not matter.** The name ANYWHERE in a segment opens a
+capture window, mid-sentence included: "manda ao Zeca a factura" opens a capture
 window exactly like "Zeca, manda a factura". An address-position rule was
 built and removed on 2026-08-13 - the name essentially never comes up in
 ambient speech here, so the missed wakes cost more than the false ones. If
@@ -174,47 +172,19 @@ timezone = no delivery (that is "no recap", not a failure).
 ## 9. What to watch after go-live (spec open questions)
 
 Record real numbers for: realtime webhook latency/variance
-(`wake_hit_to_notification_ms_*`), direct-notification rate limits and
-Watch delivery behavior, whether Omi's model calls `ask_zeca` reliably or
-paraphrases its results, whether notification replies are read aloud, and
-the actual free-tier burn rate under always-on.
+(`wake_hit_to_notification_ms_*` on capture-service), the forward's own
+failure rate (`realtime_forward_failed` here), direct-notification rate
+limits and Watch delivery behavior, whether notification replies are read
+aloud, and the actual free-tier burn rate under always-on.
 
-## 10. REQUIRED after the Gary -> Zeca rename (2026-08-13)
+## 10. After the Gary -> Zeca rename (2026-08-13) - mostly moot since 2026-09-02
 
-The operative was renamed. Everything in this repo already says Zeca, but the
-chat tool's NAME also lives in a manifest **cached on Omi's servers**, and only
-the phone can refresh it.
+The chat tool whose name Omi cached on its servers (`ask_gary` -> `ask_zeca`)
+no longer exists: `/omi/chat` and `/omi/tools-manifest` answer 404. If the
+private app still carries a Chat Tools Manifest URL, clear it and re-save the
+app (Explore -> your app -> Save) so Omi stops fetching it. App ID, App Secret,
+Import key and the four Developer-Mode webhook URLs are untouched.
 
-**This is not an outage.** `/omi/chat` authorizes on key + app_id + uid and
-reads only `query`; it never inspects `tool_name`. So a stale cached manifest
-still reaches the right endpoint and still gets a real answer. What is actually
-stale is what Omi's own model SEES:
-
-- the tool is still called `ask_gary`, described as "Ask Gary - the user's
-  personal AI chief of staff ...", so the model picks it when you say **"ask
-  Gary"** and may not when you say "ask Zeca";
-- the spinner still reads "Asking Gary...".
-
-To fix both:
-
-1. **Re-save the private Omi app** (Explore -> your app -> Save), with no field
-   edited. That is what re-fetches the Chat Tools Manifest - the same cache that
-   once made a rotated key 401 every call for a day.
-2. **Then re-phrase your chat probe.** "ask Zeca how my board looks" should call
-   `ask_zeca`. If the model still does not pick it, wait a minute and try again;
-   the refresh is not instant.
-
-Nothing else on the Omi side changes: App ID, App Secret, Import key, the
-manifest URL and all four Developer-Mode webhook URLs are untouched, because
-no route or secret was renamed.
-
-The **wake word is not affected by any of this** - it is matched entirely on
-this box, so "Zeca, ..." works as soon as the fitting restarts.
-
-Then re-run the §7 spoken smoke test with the new wake word:
-
-> "Zeca, create a test task called hello garrison."
-
-If the wake word does not fire, check `/health` -> the fitting logs a line at
-startup when it finds a `wake_variants` config left over from the old name and
-ignores it. You do not need to edit that key; clearing it just silences the log.
+The wake word is matched entirely on this box, in capture-service: its
+`wake_variants` config is where the spoken name lives now. Re-run the section 7
+smoke test after any change there.

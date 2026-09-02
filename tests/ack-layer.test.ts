@@ -118,12 +118,12 @@ describe("ack — spoken into a live microphone", () => {
     expect(() => assertSpeakable("Finished it, tell Zeca to run card 4F2A.")).toThrow(/wake word/);
   });
 
-  // The operative was renamed, and omi-channel ignores a stored wake_variants
-  // made up entirely of retired spellings. If this guard honoured that stale
-  // value it would police the WRONG word and pass an ack carrying the live one -
-  // the single way this check can fail open.
+  // The operative was renamed once already. If this guard honoured a stored
+  // wake_variants made up entirely of retired spellings it would police the
+  // WRONG word and pass an ack carrying the live one - the single way this check
+  // can fail open - so such a value is ignored.
   it("guards the current name when the config still holds the retired one", () => {
-    const env = { GARRISON_OMICHANNEL_WAKE_VARIANTS: "gary,garry,gerry,géri" };
+    const env = { GARRISON_CAPTURESERVICE_WAKE_VARIANTS: "gary,garry,gerry,géri" };
     expect(() => assertSpeakable("Created a task, send Zeca the invoice.", env)).toThrow(/wake word/);
     expect(assertSpeakable("Created a task, send Gary the invoice.", env)).toContain("Gary");
   });
@@ -343,7 +343,7 @@ describe("ack — the registry overlay across languages", () => {
 });
 
 // @ts-ignore — pure .mjs
-import { EchoGuard, normalizeTokens } from "../fittings/seed/omi-channel/lib/echo-guard.mjs";
+import { EchoGuard, normalizeTokens } from "../fittings/seed/capture-service/lib/echo-guard.mjs";
 
 describe("echo guard — Garrison does not hear itself", () => {
   const spoken = "Created a task, follow up with the lawyer.";

@@ -350,6 +350,413 @@ beside the existing `garrison:navigate-fitting`, handled in
 `src/app/embed/[fittingId]/page.tsx`. A fitting never hands the browser an
 absolute loopback URL; the shell route is relative.
 
+### D20. The voice REST contract lives on capture-service, top-level, Bearer-gated
+
+Both endpoints sit beside `/speak/<id>.mp3` (top-level, not under `/capture/*`,
+whose unknown paths stay `501`) and pass the existing `authorizeHttp` ladder
+(403 disabled, 403 no capture token sealed, 401 bad bearer):
+
+- `POST /stt` - body = the recorded clip as raw bytes (`Content-Type` default
+  `audio/webm`, 8 MB cap through a new binary body reader; the existing
+  `readBody` is utf8/JSON only), optional `?language=` (default
+  `stt_rest_language`, itself defaulting to `stt_language`). Deepgram
+  `POST /v1/listen?model=<stt_model>&smart_format=true&punctuate=true&language=`.
+  `200 {transcript, confidence, language, model}`; `400` empty body; `503` no
+  `DEEPGRAM_API_KEY`; `502` upstream failure (status + first 200 chars, never
+  the audio).
+- `POST /tts` - JSON `{text, format?: "mp3"}`; mp3 only (the browser plays an
+  `<audio>` clip and D9 dropped the PCM stream; `wav` from deepgram-voice had
+  no caller left). Produces the clip through `ZecaVoice.clipFor` so the browser
+  and the phone share one cache and one backend choice. `200 audio/mpeg` with
+  `X-Voice-Backend` and `X-Clip-Id`; `400` empty or over `MAX_TEXT_CHARS`
+  (600). The browser never sends an over-cap request: ONE chunker
+  (`@garrison/claude-chat/voice` `chunkSpeech`, re-exported by talk's
+  `voice-clip.ts`) splits at sentence, then clause, boundaries against the cap
+  the provider ADVERTISES (`/health voice.maxTextChars`, mirrored by both host
+  proxies), falling back to 600 only when a host cannot read it; `503` no
+  backend.
+- `GET /health` gains `voice: {stt, tts, ttsBackend, restEnabled,
+  maxTextChars}` and a top-level `keyConfigured` mirroring `voice.stt`, so a
+  reader that still applies `h.keyConfigured !== false` (talk before its G2
+  edit, dev-env) stays honest instead of lighting the microphone with no
+  Deepgram key.
+
+The `wake_revise_after_ms` / `wake_revise_max_segments` keys that
+`lib/config.mjs` reads but `apm.yml` never declared are declared in the same
+pass (pre-existing drift, found by the recon).
+
+### D21. TTS backend selection and the clip cache
+
+`tts_backend: auto | elevenlabs | deepgram`, default `auto` = ElevenLabs when
+`ELEVENLABS_API_KEY` is sealed, else Deepgram Aura when `DEEPGRAM_API_KEY` is
+sealed, else no TTS (`voice.tts: false`, the phone falls back to
+`AVSpeechSynthesizer`, D3). `tts_deepgram_model` default `aura-asteria-en` (the
+model the retired connector shipped with in `compositions/default`); Aura's
+Portuguese coverage is Deepgram's, not ours - the handoff names
+`ELEVENLABS_API_KEY` as the credential that buys Portuguese read-aloud. The clip
+id (`lib/tts.mjs clipId`) gains the backend and model, so switching backends
+never serves the other backend's clip; the `/speak/<id>.mp3` path, the prune
+policy and the `tts_cache_max_clips` cap are unchanged.
+
+### D22. The capture token reaches the voice proxy through the host, never the page
+
+One implementation, in `packages/talk/src/router.mjs` (the plan's
+`packages/talk/src/handlers/voice.mjs` does not exist): `createTalkRouter`
+takes `voice: {fittingId(), token()}` in its options. The shell
+(`src/app/api/[[...path]]/route.ts`) resolves the provider from the active
+composition's capability graph (`src/lib/voice-provider.ts`, the fitting that
+provides `kind: voice`) and reads the token with `scopedSecrets(["CAPTURE_TOKEN"])`
+per request (vault locked = `503 voice locked`, never a cached copy). The legacy
+own-port host passes `process.env.GARRISON_VOICE_FITTING_ID` and
+`process.env.CAPTURE_TOKEN` (its `secret_scope` gains `CAPTURE_TOKEN`; it is
+unstationed, so this only keeps the old surface honest, I12). `handleVoiceProxy`
+forwards `Authorization: Bearer <token>` and maps a missing provider or token to
+`503 {error}` rather than letting capture-service's `403` read as "forbidden
+user". `handleVoiceHealth` reads `voice.stt` / `voice.tts` and returns
+`{available: stt, keyConfigured: stt, tts, backend}`; `voice-conversation.tsx`
+shows the speaker only when `tts` is true. The WebSocket relays
+`/api/voice/stream` and `/api/voice/tts-stream` in `packages/talk/src/server.mjs`
+are removed (no caller since G1 dropped `voice-capture.ts` / `voice-tts.ts`,
+no capture-service counterpart). No Next route pair is added: the catch-all IS
+the route handler D9 describes, and a second implementation would drift.
+
+### D23. `GARRISON_VOICE_FITTING_ID` is projected by the runner
+
+In `startOperativeBoundFittings` and `operativeEnvForFitting` (`src/lib/runner.ts`)
+the selected entries are run through `resolveCapabilities`; every own-port
+fitting whose `consumes` includes `voice` receives
+`GARRISON_VOICE_FITTING_ID=<provider id>` (absent when no provider is
+stationed). It is part of the projected env, hence of the heal fingerprint, so
+swapping the provider restarts the consumers. `dev-env` declares the
+`consumes: voice optional-one` it relied on and reads the projected id plus
+`CAPTURE_TOKEN` (added to its `secret_scope`) for its `/voice/*` bridge.
+
+### D24. Omi realtime segments are forwarded to the voice layer; omi-channel keeps no wake bus
+
+`fittings/seed/omi-channel/lib/wake.mjs` is a byte-identical copy of
+capture-service's (2160 lines, `diff` empty), as are `echo-guard.mjs`,
+`board-client.mjs`, `memory-writer.mjs`, `gateway-client.mjs` and `lang.mjs`.
+One voice layer means one wake bus:
+
+- capture-service gains `POST /capture/ingest/text` (Bearer capture token; JSON
+  `{source: "omi", session_id, segments: [{text, speaker?, is_user?, start?, end?}]}`
+  -> `202 {session, accepted}`). It opens a socket-less text session
+  (`mode: "omi"`, keyed by `source` + `session_id`) in the ingress, finalised
+  after `text_session_idle_ms` (default 120000) of silence, with NO media log,
+  NO transcript file and NO `capture_event` (omi-channel's `/omi/memory` batch
+  pipe stays the memory path, so nothing is ingested twice). Segments pass the
+  shared echo guard, then a third `WakeBus` (`source: OMI_WAKE_SOURCE`, the
+  constant that already exists unused in `wake.mjs:658`, memory-writer prefix
+  `omi`) wired to the same `speakingNotifier`: spoken through the phone when a
+  companion session can hear, else pushed. Replies stop going to the Omi app
+  notification API; they land where every other reply lands (one app).
+- omi-channel `Ingress.acceptRealtime` hands `heard` segments to a
+  `RealtimeForwarder` (new `lib/forward.mjs`): capture-service URL from
+  `~/.garrison/ui-fittings/capture-service.json` (the `statusFileUrl` pattern
+  in `lib/notify.mjs`), `CAPTURE_TOKEN` from its `secret_scope` (added;
+  fail-closed: no token = skipped with a reason, counted
+  `realtime_forward_skipped`), failures counted `realtime_forward_failed` and
+  shown on `/health` as a `forward` row. No local fallback: with the voice layer
+  down the segments are dropped (they were memory-only anyway, I5).
+- omi-channel deletes `lib/wake.mjs`, `lib/chat.mjs`, `lib/echo-guard.mjs`,
+  `lib/lang.mjs`, the `/omi/chat` + `/omi/tools-manifest` routes, the
+  `ChatTool` wiring, `scripts/speak.mjs` `ask` mode, and every config key only
+  those read (`chat_enabled`, `public_base_url`, the chat delivery and
+  classify/delegate keys - each removed only after `grep` shows no remaining
+  reader; triage's own keys stay). `wake_enabled` keeps its name (field names do
+  not churn) and now means "forward realtime segments to the voice layer".
+  `tests/omi-channel-chat.test.ts` is deleted; `tests/omi-channel-wake.test.ts`
+  is deleted after its omi-only cases (by `it()` title diff against
+  `tests/capture-service-wake.test.ts`) are ported there; the other omi suites
+  lose their chat assertions and gain forwarder ones.
+- `compositions/{default,openai}/apm.yml` drop the omi `public_base_url` and
+  `chat_enabled` entries in the same hunk that unstations deepgram-voice.
+
+### D25. The active-conversation window keys on the gateway session id
+
+`operativeRunFn` already returns `{reply, sessionId}`; `WakeBus.runDelegate`
+(`wake.mjs:1910`) drops the id and always resumes the deterministic
+`${originPrefix}-wake:<capture session>` key, so a delegate after a reconnect
+or from another source starts a fresh gateway session. G2 keeps a per-bus
+`{sessionId, at}` of the last delegate reply and, within
+`active_conversation_window_ms` (default 300000), resumes it instead of the
+deterministic key. `POST /capture/conversation/active` (Bearer; `{session_id}`)
+pins the window to a conversation the user is looking at (the G4/G5 clients use
+it; `GET` returns the current pin), `DELETE` clears it. Window state is process
+memory, never persisted (a restart forgets it, honestly).
+
+### D26. `connector: voice` is a client of the running service; `deepgram` is an alias resolved once
+
+`fittings/seed/capture-service/scripts/connector.mjs` implements the automations
+contract (`--probe`, `catalog`, `call <action> <json>`) by calling the RUNNING
+capture-service (`/stt`, `/tts` over loopback from the status file, Bearer
+`CAPTURE_TOKEN`), so the automation lane gets the same backend, cache and config
+as the browser and the phone. Actions: `transcribe(audio_base64 | path,
+mime_type?, language?)`, `synthesize(text, inline?)` (returns `{clip_id,
+clip_path, mime, bytes, backend}`; the clip stays on the voice layer at
+`/speak/<clip_id>.mp3` and `audio_base64` rides along only with `inline: true`,
+since the automation engine persists every action result into the run record
+- review finding 9). The manifest gains an optional `connector.secrets:
+string[]` (the subset of `secret_scope` a connector call needs); the auth-env
+route delivers only that subset when present, the whole scope otherwise -
+capture-service declares `[CAPTURE_TOKEN]` and nothing else, so an automation
+child receives ONLY the capture token and never the Deepgram, ElevenLabs or
+APNs keys (the recon found `auth-env` hands out a fitting's entire scope). A
+name in `connector.secrets` that is not in `secret_scope` is a MANIFEST ERROR
+(`metadata.ts` superRefine at `connector.secrets`), not a silently dropped
+entry: the subset is drawn from the scope or the fitting does not parse.
+`connector-invoke.mjs` normalises the legacy id
+`deepgram` to `voice` BEFORE calling `auth-env` and maps `voice` to the
+`capture-service` directory, so the alias lives in one place and no
+`connector: deepgram` is declared on capture-service. The Connectors page shows
+`voice` sealed when its `connector.secrets` are present.
+
+### D27. Docs: fix what the code says, annotate what a harness wrote
+
+No `fittings/seed/capture-service/README.md` (the plan names one; the operator
+docs are `RUNBOOK.md` + `HUMAN_SETUP.md` and gain the voice surface there).
+`docs/RUNTIME_MATRIX.md` is a generated report (`scripts/matrix-harness.mjs`,
+2026-07-12); it gets a dated note above the table, not a hand-edited row.
+`docs/INSTANCES.md` gains the capture-service row (7097 | 8097 | 8497) and the
+four own-port rows it never had (omi-channel, email-channel, whatsapp-web,
+remote-shell-runtime), and loses the deepgram-voice row. `CLAUDE.md`'s own-port
+list moves to the 8xxx family with capture-service in place of `voice` (27085).
+`docs/COMPANION_IOS_SPEC.md` §5b and I8 are corrected to what ships (clip
+first, on-device fallback; Deepgram key in the vault).
+
+### D28. Test moves that follow the retirement
+
+`tests/seed.test.ts` swaps `deepgram-voice` for `capture-service` in `seedIds`
+(`voice` is a singleton kind; both cannot be resolved together) and re-targets
+the dual-connector assertions. `tests/connector-deepgram.test.ts` becomes
+`tests/capture-service-connector.test.ts` against the new CLI;
+`tests/deepgram-voice-live.test.ts` is deleted (the plan's list). The
+`deepgram-voice` directory itself stays until the G8 patch (I12), so
+`tests/mesh-serve-ports.test.ts` keeps 8085 in its derived map until then and
+is indifferent either way.
+
+Amended after the build: the `data/library.json` entry for `deepgram-voice` is
+KEPT, reworded as a legacy entry ("Voice (Deepgram, legacy)", retired
+2026-09-02, capture-service is the voice layer). `readLibrary()` auto-registers
+every seed directory anyway, so removing the entry only lost the curated
+wording; the one de-list lever is `data/library-excluded.json`, which does not
+exist and is not created (I12: the old surface stays visible and honest until
+the operator's removal patch, the same treatment `web-channel-default` got in
+G1).
+
+### D29. Deviations accepted while the G2 build landed (2026-09-02)
+
+The build ran as five disjoint-ownership agents; where an agent read the
+contract differently from D20-D28 and the reading was better, the code stands
+and the contract is amended here rather than re-litigated:
+
+- `tts_enabled` stays the ONE TTS kill switch; `tts_backend` is a selector
+  under it (D21 read as if `tts_backend` alone could turn TTS off).
+- `POST /tts` accepts an optional `lang` (`pt` | `en`) so the browser's
+  language-tagged clips share the phone's cache keys; `format` is still mp3
+  only.
+- `POST /stt` validates the body BEFORE the keyless `503`: an empty clip is
+  the caller's `400` whatever the vault holds (order: auth, body, key,
+  upstream).
+- `connector.mjs`: a missing capture-service status file is a plain `Error`
+  ("capture-service is not running"), not `awaiting_connector` - the connector
+  is connected, the service is down; pausing the run for a "connect" the user
+  cannot perform would lie. Only a missing `CAPTURE_TOKEN` is
+  `awaiting_connector`.
+- omi-channel's `/ack` route is removed outright (404): kanban-loop's
+  `fanOutAck` treats 404 as not-for-you, and capture-service serves the one
+  `/ack`.
+- Every dead omi key (`wake_*` tuning, `delegate_*`, `classify_*`,
+  `chat_enabled`, `public_base_url`) is REMOVED from omi's `config_schema`
+  rather than parsed-and-ignored; the compositions drop the omi `wake_*`
+  values in the same pass. The capture-service selections in both
+  compositions already carried the identical tuning
+  (15000 / 0 / 45000 / 45000 / 6 / 120000), and the omi text bus reads the
+  same live config, so no Omi capture behaviour changed.
+- `voiceProviderId()` reads the ACTIVE composition pointer, not the running
+  record, so the talk health answers with the operative down; two `voice`
+  providers read as "no provider" (the resolver refuses that composition at
+  `up()` anyway).
+- `OMI_TEXT_WAKE_SOURCE` = `OMI_WAKE_SOURCE` with `logPrefix: "capture-service"`,
+  so the log names the process that wrote the line.
+- `GET /capture/conversation/active` reports the pin only (the per-bus last
+  reply is not a conversation the user chose).
+- D25 resume relies on the gateway accepting a session id it previously
+  returned as a session key; confirmed against the real gateway on this
+  node's redeploy (see the G2 evidence).
+- The wake-word guard in `kanban-loop/lib/ack.mjs` now mirrors
+  capture-service's `DEFAULT_WAKE_VARIANTS` (gaining `zecke`) and reads
+  `GARRISON_CAPTURESERVICE_WAKE_VARIANTS`; the runner projects each fitting
+  only its own config, so the env read is a harness hook and the defaults
+  govern in production - exactly as before, when the omi name never reached
+  kanban-loop's process either.
+- `tests/companion-lockstep.test.ts` mirrors omi <-> capture for
+  `board-client`, `memory-writer`, `gateway-client`, `tailnet-serve` only, and
+  `lang.mjs` capture-service <-> kanban-loop; `wake.mjs` and `echo-guard.mjs`
+  have one copy (capture-service) and leave the gate.
+- `activeCompositionEnvForFitting` (`src/lib/composition-env.ts`) applies
+  `voiceEnvForEntry` too, so a Views Start with the operative down hands a
+  voice consumer the same `GARRISON_VOICE_FITTING_ID` as `up()` and the heal
+  fingerprint cannot differ between the two paths.
+- The chat's disabled voice controls carry the host's health `reason`
+  ("Voice unavailable: voice locked") instead of the retired "Voice fitting
+  not running".
+- `automations/lib/engine.mjs` canonicalises the connector id
+  (`deepgram` -> `voice`) before the pause card and the `awaitingConnector`
+  record, so the UI names the connector that exists.
+
+### D30. What the G2 adversarial review changed (2026-09-02)
+
+A 28-finding review ran over the G2 diff (evidence: `evidence/garrison-app/g2/review-summary.md`).
+Findings were bucketed fixed / mitigated-with-follow-up / pre-existing-debt /
+not-a-bug (27 fixed, 1 mitigated); the changes that touched a contract are
+recorded here so D20-D29 read true:
+
+- **Health bodies name the fitting, never its URL.** The talk router, the
+  dev-env bridge and the claude-chat `VoiceClient` all carry `fitting: <id>`
+  plus `maxTextChars`; the provider's loopback `url` from the status file
+  stays server-side (CLAUDE.md, the browser-is-remote rule). A host that
+  cannot read the advertised cap still chunks at 600.
+- **One reason vocabulary, with two more words.** `"voice rest disabled"`
+  (provider up, REST lane off) and `"capture token not sealed"` (vault OPEN,
+  key absent) join `"no voice provider"`, `"voice provider not running"`,
+  `"voice locked"` and `"voice unreachable"`; a locked vault is never
+  reported as a missing token. dev-env mirrors every reason but the
+  token-unset one (its token arrives in env, so absent means unstationed).
+- **The proxy is bounded.** `VOICE_PROXY_TIMEOUT_MS = 20000` on the upstream
+  fetch; an over-cap `/stt` body is drained and answered `413` with
+  `Connection: close` (never `req.destroy()`, which the browser reads as a
+  network error); a client that disconnects mid-stream tears the upstream
+  down (`res.on("close")` + `!writableFinished`).
+- **Upstream calls are bounded too.** `deepgram-rest.mjs` passes
+  `AbortSignal.timeout` (`LISTEN_TIMEOUT_MS` 60 s, `SPEAK_TIMEOUT_MS` 20 s) to
+  Deepgram, and `tts.mjs` the same speak budget to ElevenLabs; a hung provider
+  is a `502 deepgram unreachable`, not a stuck request.
+- **The PTY never inherits the fitting's vault secrets.** dev-env's
+  `ptySpawnEnv` strips every name in its `secret_scope` (`PTY_ENV_DENY`, today
+  `CAPTURE_TOKEN`; `tests/dev-env-pty-env.test.ts` keeps the list in lockstep
+  with the manifest) before spawning a shell or Claude: the bridge speaks to
+  the provider, the user's shell does not hold its key.
+- **`secretsDelivered` derives from vault state.** A spawn record marks
+  secrets delivered only when the fitting consumes the vault AND the env was
+  non-empty AND the vault was unlocked at spawn; a locked-vault start with the
+  runner's gateway/config projection is keyless and heals on unlock. The
+  three recovery paths (`/start`, `/restart`, unlock heal) share one env
+  projection, `desiredEnvForFitting` = the running operative's env when the
+  operative is up, else vault + active-composition env; the heal takes it as
+  `envFor` because `own-port-lifecycle.ts` must not import the runner.
+- **Read-aloud is a sequential chunk queue.** claude-chat plays one chunk at
+  a time, prefetches the next, and Stop/Pause act on the whole queue
+  (`speakRunRef` AbortController, `pausedRef` between chunks). Read-aloud
+  controls gate on `ttsUsable = voiceUsable && tts !== false`; the mic keeps
+  `voiceUsable`, so a Deepgram-only vault still dictates but does not offer a
+  speaker it cannot back.
+- **omi-channel** accepts the four realtime envelopes (bare array,
+  `{segments}`, `{transcript_segments}`, `{data:{segments}}`), counts
+  `realtime_malformed` for anything else while logging only the SHAPE (I5),
+  and its status page lists `CAPTURE_TOKEN` beside the Omi credentials. Its
+  forwarder to the voice layer (D24) chains the batches of one session so the
+  fire-and-forget webhook cannot reorder a spoken command, discovers
+  capture-service from the home its own config was loaded with (never
+  `process.env` behind the config's back), and reports readiness red after a
+  rejected forward until the next batch lands.
+- **The voice connector references clips, it does not carry them.**
+  `synthesize` returns `{clip_id, clip_path, mime, bytes, backend}`;
+  `audio_base64` only with `inline: true` (D26 amended). `transcribe`'s
+  `audio_base64` is still one argv element in the automation engine's connector
+  spawn, so the catalog says "under about 100 KB, else `path`"; moving connector
+  args onto stdin is a protocol change for every connector and is a named
+  follow-up, not part of this gate.
+- **Contested finding, resolved by evidence.** The reviewer's "connector
+  subset lets a connector name an unsealed key" was real in the schema and
+  false in the shipped manifest; fixed in the schema (D26 amendment) and the
+  D26 tests now use the shipped `[CAPTURE_TOKEN]` contract.
+- **Pre-existing debt, out of this gate:** stale `27xxx`/`7xxx` port prose in
+  several fitting summaries (browser-default, ports-default, monitor-default,
+  power-default, screen-share-default, the retired deepgram-voice) and the
+  `docs/INSTANCES.md` tables, which this gate DID rewrite to the committed
+  8xxx map. The phantom orchestrator `config: {port: 8087, bind_host}` in
+  both compositions (the Orchestrator binds nothing; 8087 is whatsapp-web's)
+  is dropped. `tests/e2e/primary-runtime.spec.ts`, dead since the orchestrator
+  own-port server retired on 2026-07-20 (it spawned a deleted `server.mjs`),
+  is removed; its coverage lives in `tests/orchestrator-policy-store.test.ts`
+  and `tests/e2e/muster-orchestrator.spec.ts`.
+
+### D31. Scoped secrets come from the secret authority, and the spawn record tells the truth (2026-09-02)
+
+Found while collecting the G2 live evidence on this node: after the redeploy,
+`/api/voice/health` said `capture token not sealed`, capture-service's
+`/health.voice` had `stt:false, restEnabled:false`, and omi-channel reported
+`CAPTURE_TOKEN unset in the vault` - while `compositions/default/.env` carried
+`CAPTURE_TOKEN` and `DEEPGRAM_API_KEY` and the spawn record said
+`secretsDelivered: true`. The vault audit had `deliver ok secrets:[]` for
+capture-service, dev-env and omi-channel on every up() since the mesh install
+(the 01:18 G1 redeploy included), so this predates G2.
+
+Root cause: two secret sources. The composition `.env` is rendered from the
+state service (`materializeEnvViaAuthority`, mesh design), but the per-fitting
+scoped delivery (`vaultEnvForEntry` -> `scopedSecrets`) still read this node's
+LOCAL vault, which the mesh leaves empty on every peer. `secretsDelivered` was
+then computed from that empty vault being "unlocked", so the record claimed a
+delivery that never happened and the heal never fired. Every vault-consuming
+own-port fitting ran keyless on every node but dev-madrid; on the authority
+itself the local vault happens to hold the keys, which is why nobody saw it.
+
+Decision, not reopened:
+
+- **One secret source per node.** `scopedSecretsViaAuthority(scope)` in
+  `src/lib/composition-sync.ts` is the seam: enrolled -> `POST
+  /v1/secrets/resolve` for exactly the scoped keys (fail-closed on grants, the
+  authority audits the read); unenrolled -> the local vault as before. It sits
+  beside `materializeEnvViaAuthority` so the two projections cannot drift.
+- **The spawn record derives from the source answering, not from the local
+  vault's lock state.** `vaultEnvForEntry` keeps a per-fitting delivery ledger:
+  true when the source answered (whatever it lacked does not exist anywhere,
+  so a heal could do no better), false when it could not (locked vault,
+  unreachable authority, refused grant). `secretsDelivered` reads the ledger;
+  a fitting whose env was composed some other way falls back to the local
+  unlock state, which is all a standalone box has.
+- **Keyless starts are named.** The audit row says why: `authority-grant`
+  (denied, listing the keys), `authority-unreachable` or `vault-locked`
+  (outcome `error`), and a successful delivery carries `authority` or
+  `local-vault` plus the keys the source did not have.
+- **The ledger is a compose-to-spawn handoff, taken once.** The spawn consumes
+  the entry and believes it only if the source answered AND every value it
+  handed over is in the env actually being spawned; every start is preceded
+  by a fresh compose, so a leftover entry never describes a later spawn.
+- **A fitting that is not running never has its secrets fetched.** The
+  vault-unlock heal pass used to compose the env for every vault consumer in
+  the library before asking whether it was running, so the authority audited
+  a `deliver ok` to `deepgram-voice` and `web-channel-default` (both
+  unstationed) on every unlock. `startOwnPortFitting` now takes the env as a
+  thunk, resolved under the per-fitting lock once the start is going ahead.
+- **The shell reads the capture token through the same seam.** The talk
+  router's `voiceToken()` (`src/lib/voice-provider.ts`) read the local vault,
+  so `/api/voice/health` on a mesh peer said `capture token not sealed` while
+  capture-service, now fed by the authority, was ready. It now calls
+  `scopedSecretsViaAuthority([CAPTURE_TOKEN])`, and a failed read names its
+  reason in the router's vocabulary: `voice locked` / `capture token not
+  sealed` on a standalone box, `capture token not granted to this node` /
+  `secret authority unreachable` on a mesh node (the router gained the two
+  reasons and a `tokenReason()` host callback; the UI maps each to its fix).
+- The stale `secretsDelivered: true` records on the mesh peers are cleared by
+  the next full redeploy (down + up), which this gate ran; no migration.
+- Out of scope here, recorded for the handoff: the connector routes
+  (`src/app/api/connectors/[id]/{auth-env,oauth-start,oauth-callback}`) and
+  `src/lib/cortex-proxy.ts` still read the local vault directly and have the
+  same two-source shape on a mesh peer. Voice is the G2 surface; those are
+  not.
+
+Tests: `tests/composition-sync.test.ts` (authority delivery, missing keys
+named, grant denial audited), `tests/vault-heal.test.ts` (an unreachable
+authority spawns keyless with an honest record even though the mocked local
+vault says unlocked; the heal pass asks the secret source only about the
+fitting it respawns), `tests/voice-provider.test.ts` (token from the seam,
+the four reasons) and `tests/talk-voice-router.test.ts` (`tokenReason()`
+relayed verbatim, unknown strings fall back to locked, the shell's strings
+pinned to the router's). D30's "`secretsDelivered` derives from vault state"
+bullet is superseded by this decision.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
@@ -372,6 +779,23 @@ absolute loopback URL; the shell route is relative.
 | CLAUDE.md: `compositions/<id>/apm.yml` "= source of truth per composition. Filesystem is authoritative" | on an ENROLLED node the state service is the manifest source: `up()` calls `syncCompositionFromState`, which overwrites the local `apm.yml` whenever its hash differs, so a git edit to a manifest is undone at the next `up()` until the same YAML is pushed to the service (`pushManifestToState`, rev CAS). G1's manifest commit was clobbered by its own redeploy this way; the fix was pushing the HEAD YAML to the service (default rev 28 -> 29, openai rev 2 -> 3), then `down` + `up`. Every future gate that edits a manifest pushes it the same way | `src/lib/composition-sync.ts`, `src/lib/runner.ts` (`up`), G1 evidence `redeploy.txt` |
 | a manifest edit through the shell keeps the file as authored | the only production writer, Muster's `mutateManifestAtomic`, re-dumps the YAML and strips every comment; the state copies of both compositions had zero comment lines. Comments in a manifest survive only as long as no Muster mutation happens; the G1 push restored them, and they are not relied upon | `src/app/api/muster/model.ts` (`dumpYaml`) |
 | `apm.lock.yaml` is portable and committable from any node | the lock is node-local by design (`composition-sync.ts` never carries it) and its shape follows the node's APM: this Mac runs APM 0.11.0 (no `name`/`version`/`deployed_file_hashes`), dev-madrid wrote the committed lock with 0.24.0. A lock regenerated here reads as 135 deleted lines. The committed lock is dev-madrid's; this run restores it from HEAD after every `up()` and does not commit the Mac's | `apm --version`, `git diff compositions/default/apm.lock.yaml` after `up()` |
+| `fittings/seed/capture-service/README.md` exists to edit | no README; the operator docs are `RUNBOOK.md` and `HUMAN_SETUP.md` (D27) | `ls fittings/seed/capture-service` |
+| `packages/talk/src/handlers/voice.mjs` forwards the token | no `handlers/` directory; the voice proxy is `packages/talk/src/router.mjs` (`VOICE_STATUS_FILE` :99, `handleVoiceProxy` :287-322, dispatch :3205) and it forwards no `Authorization` header at all (D22) | `packages/talk/src/router.mjs` |
+| `fittings/seed/web-channel-default/scripts/server.mjs:97` reads the deepgram status file | after G1 that file is a 25-line re-export of `@garrison/talk/server`; the read is `router.mjs:99` and `fittings/seed/dev-env/scripts/server.mjs:95` | both files |
+| `CLAUDE.md:402` names deepgram-voice | the mention is at :410; the own-port list at :193-198 still carries 27xxx ports and `voice` (27085) | `CLAUDE.md` |
+| `compositions/default/apm.yml:15,300`, `openai/apm.yml:15,276`, `data/library.json:201-210` | default :15 + :301-306, openai :15 + :270-275, library :200-214 | the files at HEAD |
+| "8085 leaves the map" in `tests/mesh-serve-ports.test.ts` | the map is derived from `default_port:` in every `fittings/seed/*/apm.yml` on disk; 8085 stays while the directory stays (I12) and the test only asks for >10 distinct serve ports | `tests/mesh-serve-ports.test.ts:26-40` |
+| D13 as first written: aliasing `deepgram` in `connector-invoke.mjs` keeps legacy automations working | auth env comes from `POST /api/connectors/<id>/auth-env`, which resolves the id against `provides` in `data/library.json` and 404s once deepgram-voice is de-listed; the alias must be applied before that call (D26) | `src/app/api/connectors/[id]/auth-env/route.ts:28-32` |
+| `auth-env` scopes what an automation child receives | it delivers the fitting's ENTIRE `secret_scope`; a `connector: voice` on capture-service would hand out the Deepgram, ElevenLabs, capture and three APNs secrets (D26 narrows it) | same route :53-57 |
+| `docs/RUNTIME_MATRIX.md` is hand-maintained | generated by `scripts/matrix-harness.mjs` on 2026-07-12 (28 fittings, no capture-service row) | file header |
+| `docs/COMPANION_IOS_SPEC.md` §5b: on-device synthesis only, no cloud TTS | `ack-sink.mjs:199` ships `audioPath: /speak/<id>.mp3` and `SpeechSink.swift:146-165` plays the clip with the synthesizer as fallback; I8 there also says the Deepgram key is not in the vault | the two source files |
+| talk's health probe lights up once capture-service answers `/health` | `handleVoiceHealth` reads `h.keyConfigured !== false`; capture-service's body has `secrets.deepgramApiKey` and no `keyConfigured`, so a keyless node would show the microphone (D20 adds both) | `capture-service/scripts/server.mjs:373-386` |
+| omi-channel has its own wake pipeline to keep | its `lib/wake.mjs` is byte-identical to capture-service's (2160 lines), with five more identical helpers; the "second voice layer" is a copy (D24) | `diff` of the two directories |
+| removing `deepgram-voice` from `data/library.json` de-lists it | `readLibrary()` (`src/lib/library.ts`) auto-registers every `fittings/seed/*` directory; the JSON is curation only and `data/library-excluded.json` (absent) is the only de-list lever. The entry is kept as a legacy row instead (D28 amendment) | `src/lib/library.ts`, `tests/library-autoregister.test.ts` |
+| `fittings/seed/capture-service/lib/triage.mjs` exists (the plan's G2 list) | no such file; triage lives in omi-channel (`lib/triage.mjs`) and stays there | `ls fittings/seed/capture-service/lib` |
+| `ZecaVoice` takes an injectable `fetchImpl` at HEAD | it did not; the G2 build added `cfg.fetchImpl` through `startServer` so the REST lanes can be tested without Deepgram | `fittings/seed/capture-service/lib/tts.mjs` |
+| omi `public_base_url` / `chat_enabled` sit at `compositions/default/apm.yml:88,92` | they were at :82 and :86 (openai: same offsets); removed with the omi `wake_*` tuning in the same block | the files at HEAD~ |
+| `tests/omi-wake-card-commands.test.ts`, `tests/lang-detect.test.ts`, `tests/ack-layer.test.ts` import omi-channel's wake/lang/echo-guard | those modules left omi-channel in G2; the tests import capture-service's copies (the wake lineage) | the three test files |
 
 ## 3. Recon facts that shape the gates
 
@@ -713,60 +1137,108 @@ gate are the suites that must stay green or be re-pointed in that gate.
 - deploy: `npm run node:redeploy` (the composition and `packages/` changed, so
   the fingerprint takes the full path), then `node:reload` for the CSS.
 
-### G2 - one voice layer
+### G2 - one voice layer (file list after the G2 recon; D20-D28 are the contracts)
 
-- edit `fittings/seed/capture-service/apm.yml` (provides `voice: companion` and
-  `connector: voice` with actions transcribe/synthesize; `for_consumers`
-  documents `POST /stt`, `POST /tts`, `GET /health.voice`; config keys
-  `tts_backend` auto|elevenlabs|deepgram, `stt_rest_language`;
-  `active_conversation_window_ms` default 300000), `lib/config.mjs`
-  (`DEFAULT_PORT` 8097, new keys), `scripts/server.mjs` (routes `POST /stt`,
-  `POST /tts` Bearer-gated, `/health` voice block, `POST /capture/conversation/active`,
-  session-end digest hook), `lib/deepgram-live.mjs` (`transcribeClip(bytes,
-  contentType, {language})` via Deepgram `/v1/listen`, mockable through
-  `cfg.dgBaseUrl`), `lib/tts.mjs` (Aura backend behind the same cache, D3),
-  `lib/gateway-client.mjs` (`operativeRunFn` returns `session_id`),
-  `lib/wake.mjs` (active-conversation window: reuse the last gateway
-  `sessionId` within the window), `lib/ack-sink.mjs` only if the speak frame
-  gains a field.
-- create `fittings/seed/capture-service/scripts/mock-deepgram-rest.mjs` (or
-  extend `mock-deepgram.mjs`) and tests
-  `tests/capture-service-voice-rest.test.ts`, extend
-  `tests/capture-service.test.ts`, `tests/capture-service-voice.test.ts`,
-  `tests/capture-service-wake.test.ts` (window).
-- edit `src/lib/runner.ts` / `src/lib/own-port-lifecycle.ts` (project
-  `GARRISON_VOICE_FITTING_ID` for consumers of `voice`, D12) +
-  `tests/own-port-lifecycle.test.ts`; `fittings/seed/web-channel-default/scripts/server.mjs:97`
-  and `fittings/seed/dev-env/scripts/server.mjs:95` (read the projected id),
-  `fittings/seed/dev-env/apm.yml` (declare `consumes: voice optional-one`),
-  `packages/talk/src/handlers/voice.mjs` (forward the capture token from ctx).
-- edit `fittings/seed/omi-channel/scripts/server.mjs` (delete `/omi/chat`,
-  `/omi/tools-manifest`, `chatTool` construction), delete
-  `fittings/seed/omi-channel/lib/chat.mjs` and `tests/omi-channel-chat.test.ts`,
-  edit `lib/config.mjs:133-152` + `apm.yml` (drop chat keys),
-  `lib/ingress.mjs` + `lib/wake.mjs` (forward realtime segments to
-  capture-service's session model through a new token-gated
-  `POST /capture/ingest/text` on capture-service, so wake/discuss/speak run in
-  one place; omi-channel keeps memory/day-summary triage).
-- edit `compositions/default/apm.yml:15,300` and `compositions/openai/apm.yml:15,276`
-  (unstation deepgram-voice; only those hunks), regenerate both
-  `apm.lock.yaml`; `data/library.json:201-210` (de-list),
-  `fittings/seed/automations/lib/connector-invoke.mjs:102` (D13),
-  `src/components/chrome/Sidebar.tsx:324`, `src/lib/own-port-lifecycle.ts:214`.
-- tests: `tests/capabilities.test.ts:119-139`, `tests/seed.test.ts:22,94`,
-  `tests/own-port-lifecycle.test.ts:203-211`, `tests/vault-heal.test.ts:35,616-618`,
-  `tests/matrix-harness.test.ts:32`, `tests/connector-deepgram.test.ts`
-  (re-target to capture-service), delete `tests/deepgram-voice-live.test.ts`,
-  keep `tests/mesh-serve-ports.test.ts` green (8085 leaves the map).
-- docs: `CLAUDE.md:402` and the own-port list, `docs/CAPABILITIES.md`,
-  `docs/CAPABILITY_CONTRACT.md`, `docs/FITTINGS.md`, `docs/INSTANCES.md`,
-  `docs/RUNTIME_MATRIX.md`, `docs/COMPANION_IOS_SPEC.md` (D3 fallback),
-  `packages/claude-chat/src/voice.ts:2`, `fittings/seed/capture-service/README.md`.
+Provider (`fittings/seed/capture-service/`):
+
+- `apm.yml`: `provides` gains `voice: companion` and `connector: voice`
+  (channel stays first so the sidebar icon does not flip); `connector:` block
+  (`auth: api_key`, actions `transcribe` / `synthesize`, `secrets:
+  [CAPTURE_TOKEN]`); `summary` and `for_consumers` rewritten for the voice
+  layer (no "operative", `tests/vocabulary.test.ts`), documenting `POST /stt`,
+  `POST /tts`, `GET /health` `voice`, `POST /capture/ingest/text`,
+  `POST /capture/conversation/active`; `config_schema` gains `tts_backend`,
+  `tts_deepgram_model`, `stt_rest_language`, `active_conversation_window_ms`,
+  `text_session_idle_ms`, and declares the drifted `wake_revise_after_ms`,
+  `wake_revise_max_segments` (every key with a description, `quality.ts`).
+- `lib/config.mjs` (`DEFAULT_PORT` 8097, the new keys, `elevenLabsApiKey`
+  already read), `lib/deepgram-live.mjs` (`transcribeClip(cfg, bytes,
+  contentType, {language, fetchImpl})` against `cfg.dgBaseUrl` turned into
+  https), `lib/tts.mjs` (backend choice, Aura `POST /v1/speak`, clip id with
+  backend + model, `available()` per backend), `scripts/server.mjs` (binary
+  body reader, `POST /stt`, `POST /tts`, `/health` voice block +
+  `keyConfigured`, `POST /capture/ingest/text`, `/capture/conversation/active`
+  GET/POST/DELETE, third `WakeBus` for omi), `lib/ingress.mjs` (socket-less
+  text session with idle finalise, no media log / transcript / capture_event),
+  `lib/wake.mjs` (active-conversation window in `runDelegate`),
+  `lib/ack-sink.mjs` untouched unless the speak frame needs a field.
+- `scripts/connector.mjs` (new, D26), `RUNBOOK.md` (surfaces + kill switches),
+  `HUMAN_SETUP.md` (ElevenLabs optional, browser voice needs Deepgram + capture
+  token), `docs/api-notes.md` (the two REST shapes).
+- tests: `tests/capture-service-voice-rest.test.ts` (new; in-file REST mock for
+  `/v1/listen` and `/v1/speak`, auth ladder, 400/502/503, cache hit header),
+  `tests/capture-service-text-ingest.test.ts` (new; session lifecycle, no
+  capture_event, echo guard, wake routing to the omi bus),
+  `tests/capture-service-connector.test.ts` (new; the CLI against a stub
+  service), extend `tests/capture-service.test.ts` (health block, `DEFAULT_PORT`),
+  `tests/capture-service-voice.test.ts` (backend selection, clip id),
+  `tests/capture-service-wake.test.ts` (window; the stub gateway returns
+  `session_id`).
+
+Consumers and the shell:
+
+- `packages/talk/src/router.mjs` (voice options, provider by id, Bearer
+  upstream, health block), `packages/talk/src/server.mjs` (drop the two WS
+  relays), `packages/talk/ui/voice-conversation.tsx` (speaker gated on `tts`),
+  `packages/talk/ui/voice-clip.ts` only if a status shape changes;
+  `src/app/api/[[...path]]/route.ts` + new `src/lib/voice-provider.ts` (D22);
+  `fittings/seed/web-channel-default/scripts/server.mjs` + `apm.yml`
+  (`CAPTURE_TOKEN` in `secret_scope`); `fittings/seed/dev-env/scripts/server.mjs`
+  :95/:860 + `apm.yml` (`consumes: voice optional-one`, `CAPTURE_TOKEN`).
+- `src/lib/runner.ts` (`GARRISON_VOICE_FITTING_ID`, D23) +
+  `tests/own-port-lifecycle.test.ts` / `tests/runner-*.test.ts` coverage;
+  `src/lib/metadata.ts` (`connector.secrets`), `src/app/api/connectors/[id]/auth-env/route.ts`,
+  `src/lib/connectors-view.ts` (sealed = `connector.secrets` when present),
+  `docs/METADATA.md` (the new field), `fittings/seed/automations/lib/connector-invoke.mjs`
+  (alias + directory map), `src/components/chrome/Sidebar.tsx:324`.
+- `packages/claude-chat/src/voice.ts:2` comment only if it names deepgram.
+
+omi-channel (`fittings/seed/omi-channel/`, D24): `lib/forward.mjs` (new),
+`lib/ingress.mjs`, `scripts/server.mjs`, `lib/config.mjs`, `apm.yml`
+(`secret_scope` + `CAPTURE_TOKEN`, keys, prose), `scripts/speak.mjs`,
+`scripts/omi.mjs`, `scripts/funnel-ensure.mjs` (drop the public_base_url
+mention), docs (`RUNBOOK.md`, `HUMAN_SETUP.md`, `PROGRESS.md`, `DECISIONS.md`,
+`docs/adr-omi-channel.md`); deletions listed in D24; tests
+`tests/omi-channel*.test.ts` + `tests/omi-channel-mjs.d.ts`.
+
+Compositions, registry, docs, tests:
+
+- `compositions/default/apm.yml` (:15 dependency, :301-306 selection, omi
+  `public_base_url` + `chat_enabled`) and `compositions/openai/apm.yml` (:15,
+  :270-275, same omi keys); both pushed to the state service with rev CAS
+  before `up()` (section 2); the Mac's regenerated lock is restored from HEAD.
+- `data/library.json` (de-list :200-214; capture-service summary :667-679
+  names the voice layer), `tests/seed.test.ts`, `tests/capabilities.test.ts`
+  :117-139 (synthetic provider rename), `tests/matrix-harness.test.ts:30-39`
+  (cosmetic), `tests/vault-heal.test.ts:35,616-618` (comment + fixture id),
+  `tests/own-port-lifecycle.test.ts:203-221` (id string), delete
+  `tests/deepgram-voice-live.test.ts`, rename `tests/connector-deepgram.test.ts`
+  (D28).
+- docs: `CLAUDE.md` (:81 connector example, :193-198 own-port list, :410),
+  `docs/CAPABILITIES.md` (:14-17 keep `voice`, :148-150, :283-287),
+  `docs/CAPABILITY_CONTRACT.md:41-45`, `docs/FITTINGS.md:197-198` (+ a
+  capture-service bullet), `docs/INSTANCES.md:80-97`, `docs/RUNTIME_MATRIX.md`
+  (dated note), `docs/COMPANION_IOS_SPEC.md` (:80-88, :200-206, :237-262,
+  :407-417), `docs/voice-attended-checklist.md:15`, `docs/UI-FITTINGS.md:86-97`
+  stays true.
 - `fittings/seed/deepgram-voice/` stays on disk (I12); its removal rides the
-  same G8 patch as the web-channel fitting.
-- evidence: `evidence/garrison-app/g2/` (curl transcripts of `/stt`, `/tts`
-  through the shell from the tailnet origin, browser push-to-talk screenshot,
-  vitest summary). Deploy: `npm run node:redeploy`.
+  G8 patch with the web-channel fitting.
+- evidence: `evidence/garrison-app/g2/` (curl transcripts of `/api/voice/health`,
+  `/api/voice/stt`, `/api/voice/tts` through the shell from the tailnet origin,
+  a push-to-talk screenshot, the omi forward counter on `/health`, vitest +
+  typecheck + playwright summaries, the manifest push revs). Deploy:
+  `npm run node:redeploy` (fittings and manifests changed).
+- Found by the push-to-talk screenshots, fixed in this gate (the standing
+  "be picky about the UI you see" rule): the "Notifications blocked" pill sat
+  ON the voice panel for the whole hold (its offset measured `.cc-composer`
+  alone; the panel floats above the composer's top edge), and at desktop
+  width it sat over the shell sidebar's composition selector (viewport-left
+  on a pane that is not at the viewport's left). `packages/talk/ui/composer-inset.ts`
+  measures the composer plus the overlays anchored above it (`.wcv-panel`,
+  `.cc-slashmenu`, `.cc-railmenu`) and PushEnroller publishes
+  `--wc-composer-inset` and `--wc-composer-left`; the pill copy lost its em
+  dash. `tests/talk-composer-inset.test.ts`; the parity spec's push-notice
+  test now asserts the pill sits inside the conversation pane.
 
 ### G3 - the app is a Capacitor shell (native gate, ends in TestFlight)
 

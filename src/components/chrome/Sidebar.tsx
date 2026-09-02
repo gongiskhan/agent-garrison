@@ -321,7 +321,9 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
   drill: Drill,
   "monitor-default": Activity,
   "screen-share-default": ScreenShare,
-  "deepgram-voice": Mic,
+  // capture-service lists `channel` first in its provides, so the kind fallback
+  // below would hand it the chat bubble; it is the voice layer, so the mic.
+  "capture-service": Mic,
   "web-channel-default": MessagesSquare,
   "slack-channel": MessagesSquare,
   roadmaps: Milestone

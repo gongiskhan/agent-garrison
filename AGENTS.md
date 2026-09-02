@@ -37,6 +37,12 @@ placement target.
 `up()` and project bootstrap render secrets from the state service's secret
 authority, and there is no offline mode, no cache, and no write queue by
 design. A running session keeps running; new work blocks with a clear error.
+The same authority serves the per-fitting scoped delivery: an own-port
+fitting's `secret_scope` is resolved through `POST /v1/secrets/resolve`
+(`scopedSecretsViaAuthority` in `src/lib/composition-sync.ts`), never from the
+node's local vault, which the mesh leaves empty. A fitting started while the
+authority is unreachable or refuses the grant runs keyless with a spawn record
+that says so (`secretsDelivered: false`), and the next `up()` heals it.
 This is consistent with Garrison's online-only positioning: a fork of shared
 state is worse than a clear stop. The state DB itself is snapshotted hourly
 (VACUUM INTO) and the newest daily snapshot ships off-box to a Mac -

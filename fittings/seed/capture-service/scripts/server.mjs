@@ -5,6 +5,13 @@
 // The Deepgram lane (M2), wake bus (M3), APNs (M5) and the speech sink (M5b)
 // land behind their own default-off flags.
 //
+// Voice REST surface (2026-09, one voice layer): POST /stt (a recorded clip in,
+// a transcript out) and POST /tts (text in, an mp3 clip out) sit top-level
+// beside /speak/<id>.mp3, behind the same Bearer ladder as /capture/*. The
+// browser (through the shell's /api/voice proxy), the phone's clip fallback
+// and the automations connector (scripts/connector.mjs) all come through
+// here, so they share one backend choice and one clip cache with the ack lane.
+//
 // Route conventions (omi-channel precedent):
 //   403  implemented but disabled by its kill-switch flag (or missing secret)
 //   501  not yet implemented (milestone pending)
@@ -21,16 +28,17 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FITTING_ID, loadConfig } from "../lib/config.mjs";
 import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON, ulid } from "../lib/store.mjs";
-import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
+import { CaptureIngress, TEXT_SESSION_ID_RE, TEXT_SOURCES, bearerToken, tokenMatches } from "../lib/ingress.mjs";
 import { TranscriptionLane } from "../lib/deepgram-live.mjs";
-import { WakeBus, wakeRegex } from "../lib/wake.mjs";
+import { ActiveConversation, OMI_WAKE_SOURCE, WakeBus, wakeRegex } from "../lib/wake.mjs";
 import { FeedbackBus } from "../lib/feedback.mjs";
 import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
 import { CompanionNotifier, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
 import { AckSink } from "../lib/ack-sink.mjs";
-import { ZecaVoice } from "../lib/tts.mjs";
+import { MAX_TEXT_CHARS, ZecaVoice } from "../lib/tts.mjs";
+import { UpstreamError, transcribeClip } from "../lib/deepgram-rest.mjs";
 import { Cues } from "../lib/cues.mjs";
 import { ConfirmBus } from "../lib/confirm-bus.mjs";
 import { CortexCli } from "../lib/cortex-cli.mjs";
@@ -62,6 +70,14 @@ export const PENDANT_WAKE_SOURCE = {
   sessionProvenanceKey: "pendant_session_id",
   logPrefix: "capture-service"
 };
+
+// Omi (D24): omi-channel forwards its realtime segments here over
+// POST /capture/ingest/text and keeps no wake bus of its own, so the omi
+// identity the retired copy of wake.mjs carried (source "omi", origin
+// "omi:wake:<id>", omi_session_id in provenance) now lives on a third bus in
+// THIS process. Only the log prefix changes: the lines are written by
+// capture-service, so they say so.
+export const OMI_TEXT_WAKE_SOURCE = { ...OMI_WAKE_SOURCE, logPrefix: "capture-service" };
 
 // True when `pid` names a live process (EPERM still means alive, just not ours).
 function pidAlive(pid) {
@@ -147,6 +163,47 @@ function readBody(req, cap = 256 * 1024) {
     req.on("end", () => resolve(overflow ? null : Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
+}
+
+// The raw-bytes twin of readBody for the recorded clip on POST /stt: no
+// decoding, an 8 MB cap (a minute of webm/opus is well under 1 MB), the same
+// drain-then-413 discipline.
+const STT_BODY_CAP = 8 * 1024 * 1024;
+
+function readBinaryBody(req, cap = STT_BODY_CAP) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let overflow = false;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (overflow) return;
+      if (size > cap) {
+        overflow = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(overflow ? null : Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+// 502 for a failed upstream call: the upstream status and a bounded excerpt
+// of its text body travel; audio and keys never do (UpstreamError is built
+// that way).
+function upstreamFailure(res, counters, counterName, err) {
+  counters.bump(counterName);
+  if (err instanceof UpstreamError) {
+    return json(res, 502, {
+      error: `${err.backend} upstream failed`,
+      backend: err.backend,
+      status: err.status || null,
+      detail: err.detail
+    });
+  }
+  return json(res, 502, { error: "upstream failed", detail: String(err?.message ?? err).slice(0, 200) });
 }
 
 function escapeHtml(s) {
@@ -307,6 +364,174 @@ export function makeRequestHandler(ctx) {
         res.end(audio);
         return;
       }
+
+      // ---- Voice REST: the clip lanes (D20). Top-level, Bearer-gated. ----
+      // POST /stt: the recorded clip as raw bytes -> { transcript, confidence,
+      // language, model }. 400 empty, 413 over the cap, 503 without a Deepgram
+      // key, 502 with the upstream status when Deepgram refuses.
+      if (req.method === "POST" && p === "/stt") {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const bytes = await readBinaryBody(req);
+        if (bytes === null) return json(res, 413, { error: "audio body too large" });
+        if (bytes.length === 0) return json(res, 400, { error: "empty audio body" });
+        if (!cfg.secrets.deepgramApiKey) {
+          counters.bump("stt_rest_unkeyed");
+          return json(res, 503, { error: "DEEPGRAM_API_KEY not sealed" });
+        }
+        const contentType = String(req.headers["content-type"] ?? "").split(";")[0].trim() || "audio/webm";
+        const language = (url.searchParams.get("language") ?? "").trim() || null;
+        const startedAt = Date.now();
+        try {
+          const result = await transcribeClip({ cfg, bytes, contentType, language, fetchImpl: cfg.fetchImpl ?? null });
+          counters.bump("stt_rest_transcribed");
+          counters.observe("stt_rest_ms", Date.now() - startedAt);
+          return json(res, 200, result);
+        } catch (err) {
+          return upstreamFailure(res, counters, "stt_rest_upstream_failed", err);
+        }
+      }
+
+      // POST /tts: JSON { text, format?: "mp3", lang?: "pt" | "en" } -> the mp3
+      // clip, produced through ZecaVoice.clipFor so the browser, the phone and
+      // the connector share one cache and one backend. X-Voice-Backend names
+      // the engine, X-Clip-Id the cache entry (also reachable as
+      // /speak/<id>.mp3). 400 on an empty line or one over MAX_TEXT_CHARS
+      // (the caller chunks), 503 when no backend can speak.
+      if (req.method === "POST" && p === "/tts") {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const body = await readBody(req);
+        if (body === null) return json(res, 413, { error: "body too large" });
+        let parsed;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          return json(res, 400, { error: "invalid JSON" });
+        }
+        const text = typeof parsed?.text === "string" ? parsed.text.trim() : "";
+        if (!text) return json(res, 400, { error: "text is required" });
+        if (text.length > MAX_TEXT_CHARS) {
+          return json(res, 400, { error: `text over ${MAX_TEXT_CHARS} characters; chunk it` });
+        }
+        if (parsed.format !== undefined && parsed.format !== "mp3") {
+          return json(res, 400, { error: "format must be mp3" });
+        }
+        const lang = parsed.lang === "pt" || parsed.lang === "en" ? parsed.lang : null;
+        const avail = voice.available();
+        if (!avail.ok) {
+          counters.bump("tts_rest_unavailable");
+          return json(res, 503, { error: avail.reason });
+        }
+        let clip;
+        try {
+          clip = await voice.render(text, { lang });
+        } catch (err) {
+          return upstreamFailure(res, counters, "tts_rest_upstream_failed", err);
+        }
+        const audio = clip ? voice.readClip(clip.id) : null;
+        if (!audio) return json(res, 503, { error: "no clip produced" });
+        counters.bump("tts_rest_served");
+        res.writeHead(200, {
+          "content-type": "audio/mpeg",
+          "content-length": audio.length,
+          "x-voice-backend": clip.backend ?? avail.backend,
+          "x-clip-id": clip.id,
+          // Same bytes for the same id forever; the id is the cache key.
+          "cache-control": "private, max-age=31536000, immutable"
+        });
+        res.end(audio);
+        return;
+      }
+
+      // ---- Text ingest (D24): another service's transcript segments. ----
+      // POST /capture/ingest/text { source: "omi", session_id, segments: [{text,
+      // speaker?, is_user?, start?, end?}] } -> 202 { session, accepted }. Opens
+      // or extends the socket-less text session "<source>:<session_id>", runs
+      // every segment through the shared echo guard (Zeca's own voice coming
+      // back through the Omi mic is not conversation), and hands what survives
+      // to the omi wake bus as finals - never to the companion or pendant
+      // buses, which key on their own capture sessions. Nothing is persisted:
+      // the forwarding channel keeps the memory path (no media log, no
+      // transcript, no capture_event), so a conversation is never ingested twice.
+      if (req.method === "POST" && p === "/capture/ingest/text") {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const body = await readBody(req);
+        if (body === null) return json(res, 413, { error: "body too large" });
+        let parsed;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          return json(res, 400, { error: "invalid JSON" });
+        }
+        const source = typeof parsed?.source === "string" ? parsed.source.trim() : "";
+        if (!TEXT_SOURCES.has(source)) {
+          return json(res, 400, { error: `source must be one of: ${[...TEXT_SOURCES].join(", ")}` });
+        }
+        const externalId = typeof parsed?.session_id === "string" ? parsed.session_id.trim() : "";
+        if (!TEXT_SESSION_ID_RE.test(externalId)) {
+          return json(res, 400, { error: "session_id is required (1-80 chars of [A-Za-z0-9_.:-])" });
+        }
+        if (!Array.isArray(parsed?.segments)) return json(res, 400, { error: "segments must be an array" });
+        counters.bump("text_ingest_calls");
+        const { session } = ctx.ingress.openTextSession({ source, sessionId: externalId });
+        const accepted = [];
+        for (const seg of parsed.segments) {
+          const text = typeof seg?.text === "string" ? seg.text.trim() : "";
+          if (!text) continue;
+          // The guard counts what it eats (realtime_echo_suppressed).
+          if (ctx.echoGuard.shouldSuppress(text)) continue;
+          accepted.push({
+            text,
+            final: true,
+            speaker: seg.speaker ?? null,
+            is_user: seg.is_user !== false,
+            start: typeof seg.start === "number" ? seg.start : null,
+            end: typeof seg.end === "number" ? seg.end : null
+          });
+        }
+        if (accepted.length > 0) counters.bump("text_ingest_segments", accepted.length);
+        ctx.ingress.noteTextSegments(session, accepted.length);
+        if (accepted.length > 0 && cfg.wakeEnabled && ctx.omiWakeBus) {
+          ctx.omiWakeBus.handleSegments({ sessionId: session.record.id, segments: accepted });
+        }
+        return json(res, 202, { session: session.record.id, accepted: accepted.length });
+      }
+
+      // ---- The active-conversation pin (D25). ----
+      // POST { session_id } -> 200 { session_id, until } pins every bus's next
+      // delegate onto that gateway session for one window; GET reads the pin
+      // (nulls when none or expired); DELETE clears it. Process memory only.
+      if (p === "/capture/conversation/active") {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const active = ctx.activeConversation;
+        if (req.method === "GET") return json(res, 200, active.current());
+        if (req.method === "DELETE") {
+          active.clear();
+          counters.bump("conversation_pin_cleared");
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        if (req.method === "POST") {
+          const body = await readBody(req);
+          if (body === null) return json(res, 413, { error: "body too large" });
+          let parsed;
+          try {
+            parsed = JSON.parse(body);
+          } catch {
+            return json(res, 400, { error: "invalid JSON" });
+          }
+          const sessionId = typeof parsed?.session_id === "string" ? parsed.session_id.trim() : "";
+          if (!sessionId || sessionId.length > 200) return json(res, 400, { error: "session_id is required" });
+          counters.bump("conversation_pinned");
+          return json(res, 200, active.pin(sessionId));
+        }
+        return json(res, 405, { error: "method not allowed" });
+      }
+
       // The conversation, as data - what the app's Conversation screen renders.
       // One exchange per wake command: the user's words, what Zeca decided
       // (intent), what he said back (full text, untruncated - the push banner
@@ -378,12 +603,30 @@ export function makeRequestHandler(ctx) {
           flags: flagSummary(cfg),
           secrets: {
             deepgramApiKey: Boolean(cfg.secrets.deepgramApiKey),
+            elevenLabsApiKey: Boolean(cfg.secrets.elevenLabsApiKey),
             captureToken: Boolean(cfg.secrets.captureToken),
             apnsTeamId: Boolean(cfg.secrets.apnsTeamId),
             apnsKeyId: Boolean(cfg.secrets.apnsKeyId),
             apnsP8: Boolean(cfg.secrets.apnsP8)
           },
           gatewayConfigured: Boolean(cfg.gatewayUrl),
+          // The voice layer at a glance (D20): can /stt transcribe, can /tts
+          // speak and through which engine, and is the REST surface reachable
+          // at all (master flag on AND a capture token to present). The
+          // top-level keyConfigured mirrors voice.stt for readers that still
+          // apply `h.keyConfigured !== false`, so nobody lights a microphone
+          // against a service with no Deepgram key.
+          voice: {
+            stt: Boolean(cfg.secrets.deepgramApiKey),
+            tts: voice?.available().ok ?? false,
+            ttsBackend: voice?.backend() ?? null,
+            restEnabled: Boolean(cfg.enabled && cfg.secrets.captureToken),
+            // The per-request /tts budget. Callers chunk against THIS number
+            // rather than a constant of their own, so the cap can move here
+            // without every client silently starting to 400.
+            maxTextChars: MAX_TEXT_CHARS
+          },
+          keyConfigured: Boolean(cfg.secrets.deepgramApiKey),
           // Push and speech health at a glance. Both failed silently this week
           // in ways /health could not show: a device token accepted by APNs
           // while the phone showed nothing, and every spoken line going to a
@@ -461,6 +704,11 @@ export function makeRequestHandler(ctx) {
           "cache-control": "no-cache",
           connection: "keep-alive"
         });
+        // Node holds the status line back until the first body write, and a
+        // quiet live session's first write is the 15s keepalive - so without
+        // this an EventSource (or a fetch awaiting headers) sat "connecting"
+        // for 15 seconds on every session that had not spoken yet.
+        res.flushHeaders();
         const sendEvent = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
         for (const segment of ctx.transcriber?.liveSegments(id) ?? []) sendEvent(segment);
         if (record.status !== "live") {
@@ -740,8 +988,13 @@ export async function startServer(cfg = loadConfig()) {
   let screenContext = null;
   const screenContextFn = (q) => screenContext?.latest(q) ?? null;
 
+  // One active-conversation window for the process (D25): the pin is shared
+  // by all three buses, each bus remembers its own last reply.
+  const activeConversation = new ActiveConversation({ windowMs: live.activeConversationWindowMs });
+
   const wakeBus = new WakeBus({
     screenContextFn,
+    activeConversation,
     cfg: live,
     store,
     counters,
@@ -794,9 +1047,29 @@ export async function startServer(cfg = loadConfig()) {
     connectorFn,
     cortexFn,
     screenContextFn,
+    activeConversation,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
-  answerBuses.push(wakeBus, pendantWakeBus);
+  // The omi bus (D24): fed by POST /capture/ingest/text, never by the
+  // transcription lane. Same deps as the companion bus and the same
+  // speakingNotifier, so an Omi request is answered where every other reply
+  // lands - spoken through the phone when a companion session can hear, else
+  // pushed. It has no socket of its own to speak into, so no speakFn: the
+  // discuss intent degrades to delegate here exactly as it did on omi-channel.
+  const omiWakeBus = new WakeBus({
+    cfg: live,
+    store,
+    counters,
+    runFn,
+    operativeFn,
+    board,
+    memoryWriter: new MemoryWriter({ prefix: "omi", label: "Omi", env: cfg.env ?? process.env }),
+    notifier: speakingNotifier,
+    source: OMI_TEXT_WAKE_SOURCE,
+    screenContextFn,
+    activeConversation
+  });
+  answerBuses.push(wakeBus, pendantWakeBus, omiWakeBus);
   // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
   // Deepgram interims so the pendant buzzes fast; the authoritative window
   // still runs on finals through the untouched WakeBus. The FeedbackBus
@@ -851,7 +1124,9 @@ export async function startServer(cfg = loadConfig()) {
     onSessionEnd: (record) => emitSessionEvent({ record, store, counters, cfg: live })
   });
   screenContext = new ScreenContextIndex({ ingress, cfg: live, counters });
-  const voice = new ZecaVoice({ cfg: live, counters });
+  // cfg.fetchImpl is the REST-lane twin of cfg.wsFactory: a test hands the
+  // clip calls (ElevenLabs, Deepgram /v1/listen and /v1/speak) a local fetch.
+  const voice = new ZecaVoice({ cfg: live, counters, fetchImpl: live.fetchImpl ?? null });
   const cues = new Cues({ cfg: live, voice, counters });
   // Four short clips, once, so the first wake of the day is as fast as the
   // hundredth. Never awaited: a cold cue costs the phone's own voice, not a
@@ -960,6 +1235,8 @@ export async function startServer(cfg = loadConfig()) {
       transcriber,
       wakeBus,
       pendantWakeBus,
+      omiWakeBus,
+      activeConversation,
       feedbackBus,
       echoGuard,
       notifier,
@@ -1011,6 +1288,8 @@ export async function startServer(cfg = loadConfig()) {
     transcriber,
     wakeBus,
     pendantWakeBus,
+    omiWakeBus,
+    activeConversation,
     feedbackBus,
     echoGuard,
     notifier,

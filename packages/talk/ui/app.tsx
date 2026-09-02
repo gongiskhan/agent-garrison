@@ -45,6 +45,7 @@ import { RemoteShellWorkbench } from "./remote-shell-workbench";
 import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail";
 import { ShellsModal, type ShellOpenSpec, type ShellSpawnSpec } from "./shells-modal";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
+import { COMPOSER_OVERLAY_SELECTOR, composerInset } from "./composer-inset";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
 // rendered into ClaudeChat's composer via the function-form adornment so it can
@@ -1815,11 +1816,12 @@ function rememberPushNoticeDismissed(kind: string) {
  * Keep the fixed bottom-left pills clear of the composer.
  *
  * They were pinned to the viewport bottom, which is exactly where the composer
- * lives. On a phone the composer is full width, so "Notifications blocked …"
+ * lives. On a phone the composer is full width, so "Notifications blocked ..."
  * covered the message box AND its Send button outright - the primary control of
  * the app, unusable until the pill was dismissed. The composer's height is not a
- * constant (rail rows, attachment chips, a grown textarea), so measure it and
- * publish it as the offset every pill sits above.
+ * constant (rail rows, attachment chips, a grown textarea), and the voice panel
+ * and menus float ABOVE its top edge, so measure the whole stack (composerInset)
+ * and publish it as the offset every pill sits above.
  */
 function useComposerInset(active: boolean): void {
   useEffect(() => {
@@ -1829,6 +1831,7 @@ function useComposerInset(active: boolean): void {
     let size: ResizeObserver | null = null;
     let frame = 0;
     let published = -1;
+    let publishedLeft = -1;
 
     const publish = () => {
       frame = 0;
@@ -1843,10 +1846,22 @@ function useComposerInset(active: boolean): void {
         size = composer ? new ResizeObserver(schedule) : null;
         if (composer && size) size.observe(composer);
       }
-      const height = composer ? Math.round(composer.getBoundingClientRect().height) : 0;
-      if (height === published) return;
-      published = height;
-      root.style.setProperty("--wc-composer-inset", `${height}px`);
+      const overlayEls = composer ? Array.from(composer.querySelectorAll(COMPOSER_OVERLAY_SELECTOR)) : [];
+      // The voice panel grows upward as the transcript fills; watch its size
+      // too, since a text-only change is not a childList mutation.
+      for (const el of overlayEls) size?.observe(el);
+      const overlays = overlayEls.map((el) => el.getBoundingClientRect());
+      const composerRect = composer ? composer.getBoundingClientRect() : null;
+      const inset = composerInset(window.innerHeight, composerRect, overlays);
+      // The pills are viewport-fixed, but the conversation is a pane inside the
+      // shell: at desktop width `left: 12px` put the pill over the sidebar's
+      // composition selector. Anchor it to the composer's left edge instead.
+      const left = composerRect ? Math.max(0, Math.round(composerRect.left)) : 0;
+      if (inset === published && left === publishedLeft) return;
+      published = inset;
+      publishedLeft = left;
+      root.style.setProperty("--wc-composer-inset", `${inset}px`);
+      root.style.setProperty("--wc-composer-left", `${left}px`);
     };
     // Streaming rewrites the transcript constantly; coalesce to one measure per
     // frame so the DOM watcher below stays free.
@@ -1862,6 +1877,7 @@ function useComposerInset(active: boolean): void {
       size?.disconnect();
       window.removeEventListener("resize", schedule);
       root.style.removeProperty("--wc-composer-inset");
+      root.style.removeProperty("--wc-composer-left");
     };
   }, [active]);
 }
@@ -1920,7 +1936,7 @@ function PushEnroller() {
       )}
       {!noticeDismissed && state === "denied" && !pushNoticeDismissed("denied") && (
         <PushNotice
-          text="Notifications blocked — enable them in browser settings"
+          text="Notifications blocked - enable them in browser settings"
           onDismiss={() => { rememberPushNoticeDismissed("denied"); setNoticeDismissed(true); }}
         />
       )}

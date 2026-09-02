@@ -498,7 +498,7 @@ describe("RelayNotifier (secretless triage process -> server push relay)", () =>
     };
     const cfg = { ...loadConfig({ GARRISON_HOME: home }), secrets: {} };
     const server = createServer(
-      makeRequestHandler({ cfg, store, counters, ingress: null, notifier: notifierStub, chatTool: null })
+      makeRequestHandler({ cfg, store, counters, ingress: null, notifier: notifierStub })
     );
     try {
       await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));

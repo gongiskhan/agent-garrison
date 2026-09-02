@@ -12,7 +12,6 @@ import os from "node:os";
 import path from "node:path";
 import {
   DEFAULT_PORT,
-  DEFAULT_WAKE_VARIANTS,
   loadConfig,
   omiDir,
   resolveGatewayUrl,
@@ -33,7 +32,6 @@ describe("omi-channel config", () => {
     expect(cfg.triageEnabled).toBe(false);
     expect(cfg.wakeEnabled).toBe(false);
     expect(cfg.notifyEnabled).toBe(false);
-    expect(cfg.chatEnabled).toBe(false);
     expect(cfg.backfeedEnabled).toBe(false);
     expect(cfg.tipsEnabled).toBe(false);
     expect(cfg.port).toBe(DEFAULT_PORT);
@@ -45,39 +43,28 @@ describe("omi-channel config", () => {
     const cfg = loadConfig({
       GARRISON_OMICHANNEL_PORT: "8094",
       GARRISON_OMICHANNEL_ENABLED: "true",
-      GARRISON_OMICHANNEL_WAKE_VARIANTS: "zeca, zeka ,zéca",
       GARRISON_OMICHANNEL_ALLOWED_CATEGORIES: "work,personal",
       GARRISON_OMICHANNEL_TRIAGE_BATCH_CAP: "7",
-      OMI_APP_SECRET: "s3cret"
+      OMI_APP_SECRET: "s3cret",
+      CAPTURE_TOKEN: " cap-token "
     });
     expect(cfg.port).toBe(8094);
     expect(cfg.enabled).toBe(true);
-    expect(cfg.wakeVariants).toEqual(["zeca", "zeka", "zéca"]);
     expect(cfg.allowedCategories).toEqual(["work", "personal"]);
     expect(cfg.triageBatchCap).toBe(7);
     expect(cfg.secrets.appSecret).toBe("s3cret");
+    // The voice layer's shared secret, trimmed like every other vault value.
+    expect(cfg.secrets.captureToken).toBe("cap-token");
   });
 
-  // The operative was renamed Gary -> Zeca. An install that still has the old
-  // spellings pinned would wake on a name nothing answers to and never on the
-  // one it does - a silently dead channel, which is worse than a loud one.
-  it("ignores a wake_variants value left over from the retired name", () => {
-    const cfg = loadConfig({ GARRISON_OMICHANNEL_WAKE_VARIANTS: "gary,garry,gerry,géri" });
-    expect(cfg.wakeVariants).toEqual(DEFAULT_WAKE_VARIANTS);
-    expect(cfg.wakeVariantsRetiredFallback).toBe(true);
-  });
-
-  it("keeps a genuinely customised wake_variants value, retired spelling or not", () => {
-    // Only an ENTIRELY retired set is treated as stale. Anything the user
-    // actually chose is theirs, even if it still mentions the old name.
-    const cfg = loadConfig({ GARRISON_OMICHANNEL_WAKE_VARIANTS: "gary,chefe" });
-    expect(cfg.wakeVariants).toEqual(["gary", "chefe"]);
-    expect(cfg.wakeVariantsRetiredFallback).toBe(false);
-  });
-
-  it("defaults to the current name when nothing is configured", () => {
-    expect(loadConfig({}).wakeVariants).toEqual(DEFAULT_WAKE_VARIANTS);
-    expect(loadConfig({}).wakeVariantsRetiredFallback).toBe(false);
+  // The wake gate moved to capture-service (D24, 2026-09-02): this fitting no
+  // longer reads wake tuning, only the one flag that gates the forward.
+  it("carries no wake tuning keys any more", () => {
+    const cfg = loadConfig({ GARRISON_OMICHANNEL_WAKE_VARIANTS: "zeca,zeka" }) as Record<string, unknown>;
+    for (const gone of ["wakeVariants", "wakeSilenceCloseMs", "wakeMaxCaptureMs", "chatEnabled", "publicBaseUrl"]) {
+      expect(cfg).not.toHaveProperty(gone);
+    }
+    expect(cfg.wakeEnabled).toBe(false);
   });
 
   it("never invents a gateway port literal", () => {
@@ -134,18 +121,27 @@ describe("omi-channel server (sandboxed boot)", () => {
       triage: false,
       wake: false,
       notify: false,
-      chat: false,
       backfeed: false
     });
+    expect(health.flags).not.toHaveProperty("chat");
+    // The realtime forward reports why it is not forwarding, without secrets.
+    expect(health.forward).toMatchObject({ ok: false });
+    expect(health.forward.reason).toContain("wake_enabled off");
+    expect(health.secrets).toMatchObject({ captureToken: false });
 
     // Every pipe flag is off (I9): a funneled-but-disabled endpoint answers
     // 403 and leaks nothing, regardless of route or key.
-    for (const route of ["/omi/memory", "/omi/realtime", "/omi/day-summary", "/omi/chat"]) {
+    for (const route of ["/omi/memory", "/omi/realtime", "/omi/day-summary"]) {
       const res = await fetch(`${base}${route}?key=whatever&uid=u`, { method: "POST", body: "{}" });
       expect(res.status).toBe(403);
     }
-    const manifest = await fetch(`${base}/omi/tools-manifest`);
-    expect(manifest.status).toBe(403);
+    // The chat tool and its manifest left with the wake bus (D24): plain 404s,
+    // as is the echo-guard /ack the kanban fan-out used to probe here.
+    for (const gone of ["/omi/chat", "/omi/tools-manifest", "/ack"]) {
+      const res = await fetch(`${base}${gone}?key=whatever&uid=u`, { method: "POST", body: "{}" });
+      expect(res.status).toBe(404);
+    }
+    expect((await fetch(`${base}/omi/tools-manifest`)).status).toBe(404);
 
     const page = await fetch(`${base}/`);
     expect(page.status).toBe(200);
@@ -226,11 +222,16 @@ describe("omi-channel status page", () => {
           label: "<Ready>",
           tone: 'ok\" onclick=\"bad()' as any,
           detail: "health check passed"
-        }
+        },
+        forward: { ok: false, reason: "<capture-service> not running" }
       }
     );
 
     expect(html).toContain("Omi channel pipe readiness");
+    expect(html).toContain("Realtime forward");
+    expect(html).toContain("&lt;capture-service&gt; not running");
+    expect(html).not.toContain("<capture-service>");
+    expect(html).not.toContain("ask_zeca");
     expect(html).toContain("Receiving");
     expect(html).toContain("Pinned");
     expect(html).toContain("identity masked");

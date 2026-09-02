@@ -101,6 +101,12 @@ describe("up boots every own-port fitting", () => {
     expect(envByFitting.get(FITTING_B)?.GARRISON_BASE_URL).toMatch(
       /^http:\/\/127\.0\.0\.1:\d+$/
     );
+    // The voice provider is projected ONLY into fittings that consume
+    // `kind: voice` (dev-env proxies /voice/* to it); a fitting that does not
+    // consume voice never learns the provider id, so a provider swap restarts
+    // exactly its consumers.
+    expect(envByFitting.get(FITTING_A)?.GARRISON_VOICE_FITTING_ID).toBe("capture-service");
+    expect(envByFitting.get(FITTING_B)?.GARRISON_VOICE_FITTING_ID).toBeUndefined();
   });
 });
 

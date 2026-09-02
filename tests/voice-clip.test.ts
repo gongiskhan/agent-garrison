@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { SegmentGate, chunkSpeech, rmsLevel, pickRecorderMimeType } from "../packages/talk/ui/voice-clip";
+import { DEFAULT_CHUNK_CHARS, SegmentGate, chunkSpeech, rmsLevel, pickRecorderMimeType } from "../packages/talk/ui/voice-clip";
 
 // The pure half of the REST voice-clip path. The capture loop itself needs a
 // microphone and a MediaRecorder, but every decision it makes is delegated to
@@ -418,13 +418,28 @@ describe("chunkSpeech", () => {
     expect(words(out.join(" "))).toEqual(words(`${long} Next. Last.`));
   });
 
-  it("defaults to a limit under the provider's 2000-character request cap", () => {
+  it("defaults to the voice layer's 600-character /tts budget", () => {
+    expect(DEFAULT_CHUNK_CHARS).toBe(600);
     const text = Array.from({ length: 120 }, (_, i) => `This is reply sentence ${i}, spoken aloud by the assistant.`).join(" ");
     expect(text.length).toBeGreaterThan(4000);
     const out = chunkSpeech(text);
-    expect(out.length).toBeGreaterThan(2);
-    for (const c of out) expect(c.length).toBeLessThanOrEqual(1800);
+    expect(out.length).toBeGreaterThan(6);
+    for (const c of out) expect(c.length).toBeLessThanOrEqual(600);
     expect(words(out.join(" "))).toEqual(words(text));
     expect(chunkSpeech("short reply.")).toEqual(["short reply."]);
+  });
+
+  it("splits a reply of about a thousand characters into pieces the service will accept", () => {
+    // The shape that 400ed in review: one long reply, fine for Deepgram's
+    // 2000-character limit, over the service's per-request budget.
+    const text = Array.from({ length: 18 }, (_, i) => `Point ${i + 1}: the runner heals a keyless fitting on unlock.`).join(" ");
+    expect(text.length).toBeGreaterThan(900);
+    expect(text.length).toBeLessThan(1200);
+    const out = chunkSpeech(text);
+    expect(out.length).toBeGreaterThanOrEqual(2);
+    for (const c of out) expect(c.length).toBeLessThanOrEqual(600);
+    expect(words(out.join(" "))).toEqual(words(text));
+    // The advertised cap wins over the default when the health probe named one.
+    for (const c of chunkSpeech(text, 400)) expect(c.length).toBeLessThanOrEqual(400);
   });
 });

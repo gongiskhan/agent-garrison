@@ -101,8 +101,27 @@ const connectorSpecSchema = z.object({
   auth: z.enum(["oauth2", "api_key", "none"]),
   actions: z.array(connectorActionSchema).default([]),
   triggers: z.array(connectorTriggerSchema).optional(),
-  oauth: connectorOAuthSchema.optional()
+  oauth: connectorOAuthSchema.optional(),
+  // The subset of the Fitting's secret_scope a connector CALL receives (the
+  // auth-env route, the Connectors page's sealed check). Absent = the whole
+  // scope. A Fitting that is also an own-port service seals more than its
+  // connector needs (capture-service: the Deepgram, ElevenLabs and APNs keys
+  // beside the capture token); this keeps an automation child from seeing them.
+  secrets: z.array(z.string().min(1)).optional()
 });
+
+// The secret names a connector call may receive: `connector.secrets` when
+// declared (the schema rejects a name outside `secret_scope`, so the subset can
+// never widen the vault contract; this filter is belt-and-braces for a metadata
+// object built by hand), else the whole `secret_scope`. One helper so the
+// auth-env route and the Connectors view cannot disagree on what "sealed" covers.
+export function connectorSecretScope(metadata: GarrisonMetadata): string[] {
+  const scope = metadata.secret_scope ?? [];
+  const declared = metadata.connector?.secrets;
+  if (!declared) return [...scope];
+  const inScope = new Set(scope);
+  return declared.filter((name, i) => inScope.has(name) && declared.indexOf(name) === i);
+}
 
 // Duty sub-block (MARATHON-V3 D2/D3/D4): one spec per kind:duty provision
 // (provision name === duty id). A level is leaf (cell) XOR composite
@@ -497,6 +516,18 @@ export const garrisonMetadataSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ["provides"],
         message: `duplicate duty provisions: ${[...new Set(dupeProvisions)].join(", ")}`
+      });
+    }
+    // `connector.secrets` narrows `secret_scope`; it can never widen it. A name
+    // outside the scope is a manifest error, not something to drop quietly: the
+    // author believes the connector receives that key and it silently would not.
+    const scope = new Set(metadata.secret_scope ?? []);
+    const outside = (metadata.connector?.secrets ?? []).filter((name) => !scope.has(name));
+    if (outside.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["connector", "secrets"],
+        message: `connector.secrets names ${[...new Set(outside)].join(", ")} outside x-garrison.secret_scope; a connector subset must be drawn from the scope`
       });
     }
   });

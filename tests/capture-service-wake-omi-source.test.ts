@@ -1,51 +1,65 @@
-// Omi channel M4 — wake bus acceptance (build spec): scripted segment streams
-// with timing trigger exactly on the configured variants and never on
-// near-misses ("garrison", "seca", "biblioteca" must NOT trigger) but DO trigger
-// on the name anywhere in a segment, mid-sentence included; duplicate segment
-// delivery does not double-dispatch; the kill switch is honored mid-session;
-// non-hit segments are never persisted (I5); the wake_hit_to_notification_ms
-// latency metric is emitted; each intent lands in its home (card via board,
-// note via memory, query via notification).
+// The wake bus with the Omi source (D24, 2026-09-02).
+//
+// omi-channel no longer carries a wake bus: its realtime segments are forwarded
+// to capture-service, whose WakeBus runs them with OMI_WAKE_SOURCE - source
+// "omi", origin omi:wake:<id>, provenance omi_session_id, the Omi reports
+// thread. These are the omi-channel wake cases that capture-service's own suite
+// (tests/capture-service-wake.test.ts: companion identity end to end,
+// near-misses and duplicates, kill switch, echo suppression) did not already
+// cover, run against the one remaining wake.mjs. Omi passes no speak/discuss
+// lanes, so the bus behaves as the push-only channel it always was there.
 
 import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig } from "../fittings/seed/omi-channel/lib/config.mjs";
-import { OmiStore, Counters, mergedCounters } from "../fittings/seed/omi-channel/lib/store.mjs";
-import { Ingress } from "../fittings/seed/omi-channel/lib/ingress.mjs";
+import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
+import { CaptureStore, Counters, mergedCounters } from "../fittings/seed/capture-service/lib/store.mjs";
 import {
+  OMI_WAKE_SOURCE,
   WakeBus,
-  buildWakePrompt,
-  vagueTimeAnchors,
   buildDelegatePrompt,
+  buildWakePrompt,
   parseWakeReply,
+  vagueTimeAnchors,
   wakeRegex
-} from "../fittings/seed/omi-channel/lib/wake.mjs";
-import { buildAskDelegatePrompt } from "../fittings/seed/omi-channel/lib/chat.mjs";
-import { MemoryWriter } from "../fittings/seed/omi-channel/lib/memory-writer.mjs";
+} from "../fittings/seed/capture-service/lib/wake.mjs";
+import { MemoryWriter } from "../fittings/seed/capture-service/lib/memory-writer.mjs";
 
 const VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
+
+// The declared WakeBus type covers the server-facing surface plus the command
+// entry point; these cases also drive the deferred revision pass and the
+// per-session timers directly.
+type OmiWakeBus = WakeBus & {
+  sessions: Map<string, any>;
+  runRevision(sessionId: string): Promise<unknown>;
+};
 
 function seg(text: string, start = 0, end = 1) {
   return { text, speaker: "SPEAKER_00", speakerId: 0, is_user: true, start, end };
 }
 
+// The same shape omi-channel's server used to build: pinned classifier lane
+// only, no operativeFn unless a case says so, a push-style notifier.
 function makeDeps(home: string, replyFn: () => string, cfgOverrides: Record<string, unknown> = {}) {
-  const store = new OmiStore(path.join(home, "omi"));
-  store.pinUid("omi_test_user_1");
+  const store = new CaptureStore(path.join(home, "capture"));
   const counters = new Counters(store.root, "wake");
   const cfg = {
     ...loadConfig({ GARRISON_HOME: home }),
     wakeEnabled: true,
     gatewayUrl: "http://gateway.test",
+    wakeVariants: VARIANTS,
     wakeSilenceCloseMs: 60,
+    wakeSettledCloseMs: 60,
     wakeMaxCaptureMs: 400,
+    wakeUnheardEnabled: false,
     ...cfgOverrides
   };
   const runCalls: string[] = [];
   const board = {
     created: [] as Array<Record<string, unknown>>,
+    base: () => null as string | null,
     listProjects: async () => ["garrison"],
     createCard: async (p: Record<string, unknown>) => {
       board.created.push(p);
@@ -72,7 +86,8 @@ function makeDeps(home: string, replyFn: () => string, cfgOverrides: Record<stri
     board,
     memoryWriter,
     notifier,
-    log: { log: () => {}, error: () => {} }
+    source: OMI_WAKE_SOURCE,
+    log: { log: () => {}, error: () => {}, warn: () => {} }
   });
   return { store, counters, cfg, bus, board, notifier, sent, runCalls };
 }
@@ -85,6 +100,35 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000) {
   }
   if (!predicate()) throw new Error("waitFor timed out");
 }
+
+describe("OMI_WAKE_SOURCE", () => {
+  it("is the default source and names the omi identity end to end", () => {
+    expect(OMI_WAKE_SOURCE).toEqual({
+      id: "omi",
+      label: "Omi",
+      originPrefix: "omi",
+      originChannel: { channel: "omi", threadId: "omi-reports" },
+      sessionProvenanceKey: "omi_session_id",
+      logPrefix: "omi-channel"
+    });
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-src-default-"));
+    try {
+      const store = new CaptureStore(path.join(home, "capture"));
+      const bus = new WakeBus({
+        cfg: { ...loadConfig({ GARRISON_HOME: home }), wakeVariants: VARIANTS },
+        store,
+        counters: new Counters(store.root, "t"),
+        runFn: null,
+        board: {},
+        memoryWriter: {},
+        notifier: {}
+      });
+      expect((bus as any).source).toEqual(OMI_WAKE_SOURCE);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("wake token match", () => {
   const re = wakeRegex(VARIANTS)!;
@@ -130,53 +174,36 @@ describe("wake token match", () => {
 
 // Position is deliberately NOT part of the gate: the operator's call is that the
 // name essentially never occurs in ambient speech here, so a mid-sentence hit is
-// a real command far more often than it is a false wake. These pin that the
-// anywhere-match is intended behaviour and not an oversight to be "fixed" later.
+// a real command far more often than it is a false wake.
 describe("wake fires on the token anywhere in the segment", () => {
   const re = wakeRegex(VARIANTS)!;
 
   it("fires when the name opens the utterance", () => {
-    for (const hit of [
-      "Zeca, create a test task called hello garrison",
-      "Zeca do it",
-      "Zeca?",
-      "zeca cria uma tarefa para comprar peixe"
-    ]) {
+    for (const hit of ["Zeca, cria uma tarefa", "zeca create a task", "Zeca? Lembra-me de ligar ao banco"]) {
       expect(re.test(hit), hit).toBe(true);
     }
   });
 
   it("fires after a vocative lead-in, in either language", () => {
-    for (const hit of [
-      "Hey Zeca, what is on my board?",
-      "ok Zeca do it",
-      "no Zeca, make that Wednesday not Tuesday",
-      "não Zeca, quarta-feira",
-      "então Zeca, marca a revisão do carro",
-      "ó Zeca!"
-    ]) {
+    for (const hit of ["Ó Zeca, marca a reunião", "olha Zeca faz isso", "hey Zeca do that", "ok zeka lembra isto"]) {
       expect(re.test(hit), hit).toBe(true);
     }
   });
 
-  // The cases an address-position rule would reject. They MUST wake: an
-  // address-only gate was built, tested live, and removed because the missed
-  // wakes were the real cost and the false wakes were theoretical.
   it("fires on the name mid-sentence and in object position", () => {
     for (const hit of [
-      "manda ao Zeca a factura da oficina",
-      "depois pergunta ao Zeca sobre isso",
-      "o Zeca que trate disto",
-      "I'll ask Zeca about the invoice tomorrow",
-      "yesterday Zeca called me about it"
+      "depois manda ao Zeca a factura",
+      "I told Zeca about the deploy",
+      "acho que o Zeca tratou disso ontem",
+      "manda ao zeca"
     ]) {
       expect(re.test(hit), hit).toBe(true);
     }
   });
 });
 
-describe("wake bus sessions", () => {
-  it("captures a command across segments, dispatches after silence, creates the card, confirms with the deep link, and emits the latency metric", async () => {
+describe("wake bus sessions with the omi source", () => {
+  it("captures a command across segments, dispatches after silence, creates the card with omi identity, confirms with the deep link, and emits the latency metric", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-"));
     try {
       const { bus, store, counters, board, sent } = makeDeps(home, () =>
@@ -190,19 +217,14 @@ describe("wake bus sessions", () => {
 
       // The wake token arrives mid-segment; the command continues in a second
       // segment. "garrison" INSIDE the capture must not re-trigger anything.
-      bus.handleSegments({
-        sessionId: "s1",
-        segments: [seg("Zeca, create a test task", 10, 12)]
-      });
-      bus.handleSegments({
-        sessionId: "s1",
-        segments: [seg("called hello garrison", 12.5, 14)]
-      });
+      bus.handleSegments({ sessionId: "s1", segments: [seg("Zeca, create a test task", 10, 12)] });
+      bus.handleSegments({ sessionId: "s1", segments: [seg("called hello garrison", 12.5, 14)] });
 
       await waitFor(() => sent.length === 1);
       expect(board.created).toHaveLength(1);
       expect(board.created[0].origin).toBe("omi");
       expect(String(board.created[0].origin_id)).toMatch(/^omi:wake:/);
+      expect(board.created[0].originChannel).toEqual({ channel: "omi", threadId: "omi-reports" });
       expect(String(board.created[0].description)).toContain(
         'Source (Omi wake command): "create a test task called hello garrison"'
       );
@@ -211,43 +233,18 @@ describe("wake bus sessions", () => {
       expect(String(sent[0].params.cardUrl)).toContain("/#/cards/");
 
       // Only the assembled command persists (I5): one wake_command event whose
-      // title is the command; no raw files.
+      // title is the command, stamped with the omi provenance key.
       const events = store.listEvents();
       expect(events).toHaveLength(1);
       expect(events[0].kind).toBe("wake_command");
-      expect(events[0].normalized!.title).toBe("create a test task called hello garrison");
-      expect(readdirSync(path.join(store.root, "raw"))).toHaveLength(0);
+      expect(events[0].source).toBe("omi");
+      expect((events[0].normalized as { title: string }).title).toBe("create a test task called hello garrison");
+      expect(events[0].provenance).toEqual({ omi_session_id: "s1" });
 
       const c = counters.read();
       expect(c.wake_hits).toBe(1);
       expect(c.wake_hit_to_notification_ms_count).toBe(1);
       expect(c.wake_hit_to_notification_ms_last).toBeGreaterThanOrEqual(0);
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  it("near-misses and homophones never open a session or persist anything", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-miss-"));
-    try {
-      const { bus, store, counters, sent } = makeDeps(home, () => "{}");
-      bus.handleSegments({
-        sessionId: "s2",
-        segments: [
-          seg("the garrison deploy finished", 0, 2),
-          // Ordinary words that carry the name's sound or its letters. These are
-          // the ONLY class of non-hit now that position is not part of the gate,
-          // which is exactly why the variant list excludes "seca" and "sega".
-          seg("a roupa ainda está seca", 3, 5),
-          seg("fui à biblioteca com a Rebeca", 6, 8)
-        ]
-      });
-      await new Promise((r) => setTimeout(r, 150));
-      expect(sent).toHaveLength(0);
-      expect(store.listEvents()).toHaveLength(0);
-      const c = counters.read();
-      expect(c.wake_hits ?? 0).toBe(0);
-      expect(c.wake_segments_dropped).toBe(3);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -261,32 +258,8 @@ describe("wake bus sessions", () => {
       const { bus, counters, sent } = makeDeps(home, () =>
         JSON.stringify({ intent: "note", title: "factura", note_content: "Send the invoice." })
       );
-      bus.handleSegments({
-        sessionId: "s-mid",
-        segments: [seg("depois manda ao Zeca a factura da oficina", 0, 2)]
-      });
+      bus.handleSegments({ sessionId: "s-mid", segments: [seg("depois manda ao Zeca a factura da oficina", 0, 2)] });
       await waitFor(() => sent.length === 1);
-      expect(counters.read().wake_hits).toBe(1);
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  it("duplicate segment delivery does not double-dispatch", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-dup-"));
-    try {
-      const { bus, sent, counters, store } = makeDeps(home, () =>
-        JSON.stringify({ intent: "note", title: "Dup test", note_content: "x" })
-      );
-      const hit = seg("Zeca remember the dup test", 20, 22);
-      bus.handleSegments({ sessionId: "s3", segments: [hit] });
-      // Omi redelivers the same segment in the next call (documented behavior).
-      bus.handleSegments({ sessionId: "s3", segments: [hit] });
-      await waitFor(() => sent.length >= 1);
-      await new Promise((r) => setTimeout(r, 200));
-      expect(sent).toHaveLength(1);
-      expect(store.listEvents()).toHaveLength(1);
-      expect(counters.read().wake_segments_deduped).toBe(1);
       expect(counters.read().wake_hits).toBe(1);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -299,7 +272,7 @@ describe("wake bus sessions", () => {
       const { bus, sent } = makeDeps(
         home,
         () => JSON.stringify({ intent: "note", title: "t", note_content: "c" }),
-        { wakeSilenceCloseMs: 10_000, wakeMaxCaptureMs: 120 }
+        { wakeSilenceCloseMs: 10_000, wakeSettledCloseMs: 10_000, wakeMaxCaptureMs: 120 }
       );
       bus.handleSegments({ sessionId: "s4", segments: [seg("zeca note this down", 0, 1)] });
       // Keep feeding segments faster than the (huge) silence window; only the
@@ -318,22 +291,7 @@ describe("wake bus sessions", () => {
     }
   });
 
-  it("honors the kill switch mid-session: no dispatch, no persistence", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-kill-"));
-    try {
-      const { bus, cfg, sent, store, counters } = makeDeps(home, () => "{}");
-      bus.handleSegments({ sessionId: "s5", segments: [seg("zeca do something", 0, 1)] });
-      (cfg as { wakeEnabled: boolean }).wakeEnabled = false; // flag flipped between hit and close
-      await new Promise((r) => setTimeout(r, 250));
-      expect(sent).toHaveLength(0);
-      expect(store.listEvents()).toHaveLength(0);
-      expect(counters.read().wake_killed_mid_session).toBe(1);
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  it("query intent pushes the answer; note intent writes a memory; unknown saves a note and says so", async () => {
+  it("query intent pushes the answer; note intent writes a memory with omi provenance; unknown saves a note and says so", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-intents-"));
     try {
       const replies = [
@@ -351,35 +309,33 @@ describe("wake bus sessions", () => {
       await waitFor(() => sent.length === 2);
       expect(String(sent[1].params.text)).toContain("Noted");
       const vault = path.join(home, "vault");
-      expect(readdirSync(vault).some((f) => f.startsWith("omi-"))).toBe(true);
+      expect(readdirSync(vault)).toHaveLength(1);
       const note = readFileSync(path.join(vault, readdirSync(vault)[0]), "utf8");
       expect(note).toContain("- **source**: omi wake command");
 
+      // A command with no language evidence falls back to the configured
+      // default (pt here, from loadConfig); either catalog entry is the same
+      // honest sentence.
       bus.handleSegments({ sessionId: "q3", segments: [seg("zeca blorp fizzle", 0, 1)] });
       await waitFor(() => sent.length === 3);
-      expect(String(sent[2].params.text)).toContain("saved it as a note");
+      expect(String(sent[2].params.text)).toMatch(/saved it as a note|guardei como nota/);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
   });
 
-  // Regression (2026-08-22, live pendant session 01M0N103ZZZHA6K6C1YCZC): two
-  // wake hits 20 seconds apart assembled an EMPTY command, dispatched anyway
-  // because pre-wake context existed, came back "unknown", and were each written
-  // into the user's Obsidian vault as a zero-content note and announced to their
-  // phone as "I saved it as a note" - which was false, since the note held
-  // nothing. close() deliberately dispatches a context-only capture (the intent
-  // is often recoverable from what surrounded a bare "Zeca"), and that stays: a
-  // recovered capture returns a real intent and never reaches a fallback. What is
-  // gone is turning "recovered nothing" into a note.
+  // Regression (2026-08-22, live pendant session): two wake hits assembled an
+  // EMPTY command, dispatched anyway because pre-wake context existed, came back
+  // "unknown", and were each written into the vault as a zero-content note and
+  // announced as "I saved it as a note" - which was false. A context-only
+  // capture still dispatches (the intent is often recoverable from what
+  // surrounded a bare "Zeca"); what is gone is turning "recovered nothing" into
+  // a note.
   it("discards an empty capture the classifier could not recover, instead of saving an empty note", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-empty-"));
     try {
       const { bus, sent, store, counters } = makeDeps(home, () => JSON.stringify({ intent: "unknown" }));
-      // Ambient talk first, so the pre-wake context ring is NOT empty - that is
-      // what lets close() dispatch at all.
       bus.handleSegments({ sessionId: "e1", segments: [seg("estava a falar do jantar de ontem", 0, 2)] });
-      // ...then the name on its own, with nothing after it.
       bus.handleSegments({ sessionId: "e1", segments: [seg("zeca", 3, 4)] });
 
       await waitFor(() => store.listEvents().length === 1);
@@ -390,8 +346,8 @@ describe("wake bus sessions", () => {
       expect(counters.read().wake_notes_saved ?? 0).toBe(0);
       expect(existsSync(path.join(home, "vault"))).toBe(false);
 
-      // The forensic trail survives: under capture_policy wake_only this record
-      // is the ONLY trace a wake hit leaves, and it is what made this diagnosable.
+      // The forensic trail survives: this record is the ONLY trace a wake hit
+      // leaves, and it is what made this diagnosable.
       const results = readdirSync(path.join(store.root, "wake-results"));
       expect(results).toHaveLength(1);
       const record = JSON.parse(readFileSync(path.join(store.root, "wake-results", results[0]), "utf8"));
@@ -416,7 +372,7 @@ describe("wake bus sessions", () => {
         board: deps.board,
         memoryWriter: new MemoryWriter({ dir: path.join(home, "vault") }),
         notifier: deps.notifier,
-        log: { log: () => {}, error: () => {} }
+        log: { log: () => {}, error: () => {}, warn: () => {} }
       });
       failingBus.handleSegments({ sessionId: "f1", segments: [seg("zeca ship the release notes", 0, 1)] });
       await waitFor(() => deps.sent.length === 1);
@@ -424,7 +380,7 @@ describe("wake bus sessions", () => {
       expect(readdirSync(path.join(home, "vault"))).toHaveLength(1);
       const events = deps.store.listEvents();
       expect(events).toHaveLength(1);
-      const ref = events[0].triage_result_ref!;
+      const ref = String(events[0].triage_result_ref);
       const result = JSON.parse(readFileSync(path.join(deps.store.root, ref), "utf8"));
       expect(result.intent).toBe("note_fallback");
     } finally {
@@ -433,81 +389,55 @@ describe("wake bus sessions", () => {
   });
 });
 
-// Regression, 2026-08-13, found by driving the live channel with speak.mjs.
-//
-// A spoken "what is on my board?" answered "your board is empty - I checked the
-// task list" while the chat lane, in the same minute on the same operativeFn,
-// correctly reported 10 To Do / 41 Backlog. Two causes stacked:
-//
-//   1. the wake lane's prompt said only "using your tools and connected
-//      services" where the chat lane's named the Kanban board; and
-//   2. THERE IS NO KANBAN MCP TOOL. The board is the kanban-loop fitting's HTTP
-//      API, so an operative that is not told the address either curls the right
-//      port by luck or falls back to TaskList - its own session scratchpad,
-//      which is empty at the start of every turn - and reports that as the
-//      user's board.
-//
-// Nothing downstream can catch that: the answer is confident, well-formed, and
-// wrong. Both lanes are pinned here, including that the address is INTERPOLATED
+// Regression, 2026-08-13, found by driving the live channel with speak.mjs: a
+// spoken "what is on my board?" answered "your board is empty - I checked the
+// task list". THERE IS NO KANBAN MCP TOOL - the board is the kanban-loop
+// fitting's HTTP API, so an assistant that is not told the address falls back
+// to TaskList, its own empty session scratchpad. The address is INTERPOLATED
 // rather than baked, since every baked port in this repo has crossed instances.
 describe("delegate prompts point at the real board, not the session scratchpad", () => {
-  const withUrl = (p: string) => p;
-  const lanes: Array<[string, (u: string | null) => string]> = [
-    ["wake", (u) => buildDelegatePrompt("what is on my board?", { boardUrl: u })],
-    ["chat", (u) => buildAskDelegatePrompt("what is on my board?", { boardUrl: u })]
-  ];
+  const build = (u: string | null) => buildDelegatePrompt("what is on my board?", { boardUrl: u });
 
   it("interpolates the resolved board URL rather than baking a port", () => {
-    for (const [lane, build] of lanes) {
-      const prompt = withUrl(build("http://127.0.0.1:9999"));
-      expect(prompt, lane).toContain("http://127.0.0.1:9999/cards");
-      // The committed port family must never appear on its own.
-      expect(prompt, lane).not.toMatch(/8089|7089/);
-    }
+    const prompt = build("http://127.0.0.1:9999");
+    expect(prompt).toContain("http://127.0.0.1:9999/cards");
+    // The committed port family must never appear on its own.
+    expect(prompt).not.toMatch(/8089|7089/);
   });
 
   it("falls back to the status file, never to a guessed port, when the board is down", () => {
-    for (const [lane, build] of lanes) {
-      const prompt = withUrl(build(null));
-      expect(prompt, lane).toContain("ui-fittings/kanban-loop.json");
-      expect(prompt, lane).not.toMatch(/127\.0\.0\.1:\d+/);
-    }
+    const prompt = build(null);
+    expect(prompt).toContain("ui-fittings/kanban-loop.json");
+    expect(prompt).not.toMatch(/127\.0\.0\.1:\d+/);
   });
 
-  it("rules out the operative's own task list by name on every lane", () => {
-    for (const [lane, build] of lanes) {
-      const prompt = withUrl(build("http://127.0.0.1:9999"));
-      expect(prompt, lane).toMatch(/TaskList/);
-      expect(prompt, lane).toMatch(/scratchpad/i);
-      expect(prompt, lane).toMatch(/no kanban MCP tool/i);
-    }
+  it("rules out the assistant's own task list by name", () => {
+    const prompt = build("http://127.0.0.1:9999");
+    expect(prompt).toMatch(/TaskList/);
+    expect(prompt).toMatch(/scratchpad/i);
+    expect(prompt).toMatch(/no kanban MCP tool/i);
   });
 
   it("still carries the request itself", () => {
-    for (const [lane, build] of lanes) {
-      expect(withUrl(build("http://x")), lane).toContain("what is on my board?");
-    }
+    expect(build("http://x")).toContain("what is on my board?");
   });
 });
 
 describe("wake units", () => {
   it("buildWakePrompt carries the command and project vocabulary", () => {
     const prompt = buildWakePrompt("marca a revisao do carro", ["garrison", "ekoa-code"]);
-    expect(prompt).toContain('marca a revisao do carro');
+    expect(prompt).toContain("marca a revisao do carro");
     expect(prompt).toContain("[garrison, ekoa-code]");
   });
 
   // Regression (2026-08-22): "Zeca, vamos comer morangos com limão mais logo"
-  // came back as a card with no schedule, or as a note. Two separate gaps: the
-  // rules described create_task as an ORDER, so a plan phrased as a statement
-  // read as a fact to remember; and "mais logo" is a real time reference the
-  // prompt never named, so scheduling it was left to whatever the model felt
-  // like. The anchors below are resolved in code precisely so this is testable
-  // without a model - the classifier copies a timestamp, it does not compute one.
+  // came back as a card with no schedule, or as a note. The anchors are resolved
+  // in code precisely so this is testable without a model - the classifier
+  // copies a timestamp, it does not compute one.
   describe("vague spoken times", () => {
     // Built from LOCAL components on purpose: every anchor is a local
-    // wall-clock rule ("9am", "past 22:00"), so a test pinned to a literal UTC
-    // offset would assert Lisbon's answer on a UTC runner and fail there.
+    // wall-clock rule, so a test pinned to a literal UTC offset would assert
+    // Lisbon's answer on a UTC runner and fail there.
     const local = (h: number, m = 0) => new Date(2026, 7, 22, h, m, 0, 0);
     const rowFor = (now: Date, phrase: string) =>
       vagueTimeAnchors(now).find((r) => r.phrases.includes(`"${phrase}"`))!;
@@ -521,17 +451,13 @@ describe("wake units", () => {
     });
 
     it("rolls a part of day that already passed to tomorrow", () => {
-      // 09:00 is four hours gone: "de manhã" means tomorrow, never this morning.
       const morning = new Date(Date.parse(rowFor(local(16, 24), "de manha").iso));
       expect(morning.getHours()).toBe(9);
       expect(morning.getDate()).toBe(23);
     });
 
     it("never resolves 'later' into the small hours or into the past", () => {
-      // 21:30 + 2h would be 23:30, so it is pulled back to the 22:00 cutoff.
       expect(Date.parse(rowFor(local(21, 30), "later").iso)).toBe(local(22).getTime());
-      // Past the cutoff there is nothing to pull back to, and clamping to 22:00
-      // would schedule the card in the PAST - so "soon" is the floor.
       expect(Date.parse(rowFor(local(23, 10), "later").iso)).toBe(local(23, 40).getTime());
     });
 
@@ -548,8 +474,6 @@ describe("wake units", () => {
       const prompt = buildWakePrompt("x", [], [], "", local(16, 24));
       expect(prompt).toMatch(/PLAN or an INTENTION counts/);
       expect(prompt).toMatch(/do NOT demote that to a note/);
-      // ...and the note rule has to agree, or the two rules fight over the same
-      // sentence and the outcome depends on which one the model read last.
       expect(prompt).toMatch(/Anything with an action in it is a create_task/);
     });
   });
@@ -564,83 +488,26 @@ describe("wake units", () => {
   });
 });
 
-// Regression (2026-07-31): live Omi realtime deliveries counted as
-// `realtime_malformed` because the parser only accepted a BARE array, which is
-// what the docs promise. Separately, a mangled webhook URL can drop session_id,
-// and without one the wake gate was skipped silently - so auth could be fixed
-// and the wake bus still do nothing.
-describe("realtime payload envelopes and session id recovery", () => {
-  const segs = [
-    { text: "Zeca, create a task called envelope test.", speaker: "SPEAKER_00", speakerId: 0, is_user: true, start: 0, end: 2 }
-  ];
-
-  function harness(home: string) {
-    const cfg = { ...loadConfig({ GARRISON_HOME: home }), enabled: true, wakeEnabled: true };
-    const store = new OmiStore(path.join(home, "omi"));
-    const counters = new Counters(store.root, "test");
-    const seen: Array<{ sessionId: string }> = [];
-    const wakeBus = { handleSegments: (a: { sessionId: string }) => seen.push(a) };
-    return { ingress: new Ingress({ cfg, store, counters, wakeBus }), counters, seen, store };
-  }
-
-  it("accepts {segments:[...]} and {transcript_segments:[...]}, not just a bare array", () => {
-    for (const body of [
-      JSON.stringify(segs),
-      JSON.stringify({ segments: segs }),
-      JSON.stringify({ transcript_segments: segs })
-    ]) {
-      const home = mkdtempSync(path.join(os.tmpdir(), "omi-env-"));
-      const h = harness(home);
-      h.ingress.acceptRealtime({ bodyText: body, sessionId: "s1" });
-      expect(mergedCounters(h.store.root).realtime_malformed ?? 0).toBe(0);
-      expect(h.seen).toHaveLength(1);
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  it("recovers session_id from the body when the URL lost it", () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-sess-"));
-    const h = harness(home);
-    h.ingress.acceptRealtime({
-      bodyText: JSON.stringify({ session_id: "from-body", segments: segs }),
-      sessionId: null
-    });
-    expect(h.seen).toHaveLength(1);
-    expect(h.seen[0].sessionId).toBe("from-body");
-    rmSync(home, { recursive: true, force: true });
-  });
-
-  it("counts an unusable payload rather than pretending it worked", () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-bad-"));
-    const h = harness(home);
-    h.ingress.acceptRealtime({ bodyText: JSON.stringify({ nope: 1 }), sessionId: "s1" });
-    expect(mergedCounters(h.store.root).realtime_malformed).toBe(1);
-    expect(h.seen).toHaveLength(0);
-    rmSync(home, { recursive: true, force: true });
-  });
-});
-
-// Feature (2026-07-31, user-requested): Omi fragments speech across segments and
-// mis-attributes speakers, so the detail a command refers to often sits in a
-// segment BEFORE the wake word - which the gate dropped. The classifier now gets
-// a bounded pre-wake context window. Real case: "Zeca, create a task saying"
-// arrived with the subject ("tomorrow it could rain") in an earlier segment, and
-// classified as unknown because the command alone was meaningless.
+// Feature (2026-07-31): Omi fragments speech across segments and mis-attributes
+// speakers, so the detail a command refers to often sits in a segment BEFORE the
+// wake word. The classifier gets a bounded pre-wake context window.
 describe("wake pre-wake context window", () => {
   const cfgFor = (home: string, extra: Record<string, unknown> = {}) => ({
     ...loadConfig({ GARRISON_HOME: home }),
     wakeEnabled: true,
+    wakeVariants: VARIANTS,
     // Without a gatewayUrl handleCommand short-circuits to the note fallback
     // and the classifier prompt is never built.
     gatewayUrl: "http://127.0.0.1:1",
     wakeSilenceCloseMs: 20,
     wakeMaxCaptureMs: 200,
+    wakeUnheardEnabled: false,
     ...extra
   });
 
-  function bus(home: string, extra: Record<string, unknown> = {}) {
+  function bus(home: string, extra: Record<string, unknown> = {}, now?: () => number) {
     const cfg = cfgFor(home, extra);
-    const store = new OmiStore(path.join(home, "omi"));
+    const store = new CaptureStore(path.join(home, "capture"));
     const counters = new Counters(store.root, "test");
     const prompts: string[] = [];
     const wake = new WakeBus({
@@ -651,23 +518,23 @@ describe("wake pre-wake context window", () => {
         prompts.push(prompt);
         return { reply: JSON.stringify({ intent: "note", note_content: "ok", title: "t" }) };
       },
-      board: { listProjects: async () => ["garrison"], createCard: async () => ({ id: "c1", url: null }) },
+      board: { base: () => null, listProjects: async () => ["garrison"], createCard: async () => ({ id: "c1", url: null }) },
       memoryWriter: { write: async () => ({ ok: true }) },
-      notifier: { send: async () => [] }
+      notifier: { send: async () => [], cardUrl: async () => null },
+      ...(now ? { now } : {})
     });
     return { wake, prompts, store };
   }
 
-  const seg = (text: string, start: number, isUser = true) => ({
+  const ctxSeg = (text: string, start: number, isUser = true) => ({
     text, speaker: "SPEAKER_00", speakerId: 0, is_user: isUser, start, end: start + 1
   });
 
   it("carries pre-wake segments into the classifier prompt", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-"));
     const { wake, prompts } = bus(home);
-    // The subject arrives BEFORE the wake word, as it did live.
-    wake.handleSegments({ sessionId: "s1", segments: [seg("tomorrow it could rain", 0)] });
-    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca, create a task saying", 2)] });
+    wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("tomorrow it could rain", 0)] });
+    wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("Zeca, create a task saying", 2)] });
     await wake.close("s1", "silence");
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("tomorrow it could rain");
@@ -681,9 +548,9 @@ describe("wake pre-wake context window", () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-cap-"));
     const { wake, prompts } = bus(home, { wakeContextSegments: 2 });
     for (let i = 0; i < 5; i++) {
-      wake.handleSegments({ sessionId: "s1", segments: [seg(`filler ${i}`, i)] });
+      wake.handleSegments({ sessionId: "s1", segments: [ctxSeg(`filler ${i}`, i)] });
     }
-    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca do it", 9)] });
+    wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("Zeca do it", 9)] });
     await wake.close("s1", "silence");
     expect(prompts[0]).toContain("filler 4");
     expect(prompts[0]).toContain("filler 3");
@@ -694,25 +561,10 @@ describe("wake pre-wake context window", () => {
   it("drops context that is too old to be the same conversation", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-age-"));
     let clock = 1_000_000;
-    const cfg = cfgFor(home, { wakeContextMaxAgeMs: 5000 });
-    const store = new OmiStore(path.join(home, "omi"));
-    const prompts: string[] = [];
-    const wake = new WakeBus({
-      cfg,
-      store,
-      counters: new Counters(store.root, "test"),
-      runFn: async ({ prompt }: { prompt: string }) => {
-        prompts.push(prompt);
-        return { reply: JSON.stringify({ intent: "note", note_content: "ok", title: "t" }) };
-      },
-      board: { listProjects: async () => ["garrison"], createCard: async () => ({ id: "c1", url: null }) },
-      memoryWriter: { write: async () => ({ ok: true }) },
-      notifier: { send: async () => [] },
-      now: () => clock
-    });
-    wake.handleSegments({ sessionId: "s1", segments: [seg("stale talk", 0)] });
+    const { wake, prompts } = bus(home, { wakeContextMaxAgeMs: 5000 }, () => clock);
+    wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("stale talk", 0)] });
     clock += 60_000; // a minute later - unrelated conversation
-    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca do it", 9)] });
+    wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("Zeca do it", 9)] });
     await wake.close("s1", "silence");
     expect(prompts[0]).not.toContain("stale talk");
     rmSync(home, { recursive: true, force: true });
@@ -721,60 +573,63 @@ describe("wake pre-wake context window", () => {
   it("still records nothing when a session never wakes (I5)", () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-i5-"));
     const { wake, store } = bus(home);
-    wake.handleSegments({ sessionId: "s1", segments: [seg("private conversation", 0)] });
-    const files = existsSync(path.join(store.root, "events"))
-      ? readdirSync(path.join(store.root, "events"))
-      : [];
-    expect(files).toHaveLength(0);
+    wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("private conversation", 0)] });
+    expect(store.listEvents()).toHaveLength(0);
+    for (const dir of Object.values(store.dirs)) {
+      expect(existsSync(dir) ? readdirSync(dir) : []).toEqual([]);
+    }
     rmSync(home, { recursive: true, force: true });
   });
 });
 
-// Feature (2026-07-31, user-requested): "after the keyword it should wait for
-// 15-20 seconds of more messages before deciding". Omi delivers one spoken
-// sentence across bursts with real gaps, so the first quiet moment is not the
-// end of the command - holding the window open is what stops the truncation.
+// Feature (2026-07-31): Omi delivers one spoken sentence across bursts with real
+// gaps, so the first quiet moment is not the end of the command - holding the
+// window open is what stops the truncation.
 describe("wake minimum capture window", () => {
-  it("holds the window open through silence, then still respects the cap", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-min-"));
-    let clock = 1_000_000;
-    const store = new OmiStore(path.join(home, "omi"));
+  function bus(home: string, extra: Record<string, unknown>, reply: Record<string, unknown>, now?: () => number) {
+    const store = new CaptureStore(path.join(home, "capture"));
     const prompts: string[] = [];
     const wake = new WakeBus({
       cfg: {
         ...loadConfig({ GARRISON_HOME: home }),
         wakeEnabled: true,
+        wakeVariants: VARIANTS,
         gatewayUrl: "http://127.0.0.1:1",
-        wakeSilenceCloseMs: 1000,
-        wakeMinCaptureMs: 15000,
-        wakeMaxCaptureMs: 20000
+        wakeUnheardEnabled: false,
+        ...extra
       },
       store,
       counters: new Counters(store.root, "test"),
       runFn: async ({ prompt }: { prompt: string }) => {
         prompts.push(prompt);
-        return { reply: JSON.stringify({ intent: "create_task", title: "t", description: "d" }) };
+        return { reply: JSON.stringify(reply) };
       },
-      board: { listProjects: async () => ["garrison"], createCard: async () => ({ id: "c1", url: null }) },
+      board: { base: () => null, listProjects: async () => ["garrison"], createCard: async () => ({ id: "c1", url: null }) },
       memoryWriter: { write: async () => ({ ok: true }) },
-      notifier: { send: async () => [] },
-      now: () => clock
+      notifier: { send: async () => [], cardUrl: async () => null },
+      ...(now ? { now } : {})
     });
+    return { wake, prompts };
+  }
 
-    wake.handleSegments({
-      sessionId: "s1",
-      segments: [{ text: "Zeca, create a task saying", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
-    });
+  it("holds the window open through silence, then still respects the cap", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-min-"));
+    let clock = 1_000_000;
+    const { wake, prompts } = bus(
+      home,
+      { wakeSilenceCloseMs: 1000, wakeMinCaptureMs: 15000, wakeMaxCaptureMs: 20000 },
+      { intent: "create_task", title: "t", description: "d" },
+      () => clock
+    );
+
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca, create a task saying", 0, 1)] });
     // Silence arrives long before the minimum - must NOT dispatch yet.
     clock += 2000;
     await wake.close("s1", "silence");
     expect(prompts).toHaveLength(0);
 
     // The rest of the sentence lands during the held-open window.
-    wake.handleSegments({
-      sessionId: "s1",
-      segments: [{ text: "remind me it could rain tomorrow", speaker: "S", speakerId: 0, is_user: true, start: 3, end: 4 }]
-    });
+    wake.handleSegments({ sessionId: "s1", segments: [seg("remind me it could rain tomorrow", 3, 4)] });
     clock += 14000; // past the minimum
     await wake.close("s1", "silence");
     expect(prompts).toHaveLength(1);
@@ -785,31 +640,12 @@ describe("wake minimum capture window", () => {
 
   it("max-capture still closes the window regardless of the minimum", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-min-cap-"));
-    const store = new OmiStore(path.join(home, "omi"));
-    const prompts: string[] = [];
-    const wake = new WakeBus({
-      cfg: {
-        ...loadConfig({ GARRISON_HOME: home }),
-        wakeEnabled: true,
-        gatewayUrl: "http://127.0.0.1:1",
-        wakeSilenceCloseMs: 1000,
-        wakeMinCaptureMs: 999999,
-        wakeMaxCaptureMs: 20000
-      },
-      store,
-      counters: new Counters(store.root, "test"),
-      runFn: async ({ prompt }: { prompt: string }) => {
-        prompts.push(prompt);
-        return { reply: JSON.stringify({ intent: "note", note_content: "n", title: "t" }) };
-      },
-      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
-      memoryWriter: { write: async () => ({ ok: true }) },
-      notifier: { send: async () => [] }
-    });
-    wake.handleSegments({
-      sessionId: "s1",
-      segments: [{ text: "Zeca do the thing", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
-    });
+    const { wake, prompts } = bus(
+      home,
+      { wakeSilenceCloseMs: 1000, wakeMinCaptureMs: 999999, wakeMaxCaptureMs: 20000 },
+      { intent: "note", note_content: "n", title: "t" }
+    );
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca do the thing", 0, 1)] });
     await wake.close("s1", "max-capture");
     expect(prompts).toHaveLength(1);
     rmSync(home, { recursive: true, force: true });
@@ -817,26 +653,25 @@ describe("wake minimum capture window", () => {
 });
 
 // Regression (2026-07-31): a spoken command takes ~25s to become a card, so the
-// user repeats it - and the repeat is DIFFERENT transcript text ("Create a task.
-// Vamos, vamos. Saying that tomorrow it will be sunny." vs "create a task saying
-// that tomorrow it will be sunny...") so no upstream dedupe catches it. Observed
-// live: two identical "Tomorrow it will be sunny" cards 44s apart.
+// user repeats it - and the repeat is DIFFERENT transcript text, so no upstream
+// dedupe catches it. Observed live: two identical cards 44s apart.
 describe("wake duplicate card suppression", () => {
-  function bus(home: string, title: string, extra: Record<string, unknown> = {}) {
-    const store = new OmiStore(path.join(home, "omi"));
+  function bus(home: string, titleFn: () => string) {
+    const store = new CaptureStore(path.join(home, "capture"));
     const created: string[] = [];
     const wake = new WakeBus({
       cfg: {
         ...loadConfig({ GARRISON_HOME: home }),
         wakeEnabled: true,
+        wakeVariants: VARIANTS,
         gatewayUrl: "http://127.0.0.1:1",
-        wakeCardDedupeMs: 600000,
-        ...extra
+        wakeCardDedupeMs: 600000
       },
       store,
       counters: new Counters(store.root, "test"),
-      runFn: async () => ({ reply: JSON.stringify({ intent: "create_task", title, description: "d" }) }),
+      runFn: async () => ({ reply: JSON.stringify({ intent: "create_task", title: titleFn(), description: "d" }) }),
       board: {
+        base: () => null,
         listProjects: async () => [],
         createCard: async (c: { title: string }) => {
           created.push(c.title);
@@ -845,13 +680,13 @@ describe("wake duplicate card suppression", () => {
       },
       memoryWriter: { write: async () => ({ ok: true }) },
       notifier: { send: async () => [], cardUrl: async () => null }
-    });
+    }) as OmiWakeBus;
     return { wake, created, store };
   }
 
   it("suppresses a repeat of the same resolved title, despite different wording", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-"));
-    const { wake, created, store } = bus(home, "Tomorrow it will be sunny");
+    const { wake, created, store } = bus(home, () => "Tomorrow it will be sunny");
     await wake.handleCommand({ command: "Create a task. Vamos, vamos. Saying that tomorrow it will be sunny.", eventId: "e1" });
     await wake.handleCommand({ command: "create a task saying that tomorrow it will be sunny. Porque...", eventId: "e2" });
     expect(created).toEqual(["Tomorrow it will be sunny"]);
@@ -861,21 +696,8 @@ describe("wake duplicate card suppression", () => {
 
   it("treats accents, case and punctuation as the same title", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-acc-"));
-    const store = new OmiStore(path.join(home, "omi"));
     let title = "Lembrar que amanhã pode chover";
-    const created: string[] = [];
-    const wake = new WakeBus({
-      cfg: { ...loadConfig({ GARRISON_HOME: home }), wakeEnabled: true, gatewayUrl: "http://x", wakeCardDedupeMs: 600000 },
-      store,
-      counters: new Counters(store.root, "test"),
-      runFn: async () => ({ reply: JSON.stringify({ intent: "create_task", title, description: "d" }) }),
-      board: {
-        listProjects: async () => [],
-        createCard: async (c: { title: string }) => { created.push(c.title); return { id: "c", url: null }; }
-      },
-      memoryWriter: { write: async () => ({ ok: true }) },
-      notifier: { send: async () => [], cardUrl: async () => null }
-    });
+    const { wake, created } = bus(home, () => title);
     await wake.handleCommand({ command: "a", eventId: "e1" });
     title = "lembrar que amanha pode chover!";
     await wake.handleCommand({ command: "b", eventId: "e2" });
@@ -885,21 +707,8 @@ describe("wake duplicate card suppression", () => {
 
   it("still creates a genuinely different task", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-diff-"));
-    const store = new OmiStore(path.join(home, "omi"));
     let title = "Tomorrow it will be sunny";
-    const created: string[] = [];
-    const wake = new WakeBus({
-      cfg: { ...loadConfig({ GARRISON_HOME: home }), wakeEnabled: true, gatewayUrl: "http://x", wakeCardDedupeMs: 600000 },
-      store,
-      counters: new Counters(store.root, "test"),
-      runFn: async () => ({ reply: JSON.stringify({ intent: "create_task", title, description: "d" }) }),
-      board: {
-        listProjects: async () => [],
-        createCard: async (c: { title: string }) => { created.push(c.title); return { id: "c", url: null }; }
-      },
-      memoryWriter: { write: async () => ({ ok: true }) },
-      notifier: { send: async () => [], cardUrl: async () => null }
-    });
+    const { wake, created } = bus(home, () => title);
     await wake.handleCommand({ command: "a", eventId: "e1" });
     title = "Ir ao Fado";
     await wake.handleCommand({ command: "b", eventId: "e2" });
@@ -908,20 +717,20 @@ describe("wake duplicate card suppression", () => {
   });
 });
 
-// Feature (2026-07-31, user-requested): with a TV on, silence never arrives, so
-// the capture window runs for minutes. Everything is still captured, but only
-// the speech near the wake word counts as the COMMAND - the rest is trailing
-// context, or ten minutes of television would drown two sentences of intent.
+// Feature (2026-07-31): with a TV on, silence never arrives, so the capture
+// window runs for minutes. Only the speech near the wake word counts as the
+// COMMAND - the rest is trailing context.
 describe("wake command window vs trailing context", () => {
   it("splits speech near the wake word from what the mic caught later", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-window-"));
     let clock = 1_000_000;
-    const store = new OmiStore(path.join(home, "omi"));
+    const store = new CaptureStore(path.join(home, "capture"));
     const prompts: string[] = [];
     const wake = new WakeBus({
       cfg: {
         ...loadConfig({ GARRISON_HOME: home }),
         wakeEnabled: true,
+        wakeVariants: VARIANTS,
         gatewayUrl: "http://127.0.0.1:1",
         wakeSilenceCloseMs: 20000,
         wakeMinCaptureMs: 0,
@@ -934,13 +743,12 @@ describe("wake command window vs trailing context", () => {
         prompts.push(prompt);
         return { reply: JSON.stringify({ intent: "create_task", title: "t", description: "d" }) };
       },
-      board: { listProjects: async () => [], createCard: async () => ({ id: "c", url: null }) },
+      board: { base: () => null, listProjects: async () => [], createCard: async () => ({ id: "c", url: null }) },
       memoryWriter: { write: async () => ({ ok: true }) },
       notifier: { send: async () => [], cardUrl: async () => null },
       now: () => clock
     });
 
-    const seg = (text: string) => ({ text, speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 });
     wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca, create a task to book the car service")] });
     clock += 10_000; // still inside the command window
     wake.handleSegments({ sessionId: "s1", segments: [seg("for next Tuesday morning")] });
@@ -950,9 +758,7 @@ describe("wake command window vs trailing context", () => {
 
     expect(prompts).toHaveLength(1);
     const p = prompts[0];
-    // Both parts of the real command are in the command line...
     expect(p).toMatch(/Command \(spoken right after the wake word\): "[^"]*book the car service[^"]*next Tuesday morning/);
-    // ...and the television is present but quarantined as trailing context.
     expect(p).toContain("CONTINUED afterwards");
     expect(p).toContain("weather for the weekend");
     expect(p).not.toMatch(/Command \(spoken right after the wake word\): "[^"]*weather for the weekend/);
@@ -960,19 +766,18 @@ describe("wake command window vs trailing context", () => {
   });
 });
 
-// Feature (2026-07-31, user-requested): the card is created fast (~45s) so it can
-// be SEEN, then a single deferred pass reads what was said afterwards and
-// corrects it - "I can see if the card was created correctly. I can ask to
-// adjust if it wasn't, with voice."
+// Feature (2026-07-31): the card is created fast so it can be SEEN, then a
+// single deferred pass reads what was said afterwards and corrects it.
 describe("wake revision pass", () => {
   function harness(home: string, revisionReply: string) {
-    const store = new OmiStore(path.join(home, "omi"));
+    const store = new CaptureStore(path.join(home, "capture"));
     const revised: Array<{ cardId: string; patch: Record<string, unknown> }> = [];
     let call = 0;
     const wake = new WakeBus({
       cfg: {
         ...loadConfig({ GARRISON_HOME: home }),
         wakeEnabled: true,
+        wakeVariants: VARIANTS,
         gatewayUrl: "http://127.0.0.1:1",
         wakeReviseAfterMs: 600000,
         wakeReviseMaxSegments: 50,
@@ -987,6 +792,7 @@ describe("wake revision pass", () => {
           : { reply: revisionReply };
       },
       board: {
+        base: () => null,
         listProjects: async () => [],
         createCard: async () => ({ id: "card-1", url: null }),
         reviseCard: async (cardId: string, patch: Record<string, unknown>) => {
@@ -996,11 +802,9 @@ describe("wake revision pass", () => {
       },
       memoryWriter: { write: async () => ({ ok: true }) },
       notifier: { send: async () => [], cardUrl: async () => null }
-    });
+    }) as OmiWakeBus;
     return { wake, revised, store };
   }
-
-  const seg = (text: string) => ({ text, speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 });
 
   it("applies a spoken correction to the card it just created", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-"));
@@ -1009,7 +813,6 @@ describe("wake revision pass", () => {
       JSON.stringify({ action: "revise", title: "Book car service Wednesday", description: "d2", note: "Moved to Wednesday" })
     );
     await wake.handleCommand({ command: "create a task to book the car service", eventId: "e1", sessionId: "s1" });
-    // The correction arrives afterwards, in the same session.
     wake.handleSegments({ sessionId: "s1", segments: [seg("no Zeca, make that Wednesday not Tuesday")] });
     await wake.runRevision("s1");
     expect(revised).toHaveLength(1);
@@ -1051,14 +854,13 @@ describe("wake revision pass", () => {
 });
 
 describe("wake settled close (punctuated end of command)", () => {
-  it("closes on the short settle when the command ends a sentence, and the full window otherwise", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-settle-"));
-    const store = new OmiStore(path.join(home, "omi"));
-    const closed: string[] = [];
-    const wake = new WakeBus({
+  function bus(home: string) {
+    const store = new CaptureStore(path.join(home, "capture"));
+    return new WakeBus({
       cfg: {
         ...loadConfig({ GARRISON_HOME: home }),
         wakeEnabled: true,
+        wakeVariants: VARIANTS,
         gatewayUrl: "http://127.0.0.1:1",
         wakeSilenceCloseMs: 15000,
         wakeSettledCloseMs: 5000
@@ -1066,114 +868,91 @@ describe("wake settled close (punctuated end of command)", () => {
       store,
       counters: new Counters(store.root, "test"),
       runFn: async () => ({ reply: JSON.stringify({ intent: "note", note_content: "n" }) }),
-      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
+      board: { base: () => null, listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
       memoryWriter: { write: () => ({ ok: true }) },
-      notifier: { send: async () => [] }
-    });
+      notifier: { send: async () => [], cardUrl: async () => null }
+    }) as OmiWakeBus;
+  }
+  const idleTimeout = (wake: OmiWakeBus, id: string) => String(wake.sessions.get(id).silenceTimer._idleTimeout);
 
+  it("closes on the short settle when the command ends a sentence, and the full window otherwise", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-settle-"));
+    const wake = bus(home);
     // A finished sentence must not wait the full 15s window.
-    wake.handleSegments({
-      sessionId: "s-done",
-      segments: [{ text: "Zeca, cria uma tarefa para comprar peixe.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
-    });
-    closed.push(String((wake as any).sessions.get("s-done").silenceTimer._idleTimeout));
-
+    wake.handleSegments({ sessionId: "s-done", segments: [seg("Zeca, cria uma tarefa para comprar peixe.")] });
     // An unfinished one still gets the full window - truncating it is the
     // failure this window exists to prevent.
-    wake.handleSegments({
-      sessionId: "s-open",
-      segments: [{ text: "Zeca, cria uma tarefa a dizer", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
-    });
-    closed.push(String((wake as any).sessions.get("s-open").silenceTimer._idleTimeout));
-
-    expect(closed).toEqual(["5000", "15000"]);
+    wake.handleSegments({ sessionId: "s-open", segments: [seg("Zeca, cria uma tarefa a dizer")] });
+    expect([idleTimeout(wake, "s-done"), idleTimeout(wake, "s-open")]).toEqual(["5000", "15000"]);
+    for (const id of ["s-done", "s-open"]) clearTimeout(wake.sessions.get(id).silenceTimer);
     rmSync(home, { recursive: true, force: true });
   });
 
   it("a bare wake word waits the full window even though it ends in punctuation", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "omi-settle-bare-"));
-    const store = new OmiStore(path.join(home, "omi"));
-    const wake = new WakeBus({
-      cfg: {
-        ...loadConfig({ GARRISON_HOME: home }),
-        wakeEnabled: true,
-        gatewayUrl: "http://127.0.0.1:1",
-        wakeSilenceCloseMs: 15000,
-        wakeSettledCloseMs: 5000
-      },
-      store,
-      counters: new Counters(store.root, "test"),
-      runFn: async () => ({ reply: "{}" }),
-      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
-      memoryWriter: { write: () => ({ ok: true }) },
-      notifier: { send: async () => [] }
-    });
-    wake.handleSegments({
-      sessionId: "s-bare",
-      segments: [{ text: "Zeca?", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
-    });
-    expect(String((wake as any).sessions.get("s-bare").silenceTimer._idleTimeout)).toBe("15000");
+    const wake = bus(home);
+    wake.handleSegments({ sessionId: "s-bare", segments: [seg("Zeca?")] });
+    expect(idleTimeout(wake, "s-bare")).toBe("15000");
+    clearTimeout(wake.sessions.get("s-bare").silenceTimer);
     rmSync(home, { recursive: true, force: true });
   });
 });
 
-describe("wake delegation to the operative", () => {
-  it("acknowledges immediately, then notifies with the operative's answer", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-"));
-    const store = new OmiStore(path.join(home, "omi"));
+describe("wake delegation on the omi source", () => {
+  function bus(home: string, opts: { delegateEnabled: boolean; operativeFn: (a: unknown) => Promise<{ reply: string }>; reply: Record<string, unknown> }) {
+    const store = new CaptureStore(path.join(home, "capture"));
     const notifications: string[] = [];
-    let operativeCalls = 0;
-    let releaseOperative: () => void = () => {};
-    const release = new Promise<void>((resolve) => {
-      releaseOperative = resolve;
-    });
     const wake = new WakeBus({
       cfg: {
         ...loadConfig({ GARRISON_HOME: home }),
         wakeEnabled: true,
-        delegateEnabled: true,
+        wakeVariants: VARIANTS,
+        delegateEnabled: opts.delegateEnabled,
         gatewayUrl: "http://127.0.0.1:1",
         wakeSilenceCloseMs: 1000
       },
       store,
       counters: new Counters(store.root, "test"),
-      runFn: async () => ({
-        reply: JSON.stringify({
-          intent: "delegate",
-          request: "Send Ana a message on Slack",
-          ack: "On it - messaging Ana."
-        })
-      }),
-      // Held open so the assertion below is about ORDERING, not about winning a
-      // race: a real operative turn takes tens of seconds, and the ack must be
-      // out before it finishes.
-      operativeFn: async () => {
-        operativeCalls++;
-        await release;
-        return { reply: "Sent it to Ana on Slack." };
-      },
-      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
+      runFn: async () => ({ reply: JSON.stringify(opts.reply) }),
+      operativeFn: opts.operativeFn,
+      board: { base: () => null, listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
       memoryWriter: { write: () => ({ ok: true }) },
       notifier: {
         send: async ({ params }: any) => {
-          notifications.push(params.text);
+          if (!params.progress) notifications.push(params.text);
           return [];
         },
         cardUrl: async () => null
       }
     });
+    return { wake, notifications, store };
+  }
 
-    wake.handleSegments({
-      sessionId: "s1",
-      segments: [{ text: "Zeca, manda uma mensagem à Ana no Slack.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
+  it("acknowledges immediately, then notifies with the delegated answer", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-"));
+    let operativeCalls = 0;
+    let releaseOperative: () => void = () => {};
+    const release = new Promise<void>((resolve) => {
+      releaseOperative = resolve;
     });
+    const { wake, notifications, store } = bus(home, {
+      delegateEnabled: true,
+      reply: { intent: "delegate", request: "Send Ana a message on Slack", ack: "On it - messaging Ana." },
+      // Held open so the assertion below is about ORDERING, not about winning a
+      // race: a real turn takes tens of seconds, and the ack must be out first.
+      operativeFn: async () => {
+        operativeCalls++;
+        await release;
+        return { reply: "Sent it to Ana on Slack." };
+      }
+    });
+
+    wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca, manda uma mensagem à Ana no Slack.")] });
     await wake.close("s1", "max-capture");
-    // The acknowledgement must be out before the operative is done - the whole
-    // point is that the wearer is not left waiting on a minute-long turn.
     expect(notifications).toEqual(["On it - messaging Ana."]);
 
     releaseOperative();
-    await (wake as any).delegateChain;
+    await wake.delegateChain;
     expect(operativeCalls).toBe(1);
     expect(notifications).toEqual(["On it - messaging Ana.", "Sent it to Ana on Slack."]);
 
@@ -1182,77 +961,25 @@ describe("wake delegation to the operative", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("falls back to a note when delegation is switched off", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-off-"));
-    const store = new OmiStore(path.join(home, "omi"));
-    const notifications: string[] = [];
-    const wake = new WakeBus({
-      cfg: {
-        ...loadConfig({ GARRISON_HOME: home }),
-        wakeEnabled: true,
+  it("falls back to a note, in the command's language, when delegation is switched off", async () => {
+    const pt = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-off-"));
+    const en = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-en-"));
+    const make = (home: string) =>
+      bus(home, {
         delegateEnabled: false,
-        gatewayUrl: "http://127.0.0.1:1",
-        wakeSilenceCloseMs: 1000
-      },
-      store,
-      counters: new Counters(store.root, "test"),
-      runFn: async () => ({ reply: JSON.stringify({ intent: "delegate", request: "do a thing" }) }),
-      operativeFn: async () => ({ reply: "should never run" }),
-      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
-      memoryWriter: { write: () => ({ ok: true }) },
-      notifier: {
-        send: async ({ params }: any) => {
-          notifications.push(params.text);
-          return [];
-        },
-        cardUrl: async () => null
-      }
-    });
-    wake.handleSegments({
-      sessionId: "s1",
-      segments: [{ text: "Zeca, faz uma coisa qualquer.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }]
-    });
-    await wake.close("s1", "max-capture");
-    // The command was Portuguese, so the confirmation is too - the frame no
-    // longer arrives in English around Portuguese words.
-    expect(notifications[0]).toBe("Não consigo falar com o Zeca para isso agora - guardei como nota.");
-    rmSync(home, { recursive: true, force: true });
-  });
+        reply: { intent: "delegate", request: "do a thing" },
+        operativeFn: async () => ({ reply: "should never run" })
+      });
+    const a = make(pt);
+    a.wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca, faz uma coisa qualquer.")] });
+    await a.wake.close("s1", "max-capture");
+    expect(a.notifications[0]).toBe("Não consigo falar com o Zeca para isso agora - guardei como nota.");
 
-  it("falls back in ENGLISH when the command was English", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-en-"));
-    const store = new OmiStore(home);
-    const notifications: string[] = [];
-    const wake = new WakeBus({
-      cfg: {
-        ...loadConfig({ GARRISON_HOME: home }),
-        wakeEnabled: true,
-        delegateEnabled: false,
-        gatewayUrl: "http://127.0.0.1:1",
-        wakeSilenceCloseMs: 1000
-      },
-      store,
-      counters: new Counters(store.root, "test"),
-      runFn: async () => ({ reply: JSON.stringify({ intent: "delegate", request: "do a thing" }) }),
-      operativeFn: async () => ({ reply: "should never run" }),
-      board: { listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
-      memoryWriter: { write: () => ({ ok: true }) },
-      notifier: {
-        send: async ({ params }: any) => {
-          notifications.push(params.text);
-          return [];
-        },
-        cardUrl: async () => null
-      }
-    });
-    wake.handleSegments({
-      sessionId: "s1",
-      segments: [
-        { text: "Zeca, please send the invoice to the lawyer.", speaker: "S", speakerId: 0, is_user: true, start: 0, end: 1 }
-      ]
-    });
-    await wake.close("s1", "max-capture");
-    expect(notifications[0]).toBe("I can't reach Zeca for that right now - saved it as a note.");
-    rmSync(home, { recursive: true, force: true });
+    const b = make(en);
+    b.wake.handleSegments({ sessionId: "s1", segments: [seg("Zeca, please send the invoice to the lawyer.")] });
+    await b.wake.close("s1", "max-capture");
+    expect(b.notifications[0]).toBe("I can't reach Zeca for that right now - saved it as a note.");
+    rmSync(pt, { recursive: true, force: true });
+    rmSync(en, { recursive: true, force: true });
   });
 });

@@ -114,16 +114,16 @@ describe("capability resolver", () => {
     }
   });
 
-  it("web-channel resolves with a voice provider (voice:deepgram, optional-one)", () => {
+  it("web-channel resolves with a voice provider (voice:companion, optional-one)", () => {
     const result = resolveCapabilities([
-      fitting("deepgram-voice", { provides: [{ kind: "voice", name: "deepgram" }] }),
+      fitting("capture-service", { provides: [{ kind: "voice", name: "companion" }] }),
       fitting("web-channel-default", { consumes: [{ kind: "voice", cardinality: "optional-one" }] })
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
       const consumer = result.graph.consumers.find((c) => c.fittingId === "web-channel-default");
       expect(consumer?.matched).toHaveLength(1);
-      expect(consumer?.matched[0].fittingId).toBe("deepgram-voice");
+      expect(consumer?.matched[0].fittingId).toBe("capture-service");
     }
   });
 
@@ -136,7 +136,7 @@ describe("capability resolver", () => {
 
   it("voice is a singleton — two providers are ambiguous", () => {
     const result = resolveCapabilities([
-      fitting("deepgram-voice", { provides: [{ kind: "voice", name: "deepgram" }] }),
+      fitting("capture-service", { provides: [{ kind: "voice", name: "companion" }] }),
       fitting("other-voice", { provides: [{ kind: "voice", name: "other" }] })
     ]);
     expect(result.ok).toBe(false);

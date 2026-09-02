@@ -1,12 +1,13 @@
 // Omi channel M7 — the full local end-to-end demo on fixtures with ALL flags
 // on (spec acceptance). Every pipe runs against the real server + real
 // modules; only the external boundaries are stubbed: the Omi cloud API, the
-// kanban board, the web channel, and the gateway (which answers the three
-// prompt kinds like the operative would).
+// kanban board, the web channel, the gateway (which answers the triage prompt
+// like the assistant would) and capture-service (the voice layer the realtime
+// segments are forwarded to since D24, 2026-09-02).
 //
 // Flow: fixtures replayed twice (idempotent) -> heartbeat triage (one model
-// call, cards + memories + tips) -> wake command spoken -> card + confirmation
-// -> ask_zeca chat answer -> kanban lifecycle relay -> backfeed into Omi.
+// call, cards + memories + tips) -> realtime segments forwarded to the voice
+// layer -> kanban lifecycle relay -> backfeed into Omi.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
@@ -16,6 +17,7 @@ import path from "node:path";
 
 const FIXTURES = path.resolve(__dirname, "..", "fittings", "seed", "omi-channel", "fixtures");
 const SECRET = "e2e-webhook-secret";
+const CAPTURE_TOKEN = "e2e-capture-token";
 const UID = "omi_test_user_1";
 
 const home = mkdtempSync(path.join(os.tmpdir(), "omi-e2e-"));
@@ -89,7 +91,27 @@ const webChannelServer = createServer(async (req, res) => {
   res.end("{}");
 });
 
-// ---- gateway stub: answers the three prompt kinds like the operative would ----
+// ---- capture-service stub: the voice layer's text ingest -----------------------
+const captureService = { received: [] as Array<Recorded & { authorization: string | undefined }> };
+const captureServiceServer = createServer(async (req, res) => {
+  const body = (await readBody(req)) as { session_id?: string; segments?: unknown[] };
+  captureService.received.push({
+    method: req.method ?? "",
+    path: req.url ?? "",
+    body,
+    authorization: req.headers.authorization
+  });
+  res.setHeader("content-type", "application/json");
+  if (req.headers.authorization !== `Bearer ${CAPTURE_TOKEN}`) {
+    res.statusCode = 401;
+    res.end(JSON.stringify({ error: "unauthorized" }));
+    return;
+  }
+  res.statusCode = 202;
+  res.end(JSON.stringify({ session: body.session_id, accepted: body.segments?.length ?? 0 }));
+});
+
+// ---- gateway stub: answers the triage prompt like the assistant would ----------
 const gateway = { calls: [] as string[] };
 const gatewayServer = createServer(async (req, res) => {
   const body = (await readBody(req)) as { message?: string };
@@ -125,13 +147,6 @@ const gatewayServer = createServer(async (req, res) => {
       })),
       tips: firstEligible ? [{ event_id: firstEligible.id, text: "Send beta invites on Tuesday morning." }] : []
     });
-  } else if (prompt.includes("spoken wake-word command")) {
-    reply = JSON.stringify({
-      intent: "create_task",
-      title: "Create a test task called hello garrison",
-      description: "Create the hello garrison test task.",
-      project: "garrison"
-    });
   } else {
     reply = "You have open cards on the board; the beta email is due Friday.";
   }
@@ -144,13 +159,13 @@ let omiServer: Server | null = null;
 let base = "";
 const prevEnv: Record<string, string | undefined> = {};
 
-async function waitFor(predicate: () => boolean, timeoutMs = 6000) {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 6000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await new Promise((r) => setTimeout(r, 30));
   }
-  if (!predicate()) throw new Error("waitFor timed out");
+  if (!(await predicate())) throw new Error("waitFor timed out");
 }
 
 describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
@@ -159,6 +174,7 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
     const boardPort = await listen(boardServer);
     const webPort = await listen(webChannelServer);
     const gatewayPort = await listen(gatewayServer);
+    const capturePort = await listen(captureServiceServer);
 
     for (const [k, v] of Object.entries({
       GARRISON_HOME: home,
@@ -183,6 +199,10 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
       path.join(home, "ui-fittings", "web-channel-default.json"),
       JSON.stringify({ fittingId: "web-channel-default", port: webPort, url: `http://127.0.0.1:${webPort}` })
     );
+    writeFileSync(
+      path.join(home, "ui-fittings", "capture-service.json"),
+      JSON.stringify({ fittingId: "capture-service", port: capturePort, url: `http://127.0.0.1:${capturePort}` })
+    );
 
     // Dynamic imports AFTER the env is in place (OMI_API_BASE_URL is read at
     // module load).
@@ -197,12 +217,15 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
       triageEnabled: true,
       wakeEnabled: true,
       notifyEnabled: true,
-      chatEnabled: true,
       backfeedEnabled: true,
       tipsEnabled: true,
-      wakeSilenceCloseMs: 60,
-      wakeMaxCaptureMs: 2000,
-      secrets: { appId: "app_e2e", appSecret: "app_secret", importApiKey: "sk_import", webhookSecret: SECRET }
+      secrets: {
+        appId: "app_e2e",
+        appSecret: "app_secret",
+        importApiKey: "sk_import",
+        webhookSecret: SECRET,
+        captureToken: CAPTURE_TOKEN
+      }
     };
     omiServer = await startServer(cfg);
     const addr = omiServer.address();
@@ -210,7 +233,7 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
   }, 20000);
 
   afterAll(async () => {
-    for (const server of [omiServer, omiCloudServer, boardServer, webChannelServer, gatewayServer]) {
+    for (const server of [omiServer, omiCloudServer, boardServer, webChannelServer, gatewayServer, captureServiceServer]) {
       if (server) await new Promise<void>((r) => server.close(() => r()));
     }
     for (const [k, v] of Object.entries(prevEnv)) {
@@ -303,8 +326,12 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
     expect(gateway.calls.length).toBe(before);
   }, 15000);
 
-  it("handles a spoken wake command end to end", async () => {
-    const pushesBefore = omiCloud.received.filter((r) => r.path.includes("/notification")).length;
+  it("forwards realtime segments to the voice layer with the CAPTURE_TOKEN, and classifies nothing", async () => {
+    // The fixture replay above already carried realtime segments through the
+    // same hop; this call is the one whose shape is pinned.
+    const gatewayCallsBefore = gateway.calls.length;
+    const hopsBefore = captureService.received.length;
+    const countersBefore = (await fetch(`${base}/health`).then((r) => r.json())).counters;
     const res = await fetch(`${base}/omi/realtime?key=${SECRET}&uid=${UID}&session_id=live1`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -315,31 +342,46 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
     });
     expect(res.status).toBe(200);
 
-    await waitFor(() => omiCloud.received.filter((r) => r.path.includes("/notification")).length > pushesBefore);
-    const wakeCard = board.cards.find((c) => String(c.origin_id ?? "").startsWith("omi:wake:"));
-    expect(wakeCard).toBeTruthy();
-    expect(wakeCard!.title).toContain("hello garrison");
+    await waitFor(() => captureService.received.length === hopsBefore + 1);
+    const hop = captureService.received[hopsBefore];
+    expect(hop.method).toBe("POST");
+    expect(hop.path).toBe("/capture/ingest/text");
+    expect(hop.authorization).toBe(`Bearer ${CAPTURE_TOKEN}`);
+    expect(hop.body).toEqual({
+      source: "omi",
+      session_id: "live1",
+      segments: [
+        { text: "ok so anyway", speaker: "SPEAKER_00", is_user: true, start: 1, end: 2 },
+        { text: "Zeca, create a test task called hello garrison", speaker: "SPEAKER_00", is_user: true, start: 3, end: 6 }
+      ]
+    });
 
-    const confirmation = omiCloud.received
-      .filter((r) => r.path.includes("/notification"))
-      .map((r) => decodeURIComponent(String(new URL(r.path, "http://x").searchParams.get("message"))))
-      .find((m) => m.includes("Card created"));
-    expect(confirmation).toBeTruthy();
+    // No wake bus here any more: no gateway call, no card, no realtime event on disk.
+    expect(gateway.calls.length).toBe(gatewayCallsBefore);
+    expect(board.cards.some((c) => String(c.origin_id ?? "").startsWith("omi:wake:"))).toBe(false);
+    expect(readdirSync(path.join(home, "omi", "events")).length).toBe(6);
 
+    await waitFor(async () => {
+      const health = await fetch(`${base}/health`).then((r) => r.json());
+      return health.counters.realtime_forwarded === (countersBefore.realtime_forwarded ?? 0) + 1;
+    });
     const health = await fetch(`${base}/health`).then((r) => r.json());
-    expect(health.counters.wake_hits).toBe(1);
-    expect(health.counters.wake_hit_to_notification_ms_count).toBe(1);
+    expect(health.forward).toEqual({ ok: true, reason: "forwarding to capture-service" });
+    expect(health.counters.realtime_segments).toBe((countersBefore.realtime_segments ?? 0) + 2);
+    expect(health.counters.realtime_forward_segments).toBe((countersBefore.realtime_forward_segments ?? 0) + 2);
+    expect(health.counters.realtime_forward_failed).toBeUndefined();
+    expect(health.secrets.captureToken).toBe(true);
   }, 15000);
 
-  it("answers ask_zeca within budget through the live route", async () => {
-    const res = await fetch(`${base}/omi/chat?key=${SECRET}`, {
+  it("answers 404 where the chat tool and its manifest used to live", async () => {
+    const chat = await fetch(`${base}/omi/chat?key=${SECRET}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ uid: UID, app_id: "app_e2e", tool_name: "ask_zeca", query: "how is the board?" })
     });
-    expect(res.status).toBe(200);
-    const payload = await res.json();
-    expect(String(payload.result)).toContain("beta email");
+    expect(chat.status).toBe(404);
+    expect((await fetch(`${base}/omi/tools-manifest?key=${SECRET}`)).status).toBe(404);
+    expect(gateway.calls.some((p) => p.includes("how is the board?"))).toBe(false);
   });
 
   it("relays a kanban lifecycle message to the wearer via the thread contract", async () => {
@@ -360,11 +402,11 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
     const { OmiApi } = await import("../fittings/seed/omi-channel/lib/omi-api.mjs");
     const { BoardClient } = await import("../fittings/seed/omi-channel/lib/board-client.mjs");
 
-    // The wake card finished meanwhile.
-    const wakeCard = board.cards.find((c) => String(c.origin_id ?? "").startsWith("omi:wake:"))!;
-    wakeCard.list = "done";
-    wakeCard.updated = new Date().toISOString();
-    wakeCard.lastReply = "Created and verified the hello garrison task.";
+    // The triage card finished meanwhile.
+    const triageCard = board.cards.find((c) => String(c.origin_id ?? "").startsWith("omi:conv_"))!;
+    triageCard.list = "done";
+    triageCard.updated = new Date().toISOString();
+    triageCard.lastReply = "Sent the pricing page draft to Rita.";
 
     const store = new OmiStore(path.join(home, "omi"));
     const backfeed = new Backfeed({
@@ -392,11 +434,14 @@ describe("omi-channel end-to-end demo (all flags on, fixtures only)", () => {
     expect(c.events_in).toBeGreaterThanOrEqual(5);
     expect(c.dropped_by_rule).toBeGreaterThanOrEqual(1);
     expect(c.cards_created).toBeGreaterThanOrEqual(1);
-    expect(c.wake_hits).toBe(1);
+    expect(c.realtime_forwarded).toBeGreaterThanOrEqual(1);
+    expect(c.realtime_forward_failed).toBeUndefined();
     expect(c.notifications_sent).toBeGreaterThanOrEqual(3);
-    expect(c.chat_calls).toBeGreaterThanOrEqual(1);
+    expect(c.wake_hits).toBeUndefined();
+    expect(c.chat_calls).toBeUndefined();
     expect(c.backfeed_sent).toBeGreaterThanOrEqual(2);
     const page = await fetch(`${base}/`).then((r) => r.text());
-    expect(page).toContain("wake_hits");
+    expect(page).toContain("realtime_forwarded");
+    expect(page).toContain("Realtime forward");
   });
 });

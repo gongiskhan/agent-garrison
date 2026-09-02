@@ -114,3 +114,27 @@ declare module "*/talk/src/push-store.mjs" {
     env?: Record<string, string | undefined>
   ): { publicKey: string; privateKey: string; subject: string } | null;
 }
+
+// The talk router (.mjs): only the voice surface is declared, for
+// tests/talk-voice-router.test.ts.
+declare module "*/talk/src/router.mjs" {
+  export function garrisonDir(): string;
+  export const STATUS_ROOT: string;
+  export const VOICE_NO_PROVIDER: string;
+  export const VOICE_NOT_RUNNING: string;
+  export const VOICE_LOCKED: string;
+  export const VOICE_TOKEN_UNSET: string;
+  export const VOICE_TOKEN_DENIED: string;
+  export const VOICE_SECRETS_UNREACHABLE: string;
+  export const VOICE_REST_DISABLED: string;
+  export const VOICE_UNREACHABLE: string;
+  export function readVoiceInfo(fittingId: unknown): { url?: string; [k: string]: unknown } | null;
+  export function createTalkRouter(
+    liveOpts: {
+      gatewayUrl?: string;
+      voice?: { fittingId?: () => unknown; token?: () => unknown; tokenReason?: () => unknown; vaultLocked?: () => unknown } | undefined;
+      [k: string]: unknown;
+    },
+    opts?: { distDir?: string | null; log?: unknown }
+  ): (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => Promise<boolean>;
+}

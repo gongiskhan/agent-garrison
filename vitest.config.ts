@@ -3,7 +3,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    // No `include` here on purpose: vitest.workspace.ts splits the suite into
+    // two projects that `extends` this file, and extending CONCATENATES arrays,
+    // so an include here would put every test into both projects. Each project
+    // declares its own.
     setupFiles: ["./tests/setup.ts"],
     globals: true,
     // Many tests legitimately spawn real subprocesses (scheduler daemon, own-port

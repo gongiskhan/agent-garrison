@@ -12,7 +12,6 @@ dependencies:
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/cortex-automations
     - path: ../../fittings/seed/cortex-client
-    - path: ../../fittings/seed/deepgram-voice
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/email-channel
@@ -66,9 +65,7 @@ x-garrison:
     selections:
       orchestrator:
         - id: orchestrator
-          config:
-            port: 8087
-            bind_host: 127.0.0.1
+          config: {}
       channels:
         - id: slack-channel
           config:
@@ -79,18 +76,12 @@ x-garrison:
           config:
             port: 8094
             bind_host: 127.0.0.1
-            public_base_url: https://dev-madrid.tail31efa.ts.net:8443
             enabled: true
             triage_enabled: true
             wake_enabled: true
-            chat_enabled: true
             notify_enabled: true
-            wake_silence_close_ms: 15000
-            wake_min_capture_ms: 0
-            wake_max_capture_ms: 45000
-            wake_command_window_ms: 45000
-            wake_context_segments: 6
-            wake_context_max_age_ms: 120000
+            # Wake tuning moved with the wake bus to capture-service (2026-09-02);
+            # this fitting only forwards transcripts there now.
         - id: capture-service
           config:
             port: 8097
@@ -298,12 +289,6 @@ x-garrison:
         - id: scroll-world
           config: {}
       connectors:
-        - id: deepgram-voice
-          config:
-            port: 8085
-            bind_host: 127.0.0.1
-            stt_model: nova-2
-            tts_model: aura-asteria-en
         - id: trello
           config:
             board_id: vl1Z8KFH

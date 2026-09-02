@@ -146,8 +146,10 @@ is just another connector.
 - **Cardinality:** multi; many connected services coexist under the
   `connectors` faculty.
 - **Typically provides:** one connector Fitting per service (trello, google,
-  slack, deepgram, ...), declaring its catalog in the `x-garrison.connector`
-  block (`auth`, `actions[]` with `mutates`/`args`, `triggers[]`).
+  slack, whatsapp, the `voice` connector on capture-service, ...), declaring
+  its catalog in the `x-garrison.connector` block (`auth`, `actions[]` with
+  `mutates`/`args`, `triggers[]`). A connector may narrow what an automation
+  call is handed with `connector.secrets` (a subset of `secret_scope`).
 - **Typically consumes:** `vault`; the named secrets it may read are listed in
   `x-garrison.secret_scope` (the per-connector scoping the Vault enforces).
 - **Interface (TBD — runtime SDK milestone):** must expose the action catalog
@@ -282,9 +284,35 @@ env, captured stdout/stderr. Discovery is parent-PID walk plus
 
 ## voice
 
-Speech in and out for the operative: transcribe audio to text and synthesize
-replies to audio. Singleton; the deepgram-voice Fitting provides it today
-(POST /stt, POST /tts) with its key Vault-sealed via `secret_scope`.
+Speech in and out: transcribe a recorded clip to text and synthesize a reply to
+audio. Singleton; `capture-service` provides it (`kind: voice, name: companion`)
+since 2026-09-02, when the `deepgram-voice` connector was retired so the browser,
+the phone, the Omi forwarder and the automation lane share one backend, one clip
+cache and one configuration.
+
+- **Interface:** a REST surface on the capture-service port, top-level beside
+  `/speak/<id>.mp3`, every call gated by `Authorization: Bearer <capture token>`
+  (403 when disabled or no token is sealed, 401 on a bad bearer).
+  - `POST /stt` - body is the raw clip bytes (`Content-Type` default
+    `audio/webm`, 8 MB cap), optional `?language=`; returns
+    `{transcript, confidence, language, model}`. 400 empty body, 503 no
+    `DEEPGRAM_API_KEY`, 502 upstream failure.
+  - `POST /tts` - JSON `{text}` (mp3 only); returns `audio/mpeg` with
+    `X-Voice-Backend` and `X-Clip-Id`. 400 empty or over 600 chars, 503 no
+    TTS backend. The backend is `tts_backend: auto | elevenlabs | deepgram`.
+  - `GET /health` carries `voice: {stt, tts, ttsBackend, restEnabled}` and a
+    top-level `keyConfigured` mirroring `voice.stt`.
+- **Discovery:** the runner projects `GARRISON_VOICE_FITTING_ID=<provider id>`
+  into every own-port fitting whose `consumes` includes `voice` (absent when no
+  provider is stationed; part of the heal fingerprint, so swapping the provider
+  restarts the consumers). The consumer reads
+  `<GARRISON_HOME>/ui-fittings/<id>.json` for the loopback URL and takes the
+  capture token from its own `secret_scope` (`CAPTURE_TOKEN`) - the token never
+  reaches a browser page. The shell's `/api/voice/*` proxy resolves the provider
+  from the active composition's capability graph the same way.
+- **Typically consumes:** `web-channel-default` and `dev-env`
+  (`voice`, `optional-one`); the `voice` connector's `transcribe` /
+  `synthesize` actions call the same running service.
 
 ## identity
 

@@ -1309,16 +1309,20 @@
    Every pill rides ABOVE the composer (--wc-composer-inset, measured by
    PushEnroller). Pinned to the raw viewport bottom they sat ON the composer:
    at phone width that hid the message box and its Send button entirely, so the
-   app could not be used until the notice was dismissed. */
+   app could not be used until the notice was dismissed. The inset also clears
+   the voice panel and the menus that float above the composer's top edge
+   (composer-inset.ts). And the pill starts at the composer's LEFT edge
+   (--wc-composer-left): the conversation is a pane inside the shell, and a
+   viewport-left pill sat over the sidebar's composition selector. */
 .wc-push-notice,
 .wc-push-toast,
 .wc-push-pill {
-  position: fixed; left: 12px; z-index: 41; display: flex; align-items: center; gap: 10px;
+  position: fixed; left: calc(var(--wc-composer-left, 0px) + 12px); z-index: 41; display: flex; align-items: center; gap: 10px;
   padding: 8px 9px 8px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
   background: rgba(20,24,28,.94); color: #d7dde3; font: 500 12px/1.25 system-ui, sans-serif;
   box-shadow: 0 8px 26px rgba(0,0,0,.22);
   bottom: calc(var(--wc-composer-inset, 0px) + 12px);
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - var(--wc-composer-left, 0px) - 24px);
   /* Informational and dismissible: it may OVERLAP the transcript, but it must
      never intercept a click meant for what is underneath. Moving it clear of the
      composer only relocated the problem onto the message action bar that now

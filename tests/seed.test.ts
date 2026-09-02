@@ -19,7 +19,7 @@ const seedIds = [
   "http-gateway",
   "slack-channel",
   "web-channel-default",
-  "deepgram-voice",
+  "capture-service",
   "dev-env",
   "screen-share-default",
   "monitor-default",
@@ -90,14 +90,19 @@ describe("seed Fittings", () => {
     expect(metadata.consumes).toContainEqual({ kind: "voice", cardinality: "optional-one" });
   });
 
-  it("deepgram is a dual connector — connectors role, provides voice + connector", async () => {
-    const metadata = await loadSeed("deepgram-voice");
-    expect(metadata.faculty).toBe("connectors");
+  // capture-service is the one voice layer (2026-09-02, deepgram-voice retired):
+  // a channel that also provides voice + a connector over the same REST surface.
+  it("capture-service is the voice layer - channels role, provides voice + connector", async () => {
+    const metadata = await loadSeed("capture-service");
+    expect(metadata.faculty).toBe("channels");
     expect(metadata.own_port).toBe(true);
-    expect(metadata.provides).toContainEqual({ kind: "voice", name: "deepgram" });
-    expect(metadata.provides).toContainEqual({ kind: "connector", name: "deepgram" });
-    expect(metadata.connector?.actions.map((a) => a.name)).toContain("transcribe");
+    expect(metadata.provides).toContainEqual({ kind: "voice", name: "companion" });
+    expect(metadata.provides).toContainEqual({ kind: "connector", name: "voice" });
+    const actions = metadata.connector?.actions.map((a) => a.name) ?? [];
+    expect(actions).toContain("transcribe");
+    expect(actions).toContain("synthesize");
     expect(metadata.secret_scope).toContain("DEEPGRAM_API_KEY");
+    expect(metadata.secret_scope).toContain("CAPTURE_TOKEN");
     expect(metadata.consumes).toContainEqual({ kind: "vault", cardinality: "one" });
   });
 

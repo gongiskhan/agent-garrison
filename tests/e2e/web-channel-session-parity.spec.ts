@@ -662,9 +662,18 @@ test.describe("web channel session parity", () => {
         const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
         return el.contains(top) || top === el ? "self" : (top?.className ?? top?.tagName ?? "unknown");
       };
-      return { send: at(".cc-send"), input: at(".cc-input") };
+      const pill = document.querySelector(".wc-push-notice")!.getBoundingClientRect();
+      const composer = document.querySelector(".cc-composer")!.getBoundingClientRect();
+      return {
+        send: at(".cc-send"),
+        input: at(".cc-input"),
+        // The pill belongs to the conversation pane: it starts at or right of
+        // the composer's left edge (not over the shell's sidebar) and ends
+        // above the composer's top edge.
+        pillInsidePane: pill.left >= composer.left && pill.bottom <= composer.top,
+      };
     });
-    expect(hits).toEqual({ send: "self", input: "self" });
+    expect(hits).toEqual({ send: "self", input: "self", pillInsidePane: true });
 
     // And it really is clickable end to end.
     h.gateway.onTurn = async (turn) => {

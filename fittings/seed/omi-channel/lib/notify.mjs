@@ -48,11 +48,11 @@ export function renderTemplate(template, params = {}) {
 // /notify (an APNs push to the phone) and omi's push endpoint, so a test that
 // forgot to isolate its home would buzz the user for real. Naming a home
 // explicitly still exercises this path honestly.
-function underTestRunner(env) {
+export function underTestRunner(env) {
   return Boolean(env.VITEST || env.VITEST_WORKER_ID) || env.NODE_ENV === "test";
 }
 
-function statusFileUrl(fittingId, env = process.env) {
+export function statusFileUrl(fittingId, env = process.env) {
   try {
     if (!env.GARRISON_HOME?.trim() && underTestRunner(env)) return null;
     const home = env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");

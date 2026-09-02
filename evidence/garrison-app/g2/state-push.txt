@@ -1,0 +1,7 @@
+# State service push of the two compositions changed by G2 (deepgram-voice
+# unstationed, capture-service stationed as the one voice provider), done
+# BEFORE the redeploy's up() so the node started on the same revision the mesh
+# holds. Read back from the service and compared with the local apm.yml.
+
+default rev 29 -> 30 readback equals-local
+openai rev 3 -> 4 readback equals-local

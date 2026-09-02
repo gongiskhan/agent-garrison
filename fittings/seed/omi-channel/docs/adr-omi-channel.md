@@ -184,3 +184,30 @@ Wake-bus logs and counters carry no transcript content (I5).
   of scope, wake bus uses the transcript trigger.
 - Omi proactive notifications, marketplace submission, desktop fork,
   self-hosting: parked per spec §8.
+
+## Addendum 2026-09-02: realtime forward to the voice layer (D24)
+
+`docs/decisions/2026-09-garrison-app.md` D24 makes capture-service the one
+voice layer. The wake-bus and ask_zeca designs above are kept for history;
+at runtime this fitting now:
+
+- authenticates the realtime webhook (I8), acks fast (I7), and hands the
+  segments to `lib/forward.mjs`, which posts them to
+  `POST <capture-service>/capture/ingest/text` as
+  `{source: "omi", session_id, segments: [{text, speaker?, is_user?, start?, end?}]}`
+  with `Authorization: Bearer <CAPTURE_TOKEN>`; capture-service answers
+  `202 {session, accepted}`, `401/403` on auth, `400` on shape.
+- discovers capture-service through its status file
+  (`$GARRISON_HOME/ui-fittings/capture-service.json` -> `url`), the same
+  seam notify.mjs uses for kanban-loop and the web channel.
+- fails closed and keeps no fallback: no `CAPTURE_TOKEN` ->
+  `realtime_forward_skipped`; no url, connection error, timeout or non-2xx
+  -> `realtime_forward_failed` plus a rate-limited warning that names the
+  failure shape and never a segment (I5 holds across the hop).
+- exposes readiness as `forward: {ok, reason}` on `/health` and on the
+  status page.
+
+Gone from here: WakeBus, EchoGuard (and the `/ack` route), the wake
+classifier/delegation lanes, `/omi/chat` + `/omi/tools-manifest`,
+`lib/lang.mjs`. Spoken replies reach the wearer through the Garrison app and
+the pendant speaker, both driven by capture-service.

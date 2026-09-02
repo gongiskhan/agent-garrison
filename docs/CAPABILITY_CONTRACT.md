@@ -39,8 +39,8 @@ means *runs on one machine*, not *reachable only from it*: prod publishes its vi
 "the user's browser is almost never on the Garrison machine"), so the line is about who owns and runs the
 server, not about which sockets it listens on. It has
 always coexisted with outbound network calls made by Fittings the user explicitly equips and keys:
-`fittings/seed/deepgram-voice/` reaches `https://api.deepgram.com` with a vault-held `DEEPGRAM_API_KEY`, and the
-model runtimes reach whichever provider the composition selects (`fittings/seed/agent-sdk-runtime/lib/providers.mjs`
+`fittings/seed/capture-service/` reaches `https://api.deepgram.com` with a vault-held `DEEPGRAM_API_KEY` (and
+ElevenLabs with `ELEVENLABS_API_KEY` when sealed), and the model runtimes reach whichever provider the composition selects (`fittings/seed/agent-sdk-runtime/lib/providers.mjs`
 carries `https://api.z.ai/...`, `https://api.deepseek.com/...`, `https://api.minimax.io/...`;
 `fittings/seed/claude-code-runtime/apm.yml` swaps `ANTHROPIC_BASE_URL` per provider).
 

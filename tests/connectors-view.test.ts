@@ -37,6 +37,24 @@ const google = entry({
   } as any
 });
 
+// D26: capture-service seals three secrets (the capture token plus the two
+// provider keys) but its voice connector is reached with ONLY the capture
+// token - Deepgram and ElevenLabs keys never leave the service (I4), so the
+// connector's sealed state must not depend on them.
+const voice = entry({
+  id: "capture-service",
+  name: "Capture service",
+  metadata: {
+    provides: [{ kind: "voice", name: "capture-service" }, { kind: "connector", name: "voice" }],
+    secret_scope: ["CAPTURE_TOKEN", "DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY"],
+    connector: {
+      auth: "api_key",
+      secrets: ["CAPTURE_TOKEN"],
+      actions: [{ name: "transcribe" }, { name: "synthesize" }]
+    }
+  } as any
+});
+
 describe("buildConnectorsView (C6)", () => {
   it("api_key: sealed only when EVERY scoped secret is present", () => {
     const sealed = buildConnectorsView([trello], ["TRELLO_KEY", "TRELLO_TOKEN"], []);
@@ -46,6 +64,17 @@ describe("buildConnectorsView (C6)", () => {
     const partial = buildConnectorsView([trello], ["TRELLO_KEY"], []);
     expect(partial[0].sealed).toBe(false);
     expect(partial[0].secrets.find((s) => s.name === "TRELLO_TOKEN")?.present).toBe(false);
+  });
+
+  it("api_key with connector.secrets (D26): the view lists and seals on the subset only", () => {
+    // Provider keys unsealed - irrelevant to the connector, which only needs
+    // the capture token.
+    const sealed = buildConnectorsView([voice], ["CAPTURE_TOKEN"], []);
+    expect(sealed[0].id).toBe("voice");
+    expect(sealed[0].secrets.map((s) => s.name)).toEqual(["CAPTURE_TOKEN"]);
+    expect(sealed[0].sealed).toBe(true);
+    // The provider keys alone seal nothing: the subset member is what counts.
+    expect(buildConnectorsView([voice], ["DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY"], [])[0].sealed).toBe(false);
   });
 
   it("api_key view never leaks values — only names + presence", () => {

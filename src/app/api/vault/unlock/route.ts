@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { maskSecrets, unlockVault } from "@/lib/vault";
 import { healVaultConsumingFittings } from "@/lib/own-port-lifecycle";
+import { desiredEnvForFitting } from "@/lib/runner";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -11,8 +12,10 @@ export async function POST(request: NextRequest) {
     const result = await unlockVault(String(body.passphrase ?? ""));
     if (result.unlocked) {
       // Fire-and-forget: an own-port Fitting started keyless (locked vault)
-      // heals the moment the vault opens.
-      void healVaultConsumingFittings()
+      // heals the moment the vault opens. The healed process gets the runner's
+      // full desired env, not secrets alone, so a fitting that was running
+      // with its gateway URL and composition config keeps them.
+      void healVaultConsumingFittings({ envFor: desiredEnvForFitting })
         .then((summary) => {
           if (summary.failed.length > 0) {
             console.warn(

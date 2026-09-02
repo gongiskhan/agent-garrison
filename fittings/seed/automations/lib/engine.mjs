@@ -22,7 +22,8 @@ import {
   internalToken,
   defaultConnectorAuthEnv,
   defaultRunConnector,
-  connectorScriptPath
+  connectorScriptPath,
+  canonicalConnectorId
 } from "./connector-invoke.mjs";
 
 const BROWSER_STEP_TYPES = new Set(["browser", "verify", "navigate"]);
@@ -398,7 +399,10 @@ export async function runAutomation(opts) {
       } else if (step.type === "api_call") {
         result = await execApiCall(resolved, { fetchImpl, connectorAuthEnv, collect });
       } else if (step.type === "connector") {
-        const connectorId = resolved.connector;
+        // Canonical id up front so the pause card and the awaitingConnector
+        // record name the connector that actually exists (a legacy alias such
+        // as `deepgram` resolves to `voice`); the invoke path aliases too.
+        const connectorId = canonicalConnectorId(resolved.connector);
         const authEnv = await connectorAuthEnv(connectorId);
         if (authEnv.__awaiting_connector) {
           const r = await pauseAndAwait({

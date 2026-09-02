@@ -29,7 +29,6 @@ function probe() {
     cfg.triageEnabled && "triage",
     cfg.wakeEnabled && "wake",
     cfg.notifyEnabled && "notify",
-    cfg.chatEnabled && "chat",
     cfg.backfeedEnabled && "backfeed"
   ].filter(Boolean);
   console.error(

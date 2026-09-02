@@ -96,7 +96,6 @@ export function garrisonDir() {
 }
 
 export const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
-const VOICE_STATUS_FILE = path.join(STATUS_ROOT, "deepgram-voice.json");
 const REMOTE_SHELL_STATUS_FILE = path.join(STATUS_ROOT, "remote-shell-runtime.json");
 
 const CHANNEL_ID = "web";
@@ -136,15 +135,96 @@ function pingHealth(baseUrl, timeoutMs) {
   });
 }
 
-export function readVoiceInfo() {
-  if (!existsSync(VOICE_STATUS_FILE)) return null;
+// The voice provider is whichever fitting provides `kind: voice` in the active
+// composition; the host tells the router its id (see the `voice` option on
+// createTalkRouter) and the router reads that fitting's status file. No id is
+// baked in here: the provider is a composition choice, not a router constant.
+// Resolved at CALL time (not from the frozen STATUS_ROOT const) so a test that
+// points GARRISON_HOME at a sandbox after import still reads the sandbox.
+const FITTING_ID_RE = /^[a-z0-9][a-z0-9_-]*$/i;
+
+export function readVoiceInfo(fittingId) {
+  if (typeof fittingId !== "string" || !FITTING_ID_RE.test(fittingId)) return null;
+  const statusFile = path.join(garrisonDir(), "ui-fittings", `${fittingId}.json`);
+  if (!existsSync(statusFile)) return null;
   try {
-    const info = JSON.parse(readFileSync(VOICE_STATUS_FILE, "utf8"));
+    const info = JSON.parse(readFileSync(statusFile, "utf8"));
     return info?.url ? info : null;
   } catch {
     return null;
   }
 }
+
+// The host's voice options: `fittingId()` names the provider fitting (null when
+// the composition stations none), `token()` yields the capture token that gates
+// the provider's /stt and /tts (null when the vault is locked or the secret is
+// unset). Both may be sync or async and are asked on EVERY request, so a vault
+// unlock or a provider swap is seen without a restart. A host that passes no
+// voice option gets "no voice provider" everywhere and never a throw.
+async function voiceFittingId(voice) {
+  try {
+    const id = await voice?.fittingId?.();
+    return typeof id === "string" && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function voiceToken(voice) {
+  try {
+    const token = await voice?.token?.();
+    return typeof token === "string" && token.length > 0 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+// Why token() came back empty. A host that can name the exact reason (the shell
+// reads its node's secret source: local vault or mesh authority) passes
+// `tokenReason()`, which returns one of the VOICE_* reason strings below; one
+// that can only tell locked from unsealed passes `vaultLocked()`; one that can
+// tell nothing (the legacy env-fed host) leaves both out and a missing token
+// reads as the vault being locked, the historical meaning. Asked only AFTER
+// token() failed, so an auto-unlock the token read just performed is already
+// reflected in the answer.
+const VOICE_TOKEN_REASONS = new Set([
+  "voice locked",
+  "capture token not sealed",
+  "capture token not granted to this node",
+  "secret authority unreachable"
+]);
+
+async function voiceTokenReason(voice) {
+  try {
+    if (typeof voice?.tokenReason === "function") {
+      const reason = await voice.tokenReason();
+      return VOICE_TOKEN_REASONS.has(reason) ? reason : VOICE_LOCKED;
+    }
+    const locked = await voice?.vaultLocked?.();
+    if (locked === undefined) return VOICE_LOCKED;
+    return locked ? VOICE_LOCKED : VOICE_TOKEN_UNSET;
+  } catch {
+    return VOICE_LOCKED;
+  }
+}
+
+// Reasons the voice surface is unavailable, in the order they are checked. The
+// UI shows these verbatim, so they are the operator-facing strings.
+export const VOICE_NO_PROVIDER = "no voice provider";
+export const VOICE_NOT_RUNNING = "voice provider not running";
+export const VOICE_LOCKED = "voice locked";
+export const VOICE_TOKEN_UNSET = "capture token not sealed";
+// Mesh nodes (D31): the token lives in the secret authority, which can refuse
+// this node the key or be unreachable - neither is a locked local vault.
+export const VOICE_TOKEN_DENIED = "capture token not granted to this node";
+export const VOICE_SECRETS_UNREACHABLE = "secret authority unreachable";
+export const VOICE_REST_DISABLED = "voice rest disabled";
+export const VOICE_UNREACHABLE = "voice unreachable";
+
+// How long one /stt or /tts hop may take end to end. A recording transcribes
+// in a few seconds and a 600-character clip renders in under ten; a provider
+// that hangs past this must not pin the browser's request forever.
+const VOICE_PROXY_TIMEOUT_MS = 20000;
 
 // ── Remote-shell relay ──────────────────────────────────────────────────────
 // The remote-shell runtime fitting owns the ssh/tmux/devtunnel state on its own
@@ -242,69 +322,140 @@ export function matchRemoteShellSession(binding, sessions) {
 }
 
 // Voice availability. The web UI hides its mic / speaker
-// controls when this reports unavailable.
-async function handleVoiceInfo(res) {
-  const info = readVoiceInfo();
+// controls when this reports unavailable. Names the provider fitting, never
+// its machine-local url: the page reaches the provider only through this
+// same-origin proxy (CLAUDE.md, "the user's browser is almost never on the
+// Garrison machine").
+async function handleVoiceInfo(res, voice) {
+  const fittingId = await voiceFittingId(voice);
+  if (!fittingId) {
+    jsonRes(res, 200, { available: false, reason: VOICE_NO_PROVIDER });
+    return;
+  }
+  const info = readVoiceInfo(fittingId);
   if (!info?.url) {
-    jsonRes(res, 200, { available: false });
+    jsonRes(res, 200, { available: false, reason: VOICE_NOT_RUNNING, fitting: fittingId });
     return;
   }
   const ok = await pingHealth(info.url, 600);
-  jsonRes(res, 200, ok ? { available: true, url: info.url } : { available: false });
+  jsonRes(res, 200, ok
+    ? { available: true, fitting: fittingId }
+    : { available: false, reason: VOICE_UNREACHABLE, fitting: fittingId });
 }
 
-// GET /api/voice/health → { available, url?, keyConfigured? } — the contract the
-// shared claude-chat VoiceClient probes (<base>/voice/health). Mirrors dev-env's
-// handleVoiceHealth so read-aloud lights up when deepgram-voice is running and
-// degrades silently (available:false, no errors) when it is absent or its key
-// is missing. Never throws to the client.
-async function handleVoiceHealth(res) {
-  const info = readVoiceInfo();
+// GET /api/voice/health -> { available, keyConfigured, tts, backend,
+// maxTextChars, fitting } or { available: false, reason, fitting? }. The
+// provider's /health carries a `voice` block ({stt, tts, ttsBackend,
+// restEnabled, maxTextChars}): `available` and `keyConfigured` both mirror
+// `voice.stt` (the mic needs a transcriber), `tts` says whether a reply can be
+// read aloud, `backend` names the synthesiser and `maxTextChars` is the /tts
+// per-request budget the client chunks against. A locked vault or an unsealed
+// token means the proxy cannot authenticate to the provider, and a provider
+// whose REST lane is off would refuse every hop, so all three are reported
+// unavailable with a reason rather than lit and then failing on the first
+// clip. Never throws to the client.
+async function handleVoiceHealth(res, voice) {
+  const fittingId = await voiceFittingId(voice);
+  if (!fittingId) {
+    jsonRes(res, 200, { available: false, reason: VOICE_NO_PROVIDER });
+    return;
+  }
+  const info = readVoiceInfo(fittingId);
   if (!info?.url) {
-    jsonRes(res, 200, { available: false });
+    jsonRes(res, 200, { available: false, reason: VOICE_NOT_RUNNING, fitting: fittingId });
     return;
   }
   const voiceUrl = String(info.url).replace(/\/$/, "");
+  if (!(await voiceToken(voice))) {
+    jsonRes(res, 200, { available: false, reason: await voiceTokenReason(voice), fitting: fittingId });
+    return;
+  }
   try {
     const probe = await fetch(`${voiceUrl}/health`, { signal: AbortSignal.timeout(2500) });
     if (!probe.ok) {
-      jsonRes(res, 200, { available: false, url: voiceUrl });
+      jsonRes(res, 200, { available: false, reason: VOICE_UNREACHABLE, fitting: fittingId });
       return;
     }
     const h = await probe.json().catch(() => ({}));
-    jsonRes(res, 200, { available: true, url: voiceUrl, keyConfigured: h.keyConfigured !== false });
+    const block = h && typeof h.voice === "object" && h.voice ? h.voice : {};
+    if (block.restEnabled === false) {
+      jsonRes(res, 200, { available: false, reason: VOICE_REST_DISABLED, fitting: fittingId });
+      return;
+    }
+    const stt = Boolean(block.stt);
+    const maxTextChars = Number.isInteger(block.maxTextChars) && block.maxTextChars > 0 ? block.maxTextChars : null;
+    jsonRes(res, 200, {
+      available: stt,
+      keyConfigured: stt,
+      tts: Boolean(block.tts),
+      backend: block.ttsBackend ?? null,
+      maxTextChars,
+      fitting: fittingId
+    });
   } catch {
-    jsonRes(res, 200, { available: false, url: voiceUrl });
+    jsonRes(res, 200, { available: false, reason: VOICE_UNREACHABLE, fitting: fittingId });
   }
 }
 
-// Binary proxy to the voice Fitting. Used for both /stt (audio in → JSON) and
-// /tts (JSON in → audio out). pipeUpstreamSse/readJsonBody can't carry binary
+// Binary proxy to the voice provider. Used for both /stt (audio in -> JSON) and
+// /tts (JSON in -> audio out). pipeUpstreamSse/readJsonBody can't carry binary
 // bodies, so this buffers the request and pipes the upstream response straight
 // back, preserving the upstream Content-Type (audio/* or application/json).
-// Same-origin so the browser needs no CORS, and the Deepgram key stays on the
-// voice Fitting — the web UI never sees it.
-async function handleVoiceProxy(req, res, subpath) {
-  const info = readVoiceInfo();
+// Same-origin so the browser needs no CORS. The provider gates both endpoints
+// with the capture token: the host supplies it (vault-read per request) and it
+// travels as `Authorization: Bearer` on the upstream hop only - the page never
+// sees it. A missing provider or token is OUR 503 with a named reason, so the
+// provider's own 403 ("no token sealed") is never mistaken for a forbidden
+// user; an upstream 401/403 that does come back means the token we hold does
+// not match the one the provider sealed, which the operator must see as-is.
+// The hop is bounded (VOICE_PROXY_TIMEOUT_MS -> 504) and follows the browser:
+// a page that navigates away mid-clip tears the upstream request down with it.
+async function handleVoiceProxy(req, res, subpath, voice) {
+  const fittingId = await voiceFittingId(voice);
+  if (!fittingId) {
+    jsonRes(res, 503, { error: VOICE_NO_PROVIDER });
+    return;
+  }
+  const info = readVoiceInfo(fittingId);
   if (!info?.url) {
-    jsonRes(res, 503, { error: "voice fitting not available" });
+    jsonRes(res, 503, { error: VOICE_NOT_RUNNING });
+    return;
+  }
+  const token = await voiceToken(voice);
+  if (!token) {
+    jsonRes(res, 503, { error: await voiceTokenReason(voice) });
     return;
   }
   let body;
   try {
     body = await readRawBody(req);
   } catch (err) {
+    if (err?.code === "PAYLOAD_TOO_LARGE") {
+      // The rest of the oversized body is being drained, not read; answer and
+      // let the connection go so the client is not left streaming into a void.
+      res.setHeader("Connection", "close");
+      jsonRes(res, 413, { error: err.message });
+      return;
+    }
     jsonRes(res, 400, { error: `bad body: ${err.message}` });
     return;
   }
   const target = new URL(subpath, info.url);
+  // /stt takes `?language=` (a BCP-47 hint for the transcriber); it is the one
+  // query parameter the provider's REST lane reads, so it is the one that
+  // crosses. Anything else the page appends stops here.
+  const language = new URL(req.url ?? "/", "http://placeholder").searchParams.get("language");
+  if (subpath === "/stt" && language) target.searchParams.set("language", language);
+  let timedOut = false;
   const upstream = http.request(
     {
       method: "POST",
       hostname: target.hostname,
       port: target.port,
-      path: target.pathname,
+      path: `${target.pathname}${target.search}`,
+      timeout: VOICE_PROXY_TIMEOUT_MS,
       headers: {
+        Authorization: `Bearer ${token}`,
         "Content-Type": req.headers["content-type"] || "application/octet-stream",
         "Content-Length": body.length
       }
@@ -313,20 +464,25 @@ async function handleVoiceProxy(req, res, subpath) {
       res.statusCode = up.statusCode || 502;
       if (up.headers["content-type"]) res.setHeader("Content-Type", up.headers["content-type"]);
       res.setHeader("Cache-Control", "no-store");
+      up.on("error", () => { try { res.destroy(); } catch {} });
       up.pipe(res);
     }
   );
+  upstream.on("timeout", () => {
+    timedOut = true;
+    upstream.destroy(new Error(`no reply within ${VOICE_PROXY_TIMEOUT_MS}ms`));
+  });
   upstream.on("error", (err) => {
-    try { jsonRes(res, 502, { error: `voice upstream: ${err.message}` }); } catch {}
+    if (res.headersSent) { try { res.destroy(); } catch {} return; }
+    try { jsonRes(res, timedOut ? 504 : 502, { error: `voice upstream: ${err.message}` }); } catch {}
+  });
+  // `res` closing before it finished means the browser went away (req itself
+  // reports "close" as soon as its body is consumed, so it cannot carry this).
+  res.on("close", () => {
+    if (!res.writableFinished) upstream.destroy();
   });
   upstream.end(body);
 }
-
-// Pure passthrough relay: browser WS ⇄ a voice Fitting WS endpoint (STT /stream
-// or read-aloud /tts-stream). Binary (PCM audio) and text (control + transcript
-// events) are forwarded verbatim in both directions; frames sent before the
-// upstream opens are buffered briefly. All Deepgram logic — and the API key —
-// stay on the voice Fitting; this hop only shuttles frames.
 
 function readRawBody(req, limit = 25 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
@@ -335,8 +491,13 @@ function readRawBody(req, limit = 25 * 1024 * 1024) {
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > limit) {
-        reject(new Error("payload too large"));
-        try { req.destroy(); } catch {}
+        const err = new Error(`payload too large (over ${limit} bytes)`);
+        err.code = "PAYLOAD_TOO_LARGE";
+        // Stop collecting but keep the socket: destroying it here would take
+        // the 413 down with it. The handler answers and closes the connection.
+        req.removeAllListeners("data");
+        req.resume();
+        reject(err);
         return;
       }
       chunks.push(chunk);
@@ -3164,6 +3325,9 @@ function settle(res, pending, log) {
 
 // The one entry point both hosts use. Returns true when the request was
 // answered here, false when it is not ours (a page path on the shell host).
+// `liveOpts.voice` ({fittingId(), token(), tokenReason?(), vaultLocked?()}) is how the host
+// names the voice provider and hands over the capture token; without it every
+// /api/voice/* answer is "no voice provider".
 export function createTalkRouter(liveOpts, { distDir = null, log = console } = {}) {
   return async function handleTalkRequest(req, res) {
     try {
@@ -3202,10 +3366,10 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname.startsWith("/api/remote-shell/")) {
         settle(res, handleRemoteShellProxy(req, res, pathname.slice("/api/remote-shell".length), parsed.search?.slice(1) ?? ""), log); return true;
       }
-      if (pathname === "/api/voice/health" && method === "GET") { settle(res, handleVoiceHealth(res), log); return true; }
-      if (pathname === "/api/voice" && method === "GET") { settle(res, handleVoiceInfo(res), log); return true; }
-      if (pathname === "/api/voice/stt" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/stt"), log); return true; }
-      if (pathname === "/api/voice/tts" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/tts"), log); return true; }
+      if (pathname === "/api/voice/health" && method === "GET") { settle(res, handleVoiceHealth(res, liveOpts.voice), log); return true; }
+      if (pathname === "/api/voice" && method === "GET") { settle(res, handleVoiceInfo(res, liveOpts.voice), log); return true; }
+      if (pathname === "/api/voice/stt" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/stt", liveOpts.voice), log); return true; }
+      if (pathname === "/api/voice/tts" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/tts", liveOpts.voice), log); return true; }
       if (pathname === "/api/stream" && method === "GET") { settle(res, handleStream(req, res, liveOpts), log); return true; }
       if (pathname === "/api/chat/answer" && method === "POST") { settle(res, handleChatAnswer(req, res, liveOpts), log); return true; }
       if (pathname === "/api/chat/interrupt" && method === "POST") { settle(res, handleChatInterrupt(req, res, liveOpts), log); return true; }
