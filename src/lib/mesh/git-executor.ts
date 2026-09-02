@@ -73,6 +73,24 @@ export function resolveProjectDir(project: string): string {
   return real;
 }
 
+/**
+ * Does a session's cwd sit in this tree? Real path on both sides: `dir` is
+ * canonical, but a session registers the path it was spawned with, and on this
+ * mesh that is routinely a symlink (`~/dev` and `~/Projects` point at each other
+ * machine by machine). A string compare there fails OPEN, which is the one thing
+ * the guard must not do. A session in a subdirectory counts too.
+ */
+export function sessionInTree(sessionCwd: string | null | undefined, dir: string): boolean {
+  if (!sessionCwd) return false;
+  let real: string;
+  try {
+    real = realpathSync(sessionCwd);
+  } catch {
+    real = path.resolve(sessionCwd);
+  }
+  return real === dir || real.startsWith(`${dir}${path.sep}`);
+}
+
 export interface CommitPushResult {
   project: string;
   result: "pushed" | "nothing-to-push" | "skipped-session" | "skipped-unknown-sessions" | "diverged";
@@ -88,8 +106,10 @@ export async function commitPushProject(project: string): Promise<CommitPushResu
   // mid-write; an UNREADABLE registry means we cannot know, which is a skip
   // too, stated as its own outcome so the caller sees the difference.
   try {
-    const sessions = await withState((c) => c.listSessions({ cwd: dir, activeOnly: true }));
-    const live = sessions.filter((s) => s.status === "running" || s.status === "starting");
+    // This node's sessions only: a peer's paths mean nothing on this disk.
+    const node = readNodeIdentity().name;
+    const sessions = await withState((c) => c.listSessions({ node, activeOnly: true }));
+    const live = sessions.filter((s) => (s.status === "running" || s.status === "starting") && sessionInTree(s.cwd, dir));
     if (live.length > 0) {
       return { project, result: "skipped-session", detail: `${live.length} live session(s)` };
     }

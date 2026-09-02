@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, writeFileSync, writeSync } from "node:fs";
 import { readFile, readdir, stat, unlink } from "node:fs/promises";
@@ -311,22 +311,46 @@ function isProcessAlive(pid: number): boolean {
 }
 
 // Pid-reuse guard for acting on a SPAWN RECORD's pid (the status file is the
-// fitting's own writing and keeps its historical trust). On Linux /proc/<pid>
-// is created at process start, so a process born meaningfully AFTER the record
-// was written cannot be the recorded one - killing it would hit an unrelated
-// process (the post-reboot stale-record case). Where /proc is unavailable the
-// record is trusted, matching the status-file behaviour.
+// fitting's own writing and keeps its historical trust). A process born
+// meaningfully AFTER the record was written cannot be the recorded one -
+// killing it would hit an unrelated process (the post-reboot stale-record
+// case). Linux answers from /proc/<pid>, created at process start; everywhere
+// else (three of the mesh's four nodes are Macs) `ps -o etime=` gives the
+// elapsed time since start. Only when neither can answer is the record
+// trusted, matching the status-file behaviour.
 async function pidMatchesRecord(pid: number, startedAt: string): Promise<boolean> {
   const recorded = Date.parse(startedAt);
   if (!Number.isFinite(recorded)) return true;
+  const born = await processBirthMs(pid);
+  if (born === null) return true;
+  return born <= recorded + 60_000;
+}
+
+async function processBirthMs(pid: number): Promise<number | null> {
   try {
     const st = await stat(`/proc/${pid}`);
     const born = st.mtimeMs || st.ctimeMs;
-    if (!born) return true;
-    return born <= recorded + 60_000;
+    if (born) return born;
   } catch {
-    return true;
+    // no /proc here
   }
+  const elapsed = await psElapsedMs(pid);
+  return elapsed === null ? null : Date.now() - elapsed;
+}
+
+// `ps -o etime=` prints [[dd-]hh:]mm:ss on macOS and Linux alike.
+function psElapsedMs(pid: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    execFile("ps", ["-o", "etime=", "-p", String(pid)], { timeout: 2000 }, (err, stdout) => {
+      if (err) return resolve(null);
+      const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(stdout.trim());
+      if (!m) return resolve(null);
+      const [, days, hours, minutes, seconds] = m;
+      const total =
+        (Number(days ?? 0) * 86_400 + Number(hours ?? 0) * 3_600 + Number(minutes) * 60 + Number(seconds)) * 1000;
+      resolve(total);
+    });
+  });
 }
 
 // SIGTERM the pid, wait for it to exit, escalate to SIGKILL if it lingers.
