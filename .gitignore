@@ -107,6 +107,7 @@ docs/autothing/runs/**/owner.lock.json
 
 # aborted drill-graduation e2e runs leave their temp playwright config behind
 .tmp-drill-graduation-pw-config-*.mjs
+.tmp-selftest-pw-config-*.mjs
 
 # mesh evidence run artifacts (transient), except the versioned gate evidence
 # of the garrison-app run (docs/decisions/2026-09-garrison-app.md, D15).

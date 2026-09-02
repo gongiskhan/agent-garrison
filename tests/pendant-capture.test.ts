@@ -538,10 +538,15 @@ describe("pendant capture path", () => {
 
     const pendant = await streamPendant(base, "01PENDANTSESSION1", 8);
     await waitFor(() => (handle.counters.read().wake_screen_fused ?? 0) === 1, 10000);
+    // The counter bumps when the frame is fused, BEFORE the delegate runs: the
+    // operative turn is deliberately deferred until the ack has left (wake.mjs,
+    // `after`). Wait for the request itself, not for the moment it was decided.
+    const isOperative = (r: any) => !String(r.body.message).includes("spoken wake-word command");
+    await waitFor(() => gw.requests.some(isOperative), 10000);
 
     // The operative prompt names the SCREEN session's frame while the turn
     // belongs to the PENDANT session. That single fact is the whole feature.
-    const operative = gw.requests.find((r: any) => !String(r.body.message).includes("spoken wake-word command"));
+    const operative = gw.requests.find(isOperative);
     expect(operative).toBeTruthy();
     expect(String(operative.body.message)).toContain("01SCREENSESSION01");
     expect(String(operative.body.message)).toContain("AT THE MOMENT THEY SPOKE");
