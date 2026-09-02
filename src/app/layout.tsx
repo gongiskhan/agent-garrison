@@ -80,7 +80,10 @@ export function generateViewport(): Viewport {
   return {
     themeColor: readNodeIdentity().accentHex,
     width: "device-width",
-    initialScale: 1
+    initialScale: 1,
+    // The iOS shell app sets contentInset "never" and paints under the notch
+    // and home indicator; cover lets env(safe-area-inset-*) report real values.
+    viewportFit: "cover"
   };
 }
 

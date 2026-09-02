@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Garrison</title>
+<!--
+  Bootstrap and offline page, served from capacitor://localhost. Loaded when
+  no node is configured (nothing else to load) and as Capacitor's errorPath
+  when the node's shell does not answer. Everything is inline: this page has
+  to render with no network at all.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #111111;
+    --fg-2: #6b6b70;
+    --line: #d9d9de;
+    --field: #ffffff;
+    --accent: #0a66c2;
+    --accent-fg: #ffffff;
+    --tint: #eef3fa;
+    --error: #b3261e;
+    --error-bg: #fbeeed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000;
+      --fg: #f2f2f5;
+      --fg-2: #9a9aa0;
+      --line: #3a3a3f;
+      --field: #141416;
+      --accent: #4c9fe8;
+      --accent-fg: #061a2c;
+      --tint: #10202f;
+      --error: #f28b82;
+      --error-bg: #2a1512;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font: 17px/1.45 -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 28px);
+    padding-right: calc(env(safe-area-inset-right, 0px) + 20px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+    padding-left: calc(env(safe-area-inset-left, 0px) + 20px);
+    min-height: 100vh;
+  }
+  main { max-width: 30rem; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; line-height: 1.2; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
+  h2 { font-size: 0.95rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--fg-2); }
+  p { margin: 0 0 1rem; }
+  .muted { color: var(--fg-2); }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.92em; word-break: break-all; }
+  .eyebrow { font-size: 0.85rem; font-weight: 600; color: var(--fg-2); margin-bottom: 0.4rem; }
+
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin: 0 0 1rem;
+    background: var(--tint);
+  }
+
+  button, input {
+    font: inherit;
+    color: inherit;
+  }
+  .button {
+    display: inline-block;
+    width: 100%;
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 13px 16px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .button.secondary { background: transparent; color: var(--accent); }
+  .button[disabled], button[disabled] { opacity: 0.5; cursor: default; }
+
+  ul.nodes { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  ul.nodes li + li { border-top: 1px solid var(--line); }
+  ul.nodes button {
+    display: flex; width: 100%; align-items: center; gap: 12px;
+    padding: 12px 16px; background: var(--field); border: 0; text-align: left; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  ul.nodes button:active { background: var(--tint); }
+  .node-text { flex: 1; min-width: 0; }
+  .node-name { display: block; font-weight: 600; }
+  .node-origin { display: block; color: var(--fg-2); font-size: 0.9rem; word-break: break-all; }
+  .badge { flex: none; font-size: 0.8rem; font-weight: 600; color: var(--accent); }
+
+  details { margin-top: 1.5rem; }
+  summary {
+    list-style: none; cursor: pointer; font-weight: 600; color: var(--accent);
+    padding: 10px 0; -webkit-tap-highlight-color: transparent;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "+"; display: inline-block; width: 1.2em; }
+  details[open] summary::before { content: "-"; }
+
+  form fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  form fieldset[disabled] { opacity: 0.6; }
+  label { display: block; font-size: 0.9rem; font-weight: 600; margin: 1rem 0 0.35rem; }
+  label .optional { font-weight: 400; color: var(--fg-2); }
+  input[type="text"], input[type="password"] {
+    display: block; width: 100%;
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; background: var(--field);
+    font-size: 17px; /* 16px or more keeps iOS Safari from zooming the field */
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .hint { font-size: 0.85rem; color: var(--fg-2); margin: 0.35rem 0 0; }
+  form .button { margin-top: 1.5rem; }
+
+  .error {
+    border-radius: 12px; padding: 12px 14px; margin: 1rem 0 0;
+    background: var(--error-bg); color: var(--error); font-size: 0.95rem;
+  }
+  .error:empty { display: none; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <section id="view-loading">
+    <p class="muted">Checking this device's nodes.</p>
+  </section>
+
+  <section id="view-unsupported" hidden>
+    <h1>Garrison</h1>
+    <p id="unsupported-text">This page only runs inside the Garrison app.</p>
+  </section>
+
+  <section id="view-unreachable" hidden>
+    <h1>Node unreachable</h1>
+    <div class="card">
+      <div class="eyebrow">Current node</div>
+      <div class="node-name" id="current-name"></div>
+      <div class="mono muted" id="current-origin"></div>
+    </div>
+    <p class="muted">The app could not load this node. Check that it is running and that this device is on the same tailnet, then retry.</p>
+    <button type="button" class="button" id="retry">Retry</button>
+    <p class="error" id="retry-error" role="alert" aria-live="polite"></p>
+
+    <div id="others-block" hidden>
+      <h2>Other nodes</h2>
+      <ul class="nodes" id="node-list"></ul>
+      <p class="error" id="list-error" role="alert" aria-live="polite"></p>
+    </div>
+
+    <details id="add-details">
+      <summary>Add a node</summary>
+      <div id="form-slot-unreachable"></div>
+    </details>
+  </section>
+
+  <section id="view-connect" hidden>
+    <h1>Connect to a Garrison node</h1>
+    <p class="muted">Enter the address of a machine running Garrison. The app loads its web UI and keeps the capture token on this device.</p>
+    <div id="form-slot-connect"></div>
+  </section>
+
+  <form id="add-form" novalidate hidden>
+    <fieldset id="add-fields">
+      <label for="origin">Shell origin</label>
+      <input id="origin" name="origin" type="text" inputmode="url" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="https://node-name.tailnet.ts.net" required>
+      <p class="hint">The address you open Garrison at in a browser. https is assumed when no scheme is given.</p>
+
+      <label for="name">Node name <span class="optional">(optional)</span></label>
+      <input id="name" name="name" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="node-name">
+      <p class="hint">Defaults to the first part of the host name.</p>
+
+      <label for="token">Capture token</label>
+      <input id="token" name="token" type="password" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" required>
+      <p class="hint">The capture-service token from the node's vault. It never leaves this device.</p>
+
+      <label for="capture">Capture URL <span class="optional">(optional)</span></label>
+      <input id="capture" name="capture" type="text" inputmode="url" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="https://node-name.tailnet.ts.net:8497">
+      <p class="hint">Defaults to port 8497 on the same host.</p>
+
+      <button type="submit" class="button" id="submit">Add and connect</button>
+      <p class="error" id="form-error" role="alert" aria-live="polite"></p>
+    </fieldset>
+  </form>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  const CAPTURE_PORT = 8497; // mesh invariant: 8400 + 8097 % 1000
+
+  const $ = (id) => document.getElementById(id);
+  const views = ["view-loading", "view-unsupported", "view-unreachable", "view-connect"];
+  const form = $("add-form");
+  const fields = $("add-fields");
+  const submit = $("submit");
+  const retry = $("retry");
+  const busyState = { on: false };
+
+  function show(id) {
+    for (const v of views) $(v).hidden = v !== id;
+  }
+
+  function describe(err) {
+    if (!err) return "Something went wrong.";
+    if (typeof err === "string") return err;
+    return err.message || String(err);
+  }
+
+  // Mirrors NodeRecord.normalizedOrigin on the native side so the preview the
+  // user sees matches what gets stored: scheme + host [+ port], no path.
+  function normalizeOrigin(raw) {
+    let text = (raw || "").trim();
+    if (!text) return null;
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = "https://" + text;
+    let url;
+    try { url = new URL(text); } catch (e) { return null; }
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (!url.hostname) return null;
+    return url.origin;
+  }
+
+  function derivedName(origin) {
+    try { return new URL(origin).hostname.split(".")[0] || ""; } catch (e) { return ""; }
+  }
+
+  function derivedCapture(origin) {
+    try {
+      const url = new URL(origin);
+      return url.protocol + "//" + url.hostname + ":" + CAPTURE_PORT;
+    } catch (e) { return ""; }
+  }
+
+  function setBusy(on) {
+    busyState.on = on;
+    fields.disabled = on;
+    retry.disabled = on;
+    for (const b of document.querySelectorAll("#node-list button")) b.disabled = on;
+    submit.textContent = on ? "Connecting" : "Add and connect";
+  }
+
+  function plugin() {
+    const plugins = window.Capacitor && window.Capacitor.Plugins;
+    return plugins ? plugins.GarrisonNode : null;
+  }
+
+  function mountForm(slotId) {
+    $(slotId).appendChild(form);
+    form.hidden = false;
+  }
+
+  function renderList(nodes, current) {
+    const list = $("node-list");
+    list.textContent = "";
+    const others = nodes.filter((n) => !current || n.name !== current.name);
+    $("others-block").hidden = others.length === 0;
+    for (const n of others) {
+      const li = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.name = n.name;
+      const text = document.createElement("span");
+      text.className = "node-text";
+      const name = document.createElement("span");
+      name.className = "node-name";
+      name.textContent = n.name;
+      const origin = document.createElement("span");
+      origin.className = "node-origin";
+      origin.textContent = n.shellOrigin;
+      text.appendChild(name);
+      text.appendChild(origin);
+      button.appendChild(text);
+      if (!n.hasToken) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "No token";
+        button.appendChild(badge);
+      }
+      button.addEventListener("click", () => selectNode(n.name));
+      li.appendChild(button);
+      list.appendChild(li);
+    }
+  }
+
+  function render(nodes, current, error) {
+    if (current) {
+      $("current-name").textContent = current.name;
+      $("current-origin").textContent = current.shellOrigin;
+      renderList(nodes, current);
+      mountForm("form-slot-unreachable");
+      $("retry-error").textContent = error || "";
+      show("view-unreachable");
+    } else {
+      mountForm("form-slot-connect");
+      $("form-error").textContent = error || "";
+      show("view-connect");
+    }
+  }
+
+  async function selectNode(name) {
+    const node = plugin();
+    if (!node || busyState.on) return;
+    $("list-error").textContent = "";
+    setBusy(true);
+    try {
+      // Selecting rebuilds the native web view; this page goes away on success.
+      await node.select({ name: name });
+    } catch (err) {
+      $("list-error").textContent = describe(err);
+      setBusy(false);
+    }
+  }
+
+  async function reload() {
+    const node = plugin();
+    if (!node || busyState.on) return;
+    $("retry-error").textContent = "";
+    setBusy(true);
+    retry.textContent = "Retrying";
+    try {
+      await node.reload();
+      // On success the node's page replaces this one. If the load fails,
+      // Capacitor brings this page back fresh, so nothing to reset here.
+    } catch (err) {
+      $("retry-error").textContent = describe(err);
+      retry.textContent = "Retry";
+      setBusy(false);
+    }
+  }
+
+  async function addNode(event) {
+    event.preventDefault();
+    const node = plugin();
+    if (!node || busyState.on) return;
+    const errorOut = $("form-error");
+    errorOut.textContent = "";
+
+    const origin = normalizeOrigin($("origin").value);
+    if (!origin) {
+      errorOut.textContent = "Enter the node's address, for example https://node-name.tailnet.ts.net.";
+      $("origin").focus();
+      return;
+    }
+    const token = $("token").value.trim();
+    if (!token) {
+      errorOut.textContent = "Enter the capture token.";
+      $("token").focus();
+      return;
+    }
+    const args = { shellOrigin: origin, token: token };
+    const name = $("name").value.trim();
+    if (name) args.name = name;
+    const capture = $("capture").value.trim();
+    if (capture) {
+      const captureOrigin = normalizeOrigin(capture);
+      if (!captureOrigin) {
+        errorOut.textContent = "The capture URL is not a valid address. Leave it empty to use the default.";
+        $("capture").focus();
+        return;
+      }
+      args.captureBaseURL = captureOrigin;
+    }
+
+    setBusy(true);
+    try {
+      const added = await node.add(args);
+      // The bridge is rebuilt on the new origin; this page unloads on success.
+      await node.select({ name: added.name });
+    } catch (err) {
+      errorOut.textContent = describe(err);
+      setBusy(false);
+    }
+  }
+
+  function updatePlaceholders() {
+    const origin = normalizeOrigin($("origin").value);
+    $("name").placeholder = origin ? derivedName(origin) : "node-name";
+    $("capture").placeholder = origin ? derivedCapture(origin) : "https://node-name.tailnet.ts.net:" + CAPTURE_PORT;
+  }
+
+  async function boot() {
+    if (!window.Capacitor) {
+      show("view-unsupported");
+      return;
+    }
+    const node = plugin();
+    if (!node) {
+      $("unsupported-text").textContent = "The app's node plugin is not available. Update the Garrison app.";
+      show("view-unsupported");
+      return;
+    }
+    form.addEventListener("submit", addNode);
+    retry.addEventListener("click", reload);
+    $("origin").addEventListener("input", updatePlaceholders);
+    try {
+      const results = await Promise.all([node.list(), node.current()]);
+      const nodes = (results[0] && results[0].nodes) || [];
+      const current = results[1] && results[1].name ? results[1] : null;
+      render(nodes, current, null);
+    } catch (err) {
+      render([], null, describe(err));
+    }
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

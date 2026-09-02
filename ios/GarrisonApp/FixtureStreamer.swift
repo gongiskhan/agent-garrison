@@ -2,7 +2,7 @@ import Foundation
 
 #if DEBUG
 /// DEBUG-only harness: streams the bundled Opus fixture through the REAL
-/// uploader as if the microphone had produced it — the deterministic
+/// uploader as if the microphone had produced it - the deterministic
 /// "fixture microphone input" of the M6 acceptance, driveable headlessly via
 /// `simctl launch` environment:
 ///

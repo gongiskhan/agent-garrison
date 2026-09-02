@@ -36,6 +36,17 @@ targets:
           - Resources
       - path: GarrisonApp/Resources
         buildPhase: resources
+        # `public` is added below as a folder reference; listing it here too
+        # would copy its files loose into the bundle root as well.
+        excludes:
+          - public
+      # Capacitor's web root. A folder reference (blue folder) so the bundle
+      # carries `public/` as a DIRECTORY: CAPBridgeViewController.loadWebView()
+      # exit(1)s unless <appLocation>/<appStartPath> exists on disk, even when
+      # the page itself comes from the node over server.url.
+      - path: GarrisonApp/Resources/public
+        type: folder
+        buildPhase: resources
       - path: Shared
     settings:
       base:
@@ -56,6 +67,16 @@ targets:
         PROVISIONING_PROFILE_SPECIFIER: "match AppStore com.gomes.garrison"
     dependencies:
       - target: BroadcastExtension
+      # The one shipping third-party dependency (ADR D11 retired 2026-09-02):
+      # the app is a Capacitor shell over the node's web UI. Pinned exactly so
+      # a CI build and the mini build resolve the same binary.
+      - package: Capacitor
+        product: Capacitor
+      # Capacitor.xcframework's swiftinterface imports Cordova, and the package
+      # ships it as a separate product without declaring the dependency; the
+      # build cannot find the module unless the app links it too.
+      - package: Capacitor
+        product: Cordova
 
   BroadcastExtension:
     type: app-extension
@@ -86,9 +107,10 @@ targets:
       - path: GarrisonApp/Pendant/PendantBLETransport.swift
     dependencies:
       - target: GarrisonApp
-      # TEST-ONLY third-party dependency (ADR D11): Nordic's CoreBluetoothMock
-      # exercises the real PendantBLETransport against a scripted peripheral
-      # without radio. The shipping app targets stay zero-dependency.
+      # TEST-ONLY third-party dependency: Nordic's CoreBluetoothMock exercises
+      # the real PendantBLETransport against a scripted peripheral without
+      # radio. It never reaches the shipping targets, whose one dependency is
+      # Capacitor (above).
       - package: CoreBluetoothMock
     settings:
       base:
@@ -106,10 +128,13 @@ packages:
   CoreBluetoothMock:
     url: https://github.com/NordicSemiconductor/IOS-CoreBluetooth-Mock.git
     from: "0.18.0"
+  Capacitor:
+    url: https://github.com/ionic-team/capacitor-swift-pm.git
+    exactVersion: "8.5.1"
 
 # Explicit shared scheme so fastlane gym (build_app) can find "GarrisonApp".
 # Without this, xcodegen emits no shared scheme and only plain `xcodebuild`
-# (which auto-creates one) works — gym requires a real shared scheme.
+# (which auto-creates one) works - gym requires a real shared scheme.
 schemes:
   GarrisonApp:
     build:

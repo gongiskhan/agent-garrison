@@ -3,6 +3,11 @@
 @tailwind utilities;
 
 :root {
+  /* Inside the iOS app the page runs edge to edge (viewport-fit=cover), so the
+     shell chrome clears the status bar: sidebar, rail and the fixed "New"
+     trigger offset by the top inset. Hosted pages that fill the column
+     (Conversations) read env(safe-area-inset-top) themselves. */
+  --shell-safe-top: env(safe-area-inset-top, 0px);
   color-scheme: light;
   --canvas: #efe8d9;
   --surface: #f7f2e8;
@@ -277,7 +282,7 @@ button:disabled {
   color: var(--shell-ink);
   /* Bottom padding lives on .side-foot so the sticky footer reaches the true
      bottom edge - otherwise scrolled nav items peek out beneath it. */
-  padding: 20px 14px 0;
+  padding: calc(20px + var(--shell-safe-top, 0px)) 14px 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -585,7 +590,7 @@ nav.tabs .item .ct.tone-off::before { background: var(--rule-2); }
 .side-rail {
   align-items: center;
   overflow: hidden;
-  padding: 12px 6px;
+  padding: calc(12px + var(--shell-safe-top, 0px)) 6px 12px;
 }
 .side-rail-toggle {
   width: 100%;
@@ -1044,7 +1049,7 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
    dossier dialog, shared across every route without page-specific positioning. */
 .composition-creator {
   position: fixed;
-  top: 18px;
+  top: calc(18px + var(--shell-safe-top, 0px));
   right: 22px;
   z-index: 40;
   display: flex;
@@ -1269,7 +1274,7 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
 @media (max-width: 560px) {
   .route-skeleton-head { grid-template-columns: 1fr; }
   .route-skeleton-mark { width: 52px; }
-  .composition-creator { top: 10px; right: 10px; }
+  .composition-creator { top: calc(10px + var(--shell-safe-top, 0px)); right: 10px; }
   .composition-creator-trigger-wrap { padding: 2px; }
   .composition-creator-trigger { min-height: 30px; padding: 5px 8px; }
   .composition-creator-trigger { font-size: 0; }

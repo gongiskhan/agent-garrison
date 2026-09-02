@@ -41,7 +41,17 @@ export function isIos(): boolean {
   return /iPad|iPhone|iPod/.test(navigator.userAgent);
 }
 
+// Inside the Garrison iOS app the page runs in a Capacitor webview: no
+// service worker push, and "Add to Home Screen" is meaningless there. Native
+// APNs registration is the app's job (GarrisonPush plugin), so web push
+// reports itself unsupported and stays quiet.
+export function isNativeApp(): boolean {
+  const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+  return typeof cap?.isNativePlatform === "function" && cap.isNativePlatform();
+}
+
 export async function pushState(): Promise<PushState> {
+  if (isNativeApp()) return "unsupported";
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
     // On iOS this is what a plain Safari tab looks like - installable, not broken.
     return isIos() && !isStandalone() ? "needs-install" : "unsupported";

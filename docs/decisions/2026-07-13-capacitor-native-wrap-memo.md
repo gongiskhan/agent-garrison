@@ -1,7 +1,20 @@
 # Capacitor native-wrap memo (voice PWA → native iOS)
 
+> **Superseded 2026-09-02.** The recommendation below ("do not wrap now") no
+> longer stands. All three revisit triggers held by September 2026 (background
+> and lock-screen voice, APNs push in production, TestFlight distribution) and
+> the app shipped as a Capacitor 8.5.1 shell over the node's web build, with
+> native plugins only where a capability forces them - the memo's own
+> "low-regret path". The decision and its corrections are recorded in
+> [`2026-09-garrison-app.md`](./2026-09-garrison-app.md): D1 (Capacitor as a
+> Swift package via XcodeGen, no Capacitor CLI on the native side) and D32
+> (the bridge's fatal start-file guard, the bundled `public/` bootstrap page,
+> landing on `/talk` through `appStartPath`). The rest of this file is kept as
+> the record of why the PWA was chosen first.
+
 **Date:** 2026-07-13
-**Status:** Memo only - explicitly **out of scope** for implementation. No code.
+**Status:** Superseded 2026-09-02 (see above). Originally: memo only, explicitly
+**out of scope** for implementation, no code.
 **Context:** D20 voice. S6c made the web-channel an installable PWA with iOS
 secure-context wiring. This records whether/how we'd later wrap that PWA in
 [Capacitor](https://capacitorjs.com) for a real native iOS app, so the decision

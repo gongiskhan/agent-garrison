@@ -1,29 +1,55 @@
 import UIKit
 import UserNotifications
 
-/// APNs registration (ios-thing pattern): request permission, register, hex
-/// the device token, POST it to the capture service's device registry with
-/// the Bearer token. Foreground notifications show as banners, and every
-/// arriving notification is appended to the local ack log (spec §5c).
+/// APNs registration (ios-thing pattern): permission, register, hex the
+/// device token, POST it to the capture service's device registry with the
+/// Bearer token. The permission prompt is never issued at launch: the page
+/// asks through GarrisonPush.register() when the user reaches for it, and
+/// launch only re-registers silently when permission is already granted
+/// (APNs tokens rotate; the registry must hold the current one). A tapped
+/// notification carries a shell path, which PushRouter delivers to the page.
+/// AppDelegate installs this object as the notification-center delegate.
 @MainActor
 final class PushManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     static let shared = PushManager()
 
     @Published private(set) var status: String = "not registered"
 
-    func registerOnLaunch() {
-        UNUserNotificationCenter.current().delegate = self
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                if granted {
-                    self.status = "requesting token"
-                    UIApplication.shared.registerForRemoteNotifications()
-                } else {
-                    self.status = "notifications denied (enable in Settings)"
-                }
+    /// Prompt if the system has not asked yet, then register. Returns once the
+    /// authorization result is known; the token upload finishes later and
+    /// lands in `status`, which the page observes as `pushStatus`.
+    func requestAuthorizationAndRegister() async {
+        let granted: Bool
+        do {
+            granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+        } catch {
+            status = "notification permission failed: \(error.localizedDescription)"
+            return
+        }
+        if granted {
+            status = "requesting token"
+            UIApplication.shared.registerForRemoteNotifications()
+        } else {
+            status = "notifications denied (enable in Settings)"
+        }
+    }
+
+    /// Launch-time re-registration. Never prompts: an unasked device stays
+    /// unasked until the page asks in context.
+    func refreshRegistrationIfAuthorized() {
+        Task { @MainActor in
+            switch await authorizationStatus() {
+            case .authorized, .provisional, .ephemeral:
+                status = "requesting token"
+                UIApplication.shared.registerForRemoteNotifications()
+            default:
+                status = "notifications not enabled"
             }
         }
+    }
+
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
     func didRegister(deviceToken: Data) {
@@ -57,37 +83,27 @@ final class PushManager: NSObject, ObservableObject, UNUserNotificationCenterDel
         }.resume()
     }
 
-    // Show the banner even when the app is in the foreground, and keep the
-    // local readable copy.
+    // Show the banner even when the app is in the foreground: the page may be
+    // on another thread than the one the notification is about.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        let content = notification.request.content
-        AckLog.shared.append(AckLogEntry(
-            id: notification.request.identifier,
-            at: Date(),
-            kind: content.userInfo["tag"] as? String,
-            severity: nil,
-            text: [content.title, content.body].filter { !$0.isEmpty }.joined(separator: ": "),
-            via: "push"
-        ))
         completionHandler([.banner, .sound, .list])
     }
 
-    // Tapping a notification lands on content (§5c): the ack log holds the
-    // full text; deep links open from there.
+    // Tapping a notification lands on content: the payload names the shell
+    // path and PushRouter either hands it to the live page or parks it for
+    // the bridge that is about to load. Dismissals carry no intent.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        let content = response.notification.request.content
-        AckLog.shared.append(AckLogEntry(
-            id: response.notification.request.identifier,
-            at: Date(),
-            kind: content.userInfo["tag"] as? String,
-            severity: nil,
-            text: [content.title, content.body].filter { !$0.isEmpty }.joined(separator: ": "),
-            via: "push-opened"
-        ))
-        completionHandler()
+        defer { completionHandler() }
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+        let userInfo = response.notification.request.content.userInfo
+        Task { @MainActor in
+            if let path = PushRouter.path(fromNotification: userInfo) {
+                PushRouter.shared.route(path: path)
+            }
+        }
     }
 }

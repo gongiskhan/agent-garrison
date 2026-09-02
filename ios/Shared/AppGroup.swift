@@ -1,7 +1,7 @@
 import Foundation
 
 // Shared between the app and the broadcast extension (compiled into both
-// targets — no framework; the extension must stay small). The App Group is
+// targets - no framework; the extension must stay small). The App Group is
 // the ONLY channel between the two processes: the app writes the endpoint,
 // token and settings; the extension reads them at broadcast start.
 enum AppGroup {
@@ -31,6 +31,12 @@ enum AppGroup {
         static let broadcastHeartbeat = "broadcast.heartbeat" // epoch seconds, written by the extension
         static let broadcastLastError = "broadcast.lastError" // why the extension refused to start
         static let broadcastLastErrorAt = "broadcast.lastErrorAt"
+        // Node records (NodeStore). The list is a JSON-encoded [NodeRecord];
+        // the current node is stored by name. Selecting a node mirrors its
+        // capture URL and token into baseURL/token above, so the extension
+        // and every capture-path reader keep working off the legacy keys.
+        static let nodeList = "node.list"
+        static let nodeCurrent = "node.current" // NodeRecord.name
     }
 
     static var pendantIdentifier: UUID? {

@@ -1,0 +1,15 @@
+{
+  "appId": "com.gomes.garrison",
+  "appName": "Garrison",
+  "webDir": "public",
+  "server": {
+    "iosScheme": "capacitor",
+    "hostname": "localhost"
+  },
+  "ios": {
+    "contentInset": "never",
+    "allowsLinkPreview": false,
+    "scrollEnabled": true
+  },
+  "packageClassList": []
+}

@@ -66,11 +66,12 @@ So:
   15+; the project targets iOS 17.0 and builds on Xcode 26.2 / `macos-26`.
 - **Config**: a hand-maintained `ios/GarrisonApp/Resources/capacitor.config.json`
   bundled as a resource (`CapacitorBridge` reads `capacitor.config` from
-  `Bundle.main`). No `capacitor.config.ts`, no `webDir` stub in the tree: the
-  bridge warns `missingAppDir` when `public/` is absent, which is a logged line,
-  not a failure, and there is nothing to bundle - the shell is loaded from the
-  node over the tailnet (`server.url`). The bundled `server.url` is a placeholder;
-  the real origin is set at runtime by `GarrisonNode` (see D4).
+  `Bundle.main`). No `capacitor.config.ts`. CORRECTED by D32: the bridge does
+  not merely warn when `public/` is absent, `loadWebView()` exits the process,
+  so a small bundled `public/` (bootstrap/offline page + start-file
+  placeholder) ships in the app; the shell itself is still loaded from the
+  node over the tailnet (`server.url`). The config file carries no
+  `server.url`; the runtime descriptor sets it from the node record (D4, D32).
 - **Host**: `@main struct GarrisonApp: App` stays (the source-text test
   `testPendantIsOwnedByTheAppNotByAView` asserts on its contents). The SwiftUI
   root becomes a `UIViewControllerRepresentable` hosting
@@ -757,6 +758,78 @@ relayed verbatim, unknown strings fall back to locked, the shell's strings
 pinned to the router's). D30's "`secretsDelivered` derives from vault state"
 bullet is superseded by this decision.
 
+### D32. Capacitor's start-file guard is fatal, so the app ships a bundled `public/` and lands through `appStartPath` (2026-09-02)
+
+D1 said a missing `public/` is a logged warning. Reading `CAPBridgeViewController.loadWebView()`
+(8.5.1) corrects that: `guard FileManager.default.fileExists(atPath:
+bridge.config.appStartFileURL.path) else { fatalLoadError() }`, and
+`fatalLoadError()` ends in `exit(1)`. `appStartFileURL` is `<public>/<appStartPath>`
+even when a remote `server.url` is set, so the bundle carries
+`ios/GarrisonApp/Resources/public/` as a folder reference. Three consequences:
+
+- **Landing route.** `loadWebView()` is `public final` and loads `serverURL +
+  appStartPath`; a second `load` issued from `viewDidLoad` would cancel the
+  provisional one and Capacitor's `didFailProvisionalNavigation` would pull the
+  error page in. So the descriptor sets `appStartPath = "talk"` when a node is
+  configured and the bundle ships the placeholder `public/talk/index.html`
+  (never displayed; it exists for the guard). The app opens on Conversations.
+  A cold-start push route is handed to the page through
+  `GarrisonPush.pendingRoute()`; until the shell consumes it (G4) the host
+  navigates after the first load finishes (KVO on `isLoading`).
+- **Bootstrap and offline are one bundled page.** With no node configured
+  `serverURL` is nil and the bridge loads `capacitor://localhost/index.html`;
+  with `errorPath = "index.html"` the same page loads when the node is
+  unreachable. The page calls `GarrisonNode` (Capacitor injects
+  `window.Capacitor.Plugins` into local pages too) to add, list, select and
+  retry. `Web/OfflineView.swift` and `Web/NodePickerView.swift` from the G3
+  list are therefore not written: the only native UI left is the consent sheet.
+- **Node switch = bridge recreation.** `serverURL` is fixed per bridge
+  instance, so `GarrisonNode.select` publishes a new current node and SwiftUI
+  recreates `GarrisonBridgeViewController` (`.id(currentOrigin)`); the plugin
+  promise resolves before the teardown.
+
+### D33. Consent stays native inside `GarrisonCapture.start` (2026-09-02)
+
+Invariant I6 outranks the G3 file list: `ConsentSheet.swift` is kept, not
+deleted. `GarrisonCapture.start({kind: "microphone"})` presents it in a
+`UIHostingController` sheet over the bridge view controller unless
+`capture.consentSuppressed` is set, and only `onProceed` reaches
+`CaptureController.start(consent:)`. The copy ("If you have people around,
+always ask for consent.") and the "Don't ask me again" toggle are unchanged;
+the web page never sees the decision, only the resulting `captureState`.
+
+### D34. The delivery log goes with the screens that read it (2026-09-02)
+
+`AckLog` existed for `SessionsView`'s "Delivery log" and the notification
+handlers' readable copy. With the SwiftUI screens gone the store has no reader,
+so `AckLog.swift`, its three append sites (`PushManager`, `CaptureController`,
+`PendantController`) and `testAckLogAppendsBoundedNewestFirst` are removed.
+The records that mattered never lived there: spoken receipts go back to
+capture-service (`sendSpokenReceipt`) and digests land in Conversations (G5).
+`SettingsView`'s controls become plugin methods (`GarrisonSpeech.settings /
+configure / muteFor / unmute`, `GarrisonCapture.setConsentSuppressed`,
+`GarrisonPush.register`, `GarrisonNode.*`) so G4's capture page can host them.
+
+### D35. The capture token never crosses into the webview (2026-09-02)
+
+`GarrisonNode.current()` / `list()` return `hasToken`, not the token, and
+`add()` is the only way in. The page is same-origin with the node, but the
+webview is not in the data path (I2) and a leaked token would let any script
+on the shell speak to capture-service with the phone's identity. Native code
+holds it; `CaptureController`, the broadcast extension and `PushManager` keep
+reading `capture.baseURL` / `capture.token`, which `NodeStore.select` mirrors
+(D4).
+
+### D36. `viewport-fit=cover` in the shell (2026-09-02)
+
+`packages/talk/ui/styles.css` already pads with `env(safe-area-inset-*)`, but
+`generateViewport()` in `src/app/layout.tsx` never set `viewportFit: "cover"`,
+so those insets were zero in the installed PWA and would be zero inside the
+Capacitor webview (which extends under the status bar with
+`contentInset: never`). The one shell change in G3 is that viewport flag; the
+simulator screenshot in `evidence/garrison-app/g3/` is the check that the top
+bar clears the status bar.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
@@ -1252,8 +1325,10 @@ Compositions, registry, docs, tests:
   (`CAPBridgeViewController` subclass registering the plugins in
   `capacitorDidLoad()`, loading `GarrisonNode.current.shellOrigin`),
   `ios/GarrisonApp/Web/BridgeHost.swift` (`UIViewControllerRepresentable`),
-  `ios/GarrisonApp/Web/OfflineView.swift`, `ios/GarrisonApp/Web/NodePickerView.swift`
-  (native-only first-run picker),
+  `ios/GarrisonApp/Web/PushRouter.swift`, `ios/Shared/NodeStore.swift`,
+  `ios/GarrisonApp/Resources/public/index.html` (bootstrap + offline page) and
+  `public/talk/index.html` (start-file placeholder) - D32 replaced the
+  planned `OfflineView.swift` / `NodePickerView.swift` with the bundled page,
   `ios/GarrisonApp/Plugins/{GarrisonCapturePlugin,GarrisonSpeechPlugin,GarrisonPushPlugin,GarrisonNodePlugin,GarrisonPendantPlugin}.swift`
   (`CAPPlugin` + `CAPBridgedPlugin`; pendant is a stub returning `status()`
   only in G3).
@@ -1264,13 +1339,16 @@ Compositions, registry, docs, tests:
   `ios/GarrisonApp/Info.plist` (`UIBackgroundModes` + `audio`; URL scheme
   `garrison`), `ios/GarrisonApp/PushManager.swift` (route `data.path` to the
   bridge, D5).
-- delete `ios/GarrisonApp/{ContentView,ConversationView,ConsentSheet,AckLog,ClipPlayer}.swift`
+- delete `ios/GarrisonApp/{ContentView,ConversationView,SettingsView,SessionsView,AckLog}.swift`
   and `ios/GarrisonApp/Pendant/PendantView.swift`; keep `CaptureController`,
-  `BroadcastPicker`, `SpeechSink`, `PendantController`, `PendantBLETransport`
-  as plugin backends.
+  `BroadcastPicker`, `ConsentSheet` (D33), `ClipPlayer` (SpeechSink depends on
+  it), `SpeechSink`, `PendantController`, `PendantBLETransport` as plugin
+  backends.
 - edit `ios/Tests/PendantFeedbackMappingTests.swift:72-95` (assert ownership on
   `GarrisonApp.swift` + `GarrisonPendantPlugin.swift` instead of the deleted
-  view), add `ios/Tests/{NodeRecordTests,BridgePluginRegistryTests}.swift`.
+  view), drop `testAckLogAppendsBoundedNewestFirst` (D34), add
+  `ios/Tests/{NodeRecordTests,BridgePluginRegistryTests}.swift`.
+- shell: `viewportFit: "cover"` in `src/app/layout.tsx` (D36).
 - docs: `docs/decisions/2026-07-13-capacitor-native-wrap-memo.md` (superseded-by
   line), `docs/COMPANION_IOS_SPEC.md` (Rev 3: shell app), `docs/adr-companion.md`
   (toolchain facts).

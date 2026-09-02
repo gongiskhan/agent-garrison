@@ -8,6 +8,267 @@ One long-running autonomous task. Target: the Garrison repo, on a macOS host. Au
 > this is being built sooner. Read §2.5 and §11 before starting - they contain
 > failures this codebase has already paid for once.
 
+> **Revision 3 (2026-09-02).** The app is now a **shell**: a Capacitor 8.5.1
+> webview host that loads the node's own web build over the tailnet and exposes
+> the phone's native capabilities to that page through five plugins. Every
+> SwiftUI screen except the consent sheet is gone; the capture path, the
+> broadcast extension, the pendant stack and the speech sink are unchanged and
+> sit behind the plugins as backends. The new top section below describes the shell. Rev 2 sections that
+> describe a deleted screen carry a one-line **[R3]** note and are otherwise
+> left as written - the invariants, the wire protocol, the ack layer and the
+> failure list still hold. Decisions: D1, D4-D7, D32-D36 in
+> [`decisions/2026-09-garrison-app.md`](./decisions/2026-09-garrison-app.md).
+
+## Rev 3 (2026-09-02): the shell app
+
+### What changed and why
+
+Rev 2 built a native SwiftUI app with its own screens (start/stop, sessions,
+settings, delivery log, pendant). The September 2026 plan moved the web channel
+into the Garrison shell as Conversations at `/talk`, which made the phone's job
+"show the shell, add what a browser cannot do": background audio, APNs, the
+broadcast extension, BLE to the pendant, speech, and one credential the page
+must never hold. So the app became a Capacitor host. The 2026-07-13 memo's
+three revisit triggers had all fired, and its low-regret path is exactly what
+shipped: the same web build, native plugins only where a capability forces
+them. No Capacitor CLI drives the project (`@capacitor/cli` hardcodes
+`ios/App/App`); Capacitor is one Swift package in `ios/project.yml` and the
+config is a hand-maintained JSON resource (D1).
+
+### The Capacitor host
+
+- `@main struct GarrisonApp: App` stays. Its body is
+  `BridgeHost().id(store.currentOrigin ?? "none").ignoresSafeArea()` where
+  `store` is `NodeStore.shared`. `BridgeHost` is a
+  `UIViewControllerRepresentable` that makes one `GarrisonBridgeViewController`
+  and never updates it: `serverURL` is fixed per bridge instance, so **a node
+  switch is a bridge recreation** driven by the SwiftUI `id` (D32).
+- `GarrisonBridgeViewController: CAPBridgeViewController` overrides
+  `instanceDescriptor()`: `serverURL` = the current node's `shellOrigin`,
+  `appStartPath = "talk"` when a node exists (the app opens on Conversations),
+  `errorPath = "index.html"`, user agent suffix `GarrisonApp/<version> (<build>)`,
+  `contentInsetAdjustmentBehavior = .never`, `allowLinkPreviews = false`.
+  `capacitorDidLoad()` registers the plugins from `GarrisonPlugins.make(host:)`
+  by instance; nothing auto-registers (`packageClassList` is absent from the
+  config). `viewDidLoad()` issues no second load: a superseded provisional load
+  would fire `didFailProvisionalNavigation` and pull the error page in.
+- Navigation policy is Capacitor's: top-level URLs on the node origin or
+  `capacitor://localhost` stay in the webview, any other host opens in Safari.
+  iframes are not affected, so fittings embedded at `/embed/<id>` and own-port
+  84xx origins render inside the shell as they do in a browser.
+- `capacitor.config.json` (`ios/GarrisonApp/Resources/`): `appId
+  com.gomes.garrison`, `webDir public`, `server.iosScheme capacitor`,
+  `server.hostname localhost`, `ios.contentInset never`,
+  `ios.allowsLinkPreview false`, `ios.scrollEnabled true`. It carries no
+  `server.url`; the runtime descriptor sets it from the node record.
+- Deep links (D5). Push payloads carry `data.path` (a shell path such as
+  `/talk/<conversationId>`); `PushManager.didReceive` hands it to
+  `PushRouter.shared.route(path:)`. The `garrison` URL scheme
+  (`garrison://open?path=/talk/...`) reaches the same router through
+  `.onOpenURL`; only paths starting with `/` are accepted, so the webview stays
+  on the node origin. A route arriving with the page listening is delivered as
+  the `pushRoute` event; without a listener the host loads `shellOrigin + path`.
+  A cold-start route is parked in `PushRouter.pendingPath`, which the shell
+  consumes through `GarrisonPush.pendingRoute()`; until it does (G4) the host
+  navigates after the first load finishes (KVO on the webview's `isLoading`).
+- Launch behaviour. `PendantController.shared.connect()` on launch and on
+  `scenePhase` foreground for a known pendant, as before. Push registration at
+  launch is `PushManager.shared.refreshRegistrationIfAuthorized()` and only when
+  a node exists: it re-registers silently when permission is already granted
+  and never prompts. The first permission prompt is `GarrisonPush.register()`
+  called from the page, in context. `Info.plist`: `UIBackgroundModes` is
+  `[audio, bluetooth-central]` (there was no `audio` before), plus
+  `CFBundleURLTypes` for `garrison`.
+- Simulator seam (`#if DEBUG` only). `NodeStore.seedFromEnvironmentIfRequested()`
+  reads `GARRISON_NODE_ORIGIN` and `GARRISON_CAPTURE_TOKEN` (optional
+  `GARRISON_NODE_NAME`, `GARRISON_CAPTURE_URL`) from the process environment,
+  upserts and selects that node, and never logs the token. `xcrun simctl launch`
+  passes them as `SIMCTL_CHILD_<VAR>`. `FixtureStreamer.autostartIfRequested()`
+  is unchanged.
+
+### The bundled bootstrap page
+
+`CAPBridgeViewController.loadWebView()` guards on the bundled start file and
+`exit(1)`s when it is missing, even with a remote `server.url` (D32). So the
+bundle ships `ios/GarrisonApp/Resources/public/` as a folder reference:
+
+- `public/index.html` is the bootstrap AND the offline page: one file, inline
+  CSS and JS, no external assets, `color-scheme: light dark`, system fonts,
+  safe-area insets under `viewport-fit=cover`. With no node configured
+  `serverURL` is nil and the bridge loads it from `capacitor://localhost`; with
+  `errorPath = "index.html"` the same page loads when the node is unreachable.
+  Capacitor injects `window.Capacitor.Plugins` into local pages too, so the
+  page drives `GarrisonNode` directly: with a current node it shows "Node
+  unreachable", the node name and origin, a Retry button (`GarrisonNode.reload`),
+  the node list (tap = `select`) and a collapsed "Add a node" form; with no node
+  it shows "Connect to a Garrison node" with the form (shell origin, optional
+  name, capture token, optional capture URL) which calls `add` then `select`.
+  Opened in a plain browser it says "This page only runs inside the Garrison
+  app." The planned native `OfflineView` / `NodePickerView` were never written.
+- `public/talk/index.html` exists only so the guard passes when
+  `appStartPath = "talk"`; the real `/talk` is served by the node and the
+  placeholder is never displayed.
+
+### The node record (D4, D35)
+
+`ios/Shared/NodeStore.swift` (Foundation + Combine only; it compiles into the
+broadcast extension as part of `Shared/`):
+
+```swift
+struct NodeRecord: Codable, Equatable {
+    var name: String            // unique key, default: first DNS label of the host
+    var shellOrigin: URL        // scheme + host [+ port], no path
+    var captureBaseURL: URL     // default: same scheme + host, port 8497 (8400 + 8097 % 1000)
+    var token: String           // capture token; never leaves the native side
+}
+```
+
+`NodeStore.shared` keeps `[NodeRecord]` under the App Group key `node.list` and
+the selected name under `node.current`. Selecting a node **mirrors** its
+`captureBaseURL` / `token` into the legacy `capture.baseURL` / `capture.token`
+keys, so `CaptureController`, the broadcast extension, `PendantController`,
+`ClipPlayer` and `PushManager` keep reading `AppGroup.baseURL` / `token`
+unchanged; removing the current node clears them. On first run with legacy keys
+present and no list, `migrateLegacyIfNeeded()` builds one selected record
+(`shellOrigin` = the legacy base with its port dropped, `captureBaseURL` = the
+legacy base). The token is written once through `GarrisonNode.add` and is
+**never returned to JavaScript**: `current()` and `list()` report `hasToken`.
+The page is same-origin with the node, but the webview is not in the data path
+(I2) and a leaked token would let any script on the shell speak to
+capture-service with the phone's identity.
+
+### The five plugins
+
+All under `ios/GarrisonApp/Plugins/`, registered in the order of
+`GarrisonPlugins.jsNames = ["GarrisonNode", "GarrisonCapture", "GarrisonSpeech",
+"GarrisonPush", "GarrisonPendant"]`. Each is `final class GarrisonXPlugin:
+CAPPlugin, CAPBridgedPlugin` with `identifier == jsName`, every method returns a
+promise, errors are `call.reject(message, code)` with the codes listed, and
+timestamps are milliseconds since the epoch. The page reaches them as
+`window.Capacitor.Plugins.<jsName>.<method>(args)` and
+`.addListener(event, cb)`; no `@capacitor/core` import is needed. Plugin
+methods run on a background queue and hop to the main actor before touching
+UI; `bridge?.viewController` is the host for any native sheet.
+`ios/Tests/BridgePluginRegistryTests.swift` pins the names and method sets.
+
+#### GarrisonNode (backend `NodeStore.shared` + the host)
+
+| Method | Resolves | Rejects |
+|---|---|---|
+| `current()` | `{name, shellOrigin, captureBaseURL, hasToken}`; `{}` when no node (not a rejection) | |
+| `list()` | `{nodes: [{name, shellOrigin, captureBaseURL, hasToken, current}]}` | |
+| `add({shellOrigin, token, name?, captureBaseURL?})` | the record as in `current()` | `INVALID_ORIGIN` (`NodeRecord.normalizedOrigin` failed), `INVALID_TOKEN` (blank) |
+| `select({name})` | `{name}`; the bridge is recreated after the promise resolves | `UNKNOWN_NODE` |
+| `remove({name})` | `{}` | `UNKNOWN_NODE` |
+| `reload()` | `{}`; reloads `shellOrigin` (or the bundled page when no node) | |
+| `info()` | `{appVersion, build, platform: "ios", bundleId}` | |
+
+#### GarrisonCapture (backend `CaptureController`, owned by the plugin, + the broadcast heartbeat + `BroadcastPicker`)
+
+| Method | Resolves | Rejects |
+|---|---|---|
+| `status()` | `{phase: idle\|connecting\|live\|interrupted\|failed, error?, sessionId?, startedAt?, ackedFrames, broadcasting, broadcastError?, microphone: granted\|denied\|undetermined, consentSuppressed}` | |
+| `start({kind: "microphone"})` | `status()` once start was invoked. Presents the native `ConsentSheet` unless `capture.consentSuppressed`; only `onProceed` reaches `CaptureController.start(consent:)` | `NO_NODE`, `ALREADY_RUNNING`, `CONSENT_DECLINED` |
+| `start({kind: "screen_audio"})` | `status()` once the App Group heartbeat reports the broadcast live (polled every 1 s, up to 30 s). Native code can only present the system picker (D6) | `BROADCAST_NOT_STARTED` (with the extension's last error appended when present) |
+| `start({kind: other})` | | `BAD_KIND` |
+| `stop({kind?})` | `status()`. `microphone` (default): `controller.stop()`; `screen_audio`: presents the picker again, the system sheet being the only way to end a broadcast, and resolves without waiting | |
+| `consent()` | `{suppressed}` | |
+| `setConsentSuppressed({suppressed})` | `{suppressed}` (the former "Skip the consent notice" toggle) | |
+
+Event `captureState` (the `status()` payload) fires on every
+`CaptureController` phase / session id / acked-frame change and, while the
+broadcast heartbeat differs from the last emitted value, every 2 s.
+
+#### GarrisonSpeech (backend `SpeechUtterer` in `SpeechSink.swift` + the `speak.*` keys)
+
+| Method | Resolves | Rejects |
+|---|---|---|
+| `speak({text, rate?, volume?, voiceId?, lang?})` | `{completed}` when the utterance finishes or is cancelled; audio session activated and released around it exactly as `ClipPlayer` does; defaults come from the `speak.*` keys and `SpeechSink.localVoice(for:)` | `EMPTY_TEXT` |
+| `stop()` | `{}` | |
+| `voices({lang?})` | `{voices: [{identifier, name, language, quality: default\|enhanced\|premium}]}` | |
+| `settings()` | `{master, info, cues, rate, volume, voiceId?, quietStart, quietEnd, muteUntil}` with the defaults `SpeechSink` reads (true, true, true, system rate, 1.0, none, -1, -1, 0) | |
+| `configure({any subset of the settings keys})` | `settings()` after writing; each value type-checked, unknown keys ignored | |
+| `muteFor({minutes})` | `settings()` (`muteUntil = now + minutes * 60`) | |
+| `unmute()` | `settings()` | |
+
+These are the §5b controls: the deleted `SettingsView` toggles became plugin
+methods so the capture page (G4) can host them.
+
+#### GarrisonPush (backend `PushManager.shared`)
+
+| Method | Resolves | Rejects |
+|---|---|---|
+| `register()` | `status()` once the authorization result is known (prompts if needed, then registers; the token upload finishes asynchronously and surfaces via `pushStatus`) | |
+| `status()` | `{authorization: notDetermined\|denied\|authorized\|provisional\|ephemeral, registered, detail}` (`detail` is `PushManager.status`; `registered` is `detail == "registered"`) | |
+| `pendingRoute()` | `{path?}` from `PushRouter.takePendingPath()` | |
+
+Events: `pushRoute` `{path}` (emitted by the host, `retainUntilConsumed`), and
+`pushStatus` `{detail}` on every `PushManager.status` change.
+
+#### GarrisonPendant (backend `PendantController.shared`; the plugin never creates a controller and never connects on its own)
+
+| Method | Resolves | Rejects |
+|---|---|---|
+| `status()` | `{connectionState (lowerCamelCase case name), paired, battery?, sessionId?, uploaderState, lostFrames, hapticSupported?, capturePolicy?, pendantFlagOn?, ambientConsent}` | |
+| `connect()` | `status()` | |
+| `disconnect()` | `status()` | |
+| `forget()` | `status()` after disconnect and `AppGroup.pendantIdentifier = nil` | |
+
+Events: `pendantState` (the status payload) on connection state / session id /
+uploader state change, `pendantBattery` `{battery}` on battery change. The app,
+not the plugin, reconnects a known pendant on launch and foreground; the
+transport auto-adopts the first identified peripheral, so there is no `scan()`
+(D7). `ios/Tests/PendantFeedbackMappingTests.swift` pins the ownership.
+
+### Consent stays native (D33)
+
+Invariant I6 outranks the shell. `ConsentSheet.swift` is kept unchanged and
+`GarrisonCapture.start({kind: "microphone"})` presents it in a
+`UIHostingController` sheet (`.medium` detent) over the bridge view controller;
+the copy ("If you have people around, always ask for consent.") and the "Don't
+ask me again" toggle are as before. The web page never sees the decision, only
+the resulting `captureState`. `GarrisonCapture.consent` /
+`setConsentSuppressed` expose the persisted checkbox.
+
+### What was deleted (D34)
+
+`ContentView.swift`, `ConversationView.swift`, `SettingsView.swift`,
+`SessionsView.swift`, `AckLog.swift` and `Pendant/PendantView.swift`. `AckLog`
+existed for the Sessions screen's delivery log and the notification handlers'
+readable copy; with no reader left, its three append sites (`PushManager`,
+`CaptureController`, `PendantController`) and
+`testAckLogAppendsBoundedNewestFirst` went with it. The records that mattered
+never lived there: spoken receipts go back to capture-service and digests land
+in Conversations (G5). `PushManager.swift` was rewritten around the plugin
+(authorization on request, silent refresh at launch, `didReceive` routes
+`data.path`); registration and token upload are as before.
+
+### What stayed
+
+- **The broadcast extension**, `ios/BroadcastExtension/**`, byte for byte: it
+  still reads `capture.baseURL` / `capture.token` from the App Group and writes
+  the heartbeat the plugin polls.
+- **The capture path**: `CaptureController`, `Shared/CaptureUploader`,
+  `OpusEncoder`, `SessionSpool`, `CaptureProtocol`, `BroadcastPicker`,
+  `FixtureStreamer`; the §4 wire protocol and the I7 resume rules are
+  untouched. The app remains outside the data path (I2).
+- **The pendant**: `PendantController`, `PendantBLETransport`,
+  `PhoneFeedbackSink`, `Shared/Pendant/**` and the mock stack, now reached
+  through `GarrisonPendant`.
+- **The speech sink**: `SpeechSink` / `SpeechUtterer` / `ClipPlayer`, clip first
+  and synthesizer fallback (§5b), now also callable from the page through
+  `GarrisonSpeech`.
+- **Tests**: `ios/Tests/NodeRecordTests.swift` (migration, mirroring,
+  normalisation) and `BridgePluginRegistryTests.swift` (names and method sets)
+  are new; the rest of the suite is unchanged apart from the two edits above.
+- **The one shell change**: `viewportFit: "cover"` in `src/app/layout.tsx`, so
+  the `env(safe-area-inset-*)` padding Conversations already declares stops
+  being zero under `contentInset: never` (D36).
+
+Toolchain (Xcode 26.2 on the mini, XcodeGen, `capacitor-swift-pm` 8.5.1,
+TestFlight through the ios-thing workflow) is recorded in
+[`adr-companion.md`](./adr-companion.md) §11.
+
 ## 1. Context and goal
 
 This task builds Garrison's iOS companion app and everything it needs on the
@@ -94,6 +355,8 @@ Three references, none of them dependencies:
   upload extension stays memory-safe (well under the ~50 MB extension ceiling)
   and does no business logic: encode, hand off, nothing else. Reuse the encoder
   and uploader approach that already works in iOS thing.
+  **[R3]** Historical as to the first sentence: the app is a Capacitor 8.5.1
+  webview host (the one shipping dependency, D1); the extension clause stands.
 - **[R2] I11 Never optimistic.** No acknowledgement - spoken, pushed or shown -
   is emitted before its outcome is confirmed. This already exists as a structural
   rule in `fittings/seed/kanban-loop/lib/ack.mjs`: acks are built only from
@@ -266,6 +529,9 @@ Behaviour, unchanged in intent from the voice brief:
 - **Controls**: master on/off reachable in one tap; info acks separately from
   errors; quiet hours; mute-for-N-minutes (the realistic failure is a meeting
   starting).
+  **[R3]** The native settings screen that held these is deleted; they are the
+  `GarrisonSpeech.settings / configure / muteFor / unmute` plugin methods, hosted
+  by the capture page (G4).
 
 ### 5c [R2] What the notification must carry
 
@@ -279,6 +545,10 @@ nothing. For APNs the app controls both ends, so:
   message list - never a generic home screen.
 - The app keeps a local, readable log of every ack and notification received.
   This is the thing the operator scrolls when they felt a buzz and missed it.
+
+**[R3]** Historical: the local log (`AckLog` + the Sessions screen's delivery
+log) is deleted with the screens that read it (D34); the tap target is now the
+shell route in `data.path`, and the readable copy lives in Conversations.
 
 ## 6. [R2] Latency and lanes (do not rebuild the 82-second mistake)
 
@@ -436,6 +706,8 @@ one line in `DECISIONS.md`.
   exact copy and persistent "Don't ask me again", settings (base URL, token,
   device name, **[R2]** voice settings and ack toggles), APNs registration, a
   minimal sessions screen, **[R2]** and the local ack/notification log from §5c.
+  **[R3]** Historical: every screen in this bullet except the consent sheet is
+  deleted; the shell page and the five plugins replace them (Rev 3 section).
 - Tests that run headless on the simulator via `xcodebuild test`: protocol
   encoding, uploader buffering and resume against a local mock server, consent
   persistence, settings. The broadcast path is device-only and is excluded from
@@ -507,7 +779,8 @@ one line in `DECISIONS.md`.
 ## 9. Out of scope (do not build)
 
 Always-on or ambient capture in any form; pendant BLE (it lands in this app
-later, not now); web push or VAPID; a webview tab; CarPlay; an Apple Watch app;
+later, not now); web push or VAPID; a webview tab (**[R3]** historical: the app
+IS a webview since Rev 3); CarPlay; an Apple Watch app;
 screen-content interpretation or OCR; Android; App Store release beyond
 TestFlight; the Omi setup wizard (separate track); any public ingress for capture.
 **[R2]** Also out: the macOS speech sink from the voice brief - the phone

@@ -76,7 +76,6 @@
 .cc-header {
   gap: 10px;
   padding: 12px 16px;
-  padding-top: max(12px, env(safe-area-inset-top));
 }
 .cc-title {
   font-family: var(--cc-serif);
@@ -1169,7 +1168,13 @@
    The conversation's own bar sits ABOVE the chat's status row: it carries the
    record's name and the search over it, in the same dossier chrome as the back
    bar, so the two read as one stack rather than two competing headers. */
-.cc-conv-head { min-height: 44px; padding: 8px 12px; }
+.cc-conv-head {
+  min-height: 44px;
+  padding: 8px 12px;
+  /* Top of the column: inside the iOS app (viewport-fit=cover) this bar is
+     what sits under the status bar, so it carries the top inset. */
+  padding-top: max(8px, env(safe-area-inset-top));
+}
 .cc-conv-title {
   font: 650 15px/1.25 var(--wc-serif);
   color: var(--wc-ink);

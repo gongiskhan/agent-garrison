@@ -1,9 +1,12 @@
-# ADR — Garrison iOS Companion (capture-service + ios/)
+# ADR - Garrison iOS Companion (capture-service + ios/)
 
-Status: accepted (M0, 2026-08-13). Decisions for the companion build per
-[`COMPANION_IOS_SPEC.md`](./COMPANION_IOS_SPEC.md) §7 M0. Every choice below
-was made against recon of the live code, not the spec's assumptions; where the
-two disagree the disagreement is listed in
+Status: accepted (M0, 2026-08-13); amended 2026-09-02 (§11, plus the dated
+corrections in §1 and §9) when the app became a Capacitor shell per
+[`decisions/2026-09-garrison-app.md`](./decisions/2026-09-garrison-app.md) and
+[`COMPANION_IOS_SPEC.md`](./COMPANION_IOS_SPEC.md) Rev 3. Decisions for the
+companion build per `COMPANION_IOS_SPEC.md` §7 M0. Every choice below was made
+against recon of the live code, not the spec's assumptions; where the two
+disagree the disagreement is listed in
 `fittings/seed/capture-service/DECISIONS.md`.
 
 ## 1. Project generation: XcodeGen, pbxproj never committed
@@ -17,17 +20,21 @@ The project.yml carries forward ios-thing's two hard-won signing rules
 verbatim: the sdk-qualified `CODE_SIGN_IDENTITY[sdk=iphoneos*]` override and
 the repetition of signing keys at target level (xcodegen's preset otherwise
 injects "iPhone Developer" over the project-level value).
+Corrected 2026-09-02: the MacBook Pro carries XcodeGen 2.45.4, not 2.46.0, and
+no Xcode; generation and builds happen on the mini and in CI (§11).
 
 Targets: `GarrisonApp` (application, `com.gomes.garrison`),
 `BroadcastExtension` (app-extension, `com.gomes.garrison.broadcast`),
-`Shared/` compiled into both targets as sources — ios-thing has no shared
+`Shared/` compiled into both targets as sources - ios-thing has no shared
 framework target and neither do we; two copies of ~200 lines beats dynamic
 linking inside a memory-capped extension. App Group:
-`group.com.gomes.garrison`. Deployment target iOS 17.0.
+`group.com.gomes.garrison`. Deployment target iOS 17.0. Since 2026-09-02
+`Shared/` also carries `NodeStore.swift` (Foundation + Combine only, so the
+extension keeps compiling it without UIKit or SwiftUI).
 
 ## 2. Triage generalization: one engine, second inbox root, source-parameterized
 
-The triage engine stays where it lives — `omi-channel/lib/triage.mjs` — and
+The triage engine stays where it lives - `omi-channel/lib/triage.mjs` - and
 remains the ONLY engine (spec I1). Recon found it already source-agnostic
 except for an enumerated leakage list (hardcoded `omi:` originId prefixes,
 `originChannel:{channel:"omi"}`, `provenance.omi_conversation_id` reads,
@@ -74,7 +81,7 @@ the `.p8` secret scope, the per-day cap ledger, and the backoff. Secrets:
 also accepted, same sniff as the fastlane lane), `APP_BUNDLE_ID` as config
 (`apns_topic`), not a secret.
 
-Delivery seams — no kanban-loop routing-table edits at all:
+Delivery seams - no kanban-loop routing-table edits at all:
 
 - `POST /notify` (the existing 404-tolerant `fanOutNotification` contract):
   implementing it makes the fitting a notification sink the moment it runs.
@@ -83,7 +90,7 @@ Delivery seams — no kanban-loop routing-table edits at all:
 - Triage-created cards for companion-origin events: the generalized notifier
   resolves the capture-service from its status file and POSTs, mirroring
   `sendWebChannelFallback`. The scheduler-spawned triage process never
-  re-checks the fitting's `notify_enabled` flag — the owning server is
+  re-checks the fitting's `notify_enabled` flag - the owning server is
   authoritative (the RelayNotifier lesson, spec §11 failure 4).
 
 Receipts are keyed by `means` (`companion-push`), never by list position.
@@ -92,7 +99,7 @@ Receipts are keyed by `means` (`companion-push`), never by list position.
 
 Cross-fitting imports are forbidden, so `wake.mjs` and `echo-guard.mjs` are
 copied byte-identical from omi-channel into capture-service, and
-`tests/companion-lockstep.test.ts` asserts both copies match the originals —
+`tests/companion-lockstep.test.ts` asserts both copies match the originals -
 the same discipline `run-spec-lockstep.test.ts` applies to the routing-field
 mirrors, and the stricter successor of the ack.mjs wakeRegex copy. A drift
 edit fails CI until both sides are synced. Everything WakeBus needs (store,
@@ -103,7 +110,7 @@ results to the omi segment shape (`{start, end, text, is_user, speaker}`).
 The copy is taken from current HEAD: the operative is now **Zeca** (variants
 `zeca,zeka,zecca,zéca,ze ca`). An address-position gate shipped with the
 rename (`b3a82ec3`) and was removed the same day (`5d510fb4`, operator's
-call) — the live gate is token-anywhere on word boundaries. Every spec phrase
+call) - the live gate is token-anywhere on word boundaries. Every spec phrase
 "Gary, …" is "Zeca, …" at runtime; fixtures use Zeca.
 
 Classification calls pin `routing:{target: classify_target}` (default
@@ -114,7 +121,7 @@ Latency is counted in the same three legs (`wake_capture_ms`,
 ## 5. Media storage layout
 
 Root `$GARRISON_HOME/capture/` (override `GARRISON_CAPTURE_DIR`), all writes
-atomic (tmp + rename), ulid ids, per-writer counters — the omi store
+atomic (tmp + rename), ulid ids, per-writer counters - the omi store
 conventions:
 
 ```
@@ -124,14 +131,14 @@ sessions/<sessionId>.json        session record: mode, consent, device_name,
 transcripts/<sessionId>.json     final Deepgram segments (normalized shape)
 media/<sessionId>/audio.log      append-only framed Opus packet log
                                  (seq, ts, len, bytes per record) + audio.idx
-media/<sessionId>/frames/<seq>.jpg   JPEG stills (screen_audio mode) — these
+media/<sessionId>/frames/<seq>.jpg   JPEG stills (screen_audio mode) - these
                                  ARE the stored keyframes; no fMP4 in v1
 events/<id>.json + index.json    capture_event store, omi layout (triage contract)
 devices.json                     APNs device-token registry
 notify-ledger.json               per-day push cap ledger
-counters-server.json             counters (no transcript text ever — I5)
+counters-server.json             counters (no transcript text ever - I5)
 acks-log.jsonl                   bounded ack receipt log (id, kind, outcome,
-                                 spoken receipt — no text)
+                                 spoken receipt - no text)
 ```
 
 Audio is an append-only log, not a file per frame (a 1 h session at 20 ms
@@ -140,7 +147,7 @@ already recorded is dropped before the write; double replay of a fixture set
 is byte-identical. JPEG frames are naturally one file per seq.
 
 The wire protocol difference from the spec is recorded in DECISIONS: ios-thing
-has NO fMP4 encoder (recon part 1) — screen video is JPEG stills at ~1.5 fps
+has NO fMP4 encoder (recon part 1) - screen video is JPEG stills at ~1.5 fps
 with a proven extension-memory discipline. v1 keeps that proven path
 (`{seq, ts, bytes}` framing unchanged); an fMP4 encoder is new risk against a
 hard memory ceiling for zero v1 value ("no interpretation of screen content").
@@ -150,17 +157,17 @@ hard memory ceiling for zero v1 value ("no interpretation of screen content").
 - **Audio-only sessions** (dictation, meetings, car): the app owns the session
   socket and speech rides it (`{type:"speak"}`). Speaking while the mic is hot
   relies on the platform voice-processing unit: `AVAudioSession` category
-  `.playAndRecord`, mode `.voiceChat`, `.defaultToSpeaker` — hardware AEC.
+  `.playAndRecord`, mode `.voiceChat`, `.defaultToSpeaker` - hardware AEC.
   If real-device use shows AEC leakage (M9 smoke), a "speak only when mic is
   cold" setting is the fallback; the echo guard makes the residual cost one
   deletable card, never a loop.
 - **Screen+audio sessions**: the mic is captured by the broadcast EXTENSION
   (a separate process; its capture is not AEC-coupled to the app's speaker),
-  so in-session speech is NOT attempted — acks fall through to APNs. The
+  so in-session speech is NOT attempted - acks fall through to APNs. The
   spec's "same socket when a session is live" holds for audio mode only
   (DECISIONS line).
-- The echo guard registers the fingerprint at `POST /ack` time — BEFORE any
-  speak instruction is forwarded — and suppression runs in ingress before the
+- The echo guard registers the fingerprint at `POST /ack` time - BEFORE any
+  speak instruction is forwarded - and suppression runs in ingress before the
   wake gate, exactly as omi does. Both defences stay independent of
   `assertSpeakable` at render time.
 
@@ -168,17 +175,17 @@ hard memory ceiling for zero v1 value ("no interpretation of screen content").
 
 Byte-identical copy (`lib/echo-guard.mjs`, 84 lines) + the same lockstep test
 as the wake module (§4). One EchoGuard instance per server process, injected
-into ingress and the request handler — never two (the omi wiring lesson).
+into ingress and the request handler - never two (the omi wiring lesson).
 
 ## 8. Fitting shape (locked)
 
 - `faculty: channels`, `provides: [{kind: channel, name: companion}]`,
   `consumes: vault (one), memory-store (optional-one)`, `own_port: true`,
   `default_port: 7097` (free in the 70xx family; prod 8097, codex 27097),
-  `component_shape: script`, no `ui.views[]` — the own-port page is the view
+  `component_shape: script`, no `ui.views[]` - the own-port page is the view
   (omi precedent).
 - `secret_scope: [DEEPGRAM_API_KEY, CAPTURE_TOKEN, APNS_TEAM_ID, APNS_KEY_ID,
-  APNS_P8]` — fail-closed: no scope, no secrets.
+  APNS_P8]` - fail-closed: no scope, no secrets.
 - Every pipe behind its own default-off flag: `enabled` (ws + HTTP ingress),
   `transcribe_enabled` (Deepgram, billed only while a session is live),
   `wake_enabled`, `notify_enabled` (APNs), `speak_enabled` (the voice sink).
@@ -192,7 +199,7 @@ into ingress and the request handler — never two (the omi wiring lesson).
 - Auth: `Authorization: Bearer CAPTURE_TOKEN` on the websocket upgrade and
   every `/capture/*` HTTP call, timing-safe compare via fixed-length digests.
   `/ack`, `/notify`, `/internal/*` stay loopback/tailnet-only by construction
-  (no funnel is ever mounted for this fitting — v1 rides Tailscale).
+  (no funnel is ever mounted for this fitting - v1 rides Tailscale).
 
 ## 9. TestFlight lane (M8 shape, decided now)
 
@@ -202,15 +209,25 @@ Ported from ios-thing's Fastfile/ios.yml with the same env names
 
 - **Match storage: `gongiskhan/ios-certificates`** (exists, private, empty).
   `agent-garrison` is PUBLIC, so signing assets must not live on a branch of
-  it — that is the entire reason not to copy ios-thing's
+  it - that is the entire reason not to copy ios-thing's
   same-repo-branch arrangement. A fresh `MATCH_PASSWORD` is generated and
   sealed at M8.
+  Corrected 2026-09-02: what shipped is the PRIVATE `gongiskhan/ios-thing`
+  repo's `match-certs` branch (`ios/fastlane/Fastfile` `MATCH_URL` default),
+  which already holds the team's Apple Distribution certificate; match adds the
+  garrison profiles beside it instead of burning another certificate slot. The
+  rule that matters (never a branch of the public repo) is intact.
 - The lane must also run LOCALLY on this Mac (Xcode 26.2 present), not only in
   CI: `npm run ios:testflight` wraps `bundle exec fastlane beta` with env
   sourced from the environment. Team id is known (N3AN3Z32JN, recon);
   a candidate ASC key exists locally (`AuthKey_58TCW7N893.p8`); missing
   issuer id / key mismatch at M8 is the one legitimate mid-run stop, asked
   precisely.
+  Corrected 2026-09-02: the MacBook Pro has no Xcode (Command Line Tools only,
+  no disk for it), and the ASC secrets live in the ios-thing repository, not on
+  any Mac. TestFlight uploads run through that repository's workflow; the local
+  lane (`scripts/ios-testflight.sh`) is the fallback for a Mac that has both
+  (§11).
 - The stale feature-branch push trigger from ios-thing's workflow is not
   copied.
 
@@ -225,3 +242,82 @@ Files this run touches: `ios/**` (new), `fittings/seed/capture-service/**`
 `lib/scheduler-jobs.mjs` + `lib/notify.mjs` (M4/M5, behind flags),
 `tests/capture-service*.test.ts` + `tests/companion-lockstep.test.ts` (new),
 `package.json` (two scripts), repo docs.
+
+## 11. Toolchain and dependencies (2026-09-02, the shell app)
+
+Recorded when the app became a Capacitor shell
+([`2026-09-garrison-app.md`](./decisions/2026-09-garrison-app.md) D1, D32;
+[`COMPANION_IOS_SPEC.md`](./COMPANION_IOS_SPEC.md) Rev 3). Facts verified on
+the machines named, not carried over from earlier recon.
+
+### Dependencies
+
+- **"Zero third-party frameworks in shipping targets" is retired 2026-09-02.**
+  The rule is written down as D11 of
+  [`adr-pendant-direct.md`](./adr-pendant-direct.md) ("CoreBluetoothMock is a
+  test-only SPM dependency ... the shipping app targets keep their
+  zero-dependency property") and is what `ios/project.yml` cites at the
+  `CoreBluetoothMock` line. Capacitor 8.5.1 via SPM is now the one shipping
+  dependency, knowingly, per 2026-09-garrison-app.md D1: the memo's three
+  revisit triggers (background voice, APNs in production, TestFlight) all held,
+  and a webview host with plugin bridges is the cheapest honest way to put the
+  node's own web build on the phone. Nothing else joins it: no Cordova (no
+  Cordova plugins are linked), no `@capacitor/*` plugin packages (the five
+  plugins are in-tree Swift), no CocoaPods.
+- **Capacitor**: package `https://github.com/ionic-team/capacitor-swift-pm.git`,
+  `exactVersion: 8.5.1`, product `Capacitor`, declared in `ios/project.yml`
+  `packages:` beside `CoreBluetoothMock` and linked by the `GarrisonApp` target
+  only. Exact, not `from:`, because the runtime's `loadWebView()` guard and the
+  descriptor properties the host relies on were read from the 8.5.1 source; a
+  minor bump is a deliberate re-read, not a resolver surprise. The JS side
+  needs nothing: `JSExport` injects `window.Capacitor.Plugins` into every
+  main-frame document, remote or bundled.
+- **CoreBluetoothMock** stays test-only (`GarrisonTests` dependency); the
+  BroadcastExtension target still links nothing.
+- **Config** is a hand-maintained `ios/GarrisonApp/Resources/capacitor.config.json`
+  plus the folder-reference resource `ios/GarrisonApp/Resources/public/`
+  (bootstrap page and the `talk/index.html` start-file placeholder). The
+  `GarrisonApp/Resources` resource entry excludes `public` so the folder is
+  copied once, as a directory.
+
+### Toolchain
+
+- **Xcode 26.2**, iOS 26.2 simulators. It is on `goncalos-mac-mini-1` and on
+  the `macos-26` CI runner. The MacBook Pro (the node this branch belongs to)
+  has Command Line Tools only and no disk for Xcode: nothing iOS compiles
+  there, and `xcodebuild` is not a command it can run.
+- **XcodeGen** (2.45.4 on the MacBook Pro; brew-installed on the mini and the
+  runner). `ios/project.yml` is the source of truth; `Garrison.xcodeproj` is
+  generated and gitignored, as §1 decided. `xcodegen generate` needs
+  `APPLE_TEAM_ID` in the environment (project.yml reads it for the signing
+  settings), even for a simulator build.
+- **Build and test on the mini.** `~/dev/garrison` on the mini is that node's
+  LIVE checkout (branch `node/goncalos-mac-mini-1`) and is never used for iOS
+  work. The build clone is `~/build/garrison-ios`, tracking this branch. The
+  loop from the MacBook Pro is: rsync `ios/` into `~/build/garrison-ios/ios/`
+  (excluding `build/`, `DerivedData/`, `Garrison.xcodeproj/`), then over ssh
+  `xcodegen generate && xcodebuild build|test -project Garrison.xcodeproj
+  -scheme GarrisonApp -destination 'platform=iOS Simulator,...'
+  CODE_SIGNING_ALLOWED=NO`. Non-login ssh has no brew or node in `PATH`;
+  prepend `/opt/homebrew/bin` or use a login shell. One xcodebuild at a time
+  on the mini. The unit suite (`GarrisonTests`) runs on the simulator; the
+  broadcast path stays device-only by design (spec §7 M6).
+- **Simulator iteration** points the app at a node without typing into the
+  bootstrap page: `xcrun simctl launch` with `SIMCTL_CHILD_GARRISON_NODE_ORIGIN`
+  and `SIMCTL_CHILD_GARRISON_CAPTURE_TOKEN` (optional `..._NODE_NAME`,
+  `..._CAPTURE_URL`); the DEBUG-only `NodeStore.seedFromEnvironmentIfRequested()`
+  upserts and selects that node and never logs the token.
+- **TestFlight** goes through the PRIVATE `gongiskhan/ios-thing` repository's
+  `garrison-ios.yml` workflow (macos-26 runner), which holds `ASC_KEY_ID`,
+  `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID`, `MATCH_PASSWORD` and the
+  `match-certs` branch. Dispatch: `gh workflow run garrison-ios.yml -R
+  gongiskhan/ios-thing -f lane=beta -f garrison_ref=<pushed branch>`; the
+  workflow checks out this repository at `garrison_ref`, runs `xcodegen
+  generate` and `fastlane beta` (`ios/fastlane/Fastfile`, ~3-4 minutes). The
+  branch must be pushed first. `scripts/ios-testflight.sh` is the local
+  equivalent and needs the same variables plus Xcode, so it is not runnable on
+  the MacBook Pro. There is deliberately no bootstrap lane: the App Store
+  Connect app record is a one-time browser step (Fastfile header).
+- **Evidence** per gate lands under `evidence/garrison-app/<gate>/` (the mini's
+  `xcodebuild test` log, the workflow run URL and TestFlight build number, a
+  phone screenshot of the shell loaded over the tailnet).
