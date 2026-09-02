@@ -117,3 +117,11 @@ WebKit against this node after `node:reload`:
 
 `/compose` at 390: document width 390. Every shot is the served prod build
 (`.next-prod`), not the dev server.
+
+Peers converged and reloaded at 559f6e65 (2026-09-03 00:10 local): dev-madrid
+and the mini took `git merge --ff-only origin/main` (their build-output
+`kanban-loop/dist` stashed first) and `npm run node:reload`.
+`webkit-440-madrid-embed-kanban.png` is `/embed/kanban-loop` on dev-madrid
+over the tailnet at 440x956: app bar with Back and "DEV-MADRID", the fitting's
+phone layout below; `/talk/morning-briefing` there measures composer y 893
+h 63 in a 956 viewport, document width 440.
