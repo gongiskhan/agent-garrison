@@ -21,7 +21,6 @@ const APP_SHELL = [
   "/web-channel.bundle.js",
   "/web-channel.css",
   "/manifest.json",
-  "/pcm-worklet.js",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/apple-touch-icon-180.png",

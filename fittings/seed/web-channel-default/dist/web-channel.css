@@ -2396,7 +2396,14 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 @media (max-width: 600px) {
   .cc-conv-head { flex-wrap: wrap; }
-  .cc-conv-search { flex: 1 1 100%; margin-left: 0; }
+  /* Two rows on a phone, not three. The search takes a row of its own, so it
+     goes LAST: whatever the host appends after it (a channel chip, a Brief
+     control) then shares the title's row. A wrapping row breaks lines on the
+     items' hypothetical sizes BEFORE anything shrinks, so the title's auto
+     basis alone would push that chip onto a line of its own; basis 0 lets the
+     title claim the leftover instead and ellipsise like it already does. */
+  .cc-conv-title { flex: 1 1 0; }
+  .cc-conv-search { flex: 1 1 100%; margin-left: 0; order: 1; }
   .cc-conv-hits { width: 100%; right: auto; left: 0; }
   .cc-paymodal { padding: 0; }
   .cc-paymodal-card { width: 100%; max-height: 100dvh; height: 100dvh; border-radius: 0; border: 0; }
@@ -2590,17 +2597,21 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    mono micro-labels, Source Serif headlines, sharp (near-zero-radius) chrome.
    ============================================================================ */
 
-* { box-sizing: border-box; }
+.talk-host * { box-sizing: border-box; }
 
-html, body {
-  margin: 0;
+/* .talk-host is the element a HOST hands the UI: the fitting's #root (sized to
+   the document by index.html), or the Garrison shell's /talk page wrapper (sized
+   to the content column). Everything document-level used to sit on html/body;
+   it lives here so the same stylesheet can load inside the shell without
+   restyling every other page. */
+.talk-host {
   background: #fbf8f1; /* paper - fills any area outside the centered column */
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
-  /* Pin the document to the viewport (or, when embedded, to the iframe) and let
-     the shell scroll INTERNALLY. Without this the body grows to its content and
-     the whole page scrolls, which is what pushed the composer off-screen when
-     the channel is opened inside Garrison's frame. */
+  /* Pin the UI to its host box and let the sessions shell scroll INTERNALLY.
+     Without this the box grows to its content and the whole page scrolls,
+     which is what pushed the composer off-screen when the channel was opened
+     inside Garrison's frame. */
   height: 100%;
   overflow: hidden;
 }
@@ -3429,7 +3440,7 @@ html, body {
 /* ==========================================================================
    Fortress operations-room refit
    ========================================================================== */
-:root {
+.talk-host {
   --wc-olive-950: #141a15;
   --wc-olive-900: #202920;
   --wc-olive-800: #2b372c;
@@ -3458,8 +3469,7 @@ html, body {
   --wc-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
 }
 
-html,
-body {
+.talk-host {
   background: var(--wc-olive-950);
   font-family: var(--wc-sans);
 }
@@ -3927,20 +3937,20 @@ body {
 /* ── Scrollbars — near-invisible, still scrollable ────────────────────────
    Dark ink thumb by default (the app's scrollable panes are warm stone); the
    light variant is re-declared on the olive sidebar and the ink code cards. */
-:root {
+.talk-host {
   --sb-thumb: rgba(32, 40, 32, 0.16);
   --sb-thumb-hover: rgba(32, 40, 32, 0.34);
 }
-* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
-::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
+.talk-host * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+.talk-host ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+.talk-host ::-webkit-scrollbar-track { background: transparent; }
+.talk-host ::-webkit-scrollbar-thumb {
   background: var(--sb-thumb);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
-::-webkit-scrollbar-corner { background: transparent; }
+.talk-host *::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+.talk-host ::-webkit-scrollbar-corner { background: transparent; }
 
 .wc-sidebar,
 .wc-side-scroll,
@@ -4788,4 +4798,11 @@ body {
   font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .wc-conv-id:hover { color: var(--cc-fg, #18211c); border-color: var(--cc-fg, #18211c); }
+@media (max-width: 600px) {
+  /* Shares the title's row on a phone (claude-chat wraps the search under it).
+     The id yields before the name does: it may shrink, capped so the title
+     keeps the larger share, and a long id ellipsises the same way it does at
+     26ch on the desktop - the click still copies the whole id. */
+  .wc-conv-id { flex: 0 1 auto; min-width: 0; max-width: 45%; }
+}
 

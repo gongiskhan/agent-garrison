@@ -1,0 +1,59 @@
+# npm test (vitest run), full suite, 2026-09-02T00:46:05Z, 06fe3710 + working tree
+
+## summary (vitest default reporter)
+    Test Files  596 passed | 7 skipped (603)
+    Tests  6946 passed | 23 skipped (6969)
+    Start at  01:43:42
+    Duration  113.27s (transform 8.49s, setup 2.20s, collect 42.39s, tests 829.45s, environment 82ms, prepare 26.56s)
+    exit=0
+
+JSON: suites=2311 tests=6969 passed=6946 failed=0 skipped=23
+
+## failing files: 0
+
+## skipped (by design, environment-gated)
+- tests/agent-sdk-primary-smoke.integration.test.ts: 1 skipped
+- tests/codex-primary-smoke.integration.test.ts: 1 skipped
+- tests/garrison-call-live.test.ts: 5 skipped
+- tests/gateway-pty.integration.test.ts: 6 skipped
+- tests/global-composition.integration.test.ts: 1 skipped
+- tests/openai-agents-live.test.ts: 3 skipped
+- tests/state-transitions.integration.test.ts: 1 skipped
+- tests/third-party-live.test.ts: 2 skipped
+
+## run history (full suite, forks pool, this MacBook Pro, load avg ~7)
+
+Before this gate the working tree carried 47 failing files against a baseline
+worktree of the same HEAD (06fe3710) failing 40: one G1-caused
+(own-port-canonical-port, the shim lost the visible EADDRINUSE guard) and the
+rest pre-existing on macOS. Root causes fixed, not silenced: /var vs
+/private/var path equality (tests/setup.ts pins TMPDIR to its realpath),
+session guards comparing cwd strings (sessionInTree in file-browser
+merge-actions + mesh git-executor), the /proc-only pid-reuse guard
+(own-port-lifecycle falls back to `ps -o etime=`), BSD realpath without -m
+(cortex-client resolve_abs), stale fixture servers squatting fixed test ports
+(tests/helpers/port-free.ts), and inherited GARRISON_APP_URL reaching the live
+Conversations surface from a test (tests/setup.ts clears it).
+
+run 1: 4 failed files. browser-observe + drill-authoring-api: "Hook timed out
+       in 10000ms" (Chromium teardown under the parallel run; both pass alone)
+       -> vitest.config.ts hookTimeout 30000, same rationale as testTimeout.
+       garrison-call-live + openai-agents-live: Ollama reachable but qwen2.5:3b
+       not pulled, and the seed has no `openai` SDK installed -> both suites
+       now skip on those conditions instead of failing on every call.
+run 2: 1 failed: claude-chat-session-events-browser "preserves the stable outer
+       Markdown node while a revision completes its fence" sampled the code
+       text two frames after render(), mid-revision under load -> waits for
+       the settled text (waitForFunction).
+run 3: 1 failed: pendant-capture "fuses a frame from the BROADCAST session"
+       sampled gw.requests as soon as the wake_screen_fused counter bumped, but
+       the operative turn is deliberately deferred until the ack has left
+       (wake.mjs `after`) -> waits for the request itself.
+run 4: 1 failed: the same claude-chat revision test, the other way round. Live
+       prose TYPES in (StreamingText, a few chars per frame), and the revision
+       passes through an auto-closed "...42;" render that already EQUALS the
+       target before the stray-backtick frame, so the run-2 wait could return
+       on a transient. -> requires the settled text to hold for 6 consecutive
+       animation frames (the reveal spends at most 4 on this backlog).
+       Reproduced the pass under 6x `yes` CPU load, 2/2.
+run 5: see summary above.

@@ -2213,3 +2213,10 @@
   font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .wc-conv-id:hover { color: var(--cc-fg, #18211c); border-color: var(--cc-fg, #18211c); }
+@media (max-width: 600px) {
+  /* Shares the title's row on a phone (claude-chat wraps the search under it).
+     The id yields before the name does: it may shrink, capped so the title
+     keeps the larger share, and a long id ellipsises the same way it does at
+     26ch on the desktop - the click still copies the whole id. */
+  .wc-conv-id { flex: 0 1 auto; min-width: 0; max-width: 45%; }
+}

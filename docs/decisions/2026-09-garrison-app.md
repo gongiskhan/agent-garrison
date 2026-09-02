@@ -369,6 +369,9 @@ absolute loopback URL; the shell route is relative.
 | `docs/adr-companion.md` toolchain (XcodeGen 2.46, match repo `ios-certificates`) | xcodegen 2.45.4 here; match repo is `gongiskhan/ios-thing` branch `match-certs` | `ios/fastlane/Fastfile` |
 | `/embed/<id>` needs work to resolve tailnet HTTPS | it already does (`/api/fittings/views` attaches `tailnetUrl`; `resolveViewUrl` picks it by page host). The gap is mesh-side: `meshServePort()` does not model collision bumps and this Mac is off-formula for ten fittings | `src/lib/mesh/peer-proxy.ts`, `tailscale serve status` |
 | a "Watch" aptidao (screen recording digest) may exist | not in this repository (checked in G0 round 2, see section 3) | grep |
+| CLAUDE.md: `compositions/<id>/apm.yml` "= source of truth per composition. Filesystem is authoritative" | on an ENROLLED node the state service is the manifest source: `up()` calls `syncCompositionFromState`, which overwrites the local `apm.yml` whenever its hash differs, so a git edit to a manifest is undone at the next `up()` until the same YAML is pushed to the service (`pushManifestToState`, rev CAS). G1's manifest commit was clobbered by its own redeploy this way; the fix was pushing the HEAD YAML to the service (default rev 28 -> 29, openai rev 2 -> 3), then `down` + `up`. Every future gate that edits a manifest pushes it the same way | `src/lib/composition-sync.ts`, `src/lib/runner.ts` (`up`), G1 evidence `redeploy.txt` |
+| a manifest edit through the shell keeps the file as authored | the only production writer, Muster's `mutateManifestAtomic`, re-dumps the YAML and strips every comment; the state copies of both compositions had zero comment lines. Comments in a manifest survive only as long as no Muster mutation happens; the G1 push restored them, and they are not relied upon | `src/app/api/muster/model.ts` (`dumpYaml`) |
+| `apm.lock.yaml` is portable and committable from any node | the lock is node-local by design (`composition-sync.ts` never carries it) and its shape follows the node's APM: this Mac runs APM 0.11.0 (no `name`/`version`/`deployed_file_hashes`), dev-madrid wrote the committed lock with 0.24.0. A lock regenerated here reads as 135 deleted lines. The committed lock is dev-madrid's; this run restores it from HEAD after every `up()` and does not commit the Mac's | `apm --version`, `git diff compositions/default/apm.lock.yaml` after `up()` |
 
 ## 3. Recon facts that shape the gates
 
@@ -682,10 +685,33 @@ gate are the suites that must stay green or be re-pointed in that gate.
   waits for the revealed text to SETTLE (live prose types in a few chars per
   frame, and an auto-closed intermediate render equals the target before the
   stray-backtick frame).
+- found on the live route (the tailnet screenshots, not the suites): the
+  shell's `+ New` control is `position: fixed` in the top-right corner of every
+  real route and sat on the conversation bar's trailing chip and search box at
+  both widths. `/talk` is a real route (only `/embed/*` drops the control), so
+  the bar reserves the corner itself: `src/components/talk/talk-page.css`
+  gives `.wc-backbar` / `.cc-conv-head` `padding-right: 112px`, 96px under
+  560px where the control is icon-only (measured 75px and 77px wide). The
+  phone bar then stacked THREE rows (title, id chip, search - 144px of an
+  844px viewport): a wrapping flex row breaks lines on the items' auto bases
+  before anything shrinks, so `packages/claude-chat/src/claude-chat.css` gives
+  the title `flex: 1 1 0` and puts the search last (`order: 1`) under 600px,
+  and `packages/talk/ui/styles.css` lets `.wc-conv-id` shrink to at most 45%
+  of the row (it ellipsises like it already does at 26ch on the desktop; the
+  click copies the whole id). Two rows, 115px.
+- left alone: on `/talk` the shell posts `/api/power/heartbeat` (source
+  `garrison-shell`) AND the talk app posts `/api/power-heartbeat` (source
+  `web-channel`), both relayed to power-default's `/presence`. Presence is a
+  recency boolean over `[{source, at}]`, so the duplicate changes nothing;
+  removing it means a prop across the package boundary for no observable
+  gain. Playwright reports both as `net::ERR_ABORTED` AFTER the 204 - Chromium
+  cancelling the unread body of a `void fetch()`, not a failure.
 - evidence: `evidence/garrison-app/g1/` (playwright report, phone-width and
-  desktop screenshots of `/talk` from the tailnet origin, test summaries).
+  desktop screenshots of `/talk` from the tailnet origin with the measured
+  geometry in `tailnet-shots.txt`, test summaries, the live-route probe, the
+  redeploy tail with the state-service correction).
 - deploy: `npm run node:redeploy` (the composition and `packages/` changed, so
-  the fingerprint takes the full path).
+  the fingerprint takes the full path), then `node:reload` for the CSS.
 
 ### G2 - one voice layer
 
