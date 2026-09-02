@@ -62,7 +62,9 @@ on the iPhone and walk this list on the real device against this node
    another node (or "+ New" on another node). In Safari the page navigates
    there, no new tab. In the app the webview switches to that node and lands
    on `/talk/<id>` there; that landing needs the TestFlight build carrying
-   `GarrisonNode.select(path)` (older builds land on the peer's `/talk`). A
+   `GarrisonNode.select(path)` (run 33695608972, `cbe5d512`, in
+   `evidence/garrison-app/g8/testflight.txt`; older builds land on the peer's
+   `/talk`). A
    node not added in the app opens in Safari instead. The node switcher in
    the app now keeps the current page across a switch as well.
 8. Pendant (G7): with the real pendant, Pair, Connect, watch `connected` and
@@ -93,7 +95,9 @@ the simulator and where the code is.
   loaded, and the old `:8445 -> 7777` mapping in the memory note is dead;
   the shell is at the bare host (443 -> 8777). Nothing to fix for the app;
   clean up when convenient.
-- Mesh peers: dev-madrid (`d88a54cb`) and the mini (`ae135cf7`) were
+- Mesh peers: dev-madrid and the mini were converged again to `cbe5d512`
+  (D47) and reloaded on 2026-09-03 00:45Z; before that, dev-madrid
+  (`d88a54cb`) and the mini (`ae135cf7`) were
   converged and redeployed on 2026-09-02 18:30Z and now serve the
   `viewport-fit=cover` shell; only the Air (offline that day) still runs the
   pre-plan code until its own `npm run node:redeploy` from `main`. The phone
