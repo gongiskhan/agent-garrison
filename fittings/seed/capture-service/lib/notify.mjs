@@ -91,7 +91,7 @@ function statusFileUrl(fittingId, env = process.env) {
 // running the legacy web-channel fitting publishes that host's base through
 // its status file. Both hosts share one thread store, so exactly one is ever
 // posted to - the app whenever it is named.
-function conversationsBaseUrl(env = process.env) {
+export function conversationsBaseUrl(env = process.env) {
   const app = env.GARRISON_APP_URL?.trim().replace(/\/+$/, "");
   if (app) return app;
   return statusFileUrl("web-channel-default", env);

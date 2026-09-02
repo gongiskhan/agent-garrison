@@ -1,0 +1,31 @@
+# Live digest smoke on this node, 2026-09-02T12:51:40Z
+# capture-service pid 15383 started 2026-09-02T12:49:56Z by node:redeploy (digest code).
+# Script: a ws session_start naming a fresh /talk thread, then session_end,
+# then GET /api/threads/<id>. Token read in-process from the composition .env.
+
+thread create 200
+after start [ 'session_started' ]
+after end [ 'session_started', 'session_ended' ]
+messages 1
+--- assistant 2026-09-02T12:51:16.024Z
+Recording ended: screen audio, 1m 5s, from g5-smoke.
+
+No transcript: no speech was recognised in the recording.
+
+Recording id G5LIVEMTK3HH1NX.
+session {
+ "id": "G5LIVEMTK3HH1NX",
+ "source": "companion-ios",
+ "mode": "screen_audio",
+ "device_name": "g5-smoke",
+ "consent": "shown",
+ "started_at": "2026-09-02T12:50:10.609Z",
+ "conversation_id": "g5-live-mtk3hh1n",
+ "status": "ended",
+ "audio_seq": 0,
+ "video_seq": 0,
+ "audio_bytes": 0,
+ "ended": {
+  "reason": "user"
+ }
+}

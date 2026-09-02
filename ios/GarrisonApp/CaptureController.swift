@@ -66,7 +66,7 @@ final class CaptureController: ObservableObject {
 
     var isRunning: Bool { phase == .live || phase == .connecting || phase == .interrupted }
 
-    func start(consent: ConsentState) {
+    func start(consent: ConsentState, conversationId: String? = nil) {
         guard !isRunning else { return }
         guard let baseURL = AppGroup.baseURL, let token = AppGroup.token else {
             phase = .failed("Set the base URL and token in Settings first.")
@@ -85,7 +85,7 @@ final class CaptureController: ObservableObject {
                 let granted = await AVAudioApplication.requestRecordPermission()
                 if granted {
                     self.phase = .idle
-                    self.beginSession(baseURL: baseURL, token: token, consent: consent)
+                    self.beginSession(baseURL: baseURL, token: token, consent: consent, conversationId: conversationId)
                 } else {
                     self.phase = .failed("Microphone access is denied. Enable it in Settings > Privacy > Microphone.")
                 }
@@ -94,10 +94,10 @@ final class CaptureController: ObservableObject {
         default:
             break
         }
-        beginSession(baseURL: baseURL, token: token, consent: consent)
+        beginSession(baseURL: baseURL, token: token, consent: consent, conversationId: conversationId)
     }
 
-    private func beginSession(baseURL: URL, token: String, consent: ConsentState) {
+    private func beginSession(baseURL: URL, token: String, consent: ConsentState, conversationId: String? = nil) {
         guard !isRunning else { return }
         let id = SessionId.generate()
         sessionId = id
@@ -115,6 +115,7 @@ final class CaptureController: ObservableObject {
             consent: consent,
             spoolDirectory: AppGroup.spoolDirectory(sessionId: id)
         )
+        uploader.conversationId = conversationId
         self.uploader = uploader
         uploader.onStateChange = { [weak self] state in
             Task { @MainActor in

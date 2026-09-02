@@ -89,14 +89,36 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func start(_ call: CAPPluginCall) {
         let kind = call.getString("kind") ?? "microphone"
+        // The conversation the record button lives in (G5). Same vocabulary the
+        // node's thread store uses, so a value it would rewrite is refused here
+        // instead of producing a digest into a thread nobody opened.
+        let conversationId: String?
+        if let raw = call.getString("conversationId"), !raw.isEmpty {
+            guard Self.isConversationId(raw) else {
+                call.reject("conversationId must be 1-80 chars of [A-Za-z0-9_-]", "BAD_CONVERSATION")
+                return
+            }
+            conversationId = raw
+        } else {
+            conversationId = nil
+        }
         switch kind {
         case "microphone":
-            Task { @MainActor in self.startMicrophone(call) }
+            Task { @MainActor in self.startMicrophone(call, conversationId: conversationId) }
         case "screen_audio":
-            Task { @MainActor in self.startBroadcast(call) }
+            Task { @MainActor in self.startBroadcast(call, conversationId: conversationId) }
         default:
             call.reject("kind must be microphone or screen_audio", "BAD_KIND")
         }
+    }
+
+    private static let conversationIdCharacters = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+    )
+
+    static func isConversationId(_ value: String) -> Bool {
+        guard (1 ... 80).contains(value.unicodeScalars.count) else { return false }
+        return value.unicodeScalars.allSatisfy { conversationIdCharacters.contains($0) }
     }
 
     @objc func stop(_ call: CAPPluginCall) {
@@ -143,7 +165,7 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Microphone
 
     @MainActor
-    private func startMicrophone(_ call: CAPPluginCall) {
+    private func startMicrophone(_ call: CAPPluginCall, conversationId: String? = nil) {
         guard AppGroup.baseURL != nil, AppGroup.token != nil else {
             call.reject("no node selected: capture URL and token are unset", "NO_NODE")
             return
@@ -153,7 +175,7 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         if AppGroup.consentSuppressed {
-            controller.start(consent: .suppressed)
+            controller.start(consent: .suppressed, conversationId: conversationId)
             call.resolve(statusPayload())
             return
         }
@@ -167,7 +189,7 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("consent declined", "CONSENT_DECLINED")
                 return
             }
-            self.controller.start(consent: consent)
+            self.controller.start(consent: consent, conversationId: conversationId)
             call.resolve(self.statusPayload())
         }
     }
@@ -175,7 +197,7 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Screen broadcast
 
     @MainActor
-    private func startBroadcast(_ call: CAPPluginCall) {
+    private func startBroadcast(_ call: CAPPluginCall, conversationId: String? = nil) {
         guard !AppGroup.isBroadcasting() else {
             call.reject("screen broadcast is already running", "ALREADY_RUNNING")
             return
@@ -184,7 +206,12 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("no host view to present the broadcast picker from", "NO_HOST")
             return
         }
+        // Parked for the extension before the picker goes up; the extension
+        // takes it when the broadcast starts, and a cancelled or failed start
+        // clears it below so it cannot ride along with a later broadcast.
+        AppGroup.setBroadcastConversationId(conversationId)
         guard let picker = triggerBroadcastPicker(in: hostView) else {
+            AppGroup.setBroadcastConversationId(nil)
             call.reject("the system broadcast picker exposed no button to trigger", "BROADCAST_NOT_STARTED")
             return
         }
@@ -200,6 +227,7 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
                     return
                 }
             }
+            AppGroup.setBroadcastConversationId(nil)
             var message = "screen broadcast did not start"
             if let failure = AppGroup.broadcastError(), failure.1 >= attemptStart {
                 message += ": \(failure.0)"

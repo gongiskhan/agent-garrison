@@ -31,6 +31,7 @@ enum AppGroup {
         static let broadcastHeartbeat = "broadcast.heartbeat" // epoch seconds, written by the extension
         static let broadcastLastError = "broadcast.lastError" // why the extension refused to start
         static let broadcastLastErrorAt = "broadcast.lastErrorAt"
+        static let broadcastConversationId = "broadcast.conversationId" // handed to the extension by the app
         // Node records (NodeStore). The list is a JSON-encoded [NodeRecord];
         // the current node is stored by name. Selecting a node mirrors its
         // capture URL and token into baseURL/token above, so the extension
@@ -148,6 +149,25 @@ extension AppGroup {
     static func clearBroadcastError() {
         defaults?.removeObject(forKey: Key.broadcastLastError)
         defaults?.removeObject(forKey: Key.broadcastLastErrorAt)
+    }
+
+    /// The app cannot pass arguments to the broadcast extension: the system
+    /// picker starts it. A recording begun from a conversation therefore
+    /// parks the thread id here and the extension consumes it (once) when the
+    /// broadcast starts, so a later Control Center broadcast never inherits
+    /// a stale conversation.
+    static func setBroadcastConversationId(_ id: String?) {
+        if let id, !id.isEmpty {
+            defaults?.set(id, forKey: Key.broadcastConversationId)
+        } else {
+            defaults?.removeObject(forKey: Key.broadcastConversationId)
+        }
+    }
+
+    static func takeBroadcastConversationId() -> String? {
+        let value = defaults?.string(forKey: Key.broadcastConversationId)
+        defaults?.removeObject(forKey: Key.broadcastConversationId)
+        return (value?.isEmpty ?? true) ? nil : value
     }
 
     static func isBroadcasting(now: Date = Date()) -> Bool {

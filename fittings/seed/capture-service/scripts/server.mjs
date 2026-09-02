@@ -36,6 +36,7 @@ import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
 import { CompanionNotifier, appPathFor, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
+import { postConversationDigest } from "../lib/digest.mjs";
 import { AckSink } from "../lib/ack-sink.mjs";
 import { MAX_TEXT_CHARS, ZecaVoice } from "../lib/tts.mjs";
 import { UpstreamError, transcribeClip } from "../lib/deepgram-rest.mjs";
@@ -1124,7 +1125,21 @@ export async function startServer(cfg = loadConfig()) {
     transcriber,
     // M4: every ended session with a transcript becomes ONE pending
     // capture_event for the shared triage tick (dedupe by session id).
-    onSessionEnd: (record) => emitSessionEvent({ record, store, counters, cfg: live })
+    onSessionEnd: (record) => {
+      emitSessionEvent({ record, store, counters, cfg: live });
+      // G5: a recording started from a conversation reports back into it.
+      if (record.conversation_id) {
+        void postConversationDigest({
+          record,
+          store,
+          cfg: live,
+          counters,
+          notifier,
+          env: cfg.env ?? process.env,
+          fetchImpl: live.fetchImpl ?? fetch
+        });
+      }
+    }
   });
   screenContext = new ScreenContextIndex({ ingress, cfg: live, counters });
   // cfg.fetchImpl is the REST-lane twin of cfg.wsFactory: a test hands the

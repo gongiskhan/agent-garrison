@@ -491,3 +491,26 @@ declare module "*/capture-service/scripts/connector.mjs" {
     statusFile?: string | null;
   }): Promise<Record<string, unknown> & { transcript?: string }>;
 }
+
+declare module "*/capture-service/lib/digest.mjs" {
+  export const DIGEST_TRANSCRIPT_CAP: number;
+  export function digestIdempotencyKey(sessionId: string): string;
+  export function digestPath(record: Record<string, unknown> | null | undefined): string | null;
+  export function buildDigest(args: {
+    record: Record<string, unknown>;
+    transcript: { words?: number; segments?: Array<{ text: string }> } | null;
+    cfg?: Record<string, unknown>;
+    now?: Date;
+  }): string;
+  export function postConversationDigest(args: {
+    record: Record<string, unknown>;
+    store?: { root: string } | null;
+    cfg?: Record<string, unknown>;
+    counters?: { bump(key: string, by?: number): number } | null;
+    notifier?: { sendPush?: (args: Record<string, unknown>) => Promise<unknown> } | null;
+    env?: Record<string, string | undefined>;
+    fetchImpl?: typeof fetch;
+    log?: { log(...args: unknown[]): void; error(...args: unknown[]): void };
+    now?: () => Date;
+  }): Promise<{ ok: boolean; status?: number; skipped?: string; error?: string; push?: unknown }>;
+}

@@ -92,6 +92,11 @@ export function encodeMediaFrame(kind, seq, ts, bytes) {
   return Buffer.concat([header, bytes]);
 }
 
+// The Conversations thread a recording was started from (plan G5). Same
+// vocabulary as the thread store's safeThreadId: the digest is posted back to
+// exactly this id, so anything the store would rewrite is refused up front.
+const CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
+
 function validateSessionStart(msg) {
   if (typeof msg.session_id !== "string" || !SESSION_ID_RE.test(msg.session_id)) {
     return "session_id must be 10-40 chars of [A-Za-z0-9_-]";
@@ -100,6 +105,10 @@ function validateSessionStart(msg) {
   if (!CONSENT.has(msg.consent)) return 'consent must be "shown" or "suppressed"';
   if (msg.started_at !== undefined && Number.isNaN(Date.parse(msg.started_at))) {
     return "started_at must be an ISO timestamp when present";
+  }
+  if (msg.conversation_id !== undefined && msg.conversation_id !== null &&
+      (typeof msg.conversation_id !== "string" || !CONVERSATION_ID_RE.test(msg.conversation_id))) {
+    return "conversation_id must be 1-80 chars of [A-Za-z0-9_-] when present";
   }
   return null;
 }
@@ -302,6 +311,8 @@ export class CaptureIngress {
       // Consent context travels in provenance (invariant I6).
       consent: msg.consent,
       started_at: msg.started_at ?? null,
+      // The conversation the record button lived in; the digest posts there.
+      ...(typeof msg.conversation_id === "string" ? { conversation_id: msg.conversation_id } : {}),
       // Informational (pendant sessions): which Opus framing the device ships.
       ...(msg.mode === "pendant" && PENDANT_CODECS.has(msg.codec) ? { codec: msg.codec } : {}),
       status: "live",

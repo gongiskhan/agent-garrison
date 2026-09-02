@@ -46,6 +46,7 @@ import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail"
 import { ShellsModal, type ShellOpenSpec, type ShellSpawnSpec } from "./shells-modal";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 import { COMPOSER_OVERLAY_SELECTOR, composerInset } from "./composer-inset";
+import { RecordButton, type CaptureBridge } from "./record-button";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
 // rendered into ClaudeChat's composer via the function-form adornment so it can
@@ -953,7 +954,7 @@ async function applyStickyProject(thread: Thread | null): Promise<TurnRouting | 
   }
 }
 
-function ThreadedApp({ url }: { url: UrlState }) {
+function ThreadedApp({ url, captureBridge }: { url: UrlState; captureBridge: CaptureBridge | null }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
@@ -1054,6 +1055,19 @@ function ThreadedApp({ url }: { url: UrlState }) {
   // its turns are delegated to an agent on ANOTHER machine rather than run as a
   // stretch here, so it keeps the chat lane, its FIFO and its thread transcript.
   const conversationId = activeRshTransport ? null : (activeThread?.conversationId ?? null);
+  // The record button (G5) rides beside the mic only where a host supplied a
+  // native capture bridge; the conversation id it passes is where
+  // capture-service posts the digest.
+  const conversationAdornment = useCallback(
+    (api: ComposerAdornmentApi) =>
+      captureBridge && conversationId ? (
+        <>
+          {voiceAdornment(api)}
+          <RecordButton bridge={captureBridge} conversationId={conversationId} />
+        </>
+      ) : voiceAdornment(api),
+    [captureBridge, conversationId]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -1688,7 +1702,7 @@ function ThreadedApp({ url }: { url: UrlState }) {
             transport={conversationTransport}
             title={activeThread?.title || "Conversation"}
             placeholder={narrowComposer ? "Message…" : undefined}
-            composerAdornment={voiceAdornment}
+            composerAdornment={conversationAdornment}
             draftKey={activeId ?? undefined}
             // Same rail contract as the chat lane below: `voice` stays off (the
             // streaming mic in the composer adornment supersedes it) and
@@ -1763,6 +1777,9 @@ export interface TalkAppProps {
   /** A thread named by the host's route (the shell's /talk/<id>). The query
    *  string's ?thread= wins when both are present so Discuss links keep working. */
   thread?: string;
+  /** The native capture bridge when the host is the Garrison app; puts the
+   *  record button in every conversation's composer. Absent in a browser. */
+  captureBridge?: CaptureBridge | null;
 }
 
 
@@ -2044,7 +2061,7 @@ export function TalkApp(props: TalkAppProps = {}) {
     };
   }, []);
 
-  if (threaded) return (<><ThreadedApp url={url} /><PushEnroller /></>);
+  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} /><PushEnroller /></>);
   // Explicit ?console=1: the rich session console (live PTY surface).
   return (
     <>

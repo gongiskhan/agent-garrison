@@ -8,6 +8,8 @@ import "@xterm/xterm/css/xterm.css";
 import "@garrison/claude-chat/styles.css";
 import "@garrison/talk/ui/styles.css";
 import "./talk-page.css";
+import { nativeCapture } from "@/lib/native-bridge";
+import { useNativeBridge } from "@/components/capture/BridgeGate";
 
 // Browser-only: the conversations UI reads window.location for its thread /
 // context query contract and drives MediaRecorder, the service worker and the
@@ -24,9 +26,13 @@ export interface TalkPageProps {
 }
 
 export function TalkPage({ thread }: TalkPageProps) {
+  // In the Garrison app the composer gets the record button (G5); the bridge
+  // is the shell's one native-capture module, handed in so the talk package
+  // never reads window.Capacitor itself.
+  const native = useNativeBridge() === true;
   return (
     <div className="talk-host talk-page">
-      <TalkApp thread={thread} />
+      <TalkApp thread={thread} captureBridge={native ? nativeCapture : null} />
     </div>
   );
 }

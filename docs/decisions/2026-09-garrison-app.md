@@ -864,6 +864,51 @@ in G3, so G4 changes no Swift beyond `ios/Tests/PushRoutingTests.swift`. The
 device registry does not gain a `node` column (plan premise): a device registers
 against the node it is loaded from, and the token is per node already.
 
+### D40. The record button records the screen, and the conversation id rides in `session_start` (2026-09-02)
+
+One control in every conversation's composer, rendered only when the host
+hands the talk UI a native capture bridge (`TalkAppProps.captureBridge`; the
+shell passes its one `native-bridge.ts` module, so the talk package never reads
+`window.Capacitor` and D37 holds). Its tap calls
+`GarrisonCapture.start({ kind: "screen_audio", conversationId })`: the plan's
+"screencast inside conversations" is the screen broadcast (screen + microphone
+via ReplayKit), so the button is "Record screen"; microphone-only capture stays
+on the Capture page. The conversation id travels as an optional
+`conversation_id` on the wire `session_start` (same `[A-Za-z0-9_-]{1,80}`
+vocabulary as the thread store's `safeThreadId`, validated on both ends), is
+persisted on the session record, and nothing else about the protocol changes.
+The app cannot pass arguments to the broadcast extension (the system picker
+starts it), so the plugin parks the id in the App Group
+(`broadcast.conversationId`) and the extension consumes it exactly once at
+`broadcastStarted`; a cancelled or failed start clears it, so a later Control
+Center broadcast never inherits a stale conversation.
+
+### D41. The digest is one assistant message keyed by the session id (2026-09-02)
+
+`fittings/seed/capture-service/lib/digest.mjs`: when a session that named a
+conversation ends, capture-service builds one message (mode, duration, device,
+the transcript or the reason there is none, the recording id) and posts it to
+`${GARRISON_APP_URL}/api/threads/<conversation_id>/messages` with
+`idempotencyKey: capture-digest:<session_id>`, so a replayed session end posts
+nothing twice - the thread store already dedupes on that key. It then sends a
+push whose `path` is `/talk/<conversation_id>` through `notifier.sendPush`
+only: the Companion-thread fallback would duplicate a message that already
+lives in the right thread. No new config flag: a digest is implied by the
+conversation id, and the existing `notify_enabled` gates the push as it gates
+every other push. The plan's "digest" is this message; summarisation by the
+Operative is a follow-up, the transcript is what the user asked to keep.
+
+### D42. Mac recording (screen-share-default as a capture-service client) is deferred (2026-09-02)
+
+D14 stands as the design: the Mac path is `screen-share-default` acting as a
+capture-service client (ffmpeg to PCM over the same ws framing, the shell
+forwarding `/api/record/*`, `CAPTURE_TOKEN` in its `secret_scope`). It does not
+ship in this run: the phone path is the gate criterion, the Mac path is a
+second client of a contract that G5 proves with the first, and the usage budget
+for this run is spent on the gates that remain. The record button therefore
+renders only where a native bridge exists; a browser on the Mac shows the
+composer unchanged. Listed in `HANDOFF-garrison-app.md` with the file plan.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
@@ -1418,30 +1463,43 @@ Compositions, registry, docs, tests:
 
 ### G5 - record button + digest
 
-- `packages/talk/ui/RecordButton.tsx` (+ wiring in `TalkApp.tsx`): native ->
-  `GarrisonCapture.start({mode:'screen_audio', conversationId})` (presents the
-  picker, D6); Mac -> `POST /api/record/start` on the shell which forwards to
-  screen-share-default.
+As shipped (2026-09-02; the pre-run plan below it is kept for the deferred Mac
+path):
+
+- `packages/talk/ui/record-button.tsx` (new; `RecordButton`, `CaptureBridge`,
+  `describeRecordError`), `packages/talk/ui/app.tsx` (`TalkAppProps.captureBridge`,
+  the composer adornment gains the button beside the mic when a bridge exists),
+  `packages/talk/ui/index.tsx` (exports), `packages/talk/ui/styles.css`
+  (`.wc-rec*`, skinned with the mic), `src/components/talk/TalkPage.tsx` (hands
+  `nativeCapture` in when `useNativeBridge()` is true; D37).
+- capture-service: `lib/digest.mjs` (new: `buildDigest`, `postConversationDigest`,
+  `digestIdempotencyKey`, `digestPath`), `lib/ingress.mjs` (`conversation_id`
+  optional on `session_start`, validated, persisted on the record),
+  `lib/notify.mjs` (`conversationsBaseUrl` exported), `scripts/server.mjs`
+  (`onSessionEnd` -> `emitSessionEvent` then the digest when the record names a
+  conversation). No `digest_enabled` flag (D41).
+- ios: `Shared/CaptureProtocol.swift` (`conversationId` -> `conversation_id`,
+  omitted when nil), `Shared/CaptureUploader.swift` (`conversationId` sent in
+  `session_start`), `Shared/AppGroup.swift` (`setBroadcastConversationId` /
+  `takeBroadcastConversationId`), `BroadcastExtension/SampleHandler.swift`
+  (consumes it once), `GarrisonApp/CaptureController.swift` (`start(consent:
+  conversationId:)`), `GarrisonApp/Plugins/GarrisonCapturePlugin.swift` (`start`
+  accepts and validates `conversationId`; `isConversationId`).
+- tests: `tests/capture-service-digest.test.ts` (new, 8), `tests/e2e/capture-page.spec.ts`
+  (record button case), `ios/Tests/CaptureProtocolTests.swift` (wire shape, id
+  vocabulary, consume-once).
+- evidence: `evidence/garrison-app/g5/`.
+- Deferred (D42): the Mac path and its files below.
+
+Pre-run plan for the Mac path (not shipped, see D42):
+
 - `fittings/seed/screen-share-default/scripts/server.mjs` (`/record/start|stop|state`,
-  capture-service client per D14), `apm.yml` (`consumes: channel` is not a
-  thing; declare `secret_scope: CAPTURE_TOKEN`, config `record_audio_device`),
-  `lib/capture-client.mjs` (the 17-byte framing, shared shape with
-  `ios/Shared/CaptureProtocol.swift`).
-- capture-service: `lib/digest.mjs` (new, next to `screen-context.mjs`),
-  `scripts/server.mjs` (`onSessionEnd` -> digest -> `POST
-  /api/conversation/<id>/message` on the shell + `POST /notify` with
-  `data.path=/talk/<id>`), `lib/ingress.mjs` (`session_start.conversation_id`
-  optional field), `lib/config.mjs` (`digest_enabled`).
-- ios: `CaptureProtocol.swift` (`conversation_id` in `session_start`),
-  `GarrisonCapturePlugin` (`start` accepts `conversationId`).
+  capture-service client per D14), `apm.yml` (declare `secret_scope: CAPTURE_TOKEN`,
+  config `record_audio_device`), `lib/capture-client.mjs` (the 17-byte framing,
+  shared shape with `ios/Shared/CaptureProtocol.swift`).
 - shell: `src/app/api/record/[...path]/route.ts` (forward to screen-share by
-  status file), `src/app/api/conversation` untouched.
-- tests: `tests/capture-service-digest.test.ts` (new), `tests/conversation-digest.test.ts`,
-  `tests/screen-share-record.test.ts` (new, ffmpeg absent path),
-  `ios/Tests/CaptureProtocolTests.swift`.
-- evidence: `evidence/garrison-app/g5/` (a real phone recording's digest
-  message screenshot, capture-service session json, Mac recording digest).
-  TestFlight build.
+  status file); the record button's browser branch posts there.
+- tests: `tests/screen-share-record.test.ts` (ffmpeg absent path).
 
 ### G6 - fittings in the app
 

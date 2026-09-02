@@ -33,11 +33,40 @@ final class CaptureProtocolTests: XCTestCase {
         XCTAssertTrue(json.contains("\"device_name\":\"Test\""))
         XCTAssertTrue(json.contains("\"started_at\""))
         XCTAssertTrue(json.contains("\"type\":\"session_start\""))
+        // No conversation: the key is absent, not null, so the node's
+        // validator never sees a value it must special-case.
+        XCTAssertFalse(json.contains("conversation_id"))
+
+        var fromConversation = start
+        fromConversation.conversationId = "chat-mf0abc-xyz123"
+        let conversationJson = try XCTUnwrap(String(data: JSONEncoder().encode(fromConversation), encoding: .utf8))
+        XCTAssertTrue(conversationJson.contains("\"conversation_id\":\"chat-mf0abc-xyz123\""))
 
         let receipt = SpokenReceiptMessage(spoken: "ack-1", ok: false, reason: "muted")
         let receiptJson = try XCTUnwrap(String(data: JSONEncoder().encode(receipt), encoding: .utf8))
         XCTAssertTrue(receiptJson.contains("\"spoken\":\"ack-1\""))
         XCTAssertTrue(receiptJson.contains("\"reason\":\"muted\""))
+    }
+
+    func testConversationIdVocabulary() {
+        XCTAssertTrue(GarrisonCapturePlugin.isConversationId("chat-mf0abc-xyz123"))
+        XCTAssertTrue(GarrisonCapturePlugin.isConversationId("A_b-9"))
+        XCTAssertFalse(GarrisonCapturePlugin.isConversationId(""))
+        XCTAssertFalse(GarrisonCapturePlugin.isConversationId("not a/thread:id"))
+        XCTAssertFalse(GarrisonCapturePlugin.isConversationId(String(repeating: "a", count: 81)))
+        XCTAssertFalse(GarrisonCapturePlugin.isConversationId("caf\u{E9}"))
+    }
+
+    func testBroadcastConversationIdIsConsumedOnce() {
+        let saved = AppGroup.defaults
+        AppGroup.defaults = UserDefaults(suiteName: "protocol-tests-\(UUID().uuidString)")
+        defer { AppGroup.defaults = saved }
+        AppGroup.setBroadcastConversationId("chat-mf0abc-xyz123")
+        XCTAssertEqual(AppGroup.takeBroadcastConversationId(), "chat-mf0abc-xyz123")
+        XCTAssertNil(AppGroup.takeBroadcastConversationId())
+        AppGroup.setBroadcastConversationId("chat-mf0abc-xyz123")
+        AppGroup.setBroadcastConversationId(nil)
+        XCTAssertNil(AppGroup.takeBroadcastConversationId())
     }
 
     func testServerMessageParsing() throws {
