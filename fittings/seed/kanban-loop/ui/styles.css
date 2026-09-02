@@ -670,6 +670,10 @@ body {
   /* Stay intrinsic-width even under the mobile rule that stretches labelled
      buttons full width — icon buttons should read as compact taps, not bars. */
   flex: 0 0 auto;
+  /* The containing block for the hidden label below. Without it the absolute
+     span resolves against the viewport and every card past the fold stretches
+     the document by its own height, so the page scrolls into blank space. */
+  position: relative;
 }
 .btns.icon-only .btn-label {
   position: absolute;
@@ -1004,8 +1008,10 @@ body {
 .tag .tag-x:hover { background: white; color: var(--alarm); }
 .tag-add { margin-top: 8px; }
 
-/* list-config: the scheduler-beat schedule builder */
-.sched { display: flex; flex-direction: column; gap: 9px; }
+/* list-config: the scheduler-beat schedule builder. Element-qualified because
+   the card front's schedule chip is `.chip.sched`, and a bare `.sched` turned
+   that chip into a column flex box (clock on one line, text on the next). */
+div.sched { display: flex; flex-direction: column; gap: 9px; }
 .sched input[type="number"],
 .sched input[type="time"],
 .sched select,
@@ -2401,8 +2407,6 @@ button:active, .btn:active { transform: translateY(1px); }
 .import-preview ul { margin: 6px 0 0; padding-left: 20px; }
 @media (max-width: 620px) {
   .transfer-row { align-items: stretch; flex-direction: column; }
-  .topbar { flex-wrap: wrap; }
-  .topbar .spacer { min-width: 20px; }
 }
 
 /* Schedule rows */
@@ -2699,3 +2703,257 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .conv-state-chip.is-running { background: var(--sage-soft); color: var(--ink); border-color: var(--sage-2); }
 .conv-state-chip.is-needs-attention { background: var(--alarm-soft); color: var(--alarm); border-color: rgba(155, 54, 45, 0.35); font-weight: 700; }
 .conv-state-chip.is-done { background: var(--paper-3); color: var(--ink); }
+
+/* ── phone layout (<=640px, one query shared with ui/phone-layout.ts) ────────
+   The board under a thumb: a compact single-row topbar with an overflow menu, a
+   column strip over a snapping one-column carousel, cards sized for touch, and
+   every sheet as a full-height bottom sheet. Lives at the END of the file so it
+   outranks the older 780/620/480 rules above without a specificity contest;
+   desktop keeps every rule it had. */
+@media (max-width: 640px) {
+  /* topbar: brand + count on the left, New card + More on the right, one row */
+  .topbar { gap: 8px; padding: 6px 12px; min-height: 52px; }
+  .topbar .brand { flex: 1 1 auto; min-width: 0; gap: 8px; }
+  .topbar .brand-mark { width: 24px; height: 24px; }
+  .topbar .brand-mark svg { width: 20px; height: 20px; }
+  .topbar .brand-text { min-width: 0; }
+  .topbar .brand-text .name {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topbar .brand-text .sub { display: none; }
+  .topbar .status {
+    flex: 0 0 auto;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    padding: 3px 6px;
+    white-space: nowrap;
+  }
+  .topbar .spacer { display: none; }
+  .topbar .btn.primary {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 0 11px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .topbar-overflow { position: relative; flex: 0 0 auto; }
+  .topbar .topbar-more {
+    width: 44px;
+    min-width: 44px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .topbar .topbar-more svg { width: 16px; height: 16px; }
+  .topbar .topbar-more[aria-expanded="true"] { background: rgba(255, 255, 255, 0.16); border-color: #f5efdf; }
+  /* the overflow menu: a paper panel hanging off the More control */
+  .topbar-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    min-width: 188px;
+    display: flex;
+    flex-direction: column;
+    padding: 6px;
+    background: var(--paper);
+    border: 1px solid var(--rule-2);
+    box-shadow: 0 14px 36px rgba(24, 33, 28, 0.28);
+    z-index: 6;
+  }
+  .topbar-menu .btn {
+    width: 100%;
+    justify-content: flex-start;
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 14px;
+    color: var(--ink);
+    background: transparent;
+    border-color: transparent;
+  }
+  .topbar-menu .btn:hover:not(:disabled) { background: var(--paper-2); border-color: transparent; }
+  .topbar-menu .btn[aria-pressed="true"] { color: var(--sage); }
+
+  /* column strip: every column with its count; the one in view is filled */
+  .col-strip {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    padding: 6px 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    -webkit-overflow-scrolling: touch;
+  }
+  .col-strip::-webkit-scrollbar { display: none; }
+  .col-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    padding: 0 10px 0 11px;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    color: var(--ink-2);
+    font-family: var(--sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .col-chip-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    min-width: 20px;
+    padding: 2px 4px;
+    text-align: center;
+    color: var(--mute);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+  }
+  .col-chip.active { background: var(--sage); border-color: var(--sage); color: var(--paper); }
+  .col-chip.active .col-chip-count {
+    color: var(--paper);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+  .col-chip.attn { border-color: var(--alarm); color: var(--alarm); }
+  .col-chip.attn .col-chip-count { color: var(--alarm); border-color: rgba(155, 54, 45, 0.35); }
+  .col-chip.attn.active { background: var(--alarm); color: var(--paper); }
+  .col-chip.attn.active .col-chip-count { color: var(--paper); }
+
+  /* board: a snapping carousel, one column per swipe with the next one peeking */
+  .board-scroll {
+    padding: 0 0 6px;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 12px;
+    overscroll-behavior-x: contain;
+  }
+  /* a live drag auto-scrolls toward the edge; snapping would yank it back */
+  .board-scroll.dragging { scroll-snap-type: none; }
+  .board { padding: 12px 12px 10px; gap: 10px; }
+  .list {
+    flex: 0 0 auto;
+    width: calc(100vw - 48px);
+    max-width: none;
+    scroll-snap-align: start;
+  }
+  .list .lh { padding: 11px 13px 9px; }
+  .list .lbody { padding: 11px 12px; gap: 10px; }
+  .list.drag-ghost-col { width: calc(100vw - 48px); }
+
+  /* cards: touch spacing, a readable title, 40px actions on an 8px grid */
+  .card { padding: 11px 12px 10px; font-size: 13px; }
+  .card .ct { gap: 8px; }
+  .card .ct .title { font-size: 15px; line-height: 1.35; }
+  /* The coarse-pointer floor stretches the title button and the tick to 44px
+     and centres their content, which floats the title a line below its dot.
+     The whole card is the tap target that opens it, so the title needs no floor. */
+  .card .ct .card-title-open { min-height: 0; }
+  .card .ct .card-select { width: 18px; height: 18px; min-height: 0; margin-top: 1px; }
+  .card .ct .dot { margin-top: 6px; }
+  .card .ct .card-rename { width: 40px; height: 40px; margin: -10px -12px -10px 0; }
+  .card .cmeta { gap: 5px 6px; }
+  .chip { font-size: 10px; padding: 2px 6px; }
+  .card .btns { gap: 8px; margin-top: 12px; }
+  .card .btns .btn { flex: 0 0 auto; }
+  .card .btns.icon-only .btn {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0 10px;
+    justify-content: center;
+  }
+  .card .btns.icon-only .btn svg { width: 14px; height: 14px; }
+  .card .btns .ct-date { font-size: 11px; }
+  .card.drag-ghost { width: calc(100vw - 74px); }
+
+  /* sheets: full-height bottom sheets, a 44px close, the body scrolls alone */
+  .sheet-backdrop { padding: 0; align-items: flex-end; }
+  .sheet,
+  .sheet.mid,
+  .sheet.wide {
+    position: fixed;
+    inset: auto 0 0 0;
+    width: 100%;
+    max-width: none;
+    height: 96dvh;
+    max-height: 96dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    box-shadow: 0 -12px 40px rgba(24, 33, 28, 0.3);
+  }
+  .sheet .sh-head {
+    flex: 0 0 auto;
+    position: static;
+    gap: 10px;
+    padding: 8px 10px 8px 16px;
+  }
+  .sheet .sh-head h3 { font-size: 17px; }
+  .sheet .sh-head .btn {
+    flex: 0 0 auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  .sheet .sh-head .btn svg { width: 16px; height: 16px; }
+  /* the title's pencil: a 40px target that does not grow the heading line */
+  .sheet .sh-head h3 .sheet-title-edit { width: 40px; height: 40px; min-height: 0; margin: -8px 0; }
+  /* the opened card's meta chips: the coarse-pointer floor made the id and the
+     autonomous toggle 44px boxes and stretched the plain chips beside them */
+  .detail-meta { align-items: center; }
+  .detail-meta .chip { display: inline-flex; align-items: center; min-height: 32px; padding: 0 8px; }
+  /* the conversation sheet's meta row: id chip, state chip and the details
+     button share one 36px line, tappable without dwarfing the state chip; the
+     row does not wrap, the id gives way (ellipsis) when the state runs long */
+  .sheet.conv .conv-meta { flex-wrap: nowrap; }
+  .sheet.conv .conv-meta .chip { display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 36px; padding: 0 8px; white-space: nowrap; }
+  .sheet.conv .conv-meta .chip-id {
+    display: block;
+    flex: 0 1 auto;
+    min-width: 0;
+    line-height: 34px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sheet.conv .conv-meta .btn.small { flex: 0 0 auto; min-height: 36px; padding: 0 12px; font-size: 13px; white-space: nowrap; }
+  .sheet .sh-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 14px calc(22px + env(safe-area-inset-bottom));
+  }
+  /* the conversation sheet keeps its pinned composer: the stream scrolls, not the body */
+  .sheet.conv { height: 96dvh; }
+  .sheet.conv .sh-body { overflow: hidden; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  /* footer actions stack full width; the margin keeps a full-width button off
+     the last field, which carries no bottom margin of its own */
+  .sheet .sh-body > .btn { width: 100%; justify-content: center; min-height: 48px; margin-top: 14px; font-size: 15px; }
+  .sheet .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .sheet .btns .btn { min-height: 44px; justify-content: center; font-size: 12.5px; }
+  .sheet .btns .ct-date { grid-column: 1 / -1; margin-left: 0; text-align: right; }
+  .seg .btn { flex: 1 1 0; justify-content: center; min-height: 44px; }
+  .danger-zone { gap: 8px; }
+  .danger-zone > .btn { flex: 1 1 100%; justify-content: center; min-height: 44px; }
+  .confirm-del { flex: 1 1 100%; }
+  .confirm-del .row { flex-direction: column; }
+  .confirm-del .row .btn { width: 100%; justify-content: center; min-height: 44px; }
+
+  /* every field at 16px so a focused input does not zoom the page; the id
+     outranks the class-scoped sizes above and in the conversation skin */
+  #root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  #root select,
+  #root textarea { font-size: 16px; }
+}

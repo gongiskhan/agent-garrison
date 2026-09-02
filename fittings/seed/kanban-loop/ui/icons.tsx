@@ -103,6 +103,17 @@ export function ChevronIcon(): JSX.Element {
 export function PencilIcon(): JSX.Element {
   return <svg {...base}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>;
 }
+// Three dots - the phone topbar's overflow control, holding the secondary
+// board actions that do not earn a button of their own on a 390px row.
+export function MoreIcon(): JSX.Element {
+  return (
+    <svg {...base}>
+      <circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 export function GearIcon(): JSX.Element {
   return (
     <svg {...base}>
