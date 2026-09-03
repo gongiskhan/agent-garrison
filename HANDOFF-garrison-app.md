@@ -279,6 +279,18 @@ the simulator and where the code is.
   local `apm.yml` diff you see on this Mac IS that rev-35 refresh, not
   something to commit here.
 
+- **2026-09-03 late (D56, `e76a0867`): this Mac and the mini redeployed;
+  dev-madrid still NOT** (same reason as D55). This Mac: `node:redeploy`
+  at 21:30Z, 43 verifies green, capture-service pid 59247 on the installed
+  copy with the reply watch. The mini: fast-forward from `e11a78a6`,
+  `node:redeploy` at 21:15Z, `running`, capture-service pid 77558. The
+  feedback loop needs the phone's APNs registration to be live on the node
+  you test against (§1 item 5): without it every answer still lands in the
+  conversation and is spoken in-app, but the "Zeca" push is skipped and the
+  wake-results record reads `delivery: "undelivered"`. No `ios/` change, so
+  the TestFlight build from D50 is the one to test with. WebKit evidence in
+  `evidence/garrison-app/voice-d56/`.
+
 ## 3. Operator-triggered follow-ups
 
 - **Remove the legacy fittings.** `evidence/garrison-app/g8/remove-web-channel-default.patch`
