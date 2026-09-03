@@ -43,11 +43,22 @@ function StatusPip({ status }: { status: string }) {
 
 function FindingRow({ f }: { f: Finding }) {
   const [open, setOpen] = useState(false);
+  // Ids in verify/drift checks are "composition:fitting" — render the
+  // composition as a muted prefix badge so the FITTING reads as the subject
+  // (a joined "default-2:basic-memory" looks like one odd name).
+  const parts = f.id.includes(":") ? f.id.split(":") : null;
   return (
     <div className={`finding finding-${f.status}`}>
       <div className="finding-head">
         <StatusPip status={f.status} />
-        <span className="finding-id">{f.id}</span>
+        {parts ? (
+          <span className="finding-id">
+            <span className="comp-badge">{parts[0]}</span>
+            {parts.slice(1).join(":")}
+          </span>
+        ) : (
+          <span className="finding-id">{f.id}</span>
+        )}
         <span className="finding-detail">{f.detail}</span>
       </div>
       {f.fix && <div className="finding-fix">fix: {f.fix}</div>}

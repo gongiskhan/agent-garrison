@@ -24511,10 +24511,14 @@ function StatusPip({ status }) {
 }
 function FindingRow({ f }) {
   const [open, setOpen] = (0, import_react.useState)(false);
+  const parts = f.id.includes(":") ? f.id.split(":") : null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `finding finding-${f.status}`, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-head", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusPip, { status: f.status }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: f.id }),
+      parts ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "finding-id", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "comp-badge", children: parts[0] }),
+        parts.slice(1).join(":")
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: f.id }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: f.detail })
     ] }),
     f.fix && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-fix", children: [
