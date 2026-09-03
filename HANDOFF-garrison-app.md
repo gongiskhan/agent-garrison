@@ -98,8 +98,9 @@ the simulator and where the code is.
   loaded, and the old `:8445 -> 7777` mapping in the memory note is dead;
   the shell is at the bare host (443 -> 8777). Nothing to fix for the app;
   clean up when convenient.
-- Mesh peers: dev-madrid and the mini were converged again to `cbe5d512`
-  (D47) and reloaded on 2026-09-03 00:45Z; before that, dev-madrid
+- Mesh peers: dev-madrid and the mini were converged to `8b543503` (D48,
+  `/frame/talk` and the local `/mesh/talk` rows) and reloaded on 2026-09-03
+  07:40Z; before that to `cbe5d512` (D47) on 2026-09-03 00:45Z; before that, dev-madrid
   (`d88a54cb`) and the mini (`ae135cf7`) were
   converged and redeployed on 2026-09-02 18:30Z and now serve the
   `viewport-fit=cover` shell; only the Air (offline that day) still runs the

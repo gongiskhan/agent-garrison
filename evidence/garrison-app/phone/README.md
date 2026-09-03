@@ -142,3 +142,33 @@ At 800px the in-row toggle is present (the skin's overlay breakpoint is
 same tap becomes a native node switch carrying `/talk/<id>` (needs the
 TestFlight build with `GarrisonNode.select(path)`); the simulator and the
 phone are the operator's.
+
+## Fifth phone check: "Conversations are opening in a new window. They should not" (2026-09-03)
+
+Decision D48. D47 kept the tap in the same window but still navigated the
+top window to the other node's origin, which a phone treats as leaving: a
+Safari hand-off in the Garrison app (Capacitor opens any off-server top-level
+load externally; sub-frame loads are allowed), a scope exit on a Home Screen
+install. Now a row from another node opens `/mesh/talk/<node>/<id>` on THIS
+node, which frames the conversation from its home node's chromeless
+`/frame/talk/<id>`; a row tapped inside that frame posts
+`garrison:open-conversation` to the parent, which routes it on its own origin.
+Measured in Playwright WebKit against this node's prod build after
+`node:reload` at `8b543503`, with dev-madrid and the mini reloaded on the same
+commit:
+
+| shot | viewport | what it shows |
+|---|---|---|
+| `webkit-390-mesh-talk-framed.png` | 390x844 | `/mesh/talk/dev-madrid/kanban-board-review` on this node: app bar (Back, "Conversations on dev-madrid", `+ New`, menu) at 0,0 390x48; the `.embed-view` iframe at 0,48 390x796 holds `https://dev-madrid.tail31efa.ts.net/frame/talk/kanban-board-review`, whose shell is `app-shell shell-frame shell-phone` with no app bar and no sidebar: the conversation row (toggle x 10 36x36, name, search) at y 0 and the composer at y 733 h 63 = the pane's bottom edge |
+| `webkit-390-mesh-talk-hop-mini.png` | 390x844 | inside dev-madrid's frame, the thread list opened and a mini row tapped: the top window moved to `/mesh/talk/goncalos-mac-mini-1/companion-reports` on this node and the frame now loads the mini's `/frame/talk/companion-reports` |
+| `webkit-1280-mesh-talk-framed.png` | 1280x800 | the same page on a desktop viewport: this node's sidebar at the left, the frame at 260,0 1020x800 with the peer's chromeless conversation (`app-shell shell-frame`, no bar, no side) |
+| `webkit-390-mesh-talk-open.json` | 390x844 | three taps, each `popups` empty and `pages` 1: a dev-madrid row from `/talk` on this node lands on `/mesh/talk/dev-madrid/kanban-board-review`; a mini row tapped inside that frame lands on `/mesh/talk/goncalos-mac-mini-1/companion-reports` with the frame on the mini; a row this node owns, tapped inside the frame, lands on the local `/talk/g5-live-mtk3hh1n` with no frame |
+
+`/api/mesh-threads` on this node, dev-madrid and the mini all emit local
+`/mesh/talk/<node>/<id>` rows; `/frame/talk/<id>` answers 200 on both peers.
+"+ New" on a peer goes to `/mesh/talk/<node>/?new=1`, which Next redirects
+(308) to `/mesh/talk/<node>?new=1` keeping the query. The record button is
+absent inside a framed conversation (no native bridge in a cross-origin
+frame; follow-up). No app change: the fix is in the shell, any TestFlight
+build shows it against a node on this commit; the Air still runs the pre-plan
+code and its rows will frame nothing until its own redeploy.

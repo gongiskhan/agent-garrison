@@ -1,0 +1,5 @@
+{
+  "row-tap-from-this-node": {"before":"https://goncalos-macbook-pro.tail31efa.ts.net/talk","after":"https://goncalos-macbook-pro.tail31efa.ts.net/mesh/talk/dev-madrid/kanban-board-review","popups":0,"pages":1},
+  "row-tap-inside-frame-third-node": {"before":"https://goncalos-macbook-pro.tail31efa.ts.net/mesh/talk/dev-madrid/kanban-board-review","after":"https://goncalos-macbook-pro.tail31efa.ts.net/mesh/talk/goncalos-mac-mini-1/companion-reports","popups":[],"pages":1,"inner":["https://goncalos-mac-mini-1.tail31efa.ts.net/frame/talk/companion-reports"]},
+  "row-tap-inside-frame-self": {"before":"https://goncalos-macbook-pro.tail31efa.ts.net/mesh/talk/dev-madrid/kanban-board-review","after":"https://goncalos-macbook-pro.tail31efa.ts.net/talk/g5-live-mtk3hh1n","popups":[],"pages":1,"inner":[]}
+}
