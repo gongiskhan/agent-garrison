@@ -50,6 +50,9 @@ describe("transports config", () => {
       })
     );
     const env = {
+      // Local shells are a separate concern (see remote-shell-local-transport
+      // test); disabled here so this stays a pure ssh-config-merging test.
+      GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS: "false",
       GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: JSON.stringify({
         both: { ssh: { host: "from-env", port: 2222 }, tmuxSession: "weird name!", label: "Both" },
         csg: {
@@ -72,9 +75,13 @@ describe("transports config", () => {
   });
 
   it("drops entries without an ssh block and tolerates bad env JSON", async () => {
-    const bad = { GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: "{not json" } as unknown as NodeJS.ProcessEnv;
+    const bad = {
+      GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS: "false",
+      GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: "{not json"
+    } as unknown as NodeJS.ProcessEnv;
     expect((await loadTransports(bad)).size).toBe(0);
     const noSsh = {
+      GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS: "false",
       GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: JSON.stringify({ x: { tmuxSession: "x" } })
     } as unknown as NodeJS.ProcessEnv;
     expect((await loadTransports(noSsh)).size).toBe(0);

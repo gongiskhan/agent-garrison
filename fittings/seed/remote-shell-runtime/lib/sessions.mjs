@@ -25,7 +25,11 @@ import { mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pty from "node-pty";
-import { garrisonHome, sshArgv, sshExec } from "./transports.mjs";
+import { attachSpawnSpec, eventsTailSpec, garrisonHome, transportExec } from "./transports.mjs";
+import { shellQuote } from "./shell-quote.mjs";
+import { buildRuntimeProbeScript, commandLine, parseRuntimeProbe, RUNTIMES } from "./runtimes.mjs";
+
+const RUNTIME_PROBE_TTL_MS = 5 * 60_000;
 
 const OUTPUT_BUFFER_BYTES = 512 * 1024; // full alt-screen redraw replay
 const EVENTS_BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
@@ -54,8 +58,6 @@ function stateDir() {
 function sessionsFile() {
   return path.join(stateDir(), "sessions.json");
 }
-
-const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 // A remote cwd from the UI: ~-relative or absolute, one line, no control
 // bytes. shellQuote/remotePath contain injection; this contains nonsense.
@@ -161,33 +163,52 @@ const FANOUT_FLUSH_MS = 40;
 // A stalled pulse would otherwise let the remote byte file grow without bound.
 const PANE_BYTES_CEILING = 64 * 1024 * 1024;
 
-// The lifecycle hook the fitting maintains at ~/.garrison/agent-event-hook.sh
-// on every transport. It gained "cwd" the day one transport stopped meaning
-// one session: without it, every session on a machine flips running/idle on
-// every other session's events. Content-addressed write: one exec per fitting
-// process per transport, and only when the bytes differ.
-export const REMOTE_EVENT_HOOK = `#!/usr/bin/env bash
+// The lifecycle hook the fitting maintains on every transport, at
+// `<eventsFile's own directory>/agent-event-hook.sh`. It gained "cwd" the day
+// one transport stopped meaning one session: without it, every session on a
+// machine flips running/idle on every other session's events; it gained
+// "runtime" so the same hook script can serve claude/codex/cursor/gemini.
+// Content-addressed write: one exec per fitting process per transport, and
+// only when the bytes differ. `eventsFilePath` is a bash-syntax destination
+// path (a `~/...` literal for ssh transports, evaluated on the REMOTE; an
+// already-absolute path for the `local` transport) - never shell-quoted here,
+// since it is trusted composition config, not remote input.
+export function buildEventHook(eventsFilePath) {
+  return `#!/usr/bin/env bash
 # Append one JSON line per agent lifecycle event to a local file.
-# $1 = event name (agent-start | agent-stop). Never makes network calls.
-# Maintained by Garrison's remote-shell fitting - local edits are overwritten.
+# $1 = event name (agent-start | agent-stop). $2 = runtime id (optional).
+# Never makes network calls. Maintained by Garrison's remote-shell fitting -
+# local edits are overwritten.
 event="\${1:-agent-stop}"
+runtime="\${2:-}"
 input=$(cat 2>/dev/null || true)
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 sid=$(printf '%s' "$input" | grep -oE '"(conversation_id|session_id|chat_id)"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\\1/')
 cwd=$(printf '%s' "$input" | grep -oE '"(cwd|workspace_root|workspacePath)"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\\1/')
 [ -z "$cwd" ] && cwd="$PWD"
-printf '{"ts":"%s","event":"%s","session_id":"%s","cwd":"%s"}\\n' "$ts" "$event" "\${sid:-unknown}" "$cwd" >> ~/.garrison/events.jsonl
+mkdir -p "$(dirname ${eventsFilePath})" 2>/dev/null
+printf '{"ts":"%s","event":"%s","session_id":"%s","cwd":"%s","runtime":"%s"}\\n' "$ts" "$event" "\${sid:-unknown}" "$cwd" "$runtime" >> ${eventsFilePath}
 exit 0
 `;
+}
+
+// The default (ssh transport) hook, byte-identical in behavior to the one
+// this fitting has always deployed - kept as a named export for anything that
+// still wants "the" hook rather than a transport-specific one.
+export const REMOTE_EVENT_HOOK = buildEventHook("~/.garrison/events.jsonl");
 
 export class SessionManager {
-  constructor({ tunnels, transports, notify, exec = sshExec, ptySpawn = null, env = process.env }) {
+  constructor({ tunnels, transports, notify, exec = transportExec, spawnFn = spawn, ptySpawn = null, env = process.env }) {
     this.tunnels = tunnels;
     this.transports = transports; // Map name -> transport
     this.notify = notify; // async ({title, text, link, tag}) => void
     // Injectable so the storm and tunnel-failure paths are reachable by a test
-    // with no remote in sight; every ssh call in this file goes through #exec.
+    // with no remote (or no local tmux) in sight; every command in this file
+    // goes through #exec, which dispatches to ssh or the local machine.
     this.exec = exec;
+    // Injectable spawn for the events-watcher child (ssh tail / local tail),
+    // separately from ptySpawn (the interactive attach client).
+    this.spawnFn = spawnFn;
     this.ptySpawn = ptySpawn ?? ((file, argv, opts) => pty.spawn(file, argv, opts));
     const mb = Number(env.GARRISON_REMOTESHELLRUNTIME_ATTACH_OUTPUT_BUDGET_MB);
     this.attachBudgetBytes = (Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_ATTACH_BUDGET_MB) * 1024 * 1024;
@@ -210,14 +231,16 @@ export class SessionManager {
     this.hookEnsured ??= new Set();
     if (this.hookEnsured.has(transport.name)) return;
     this.hookEnsured.add(transport.name);
+    const dir = transport.stateDirExpr;
+    const next = `${dir}/.agent-event-hook.next`;
+    const hook = `${dir}/agent-event-hook.sh`;
     const r = await this.#exec(
       transport,
-      `mkdir -p "$HOME/.garrison" && cat > "$HOME/.garrison/.agent-event-hook.next" && ` +
-        `if cmp -s "$HOME/.garrison/.agent-event-hook.next" "$HOME/.garrison/agent-event-hook.sh" 2>/dev/null; then ` +
-        `rm -f "$HOME/.garrison/.agent-event-hook.next"; echo SAME; else ` +
-        `mv "$HOME/.garrison/.agent-event-hook.next" "$HOME/.garrison/agent-event-hook.sh" && ` +
-        `chmod +x "$HOME/.garrison/agent-event-hook.sh" && echo UPDATED; fi`,
-      { input: REMOTE_EVENT_HOOK }
+      `mkdir -p ${dir} && cat > ${next} && ` +
+        `if cmp -s ${next} ${hook} 2>/dev/null; then ` +
+        `rm -f ${next}; echo SAME; else ` +
+        `mv ${next} ${hook} && chmod +x ${hook} && echo UPDATED; fi`,
+      { input: buildEventHook(transport.eventsFile) }
     ).catch(() => null);
     if (r?.stdout?.includes("UPDATED")) {
       console.log(`[remote-shell] lifecycle hook updated on ${transport.name}`);
@@ -253,7 +276,7 @@ export class SessionManager {
     }
     const tunnel = await this.tunnels.ensure(transport);
     if (!tunnel.ok) throw new HttpError(502, tunnel.error);
-    const command = this.#remoteCommand(argv, { cwd, login });
+    const command = this.#remoteCommand(transport, argv, { cwd, login });
     const r = await this.#exec(transport, command, { timeoutMs, input: stdin ?? null });
     return { code: r.code, stdout: r.stdout, stderr: r.stderr };
   }
@@ -261,13 +284,13 @@ export class SessionManager {
   /** The command string that runs argv on the far side. Every element is
    *  shell-quoted, so nothing in a prompt, a model id or a path can become
    *  syntax - the prompt itself never travels here at all (it goes on STDIN). */
-  #remoteCommand(argv, { cwd = null, login = true } = {}) {
+  #remoteCommand(transport, argv, { cwd = null, login = true } = {}) {
     const inner = [
       ...(cwd ? [`cd ${remotePath(cwd)} || exit 9;`] : []),
       "exec",
       ...argv.map(shellQuote)
     ].join(" ");
-    return login ? `bash -lc ${shellQuote(inner)}` : inner;
+    return login ? `${transport.loginShell} -lc ${shellQuote(inner)}` : inner;
   }
 
   /**
@@ -316,7 +339,7 @@ export class SessionManager {
       ...(model ? ["--model", model] : []),
       ...(resumeId ? ["--resume", resumeId] : [])
     ];
-    const command = this.#remoteCommand(argv, { cwd: turnCwd, login: true });
+    const command = this.#remoteCommand(transport, argv, { cwd: turnCwd, login: true });
 
     let pending = "";
     let text = "";
@@ -383,17 +406,18 @@ export class SessionManager {
     };
   }
 
-  /** Folders under ~/dev on the transport - the spawn targets the picker
-   *  offers. Ordinary exec, no cache: one ls per modal open is cheaper than
-   *  one staleness bug. */
+  /** Folders under the transport's projectsRoot (default ~/dev) - the spawn
+   *  targets the picker offers. Ordinary exec, no cache: one ls per modal open
+   *  is cheaper than one staleness bug. */
   async listProjects(transportName) {
     const transport = this.transports.get(transportName);
     if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
     const tunnel = await this.tunnels.ensure(transport);
     if (!tunnel.ok) throw new HttpError(502, tunnel.error);
+    const root = transport.projectsRoot.replace(/\/+$/, "");
     const r = await this.#exec(
       transport,
-      `for d in "$HOME"/dev/*/ ; do [ -d "$d" ] && printf '%s\n' "$d"; done`
+      `for d in ${remotePath(root)}/*/ ; do [ -d "$d" ] && printf '%s\n' "$d"; done`
     );
     if (r.code !== 0) {
       throw new HttpError(502, `cannot list projects on ${transport.name}: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
@@ -411,10 +435,26 @@ export class SessionManager {
     for (const list of byCwd.values()) list.sort((a, b) => a.tmuxSession.localeCompare(b.tmuxSession));
     return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean).map((abs) => {
       const name = abs.replace(/\/+$/, "").split("/").pop() ?? abs;
-      const home = `~/dev/${name}`;
+      const home = `${root}/${name}`;
       const sessions = byCwd.get(normCwd(home)) ?? [];
       return { name, path: home, sessions };
     }).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Which agent CLIs exist on this transport, probed once via a login shell
+   *  and cached for RUNTIME_PROBE_TTL_MS. */
+  async listRuntimes(transportName) {
+    const transport = this.transports.get(transportName);
+    if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
+    this.runtimeProbeCache ??= new Map();
+    const cached = this.runtimeProbeCache.get(transportName);
+    if (cached && Date.now() - cached.at < RUNTIME_PROBE_TTL_MS) return cached.rows;
+    const tunnel = await this.tunnels.ensure(transport);
+    if (!tunnel.ok) throw new HttpError(502, tunnel.error);
+    const r = await this.#exec(transport, `${transport.loginShell} -lc ${shellQuote(buildRuntimeProbeScript())}`, { timeoutMs: 10_000 });
+    const rows = parseRuntimeProbe(r.stdout);
+    this.runtimeProbeCache.set(transportName, { at: Date.now(), rows });
+    return rows;
   }
 
   // ── The one ssh choke point ───────────────────────────────────────────────
@@ -449,7 +489,10 @@ export class SessionManager {
       label: s.label,
       createdAt: s.createdAt,
       state: s.state === "running" ? "running" : "idle",
-      lastEventAt: s.lastEventAt
+      lastEventAt: s.lastEventAt,
+      runtime: s.runtime ?? null,
+      resumeRef: s.resumeRef ?? null,
+      resumeCommand: s.resumeCommand ?? null
     }));
     await writeFile(sessionsFile(), JSON.stringify({ sessions: rows }, null, 2));
   }
@@ -478,7 +521,11 @@ export class SessionManager {
         // from boot with nothing able to clear it. #catchUpEvents replays a
         // genuine still-running agent-start from the file tail.
         state: "idle",
-        lastEventAt: row.lastEventAt ?? null
+        lastEventAt: row.lastEventAt ?? null,
+        runtime: typeof row.runtime === "string" ? row.runtime : null,
+        runtimeBin: null,
+        resumeRef: typeof row.resumeRef === "string" ? row.resumeRef : null,
+        resumeCommand: typeof row.resumeCommand === "string" ? row.resumeCommand : null
       });
       n++;
     }
@@ -504,6 +551,11 @@ export class SessionManager {
     return {
       id: s.id,
       transport: s.transport.name,
+      transportKind: s.transport.kind,
+      kind: "shell",
+      runtime: s.runtime ?? "shell",
+      resumeRef: s.resumeRef ?? null,
+      resumeCommand: s.resumeCommand ?? null,
       label: s.label,
       tmuxSession: s.tmuxSession,
       cwd: s.cwd ?? null,
@@ -557,9 +609,52 @@ export class SessionManager {
    * Start (or re-attach) the session for a transport. Idempotent per
    * (transport, tmuxSession): an existing record is revived in place.
    */
-  async start(transportName, { label, recycle = false, tmuxSession = null, cwd = null, allocate = false } = {}) {
+  async start(transportName, {
+    label,
+    recycle = false,
+    tmuxSession = null,
+    cwd = null,
+    allocate = false,
+    runtime = null,
+    resume = null,
+    attach = false
+  } = {}) {
     const transport = this.transports.get(transportName);
     if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
+
+    // The runtime catalog, when named, decides what gets typed into a fresh
+    // pane below - resolved up front so a bad `runtime`/`resume` combination
+    // fails before anything is created on the remote.
+    let typedCommand = null;
+    let sessionRuntime = null;
+    let runtimeBin = null;
+    let resumeRef = null;
+    let resumeCommand = null;
+    if (runtime != null) {
+      const rt = RUNTIMES[String(runtime)];
+      if (!rt) throw new HttpError(400, `unknown runtime "${runtime}"`);
+      if (attach && typeof rt.attachArgv !== "function") {
+        throw new HttpError(400, `runtime "${runtime}" does not support attach`);
+      }
+      if (resume != null) {
+        if (typeof resume !== "string" || !resume.trim() || (rt.refPattern && !rt.refPattern.test(resume))) {
+          throw new HttpError(400, `bad resume reference for runtime "${runtime}"`);
+        }
+        resumeRef = resume;
+        resumeCommand = rt.resumeArgv ? commandLine(rt.resumeArgv(resume)) : null;
+      }
+      sessionRuntime = rt.id;
+      runtimeBin = rt.bin;
+      const argv = attach ? rt.attachArgv(resume) : resume != null ? rt.resumeArgv(resume) : rt.newArgv();
+      if (Array.isArray(argv) && argv.length) typedCommand = commandLine(argv);
+    } else if (transport.agentCommand) {
+      // No runtime named: keep the transport's own standing agent, reported
+      // under its basename so a caller never sees a null runtime.
+      sessionRuntime = path.basename(transport.agentCommand.trim().split(/\s+/)[0] || "") || "shell";
+      runtimeBin = sessionRuntime;
+    } else {
+      sessionRuntime = "shell";
+    }
 
     // A transport is a MACHINE, not a session: any project folder on it can
     // host its own tmux session + agent. The default (no spec) remains the
@@ -632,7 +727,8 @@ export class SessionManager {
       if (ensure.stdout.includes("NO_SUCH_DIR")) {
         throw new HttpError(400, `no such folder on ${transport.name}: ${sessCwd}`);
       }
-      throw new HttpError(502, `cannot reach ${transport.name} over ssh: ${(ensure.stderr || ensure.stdout).trim().slice(0, 400)}`);
+      const via = transport.kind === "local" ? "locally" : "over ssh";
+      throw new HttpError(502, `cannot reach ${transport.name} ${via}: ${(ensure.stderr || ensure.stdout).trim().slice(0, 400)}`);
     }
 
     let session = this.findByTarget(transportName, sessName);
@@ -646,21 +742,37 @@ export class SessionManager {
           (sessName === transport.tmuxSession ? transport.label : sessName),
         createdAt: new Date().toISOString(),
         state: "idle",
-        lastEventAt: null
+        lastEventAt: null,
+        runtime: sessionRuntime,
+        runtimeBin,
+        resumeRef,
+        resumeCommand
       });
     } else {
       if (label) session.label = label;
       if (!session.cwd) session.cwd = sessCwd;
+      // Only overwrite the recorded runtime/resume fields when THIS call named
+      // one explicitly - an ordinary reattach/recycle (no `runtime`) must not
+      // erase what a prior `start()` with a runtime recorded.
+      if (runtime != null) {
+        session.runtime = sessionRuntime;
+        session.runtimeBin = runtimeBin;
+        session.resumeRef = resumeRef;
+        session.resumeCommand = resumeCommand;
+      }
     }
 
-    // If the pane is sitting at a bare shell and the transport names an agent
-    // command, start the agent. Never touch a pane already running something.
+    // If the pane is sitting at a bare shell, type either the named runtime's
+    // command (new/resume/attach) or - when no runtime was given - the
+    // transport's own standing agentCommand, exactly as before. Never touch a
+    // pane already running something.
     const paneCommand = ensure.stdout.trim().split("\n").pop()?.trim() ?? "";
     const bareShells = new Set(["bash", "zsh", "sh", "fish", "dash", "-bash", "-zsh"]);
-    if (transport.agentCommand && bareShells.has(paneCommand)) {
+    const toType = typedCommand ?? (runtime == null ? transport.agentCommand : null);
+    if (toType && bareShells.has(paneCommand)) {
       await this.#exec(
         transport,
-        `tmux send-keys -t ${shellQuote(sessName)} -l ${shellQuote(transport.agentCommand)} && ` +
+        `tmux send-keys -t ${shellQuote(sessName)} -l ${shellQuote(toType)} && ` +
           `tmux send-keys -t ${shellQuote(sessName)} Enter`
       );
     }
@@ -732,15 +844,12 @@ export class SessionManager {
       return session;
     }
     const t = session.transport;
-    const argv = [
-      ...sshArgv(t, { pty: true }),
-      `tmux attach-session -t ${shellQuote(session.tmuxSession)}`
-    ];
-    const child = this.ptySpawn("ssh", argv, {
+    const spec = attachSpawnSpec(t, session.tmuxSession);
+    const child = this.ptySpawn(spec.file, spec.argv, {
       name: "xterm-256color",
       cols: session.cols,
       rows: session.rows,
-      env: { ...process.env, TERM: "xterm-256color" }
+      env: spec.env
     });
     session.pty = child;
     session.attachedAt = now;
@@ -1233,8 +1342,10 @@ export class SessionManager {
 
   #pulseCommand(session) {
     const target = shellQuote(session.tmuxSession);
-    const file = `"$HOME/.garrison/pane-${session.tmuxSession}.bytes"`;
-    // Measured ON THE REMOTE, before the tunnel. The local meter counts bytes
+    const dir = session.transport.stateDirExpr;
+    const file = `${dir}/pane-${session.tmuxSession}.bytes`;
+    // Measured ON THE REMOTE (or, for `local`, on this same machine before the
+    // link to the browser), before the tunnel. The local meter counts bytes
     // that already crossed it, so a throttled or backpressured link drops the
     // observed rate below the threshold while the remote emits ten times it —
     // the measurement was on the wrong side of the bottleneck.
@@ -1242,7 +1353,7 @@ export class SessionManager {
     // `#{history_size}` is the obvious alternative and does not work: it is
     // capped by history-limit (2000 by default), so a real storm pins it inside
     // a second and its delta reads 0 for the rest of an 8s sustain window.
-    const pipe = shellQuote(`umask 077; mkdir -p "$HOME/.garrison"; cat >> ${file}`);
+    const pipe = shellQuote(`umask 077; mkdir -p ${dir}; cat >> ${file}`);
     return [
       // -o opens the pipe only when none exists, so re-issuing every tick is free.
       `tmux pipe-pane -o -t ${target} ${pipe} 2>/dev/null`,
@@ -1312,12 +1423,11 @@ export class SessionManager {
   #ensureEventsWatcher(session) {
     if (session.eventsChild || session.eventsStopped) return;
     const t = session.transport;
-    // -n 0: only NEW events. Missed-stop recovery on (re)connect is handled by
-    // the catch-up read below, keyed on lastEventAt.
-    const child = spawn("ssh", [
-      ...sshArgv(t),
-      `touch ${remotePath(t.eventsFile)} 2>/dev/null; tail -n 0 -F ${remotePath(t.eventsFile)} 2>/dev/null`
-    ], { stdio: ["ignore", "pipe", "pipe"] });
+    // -n 0 (ssh) / equivalent local tail: only NEW events. Missed-stop
+    // recovery on (re)connect is handled by the catch-up read below, keyed on
+    // lastEventAt.
+    const spec = eventsTailSpec(t);
+    const child = this.spawnFn(spec.file, spec.argv, { stdio: ["ignore", "pipe", "pipe"], env: spec.env });
     session.eventsChild = child;
 
     let carry = "";
@@ -1451,7 +1561,7 @@ export class SessionManager {
 
   async #teardownPipe(session) {
     const target = shellQuote(session.tmuxSession);
-    const file = `"$HOME/.garrison/pane-${session.tmuxSession}.bytes"`;
+    const file = `${session.transport.stateDirExpr}/pane-${session.tmuxSession}.bytes`;
     try {
       // pipe-pane with no command closes the current pipe.
       await this.#exec(session.transport, `tmux pipe-pane -t ${target} 2>/dev/null; rm -f ${file}`, { timeoutMs: 8000 });
@@ -1582,10 +1692,14 @@ export class SessionManager {
    */
   async #stormRecover(session) {
     const t = session.transport;
-    if (!t.agentResumeCommand) {
+    // A session started via the runtime catalog carries its OWN resume
+    // command (e.g. `codex resume <id>`); fall back to the transport's
+    // standing agentResumeCommand for a plain agentCommand session.
+    const resumeCmd = session.resumeCommand || t.agentResumeCommand;
+    if (!resumeCmd) {
       if (!session.stormMeter.noResumeLogged) {
         session.stormMeter.noResumeLogged = true;
-        console.warn(`[remote-shell] render storm on ${t.name} but the transport declares no agentResumeCommand - nothing to restart it with`);
+        console.warn(`[remote-shell] render storm on ${t.name} but neither the session nor the transport declares a resume command - nothing to restart it with`);
       }
       return "no-resume-command";
     }
@@ -1614,7 +1728,7 @@ export class SessionManager {
       return "unreachable";
     }
     const cmd = String(probe.stdout).trim().split("\n").pop()?.trim() ?? "";
-    const agentBin = (t.agentCommand ?? "").trim().split(/\s+/)[0]?.split("/").pop() ?? "";
+    const agentBin = session.runtimeBin || (t.agentCommand ?? "").trim().split(/\s+/)[0]?.split("/").pop() || "";
     if (!agentBin || !cmd.includes(agentBin)) {
       console.warn(`[remote-shell] render storm on ${t.name}: the pane is running ${JSON.stringify(cmd)}, not ${agentBin || "a known agent"} - leaving it alone`);
       return "not-ours";
@@ -1635,14 +1749,14 @@ export class SessionManager {
     // this function can produce, announced as a recovery.
     const resumed = await this.#exec(
       t,
-      `tmux send-keys -t ${target} -l ${shellQuote(t.agentResumeCommand)} && tmux send-keys -t ${target} Enter`,
+      `tmux send-keys -t ${target} -l ${shellQuote(resumeCmd)} && tmux send-keys -t ${target} Enter`,
       { timeoutMs: STORM_EXEC_TIMEOUT_MS }
     );
     if (resumed.code !== 0) {
       console.warn(`[remote-shell] render storm recovery on ${t.name}: the agent was stopped but the resume command did not get through (${resumed.code}) ${(resumed.stderr || "").trim().slice(-200)}`);
       this.#push(session, {
         type: "error",
-        message: `render storm: the agent was stopped but the resume did not get through - the pane is at a shell. Run \`${t.agentResumeCommand}\` there, or hit Reconnect.`
+        message: `render storm: the agent was stopped but the resume did not get through - the pane is at a shell. Run \`${resumeCmd}\` there, or hit Reconnect.`
       });
       this.notify?.({
         title: "Remote shell needs a hand",

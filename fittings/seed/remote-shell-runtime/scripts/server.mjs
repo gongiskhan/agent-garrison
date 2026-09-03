@@ -176,7 +176,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           pid: process.pid,
           transports: [...transports.keys()],
           tunnels: tunnels.status(),
-          sessions: manager.list().length
+          sessions: manager.list().length,
+          local: { enabled: transports.has("local"), tmux: transports.has("local") }
         });
       }
       if (req.method === "GET" && pathname === "/transports") {
@@ -184,17 +185,23 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           transports: [...transports.values()].map((t) => ({
             name: t.name,
             label: t.label,
-            via: t.via ? "devtunnel" : "ssh",
+            kind: t.kind,
+            via: t.via ? "devtunnel" : t.kind === "local" ? "local" : "ssh",
             // The join key for /tunnels: the UI renders health per transport row.
             tunnel: t.via?.devtunnel?.tunnel ?? null,
             tmuxSession: t.tmuxSession,
             cwd: t.cwd,
+            projectsRoot: t.projectsRoot,
             agentCommand: t.agentCommand,
             routingTarget: t.routingTarget,
             // Cheap read: reports what is already up, never dials.
-            forwards: forwards.snapshot(t)
+            forwards: t.kind === "local" ? [] : forwards.snapshot(t)
           }))
         });
+      }
+      if (req.method === "GET" && pathname === "/runtimes") {
+        const rows = await manager.listRuntimes(String(query.transport || ""));
+        return jsonRes(res, 200, { runtimes: rows });
       }
       // Tunnel health, and the one lever that used to be "restart the whole
       // fitting" - which is what both observed outages actually required.
@@ -264,7 +271,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null,
           // "another agent in this folder": the tmux name above is a BASE and
           // the free instance beside it is chosen here (see start()).
-          allocate: body.allocate === true
+          allocate: body.allocate === true,
+          // The runtime catalog: which CLI to type into a fresh pane, and
+          // (optionally) which of its own sessions to resume or attach.
+          runtime: typeof body.runtime === "string" && body.runtime.trim() ? body.runtime.trim() : null,
+          resume: typeof body.resume === "string" && body.resume.trim() ? body.resume.trim() : null,
+          attach: body.attach === true
         });
         return jsonRes(res, 200, { session: manager.summary(session) });
       }

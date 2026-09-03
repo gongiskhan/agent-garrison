@@ -15,13 +15,17 @@
 // forwarded loopback port). Nothing here listens, and nothing asks the remote
 // to dial us back.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { normalizeForwards } from "./forwards.mjs";
 import { classifyTunnel, explainTunnel, probeSshBanner } from "./tunnel-health.mjs";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import url from "node:url";
+import { shellQuote } from "./shell-quote.mjs";
+
+const LIB_DIR = path.dirname(url.fileURLToPath(import.meta.url));
 
 // explainTunnel lives beside the probe that produces the verdicts it words, but
 // it has always been imported from here and its wording is pinned by tests
@@ -30,7 +34,7 @@ export { explainTunnel };
 
 const HOME = os.homedir();
 
-function expandHome(p) {
+export function expandHome(p) {
   if (typeof p !== "string") return p;
   return p === "~" ? HOME : p.startsWith("~/") ? path.join(HOME, p.slice(2)) : p;
 }
@@ -62,7 +66,68 @@ export function garrisonHome() {
 //     "forwards": [{ "name": "web", "remotePort": 3006, "label": "PNMUI web" }]
 //   }
 
-export async function loadTransports(env = process.env) {
+let tmuxAvailableCache = null;
+/** Memoized `tmux -V` probe. Injectable so a test never depends on the real
+ *  machine having (or lacking) tmux on PATH. */
+function defaultTmuxAvailable() {
+  if (tmuxAvailableCache !== null) return tmuxAvailableCache;
+  try {
+    execFileSync("tmux", ["-V"], { stdio: "ignore", timeout: 2000 });
+    tmuxAvailableCache = true;
+  } catch {
+    tmuxAvailableCache = false;
+  }
+  return tmuxAvailableCache;
+}
+
+/** bash or zsh only - the two login shells this fitting knows how to invoke
+ *  with `-lc`. Anything else (or nothing configured) falls back to bash. */
+function pickLoginShell(env) {
+  const raw = String(env.GARRISON_REMOTESHELLRUNTIME_LOCAL_LOGIN_SHELL || env.SHELL || "").trim();
+  return path.basename(raw) === "zsh" ? "zsh" : "bash";
+}
+
+/** The synthesized "this machine" transport: a `local` kind behind the SAME
+ *  #exec/attach/events-tail seams every ssh transport uses, running on a
+ *  dedicated tmux socket ($GARRISON_HOME/tmux/shells.sock) so it never
+ *  collides with dev-env's own socket or with another instance profile. */
+export function localTransport(env = process.env) {
+  const projectsRoot = String(env.GARRISON_REMOTESHELLRUNTIME_LOCAL_PROJECTS_ROOT || "~/dev").trim() || "~/dev";
+  const home = garrisonHome();
+  return {
+    name: "local",
+    label: String(env.GARRISON_NODE_NAME || os.hostname()).trim() || "This machine",
+    kind: "local",
+    ssh: null,
+    via: null,
+    tmuxSession: "local",
+    cwd: "~",
+    // An absolute path (not `~/...`): local exec runs on this same machine
+    // under this same instance profile, so there is no remote $HOME to defer
+    // to, and using the literal `~/.garrison` would leak a dev/codex sandbox's
+    // shells into the real prod events file (see stateDirExpr below).
+    eventsFile: path.join(home, "shells", "events.jsonl"),
+    agentCommand: null,
+    agentResumeCommand: null,
+    routingTarget: null,
+    forwards: [],
+    tether: null,
+    projectsRoot,
+    loginShell: pickLoginShell(env),
+    local: {
+      socket: path.join(home, "tmux", "shells.sock"),
+      conf: path.join(LIB_DIR, "tmux.shells.conf")
+    },
+    // The per-transport "local state dir" shell expression: for `local` it is
+    // THIS process's own resolved $GARRISON_HOME/shells (already absolute, so
+    // it is single-quoted like any other trusted literal); for ssh it stays
+    // the remote's own $HOME/.garrison, unevaluated here on purpose (see
+    // normalizeTransport).
+    stateDirExpr: shellQuote(path.join(home, "shells"))
+  };
+}
+
+export async function loadTransports(env = process.env, { tmuxAvailable = defaultTmuxAvailable } = {}) {
   const out = new Map();
   const fromFile = await readTransportsFile();
   for (const [name, t] of Object.entries(fromFile)) out.set(name, t);
@@ -81,6 +146,16 @@ export async function loadTransports(env = process.env) {
   for (const [name, t] of out) {
     const norm = normalizeTransport(name, t);
     if (norm) transports.set(name, norm);
+  }
+  const localDisabled = String(env.GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS ?? "true").trim() === "false";
+  if (transports.has("local")) {
+    console.warn('[remote-shell] transport "local" is configured explicitly - the synthesized local transport is skipped');
+  } else if (localDisabled) {
+    // opt-out, no warning: this is a deliberate config choice.
+  } else if (!tmuxAvailable()) {
+    console.warn("[remote-shell] local shells disabled: tmux not found on PATH");
+  } else {
+    transports.set("local", localTransport(env));
   }
   return transports;
 }
@@ -119,6 +194,7 @@ function normalizeTransport(name, t) {
   return {
     name,
     label: typeof t.label === "string" && t.label.trim() ? t.label.trim() : name,
+    kind: devtunnel ? "devtunnel" : "ssh",
     ssh,
     via: devtunnel
       ? { devtunnel: { tunnel: String(devtunnel.tunnel), port: Number(devtunnel.port || ssh.port) } }
@@ -126,6 +202,15 @@ function normalizeTransport(name, t) {
     tmuxSession: String(t.tmuxSession || name).replace(/[^A-Za-z0-9_-]/g, "_"),
     cwd: t.cwd ? String(t.cwd) : "~",
     eventsFile: t.eventsFile ? String(t.eventsFile) : "~/.garrison/events.jsonl",
+    // Folders under this root are what the project picker offers.
+    projectsRoot: typeof t.projectsRoot === "string" && t.projectsRoot.trim() ? t.projectsRoot.trim() : "~/dev",
+    // A non-interactive ssh command gets none of the user's profile; every
+    // remote command here runs under this login shell (`-lc`).
+    loginShell: "bash",
+    // The remote's own $HOME/.garrison, evaluated ON THE REMOTE (not here) -
+    // every existing ssh command that reads/writes under it keeps working
+    // unchanged; see localTransport() for the `local` counterpart.
+    stateDirExpr: '"$HOME/.garrison"',
     agentCommand: typeof t.agentCommand === "string" ? t.agentCommand : null,
     // How to bring the agent BACK with its conversation after the storm
     // recovery bounces it (see sessions.mjs #stormRecover). Defaults to the
@@ -218,6 +303,135 @@ export function sshExec(
   });
 }
 
+// ── the `local` transport ────────────────────────────────────────────────────
+//
+// The same #exec/attach/events-tail seams as ssh, running child processes on
+// this machine instead of dialing out. A remote path (`~/...`) only ever
+// means something on the OTHER side of ssh; a local one means THIS process's
+// own $HOME, augmented with the paths a login shell would add.
+
+/** A sanitized child env for a local spawn: PATH augmented with the places
+ *  agent CLIs actually live (`~/.local/bin`, Homebrew), a UTF-8 locale, and
+ *  the ambient tmux/CAPTURE_TOKEN vars stripped so a pane spawned from inside
+ *  a tmux session (or with a leaked capture token) does not inherit either. */
+function localSpawnEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  const extraPath = [path.join(HOME, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin"];
+  const parts = String(env.PATH || "").split(path.delimiter).filter(Boolean);
+  for (const p of extraPath) if (!parts.includes(p)) parts.push(p);
+  env.PATH = parts.join(path.delimiter);
+  if (!env.LANG) env.LANG = "en_US.UTF-8";
+  if (!env.LC_CTYPE) env.LC_CTYPE = "en_US.UTF-8";
+  env.TERM = "xterm-256color";
+  delete env.TMUX;
+  delete env.TMUX_PANE;
+  delete env.CAPTURE_TOKEN;
+  return env;
+}
+
+/**
+ * Run one command on the LOCAL machine; same {code, stdout, stderr} shape as
+ * sshExec. Every `tmux ...` invocation inside `command` is redirected onto
+ * this fitting's own dedicated socket via a shell function prelude, so the
+ * existing command strings in sessions.mjs (attach-or-create, mouse on,
+ * pipe-pane, send-keys, ...) work unmodified against either transport kind.
+ */
+export function localExec(
+  transport,
+  command,
+  { timeoutMs = 15_000, input = null, onStdout = null, onSpawn = null } = {}
+) {
+  return new Promise((resolve) => {
+    const { socket, conf } = transport.local;
+    try { mkdirSync(path.dirname(socket), { recursive: true }); } catch { /* best effort */ }
+    const prelude = `tmux() { command tmux -S ${shellQuote(socket)} -f ${shellQuote(conf)} "$@"; }; `;
+    const child = spawn("/bin/sh", ["-c", prelude + command], {
+      stdio: [input === null ? "ignore" : "pipe", "pipe", "pipe"],
+      env: localSpawnEnv()
+    });
+    if (typeof onSpawn === "function") onSpawn(child);
+    if (input !== null) {
+      child.stdin.on("error", () => { /* the command exited early; its code tells the story */ });
+      child.stdin.end(input);
+    }
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill("SIGKILL"); } catch {}
+      resolve({ code: null, stdout, stderr: stderr + "\n[timeout]" });
+    }, timeoutMs);
+    child.stdout.on("data", (d) => {
+      stdout += d;
+      if (onStdout) { try { onStdout(d.toString("utf8")); } catch { /* a consumer error must not kill the turn */ } }
+    });
+    child.stderr.on("data", (d) => { stderr += d; });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code: null, stdout, stderr: String(err) });
+    });
+  });
+}
+
+/** The one dispatch point sessions.mjs's default `exec` uses: local kind runs
+ *  on this machine, everything else dials out over ssh. */
+export function transportExec(transport, command, opts) {
+  return transport.kind === "local" ? localExec(transport, command, opts) : sshExec(transport, command, opts);
+}
+
+/** A `~/...` path, as a shell expression evaluated ON THE REMOTE (an unquoted
+ *  "$HOME" splice, since a single-quoted tilde never expands) - the ssh-side
+ *  counterpart of sessions.mjs's own remotePath(). */
+function remoteExpr(p) {
+  const s = String(p);
+  return s.startsWith("~/") ? `"$HOME"${shellQuote(s.slice(1))}` : shellQuote(s);
+}
+
+/** The argv to spawn as the interactive attach client (a node-pty child). */
+export function attachSpawnSpec(transport, tmuxSession) {
+  if (transport.kind === "local") {
+    return {
+      file: "tmux",
+      argv: ["-S", transport.local.socket, "-f", transport.local.conf, "attach-session", "-t", tmuxSession],
+      env: localSpawnEnv()
+    };
+  }
+  return {
+    file: "ssh",
+    argv: [...sshArgv(transport, { pty: true }), `tmux attach-session -t ${shellQuote(tmuxSession)}`],
+    env: { ...process.env, TERM: "xterm-256color" }
+  };
+}
+
+/** The argv to spawn as the hook-driven events watcher (`tail -F`). Local
+ *  ensures the file (and its directory) exist first, since there is no remote
+ *  shell to run the `touch` on. */
+export function eventsTailSpec(transport) {
+  if (transport.kind === "local") {
+    const abs = expandHome(transport.eventsFile);
+    try { mkdirSync(path.dirname(abs), { recursive: true }); } catch { /* best effort */ }
+    try { closeSync(openSync(abs, "a")); } catch { /* best effort */ }
+    return { file: "tail", argv: ["-n", "0", "-F", abs], env: localSpawnEnv() };
+  }
+  return {
+    file: "ssh",
+    argv: [
+      ...sshArgv(transport),
+      `touch ${remoteExpr(transport.eventsFile)} 2>/dev/null; tail -n 0 -F ${remoteExpr(transport.eventsFile)} 2>/dev/null`
+    ],
+    env: { ...process.env }
+  };
+}
 
 // ── devtunnel client management ─────────────────────────────────────────────
 
