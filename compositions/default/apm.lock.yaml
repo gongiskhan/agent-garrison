@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-31T21:49:45.838181+00:00'
+generated_at: '2026-09-03T18:20:41.680280+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -227,7 +227,7 @@ dependencies:
   local_path: ../../fittings/seed/power-default
 - repo_url: _local/remote-shell-runtime
   name: remote-shell-runtime
-  version: 0.1.0
+  version: 0.2.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/remote-shell-runtime
