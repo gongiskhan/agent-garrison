@@ -236,19 +236,33 @@ export function findPortCollisions(claims, liveListeners = [], statusFiles = [])
 // ---------------------------------------------------------------------------
 
 export function assessVerifyResults(records) {
-  // records: [{compositionId, lastUp: {ok, at, verifyResults[]} | null}]
+  // records: [{compositionId, lastUp: {ok, at, verifyResults[]} | null,
+  //            runnerState: {status, verifyResults[], lastError} | null}]
+  //
+  // Source priority: the LIVE runner state first — last-up.json is written only
+  // after a SUCCESSFUL up, so a failed attempt leaves no record and the check
+  // would go blind at exactly the moment it matters most. The runner keeps the
+  // failed attempt's full VerifyResult[] in memory; when the app is up we read
+  // it and report from there, falling back to last-up.json otherwise.
   const findings = [];
   for (const r of records) {
-    if (!r.lastUp) {
+    const live = r.runnerState && Array.isArray(r.runnerState.verifyResults) && r.runnerState.verifyResults.length
+      ? r.runnerState : null;
+    const source = live
+      ? { results: live.verifyResults, label: `the last attempt (runner status: ${live.status || "unknown"})` }
+      : r.lastUp
+        ? { results: r.lastUp.verifyResults || [], label: `the last up (${r.lastUp.at})` }
+        : null;
+    if (!source) {
       findings.push(mk("verify-results", r.compositionId, "warn",
-        `${r.compositionId} has no .garrison/last-up.json — it has never completed an up() on this machine, so there are no verify results to show.`,
+        `${r.compositionId} has no verify record — no .garrison/last-up.json and no live runner state (it has never been brought up, or the app restarted since).`,
         { fix: "Run the verify sweep (button/--sweep) to get a first complete picture without attempting a full up()." }));
       continue;
     }
-    const failed = (r.lastUp.verifyResults || []).filter((v) => !v.ok);
+    const failed = source.results.filter((v) => !v.ok);
     for (const v of failed) {
       findings.push(mk("verify-results", `${r.compositionId}:${v.fittingId}`, "fail",
-        `${v.fittingId} failed verify at the last up (${r.lastUp.at}): exit ${v.exitCode}, expected "${v.expect}" from \`${v.command}\`.`,
+        `${v.fittingId} failed verify at ${source.label}: exit ${v.exitCode}, expected "${v.expect}" from \`${v.command}\`.`,
         {
           evidence: [v.stderr, v.stdout].filter(Boolean).join("\n").slice(0, 2000),
           fix: `Fix ${v.fittingId}'s verify and re-run the sweep. Unlike up() — which stops at the FIRST failure alphabetically — this list is complete.`
@@ -256,7 +270,7 @@ export function assessVerifyResults(records) {
     }
     if (!failed.length) {
       findings.push(mk("verify-results", r.compositionId, "pass",
-        `${(r.lastUp.verifyResults || []).length} fittings verified ok at the last up (${r.lastUp.at}).`));
+        `${source.results.length} fittings verified ok at ${source.label}.`));
     }
   }
   if (!records.length) {

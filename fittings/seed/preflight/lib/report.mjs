@@ -25,7 +25,7 @@ import {
   readTailscaleServeMap,
   pidAlive
 } from "./collect.mjs";
-import { isAppUp, fetchViews, appUrl } from "./app-client.mjs";
+import { isAppUp, fetchViews, fetchRunnerState, appUrl } from "./app-client.mjs";
 
 export async function buildReport({ startDir = process.cwd(), checks = null } = {}) {
   const wanted = checks && checks.length ? new Set(checks) : null;
@@ -51,7 +51,14 @@ export async function buildReport({ startDir = process.cwd(), checks = null } = 
   const compositions = await readCompositions(root);
 
   if (run("verify-results")) {
-    findings.push(...assessVerifyResults(compositions.map((c) => ({ compositionId: c.compositionId, lastUp: c.lastUp }))));
+    // Live runner state first: last-up.json only records SUCCESSFUL ups, so a
+    // failed attempt would otherwise be invisible right when it matters most.
+    const records = [];
+    for (const c of compositions) {
+      const runnerState = appUp ? await fetchRunnerState(c.compositionId) : null;
+      records.push({ compositionId: c.compositionId, lastUp: c.lastUp, runnerState });
+    }
+    findings.push(...assessVerifyResults(records));
   }
 
   if (run("library-crosscheck")) {

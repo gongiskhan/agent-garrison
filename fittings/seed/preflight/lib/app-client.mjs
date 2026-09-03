@@ -38,6 +38,14 @@ export async function isAppUp() {
   return res.ok;
 }
 
+// The runner's live state for one composition — carries the verifyResults of
+// the most recent attempt, including a FAILED up (which last-up.json omits).
+export async function fetchRunnerState(compositionId) {
+  const res = await request(`/api/runner/${encodeURIComponent(compositionId)}/state`, { timeoutMs: 3000 });
+  if (!res.ok) return null;
+  return res.data?.state ?? null;
+}
+
 export async function fetchViews() {
   const res = await request("/api/fittings/views", { timeoutMs: 5000 });
   if (!res.ok) return null;

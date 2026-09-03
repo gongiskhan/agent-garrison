@@ -198,9 +198,42 @@ describe("assessVerifyResults", () => {
     expect(fails(f).map((x) => x.id)).toEqual(["default-2:basic-memory", "default-2:vault-git-sync"]);
   });
 
-  it("warns when there is no last-up record", () => {
-    const f = assessVerifyResults([{ compositionId: "fresh", lastUp: null }]) as Finding[];
+  it("warns when there is no last-up record and no runner state", () => {
+    const f = assessVerifyResults([{ compositionId: "fresh", lastUp: null, runnerState: null }]) as Finding[];
     expect(warns(f)).toHaveLength(1);
+  });
+
+  it("prefers the LIVE runner state — a failed up's results show even with no last-up.json", () => {
+    const f = assessVerifyResults([
+      {
+        compositionId: "default-2",
+        lastUp: null, // failed ups never write last-up.json
+        runnerState: {
+          status: "failed",
+          verifyResults: [
+            { fittingId: "ok-one", ok: true, exitCode: 0, expect: "ok", command: "a", stdout: "ok", stderr: "" },
+            { fittingId: "broken", ok: false, exitCode: 1, expect: "ok", command: "b", stdout: "", stderr: "boom" }
+          ]
+        }
+      }
+    ]) as Finding[];
+    expect(fails(f).map((x) => x.id)).toEqual(["default-2:broken"]);
+    expect(fails(f)[0].detail).toContain("runner status: failed");
+    expect(warns(f)).toHaveLength(0);
+  });
+
+  it("runner state also wins over a stale last-up.json", () => {
+    const f = assessVerifyResults([
+      {
+        compositionId: "c",
+        lastUp: { ok: true, at: "2026-08-01T00:00:00Z", verifyResults: [{ fittingId: "old", ok: true, exitCode: 0, expect: "ok", command: "x", stdout: "ok", stderr: "" }] },
+        runnerState: {
+          status: "failed",
+          verifyResults: [{ fittingId: "new-broken", ok: false, exitCode: 1, expect: "ok", command: "y", stdout: "", stderr: "z" }]
+        }
+      }
+    ]) as Finding[];
+    expect(fails(f).map((x) => x.id)).toEqual(["c:new-broken"]);
   });
 });
 
