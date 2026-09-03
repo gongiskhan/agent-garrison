@@ -39,8 +39,8 @@ export function expandHome(p) {
   return p === "~" ? HOME : p.startsWith("~/") ? path.join(HOME, p.slice(2)) : p;
 }
 
-export function garrisonHome() {
-  const override = process.env.GARRISON_HOME?.trim();
+export function garrisonHome(env = process.env) {
+  const override = env.GARRISON_HOME?.trim();
   return override && override.length > 0 ? override : path.join(HOME, ".garrison");
 }
 

@@ -189,10 +189,10 @@
   },
   {
     "id": "remote-shell-runtime",
-    "name": "Remote shell runtime",
+    "name": "Shells",
     "repo": "local:fittings/seed/remote-shell-runtime",
     "localPath": "fittings/seed/remote-shell-runtime",
-    "summary": "Runtimes Faculty - general attach-and-stream runtime: attaches a live tmux session on a remote machine over ssh (optionally through a Microsoft Dev Tunnel), streams the real TUI two-way into an xterm pane, and drives running/idle lifecycle from the remote agent's own start/stop hooks via an events file followed over the same ssh channel. Transports are config; the CSG VM over the existing VS Code Dev Tunnel is the first. As a delegate target, a turn types the instruction into the remote agent's TUI and completes on the stop-hook event.",
+    "summary": "Runtimes Faculty - general attach-and-stream runtime, including a `local` transport for this machine itself. Attaches a live tmux session (local or over ssh, optionally through a Microsoft Dev Tunnel), streams the real TUI two-way into an xterm pane, and drives running/idle lifecycle from the agent's own hooks via an events file. A runtime catalog (claude/codex/cursor/gemini/shell) starts or resumes any of them in a pane; a node-wide session index (owned shells plus every listed external session) is served at GET /index and published to the mesh. As a delegate target, a turn types the instruction into the remote agent's TUI and completes on the stop-hook event.",
     "platforms": [
       "all"
     ]
