@@ -128,6 +128,30 @@ the simulator and where the code is.
   `cb9c9fbf` build; `main` is two commits ahead of it (dev-madrid's kanban
   card-id hardening), which reaches it on its next redeploy.
 
+- **This Mac's node is stuck on the D49/D50 redeploy (2026-09-03 16:35Z) and
+  needs one manual kill.** `66c84865` is built into `.next-prod` and the new
+  next-server (pid 25952, under launchd's `concurrently` 24760) listens on
+  8777, but it never answers: two orphaned next-server copies from earlier
+  redeploys (pids 36317 and 9144, parent 1, no listener, stuck in a graceful
+  shutdown that never ends because they still hold their children and
+  keep-alive clients) keep serving old keep-alive connections and hold 128
+  hung requests into the new server, which sits behind ~370 established
+  loopback connections. 36317 is also the parent of all 17 running fitting
+  processes, so capture-service (8097) still runs the OLD code - which is why
+  "Zeca" on this node still does nothing. Killing the orphans was refused by
+  the session's permission classifier. Recovery, from the repo root:
+  `kill 36317 9144` (children are reparented, `up()` restarts them), then
+  `npm run node:redeploy`, then confirm
+  `curl -s http://127.0.0.1:8097/health | jq .pid` changed. dev-madrid and the
+  mini already run `66c84865` (redeploys finished; tails in
+  `evidence/garrison-app/voice-d49-d50/redeploy.txt`), so phone checks 3 and
+  3b can run against either peer today.
+- Redeploy robustness debt this exposed: `scripts/garrison-redeploy.sh` skips
+  the pre-down when the app does not answer, and `launchctl kickstart -k`
+  only signals `concurrently`; the old next-server survives as an orphan with
+  every fitting child. The script should kill the previous next-server (and
+  wait for it to exit) before starting the new one.
+
 ## 3. Operator-triggered follow-ups
 
 - **Remove the legacy fittings.** `evidence/garrison-app/g8/remove-web-channel-default.patch`
