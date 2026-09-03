@@ -1,0 +1,44 @@
+# csg's local.yml (copy to compositions/default/local.yml ON CSG - it is
+# gitignored, machine-local, and never travels through git or the composition
+# transfer bundle). This is what makes csg a shells-and-Cursor-only node:
+# every other node's channels, automations, and memory sync stay off, so csg
+# never double-runs something meant to happen once, on the owner's machine.
+#
+# `unstation` only HIDES these selections from THIS node's own `up()` - it
+# never edits the shared composition (src/lib/compositions.ts
+# applyLocalOverlay: unstation is a read-time filter, not a write path).
+# orchestrator/http-gateway/scheduler can never be named here - up() refuses
+# them outright, since either would take the whole composition down on this
+# node.
+unstation:
+  - codex-runtime
+  - gemini-runtime
+  - opencode-runtime
+  - browser-default
+  - screen-share-default
+  - snapshots-default
+  - basic-memory
+  - vault-git-sync
+  - improver
+  - improver-nightly
+  - slack-channel
+  - email-channel
+  - omi-channel
+  - whatsapp-web
+  - capture-service
+  - trello
+  - google
+  - cortex-automations
+  - cortex-client
+
+# csg must never dial its OWN tunnel back to itself - the transports config
+# (the csg entry with the tether block) belongs to dev-madrid, the tether's
+# owner, not to csg's own copy of the composition. An empty object here is
+# not "no remote-shell-runtime" (the fitting still runs its `local` transport
+# for csg's own Sessions rows) - it is "no ssh/tether transports configured
+# on this node".
+selections:
+  runtimes:
+    - id: remote-shell-runtime
+      config:
+        transports: "{}"
