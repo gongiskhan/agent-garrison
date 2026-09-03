@@ -8,32 +8,40 @@ plan: /home/ggomes/.claude/plans/we-should-have-a-zesty-star.md (copied to docs/
 | G1 | done | 3f457a6b0715 | redeploy @ 2026-09-03T17:51Z | evidence/shells/g1/ | local transport, runtime catalog, claude-sessions lift; verified live on dev-madrid (csg transport unaffected) |
 | G2 | done | d44933f2a6, 1bc3c25db9 | redeploy @ 2026-09-03T18:15Z, redeploy @ 2026-09-03T18:21Z | evidence/shells/g2/ | listers, hook install, index publish, origin guard, manifest; found+fixed TWO live bugs on dev-madrid during verification (see Open findings F-001, F-002) |
 | G3-server | done | 46efa1db80 | reload @ 2026-09-03T18:36Z | evidence/shells/g3/ | mesh-sessions.mjs, shellBinding, transcript-formats.mjs, GET /api/sessions + /api/sessions/:id/stream, peer-proxy ALLOW row; live-verified streaming THIS session's own transcript through the new endpoint |
-| G3-ui | todo | - | - | evidence/shells/g3-ui/ | shell-origin.ts, sessions-rail.tsx Sessions section, app.tsx refresh clock |
-| G2 | todo | - | - | evidence/shells/g2/ | listers, hooks install, index publish, origin guard, manifest |
-| G3 | todo | - | - | evidence/shells/g3/ | talk: aggregated list, live rail, direct-origin client |
-| G4 | todo | - | - | evidence/shells/g4/ | talk: owned-shell workbench, external session view, new shell, styles |
+| G3-ui+G4 | done | <PENDING_SHA> | reload @ 2026-09-03T19:00Z | evidence/shells/g3-ui/ | shell-origin.ts, sessions-rail.tsx Sessions section, shell-panel.tsx+shell-composer.tsx (owned shell), session-view.tsx (external), new-shell-modal.tsx, styles.css additions; 229 vitest tests green; live-verified on dev-madrid incl. this session's own transcript streaming through the rail |
+| G5 | todo | - | - | evidence/shells/g5/ | cursor: stationing, quarters file sets, the mini |
 | G5 | todo | - | - | evidence/shells/g5/ | cursor: stationing, quarters file sets, the mini |
 | G6 | todo | - | - | evidence/shells/g6/ | csg: vs code tunnel, tether, preflight, installer, unstation |
 | G7 | todo | - | - | evidence/shells/g7/ | csg install |
 | G8 | todo | - | - | evidence/shells/g8/ | csg in the app |
 
 ## Mesh heads
-dev-madrid 46efa1db @ 2026-09-03T18:36Z (local HEAD; 5 ahead / 4 behind origin/main, push deferred - see F-000) | mini n/a | csg n/a
+dev-madrid <PENDING_SHA> @ 2026-09-03T19:XXZ (local HEAD; ahead/behind origin/main unchanged from F-000, push still deferred) | mini n/a | csg n/a
 
 ## Resume here
-G1, G2, and G3-server are done and live on dev-madrid (`GET /api/sessions` and
-`GET /api/sessions/:id/stream` both live-verified against this very session's own transcript). Start
-G3-ui/G4 per the plan section 3: `packages/talk/ui/shell-origin.ts` (new - `resolveOriginForPage` mirroring
-`resolveViewUrl`, `resolveShellOrigin(row, self)`, `shellFetch` with `ShellOriginError`, `shellSocketUrl`,
-`errorCopy`), `packages/talk/ui/sessions-rail.tsx` (RailSession type, buildRailRows pure export, the
-"Sessions" section: node sub-heads, working pulse, Show ended toggle, testids per section 3 G3 slice),
-`packages/talk/ui/app.tsx` (sessions poll 5s / thread list 10s / mesh-threads 30s refresh clock,
-`apiListSessions`), then G4: `remote-shell-workbench.tsx` `mode="shell"`, `shell-composer.tsx` (new),
-`session-view.tsx` (new - external session view + resume-refusal detection), `new-shell-modal.tsx` (new),
-`styles.css` additions. Row shape and REST contract are frozen in the decision doc section 2.2-2.4 - read
-those before touching UI code. `tests/vocabulary.test.ts` only scans `packages/talk/ui` (not `src`), so new
-UI files that say "session" legitimately need whitelist entries there (see its `ALLOWLIST` array and the
-existing `shells-modal.tsx`/`remote-shell-workbench.tsx` entries for the pattern).
+G0-G3-server, G3-ui, and G4 are all done and live-verified on dev-madrid, including a real browser pass
+(see evidence/shells/g3-ui/report.md): the Sessions rail section, the owned-shell panel, the external
+session view (proved live by streaming THIS session's own transcript through it), the New shell modal
+(Cursor correctly greyed out - no cursor-agent on dev-madrid), and the Show ended toggle all work end to
+end against `https://dev-madrid.tail31efa.ts.net`.
+
+Next: G5 per the plan section 3 - station `cursor-runtime` in `compositions/default/apm.yml`
+(`fittings/seed/cursor-runtime/scripts/bridge.mjs` needs its degraded-probe fix FIRST - absent cursor-agent
+must exit 0 with a "degraded" note, or `verify()` failing aborts `up()` for the whole composition per
+CLAUDE.md's runner rule), then the Quarters `file_sets` descriptor (`src/lib/metadata.ts`,
+`src/lib/quarters-runtimes.ts`, the two new API routes, `RuntimeFileSetPanel.tsx`) so `~/.cursor/{rules,
+skills, agents, hooks.json, desktop settings, project rules}` become read/write Quarters surfaces, then
+roll out to the mini (section 4: push `main`, `ssh` + `git merge --no-edit origin/main` +
+`npm run node:redeploy` on `goncalos-mac-mini-1`, verify its Cursor desktop sessions appear in the rail).
+Read the decision doc section 2 (contracts) and G5's file list before touching code - the Cursor probe
+change is load-bearing for every node that does NOT have cursor-agent (dev-madrid included today).
+
+Known tooling limitation hit during G3-ui/G4 live verification (not a code finding): the browser-automation
+`resize_window` tool in this environment does not reliably land on an exact 390x844 viewport (see the
+report's "Mobile viewport" section) - screenshots at the size it did land on showed apparent text clipping
+that live DOM inspection proved was NOT real (full untruncated text, correct `overflow`/`direction`/
+`text-align` on every element checked). Treat any future screenshot-only "clipped text" finding at a
+similarly odd viewport width with the same skepticism - verify against the DOM before filing it.
 
 Known deliberate simplification in G2: the index only rebuilds on a periodic timer
 (`index_publish_seconds`, default 10s), not on every session state change (`manager.onChange` was scoped

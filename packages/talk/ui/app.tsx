@@ -42,11 +42,15 @@ import {
 } from "./conversation-transport";
 import { VoiceConversation } from "./voice-conversation";
 import { RemoteShellWorkbench } from "./remote-shell-workbench";
-import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail";
+import { SessionsRail, visibleSessionRows, type RailMeshNode, type RailSelf, type RailSession } from "./sessions-rail";
 import { ShellsModal, type ShellOpenSpec, type ShellSpawnSpec } from "./shells-modal";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 import { COMPOSER_OVERLAY_SELECTOR, composerInset } from "./composer-inset";
 import { RecordButton, type CaptureBridge } from "./record-button";
+import { ShellPanel, type ShellThreadBinding } from "./shell-panel";
+import { ExternalSessionView } from "./session-view";
+import { NewShellModal, type NewShellSpec } from "./new-shell-modal";
+import { errorCopy, resolveShellOrigin, ShellOriginError } from "./shell-origin";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
 // rendered into ClaudeChat's composer via the function-form adornment so it can
@@ -449,6 +453,25 @@ async function apiListThreads(): Promise<ThreadMeta[]> {
     const d = await r.json();
     return Array.isArray(d.threads) ? d.threads : [];
   } catch { return []; }
+}
+
+interface SessionsListResult {
+  self: { node: string | null; accentColor: string | null };
+  nodes: Array<{ node: string; accentColor: string | null; status: string; lastSeenAt: string | null; shellOrigin: string | null }>;
+  rows: RailSession[];
+}
+const EMPTY_SESSIONS: SessionsListResult = { self: { node: null, accentColor: null }, nodes: [], rows: [] };
+async function apiListSessions(): Promise<SessionsListResult> {
+  try {
+    const r = await fetch("/api/sessions", { cache: "no-store" });
+    if (!r.ok) return EMPTY_SESSIONS;
+    const d = await r.json();
+    return {
+      self: d.self ?? EMPTY_SESSIONS.self,
+      nodes: Array.isArray(d.nodes) ? d.nodes : [],
+      rows: Array.isArray(d.rows) ? d.rows : [],
+    };
+  } catch { return EMPTY_SESSIONS; }
 }
 async function apiGetThread(id: string, signal?: AbortSignal): Promise<Thread | null> {
   try {
@@ -1038,9 +1061,48 @@ function ThreadedApp({
         .catch(() => { /* empty rail is the degraded mode */ });
     };
     load();
-    const timer = window.setInterval(load, 60_000);
+    const timer = window.setInterval(load, 30_000);
     return () => { alive = false; window.clearInterval(timer); };
   }, []);
+
+  // The aggregated session list (mesh-sessions.mjs): this node's own Shells
+  // fitting index plus every peer's, bound to local threads. Polled on its
+  // own faster clock (5s) since a "Working" pulse is the whole point;
+  // skipped while hidden, same discipline as the thread poll (the busy-turn
+  // suppression the active-thread poll uses is declared further down this
+  // component and is not needed here - a session-list refresh mid-turn costs
+  // one harmless fetch, not a lost keystroke).
+  const [sessionsResult, setSessionsResult] = useState<SessionsListResult>(EMPTY_SESSIONS);
+  const loadSessions = useCallback(async () => {
+    const result = await apiListSessions();
+    setSessionsResult(result);
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    void loadSessions();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      if (alive) void loadSessions();
+    }, 5000);
+    const onVisible = () => { if (document.visibilityState === "visible") void loadSessions(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadSessions]);
+  const visibleSessions = useMemo(() => visibleSessionRows(sessionsResult.rows), [sessionsResult.rows]);
+
+  const [activeSessionRow, setActiveSessionRow] = useState<RailSession | null>(null);
+  const [newShellOpen, setNewShellOpen] = useState(false);
+  const [shellOrigin, setShellOrigin] = useState<string | null>(null);
+  const [shellOriginError, setShellOriginError] = useState<ShellOriginError | null>(null);
+  const [continueBusy, setContinueBusy] = useState(false);
+
   const [rshSessionId, setRshSessionId] = useState<string | null>(null);
   const [rshError, setRshError] = useState<string | null>(null);
 
@@ -1071,7 +1133,44 @@ function ThreadedApp({
   // in through the conversation door. A remote-shell thread is the exception -
   // its turns are delegated to an agent on ANOTHER machine rather than run as a
   // stretch here, so it keeps the chat lane, its FIFO and its thread transcript.
-  const conversationId = activeRshTransport ? null : (activeThread?.conversationId ?? null);
+  // A source:"shell" thread is the SAME exception, for the newer per-runtime
+  // binding shape - no chat lane at all, just the pane + composer.
+  const activeShellSpecJson = useMemo(() => {
+    const s = (activeThread?.context as { shell?: { node?: unknown; transport?: unknown; tmuxSession?: unknown; cwd?: unknown; runtime?: unknown; label?: unknown; sessionId?: unknown; shellOrigin?: unknown } } | undefined)?.shell;
+    if (!s || typeof s.node !== "string" || typeof s.transport !== "string") return null;
+    return JSON.stringify({
+      node: s.node,
+      transport: s.transport,
+      tmuxSession: typeof s.tmuxSession === "string" ? s.tmuxSession : null,
+      cwd: typeof s.cwd === "string" ? s.cwd : null,
+      runtime: typeof s.runtime === "string" ? s.runtime : null,
+      label: typeof s.label === "string" ? s.label : null,
+      sessionId: typeof s.sessionId === "string" ? s.sessionId : null,
+      shellOrigin: typeof s.shellOrigin === "string" ? s.shellOrigin : null,
+    });
+  }, [activeThread?.context]);
+  const activeShellBinding = useMemo<ShellThreadBinding | null>(
+    () => (activeShellSpecJson ? (JSON.parse(activeShellSpecJson) as ShellThreadBinding) : null),
+    [activeShellSpecJson]
+  );
+
+  const resolveActiveShellOrigin = useCallback(async () => {
+    if (!activeShellBinding) { setShellOrigin(null); setShellOriginError(null); return; }
+    try {
+      const origin = await resolveShellOrigin({ node: activeShellBinding.node, shellOrigin: activeShellBinding.shellOrigin ?? null }, meshSelf.node);
+      if (!origin) { setShellOriginError(new ShellOriginError("no-origin", "no reachable origin")); setShellOrigin(null); return; }
+      setShellOrigin(origin);
+      setShellOriginError(null);
+    } catch (err) {
+      setShellOrigin(null);
+      setShellOriginError(err instanceof ShellOriginError ? err : new ShellOriginError("unreachable", String(err)));
+    }
+  }, [activeShellBinding, meshSelf.node]);
+  useEffect(() => { void resolveActiveShellOrigin(); }, [resolveActiveShellOrigin]);
+
+  // A thread bound to a shell IS that shell - it has no separate conversation
+  // record, and its turns never run through the orchestrator/chat lane.
+  const conversationId = (activeRshTransport || activeShellBinding) ? null : (activeThread?.conversationId ?? null);
   // The record button (G5) rides beside the mic only where a host supplied a
   // native capture bridge; the conversation id it passes is where
   // capture-service posts the digest.
@@ -1131,6 +1230,7 @@ function ThreadedApp({
   }, []);
 
   const openThread = useCallback(async (id: string, opts?: { kickoff?: boolean }) => {
+    setActiveSessionRow(null);
     const epoch = ++openThreadEpochRef.current;
     openThreadAbortRef.current?.abort();
     const controller = new AbortController();
@@ -1350,6 +1450,97 @@ function ThreadedApp({
     if (id === activeId) { setSidebarOpen(false); return; }
     await openThread(id);
   }, [activeId, openThread]);
+
+  // A session row selected from the Sessions section: an owned shell (has a
+  // threadId) just opens its thread; a bare external row opens the read-live
+  // view instead of the chat.
+  const selectSessionRow = useCallback((row: RailSession) => {
+    if (row.threadId) { void selectThread(row.threadId); return; }
+    setActiveId(null);
+    setActiveThread(null);
+    setActiveSessionRow(row);
+    setSidebarOpen(false);
+  }, [selectThread]);
+
+  // "Continue in a shell" / "Attach": start (or resume) the session on its
+  // owning node and turn it into an owned shell thread - the same
+  // ensure-then-open shape start()/spawnProjectShell() already use.
+  const continueSession = useCallback(async (row: RailSession) => {
+    setContinueBusy(true);
+    try {
+      const origin = await resolveShellOrigin({ node: row.node, shellOrigin: row.shellOrigin }, sessionsResult.self.node);
+      if (!origin) throw new ShellOriginError("no-origin", "no reachable origin");
+      const transport = row.shell?.transport ?? "local";
+      const body = await fetch(`${origin}/sessions`, {
+        method: "POST",
+        mode: "cors",
+        credentials: "omit",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          transport,
+          runtime: row.runtime,
+          cwd: row.cwd,
+          resume: row.resumeRef,
+          attach: row.kind === "bg",
+          label: row.title || row.project || row.runtime,
+          allocate: true
+        })
+      }).then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data?.error || `could not start a session (${r.status})`);
+        return data;
+      });
+      const session = body?.session as { id?: string; tmuxSession?: string; cwd?: string; label?: string } | undefined;
+      if (!session?.tmuxSession) throw new Error("the shell started no session");
+      const ensured = await apiEnsureThread({
+        id: `shell-${row.node}-${transport}-${session.tmuxSession}`,
+        title: session.label || row.title || row.project || row.runtime,
+        source: "shell",
+        context: {
+          shell: {
+            node: row.node, transport, tmuxSession: session.tmuxSession, cwd: session.cwd ?? row.cwd,
+            runtime: row.runtime, label: session.label ?? row.title, sessionId: session.id, shellOrigin: origin
+          }
+        }
+      });
+      if (!ensured) return;
+      setActiveSessionRow(null);
+      await openThread(ensured.id);
+      await refreshList();
+      await loadSessions();
+    } catch (err) {
+      setRshError(err instanceof ShellOriginError ? errorCopy(err, row.node).sub : err instanceof Error ? err.message : String(err));
+    } finally {
+      setContinueBusy(false);
+    }
+  }, [openThread, refreshList, loadSessions, sessionsResult.self.node]);
+
+  const copyResumeCommand = useCallback((row: RailSession) => {
+    if (!row.resumeCommand) return;
+    void navigator.clipboard?.writeText(`cd ${row.cwd ?? "~"} && ${row.resumeCommand}`).catch(() => {});
+  }, []);
+
+  // New shell: a fresh session on any node, from the "+ New" > "New shell..."
+  // picker - same ensure-then-open shape as continueSession, minus a resume.
+  const startNewShellSession = useCallback(async (spec: NewShellSpec) => {
+    const ensured = await apiEnsureThread({
+      id: `shell-${spec.node}-${spec.transport}-${spec.session.tmuxSession}`,
+      title: spec.session.label || spec.label,
+      source: "shell",
+      context: {
+        shell: {
+          node: spec.node, transport: spec.transport, tmuxSession: spec.session.tmuxSession,
+          cwd: spec.session.cwd ?? spec.cwd, runtime: spec.runtime, label: spec.session.label ?? spec.label,
+          sessionId: spec.session.id, shellOrigin: spec.origin
+        }
+      }
+    });
+    setNewShellOpen(false);
+    if (!ensured) return;
+    await openThread(ensured.id);
+    await refreshList();
+    await loadSessions();
+  }, [openThread, refreshList, loadSessions]);
 
   const removeThread = useCallback(async (id: string, e?: React.SyntheticEvent) => {
     e?.stopPropagation();
@@ -1646,6 +1837,10 @@ function ThreadedApp({
           onOpenShells={rshTransports.length > 0 ? () => setShellsOpen(true) : undefined}
           onDeleteLocal={(id) => { void removeThread(id); }}
           onRenameLocal={renameThread}
+          sessions={visibleSessions}
+          activeSessionId={activeSessionRow?.id ?? null}
+          onSelectSession={selectSessionRow}
+          onOpenNewShell={() => setNewShellOpen(true)}
         />
       </aside>
       <div className="wc-sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
@@ -1655,6 +1850,14 @@ function ThreadedApp({
           onOpen={(spec) => { void openProjectShell(spec); }}
           onSpawn={(spec) => { void spawnProjectShell(spec); }}
           onClose={() => setShellsOpen(false)}
+        />
+      )}
+      {newShellOpen && sessionsResult.self.node && (
+        <NewShellModal
+          nodes={sessionsResult.nodes.map((n) => ({ node: n.node, accentColor: n.accentColor, shellOrigin: n.shellOrigin }))}
+          self={{ node: sessionsResult.self.node, accentColor: sessionsResult.self.accentColor }}
+          onStarted={(spec) => { void startNewShellSession(spec); }}
+          onClose={() => setNewShellOpen(false)}
         />
       )}
       <main className="wc-main">
@@ -1718,6 +1921,34 @@ function ThreadedApp({
         {activeThread?.runningSince ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
         {activeRshTransport && rshError && <div className="wc-rsh-error">Remote shell: {rshError}</div>}
         {(() => {
+          if (activeSessionRow) {
+            const streamUrl = activeSessionRow.node === sessionsResult.self.node
+              ? `/api/sessions/${encodeURIComponent(activeSessionRow.id)}/stream`
+              : `/api/mesh/nodes/${encodeURIComponent(activeSessionRow.node)}/sessions/${encodeURIComponent(activeSessionRow.id)}/stream`;
+            return (
+              <ExternalSessionView
+                row={activeSessionRow}
+                streamUrl={streamUrl}
+                busy={continueBusy}
+                onContinue={(activeSessionRow.resumable || activeSessionRow.attachable) ? () => { void continueSession(activeSessionRow); } : undefined}
+                onCopyResume={activeSessionRow.resumeCommand ? () => copyResumeCommand(activeSessionRow) : undefined}
+                onClose={() => setActiveSessionRow(null)}
+              />
+            );
+          }
+          if (activeShellBinding) {
+            return (
+              <ShellPanel
+                key={activeId ?? undefined}
+                threadId={activeId ?? ""}
+                binding={activeShellBinding}
+                title={activeThread?.title || activeShellBinding.label || activeShellBinding.tmuxSession || "Shell"}
+                origin={shellOrigin}
+                originError={shellOriginError}
+                onRetryOrigin={() => { void resolveActiveShellOrigin(); }}
+              />
+            );
+          }
           const rshTransport = activeRshTransport
             ? rshTransports.find((t) => t.name === activeRshTransport) ?? null
             : null;

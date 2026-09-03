@@ -6,6 +6,28 @@
 session working on this repo can find it. Grow this file with per-gate notes as the run proceeds
 (per section 7 of the plan below); do not silently rewrite the approved plan text above the notes.
 
+## Gate log
+
+G0-G3-server: see `evidence/shells/{g0,g1,g2,g3}/report.md` and the ledger at
+`evidence/shells/PROGRESS.md` for the full per-gate record, including two real live-verification bugs
+found and fixed during G2 (F-001, F-002 in the ledger).
+
+**G3-ui + G4 (2026-09-03).** Built together as one changeset: `shell-origin.ts` (the direct-origin
+client - `resolveShellOrigin`, `shellFetch`, `shellSocketUrl`, `errorCopy`), the rail's Sessions section
+in `sessions-rail.tsx` (node sub-heads, runtime/project/status chips, Show ended toggle,
+`visibleSessionRows` as the shared dedupe filter), and the G4 slice: `session-view.tsx`
+(`ExternalSessionView`, reusing `@garrison/claude-chat`'s `SessionStream` for the transcript body),
+`new-shell-modal.tsx`, and `styles.css` additions for all of it. **One deliberate deviation from
+section 3's literal text**: rather than adding `mode="shell"` to `remote-shell-workbench.tsx`, the owned-
+shell view is a new sibling component, `shell-panel.tsx` (`ShellPanel`) + `shell-composer.tsx`, reusing
+the same deck CSS classes. `remote-shell-workbench.tsx` carries seam/ledger/delegate machinery for the
+OLDER remote-shell thread shape that a second mode would have had to thread through or dodge for no
+benefit; a sibling component carries zero risk to that existing surface while sharing its visual language
+exactly. Live-verified on dev-madrid, including streaming this very Claude Code session's own transcript
+through the new `ExternalSessionView` (see `evidence/shells/g3-ui/report.md` for the full browser-
+verification log, including a browser-automation viewport-resize tooling limitation that produced a
+misleading screenshot the live DOM disproved).
+
 ---
 
 # Shells + mesh session list + Cursor everywhere + csg as a node

@@ -23,11 +23,16 @@ export function RemoteShellPane({
   hideBar = false,
   reconnectNonce = 0,
   onMetaChange,
+  ioUrl,
 }: {
   sessionId: string;
   hideBar?: boolean;
   reconnectNonce?: number;
   onMetaChange?: (m: RemoteShellMeta) => void;
+  /** Override the socket URL - a Shells-fitting session on ANOTHER node's
+   *  origin (the direct-origin client, shell-origin.ts) rather than the
+   *  same-origin /remote-shell/io relay. Must already be a full ws(s):// URL. */
+  ioUrl?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -97,7 +102,7 @@ export function RemoteShellPane({
     });
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${proto}//${window.location.host}/remote-shell/io`);
+    const socket = new WebSocket(ioUrl ?? `${proto}//${window.location.host}/remote-shell/io`);
     socket.binaryType = "arraybuffer";
     socketRef.current = socket;
 
@@ -171,7 +176,7 @@ export function RemoteShellPane({
       try { term.dispose(); } catch {}
       socketRef.current = null;
     };
-  }, [sessionId, generation, reconnectNonce]);
+  }, [sessionId, generation, reconnectNonce, ioUrl]);
 
   return (
     <div className="wc-rsh">
