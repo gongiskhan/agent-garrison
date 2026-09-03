@@ -621,6 +621,16 @@
     }
   },
   {
+    "id": "preflight",
+    "name": "Preflight",
+    "repo": "local:fittings/seed/preflight",
+    "localPath": "fittings/seed/preflight",
+    "summary": "Composition doctor (default port 8076): seven pre-up() checks — complete verify results, library registration, two-axis port collisions, tailscale serve coverage, orphan processes, composition drift / unfitted re-station, retired capability kinds — each finding with a concrete fix. Works with the app down; read-only except the explicit verify sweep, which proxies the app own verify endpoint.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
     "id": "morning-briefing",
     "name": "Morning Briefing",
     "repo": "local:fittings/seed/morning-briefing",
