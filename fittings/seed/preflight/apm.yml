@@ -1,0 +1,85 @@
+name: preflight
+version: 0.1.0
+description: Composition doctor — diagnoses why a composition won't come up (or is silently broken) before up() runs.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  # observability is the honest faculty: this fitting produces diagnostics
+  # about the garrison itself, and the faculty accepts the plugin shape.
+  faculty: observability
+  cardinality_hint: single
+  component_shape: plugin
+  own_port: true
+  # 8076, in the committed 8xxx base map: declare the BASE value only — the
+  # sandboxes shift (dev +10000, codex +20000) via applyPortOffsetToConfig.
+  #
+  # 8076 and not 8080: 8080 is held on the node by an unrelated Java service
+  # (the reason whatsapp-web sits on 8087). Adjacent to monitor-default (8077,
+  # claimed via its config_schema `port` default only) and the project-viewer
+  # PR (8078). A canonical port counts default_port AND config_schema port-like
+  # defaults AND composition pins (health_port 8099 is the scheduler's), and
+  # must also be free on the serve axis: 8400 + port % 1000 = 8476, unclaimed.
+  # 8070-8075 are the fallback block if this ever collides.
+  default_port: 8076
+  platforms:
+    - claude-code
+  summary: >-
+    One page + CLI answering "why won't my composition come up". Seven checks,
+    each born from a real incident: complete verify-result reporting (up()
+    stops at the first failure and hides the rest — this shows all of them),
+    library-registration cross-check (an unregistered fitting is silently
+    dropped by the resolver), two-axis port collision inventory (canonical AND
+    serve = 8400 + port % 1000, counting config_schema defaults), tailscale
+    serve coverage (an unmapped view renders blank for remote viewers), orphan
+    process ledger audit (report-only, never kills), composition drift and
+    unfitted re-station detection (a fitting removed without an unfitted record
+    re-adds itself on the next read), and a retired capability-kind scan (one
+    retired kind 500s /api/compositions and takes Muster down). Works in
+    degraded mode when the app on 8777 is down — which is exactly when a doctor
+    is needed. Read-only except the explicit verify sweep, which only proxies
+    the app's own verify endpoint (the same code path up() runs).
+  config_schema:
+    - key: port
+      type: integer
+      default: 8076
+      description: HTTP port. The server exits non-zero when it is taken rather than shifting, because a silent shift would leave the sidebar pointing at nothing.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind host; 0.0.0.0 to expose beyond loopback.
+    - key: repo_root
+      type: string
+      default: ""
+      description: Garrison repo root. Empty = auto-discover by walking up from the fitting dir until data/library.json and fittings/seed/ are both found (works from fittings/seed and from apm_modules/_local placements).
+    - key: refresh_ms
+      type: integer
+      default: 30000
+      description: UI auto-refresh cadence for the passive report. The heavy verify sweep never runs on a timer — only on the explicit button/--sweep.
+  provides: []
+  consumes: []
+  ui:
+    views:
+      - id: preflight
+        placement: faculty-tab
+        entry: ./dist/index.html
+        route: /
+  setup:
+    command: node ui/build.mjs
+    idempotent: true
+    timeout_ms: 60000
+  verify:
+    command: node apm_modules/_local/preflight/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Read-only doctor. GET /api/report returns {findings[], summary, degraded,
+    appUp, compositions[], generatedAt}; findings are {check, id, status:
+    pass|warn|fail, detail, evidence?, fix?}. GET /api/report?checks=a,b runs a
+    subset. POST /api/verify-sweep {compositionId} is the ONLY mutating action
+    and only proxies the app's own /api/runner/<id>/verify (heavy: flips runner
+    status, may run apm install, runs setup hooks — same code path as up()).
+    CLI: node scripts/cli.mjs [--json] [--checks a,b] [--sweep --composition <id>];
+    exit 1 iff any finding is a fail. Never kills processes, never edits
+    compositions, never registers serve mappings — every finding carries a
+    `fix` hint naming the tool that does.
