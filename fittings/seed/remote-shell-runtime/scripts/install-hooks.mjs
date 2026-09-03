@@ -12,8 +12,18 @@
 // hook needed.
 //
 // GARRISON_REMOTESHELLRUNTIME_INSTALL_HOOKS=false (or win32) skips entirely.
-// Env overrides for testability: HOME, GARRISON_HOME, GARRISON_CURSOR_HOME,
-// CODEX_HOME, GEMINI_CLI_HOME.
+//
+// Deliberately NOT env.CODEX_HOME / env.GEMINI_CLI_HOME: the runner projects
+// those into EVERY fitting's spawn env, pointed at this INSTANCE's own
+// redirected home (~/.garrison/runtime-homes/{codex,gemini}) for credential
+// isolation - reading them here would install hooks somewhere a plain
+// interactive `codex`/`gemini` session on this machine never looks, quietly
+// defeating the whole point (found live on dev-madrid: the first deploy of
+// this script wrote into the redirected home and left the real
+// ~/.codex/hooks.json untouched). This always targets the REAL, unredirected
+// home a bare terminal session uses. Env overrides for TESTS only (never the
+// CLI's own var names, for the same reason): HOME, GARRISON_HOME,
+// GARRISON_CURSOR_HOME, GARRISON_SHELLS_CODEX_HOME, GARRISON_SHELLS_GEMINI_HOME.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -30,11 +40,11 @@ function cursorHome(env) {
 }
 
 function codexHome(env) {
-  return env.CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
+  return env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
 }
 
 function geminiHome(env) {
-  return env.GEMINI_CLI_HOME?.trim() || path.join(homeDir(env), ".gemini");
+  return env.GARRISON_SHELLS_GEMINI_HOME?.trim() || path.join(homeDir(env), ".gemini");
 }
 
 function hookScriptPath(env) {

@@ -17,11 +17,12 @@ function cursorHome(env) {
 }
 
 function codexHome(env) {
-  return env.CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
+  // See install-hooks.mjs's header comment: deliberately not env.CODEX_HOME.
+  return env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
 }
 
 function geminiHome(env) {
-  return env.GEMINI_CLI_HOME?.trim() || path.join(homeDir(env), ".gemini");
+  return env.GARRISON_SHELLS_GEMINI_HOME?.trim() || path.join(homeDir(env), ".gemini");
 }
 
 function readJson(file) {

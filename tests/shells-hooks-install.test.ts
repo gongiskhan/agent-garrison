@@ -25,8 +25,8 @@ beforeEach(() => {
     HOME: sandbox,
     GARRISON_HOME: path.join(sandbox, "garrison"),
     GARRISON_CURSOR_HOME: path.join(sandbox, "cursor-home"),
-    CODEX_HOME: path.join(sandbox, "codex-home"),
-    GEMINI_CLI_HOME: path.join(sandbox, "gemini-home")
+    GARRISON_SHELLS_CODEX_HOME: path.join(sandbox, "codex-home"),
+    GARRISON_SHELLS_GEMINI_HOME: path.join(sandbox, "gemini-home")
   } as NodeJS.ProcessEnv;
 });
 
@@ -67,24 +67,24 @@ describe("install-hooks.mjs", () => {
   });
 
   it("codex: adds the four Claude-shaped hook groups without touching config.toml", () => {
-    mkdirSync(env.CODEX_HOME!, { recursive: true });
-    writeFileSync(path.join(env.CODEX_HOME!, "config.toml"), "# untouched\n");
+    mkdirSync(env.GARRISON_SHELLS_CODEX_HOME!, { recursive: true });
+    writeFileSync(path.join(env.GARRISON_SHELLS_CODEX_HOME!, "config.toml"), "# untouched\n");
     installHooks(env, () => {});
-    const cfg = readJson(path.join(env.CODEX_HOME!, "hooks.json")) as { hooks: Record<string, unknown[]> };
+    const cfg = readJson(path.join(env.GARRISON_SHELLS_CODEX_HOME!, "hooks.json")) as { hooks: Record<string, unknown[]> };
     for (const event of ["UserPromptSubmit", "Stop", "SessionStart", "SessionEnd"]) {
       expect(cfg.hooks[event]).toHaveLength(1);
     }
-    expect(readFileSync(path.join(env.CODEX_HOME!, "config.toml"), "utf8")).toBe("# untouched\n");
+    expect(readFileSync(path.join(env.GARRISON_SHELLS_CODEX_HOME!, "config.toml"), "utf8")).toBe("# untouched\n");
   });
 
   it("gemini: adds hooks under settings.json without disturbing mcpServers", () => {
-    mkdirSync(env.GEMINI_CLI_HOME!, { recursive: true });
+    mkdirSync(env.GARRISON_SHELLS_GEMINI_HOME!, { recursive: true });
     writeFileSync(
-      path.join(env.GEMINI_CLI_HOME!, "settings.json"),
+      path.join(env.GARRISON_SHELLS_GEMINI_HOME!, "settings.json"),
       JSON.stringify({ mcpServers: { demo: { command: "true" } } })
     );
     installHooks(env, () => {});
-    const cfg = readJson(path.join(env.GEMINI_CLI_HOME!, "settings.json")) as {
+    const cfg = readJson(path.join(env.GARRISON_SHELLS_GEMINI_HOME!, "settings.json")) as {
       mcpServers: Record<string, unknown>;
       hooks: Record<string, unknown[]>;
     };
@@ -122,7 +122,7 @@ describe("install-hooks.mjs", () => {
 describe("uninstall-hooks.mjs", () => {
   it("removes only the shells hook entries, leaving user-defined ones intact", () => {
     mkdirSync(env.GARRISON_CURSOR_HOME!, { recursive: true });
-    mkdirSync(env.CODEX_HOME!, { recursive: true });
+    mkdirSync(env.GARRISON_SHELLS_CODEX_HOME!, { recursive: true });
     installHooks(env, () => {});
     // Add an unrelated cursor hook that must survive.
     const cursorFile = path.join(env.GARRISON_CURSOR_HOME!, "hooks.json");
