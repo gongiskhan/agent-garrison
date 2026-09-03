@@ -84,7 +84,8 @@ export class TetherManager {
         lastError: null,
         backoffIndex: 0,
         timer: null,
-        starting: false
+        starting: false,
+        ticking: false
       };
       this.entries.set(name, e);
     }
@@ -254,7 +255,31 @@ export class TetherManager {
     if (!tetherArmed(transport, this.env)) return;
     const name = transport.name;
     const e = this.entries.get(name);
-    if (!e || !e.child || e.child.exitCode !== null) return; // ensure() owns bringing it up
+    if (!e || e.starting || e.ticking) return; // ensure()/a prior tick already owns bringing it up
+
+    // No live ssh child - dead on its own (ssh exits almost immediately on
+    // e.g. ECONNREFUSED - a genuinely unreachable target is NOT the same
+    // failure shape as a live-but-quiet forward, which is why forwards.mjs's
+    // ForwardManager can assume a still-running child) or never started.
+    // Unambiguous evidence, so this restarts directly rather than waiting out
+    // MISSES_BEFORE_RETIRE - found live: without this branch a dead child was
+    // never retried again, ever, once its process table entry was gone.
+    if (!e.child || e.child.exitCode !== null) {
+      e.ticking = true;
+      try {
+        e.misses += 1;
+        const backoff = Math.min(BASE_BACKOFF_MS * 2 ** e.backoffIndex, MAX_BACKOFF_MS);
+        e.backoffIndex += 1;
+        this.log?.warn?.(
+          `[remote-shell] tether ${name} has no live ssh child (last error: ${e.lastError ?? "none"}) - retrying in ${backoff}ms`
+        );
+        await sleep(backoff);
+        await this.#start(transport);
+      } finally {
+        e.ticking = false;
+      }
+      return;
+    }
 
     const legs = await this.#probeAll(transport);
     if (legs.ok) {

@@ -189,6 +189,40 @@ describe("TetherManager.tick: two misses (not one) before retiring", () => {
     expect((mgr as any).entries.get("csg").child).not.toBe(child);
   });
 
+  // Ratchet, found live on dev-madrid (2026-09-03): `ssh` exits almost
+  // immediately on ECONNREFUSED (a genuinely unreachable target), unlike a
+  // wedged-but-live forward. The original tick() only re-probed a LIVE
+  // child's health and silently did nothing once the child's process table
+  // entry was gone - a dead-on-arrival ssh was never retried again, ever.
+  it("retries a child that already died on its own between ticks (e.g. ECONNREFUSED) - not stuck forever", async () => {
+    const [appPort, shellsPort] = [await freeLocalPort(), await freeLocalPort()];
+    const transport = transportWithFreePorts(appPort, shellsPort);
+    let spawnCount = 0;
+    const diesImmediately = (_cmd: string, _argv: string[]) => {
+      spawnCount += 1;
+      const child: any = new EventEmitter();
+      child.exitCode = 255; // ssh's own exit code on a refused connection
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      return child;
+    };
+    const exec = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+    const mgr = new TetherManager({ spawnFn: diesImmediately, exec, env: { GARRISON_NODE_NAME: "dev-madrid", GARRISON_HOME: TEST_HOME } as any, log: { warn: () => {} } });
+
+    const first = await mgr.ensure(transport);
+    expect(first.ok).toBe(false); // the probe never had a live child's forwards to check
+    expect(spawnCount).toBe(1);
+
+    await mgr.tick(transport);
+    // tick() must notice the child is already dead and spawn a replacement -
+    // not silently do nothing forever.
+    expect(spawnCount).toBe(2);
+    expect(mgr.status("csg").misses).toBeGreaterThan(0);
+
+    await mgr.tick(transport);
+    expect(spawnCount).toBe(3);
+  });
+
   it("tick() is a no-op on a node that is not the owner", async () => {
     const exec = vi.fn();
     const mgr = new TetherManager({ spawnFn: fakeSshSpawn(), exec, env: { GARRISON_NODE_NAME: "csg", GARRISON_HOME: TEST_HOME } as any });
