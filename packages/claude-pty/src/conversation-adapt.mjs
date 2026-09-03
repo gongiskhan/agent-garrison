@@ -71,6 +71,9 @@ const LEDGER_KIND_MAP = {
   escalation: "escalation",
   "policy-rewrite": "policy-rewrite",
   "summary-trimmed": "policy-rewrite",
+  // A user steer interrupting the stretch in flight: the platform rewriting
+  // the flow on the person's word, so it lands beside the other rewrites.
+  "stretch-steered": "policy-rewrite",
   // The Autonomous gate's ask — first-class, so the renderer can style the
   // pause and the activity derivation can recognise an unanswered ask.
   "approval-requested": "approval-requested",
@@ -347,6 +350,11 @@ function buildTitleAndDetail(record, payload) {
       return {
         title: `Routing rewritten: ${payload.from ?? "?"} -> ${payload.to ?? "?"}`,
         detail: payload.reason ? text(payload.reason) : null,
+      };
+    case "stretch-steered":
+      return {
+        title: `Steered: ${record.duty ?? "the stretch"} interrupted to take your message`,
+        detail: text(payload.text) || null,
       };
     case "summary-trimmed": {
       const dropped = Array.isArray(payload.dropped) ? payload.dropped : [];

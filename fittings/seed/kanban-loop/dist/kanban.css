@@ -4345,6 +4345,9 @@ button:active, .btn:active { transform: translateY(1px); }
 @media (pointer: coarse) {
   button, .btn, input, select, textarea, .gear { min-height: 44px; }
   .gear { min-width: 44px; }
+  /* The exemptions from this floor - checklist boxes, native checkboxes, the
+     inline icon controls - live at the END of this file, after the base rules
+     they have to outrank. */
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -5319,4 +5322,136 @@ label.row { display: flex; align-items: center; gap: 8px; }
   #root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   #root select,
   #root textarea { font-size: 16px; }
+}
+
+/* ── The composer's delivery switch (2026-09-03) ──────────────────────────────
+   Shown only while the card is WORKING: steer the stretch in flight (the
+   default) or queue the message as a follow-up. A visible two-way choice, not
+   a dropdown, so the armed option is readable at a glance on a phone. The
+   hint line under it says what the next message will do, and briefly what
+   the last one did. */
+/* The chat renders a composer adornment as a slot at the LEFT of its input
+   row. A two-way switch plus a hint line has no business in a side column
+   next to the textarea (on a phone it squeezed the input to a third of the
+   width), so the row wraps and the adornment takes a full line above it. The
+   quick replies get the same line for the same reason. */
+.kanban-conversation .cc-composerrow { flex-wrap: wrap; }
+/* The input's own `width: 100%` would wrap it onto a line of its own too;
+   a zero basis keeps attach, input and send together on the second line. */
+.kanban-conversation .cc-composerrow > .cc-input { flex: 1 1 0; width: auto; }
+.kanban-conversation .conv-delivery,
+.kanban-conversation .conv-quickreplies { flex: 1 1 100%; order: -1; min-width: 0; }
+.kanban-conversation .conv-quickreplies { padding: 0 0 4px; }
+.conv-delivery { display: flex; flex-direction: column; gap: 4px; padding: 0 0 4px; min-width: 0; }
+.conv-delivery-switch {
+  display: inline-flex; align-self: flex-start;
+  border: 1px solid var(--cc-border-strong); background: var(--cc-bg);
+}
+.conv-delivery-option {
+  font: inherit; font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em;
+  padding: 0 12px; min-height: 30px; border: 0; background: transparent;
+  color: var(--cc-fg-dim); cursor: pointer; white-space: nowrap;
+}
+.conv-delivery-option + .conv-delivery-option { border-left: 1px solid var(--cc-border-strong); }
+.conv-delivery-option:hover { color: var(--cc-fg); }
+.conv-delivery-option.is-active { background: var(--cc-accent); color: var(--cc-accent-fg); }
+.conv-delivery-hint { font-size: 11px; color: var(--cc-fg-dim); line-height: 1.35; overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  .conv-delivery-switch { align-self: stretch; }
+  .conv-delivery-option { flex: 1 1 0; min-height: 40px; padding: 0 12px; font-size: 12.5px; }
+}
+
+/* ── Touch: what the 44px floor is NOT for (2026-09-03) ──────────────────────
+   The coarse-pointer floor (above, with the scrollbars) is for controls a
+   finger presses ON THEIR OWN. A checklist box sits in a row that is itself
+   the target, an inline icon control sits beside its text, a native checkbox
+   lives inside a label - stretched to 44px they read as broken (the phone's
+   "checkboxes are too tall"). These keep a comfortable target another way: a
+   bigger box, a taller row. Last in the file on purpose: the base rules they
+   override share their specificity, so order decides. */
+@media (pointer: coarse) {
+  .checklist .cl-box,
+  .checklist .cl-del,
+  .checklist .cl-text-button,
+  .ev-item .ev-del,
+  .btn.tiny,
+  input[type="checkbox"],
+  input[type="radio"] { min-height: 0; }
+  .checklist .cl-box { width: 22px; height: 22px; margin-top: 0; }
+  .checklist .cl-box.checked::after { left: 7px; top: 3px; width: 6px; height: 11px; }
+  .checklist .cl-items li { align-items: center; min-height: 36px; padding: 4px 2px; font-size: 13.5px; }
+  .checklist .cl-text-button { min-height: 28px; display: inline-flex; align-items: center; }
+  .checklist .cl-del { min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; }
+  .checklist .cl-del svg { width: 13px; height: 13px; }
+  .ev-item .ev-del { width: 28px; height: 28px; }
+  input[type="checkbox"],
+  .field .row input[type="checkbox"] { width: 20px; height: 20px; }
+  .btn.tiny { min-height: 32px; padding: 0 10px; font-size: 11px; }
+}
+
+/* ── Phone: the card as a full-screen sheet (2026-09-03) ──────────────────────
+   Under 640px a sheet IS the screen: no backdrop margin, no rounded card
+   floating over a dimmed board, a header row with the close control at the
+   thumb's reach, and a body that scrolls on its own. The detail sheet becomes
+   two pages under that header - Card and Conversation - so the conversation
+   gets the whole viewport with its composer pinned to the bottom edge instead
+   of a chat box scrolling somewhere inside a long form. */
+@media (max-width: 640px) {
+  .sheet-backdrop { padding: 0; align-items: stretch; }
+  .sheet,
+  .sheet.mid,
+  .sheet.wide,
+  .sheet.conv {
+    width: 100vw; max-width: none;
+    height: 100vh; height: 100dvh; max-height: none;
+    border: 0; box-shadow: none;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .sheet .sh-head { flex: 0 0 auto; position: static; padding: 10px 10px 10px 16px; gap: 8px; }
+  .sheet .sh-head h3 { font-size: 17px; }
+  .sheet .sh-head .sh-close {
+    width: 40px; min-width: 40px; height: 40px; min-height: 40px;
+    padding: 0; justify-content: center;
+  }
+  .sheet .sh-head .sh-close svg { width: 14px; height: 14px; }
+  .sheet .sh-body {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 14px 16px calc(24px + env(safe-area-inset-bottom));
+  }
+  .sheet.conv .sh-body { padding: 8px 10px calc(6px + env(safe-area-inset-bottom)); overflow: hidden; }
+
+  /* the two pages */
+  .sheet-tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--rule); background: white; }
+  .sheet-tab {
+    flex: 1 1 0; min-height: 44px; padding: 0 8px;
+    border: 0; border-bottom: 2px solid transparent; background: transparent;
+    font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; color: var(--mute);
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+  }
+  .sheet-tab.is-active { color: var(--ink); border-bottom-color: var(--ink); }
+  /* Conversation page: the conversation IS the body. The other sections stay
+     mounted (a half-typed checklist item survives a tab switch) but hidden. */
+  .sheet.phone-conv .sh-body { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .sheet.phone-conv .sh-body > :not(.conv-block) { display: none; }
+  .sheet.phone-conv .conv-block { flex: 1 1 auto; min-height: 0; margin: 0; display: flex; flex-direction: column; }
+  .sheet.phone-conv .kanban-conversation { height: auto; flex: 1 1 auto; min-height: 0; border: 0; }
+  /* The conversation's own header repeats the sheet title one row down;
+     on this page the search field and the raw-log control are what earn the
+     space, on one row. */
+  .sheet.phone-conv .cc-conv-head { padding: 8px 10px; gap: 8px; }
+  .sheet.phone-conv .cc-conv-title { display: none; }
+  .sheet.phone-conv .cc-conv-search { flex: 1 1 auto; margin-left: 0; }
+  .sheet.phone-conv .cc-conv-searchinput { min-height: 38px; }
+  .sheet.phone-conv .conv-rawlog { min-height: 38px; }
+  /* Card page: the conversation has its own page, so it is not also a box here. */
+  .sheet.phone-card .sh-body > .conv-block { display: none; }
+  /* A card without a conversation yet (never started) keeps the single page;
+     the sections simply stack. */
+  .detail-meta { gap: 5px; }
+  .detail-actions { gap: 6px; }
+  .detail-actions .btn { flex: 1 1 calc(50% - 6px); justify-content: center; min-height: 40px; }
+  .detail-actions-footer .btn { flex: 1 1 auto; }
+  .lrow { grid-template-columns: 1fr; gap: 3px; }
+  .conv-meta .btn { min-height: 36px; }
+  .conv-rawlog { min-height: 36px; }
 }
