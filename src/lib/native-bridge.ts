@@ -142,6 +142,24 @@ export const nativeCapture = {
     listen("GarrisonCapture", "captureState", cb as (data: never) => void)
 };
 
+export interface SpeechSettings {
+  master?: boolean;
+  info?: boolean;
+  cues?: boolean;
+  [key: string]: unknown;
+}
+
+// The phone's own synthesizer (GarrisonSpeechPlugin). The talk page uses it to
+// read the answer to a spoken turn aloud (D56); the voice layer is told first
+// (`/api/voice/spoken`) so a live broadcast mic ignores the echo.
+export const nativeSpeech = {
+  speak: (args: { text: string; lang?: string; rate?: number; volume?: number; voiceId?: string }) =>
+    call<{ completed?: boolean }>("GarrisonSpeech", "speak", args),
+  stop: () => call<Record<string, never>>("GarrisonSpeech", "stop"),
+  settings: () => call<SpeechSettings>("GarrisonSpeech", "settings"),
+  configure: (args: Partial<SpeechSettings>) => call<SpeechSettings>("GarrisonSpeech", "configure", args)
+};
+
 export const nativePush = {
   register: () => call<PushStatus>("GarrisonPush", "register"),
   status: () => call<PushStatus>("GarrisonPush", "status"),

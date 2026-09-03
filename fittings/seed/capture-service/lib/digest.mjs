@@ -185,6 +185,19 @@ export async function postConversationTurn({
   const message = conversationTurnMessage({ command, frames });
   if (!message) return { ok: false, reason: "empty command" };
   const url = `${base}/talk/${encodeURIComponent(conversationId)}`;
+  // Where the ledger stood BEFORE the turn: the reply watcher (conversation-
+  // reply.mjs) reads forward from here. Best effort - an unreadable meta means
+  // the watcher starts at 0 and skips to the tail on its own.
+  let fromIndex = 0;
+  try {
+    const meta = await fetchImpl(`${base}/api/conversation/${encodeURIComponent(conversationId)}`, {
+      signal: AbortSignal.timeout(5000)
+    });
+    const parsed = meta.ok ? await meta.json().catch(() => null) : null;
+    if (typeof parsed?.total === "number") fromIndex = parsed.total;
+  } catch {
+    fromIndex = 0;
+  }
   try {
     const posted = await fetchImpl(`${base}/api/conversation/${encodeURIComponent(conversationId)}/message`, {
       method: "POST",
@@ -201,7 +214,7 @@ export async function postConversationTurn({
     const body = await posted.json().catch(() => ({}));
     counters?.bump("conversation_turn_posted");
     log.log(`[capture-service] wake turn ${eventId} -> thread ${conversationId} (${frames.length} frame${frames.length === 1 ? "" : "s"})`);
-    return { ok: true, seq: typeof body?.seq === "number" ? body.seq : null, recordedBy: body?.recordedBy ?? null, url };
+    return { ok: true, seq: typeof body?.seq === "number" ? body.seq : null, recordedBy: body?.recordedBy ?? null, url, base, fromIndex };
   } catch (err) {
     counters?.bump("conversation_turn_post_failed");
     log.error(`[capture-service] wake turn ${eventId} -> thread ${conversationId}: ${err?.message ?? err}`);

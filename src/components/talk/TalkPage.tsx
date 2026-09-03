@@ -8,7 +8,7 @@ import "@xterm/xterm/css/xterm.css";
 import "@garrison/claude-chat/styles.css";
 import "@garrison/talk/ui/styles.css";
 import "./talk-page.css";
-import { nativeCapture } from "@/lib/native-bridge";
+import { nativeCapture, nativeSpeech } from "@/lib/native-bridge";
 import { useNativeBridge } from "@/components/capture/BridgeGate";
 import { useAppBar } from "@/components/chrome/AppBar";
 import { openOnNode, openViaParent } from "./open-on-node";
@@ -46,6 +46,7 @@ export function TalkPage({ thread, framed = false }: TalkPageProps) {
       <TalkApp
         thread={thread}
         captureBridge={native ? nativeCapture : null}
+        speechBridge={native ? nativeSpeech : null}
         openRemote={framed ? openViaParent : openOnNode}
       />
     </div>

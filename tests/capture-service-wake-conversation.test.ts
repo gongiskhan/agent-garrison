@@ -121,6 +121,70 @@ describe("wake hit inside a broadcast started from a conversation", () => {
     expect(sent[0].params.path).toBe(`/talk/${THREAD}`);
   });
 
+  it("watches the ledger for the answer and pushes it back as conversation_reply", async () => {
+    const urls: string[] = [];
+    const pages = [
+      { events: [{ kind: "stretch-started", payload: { stretchId: "s-triage" } }, { kind: "stretch-ended", payload: { stretchId: "s-triage", duty: "triage" } }], nextIndex: 22 },
+      {
+        events: [
+          { kind: "stretch-started", payload: { stretchId: "s-discuss" } },
+          { kind: "session-event", payload: { role: "assistant", blocks: [{ type: "text", text: "That is the Vault page.\n[route: discuss]" }] } },
+          { kind: "stretch-ended", payload: { stretchId: "s-discuss", duty: "discuss" } }
+        ],
+        nextIndex: 25
+      }
+    ];
+    let page = 0;
+    const fetchImpl = async (url: string) => {
+      urls.push(url);
+      const body = pages[Math.min(page, pages.length - 1)];
+      page += 1;
+      return { ok: true, json: async () => body };
+    };
+    const { bus, counters, sent } = makeBus({
+      cfg: { ...loadConfig({ GARRISON_HOME: mkdtempSync(path.join(os.tmpdir(), "wake-conv-cfg-")) }), wakeEnabled: true, gatewayUrl: "http://gateway.test", wakeUnheardEnabled: false, wakeReplyDuties: ["discuss"], wakeReplyTimeoutMs: 10_000, wakeReplyPollMs: 1 },
+      fetchImpl,
+      conversationTurnFn: async () => ({ ok: true, inputId: "in-1", url: `http://app.test/talk/${THREAD}`, base: "http://app.test", fromIndex: 20 })
+    });
+    const outcome = await bus.handleCommand({ command: "what page is this", eventId: "ev7", sessionId: "rec-1", wakeHitAt: 1000 });
+    expect(typeof outcome.after).toBe("function");
+    outcome.after!();
+    await bus.settleReplyWatches();
+    expect(urls[0]).toBe(`http://app.test/api/conversation/${THREAD}/log?fromIndex=20&limit=500`);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      template: "conversation_reply",
+      params: { text: "That is the Vault page.", path: `/talk/${THREAD}`, eventId: "ev7", sessionId: "rec-1", conversationId: THREAD, duty: "discuss" }
+    });
+    expect(counters.read().wake_conversation_replies).toBe(1);
+  });
+
+  it("does not announce the same answer twice when two hits share a conversation", async () => {
+    const page = {
+      events: [
+        { kind: "stretch-started", payload: { stretchId: "s-discuss" } },
+        { kind: "session-event", payload: { role: "assistant", blocks: [{ type: "text", text: "One answer." }] } },
+        { kind: "stretch-ended", payload: { stretchId: "s-discuss", duty: "discuss" } }
+      ],
+      nextIndex: 30
+    };
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return { ok: true, json: async () => (calls === 1 ? page : { events: [], nextIndex: 30 }) };
+    };
+    const { bus, counters, sent } = makeBus({
+      cfg: { ...loadConfig({ GARRISON_HOME: mkdtempSync(path.join(os.tmpdir(), "wake-conv-cfg-")) }), wakeEnabled: true, gatewayUrl: "http://gateway.test", wakeUnheardEnabled: false, wakeReplyTimeoutMs: 50, wakeReplyPollMs: 1 },
+      fetchImpl
+    });
+    const first = await bus.watchConversationReply({ conversationId: THREAD, eventId: "e1", base: "http://app.test", fromIndex: 27 });
+    expect(first).toMatchObject({ text: "One answer.", stretchId: "s-discuss" });
+    const second = await bus.watchConversationReply({ conversationId: THREAD, eventId: "e2", base: "http://app.test", fromIndex: 27 });
+    expect(second).toBeNull();
+    expect(sent).toHaveLength(1);
+    expect(counters.read().wake_conversation_reply_timeouts).toBe(1);
+  });
+
   it("leaves a session with no conversation on the classifier lane", async () => {
     const { bus, runCalls, turns } = makeBus();
     await bus.handleCommand({ command: "note this down", eventId: "ev2", sessionId: "pendant-1" });
@@ -158,6 +222,13 @@ describe("the posted turn", () => {
   it("goes through the conversation door keyed by the wake event", async () => {
     const posts: Array<{ url: string; body: any }> = [];
     const server = createServer((req, res) => {
+      if (req.method === "GET") {
+        // The ledger baseline the reply watcher starts from: everything already
+        // in the log before this turn is not the answer to it.
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ conversationId: THREAD, total: 42, tail: [] }));
+        return;
+      }
       let raw = "";
       req.on("data", (c) => (raw += c));
       req.on("end", () => {
@@ -179,7 +250,7 @@ describe("the posted turn", () => {
       env: { GARRISON_APP_URL: base },
       log: { log: () => {}, error: () => {} }
     });
-    expect(posted).toMatchObject({ ok: true, seq: 9, recordedBy: "responder", url: `${base}/talk/${THREAD}` });
+    expect(posted).toMatchObject({ ok: true, seq: 9, recordedBy: "responder", url: `${base}/talk/${THREAD}`, base, fromIndex: 42 });
     expect(posts).toHaveLength(1);
     // The conversation door, not the thread's /inputs lane: a conversation-backed
     // thread renders only the ledger, so a turn posted to /inputs ran unseen.

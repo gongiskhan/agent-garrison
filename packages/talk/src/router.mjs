@@ -3410,6 +3410,9 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname === "/api/voice" && method === "GET") { settle(res, handleVoiceInfo(res, liveOpts.voice), log); return true; }
       if (pathname === "/api/voice/stt" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/stt", liveOpts.voice), log); return true; }
       if (pathname === "/api/voice/tts" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/tts", liveOpts.voice), log); return true; }
+      // The page is about to speak an answer (D56): the voice layer's echo guard
+      // learns the text so a live broadcast mic does not transcribe it back.
+      if (pathname === "/api/voice/spoken" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/spoken", liveOpts.voice), log); return true; }
       {
         const m = method === "GET" ? /^\/api\/voice\/sessions\/([^/]+)\/events$/.exec(pathname) : null;
         if (m) { settle(res, handleVoiceSessionEvents(req, res, decodeURIComponent(m[1]), liveOpts.voice), log); return true; }

@@ -1406,6 +1406,67 @@ the session's language, and the pt-pinned stream turned an English request
 into Portuguese nonsense ("tu moro aonde tu vai a Nascarim?"). The wake word
 survives through `stt_keyterms`.
 
+### D56. The answer comes back to the phone: pushed, and spoken while the page is open (2026-09-03)
+
+D55 landed and the phone retest read "Now it seems to work": the turn is in
+the conversation, the frames are described. Three complaints stayed. The
+wake-word banner was still on screen after the first capture; there was "no
+feedback" at all (the old Companion pushed a notification and spoke the
+answer, the app now does neither when the pendant is not the source); and "it
+is not capturing again", which recon narrowed down to the same thing: the
+second hit did land in the ledger four minutes later, but with nothing coming
+back to the phone every repeated "Zeca" read as a dead one.
+
+The old Companion's feedback loop ran on the pendant lane: a hit spoke a
+confirmation, the answer came back as an APNs push with the text. The web
+channel's broadcast lane posts the turn and stops there - the confirmation
+push says "Sent to the conversation" and the answer is only ever visible in
+the transcript. The whole point of the app is the opposite: converse from
+another app, open the conversation only when something needs the screen.
+
+Decision, in two halves that share one ledger:
+
+- **The voice layer watches for the answer and pushes it.** After every
+  spoken conversation turn, `wake.mjs` starts a tracked, fire-and-forget
+  watch (`lib/conversation-reply.mjs`) over
+  `GET /api/conversation/:id/log?fromIndex=<total at post time>`. The first
+  `stretch-ended` of a user-facing duty (`GARRISON_CAPTURESERVICE_WAKE_REPLY_DUTIES`,
+  default `discuss`; the triage and test stretches are the session talking to
+  itself) is the answer. It is cleaned (code fences dropped, the `[route:]`
+  and `[orchestrator-active]` trailer lines dropped, 700 chars) and sent as
+  the new `conversation_reply` template: title "Zeca", body the answer, opens
+  `/talk/<id>`, on the interactive budget, and NEVER degraded to the web
+  thread when APNs is off (the answer is already there). On a mic or pendant
+  session with an open socket it is spoken first, like the confirmation. The
+  watch gives up after `GARRISON_CAPTURESERVICE_WAKE_REPLY_TIMEOUT_MS`
+  (5 min); when the responder stops without a user-facing stretch, the last
+  stretch's text is used after a 20 s idle grace. Stretches already announced
+  on a conversation are skipped, so two hits close together do not push the
+  same answer twice, and the watch is deliberately NOT on the delegate chain:
+  a second hit must not queue behind a five-minute wait. The wake-results
+  record gains `reply` (`text`, `duty`, `stretchId`, `delivery`).
+- **The open page speaks the same answer.** `packages/talk/ui/capture-feedback.ts`
+  polls the same ledger while the broadcast is live (and five minutes after
+  it stops): a `user-message` with `origin: "capture"` shows "Heard: <text>"
+  under the record button for 8 s and retires the wake-word hint for the rest
+  of the session (`captured`), and the matching user-facing `stretch-ended`
+  is spoken through the app's `GarrisonSpeech` plugin when the page is
+  visible - out of app the push carries it, so nothing is said twice. Before
+  speaking, the page registers the text with the voice layer's echo guard
+  (`POST /api/voice/spoken` through the talk router to capture-service's new
+  `POST /spoken`, re-registered every 20 s while speaking, the guard's TTL is
+  30 s) so the phone hearing itself say the answer over the broadcast mic
+  does not become the next turn. The speech master switch is honoured. A
+  typed turn is never spoken: it was typed.
+
+Debt this leaves, all in the handoff: the hit itself still has no instant
+feedback on the broadcast lane (the confirmation push is the first sign, a
+few seconds after the phrase; the broadcast session is not a speakable
+session by ADR §6, so nothing is spoken at the hit); an out-of-app spoken
+answer needs a Notification Service Extension with a synthesized sound, which
+is a native change and a TestFlight - deferred; and the STT quality on the
+broadcast mic decides whether the wake phrase is heard at all.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

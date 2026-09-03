@@ -14,7 +14,9 @@
 
 import { atomicWriteJSON, ulid } from "./store.mjs";
 import { detectLanguage, isLanguage, t } from "./lang.mjs";
+import { awaitConversationReply, DEFAULT_REPLY_DUTIES } from "./conversation-reply.mjs";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 
 const SESSION_IDLE_GC_MS = 10 * 60 * 1000;
 
@@ -719,7 +721,7 @@ export class ActiveConversation {
 }
 
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null, activeConversation = null, conversationFn = null, conversationTurnFn = null, screenFramesFn = null }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null, activeConversation = null, conversationFn = null, conversationTurnFn = null, screenFramesFn = null, fetchImpl = globalThis.fetch }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -778,6 +780,92 @@ export class WakeBus {
     this.dispatchChain = Promise.resolve();
     this.recentCards = new Map(); // dedupeKey -> created-at ms (in memory)
     this.revisions = new Map(); // sessionId -> pending revision watch (in memory)
+    // D56: the answer to a spoken conversation turn is watched for in the
+    // ledger and pushed/spoken back. One watch per turn, independent of the
+    // delegate chain (a second wake hit must not wait minutes for the first
+    // answer); `announcedReplies` keeps two watches on one conversation from
+    // announcing the same stretch twice.
+    this.fetchImpl = fetchImpl;
+    this.replyWatches = new Set();
+    this.announcedReplies = new Map(); // conversationId -> Set<stretchId>
+  }
+
+  // Tests await this so the deferred reply watch has settled.
+  settleReplyWatches() {
+    return Promise.all([...this.replyWatches]);
+  }
+
+  trackReplyWatch(args) {
+    const watch = this.watchConversationReply(args).catch((err) => {
+      this.log.error(`[${this.source.logPrefix}] wake reply watch error: ${err?.message ?? err}`);
+      return null;
+    });
+    this.replyWatches.add(watch);
+    watch.finally(() => this.replyWatches.delete(watch));
+    return watch;
+  }
+
+  // Waits for the operative's answer to the turn posted by conversationTurn and
+  // hands it to the notifier as `conversation_reply`: spoken first when a mic or
+  // pendant session is live (the speak-first notifier wrapped around this bus),
+  // a push otherwise - the phone owner is in another app and the old companion
+  // never left them without the answer. The reply is also appended to the
+  // wake-results record so the exchange reads back whole.
+  async watchConversationReply({ conversationId, eventId, sessionId = null, lang = "en", base, fromIndex }) {
+    const announced = this.announcedReplies.get(conversationId) ?? new Set();
+    this.announcedReplies.set(conversationId, announced);
+    if (this.announcedReplies.size > 50) this.announcedReplies.delete(this.announcedReplies.keys().next().value);
+    const startedAt = this.now();
+    const duties = Array.isArray(this.cfg.wakeReplyDuties) && this.cfg.wakeReplyDuties.length > 0 ? this.cfg.wakeReplyDuties : DEFAULT_REPLY_DUTIES;
+    const timeoutMs = this.cfg.wakeReplyTimeoutMs ?? 300000;
+    const reply = await awaitConversationReply({
+      base,
+      conversationId,
+      fromIndex,
+      fetchImpl: this.fetchImpl,
+      duties,
+      timeoutMs,
+      ...(typeof this.cfg.wakeReplyPollMs === "number" ? { pollMs: this.cfg.wakeReplyPollMs } : {}),
+      isFresh: (stretchId) => !announced.has(stretchId),
+      now: this.now
+    });
+    if (!reply) {
+      this.counters.bump("wake_conversation_reply_timeouts");
+      this.log.log(`[${this.source.logPrefix}] wake reply ${eventId}: no ${duties.join("/")} answer in ${conversationId} within ${Math.round(timeoutMs / 1000)}s`);
+      return null;
+    }
+    announced.add(reply.stretchId);
+    if (announced.size > 200) announced.delete(announced.values().next().value);
+    this.counters.bump("wake_conversation_replies");
+    this.counters.observe("wake_conversation_reply_ms", this.now() - startedAt);
+    const receipts = await this.notifier.send({
+      template: "conversation_reply",
+      params: {
+        text: reply.text,
+        path: `/talk/${encodeURIComponent(conversationId)}`,
+        lang,
+        sessionId,
+        eventId,
+        conversationId,
+        duty: reply.duty ?? null
+      }
+    });
+    const delivery = receipts.some((r) => r?.means === "companion-speech" && r?.ok)
+      ? "spoken"
+      : receipts.some((r) => r?.means === "companion-push" && r?.ok)
+        ? "push"
+        : "undelivered";
+    this.log.log(`[${this.source.logPrefix}] wake reply ${eventId} -> ${reply.duty ?? "?"} (${reply.text.length} chars, ${delivery})`);
+    const resultFile = path.join(this.store.root, "wake-results", `${eventId}.json`);
+    try {
+      const record = JSON.parse(readFileSync(resultFile, "utf8"));
+      record.reply = { text: reply.text, duty: reply.duty ?? null, stretchId: reply.stretchId, at: new Date(this.now()).toISOString(), delivery };
+      atomicWriteJSON(resultFile, record);
+    } catch {
+      // The record is written by dispatch after this turn's confirmation; a
+      // missing one (tests, a reset store) costs the forensic line, not the push.
+    }
+    return { ...reply, delivery };
   }
 
   emitLifecycle(name, payload) {
@@ -2262,10 +2350,20 @@ export class WakeBus {
     }
     this.counters.bump("wake_conversation_turns");
     const shown = command.length > 80 ? `${command.slice(0, 77)}...` : command;
+    // The answer comes later, in the conversation; watch for it and push/speak
+    // it back (D56). Runs after the confirmation went out, off the delegate
+    // chain, and never blocks the next wake hit.
+    const canWatch = typeof posted.base === "string" && posted.base && typeof posted.fromIndex === "number";
+    const after = canWatch
+      ? () => {
+          this.trackReplyWatch({ conversationId, eventId, sessionId, lang, base: posted.base, fromIndex: posted.fromIndex });
+        }
+      : null;
     return {
       confirmation: t("wake.conversation_sent", { text: shown }, lang),
       // The push opens the conversation itself; no card was made.
       path: `/talk/${encodeURIComponent(conversationId)}`,
+      ...(after ? { after } : {}),
       result: {
         intent: "conversation_turn",
         conversation_id: conversationId,

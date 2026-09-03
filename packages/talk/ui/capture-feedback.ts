@@ -1,0 +1,211 @@
+// Feedback for a spoken conversation turn while the page is open (D56).
+//
+// A broadcast's wake hit lands in the conversation as a user message with
+// `origin: "capture"`; the operative answers in a stretch loop. Out of the app
+// the phone hears about both through capture-service's pushes (and the pendant
+// or in-app mic speaks them); IN the app the page is the only thing that can
+// speak on the broadcast lane, because the broadcast extension's mic has no
+// echo coupling to the app speaker (ADR §6) - so it does, here.
+//
+// The watcher polls the ledger (`GET /api/conversation/:id/log?fromIndex=`)
+// from the index the conversation had when the watch began, so nothing older
+// is ever announced, and folds the same way capture-service's reply watcher
+// does: a heard capture turn is reported at once; the answer is the last
+// assistant text of the first stretch that ends with a user-facing duty AFTER
+// that turn. Typed turns never trigger a spoken answer.
+
+export const CAPTURE_REPLY_DUTIES = ["discuss"];
+// A lock-screen line is short; what the page speaks can be longer, but a wall
+// of text read aloud is not feedback either.
+export const CAPTURE_REPLY_SPEAK_CAP = 1200;
+
+export interface CaptureHeard {
+  text: string;
+  at: number;
+}
+
+export interface CaptureReply {
+  text: string;
+  duty: string | null;
+  stretchId: string;
+  at: number;
+}
+
+export interface CaptureFeedbackHandlers {
+  onHeard?: (heard: CaptureHeard) => void;
+  onReply?: (reply: CaptureReply) => void;
+}
+
+interface LedgerEvent {
+  kind?: string;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface FoldState {
+  running: string | null;
+  texts: Map<string, string>;
+  /** Capture turns heard and not yet answered. */
+  awaiting: number;
+}
+
+export function createFoldState(): FoldState {
+  return { running: null, texts: new Map(), awaiting: 0 };
+}
+
+// The routing trailer every stretch appends ("[route: ...]",
+// "[orchestrator-active]") is bookkeeping; code fences are unspeakable.
+export function cleanSpokenText(raw: unknown, cap: number = CAPTURE_REPLY_SPEAK_CAP): string {
+  let text = String(raw ?? "").replace(/\r/g, "");
+  text = text.replace(/```[\s\S]*?```/g, " ");
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^\[[^\]]*\]$/.test(line));
+  let out = lines.join("\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  if (out.length > cap) out = `${out.slice(0, cap - 3).trimEnd()}...`;
+  return out;
+}
+
+function assistantText(payload: Record<string, unknown> | null | undefined): string {
+  if (!payload || payload.role !== "assistant" || !Array.isArray(payload.blocks)) return "";
+  return (payload.blocks as Array<{ type?: string; text?: unknown }>)
+    .filter((b) => b && b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text as string)
+    .join("\n")
+    .trim();
+}
+
+/** Fold one page of ledger events; pure apart from the handler calls. */
+export function foldCaptureEvents(
+  state: FoldState,
+  events: LedgerEvent[],
+  handlers: CaptureFeedbackHandlers,
+  { duties = CAPTURE_REPLY_DUTIES, now = Date.now() }: { duties?: string[]; now?: number } = {},
+): void {
+  for (const ev of events) {
+    const kind = ev?.kind;
+    const payload = (ev?.payload ?? {}) as Record<string, unknown>;
+    if (kind === "user-message") {
+      if (payload.origin === "capture") {
+        const text = typeof payload.text === "string" ? payload.text.split("\n\nAttached file:")[0].trim() : "";
+        state.awaiting += 1;
+        handlers.onHeard?.({ text, at: now });
+      }
+    } else if (kind === "stretch-started") {
+      state.running = typeof payload.stretchId === "string" ? payload.stretchId : "?";
+      state.texts.set(state.running, "");
+    } else if (kind === "session-event") {
+      const text = assistantText(payload);
+      if (text && state.running) state.texts.set(state.running, text);
+    } else if (kind === "stretch-ended") {
+      const id = typeof payload.stretchId === "string" ? payload.stretchId : state.running ?? "?";
+      const text = cleanSpokenText(state.texts.get(id) ?? "");
+      state.texts.delete(id);
+      state.running = null;
+      const duty = typeof payload.duty === "string" ? payload.duty : null;
+      if (state.awaiting > 0 && duty && duties.includes(duty) && text) {
+        state.awaiting -= 1;
+        handlers.onReply?.({ text, duty, stretchId: id, at: now });
+      }
+    }
+  }
+}
+
+export interface WatchOptions {
+  base?: string;
+  pollMs?: number;
+  duties?: string[];
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Start watching a conversation; returns a stop function. The first poll
+ * establishes the baseline (nothing already in the log is announced).
+ */
+export function watchCaptureFeedback(
+  conversationId: string,
+  handlers: CaptureFeedbackHandlers,
+  { base = "/api/conversation", pollMs = 3000, duties = CAPTURE_REPLY_DUTIES, fetchImpl }: WatchOptions = {},
+): () => void {
+  const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  const state = createFoldState();
+  const id = encodeURIComponent(conversationId);
+  let cursor: number | null = null;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight = false;
+
+  const tick = async () => {
+    if (stopped || inFlight) return;
+    inFlight = true;
+    try {
+      if (cursor === null) {
+        const res = await doFetch(`${base}/${id}`, { cache: "no-store" });
+        const meta = res.ok ? ((await res.json().catch(() => null)) as { total?: unknown } | null) : null;
+        cursor = typeof meta?.total === "number" ? meta.total : 0;
+      } else {
+        const res = await doFetch(`${base}/${id}/log?fromIndex=${cursor}&limit=500`, { cache: "no-store" });
+        const page = res.ok ? ((await res.json().catch(() => null)) as { events?: LedgerEvent[]; nextIndex?: unknown } | null) : null;
+        const events = Array.isArray(page?.events) ? page.events : [];
+        if (events.length) {
+          cursor = typeof page?.nextIndex === "number" ? page.nextIndex : cursor + events.length;
+          if (!stopped) foldCaptureEvents(state, events, handlers, { duties, now: Date.now() });
+        }
+      }
+    } catch {
+      // A missed poll is retried on the next tick; the watcher never dies on a
+      // transient read miss.
+    } finally {
+      inFlight = false;
+      if (!stopped) timer = setTimeout(() => { void tick(); }, pollMs);
+    }
+  };
+  void tick();
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
+}
+
+export interface SpeechBridge {
+  speak(args: { text: string; lang?: string }): Promise<{ completed?: boolean }>;
+  settings(): Promise<{ master?: boolean; info?: boolean }>;
+}
+
+/**
+ * Speak an answer through the phone, echo-guarded: the voice layer learns the
+ * text (`POST /api/voice/spoken`) before the speaker says it, and again every
+ * 20 s while a long answer is still being read, so a live broadcast mic does
+ * not transcribe our own voice back into the conversation. Speech settings the
+ * user turned off (master) are honoured; a page that is not visible stays
+ * silent - the push carries the answer then.
+ */
+export async function speakReply(
+  speech: SpeechBridge,
+  text: string,
+  { lang, fetchImpl, registerEveryMs = 20_000 }: { lang?: string; fetchImpl?: typeof fetch; registerEveryMs?: number } = {},
+): Promise<boolean> {
+  const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  try {
+    const settings = await speech.settings();
+    if (settings?.master === false) return false;
+  } catch {
+    // An older native build without settings still speaks.
+  }
+  const register = () =>
+    doFetch("/api/voice/spoken", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    }).catch(() => undefined);
+  await register();
+  const timer = setInterval(() => { void register(); }, registerEveryMs);
+  try {
+    const r = await speech.speak(lang ? { text, lang } : { text });
+    return r?.completed !== false;
+  } catch {
+    return false;
+  } finally {
+    clearInterval(timer);
+  }
+}

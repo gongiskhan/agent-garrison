@@ -295,6 +295,40 @@ describe("companion notifier", () => {
     logSpy.mockRestore();
   });
 
+  it("never degrades a conversation_reply to the web thread: the answer already lives in its conversation", async () => {
+    const posts: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      posts.push(url);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const { notifier, counters } = makeNotifier({}, { notifyEnabled: false }, ["tokenok01"], {
+      env: { GARRISON_APP_URL: "http://app.test/" },
+      fetchImpl
+    });
+    const receipts = await notifier.send({
+      template: "conversation_reply",
+      params: { text: "You are looking at the Vault page.", path: "/talk/companion-reports" }
+    });
+    expect(receipts[0]).toMatchObject({ means: "companion-push", ok: false, skipped: "notify disabled" });
+    expect(receipts[1]).toMatchObject({ means: "web-channel", ok: false, skipped: "answer already in the conversation" });
+    expect(posts).toEqual([]);
+    expect(counters.read().notify_fallback_web ?? 0).toBe(0);
+  });
+
+  it("pushes a conversation_reply as Zeca, opening the conversation, on the interactive budget", async () => {
+    const { notifier, calls } = makeNotifier({}, {}, ["tokenok01"], { env: { GARRISON_APP_URL: "https://node.tail.ts.net" } });
+    const receipts = await notifier.send({
+      template: "conversation_reply",
+      params: { text: "You are looking at the Vault page.", path: "/talk/companion-reports" }
+    });
+    expect(receipts).toEqual([{ means: "companion-push", ok: true, target: "1/1 devices" }]);
+    const payload = JSON.parse(calls[0].body);
+    expect(payload.aps.alert).toEqual({ title: "Zeca", body: "You are looking at the Vault page." });
+    expect(payload.path).toBe("/talk/companion-reports");
+    expect(payload.tag).toBe("conversation_reply");
+    expect(notifier.sentToday("interactive")).toBe(1);
+  });
+
   it("posts the fallback to the Garrison app when GARRISON_APP_URL names it, ignoring the legacy status file", async () => {
     const posts: string[] = [];
     const fetchImpl = (async (url: string) => {

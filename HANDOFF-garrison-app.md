@@ -83,6 +83,36 @@ on the iPhone and walk this list on the real device against this node
    Send empties it back to one line. Verified in WebKit at 390x844 against
    this node's build (`evidence/garrison-app/phone/webkit-390-composer-*.png`
    if present; otherwise the phone is the first look).
+3d. Feedback after the hit (D56): with the broadcast live, say "Zeca, what is
+   on this screen" and pause. Expected, in order: the "Heard: Zeca, what is
+   on this screen" line replaces the wake-word hint under the record button
+   for 8 s and the hint does NOT come back for the rest of the broadcast; the
+   confirmation push "Sent to the conversation: ..." arrives; the session
+   answers (triage, then the discuss stretch, some tens of seconds); while
+   the app is open on the conversation the answer is SPOKEN by the phone,
+   and a second push "Zeca: <answer>" arrives either way (tap it: the
+   conversation opens). Switch to another app after the hit: the "Zeca"
+   push carries the answer, nothing is spoken (the page is hidden). Say a
+   second "Zeca ..." after the first answer: a second turn, a second answer,
+   no repeat of the first. A typed message in the composer is never spoken.
+   On the node: `curl -s http://127.0.0.1:8097/health | jq .counters` -
+   `wake_conversation_replies` counts answers pushed,
+   `wake_conversation_reply_timeouts` answers that never came in 5 min,
+   `wake_replies_spoken` answers spoken on a mic/pendant session,
+   `spoken_registered` the echo-guard registrations from the page; and
+   `~/.garrison/capture/wake-results/<eventId>.json` gains `reply` with the
+   text, duty and `delivery` (`spoken` | `push` | `undelivered`). If the
+   "Zeca" push never comes but the counter moved, check the APNs receipts
+   in the capture-service log (`wake reply <eventId> -> discuss (...)`);
+   `undelivered` with push disabled is expected on a node without the APNs
+   key. If the phone speaks the answer AND the broadcast turns it into a
+   new turn, the echo guard missed: `spoken_registered` should have moved
+   before the speech started. Regressions:
+   `tests/capture-service-conversation-reply.test.ts`,
+   `tests/talk-capture-feedback.test.ts`, the D56 cases in
+   `tests/capture-service-wake-conversation.test.ts` and
+   `tests/capture-service-apns.test.ts`. No native change, no new
+   TestFlight: the app already carries `GarrisonSpeech`.
 4. Capture page (`/capture`, shown only in the app): the microphone lane and
    the broadcast picker (screen capture consent is native), the live status,
    a session that ends cleanly.
@@ -359,6 +389,28 @@ the simulator and where the code is.
   JSON input"), after which every page times out. Running one project per
   `playwright test` invocation avoided it; a proper fix is a retry or a
   fresh dist dir per project in the config.
+
+- **No feedback at the hit itself on the broadcast lane (D56).** The first
+  sign that "Zeca" was heard is the "Heard:" line on the open page or the
+  confirmation push, both a few seconds after the phrase, because the
+  broadcast session is not a speakable session (ADR §6) and
+  `bridge.status()` does not expose the broadcast session id for the page
+  to react earlier. A short native tone or haptic at the wake hit (the
+  server telling the app through the broadcast socket) is the fix; native,
+  so a TestFlight.
+- **An out-of-app spoken answer (D56).** The push carries the answer as
+  text; hearing it while in another app needs a Notification Service
+  Extension synthesizing the body to a sound file at delivery. Native;
+  deferred until the push path is confirmed on the phone.
+- **Stale App Group `device_name` ("Mac mini")** from the old Companion is
+  still what the voice layer reports for this phone; the capture page shows
+  it. Clearing it on the app's first launch under the new bundle is a
+  one-liner in `GarrisonCapturePlugin`.
+- **Broadcast-mic STT quality** decides whether the wake phrase is heard at
+  all: the English pin (D55) helped, `stt_keyterms` carries "Zeca", but a
+  phone on a table across a room still misses. Deepgram's `keyterm`
+  boosting per model and a louder gain on the ReplayKit mic sample are the
+  two knobs not yet turned.
 
 ## 5. Reviews not done
 

@@ -790,6 +790,31 @@ export function makeRequestHandler(ctx) {
         return json(res, 200, { session: record });
       }
 
+      // ---- Page-side speech (D56). The Conversations page speaks the
+      // operative's answer through the phone's own synthesizer while a
+      // broadcast is on: that mic hears the speaker, so the text is registered
+      // with the echo guard here before the page says it, exactly as the
+      // in-app speak lane registers its acks. Token-gated like every ingress.
+      if (req.method === "POST" && p === "/spoken") {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const body = await readBody(req);
+        if (body === null) return json(res, 413, { error: "body too large" });
+        let parsed;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          return json(res, 400, { error: "invalid JSON" });
+        }
+        const text = String(parsed?.text ?? "").trim();
+        if (!text) return json(res, 400, { error: "text is required" });
+        // The guard window is 30 s from registration; a page speaking a long
+        // answer re-posts while it is still talking.
+        ctx.echoGuard.register({ text });
+        counters.bump("spoken_registered");
+        return json(res, 202, { ok: true, chars: text.length });
+      }
+
       // ---- Notification sink (the kanban fanOutNotification contract and
       // the triage CompanionRelayNotifier both speak this shape). Implementing
       // it is the ENTIRE opt-in: the fan-out discovers sinks by probing every
@@ -941,7 +966,12 @@ export async function startServer(cfg = loadConfig()) {
     send: async (payload) => {
       const { template, params = {} } = payload ?? {};
       const text = typeof params.text === "string" ? params.text.trim() : "";
-      if (template === "wake_confirmation" && text && ackSinkRef?.speakableSession()) {
+      // The confirmation AND the operative's answer (D56 conversation_reply)
+      // are spoken first: a live mic or pendant session hears them, the push
+      // is the fallback. The broadcast lane never speaks here (no AEC coupling
+      // to the app speaker, ADR §6); its answer is spoken by the page itself.
+      const spokenFirst = template === "wake_confirmation" || template === "conversation_reply";
+      if (spokenFirst && text && ackSinkRef?.speakableSession()) {
         const ackId = `wake-${ulid()}`;
         // Progress pings and "didn't catch that" are presence, not information:
         // spoken when someone is listening, never turned into a banner.
@@ -963,12 +993,12 @@ export async function startServer(cfg = loadConfig()) {
             id: ackId,
             kind: "captured",
             severity: "info",
-            templateId: "wake_confirmation",
+            templateId: template,
             text,
             ...(params.lang ? { lang: params.lang } : {})
           });
           if (res?.body?.delivered === "socket") {
-            counters.bump("wake_confirmations_spoken");
+            counters.bump(template === "conversation_reply" ? "wake_replies_spoken" : "wake_confirmations_spoken");
             // A progress line is presence, not information: if it was not
             // heard, there is nothing to recover - never push it.
             if (!isProgress) {

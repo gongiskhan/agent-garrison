@@ -9,6 +9,7 @@
 // browser or the legacy own-port host shows nothing here.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { speakReply, watchCaptureFeedback, type CaptureHeard, type SpeechBridge } from "./capture-feedback";
 
 export type RecordKind = "screen_audio" | "microphone";
 
@@ -33,6 +34,14 @@ export interface RecordButtonProps {
   /** How often the button re-reads status while a recording is starting or
    *  live (the broadcast extension reports through a heartbeat, not events). */
   pollMs?: number;
+  /** The phone's speech synthesizer (D56): with it, the operative's answer to
+   *  a spoken turn is read aloud while the page is visible. Absent, the answer
+   *  is only pushed. */
+  speech?: SpeechBridge | null;
+  /** How long "Heard: ..." stays under the button. */
+  heardMs?: number;
+  /** How long after the broadcast ends the page still watches for an answer. */
+  afterStopMs?: number;
 }
 
 type Step = "idle" | "starting" | "live" | "stopping";
@@ -46,9 +55,14 @@ export function describeRecordError(error: unknown): string {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
-export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordButtonProps) {
+export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = null, heardMs = 8000, afterStopMs = 5 * 60_000 }: RecordButtonProps) {
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
+  // What the broadcast heard after the wake word, shown briefly; `captured`
+  // stays true for the rest of the broadcast so the instructions go away once
+  // they have been followed.
+  const [heard, setHeard] = useState<CaptureHeard | null>(null);
+  const [captured, setCaptured] = useState(false);
   const stepRef = useRef<Step>("idle");
   const setStepBoth = useCallback((next: Step) => {
     stepRef.current = next;
@@ -89,6 +103,44 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
     return () => window.clearInterval(timer);
   }, [bridge, step, pollMs, absorb]);
 
+  // Feedback (D56): while the broadcast runs - and for a while after it stops,
+  // since the answer takes its time - watch the conversation for the turns the
+  // broadcast heard and for the operative's answer to them; speak the answer
+  // when the page is on screen (off screen, capture-service's push carries it).
+  const live = step === "live" || step === "stopping";
+  const [watching, setWatching] = useState(false);
+  useEffect(() => {
+    if (live) { setWatching(true); return; }
+    if (!watching) return;
+    const timer = window.setTimeout(() => setWatching(false), afterStopMs);
+    return () => window.clearTimeout(timer);
+  }, [live, watching, afterStopMs]);
+  useEffect(() => {
+    if (!live) setCaptured(false);
+  }, [live]);
+  const speechRef = useRef<SpeechBridge | null>(speech);
+  speechRef.current = speech;
+  useEffect(() => {
+    if (!watching) return;
+    const stop = watchCaptureFeedback(conversationId, {
+      onHeard: (h) => {
+        setCaptured(true);
+        setHeard(h);
+      },
+      onReply: (reply) => {
+        const bridgeNow = speechRef.current;
+        if (!bridgeNow || typeof document === "undefined" || document.visibilityState !== "visible") return;
+        void speakReply(bridgeNow, reply.text);
+      }
+    });
+    return stop;
+  }, [watching, conversationId]);
+  useEffect(() => {
+    if (!heard) return;
+    const timer = window.setTimeout(() => setHeard(null), heardMs);
+    return () => window.clearTimeout(timer);
+  }, [heard, heardMs]);
+
   const onRecord = useCallback(async () => {
     if (stepRef.current !== "idle") return;
     setError(null);
@@ -115,7 +167,6 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
     }
   }, [bridge, absorb, setStepBoth]);
 
-  const live = step === "live" || step === "stopping";
   const label =
     step === "starting" ? "Starting" :
     step === "stopping" ? "Stopping" :
@@ -128,12 +179,14 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
     step === "idle" ? "Broadcast the screen and microphone into this conversation. Say \"Zeca\" and then your request; the words after it plus the latest screen frames are sent as your message." :
     label;
   // The wake word is the whole interface once the broadcast runs, so the
-  // instruction stays on screen for as long as it does.
-  const liveHint = step === "live"
+  // instruction stays on screen until it has been followed once; after that
+  // the button's dot says enough and the space shows what was heard.
+  const liveHint = step === "live" && !captured
     ? "Broadcasting. Say \"Zeca\" and then your request - the words after it plus the latest screen frames are sent into this conversation."
     : step === "starting"
       ? "Starting the broadcast. Once it runs, say \"Zeca\" and then your request."
       : null;
+  const heardLine = heard ? `Heard: ${heard.text.length > 90 ? `${heard.text.slice(0, 87)}...` : heard.text || "(nothing after the wake word)"}` : null;
 
   return (
     <span className="wc-rec" data-testid="wc-rec" data-step={step}>
@@ -159,6 +212,8 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
       </button>
       {error ? (
         <span className="wc-rec-err" role="status">{error}</span>
+      ) : heardLine ? (
+        <span className="wc-rec-heard" role="status" data-testid="wc-rec-heard">{heardLine}</span>
       ) : liveHint ? (
         <span className="wc-rec-hint" role="status" data-testid="wc-rec-hint">{liveHint}</span>
       ) : null}

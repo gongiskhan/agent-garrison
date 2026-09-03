@@ -47,6 +47,7 @@ import { ShellsModal, type ShellOpenSpec, type ShellSpawnSpec } from "./shells-m
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 import { COMPOSER_OVERLAY_SELECTOR, composerInset } from "./composer-inset";
 import { RecordButton, type CaptureBridge } from "./record-button";
+import type { SpeechBridge } from "./capture-feedback";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
 // rendered into ClaudeChat's composer via the function-form adornment so it can
@@ -966,10 +967,12 @@ function navigateHere(url: string): void {
 function ThreadedApp({
   url,
   captureBridge,
+  speechBridge = null,
   openRemote = navigateHere
 }: {
   url: UrlState;
   captureBridge: CaptureBridge | null;
+  speechBridge?: SpeechBridge | null;
   openRemote?: (url: string) => void | Promise<void>;
 }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
@@ -1080,10 +1083,10 @@ function ThreadedApp({
       captureBridge && conversationId ? (
         <>
           {voiceAdornment(api)}
-          <RecordButton bridge={captureBridge} conversationId={conversationId} />
+          <RecordButton bridge={captureBridge} conversationId={conversationId} speech={speechBridge} />
         </>
       ) : voiceAdornment(api),
-    [captureBridge, conversationId]
+    [captureBridge, speechBridge, conversationId]
   );
 
   useEffect(() => {
@@ -1814,6 +1817,10 @@ export interface TalkAppProps {
   /** The native capture bridge when the host is the Garrison app; puts the
    *  record button in every conversation's composer. Absent in a browser. */
   captureBridge?: CaptureBridge | null;
+  /** The phone's speech synthesizer when the host is the Garrison app: the
+   *  answer to a spoken (wake-word) turn is read aloud while the page is on
+   *  screen (D56). Absent in a browser. */
+  speechBridge?: SpeechBridge | null;
   /** How this window opens a page another node owns (a remote conversation, a
    *  peer's "+ New"). Default: a same-window navigation. The Garrison app
    *  switches its node instead, since its webview is bound to one origin. */
@@ -2099,7 +2106,7 @@ export function TalkApp(props: TalkAppProps = {}) {
     };
   }, []);
 
-  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} openRemote={props.openRemote} /><PushEnroller /></>);
+  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} speechBridge={props.speechBridge ?? null} openRemote={props.openRemote} /><PushEnroller /></>);
   // Explicit ?console=1: the rich session console (live PTY surface).
   return (
     <>
