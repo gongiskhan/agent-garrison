@@ -156,13 +156,39 @@ export const FIXERS = {
   }
 };
 
+// Every executed fix is journaled — the user must be able to see WHAT the
+// doctor did after the green row disappears on refresh. Append-only JSONL;
+// a journal write failure never fails the fix itself.
+const JOURNAL_PATH = path.join(GARRISON_HOME, "preflight-fixes.jsonl");
+
+async function journal(entry) {
+  try {
+    const { appendFile, mkdir } = await import("node:fs/promises");
+    await mkdir(path.dirname(JOURNAL_PATH), { recursive: true });
+    await appendFile(JOURNAL_PATH, JSON.stringify(entry) + "\n", "utf8");
+  } catch { /* best-effort */ }
+}
+
+export async function readFixJournal(limit = 20) {
+  try {
+    const text = await readFile(JOURNAL_PATH, "utf8");
+    const lines = text.trim().split("\n").filter(Boolean);
+    return lines.slice(-limit).reverse().map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export async function runFix(actionId, params) {
   const fixer = FIXERS[actionId];
   if (!fixer) return { ok: false, error: `unknown action "${actionId}" — only whitelisted fixes run` };
   if (!fixer.validate(params || {})) return { ok: false, error: "invalid parameters" };
+  let result;
   try {
-    return await fixer.run(params);
+    result = await fixer.run(params);
   } catch (err) {
-    return { ok: false, error: err?.message || String(err) };
+    result = { ok: false, error: err?.message || String(err) };
   }
+  await journal({ at: new Date().toISOString(), actionId, params, ...result });
+  return result;
 }

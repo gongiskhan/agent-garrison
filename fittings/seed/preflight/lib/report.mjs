@@ -26,6 +26,7 @@ import {
   pidAlive
 } from "./collect.mjs";
 import { isAppUp, fetchViews, fetchRunnerState, appUrl } from "./app-client.mjs";
+import { readFixJournal } from "./fixers.mjs";
 
 export async function buildReport({ startDir = process.cwd(), checks = null } = {}) {
   const wanted = checks && checks.length ? new Set(checks) : null;
@@ -106,6 +107,9 @@ export async function buildReport({ startDir = process.cwd(), checks = null } = 
     appUp,
     root,
     compositions: compositions.map((c) => c.compositionId),
+    // What the doctor DID, newest first — so a fixed row that vanishes from
+    // the checks still has a visible, persistent trace.
+    recentFixes: await readFixJournal(20),
     generatedAt: new Date().toISOString()
   };
 }

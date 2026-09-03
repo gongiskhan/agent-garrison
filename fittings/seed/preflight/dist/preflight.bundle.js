@@ -24585,6 +24585,29 @@ function Section({ check, findings }) {
     open && findings.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f }, `${f.id}:${i}`))
   ] });
 }
+function FixJournal({ entries }) {
+  const [open, setOpen] = (0, import_react.useState)(false);
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "check journal", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "check-head", onClick: () => setOpen(!open), children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "pip pip-pass" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Recent fixes (what the doctor did)" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "count", children: entries.length }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chev", children: open ? "\u25BE" : "\u25B8" })
+    ] }),
+    open && entries.map((e, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-head", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pip pip-${e.ok ? "pass" : "fail"}` }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: e.actionId }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: e.ok ? e.detail : `FAILED: ${e.error}` })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-fix", children: [
+        new Date(e.at).toLocaleString(),
+        " \xB7 params: ",
+        JSON.stringify(e.params)
+      ] })
+    ] }, i))
+  ] });
+}
 function App() {
   const [report, setReport] = (0, import_react.useState)(null);
   const [error, setError] = (0, import_react.useState)(null);
@@ -24738,7 +24761,8 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       ),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sweep-note", children: "runs EVERY fitting's verify and reports all failures \u2014 up() stops at the first" })
     ] }),
-    !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings }, check))
+    !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings }, check)),
+    (report.recentFixes?.length ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixJournal, { entries: report.recentFixes })
   ] });
 }
 (0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(App, {}));
