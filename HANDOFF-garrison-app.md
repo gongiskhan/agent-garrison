@@ -231,8 +231,12 @@ the simulator and where the code is.
   When dev-madrid is free: `git merge
   origin/main` (it has local commits; never `--ff-only`, never discard the
   uncommitted work) and `npm run node:redeploy`.
-- **2026-09-03 night (D55): this Mac redeployed; the mini follows; dev-madrid
-  still NOT.** This Mac's first `node:redeploy` (20:12Z) built and came back
+- **2026-09-03 night (D55, `e11a78a6`): this Mac and the mini redeployed;
+  dev-madrid still NOT** (on `main` at `f5446e15`, the "shells" plan's G6
+  mid-flight with three modified tracked files, left alone). The mini:
+  fast-forward from `66042392`, `node:redeploy` at 20:40Z, 43 verifies
+  green, capture-service pid 71914 on the installed copy with the
+  conversation doors. This Mac's first `node:redeploy` (20:12Z) built and came back
   DOWN: dev-madrid had pushed rev 35 of the shared `default` manifest at
   19:41Z stationing `cursor-runtime` (a `cursor-local` secondary target),
   and this Mac's `cursor-agent` is 2025.10.01, whose `status` has no
