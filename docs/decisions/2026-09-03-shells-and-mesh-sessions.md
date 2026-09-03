@@ -28,6 +28,27 @@ through the new `ExternalSessionView` (see `evidence/shells/g3-ui/report.md` for
 verification log, including a browser-automation viewport-resize tooling limitation that produced a
 misleading screenshot the live DOM disproved).
 
+**G5 (2026-09-03).** `bridge.mjs`'s probe now returns `{level, reason} | null` (absent vs
+unauthenticated) so a node with no `cursor-agent` degrades `up()` instead of failing it -
+`GARRISON_REQUIRE_CURSOR=1` restores the strict behavior for a node that must run Cursor. Stationed
+`cursor-runtime` (dependency + selection + a `cursor-local` secondary target) in
+`compositions/default/apm.yml`. **Found a real trap doing this, worth reading before touching any
+composition manifest again**: a hand-edit is silently reverted by the next `up()`
+(`syncCompositionFromState` overwrites the local file from the mesh state service on every launch),
+and the "official" Muster target-write API is not fully immune to the same bug either
+(`mutateCompositionBlock` skips the state push that `writeStandingSelections` does) - see ledger
+finding F-003 for the exact mechanism and the workaround (Muster API for validated writes, a one-off
+`pushManifestToState` call for durability, acid-tested with a second redeploy). Then built the
+Quarters `file_sets` primitive end to end: schema (`src/lib/metadata.ts`/`types.ts`), the engine
+(`src/lib/quarters-runtimes.ts` - list/read/write/create/delete, restricted-glob containment,
+realpath symlink checks, `write:"merge"` for json, platform/scope gating), four API routes, and
+`RuntimeFileSetPanel.tsx`. cursor-runtime's descriptor now declares six sets (rules, skills, agents,
+hooks merge-write, desktop darwin-only, project-rules project-scoped). Live-verified on dev-madrid
+with a real browser create -> autosave -> delete round trip against `~/.cursor/rules/e2e-check.mdc`
+on the actual filesystem (see `evidence/shells/g5/report.md`). The mini rollout (Cursor desktop
+sessions + a live `~/.cursor/rules` autosave there) did not run this pass - blocked on F-000 (push to
+origin/main still deferred).
+
 ---
 
 # Shells + mesh session list + Cursor everywhere + csg as a node

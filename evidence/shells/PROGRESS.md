@@ -9,31 +9,36 @@ plan: /home/ggomes/.claude/plans/we-should-have-a-zesty-star.md (copied to docs/
 | G2 | done | d44933f2a6, 1bc3c25db9 | redeploy @ 2026-09-03T18:15Z, redeploy @ 2026-09-03T18:21Z | evidence/shells/g2/ | listers, hook install, index publish, origin guard, manifest; found+fixed TWO live bugs on dev-madrid during verification (see Open findings F-001, F-002) |
 | G3-server | done | 46efa1db80 | reload @ 2026-09-03T18:36Z | evidence/shells/g3/ | mesh-sessions.mjs, shellBinding, transcript-formats.mjs, GET /api/sessions + /api/sessions/:id/stream, peer-proxy ALLOW row; live-verified streaming THIS session's own transcript through the new endpoint |
 | G3-ui+G4 | done | eb9bb32d09da | reload @ 2026-09-03T19:00Z | evidence/shells/g3-ui/ | shell-origin.ts, sessions-rail.tsx Sessions section, shell-panel.tsx+shell-composer.tsx (owned shell), session-view.tsx (external), new-shell-modal.tsx, styles.css additions; 229 vitest tests green; live-verified on dev-madrid incl. this session's own transcript streaming through the rail |
-| G5 | todo | - | - | evidence/shells/g5/ | cursor: stationing, quarters file sets, the mini |
+| G5 | done (mini rollout pending F-000) | 82a49e35 | redeploy @ 2026-09-03T19:44Z | evidence/shells/g5/ | cursor-runtime probe fix + stationed via Muster API (found the mutateCompositionBlock state-push gap - see F-003), Quarters file_sets engine + 4 API routes + RuntimeFileSetPanel; 248 vitest tests; live create/edit/delete round trip on dev-madrid |
 | G6 | todo | - | - | evidence/shells/g6/ | csg: vs code tunnel, tether, preflight, installer, unstation |
 | G7 | todo | - | - | evidence/shells/g7/ | csg install |
 | G8 | todo | - | - | evidence/shells/g8/ | csg in the app |
 
 ## Mesh heads
-dev-madrid eb9bb32d @ 2026-09-03T19:12Z (local HEAD; ahead/behind origin/main unchanged from F-000, push still deferred) | mini n/a | csg n/a
+dev-madrid 82a49e35 @ 2026-09-03T20:52Z (local HEAD; ahead/behind origin/main unchanged from F-000, push still deferred) | mini n/a | csg n/a
 
 ## Resume here
-G0-G3-server, G3-ui, and G4 are all done and live-verified on dev-madrid, including a real browser pass
-(see evidence/shells/g3-ui/report.md): the Sessions rail section, the owned-shell panel, the external
-session view (proved live by streaming THIS session's own transcript through it), the New shell modal
-(Cursor correctly greyed out - no cursor-agent on dev-madrid), and the Show ended toggle all work end to
-end against `https://dev-madrid.tail31efa.ts.net`.
+G0 through G5 are done and live-verified on dev-madrid (see evidence/shells/{g0,g1,g2,g3,g3-ui,g5}/report.md
+- G3-server's own report lives at evidence/shells/g3/). Cursor is stationed with a working
+`cursor-local` secondary target; the Quarters file_sets engine is live (rules/skills/agents/hooks/
+desktop/project-rules all render, and a real create/edit/delete round trip against
+`~/.cursor/rules/*.mdc` was verified through the browser on the real machine).
 
-Next: G5 per the plan section 3 - station `cursor-runtime` in `compositions/default/apm.yml`
-(`fittings/seed/cursor-runtime/scripts/bridge.mjs` needs its degraded-probe fix FIRST - absent cursor-agent
-must exit 0 with a "degraded" note, or `verify()` failing aborts `up()` for the whole composition per
-CLAUDE.md's runner rule), then the Quarters `file_sets` descriptor (`src/lib/metadata.ts`,
-`src/lib/quarters-runtimes.ts`, the two new API routes, `RuntimeFileSetPanel.tsx`) so `~/.cursor/{rules,
-skills, agents, hooks.json, desktop settings, project rules}` become read/write Quarters surfaces, then
-roll out to the mini (section 4: push `main`, `ssh` + `git merge --no-edit origin/main` +
-`npm run node:redeploy` on `goncalos-mac-mini-1`, verify its Cursor desktop sessions appear in the rail).
-Read the decision doc section 2 (contracts) and G5's file list before touching code - the Cursor probe
-change is load-bearing for every node that does NOT have cursor-agent (dev-madrid included today).
+**Read F-003 before touching `compositions/*/apm.yml` again, by hand or through any API**: the
+Muster API's own target-write path (`upsertCompositionTarget` -> `mutateCompositionBlock`) does NOT
+push to the mesh state service, so even an "official" edit can be silently reverted by the next
+`up()` exactly like a hand-edit would be. `writeStandingSelections` (used by the standing swap/config
+routes) DOES push correctly - that asymmetry is the trap. When in doubt, `git diff --stat
+compositions/` right after a redeploy and re-push via `pushManifestToState` if anything you expected
+is gone.
+
+Next: the mini rollout (plan section 4) is the only piece of G0-G5 not done, and it is BLOCKED on
+F-000 (origin/main still can't be pushed to - see below). Once that clears: push `main`, then on the
+mini `ssh ggomes@goncalos-mac-mini-1 'zsh -lc "cd ~/dev/garrison && git fetch -q origin && git merge
+--no-edit origin/main && npm run node:redeploy"'`, then verify `/talk` shows the mini's real Cursor
+desktop sessions in the rail and `/quarters/cursor-runtime/rules` lists+autosaves the mini's actual
+hand-built rules (`indy-frontend-apps-all-prs.mdc` per the plan's research appendix). After that: G6
+(csg preflight - retry it now regardless of the mini, csg may be back up), G7, G8, then STOP 1.
 
 Known tooling limitation hit during G3-ui/G4 live verification (not a code finding): the browser-automation
 `resize_window` tool in this environment does not reliably land on an exact 390x844 viewport (see the
@@ -89,3 +94,25 @@ F-002 [source: g2-live-verify] [status: fixed:1bc3c25db9] Even with F-001 fixed,
   `~/.gemini/settings.json` on dev-madrid both carry the four hook groups. The stray-but-harmless entries
   left in `~/.garrison/runtime-homes/{codex,gemini}` from before the fix were NOT removed (correctly formed,
   possibly still useful for a routed turn under that redirected home) - noted, not cleaned up.
+
+F-003 [source: g5-live-verify] [status: wontfix (worked around this run; the real fix is pre-existing
+  architecture debt tracked as "task #31" - a three-way reconcile between the local file, the state
+  service, and a concurrent editor - see the memory note sidebar-menu-and-shared-pins.md for its first
+  two occurrences)] A hand-edit to `compositions/default/apm.yml` (adding cursor-runtime's dependency +
+  selection + a `cursor-local` target) was silently reverted by the next `npm run node:redeploy`'s
+  `up()`: `syncCompositionFromState` materialises the STATE SERVICE's copy of the manifest over the
+  local file on every launch, and the only durable writer is the Muster API, which pushes to state
+  with rev CAS after writing the file. Worse than the prior two occurrences of this same class of bug:
+  even the "official" Muster API is not fully safe - `POST /api/muster/target` (`upsertCompositionTarget`)
+  writes via `mutateCompositionBlock`, which does NOT call `pushManifestToState`, unlike
+  `writeStandingSelections` (used by the standing swap/config routes), which does. So a target added
+  through the real UI/API can ALSO be silently reverted by the next `up()`, indistinguishably from a
+  hand-edit. Worked around this run: used `POST /api/muster/standing/swap` for the dependency+selection
+  (durable), `POST /api/muster/target` for the target (gets validation, not durable), then a one-off
+  `tsx` script calling `pushManifestToState` directly (not committed) to push the final file - and
+  acid-tested by running `npm run node:redeploy` again and confirming `git diff --stat
+  compositions/default/apm.yml` still showed the intended change. NOT fixed at the source
+  (`mutateCompositionBlock` is a shared write path several other Muster features use - duty/level
+  edits, config edits under some paths - fixing it is exactly the deferred task #31 work, out of scope
+  for stationing one runtime). Anyone editing `targets:` via the Muster UI/API should `git diff --stat
+  compositions/` after the next redeploy to confirm it held, same as any hand-edit.
