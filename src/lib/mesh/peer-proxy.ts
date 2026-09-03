@@ -64,7 +64,12 @@ const ALLOW: readonly AllowRule[] = [
   { shape: ["threads", ID, "routing"], methods: ["GET", "PUT"], upstream: "app" },
   { shape: ["threads", ID, "permissions", ID], methods: ["POST"], upstream: "app" },
   { shape: ["mesh", "self"], methods: ["GET"], upstream: "app" },
-  { shape: ["sessions"], methods: ["GET"], upstream: "registry" }
+  { shape: ["sessions"], methods: ["GET"], upstream: "registry" },
+  // The Shells session list's live transcript for one of THIS peer's OWN
+  // sessions (packages/talk/src/router.mjs GET /api/sessions/:id/stream) -
+  // distinct from the row above, which reads the gateway's unrelated session
+  // registry. Not the same "sessions" concept; kept apart on purpose.
+  { shape: ["sessions", ID, "stream"], methods: ["GET"], upstream: "app", sse: true }
 ];
 
 // An id segment is opaque to us but must not be able to move the request: no

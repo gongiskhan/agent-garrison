@@ -52,7 +52,10 @@ export async function readJsonlLines(file, offset = 0) {
   }
 }
 
-function parseBlock(block) {
+// Exported for transcript-formats.mjs: Cursor's agent-transcripts JSONL uses
+// the same Anthropic-shaped content blocks, so its parser reuses this rather
+// than re-deriving it.
+export function parseBlock(block) {
   if (!block || typeof block !== "object") return null;
   if (block.type === "text" && typeof block.text === "string") {
     return { type: "text", text: clampText(block.text) };

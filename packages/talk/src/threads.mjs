@@ -1266,11 +1266,52 @@ export function remoteShellBinding(thread) {
   };
 }
 
+/** A `context.shell` binding: an OWNED shells-fitting session on some node
+ *  (local or a mesh peer), the sibling of remoteShellBinding for the `shell`
+ *  source (never overload `remoteShell` - that shape is the older, ssh-only
+ *  transport binding and stays exactly as it was). Strictly whitelisted, same
+ *  discipline as remoteShellBinding. `shellOrigin` must parse as an http(s)
+ *  URL - it is what the browser fetches cross-origin, so a malformed value
+ *  here must not survive into a fetch() call. */
+export function shellBinding(thread) {
+  const b = thread?.context?.shell;
+  if (!b || typeof b !== "object" || Array.isArray(b)) return null;
+  const str = (v, max = 80) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  const node = str(b.node);
+  const transport = str(b.transport, 40);
+  if (!node || !transport) return null;
+  const tmuxSession = str(b.tmuxSession, 80);
+  const cwd = str(b.cwd, 400);
+  const runtime = str(b.runtime, 20);
+  const label = str(b.label, 120);
+  const sessionId = str(b.sessionId, 80);
+  let shellOrigin = null;
+  const originRaw = str(b.shellOrigin, 200);
+  if (originRaw) {
+    try {
+      const u = new URL(originRaw);
+      if (u.protocol === "http:" || u.protocol === "https:") shellOrigin = u.origin;
+    } catch { /* not a URL - dropped, never carried further */ }
+  }
+  return {
+    node,
+    transport,
+    ...(tmuxSession ? { tmuxSession } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(runtime ? { runtime } : {}),
+    ...(label ? { label } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(shellOrigin ? { shellOrigin } : {})
+  };
+}
+
 function toMeta(thread) {
   const pendingInputs = normalizedPendingInputs(thread.pendingInputs);
   const remoteShell = remoteShellBinding(thread);
+  const shell = shellBinding(thread);
   return {
     ...(remoteShell ? { remoteShell } : {}),
+    ...(shell ? { shell } : {}),
     id: thread.id,
     conversationId: conversationIdFor(thread),
     title: deriveTitle(thread),
@@ -1284,6 +1325,7 @@ function toMeta(thread) {
     // show a pin without a second full-thread read.
     routing: thread.routing ?? null,
     routeSession: thread.routeSession ?? null,
+    claudeSessionId: typeof thread.claudeSessionId === "string" ? thread.claudeSessionId : null,
   };
 }
 
