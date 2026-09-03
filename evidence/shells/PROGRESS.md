@@ -10,7 +10,7 @@ plan: /home/ggomes/.claude/plans/we-should-have-a-zesty-star.md (copied to docs/
 | G3-server | done | 46efa1db80 | reload @ 2026-09-03T18:36Z | evidence/shells/g3/ | mesh-sessions.mjs, shellBinding, transcript-formats.mjs, GET /api/sessions + /api/sessions/:id/stream, peer-proxy ALLOW row; live-verified streaming THIS session's own transcript through the new endpoint |
 | G3-ui+G4 | done | eb9bb32d09da | reload @ 2026-09-03T19:00Z | evidence/shells/g3-ui/ | shell-origin.ts, sessions-rail.tsx Sessions section, shell-panel.tsx+shell-composer.tsx (owned shell), session-view.tsx (external), new-shell-modal.tsx, styles.css additions; 229 vitest tests green; live-verified on dev-madrid incl. this session's own transcript streaming through the rail |
 | G5 | done (mini rollout pending F-000) | 82a49e35 | redeploy @ 2026-09-03T19:44Z | evidence/shells/g5/ | cursor-runtime probe fix + stationed via Muster API (found the mutateCompositionBlock state-push gap - see F-003), Quarters file_sets engine + 4 API routes + RuntimeFileSetPanel; 248 vitest tests; live create/edit/delete round trip on dev-madrid |
-| G6 | todo | - | - | evidence/shells/g6/ | csg: vs code tunnel, tether, preflight, installer, unstation |
+| G6 | doing | <PENDING> | n/a (deployed to csg directly, not via redeploy) | evidence/shells/g6/ | csg came back online mid-run; deployed+live-verified `devtunnel-host-supervisor.sh` on csg (fixes the operator's real "devtunnel host dies, needs a manual restart" problem - see evidence/shells/g6/devtunnel-host-mitigation.md). TetherManager, preflight scripts, installer, unstation still unstarted |
 | G7 | todo | - | - | evidence/shells/g7/ | csg install |
 | G8 | todo | - | - | evidence/shells/g8/ | csg in the app |
 
