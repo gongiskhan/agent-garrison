@@ -237,6 +237,27 @@ button:disabled {
   height: calc(100vh - var(--app-bar-h));
   height: calc(100dvh - var(--app-bar-h));
 }
+/* /mesh/talk/<node>/<id>: a peer's conversation framed under this shell. The
+   offline note sits above the frame and takes nothing from it once dismissed
+   by the peer coming back (the page re-renders from the roster). */
+.mesh-talk-offline {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--mute);
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+}
+/* FRAMED SHELL (.shell-frame): this node's page inside another node's shell
+   (/frame/<...>). No rail, no app bar, no floating controls; the parent owns
+   them and the safe-area inset, so the page fills the frame from y=0. The
+   .shell-phone rules still apply at phone width for the page's own layout. */
+.app-shell.shell-frame {
+  grid-template-columns: minmax(0, 1fr);
+  --app-bar-h: 0px;
+  --shell-safe-top: 0px;
+}
 
 /* PHONE SHELL (.shell-phone, < 720px): one column, no rail. The app bar is the
    page header a phone expects - menu, name, node and session state, New, and

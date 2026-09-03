@@ -1,18 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openOnNode } from "../src/components/talk/open-on-node";
+import { openOnNode, openViaParent, parentRouteFor, OPEN_CONVERSATION_MESSAGE } from "../src/components/talk/open-on-node";
 
-// A conversation another node owns opens IN THIS WINDOW. The browser navigates;
-// the Garrison app switches its node and carries the path, because its webview
-// is bound to one origin and a cross-origin navigation would land in Safari.
+// A conversation another node owns opens IN THIS WINDOW, on this origin: the
+// rail points at /mesh/talk/<node>/<id>, which frames the peer's chromeless
+// page. Inside that frame a row asks the parent to open it instead.
 
-type Win = { location: { href: string; origin: string; assign: (url: string) => void }; Capacitor?: unknown };
+type Win = {
+  location: { href: string; origin: string; assign: (url: string) => void };
+  parent: { postMessage: (message: unknown, origin: string) => void };
+};
 
-function installWindow(origin: string, capacitor?: unknown) {
+function installWindow(origin: string) {
   const assign = vi.fn();
-  const win: Win = { location: { href: `${origin}/talk`, origin, assign } };
-  if (capacitor) win.Capacitor = capacitor;
+  const postMessage = vi.fn();
+  const win: Win = { location: { href: `${origin}/talk`, origin, assign }, parent: { postMessage } };
   (globalThis as unknown as { window: Win }).window = win;
-  return assign;
+  return { assign, postMessage };
 }
 
 afterEach(() => {
@@ -20,38 +23,37 @@ afterEach(() => {
 });
 
 describe("openOnNode", () => {
-  it("navigates this window in a browser, never a new tab", async () => {
-    const assign = installWindow("https://mac.tail31efa.ts.net");
-    await openOnNode("https://dev-madrid.tail31efa.ts.net/talk/abc");
-    expect(assign).toHaveBeenCalledWith("https://dev-madrid.tail31efa.ts.net/talk/abc");
+  it("navigates this window to the local mesh page, never a new tab or another origin", () => {
+    const { assign } = installWindow("https://mac.tail31efa.ts.net");
+    openOnNode("/mesh/talk/dev-madrid/abc");
+    expect(assign).toHaveBeenCalledWith("https://mac.tail31efa.ts.net/mesh/talk/dev-madrid/abc");
   });
+});
 
-  it("in the app, switches to the node that owns the page and carries the path", async () => {
-    const select = vi.fn(async () => ({ name: "madrid" }));
-    const assign = installWindow("https://mac.tail31efa.ts.net", {
-      isNativePlatform: () => true,
-      Plugins: {
-        GarrisonNode: {
-          list: async () => ({ nodes: [{ name: "mac", shellOrigin: "https://mac.tail31efa.ts.net" }, { name: "madrid", shellOrigin: "https://DEV-MADRID.tail31efa.ts.net/" }] }),
-          select
-        }
-      }
-    });
-    await openOnNode("https://dev-madrid.tail31efa.ts.net/talk/abc?x=1");
-    expect(select).toHaveBeenCalledWith({ name: "madrid", path: "/talk/abc?x=1" });
+describe("openViaParent", () => {
+  it("posts the absolute conversation url to the framing window", () => {
+    const { assign, postMessage } = installWindow("https://dev-madrid.tail31efa.ts.net");
+    openViaParent("/mesh/talk/mini/xyz?new=1");
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: OPEN_CONVERSATION_MESSAGE, url: "https://dev-madrid.tail31efa.ts.net/mesh/talk/mini/xyz?new=1" },
+      "*"
+    );
     expect(assign).not.toHaveBeenCalled();
   });
+});
 
-  it("in the app, a same-origin page and a node the app does not know both navigate", async () => {
-    const select = vi.fn();
-    const assign = installWindow("https://mac.tail31efa.ts.net", {
-      isNativePlatform: () => true,
-      Plugins: { GarrisonNode: { list: async () => ({ nodes: [{ name: "mac", shellOrigin: "https://mac.tail31efa.ts.net" }] }), select } }
-    });
-    await openOnNode("https://mac.tail31efa.ts.net/talk/here");
-    await openOnNode("https://mini.tail31efa.ts.net/?new=1");
-    expect(select).not.toHaveBeenCalled();
-    expect(assign).toHaveBeenNthCalledWith(1, "https://mac.tail31efa.ts.net/talk/here");
-    expect(assign).toHaveBeenNthCalledWith(2, "https://mini.tail31efa.ts.net/?new=1");
+describe("parentRouteFor", () => {
+  it("maps a peer's mesh route onto the parent's own routes", () => {
+    expect(parentRouteFor("https://dev-madrid.tail31efa.ts.net/mesh/talk/mini/xyz", "mac")).toBe("/mesh/talk/mini/xyz");
+    expect(parentRouteFor("https://dev-madrid.tail31efa.ts.net/mesh/talk/mini/?new=1", "mac")).toBe("/mesh/talk/mini?new=1");
+  });
+  it("opens the parent's own node locally", () => {
+    expect(parentRouteFor("https://dev-madrid.tail31efa.ts.net/mesh/talk/mac/abc", "mac")).toBe("/talk/abc");
+    expect(parentRouteFor("https://dev-madrid.tail31efa.ts.net/mesh/talk/mac?new=1", "mac")).toBe("/talk?new=1");
+  });
+  it("ignores anything that is not a conversation route", () => {
+    expect(parentRouteFor("https://dev-madrid.tail31efa.ts.net/settings", "mac")).toBeNull();
+    expect(parentRouteFor("not a url", "mac")).toBeNull();
+    expect(parentRouteFor("https://x/mesh/talk/a/b/c", "mac")).toBeNull();
   });
 });

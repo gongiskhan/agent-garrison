@@ -461,7 +461,8 @@ export const COMMAND_ITEMS: CommandItem[] = [
     href: "/talk",
     label: "Conversations",
     Icon: MessagesSquare,
-    isActive: (p) => p === "/talk" || p.startsWith("/talk/")
+    // /mesh/talk/<node>/<id> is a conversation too, framed from its home node.
+    isActive: (p) => p === "/talk" || p.startsWith("/talk/") || p.startsWith("/mesh/talk/")
   },
   {
     id: "nav:coordination",
@@ -476,7 +477,7 @@ export const COMMAND_ITEMS: CommandItem[] = [
     href: "/mesh",
     label: "Mesh",
     Icon: Boxes,
-    isActive: (p) => p === "/mesh" || p.startsWith("/mesh/")
+    isActive: (p) => (p === "/mesh" || p.startsWith("/mesh/")) && !p.startsWith("/mesh/talk/")
   },
   {
     id: "nav:quarters",

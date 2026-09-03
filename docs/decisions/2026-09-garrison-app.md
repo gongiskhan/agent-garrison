@@ -1117,6 +1117,67 @@ phone browser (D43). The Playwright specs that opened the drawer through the
 old rail's "Expand sidebar" now use the bar's "Open menu"; the embed spec
 reads `app-bar` instead of `embed-bar`.
 
+### D48. A conversation another node owns is framed from its home node; the window never leaves its origin (2026-09-03)
+
+The operator, on the phone, after D47 shipped: "Conversations are opening in
+a new window. They should not."
+
+D47 made the open a same-window navigation, and that is not enough. The
+target was still a page on ANOTHER origin, and a cross-origin top-level load
+is exactly what every phone host turns into a window change: Safari opens a
+tab, a Home Screen install leaves its scope (Safari), and the Garrison app
+hands it to Safari because Capacitor opens every top-level navigation off
+the server URL externally (`WebViewDelegationHandler`: `toplevelNavigation &&
+!isApplicationNavigation` -> `UIApplication.shared.open`). The D47 node
+switch covered only a node the app had added, and only on the newest build.
+The one rule that holds everywhere is that the top window never leaves this
+node's origin.
+
+So the conversation comes to the window. `/mesh/talk/<node>/<id>` (and
+`/mesh/talk/<node>?new=1` for a peer's "+ New") is a page on THIS node: the
+shell's chrome (sidebar or app bar with Back) around an iframe of the owning
+node's `/frame/talk/<id>`, a new route that renders the same `TalkPage` with
+`framed` set. `AppShell` drops the sidebar, the app bar and the floating
+controls for every `/frame/` route (`.shell-frame`, `--app-bar-h: 0`, no
+safe-area inset: the parent owns them), so the pane shows one shell, not two.
+A sub-frame load is allowed by Safari, by a Home Screen install and by
+Capacitor alike (only top-level navigation is policed), and `/embed/<id>`
+already relies on the same permission for own-port views. Conversations
+stay home-node-owned (D17): the transcript, its live stream, permissions and
+voice render from the node that holds them; nothing is proxied.
+
+Where and how. `mesh-threads.mjs` now emits local routes (`openBase =
+/mesh/talk/<node>`, `openUrl = <openBase>/<id>`) and never an absolute
+peer URL, so every row is openable and `openOnNode` is a plain same-origin
+`location.assign`; the native node switch is gone from it (the Settings
+switcher keeps it). The page names the node and resolves its tailnet host
+from the roster (`/api/mesh/nodes`), so a crafted URL frames nothing but a
+mesh node, and this node's own name redirects to the local `/talk/<id>`.
+Inside the frame a row from a third node (or from the framing node) would
+navigate the frame to a page on the PEER's origin and nest a second shell;
+the framed page instead posts `garrison:open-conversation` with the URL it
+would have opened (`openViaParent`), and the parent, hearing only the frame
+it rendered and only from that origin, maps the node onto its own routes
+(`parentRouteFor`: its own node becomes `/talk/<id>`). `/mesh/session`'s
+"Open on <node>" becomes an in-window link to `/mesh/talk` when the session
+has a thread; a thread-less session keeps the external door to the node's
+shell. The Conversations menu item highlights `/mesh/talk/*`.
+
+Costs accepted. The record button in a framed conversation is absent: the
+native bridge does not exist inside a cross-origin frame, and a message to
+the parent's capture lane is a follow-up. Push enrolment inside the frame is
+already skipped by the talk UI's `EMBEDDED` check. The peer must serve
+`/frame/talk`: a node still on an older build shows a 404 in the pane until
+it is redeployed (dev-madrid and the mini are redeployed with this decision;
+the Air was already on pre-plan code with no `/talk` at all). The legacy
+own-port `web-channel-default` host imports the same `mesh-threads.mjs`, so
+its rows would open a local route its origin does not serve; it is
+unstationed by default and the removal patch in `evidence/garrison-app/g8/`
+takes it out. A row's "+ New" URL carries a trailing slash before the query
+(`/mesh/talk/<node>/?new=1`); Next redirects it. The D47 native
+`GarrisonNode.select(path)` stays for the switcher; no TestFlight is needed
+for this decision, the fix is entirely in the shell.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

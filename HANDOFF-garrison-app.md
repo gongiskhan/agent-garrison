@@ -3,7 +3,7 @@
 What this run did: the September 2026 plan "one app, the web channel home, one
 voice layer, screencast inside conversations" ran as gates G0-G8 on
 `node/goncalos-macbook-pro`, each gate committed and deployed to this node's
-live instance, decisions D1-D45 recorded in
+live instance, decisions D1-D48 recorded in
 `docs/decisions/2026-09-garrison-app.md`, evidence under
 `evidence/garrison-app/<gate>/`. Everything a machine could prove is proven:
 vitest, typecheck, playwright (both configs), XCTest on the mini's simulator,
@@ -58,15 +58,18 @@ on the iPhone and walk this list on the real device against this node
    Verified in WebKit at 390x844 and 440x956 against this node's prod build
    (`evidence/garrison-app/phone/webkit-*.png`); the phone and the simulator
    are yours.
-10. Conversations on other nodes (D47): in the thread list, tap a row from
-   another node (or "+ New" on another node). In Safari the page navigates
-   there, no new tab. In the app the webview switches to that node and lands
-   on `/talk/<id>` there; that landing needs the TestFlight build carrying
-   `GarrisonNode.select(path)` (run 33695608972, `cbe5d512`, in
-   `evidence/garrison-app/g8/testflight.txt`; older builds land on the peer's
-   `/talk`). A
-   node not added in the app opens in Safari instead. The node switcher in
-   the app now keeps the current page across a switch as well.
+10. Conversations on other nodes (D48): in the thread list, tap a row from
+   another node (or "+ New" on another node). The window stays on THIS node,
+   at `/mesh/talk/<node>/<id>`, with the app bar (Back, "Conversations on
+   <node>") above the conversation framed from its home node; in Safari, on
+   a Home Screen install and in the app alike, no tab and no Safari
+   hand-off. Inside that conversation, a row from a third node (or from this
+   one) lands the same way. The record button is absent inside a framed
+   conversation (no native bridge in a cross-origin frame; follow-up). Needs
+   the OWNING node on this commit or later (`/frame/talk`), which dev-madrid
+   and the mini are; the Air is not. Any app build works: the fix is in the
+   shell. The node switcher in Settings still switches the whole webview and
+   keeps the current page across the switch (D47).
 8. Pendant (G7): with the real pendant, Pair, Connect, watch `connected` and
    the battery, speak and see the words in the "Hearing" panel, Disconnect
    (stays paired), Forget (drops the pairing). No hardware was in reach of

@@ -88,6 +88,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // controls would overlay it. See the CompositionCreator render below.
   const pathname = usePathname() ?? "";
   const isEmbeddedView = pathname.startsWith("/embed/");
+  // /frame/<...> is this node's page rendered inside ANOTHER node's shell (D48:
+  // /mesh/talk/<node>/<id> frames /frame/talk/<id> from the owning node). The
+  // parent owns the sidebar, the app bar and the floating controls, so this
+  // render carries none - only the page, at the frame's full size.
+  const isFramed = pathname.startsWith("/frame/");
   const [composition, setComposition] = useState<Composition | null>(null);
   const [compositions, setCompositions] = useState<Composition[]>([]);
   const [activePointer, setActivePointer] = useState<string | null>(null);
@@ -596,7 +601,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         ? "error"
         : "idle"
     : null;
-  const creator = isEmbeddedView ? null : (
+  const creator = isEmbeddedView || isFramed ? null : (
     <CompositionCreator
       activeName={composition?.name ?? composition?.id ?? null}
       disabled={switching || activeExternal || !composition}
@@ -618,13 +623,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div
         className={clsx(
           "app-shell",
+          isFramed && "shell-frame",
           narrowViewport ? "shell-phone" : sidebarCollapsed && "shell-rail"
         )}
       >
-        <Sidebar />
+        {isFramed ? null : <Sidebar />}
         <div className="shell-content">
           <span id="main-content" className="shell-main-anchor" tabIndex={-1} />
-          {narrowViewport ? (
+          {narrowViewport && !isFramed ? (
             <AppBar
               fallbackTitle={routeTitle(pathname, library)}
               subtitle={node?.name ?? null}

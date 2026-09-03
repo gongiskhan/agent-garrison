@@ -4,10 +4,10 @@
 // service (thread-registry.mjs, config doc "web-channel.threads"/"node:<name>").
 // This module reads every OTHER node's index plus the node registry, and
 // hands the UI ready-made rows: node identity + its recent threads + an
-// absolute openUrl on that node's own app (`/talk/<id>` on the peer's tailnet
-// origin, computable without asking the peer). Conversations stay
-// HOME-NODE-OWNED: opening one is a cross-origin navigation to the node that
-// holds the transcript, never a proxy of the message bodies.
+// openUrl on THIS node's shell (`/mesh/talk/<node>/<id>`), the page that frames
+// the conversation from its home node. Conversations stay HOME-NODE-OWNED: the
+// transcript renders from the node that holds it, never a proxy of the message
+// bodies, but the window that shows it stays on its own origin.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -95,7 +95,13 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
       threads = [];
     }
     if (!peer.tailnetHost && threads.length === 0) continue;
-    const base = peer.tailnetHost ? `https://${peer.tailnetHost.replace(/\.$/, "")}` : null;
+    // Rows open THIS node's /mesh/talk/<node>/<id> page, which frames the
+    // conversation on its home node. The top window never leaves this origin:
+    // a cross-origin top-level load is a new tab on a phone browser, a Safari
+    // hand-off in the Garrison app, and a scope exit for a Home Screen install.
+    // The page resolves the node's tailnet host from the roster and says so
+    // when it has none.
+    const base = `/mesh/talk/${encodeURIComponent(peer.name)}`;
     nodes.push({
       node: peer.name,
       accentColor: peer.accentColor ?? null,
@@ -107,7 +113,7 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
         title: t.title ?? null,
         lastMessageAt: t.lastMessageAt ?? null,
         messageCount: t.messageCount ?? null,
-        openUrl: base ? `${base}/talk/${encodeURIComponent(t.id)}` : null
+        openUrl: `${base}/${encodeURIComponent(t.id)}`
       }))
     });
   }
