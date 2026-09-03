@@ -18,6 +18,7 @@
 set -euo pipefail
 
 NAME="" ACCENT="" TOKEN="" STATE_URL="" REPO_DIR="$HOME/dev/garrison"
+TETHERED=0 TETHER_HOST="" APP_ORIGIN="" SHELL_ORIGIN="" REPO_SOURCE="github" TOKEN_STDIN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
@@ -25,26 +26,70 @@ while [ $# -gt 0 ]; do
     --token) TOKEN="$2"; shift 2 ;;
     --state-url) STATE_URL="$2"; shift 2 ;;
     --repo-dir) REPO_DIR="$2"; shift 2 ;;
+    # A tethered node (csg: reachable only through dev-madrid's reverse
+    # tunnel, no tailnet interface of its own) skips every tailscale step and
+    # gets its identity/publish fields from the owner instead - see
+    # docs/decisions/2026-09-03-shells-and-mesh-sessions.md section 2.5.
+    --tethered) TETHERED=1; shift ;;
+    --tether-host) TETHER_HOST="$2"; shift 2 ;;
+    --app-origin) APP_ORIGIN="$2"; shift 2 ;;
+    --shell-origin) SHELL_ORIGIN="$2"; shift 2 ;;
+    --repo-source) REPO_SOURCE="$2"; shift 2 ;;
+    # Keeps the raw mesh token out of shell history and `ps` on the target
+    # machine - the caller pipes it in instead.
+    --token-stdin) TOKEN_STDIN=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+USAGE="usage: install-node.sh --name <node> --token <mesh-token> --state-url <https://...> [--accent <palette-id>] [--repo-dir <dir>] [--tethered --tether-host <owner> --app-origin <https-url> [--shell-origin <https-url>] --repo-source github|mirror] [--token-stdin]"
+
+if [ "$TOKEN_STDIN" = "1" ]; then
+  [ -z "$TOKEN" ] || { echo "$USAGE (pass either --token or --token-stdin, not both)" >&2; exit 2; }
+  IFS= read -r TOKEN
+fi
+case "$REPO_SOURCE" in
+  github|mirror) ;;
+  *) echo "$USAGE (--repo-source must be github or mirror)" >&2; exit 2 ;;
+esac
+if [ "$TETHERED" = "1" ]; then
+  [ -n "$TETHER_HOST" ] && [ -n "$APP_ORIGIN" ] || {
+    echo "$USAGE (--tethered requires --tether-host and --app-origin)" >&2; exit 2
+  }
+fi
 [ -n "$NAME" ] && [ -n "$TOKEN" ] && [ -n "$STATE_URL" ] || {
-  echo "usage: install-node.sh --name <node> --token <mesh-token> --state-url <https://...> [--accent <palette-id>] [--repo-dir <dir>]" >&2
+  echo "$USAGE" >&2
   exit 2
 }
 
 say() { printf '[install-node] %s\n' "$*"; }
 
+if [ "$TETHERED" = "1" ] && { [ -n "${http_proxy:-}" ] || [ -n "${https_proxy:-}" ] || [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ]; }; then
+  export NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
+  say "proxy detected - NO_PROXY=$NO_PROXY (the loopback forwards must never go through it)"
+fi
+
 # ── 1. preflight ────────────────────────────────────────────────────────────
-for cmd in git node npm tailscale curl; do
-  command -v "$cmd" >/dev/null || { echo "preflight: $cmd not found" >&2; exit 1; }
-done
-TAILNET_HOST="$(tailscale status --json 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).Self.DNSName.replace(/\.$/,""))}catch{process.exit(1)}})')" || {
-  echo "preflight: tailscale is not up (no Self.DNSName)" >&2; exit 1
-}
-say "tailnet host: $TAILNET_HOST"
+if [ "$TETHERED" = "1" ]; then
+  for cmd in git node npm curl; do
+    command -v "$cmd" >/dev/null || { echo "preflight: $cmd not found" >&2; exit 1; }
+  done
+  TAILNET_HOST=""
+  say "tethered node - no tailnet interface of its own (owner: $TETHER_HOST)"
+else
+  for cmd in git node npm tailscale curl; do
+    command -v "$cmd" >/dev/null || { echo "preflight: $cmd not found" >&2; exit 1; }
+  done
+  TAILNET_HOST="$(tailscale status --json 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).Self.DNSName.replace(/\.$/,""))}catch{process.exit(1)}})')" || {
+    echo "preflight: tailscale is not up (no Self.DNSName)" >&2; exit 1
+  }
+  say "tailnet host: $TAILNET_HOST"
+fi
+# For a tethered node this doubles as proof the reverse "-R state" leg is
+# actually carrying traffic: $STATE_URL is the loopback address the tether
+# forwards to dev-madrid's own state service.
 curl -sf --max-time 10 "$STATE_URL/v1/health" >/dev/null || {
-  echo "preflight: state service unreachable at $STATE_URL — is it published to the tailnet?" >&2; exit 1
+  echo "preflight: state service unreachable at $STATE_URL — is it published to the tailnet (or, if tethered, is the reverse forward up)?" >&2; exit 1
 }
 
 # ── 2. checkout: clone fresh or adopt, symlink-refused ──────────────────────
@@ -52,15 +97,31 @@ if [ -L "$REPO_DIR" ]; then
   echo "refusing: $REPO_DIR is a symlink — an adopted checkout must be a real directory" >&2
   exit 1
 fi
+# The mirror path never touches GitHub - it clones dev-madrid's own checkout
+# through the tether's git-reverse-forward, via a key the forced `command=`
+# in dev-madrid's authorized_keys restricts to exactly this repo
+# (scripts/remote-shell/git-only-shell.sh).
+MIRROR_URL="ssh://ggomes@127.0.0.1:2200/home/ggomes/dev/garrison"
+MIRROR_SSH_CMD="ssh -i $HOME/.ssh/garrison-tether -o StrictHostKeyChecking=accept-new"
 if [ -d "$REPO_DIR/.git" ]; then
   say "adopting existing checkout at $REPO_DIR"
 else
-  say "cloning agent-garrison into $REPO_DIR"
   mkdir -p "$(dirname "$REPO_DIR")"
-  git clone -q git@github.com:gongiskhan/agent-garrison.git "$REPO_DIR" \
-    || git clone -q https://github.com/gongiskhan/agent-garrison.git "$REPO_DIR"
+  if [ "$REPO_SOURCE" = "mirror" ]; then
+    say "cloning agent-garrison into $REPO_DIR via the tether's reverse git forward"
+    GIT_SSH_COMMAND="$MIRROR_SSH_CMD" git clone -q "$MIRROR_URL" "$REPO_DIR"
+  else
+    say "cloning agent-garrison into $REPO_DIR"
+    git clone -q git@github.com:gongiskhan/agent-garrison.git "$REPO_DIR" \
+      || git clone -q https://github.com/gongiskhan/agent-garrison.git "$REPO_DIR"
+  fi
 fi
 cd "$REPO_DIR"
+if [ "$REPO_SOURCE" = "mirror" ]; then
+  # Persisted in the repo's own config so a later fetch/push (redeploy,
+  # convergence) uses the right key without re-exporting anything.
+  git config core.sshCommand "$MIRROR_SSH_CMD"
+fi
 git fetch -q origin
 # The node branch is created ONCE, here — never by an agent (the no-new-
 # branches hard rule stands; this is the sanctioned exception, by plan).
@@ -75,17 +136,27 @@ say "on branch node/$NAME @ $(git rev-parse --short HEAD)"
 
 # ── 3. identity + enrolment files ───────────────────────────────────────────
 mkdir -p "$HOME/.garrison"
-node - "$NAME" "$ACCENT" "$TAILNET_HOST" <<'EOF'
-const [name, accent, host] = process.argv.slice(2); // argv[1] is "-" under `node -`
+node - "$NAME" "$ACCENT" "$TAILNET_HOST" "$TETHERED" "$TETHER_HOST" "$APP_ORIGIN" "$SHELL_ORIGIN" <<'EOF'
+const [name, accent, host, tethered, tetherHost, appOrigin, shellOrigin] = process.argv.slice(2); // argv[1] is "-" under `node -`
 const fs = require("node:fs");
 const p = `${process.env.HOME}/.garrison/node.json`;
 if (!fs.existsSync(p)) {
   // accent is a PALETTE ID or index — never raw hex; the closed palette in
   // src/lib/node-identity.ts refuses unknown hex by design.
-  fs.writeFileSync(p, JSON.stringify({
-    id: name, name, accent: accent || undefined, tailnetHost: host,
+  const body = {
+    id: name, name, accent: accent || undefined,
+    // A tethered node has no tailnet interface of its own - node-identity.ts
+    // treats a null tailnetHost as normal for one, never as a broken node.
+    tailnetHost: tethered === "1" ? null : host,
     createdAt: new Date().toISOString()
-  }, null, 2));
+  };
+  if (tethered === "1") {
+    body.tethered = true;
+    if (tetherHost) body.tetherHost = tetherHost;
+    if (appOrigin) body.appOrigin = appOrigin;
+    if (shellOrigin) body.shellOrigin = shellOrigin;
+  }
+  fs.writeFileSync(p, JSON.stringify(body, null, 2));
   console.log(`[install-node] wrote ${p}`);
 } else {
   console.log(`[install-node] ${p} exists — kept (identity is permanent)`);
@@ -128,6 +199,11 @@ node scripts/node-branding.mjs || say "branding skipped (non-fatal): $?"
 # force here — first `up` walks it.
 
 # ── 6. session memory hooks (vault-git-sync pull on start, push on end) ─────
+# Skipped on a tethered node: vault-git-sync's own git remote is GitHub, not
+# reachable through this node's tunnel-only network posture, and personal
+# memory sync makes no sense duplicated onto a machine that unstations most
+# of what would use it anyway.
+if [ "$TETHERED" != "1" ]; then
 node - <<'EOF'
 const fs = require("node:fs");
 const p = `${process.env.HOME}/.claude/settings.json`;
@@ -157,6 +233,9 @@ if (a || b) {
   console.log("[install-node] vault-git-sync session hooks already present");
 }
 EOF
+else
+  say "tethered node - vault-git-sync session hooks skipped"
+fi
 
 # ── 7. project env materialisation (anything checked out runs immediately) ──
 node - "$STATE_URL" "$TOKEN" "$NAME" <<'EOF'
@@ -248,9 +327,18 @@ SPL
   launchctl bootstrap "gui/$(id -u)" "$SPLIST"
   say "launchd unit io.garrison.node.scheduler loaded"
 else
-  UNIT="$HOME/.config/systemd/user/garrison-node.service"
-  mkdir -p "$(dirname "$UNIT")"
-  cat > "$UNIT" <<SD
+  # WSL2 is commonly booted with no systemd at all (pid 1 is something else
+  # entirely) - detect it rather than assume every Linux box has
+  # systemd --user, and fall back to node-supervisor.sh (built for exactly
+  # this: csg) when it does not.
+  SYSTEMD_USER_OK=0
+  if [ -d /run/systemd/system ] && systemctl --user status >/dev/null 2>&1; then
+    SYSTEMD_USER_OK=1
+  fi
+  if [ "$SYSTEMD_USER_OK" = "1" ]; then
+    UNIT="$HOME/.config/systemd/user/garrison-node.service"
+    mkdir -p "$(dirname "$UNIT")"
+    cat > "$UNIT" <<SD
 [Unit]
 Description=Garrison mesh node
 After=network-online.target tailscaled.service
@@ -266,9 +354,28 @@ Environment=PATH=$(dirname "$NODE_BIN"):/usr/local/sbin:/usr/local/bin:/usr/sbin
 [Install]
 WantedBy=default.target
 SD
-  systemctl --user daemon-reload
-  systemctl --user enable --now garrison-node.service
-  say "systemd unit garrison-node loaded"
+    systemctl --user daemon-reload
+    systemctl --user enable --now garrison-node.service
+    # Without linger, the user unit dies the moment the enrolling ssh session
+    # ends - exactly the failure mode this whole section exists to avoid.
+    loginctl enable-linger "$(id -un)" 2>/dev/null || sudo -n loginctl enable-linger "$(id -un)" 2>/dev/null \
+      || say "loginctl enable-linger failed (non-fatal) - the unit may not survive logout; run it manually"
+    say "systemd unit garrison-node loaded (linger enabled)"
+  else
+    say "no usable systemd --user - installing node-supervisor.sh"
+    # A wrapper, not a copy: the canonical script self-locates its repo root
+    # from its OWN path (dirname($0)/../..), which only resolves correctly
+    # from inside scripts/remote-shell/ - a copy at $HOME/.garrison would
+    # silently break that. The tether's onUp always calls
+    # $HOME/.garrison/node-supervisor.sh, so that path still has to exist.
+    cat > "$HOME/.garrison/node-supervisor.sh" <<WRAP
+#!/bin/sh
+exec "$REPO_DIR/scripts/remote-shell/node-supervisor.sh" "\$@"
+WRAP
+    chmod +x "$HOME/.garrison/node-supervisor.sh"
+    GARRISON_HOME="$HOME/.garrison" GARRISON_NODE_NAME="$NAME" "$HOME/.garrison/node-supervisor.sh" start
+    say "node-supervisor.sh started (daemon)"
+  fi
 fi
 
 # ── 9. build + wait for the app ─────────────────────────────────────────────
@@ -276,8 +383,10 @@ say "building (first boot serves the built artifact)"
 bash scripts/garrison-instance.sh node build >/dev/null 2>&1 || say "build reported non-zero — the unit will retry"
 if [ "$(uname)" = "Darwin" ]; then
   launchctl kickstart -k "gui/$(id -u)/io.garrison.node" 2>/dev/null || true
-else
+elif [ "${SYSTEMD_USER_OK:-0}" = "1" ]; then
   systemctl --user restart garrison-node.service
+else
+  "$HOME/.garrison/node-supervisor.sh" restart
 fi
 APP_PORT=8777
 for i in $(seq 1 60); do
@@ -291,10 +400,14 @@ curl -sf -o /dev/null "http://127.0.0.1:$APP_PORT/api/mesh/self" || {
 say "/api/mesh/self is healthy"
 
 # ── 10. tailnet publish ─────────────────────────────────────────────────────
-tailscale serve --bg --https=443 "http://127.0.0.1:$APP_PORT" >/dev/null 2>&1 \
-  || sudo -n tailscale serve --bg --https=443 "http://127.0.0.1:$APP_PORT" >/dev/null 2>&1 \
-  || say "root serve mapping failed - tailscale >=1.98 needs root for serve writes; add the sudoers NOPASSWD entry for tailscale and re-run"
-node scripts/tailnet-serve-views.mjs || say "view publish incomplete (operator flag?) — re-run after fixing"
+if [ "$TETHERED" = "1" ]; then
+  say "tethered node - the app and its views are published by the owner ($TETHER_HOST), not from here"
+else
+  tailscale serve --bg --https=443 "http://127.0.0.1:$APP_PORT" >/dev/null 2>&1 \
+    || sudo -n tailscale serve --bg --https=443 "http://127.0.0.1:$APP_PORT" >/dev/null 2>&1 \
+    || say "root serve mapping failed - tailscale >=1.98 needs root for serve writes; add the sudoers NOPASSWD entry for tailscale and re-run"
+  node scripts/tailnet-serve-views.mjs || say "view publish incomplete (operator flag?) — re-run after fixing"
+fi
 
 # ── 11. exit criterion ──────────────────────────────────────────────────────
 say "waiting for this node to appear in the mesh registry (45s window)…"
@@ -306,7 +419,11 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   sleep 5
 done
 if [ -n "${SEEN:-}" ]; then
-  say "INSTALLED: $NAME is on the mesh (last seen $SEEN). Open https://$TAILNET_HOST/"
+  if [ "$TETHERED" = "1" ]; then
+    say "INSTALLED: $NAME is on the mesh (last seen $SEEN). Open $APP_ORIGIN/"
+  else
+    say "INSTALLED: $NAME is on the mesh (last seen $SEEN). Open https://$TAILNET_HOST/"
+  fi
 else
   echo "FAILED the exit criterion: $NAME never reported to the registry — the heartbeat (scheduler daemon) may not be enrolled; check the unit log" >&2
   exit 1
