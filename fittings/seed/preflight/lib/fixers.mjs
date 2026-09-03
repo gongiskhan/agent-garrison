@@ -140,6 +140,24 @@ export const FIXERS = {
     }
   },
 
+  // journal continuation: commit the library.json edits the add/remove fixers
+  // left uncommitted. Scoped to that ONE file; never pushes.
+  "git-commit-library": {
+    validate: () => true,
+    async run() {
+      const root = findRepoRoot(process.cwd());
+      if (!root) return { ok: false, error: "repo root not found" };
+      const diff = await execOk("git", ["-C", root, "diff", "--stat", "--", "data/library.json"]);
+      if (!diff.out.trim()) return { ok: false, error: "no uncommitted changes in data/library.json" };
+      const add = await execOk("git", ["-C", root, "add", "data/library.json"]);
+      if (!add.ok) return { ok: false, error: add.err.slice(0, 300) };
+      const commit = await execOk("git", ["-C", root, "commit", "-m", "preflight: register fittings in data/library.json\n\nEntries added/removed via the preflight Fix action; reviewed in the UI.", "--", "data/library.json"]);
+      if (!commit.ok) return { ok: false, error: commit.err.slice(0, 300) };
+      const sha = await execOk("git", ["-C", root, "rev-parse", "--short", "HEAD"]);
+      return { ok: true, detail: `committed data/library.json as ${sha.out.trim()} (not pushed)` };
+    }
+  },
+
   // library-crosscheck: drop an entry whose seed directory no longer exists.
   "library-remove-entry": {
     validate: (p) => ID_RE.test(p?.entryId || ""),

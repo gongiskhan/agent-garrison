@@ -28,6 +28,33 @@ import {
 import { isAppUp, fetchViews, fetchRunnerState, appUrl } from "./app-client.mjs";
 import { readFixJournal } from "./fixers.mjs";
 
+// Re-check each journaled fix against CURRENT reality. "resolved" here means
+// the thing the fix targeted is now in the state the fix aimed for — measured
+// fresh, not taken from the fixer's own success claim. null = cannot re-check
+// cheaply (e.g. serve mappings when tailscale was not consulted this report).
+async function annotateResolution(entries, ctx) {
+  const compById = new Map(ctx.compositions.map((c) => [c.compositionId, c]));
+  return entries.map((e) => {
+    let resolved = null;
+    if (e.actionId === "library-add-entry") resolved = ctx.libraryIds.has(e.params?.fittingId);
+    else if (e.actionId === "library-remove-entry") resolved = !ctx.libraryIds.has(e.params?.entryId);
+    else if (e.actionId === "unstation-fitting") {
+      const comp = compById.get(e.params?.compositionId);
+      if (comp) resolved = !comp.diskSelections.includes(e.params?.fittingId);
+    } else if (e.actionId === "git-commit-library") resolved = e.ok || null;
+    return { ...e, resolved };
+  });
+}
+
+async function libraryDiffStat(root) {
+  const { execFile } = await import("node:child_process");
+  return new Promise((resolve) => {
+    execFile("git", ["-C", root, "diff", "--stat", "--", "data/library.json"], { timeout: 8000 }, (err, stdout) => {
+      resolve(err ? null : String(stdout || "").trim() || null);
+    });
+  });
+}
+
 export async function buildReport({ startDir = process.cwd(), checks = null } = {}) {
   const wanted = checks && checks.length ? new Set(checks) : null;
   const run = (name) => !wanted || wanted.has(name);
@@ -108,8 +135,16 @@ export async function buildReport({ startDir = process.cwd(), checks = null } = 
     root,
     compositions: compositions.map((c) => c.compositionId),
     // What the doctor DID, newest first — so a fixed row that vanishes from
-    // the checks still has a visible, persistent trace.
-    recentFixes: await readFixJournal(20),
+    // the checks still has a visible, persistent trace. Each entry carries a
+    // `resolved` verdict RE-CHECKED against current reality (not the fixer's
+    // own claim): the library re-read, the composition re-parse.
+    recentFixes: await annotateResolution(await readFixJournal(20), {
+      libraryIds: new Set(readCuratedLibrary(root).map((e) => e.id)),
+      compositions
+    }),
+    // Continuation state for the library fixers: the uncommitted diff, so the
+    // UI can show it and offer the scoped commit action.
+    libraryDiff: await libraryDiffStat(root),
     generatedAt: new Date().toISOString()
   };
 }

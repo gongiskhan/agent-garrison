@@ -14,7 +14,7 @@ type Finding = {
   action?: { id: string; params: Record<string, unknown>; command: string };
 };
 
-type FixEntry = { at: string; actionId: string; params: Record<string, unknown>; ok: boolean; detail?: string; error?: string };
+type FixEntry = { at: string; actionId: string; params: Record<string, unknown>; ok: boolean; detail?: string; error?: string; resolved?: boolean | null };
 
 type Report = {
   findings: Finding[];
@@ -23,6 +23,7 @@ type Report = {
   appUp: boolean;
   compositions?: string[];
   recentFixes?: FixEntry[];
+  libraryDiff?: string | null;
   generatedAt: string;
 };
 
@@ -136,8 +137,37 @@ function Section({ check, findings }: { check: string; findings: Finding[] }) {
 // The persistent trace of what the doctor DID. A fixed row disappears from
 // the checks on refresh — that means the detector re-measured and passes —
 // but the action itself stays visible and auditable here.
-function FixJournal({ entries }: { entries: FixEntry[] }) {
-  const [open, setOpen] = useState(false);
+function ResolvedBadge({ resolved }: { resolved?: boolean | null }) {
+  if (resolved === true) return <span className="res-badge res-ok">resolved ✓ re-checked</span>;
+  if (resolved === false) return <span className="res-badge res-bad">NOT resolved — re-check failed</span>;
+  return null;
+}
+
+function FixJournal({ entries, libraryDiff, onChanged }: { entries: FixEntry[]; libraryDiff?: string | null; onChanged: () => void }) {
+  const [open, setOpen] = useState(true);
+  const [committing, setCommitting] = useState(false);
+  const [commitMsg, setCommitMsg] = useState<string | null>(null);
+
+  const commitLibrary = async () => {
+    if (!window.confirm("Commit the pending data/library.json changes?\n\nRuns: git add data/library.json && git commit (scoped to that file; never pushes)")) return;
+    setCommitting(true);
+    setCommitMsg(null);
+    try {
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actionId: "git-commit-library", params: {} })
+      });
+      const data = await res.json();
+      setCommitMsg(data.ok ? `✓ ${data.detail}` : `✗ ${data.error}`);
+      if (data.ok) onChanged();
+    } catch (err) {
+      setCommitMsg(`✗ ${String(err)}`);
+    } finally {
+      setCommitting(false);
+    }
+  };
+
   return (
     <section className="check journal">
       <header className="check-head" onClick={() => setOpen(!open)}>
@@ -146,20 +176,36 @@ function FixJournal({ entries }: { entries: FixEntry[] }) {
         <span className="count">{entries.length}</span>
         <span className="chev">{open ? "▾" : "▸"}</span>
       </header>
-      {open && entries.map((e, i) => (
-        <div key={i} className="finding">
-          <div className="finding-head">
-            <span className={`pip pip-${e.ok ? "pass" : "fail"}`} />
-            <span className="finding-id">{e.actionId}</span>
-            <span className="finding-detail">
-              {e.ok ? e.detail : `FAILED: ${e.error}`}
-            </span>
-          </div>
-          <div className="finding-fix">
-            {new Date(e.at).toLocaleString()} · params: {JSON.stringify(e.params)}
-          </div>
-        </div>
-      ))}
+      {open && (
+        <>
+          {libraryDiff && (
+            <div className="finding pending-commit">
+              <div className="finding-head">
+                <span className="pip pip-warn" />
+                <span className="finding-id">uncommitted</span>
+                <span className="finding-detail">library.json changes waiting for review: <code>{libraryDiff}</code></span>
+              </div>
+              <button className="fix-btn" onClick={commitLibrary} disabled={committing}>
+                {committing ? "committing…" : "Commit library.json"}
+              </button>
+              {commitMsg && <div className="finding-fix">{commitMsg}</div>}
+            </div>
+          )}
+          {entries.map((e, i) => (
+            <div key={i} className="finding">
+              <div className="finding-head">
+                <span className={`pip pip-${e.ok ? "pass" : "fail"}`} />
+                <span className="finding-id">{e.actionId}</span>
+                <span className="finding-detail">{e.ok ? e.detail : `FAILED: ${e.error}`}</span>
+                <ResolvedBadge resolved={e.resolved} />
+              </div>
+              <div className="finding-fix">
+                {new Date(e.at).toLocaleString()} · params: {JSON.stringify(e.params)}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </section>
   );
 }
@@ -328,7 +374,9 @@ function App() {
 
       {!fittingFilter && grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} />)}
 
-      {(report.recentFixes?.length ?? 0) > 0 && <FixJournal entries={report.recentFixes!} />}
+      {((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && (
+        <FixJournal entries={report.recentFixes ?? []} libraryDiff={report.libraryDiff} onChanged={refresh} />
+      )}
     </main>
   );
 }

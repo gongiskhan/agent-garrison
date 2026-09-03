@@ -125,6 +125,14 @@ button.linkish {
 .finding-detail { color: var(--fg); }
 .finding-fix { margin: 6px 0 0 18px; color: var(--muted); font-size: 13px; }
 .finding-fix::first-line { font-style: italic; }
+.res-badge {
+  margin-left: auto; padding: 1px 8px; border-radius: 999px; font-size: 11px;
+  white-space: nowrap;
+}
+.res-ok { background: var(--pass-bg); color: var(--pass); border: 1px solid var(--pass); }
+.res-bad { background: var(--fail-bg); color: var(--fail); border: 1px solid var(--fail); }
+.pending-commit { background: var(--warn-bg); }
+
 .fix-btn {
   margin: 6px 0 0 18px; padding: 3px 14px; font-size: 13px;
   border-color: var(--pass); color: var(--pass); background: var(--pass-bg);

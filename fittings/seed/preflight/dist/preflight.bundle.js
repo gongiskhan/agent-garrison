@@ -2437,7 +2437,7 @@ var require_react_dom_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment = 7;
+        var Fragment2 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -3594,7 +3594,7 @@ var require_react_dom_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment:
+            case Fragment2:
               return "Fragment";
             case HostComponent:
               return type;
@@ -12023,7 +12023,7 @@ var require_react_dom_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current2, fragment, lanes, key) {
-            if (current2 === null || current2.tag !== Fragment) {
+            if (current2 === null || current2.tag !== Fragment2) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -12426,7 +12426,7 @@ var require_react_dom_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment) {
+                  if (child.tag === Fragment2) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17902,7 +17902,7 @@ var require_react_dom_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current2, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment:
+            case Fragment2:
               return updateFragment(current2, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current2, workInProgress2, renderLanes2);
@@ -18174,7 +18174,7 @@ var require_react_dom_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment:
+            case Fragment2:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22435,7 +22435,7 @@ var require_react_dom_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode, lanes, key) {
-          var fiber = createFiber(Fragment, elements, key, mode);
+          var fiber = createFiber(Fragment2, elements, key, mode);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -24585,8 +24585,34 @@ function Section({ check, findings }) {
     open && findings.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f }, `${f.id}:${i}`))
   ] });
 }
-function FixJournal({ entries }) {
-  const [open, setOpen] = (0, import_react.useState)(false);
+function ResolvedBadge({ resolved }) {
+  if (resolved === true) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "res-badge res-ok", children: "resolved \u2713 re-checked" });
+  if (resolved === false) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "res-badge res-bad", children: "NOT resolved \u2014 re-check failed" });
+  return null;
+}
+function FixJournal({ entries, libraryDiff, onChanged }) {
+  const [open, setOpen] = (0, import_react.useState)(true);
+  const [committing, setCommitting] = (0, import_react.useState)(false);
+  const [commitMsg, setCommitMsg] = (0, import_react.useState)(null);
+  const commitLibrary = async () => {
+    if (!window.confirm("Commit the pending data/library.json changes?\n\nRuns: git add data/library.json && git commit (scoped to that file; never pushes)")) return;
+    setCommitting(true);
+    setCommitMsg(null);
+    try {
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actionId: "git-commit-library", params: {} })
+      });
+      const data = await res.json();
+      setCommitMsg(data.ok ? `\u2713 ${data.detail}` : `\u2717 ${data.error}`);
+      if (data.ok) onChanged();
+    } catch (err) {
+      setCommitMsg(`\u2717 ${String(err)}`);
+    } finally {
+      setCommitting(false);
+    }
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "check journal", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "check-head", onClick: () => setOpen(!open), children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "pip pip-pass" }),
@@ -24594,18 +24620,33 @@ function FixJournal({ entries }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "count", children: entries.length }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chev", children: open ? "\u25BE" : "\u25B8" })
     ] }),
-    open && entries.map((e, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-head", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pip pip-${e.ok ? "pass" : "fail"}` }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: e.actionId }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: e.ok ? e.detail : `FAILED: ${e.error}` })
+    open && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      libraryDiff && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding pending-commit", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "pip pip-warn" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: "uncommitted" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "finding-detail", children: [
+            "library.json changes waiting for review: ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: libraryDiff })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: commitLibrary, disabled: committing, children: committing ? "committing\u2026" : "Commit library.json" }),
+        commitMsg && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "finding-fix", children: commitMsg })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-fix", children: [
-        new Date(e.at).toLocaleString(),
-        " \xB7 params: ",
-        JSON.stringify(e.params)
-      ] })
-    ] }, i))
+      entries.map((e, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pip pip-${e.ok ? "pass" : "fail"}` }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: e.actionId }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: e.ok ? e.detail : `FAILED: ${e.error}` }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResolvedBadge, { resolved: e.resolved })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-fix", children: [
+          new Date(e.at).toLocaleString(),
+          " \xB7 params: ",
+          JSON.stringify(e.params)
+        ] })
+      ] }, i))
+    ] })
   ] });
 }
 function App() {
@@ -24762,7 +24803,7 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sweep-note", children: "runs EVERY fitting's verify and reports all failures \u2014 up() stops at the first" })
     ] }),
     !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings }, check)),
-    (report.recentFixes?.length ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixJournal, { entries: report.recentFixes })
+    ((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixJournal, { entries: report.recentFixes ?? [], libraryDiff: report.libraryDiff, onChanged: refresh })
   ] });
 }
 (0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(App, {}));
