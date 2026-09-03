@@ -76,16 +76,52 @@ disrupted by having nothing to publish. Post-deploy checks: `/api/mesh/self` `vi
 yet); `GET :8098/transports` still lists the (unmodified) legacy `csg` transport; `GET /api/sessions`
 still returns rows. No regression from this batch.
 
+## The composition's csg transport is now armed (swift-book + tether)
+
+Switched via the Muster-safe write path (`POST /api/muster/standing/config`, faculty `runtimes`,
+fitting `remote-shell-runtime`, key `transports`) - not a hand-edit, per F-003. The csg transport now
+points at `swift-book-df6tw47.eun1` with `pushHostToken: false` and the full `tether` block (state +
+git reverse forwards, app + shells forwards with their `publish.servePort`s, `onUp`). The Muster write
+again stripped four unrelated comments on a re-serialize (the same `dumpYaml` limitation as G5's
+finding) - restored by hand a second time, then re-pushed to the state service explicitly. Redeployed
+and let it run against the still-locked-out csg on purpose, specifically to prove graceful degradation
+rather than waiting for a reachable target:
+
+- `GET :8098/tether` -> `armed: true`, `state: "suspect"` (never crashes to "down" or hangs),
+  `legs.reverse.error: "ssh: connect to host 127.0.0.1 port 2222: Connection refused"` - an accurate,
+  actionable error, not a generic failure.
+- **Found and fixed a real bug this exposed**: `misses` stayed at `0` forever and the state never
+  changed - `tick()`'s guard required a LIVE child (`exitCode === null`) before it did anything at all,
+  but `ssh` exits almost immediately on `ECONNREFUSED` (unlike a wedged-but-live forward, which is the
+  only failure shape the unit tests' fakes ever simulated - they always kept `exitCode: null` until
+  explicitly killed). Once the process table entry was gone, `tick()` silently returned every 20s
+  forever: a dead-on-arrival tether was never retried again, ever. Fixed in `d0b6eaed` (tick() now
+  checks for a missing/dead child FIRST and retries directly, still on backoff, since a dead process is
+  unambiguous evidence unlike a live-but-quiet forward) with a ratchet test reproducing the exact shape
+  (a fake ssh that exits with code 255 the instant it spawns). **Redeployed the fix and confirmed live**:
+  `misses` went `0 -> 1` on the next tick, proving the retry loop now actually cycles. This is exactly
+  the kind of bug arming the tether against a genuinely unreachable target was worth doing FOR, even
+  locked out - a fake spawnFn in a unit test would not have found it.
+- Zero regression to anything else: `/api/mesh/self` `views: {total: 17, healthy: 17}` both before and
+  after, `sessions` count unaffected, the app itself never destabilized by an armed-but-failing tether.
+
+One known, accepted gap left as-is (not a bug found live, a design tradeoff): `ensure()` and a
+`tick()`-driven retry do not share a lock beyond `starting`/`ticking` booleans, so a concurrent
+operator-triggered `POST /tether/:name/repair` during an in-flight tick retry could in principle spawn
+a second ssh briefly. `TunnelManager`'s much larger inflight-promise system exists partly to close this
+same class of gap for devtunnel clients; deliberately not fully replicated here given the lower stakes
+(a tether repair is a rare, operator-initiated action, not routine traffic) - noted for later hardening
+if it ever actually causes a problem in practice.
+
 ## What's still not done
 
-- **The composition's csg transport has not been switched to `swift-book-df6tw47.eun1` + `pushHostToken:
-  false` + a `tether` block yet.** Deliberately deferred: doing it now (through the Muster-safe write
-  path per F-003) would arm a tether whose owner side has never actually dialed a real tethered node,
-  which cannot be verified at all while csg is locked out. Do this once csg answers again.
-- The installer flags (`install-node.sh --tethered ...`), the preflight scripts
-  (`csg-node-preflight.sh`/`.mjs`), `git-only-shell.sh`, `csg-node-install.sh`, `csg-node-redeploy.sh`,
-  and `compositions/default/local.yml`'s actual unstation list for csg (`csg-local.yml.example`) are ALL
-  unstarted. These are the G7-facing pieces the plan itself gates on csg being reachable, and several
-  (the preflight's exact remote-environment checks) genuinely benefit from being written against live
-  feedback rather than guessed blind - see F-004 for why this session stopped writing more of them
-  tonight.
+The installer flags (`install-node.sh --tethered ...`), the preflight scripts
+(`csg-node-preflight.sh`/`.mjs`), `git-only-shell.sh`, `csg-node-install.sh`, `csg-node-redeploy.sh`, and
+`compositions/default/local.yml`'s actual unstation list for csg (`csg-local.yml.example`) are ALL
+unstarted. These are the G7-facing pieces the plan itself gates on csg being reachable, and several (the
+preflight's exact remote-environment checks) genuinely benefit from being written against live feedback
+rather than guessed blind - see F-004 for why this session stopped writing more of them tonight. Once
+csg answers again, the tether should come up AUTOMATICALLY on its own next tick (no manual step needed
+on dev-madrid's side) - watch `GET :8098/tether` for `state` to flip to `"up"` and
+`~/.garrison/remote-shell/tether.json` to appear, then run `node scripts/tailnet-serve-tether.mjs` (or
+the next redeploy) to publish it.
