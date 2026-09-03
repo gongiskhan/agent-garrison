@@ -119,6 +119,16 @@ evidence/garrison-app/**/*.webm
 evidence/garrison-app/**/*.mov
 evidence/garrison-app/**/*.mp3
 evidence/garrison-app/**/*.wav
+
+# versioned gate evidence of the shells + mesh sessions run
+# (docs/decisions/2026-09-03-shells-and-mesh-sessions.md).
+!evidence/shells/
+!evidence/shells/**/*.log
+evidence/shells/**/*.mp4
+evidence/shells/**/*.webm
+evidence/shells/**/*.mov
+evidence/shells/**/*.mp3
+evidence/shells/**/*.wav
 .mesh-shots-*.mjs
 # Raw Anthropic request dumps from the logging proxy (megabytes per run,
 # regenerated on demand by session_log_proxy_dump).
