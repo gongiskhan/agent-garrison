@@ -40,10 +40,15 @@ describe("kanban card deep links", () => {
     // Opening the board straight at a card link.
     expect(main).toContain("const cardId = cardIdFromLocation(window.location);");
     // A hash-only navigation does not reload the document, so the standing board
-    // tab only learns about the second and later card links through hashchange.
-    expect(main).toContain('window.addEventListener("hashchange", onHashCard);');
+    // tab only learns about the second and later card links through popstate /
+    // hashchange - both wired to the one handler that reads the entry back into
+    // an overlay (card-history.ts).
+    expect(main).toContain('window.addEventListener("popstate", onPop);');
+    expect(main).toContain('window.addEventListener("hashchange", onPop);');
+    expect(main).toContain("overlayFromHistory(window.location, window.history.state)");
     // Closing must drop the card from the url, or re-clicking the SAME link
-    // fires no hashchange and nothing opens.
+    // fires no hashchange and nothing opens - the history effect does it.
     expect(main).toContain("closeCardOverlay");
+    expect(main).toContain("cardHistoryPlan({");
   });
 });

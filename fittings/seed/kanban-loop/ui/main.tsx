@@ -93,6 +93,7 @@ import {
 import { usePhoneLayout, activeColumnIndex, columnOffsets } from "./phone-layout";
 import { TerminalPane } from "./terminal-pane";
 import { CardConversation, CONVERSATION_BASE } from "./card-conversation";
+import { boardUrl, cardHistoryPlan, overlayFromHistory, type CardOverlay } from "./card-history";
 import { HistoryView } from "./history-view";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
@@ -2572,6 +2573,12 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // On a phone the card is two full-screen pages under one header - the card
+  // itself, and its conversation with the composer pinned at the bottom -
+  // rather than one long sheet with a chat box scrolling somewhere inside it.
+  // Discuss lands on the conversation page; everything else opens the card.
+  const phone = usePhoneLayout();
+  const [phoneTab, setPhoneTab] = useState<"card" | "conversation">(focus === "conversation" ? "conversation" : "card");
 
   const occurrenceCards = useMemo(() => {
     if (!detail?.card.id) return [] as CardSummary[];
@@ -3085,11 +3092,36 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const placementReady = placementDraft === "host" || Boolean(
     machineSupportsRuntime(selectedMachine, placementRuntime) && placementProjectReady
   );
+  const phoneTabs = phone && conversationId;
   return (
     <Sheet
       title={<EditableSheetTitle value={card.title} locked={lockedCard} onSave={(t) => patchCard({ title: t })} />}
       onClose={onClose}
       size="mid"
+      className={phoneTabs ? (phoneTab === "conversation" ? "phone-conv" : "phone-card") : undefined}
+      tabs={phoneTabs ? (
+        <div className="sheet-tabs" role="tablist" aria-label="Card pages">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={phoneTab === "card"}
+            className={`sheet-tab${phoneTab === "card" ? " is-active" : ""}`}
+            onClick={() => setPhoneTab("card")}
+          >
+            Card
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={phoneTab === "conversation"}
+            className={`sheet-tab${phoneTab === "conversation" ? " is-active" : ""}`}
+            onClick={() => setPhoneTab("conversation")}
+          >
+            Conversation
+            {running && <span className="run-spin" aria-hidden />}
+          </button>
+        </div>
+      ) : undefined}
     >
       <div className="detail-meta">
         <button
@@ -4622,7 +4654,15 @@ function EditableSheetTitle({ value, locked, onSave }: {
   );
 }
 
-function Sheet({ title, onClose, children, size = "default" }: { title: ReactNode; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" | "conv" }) {
+function Sheet({ title, onClose, children, size = "default", tabs, className }: {
+  title: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  size?: "default" | "mid" | "wide" | "conv";
+  /** A row under the header - the phone's section tabs. */
+  tabs?: ReactNode;
+  className?: string;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -4630,11 +4670,15 @@ function Sheet({ title, onClose, children, size = "default" }: { title: ReactNod
   }, [onClose]);
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : size === "conv" ? " wide conv" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : size === "conv" ? " wide conv" : ""}${className ? ` ${className}` : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sh-head">
           <h3>{title}</h3>
-          <button className="btn small" onClick={onClose} aria-label="Close"><CloseIcon /></button>
+          <button className="btn small sh-close" onClick={onClose} aria-label="Close"><CloseIcon /></button>
         </div>
+        {tabs}
         <div className="sh-body">{children}</div>
       </div>
     </div>
@@ -4955,29 +4999,67 @@ function App() {
   useEffect(() => {
     try { window.localStorage.setItem("garrison.kanban.showAllLists", showAllLists ? "1" : "0"); } catch { /* private mode: the session-only default is fine */ }
   }, [showAllLists]);
-  // A hash-only navigation does NOT reload the document, so a card link opened
-  // while the board is already up (the common case - the board is a standing
-  // tab) reaches us only through hashchange. Without this, the first card link
-  // works and every later one silently does nothing.
+  // ── card overlays and the browser's Back (card-history.ts has the why) ───
+  // React state says WHICH sheet is open; the session history is kept in step
+  // with it, so the shell's Back control (and a phone swipe) pops the card
+  // first and lands on the board - not on whatever page linked here. popstate
+  // flows the other way: the entry the user went back or forward to becomes
+  // the overlay it stands for.
+  const mountedWithCardRef = useRef(typeof window !== "undefined" && Boolean(cardIdFromLocation(window.location)));
   useEffect(() => {
-    const onHashCard = () => {
-      const cardId = cardIdFromLocation(window.location);
-      if (cardId) setOverlay({ kind: "detail", cardId });
-    };
-    window.addEventListener("hashchange", onHashCard);
-    return () => window.removeEventListener("hashchange", onHashCard);
-  }, []);
-  // Closing the sheet must also drop the card out of the URL, or re-clicking the
-  // SAME link fires no hashchange (the hash never changed) and nothing opens.
-  const closeCardOverlay = useCallback(() => {
-    setOverlay(null);
     if (typeof window === "undefined") return;
-    if (!cardIdFromLocation(window.location)) return;
-    const url = new URL(window.location.href);
-    url.hash = "";
-    url.searchParams.delete("card");
-    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    const cardOverlay: CardOverlay | null = overlay && (overlay.kind === "detail" || overlay.kind === "conversation")
+      ? { kind: overlay.kind, cardId: overlay.cardId }
+      : null;
+    const steps = cardHistoryPlan({
+      overlay: cardOverlay,
+      state: window.history.state,
+      location: window.location,
+      mountedWithCard: mountedWithCardRef.current,
+    });
+    mountedWithCardRef.current = false;
+    // History is a convenience for Back, never a precondition for the board:
+    // a document that refuses history writes (an opaque origin, a sandboxed
+    // frame) keeps every sheet working, it just cannot be backed out of.
+    try {
+      for (const step of steps) {
+        if (step.op === "push") window.history.pushState(step.state, "", step.url);
+        else if (step.op === "replace") window.history.replaceState(step.state, "", step.url);
+        // Going back past our entries is asynchronous: popstate arrives after
+        // and finds the overlay already closed, a no-op. An out-of-range go is
+        // ignored by the browser, so the URL is cleaned by hand in that case.
+        else if (window.history.length > step.depth) window.history.go(-step.depth);
+        else window.history.replaceState(null, "", boardUrl(window.location));
+      }
+    } catch {
+      /* see above */
+    }
+  }, [overlay]);
+  useEffect(() => {
+    const onPop = () => {
+      const next = overlayFromHistory(window.location, window.history.state);
+      setOverlay((current) => {
+        const onCard = current && (current.kind === "detail" || current.kind === "conversation");
+        if (!next) return onCard ? null : current;
+        if (onCard && current.kind === next.kind && current.cardId === next.cardId) return current;
+        return { kind: next.kind, cardId: next.cardId };
+      });
+    };
+    window.addEventListener("popstate", onPop);
+    // A hash-only navigation (a `#/cards/<id>` link opened while the board is
+    // already up - the common case, the board is a standing tab) fires
+    // popstate too, but hashchange is listened to as well so an engine that
+    // skips popstate for fragment navigations still opens the card. Without
+    // either, the first card link worked and every later one did nothing.
+    window.addEventListener("hashchange", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("hashchange", onPop);
+    };
   }, []);
+  // Closing the sheet: the history effect above pops every entry of ours and
+  // takes the card out of the URL, so re-clicking the SAME link opens it again.
+  const closeCardOverlay = useCallback(() => { setOverlay(null); }, []);
   const dragActiveRef = useRef(false);
   // Item 5: a completed pointer-drag synthesises a trailing click on mouse-up, which
   // would otherwise open the card's detail sheet after every reorder. Raised on
