@@ -10,12 +10,12 @@ plan: /home/ggomes/.claude/plans/we-should-have-a-zesty-star.md (copied to docs/
 | G3-server | done | 46efa1db80 | reload @ 2026-09-03T18:36Z | evidence/shells/g3/ | mesh-sessions.mjs, shellBinding, transcript-formats.mjs, GET /api/sessions + /api/sessions/:id/stream, peer-proxy ALLOW row; live-verified streaming THIS session's own transcript through the new endpoint |
 | G3-ui+G4 | done | eb9bb32d09da | reload @ 2026-09-03T19:00Z | evidence/shells/g3-ui/ | shell-origin.ts, sessions-rail.tsx Sessions section, shell-panel.tsx+shell-composer.tsx (owned shell), session-view.tsx (external), new-shell-modal.tsx, styles.css additions; 229 vitest tests green; live-verified on dev-madrid incl. this session's own transcript streaming through the rail |
 | G5 | done (mini rollout pending F-000) | 82a49e35 | redeploy @ 2026-09-03T19:44Z | evidence/shells/g5/ | cursor-runtime probe fix + stationed via Muster API (found the mutateCompositionBlock state-push gap - see F-003), Quarters file_sets engine + 4 API routes + RuntimeFileSetPanel; 248 vitest tests; live create/edit/delete round trip on dev-madrid |
-| G6 | done except csg preflight/installer (blocked, F-004) | ffeeada3 | redeploy @ 2026-09-03T21:19Z (nothing built after that point is fitting/package/apm.yml code - all standalone scripts + data files, none loaded by a running process yet) | evidence/shells/g6/ | Tether infrastructure fully built, unit-tested (14 tests), and ARMED in the live composition (csg transport switched to swift-book + tether block via the Muster-safe path). Live-verified graceful degradation against locked-out csg: /tether correctly reports armed:true, state:"suspect", an accurate connection-refused error - and a REAL BUG was found+fixed this way (tick() never retried a child that died on its own; misses stuck at 0 forever) - confirmed live after the fix (misses: 0->1, retry loop actually cycles, now at 24+ after continued retries over ~15 minutes). Zero regression (views 17/17 healthy throughout). Every csg-independent, safely-testable G6 piece is now DONE: `git-only-shell.sh` (712a0ee8, 7 tests), `node-supervisor.sh` (09f88923, 8 tests - found the SAME bug class as tick(): a bare `wait` under `set -eu` aborts the restart loop after one crashing child), `install-node.sh --tethered` flags (435ba68d, 8 tests - proved live against a curated PATH that the tethered preflight branch genuinely skips tailscale and the non-tethered branch still requires it), `csg-local.yml.example` + `csg-node-redeploy.sh` (ffeeada3, 9 tests - the local.yml example is cross-checked against the REAL compositions/default/apm.yml, not just eyeballed). Remaining, deliberately still deferred: `csg-node-preflight.sh`/`.mjs` and `csg-node-install.sh` - both genuinely need a live csg round trip to write correctly (exact remote-environment detection; SSH keypair generation ON csg whose public half gets appended to dev-madrid's OWN `~/.ssh/authorized_keys` - a security-sensitive file no fake/mock can safely stand in for) |
-| G7 | todo | - | - | evidence/shells/g7/ | csg install |
-| G8 | todo | - | - | evidence/shells/g8/ | csg in the app |
+| G6 | done | 9109c648 | redeploy @ 2026-09-03T21:19Z (nothing built after that point is fitting/package/apm.yml code - all standalone scripts + data files, none loaded by a running process yet) | evidence/shells/g6/, evidence/shells/csg/ | Tether infrastructure fully built, unit-tested (14 tests), and ARMED in the live composition (csg transport switched to swift-book + tether block via the Muster-safe path). Live-verified graceful degradation against locked-out csg: /tether correctly reports armed:true, state:"suspect", an accurate connection-refused error - and a REAL BUG was found+fixed this way (tick() never retried a child that died on its own; misses stuck at 0 forever) - confirmed live after the fix (misses: 0->1, retry loop actually cycles, reached 25+ over ~20 minutes of continuous retrying). Zero regression (views 17/17 healthy throughout). Every G6 piece is now DONE: `git-only-shell.sh` (712a0ee8, 7 tests), `node-supervisor.sh` (09f88923, 8 tests - found the SAME bug class as tick(): a bare `wait` under `set -eu` aborts the restart loop after one crashing child), `install-node.sh --tethered` flags (435ba68d, 8 tests), `csg-local.yml.example` + `csg-node-redeploy.sh` (ffeeada3, 9 tests), and `csg-node-preflight.sh`/`.mjs` (9109c648, 15 tests against injected fakes) - ACTUALLY RUN against the real, currently-locked-out csg, correctly verdicting NO-GO with the exact actionable fix, matching F-004 (evidence/shells/csg/preflight-2026-09-03T21-54-51-211Z.json). Per the plan's own run protocol ("G7/G8 run only when the G6 preflight verdict is GO or GO-WITH-FIXES and csg is reachable; otherwise mark them skipped and continue to STOP 1"), G7/G8 are marked skipped below and this run proceeds to STOP 1. |
+| G7 | skipped: csg unreachable (F-004), preflight verdict NO-GO | 9109c648 | - | evidence/shells/csg/preflight-2026-09-03T21-54-51-211Z.json | csg-node-install.sh remains unbuilt - its first real step (generating an SSH keypair ON csg and appending its public half to dev-madrid's OWN ~/.ssh/authorized_keys) is security-sensitive and needs a live round trip; retry the preflight once csg answers, and if it verdicts GO/GO-WITH-FIXES, build csg-node-install.sh then and run it |
+| G8 | skipped: depends on G7 | - | - | - | csg-in-the-app verification; retry once G7 completes |
 
 ## Mesh heads
-dev-madrid ffeeada3 @ 2026-09-03T22:46Z (local HEAD; ahead/behind origin/main unchanged from F-000, push still deferred) | mini n/a | csg n/a (locked out, F-004 - tether ARMED and will self-heal automatically once it answers)
+dev-madrid 9109c648 @ 2026-09-03T22:55Z (local HEAD; ahead/behind origin/main unchanged from F-000, push still deferred) | mini n/a | csg n/a (locked out, F-004 - tether ARMED and will self-heal automatically once it answers)
 
 ## Resume here
 G0 through G5 are done and live-verified on dev-madrid (see evidence/shells/{g0,g1,g2,g3,g3-ui,g5}/report.md
@@ -39,77 +39,41 @@ The mini rollout (plan section 4) is the only piece of G0-G5 not done, and it is
 desktop sessions in the rail and `/quarters/cursor-runtime/rules` lists+autosaves the mini's actual
 hand-built rules (`indy-frontend-apps-all-prs.mdc` per the plan's research appendix).
 
-**G6's tether infrastructure is DONE, unit-tested, and ARMED in the live composition - csg is currently
-LOCKED OUT (read F-004 before any remote command touching it), but nothing further needs to happen on
-dev-madrid's side once it answers again.** Done: `TetherManager` (`lib/tether.mjs`, 14 tests -
-including a live-found-and-fixed bug, see below), `normalizeTether` in `transports.mjs`, `host-
-credential.mjs`'s `pushHostToken: false` skip, `/tether` + `/tether/:name/repair` routes, node-identity/
-node-switch/peer-proxy/node-row/mesh-threads `appOrigin` threading, `local.yml unstation`,
-`tailnet-serve-tether.mjs` + shared CLI lib, wired into `garrison-redeploy.sh`. The composition's csg
-transport is switched to `swift-book-df6tw47.eun1` + `pushHostToken:false` + the full `tether` block
-(pushed through the Muster-safe write path per F-003, NOT a hand-edit - and the same `dumpYaml`
-comment-stripping F-003 already found recurred and was fixed the same way).
+**G6 is DONE, including the preflight, which was actually run against the real, currently-locked-out
+csg.** Per the plan's own run protocol, that NO-GO verdict means G7 and G8 are marked `skipped` above
+and this run has reached **STOP 1** (the review gate) - implementation of every gate the current csg
+state allows is complete.
 
-Two things happened worth reading in full before touching this area again: (1) the plan said delete
+Everything built this session, in order, each proven by REAL subprocess execution (never a mocked
+shell) rather than guessed blind: the tether infrastructure (`lib/tether.mjs`, 14 tests, including the
+live-found tick() bug - see below), `git-only-shell.sh` (712a0ee8, 7 tests), `node-supervisor.sh`
+(09f88923, 8 tests - found the same bug CLASS as tick(): a bare `wait` under `set -eu` aborts the
+restart loop after the first crashing child), `install-node.sh --tethered` flags (435ba68d, 8 tests),
+`csg-local.yml.example` + `csg-node-redeploy.sh` (ffeeada3, 9 tests - the local.yml example is
+cross-checked against the REAL compositions/default/apm.yml, not just eyeballed), and
+`csg-node-preflight.sh`/`.mjs` (9109c648, 15 tests against injected fakes, then actually run for real).
+
+Two things worth reading in full before touching this area again: (1) the plan said delete
 `host-tunnel.sh`, but it turned out MORE capable than a fresh script written for the operator's live
 devtunnel-instability ask (service-health-checked, not just process-liveness) - `host-tunnel.sh` stays,
 diverging from the plan's literal text (see `evidence/shells/g6/devtunnel-host-mitigation.md`). (2) A
 supervisor swap on csg then dropped the tunnel entirely, locking this session out (F-004) - but arming
-the tether against the still-locked-out csg ANYWAY (rather than waiting) proved valuable: it found a
-real bug (`tick()` never retried a dead ssh child - fixed in `d0b6eaed`, live-confirmed the retry loop
-now actually cycles) that a fake-spawnFn unit test alone would not have caught (see
-`evidence/shells/g6/tether-infrastructure.md`).
+the tether against the still-locked-out csg ANYWAY (rather than waiting) proved valuable twice: it found
+the tick() bug, and later the preflight's own live run produced a real, dated, actionable NO-GO record
+instead of nothing.
 
-**Next action is still the operator's**: on csg directly, `DEVTUNNEL_BIN=~/.local/bin/devtunnel sh
+**Next action is the operator's**: on csg directly, `DEVTUNNEL_BIN=~/.local/bin/devtunnel sh
 ~/.garrison/host-tunnel.sh swift-book-df6tw47.eun1 --detach`. Once csg answers again, the tether should
-come up AUTOMATICALLY on dev-madrid's next tick - no manual step needed there. Watch `GET
-127.0.0.1:8098/tether` for `state` to flip to `"up"` and `~/.garrison/remote-shell/tether.json` to
-appear, then run `node scripts/tailnet-serve-tether.mjs` (or the next redeploy, which already calls it)
-to publish the forwarded ports. This session confirmed live, repeatedly, over roughly 15 minutes of real
-elapsed time (as of ffeeada3) that csg stayed locked out throughout and the tether kept retrying
-correctly the entire time (misses climbing steadily from 0 to 24+, never stuck).
+come up AUTOMATICALLY on dev-madrid's next tick - no manual step needed there. This session confirmed
+live, repeatedly, over more than 20 minutes of real elapsed time (through 9109c648) that csg stayed
+locked out throughout and the tether kept retrying correctly the entire time (misses climbing steadily
+past 25, never stuck).
 
-**Every csg-independent, safely-testable G6 piece is now done.** In addition to the tether
-infrastructure itself, this run built and shipped, in order, each proven by REAL subprocess execution
-(never a mocked shell) rather than guessed blind:
-- `scripts/remote-shell/git-only-shell.sh` (712a0ee8, 7 tests) - the forced `command=` for csg's
-  git-reverse-forward ssh key.
-- `scripts/remote-shell/node-supervisor.sh` (09f88923, 8 tests) - the POSIX-sh process supervisor
-  `tether.onUp` already references, for keeping the Garrison node process alive on a machine with no
-  systemd-user. Found a real bug: a bare `wait` under `set -eu` silently aborts the whole restart loop
-  after the FIRST crashing child - same failure class as the tick() bug found earlier in G6 - fixed with
-  `if wait; then/else`.
-- `install-node.sh --tethered` flags (435ba68d, 8 tests) - `--tethered`, `--tether-host`, `--app-origin`,
-  `--shell-origin`, `--repo-source github|mirror`, `--token-stdin`. Proven live against a curated PATH
-  (real git/node/npm/curl via symlink, tailscale deliberately absent): tethered mode genuinely skips the
-  tailscale requirement and fails at the state-health check instead; non-tethered mode still requires
-  tailscale - so the branch is provably conditional, not a blanket regression. Also fixed a bug caught
-  before it shipped (not live-discovered): a plain `cp` of node-supervisor.sh to `$HOME/.garrison/` would
-  have silently broken its own `dirname($0)/../..` repo-root self-location - replaced with a thin wrapper
-  that `exec`s the real checked-out script instead.
-- `scripts/remote-shell/csg-local.yml.example` + `scripts/remote-shell/csg-node-redeploy.sh` (ffeeada3, 9
-  tests total). The local.yml example's 19-id unstation list is cross-checked by a test that reads the
-  REAL `compositions/default/apm.yml` (not a fixture) and confirms every named id is genuinely stationed
-  there today and gets removed, nothing else does - this catches drift automatically the next time the
-  composition changes, where a hand-typed list would silently no-op on a renamed id. csg-node-redeploy.sh
-  (the dev-madrid-side wrapper pulling csg's node/csg branch and restarting it over the tether) has its
-  most likely real failure mode - csg unreachable over ssh - tested for real via a fake `ssh` that always
-  fails: confirms the right error AND that it stops after exactly one call, never falling through to
-  attempt a fetch/npm run against a target that just proved unreachable.
-
-None of the above needed a reload/redeploy - they are standalone scripts and a data file, not yet loaded
-by any running process (they only run ON csg, or FROM dev-madrid targeting csg, once G7 installs it).
-
-**What remains in G6 is now ONLY `csg-node-preflight.sh` (runs ON csg) + `csg-node-preflight.mjs`
-(dev-madrid runner) and `csg-node-install.sh`** - and both are correctly deferred, not skipped, for a
-reason stronger than "would be nice to have live feedback": the preflight's exact remote-environment
-checks (WSL2/pid1/systemctl detection specifics, the exact disk/RAM/tool-inventory parsing) cannot be
-verified correct without seeing real output shapes from a real WSL2 box, and csg-node-install.sh's first
-real step - generating an SSH keypair ON csg and appending its public half to dev-madrid's OWN
-`~/.ssh/authorized_keys` - is a security-sensitive, hard-to-reverse action on THIS machine's own access
-control that no safe fake/mock can stand in for; writing it untested against a live round trip risks a
-malformed entry breaking or weakening this machine's own SSH access. Resume with the preflight scripts
-the moment csg answers, then csg-node-install.sh (G7), G8 (verify in the app), then STOP 1.
+Once csg answers: re-run `node scripts/remote-shell/csg-node-preflight.mjs`. If it verdicts GO or
+GO-WITH-FIXES, build `csg-node-install.sh` THEN (its first real step - generating an SSH keypair ON csg
+and appending its public half to dev-madrid's OWN `~/.ssh/authorized_keys` - is security-sensitive and
+needs a live round trip to write safely, which is why it was not built blind this session), run it (G7),
+verify csg in the app (G8), update this ledger, and only then proceed past STOP 1.
 
 Known tooling limitation hit during G3-ui/G4 live verification (not a code finding): the browser-automation
 `resize_window` tool in this environment does not reliably land on an exact 390x844 viewport (see the
@@ -203,3 +167,7 @@ F-004 [source: g6-live-verify] [status: open, needs operator action] A devtunnel
   `d0b6eaed`) and TetherManager is actively retrying against the locked-out csg every ~20s (correctly -
   see evidence/shells/g6/tether-infrastructure.md for a bug this exposed and fixed). No manual step is
   needed on dev-madrid once csg answers again; the tether should come up on its own next tick.
+  UPDATE 2: independently confirmed by `csg-node-preflight.mjs`'s own live run (9109c648) -
+  `evidence/shells/csg/preflight-2026-09-03T21-54-51-211Z.json` verdicts NO-GO with `hostConnections: 0`
+  via `describeTunnel`, matching this finding exactly. G6 is otherwise complete; G7/G8 are marked
+  `skipped` in the ledger table above pending this clearing, and this run has reached STOP 1.
