@@ -11,6 +11,7 @@ type Finding = {
   detail: string;
   evidence?: string;
   fix?: string;
+  action?: { id: string; params: Record<string, unknown>; command: string };
 };
 
 type Report = {
@@ -41,6 +42,40 @@ function StatusPip({ status }: { status: string }) {
   return <span className={`pip pip-${status}`} title={status} />;
 }
 
+// Executes a finding's whitelisted fix action after an explicit confirm that
+// shows exactly what will run. The refresh happens on the next poll (or the
+// refresh button) so the row's outcome is visible immediately in place.
+function FixButton({ f }: { f: Finding }) {
+  const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [message, setMessage] = useState("");
+  const run = async () => {
+    if (!f.action) return;
+    if (!window.confirm(`Fix "${f.id}"?\n\nThis will run:\n${f.action.command}`)) return;
+    setState("running");
+    try {
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actionId: f.action.id, params: f.action.params })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setState("done");
+      setMessage(data.detail || "done");
+    } catch (err) {
+      setState("error");
+      setMessage(String((err as Error).message || err));
+    }
+  };
+  if (state === "done") return <div className="fix-result fix-ok">✓ {message} — refresh to re-check</div>;
+  if (state === "error") return <div className="fix-result fix-err">✗ {message}</div>;
+  return (
+    <button className="fix-btn" onClick={run} disabled={state === "running"} title={f.action?.command}>
+      {state === "running" ? "fixing…" : "Fix it"}
+    </button>
+  );
+}
+
 function FindingRow({ f }: { f: Finding }) {
   const [open, setOpen] = useState(false);
   // Ids in verify/drift checks are "composition:fitting" — render the
@@ -62,6 +97,7 @@ function FindingRow({ f }: { f: Finding }) {
         <span className="finding-detail">{f.detail}</span>
       </div>
       {f.fix && <div className="finding-fix">fix: {f.fix}</div>}
+      {f.action && <FixButton f={f} />}
       {f.evidence && (
         <div>
           <button className="linkish" onClick={() => setOpen(!open)}>

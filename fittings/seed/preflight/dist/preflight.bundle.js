@@ -24509,6 +24509,42 @@ var CHECK_ORDER = Object.keys(CHECK_TITLES);
 function StatusPip({ status }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pip pip-${status}`, title: status });
 }
+function FixButton({ f }) {
+  const [state, setState] = (0, import_react.useState)("idle");
+  const [message, setMessage] = (0, import_react.useState)("");
+  const run = async () => {
+    if (!f.action) return;
+    if (!window.confirm(`Fix "${f.id}"?
+
+This will run:
+${f.action.command}`)) return;
+    setState("running");
+    try {
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actionId: f.action.id, params: f.action.params })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setState("done");
+      setMessage(data.detail || "done");
+    } catch (err) {
+      setState("error");
+      setMessage(String(err.message || err));
+    }
+  };
+  if (state === "done") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fix-result fix-ok", children: [
+    "\u2713 ",
+    message,
+    " \u2014 refresh to re-check"
+  ] });
+  if (state === "error") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fix-result fix-err", children: [
+    "\u2717 ",
+    message
+  ] });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, disabled: state === "running", title: f.action?.command, children: state === "running" ? "fixing\u2026" : "Fix it" });
+}
 function FindingRow({ f }) {
   const [open, setOpen] = (0, import_react.useState)(false);
   const parts = f.id.includes(":") ? f.id.split(":") : null;
@@ -24525,6 +24561,7 @@ function FindingRow({ f }) {
       "fix: ",
       f.fix
     ] }),
+    f.action && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixButton, { f }),
     f.evidence && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "linkish", onClick: () => setOpen(!open), children: open ? "hide evidence" : "show evidence" }),
       open && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "evidence", children: f.evidence })

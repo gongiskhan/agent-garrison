@@ -73,13 +73,17 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    Read-only doctor. GET /api/report returns {findings[], summary, degraded,
-    appUp, compositions[], generatedAt}; findings are {check, id, status:
-    pass|warn|fail, detail, evidence?, fix?}. GET /api/report?checks=a,b runs a
-    subset. POST /api/verify-sweep {compositionId} is the ONLY mutating action
-    and only proxies the app's own /api/runner/<id>/verify (heavy: flips runner
-    status, may run apm install, runs setup hooks — same code path as up()).
-    CLI: node scripts/cli.mjs [--json] [--checks a,b] [--sweep --composition <id>];
-    exit 1 iff any finding is a fail. Never kills processes, never edits
-    compositions, never registers serve mappings — every finding carries a
-    `fix` hint naming the tool that does.
+    Diagnostic-first doctor. GET /api/report returns {findings[], summary,
+    degraded, appUp, compositions[], generatedAt}; findings are {check, id,
+    status: pass|warn|fail, detail, evidence?, fix?, action?}. GET
+    /api/report?checks=a,b runs a subset. Mutations are exactly two, both
+    explicit: POST /api/verify-sweep {compositionId} proxies the app's own
+    /api/runner/<id>/verify (heavy: flips runner status, may run apm install,
+    runs setup hooks — same code path as up()); POST /api/fix {actionId,
+    params} runs ONLY the whitelisted fixers in lib/fixers.mjs
+    (tailscale-serve-map, unstation-fitting — PUT + state-service push so up()
+    cannot revert it, library-add-entry, library-remove-entry) — each surfaced
+    as a finding's `action` and confirmed in the UI before running. Never
+    kills processes, never edits fitting code, never picks ports. CLI: node
+    scripts/cli.mjs [--json] [--checks a,b] [--sweep --composition <id>]; exit
+    1 iff any finding is a fail.

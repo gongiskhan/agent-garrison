@@ -14,6 +14,7 @@ import url from "node:url";
 import { buildReport } from "../lib/report.mjs";
 import { runVerifySweep, isAppUp } from "../lib/app-client.mjs";
 import { assessSweepResults, summarize } from "../lib/preflight-core.mjs";
+import { runFix } from "../lib/fixers.mjs";
 
 const HOME = os.homedir();
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
@@ -99,6 +100,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         const query = url.parse(req.url || "/", true).query;
         const checks = typeof query.checks === "string" && query.checks ? query.checks.split(",") : null;
         return jsonRes(res, 200, await buildReport({ checks }));
+      }
+      if (pathname === "/api/fix" && method === "POST") {
+        // Whitelisted-only: runFix refuses anything outside lib/fixers.mjs.
+        const body = await readBody(req);
+        const result = await runFix(String(body.actionId || ""), body.params || {});
+        return jsonRes(res, result.ok ? 200 : 400, result);
       }
       if (pathname === "/api/verify-sweep" && method === "POST") {
         if (sweepRunning) return jsonRes(res, 409, { error: "a sweep is already running" });

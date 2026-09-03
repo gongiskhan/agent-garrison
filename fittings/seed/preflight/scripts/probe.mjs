@@ -47,6 +47,16 @@ async function main() {
     console.error(`probe: failed to import preflight-core.mjs — ${err.message}`);
     process.exit(1);
   }
+  try {
+    const fixers = await import("../lib/fixers.mjs");
+    if (typeof fixers.runFix !== "function") {
+      console.error("probe: fixers.mjs missing runFix");
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error(`probe: failed to import fixers.mjs — ${err.message}`);
+    process.exit(1);
+  }
   if (!(await canBind())) {
     console.error("probe: cannot bind ephemeral port on 127.0.0.1");
     process.exit(1);

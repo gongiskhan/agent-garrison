@@ -109,6 +109,14 @@ describe("crossCheckLibrary", () => {
     expect(f).toHaveLength(1);
     expect(f[0].status).toBe("pass");
   });
+
+  it("attaches whitelisted fix actions to both directions", () => {
+    const f = crossCheckLibrary(["missing"], [{ id: "dangling", localPath: "fittings/seed/dangling" }]) as Finding[];
+    const add = f.find((x) => x.id === "missing");
+    const rm = f.find((x) => x.id === "dangling");
+    expect(add?.action).toEqual(expect.objectContaining({ id: "library-add-entry", params: { fittingId: "missing" } }));
+    expect(rm?.action).toEqual(expect.objectContaining({ id: "library-remove-entry", params: { entryId: "dangling" } }));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -331,6 +339,10 @@ describe("assessDrift", () => {
     const f = assessDrift({ ...base, diskSelections: ["a", "vault-git-sync"], headSelections: ["a"] }) as Finding[];
     expect(fails(f).map((x) => x.id)).toEqual(["default-2:vault-git-sync"]);
     expect(fails(f)[0].fix).toContain("PUT");
+    expect(fails(f)[0].action).toEqual(expect.objectContaining({
+      id: "unstation-fitting",
+      params: { compositionId: "default-2", fittingId: "vault-git-sync" }
+    }));
   });
 
   it("passes a deliberate unfit (absent from disk AND recorded unfitted)", () => {

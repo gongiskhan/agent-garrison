@@ -13,6 +13,10 @@ export function mk(check, id, status, detail, extra = {}) {
   const finding = { check, id, status, detail };
   if (extra.evidence) finding.evidence = String(extra.evidence);
   if (extra.fix) finding.fix = String(extra.fix);
+  // Optional executable fix: {id: <whitelisted action>, params, command} —
+  // `command` is the human-readable description the UI shows in its confirm
+  // dialog. The server only runs actions in the fixers.mjs registry.
+  if (extra.action) finding.action = extra.action;
   return finding;
 }
 
@@ -114,7 +118,10 @@ export function crossCheckLibrary(seedIds, libraryEntries) {
     if (!libIds.has(id)) {
       findings.push(mk("library-crosscheck", id, "fail",
         `fittings/seed/${id} has no entry in data/library.json — the resolver silently drops it and blames whatever consumed its capability.`,
-        { fix: `Add {"id": "${id}", "name": ..., "repo": "local:fittings/seed/${id}", "localPath": "fittings/seed/${id}", "summary": ..., "platforms": ["claude-code"]} to data/library.json.` }));
+        {
+          fix: `Add {"id": "${id}", "name": ..., "repo": "local:fittings/seed/${id}", "localPath": "fittings/seed/${id}", "summary": ..., "platforms": ["claude-code"]} to data/library.json.`,
+          action: { id: "library-add-entry", params: { fittingId: id }, command: `append a minimal entry for ${id} to data/library.json (summary from its manifest; uncommitted — review then commit)` }
+        }));
     }
   }
   for (const entry of libraryEntries) {
@@ -124,7 +131,10 @@ export function crossCheckLibrary(seedIds, libraryEntries) {
       if (!seedSet.has(dir)) {
         findings.push(mk("library-crosscheck", entry.id, "warn",
           `data/library.json entry "${entry.id}" points at ${local}, which does not exist on disk.`,
-          { fix: `Remove the entry or restore ${local}.` }));
+          {
+            fix: `Remove the entry or restore ${local}.`,
+            action: { id: "library-remove-entry", params: { entryId: entry.id }, command: `remove the "${entry.id}" entry from data/library.json (uncommitted — restore ${local} instead if it should exist)` }
+          }));
       }
     }
   }
@@ -306,7 +316,10 @@ export function serveCoverage(input) {
       if (!v.tailnetUrl) {
         findings.push(mk("serve-coverage", v.fittingId, "fail",
           `${v.fittingId} (port ${v.port}) has no tailscale serve mapping — remote viewers get tailnetUrl null, the UI falls back to the VIEWER's 127.0.0.1, and the view renders blank.`,
-          { fix: "Run scripts/tailnet-serve-views.mjs (or tailnet-publish) to map it; expected serve port " + servePort(v.port) + "." }));
+          {
+            fix: "Run scripts/tailnet-serve-views.mjs (or tailnet-publish) to map it; expected serve port " + servePort(v.port) + ".",
+            action: { id: "tailscale-serve-map", params: { port: v.port }, command: `tailscale serve --bg --https=${servePort(v.port)} http://127.0.0.1:${v.port}` }
+          }));
       } else if (v.healthy === false) {
         findings.push(mk("serve-coverage", v.fittingId, "warn",
           `${v.fittingId} is serve-mapped at ${v.tailnetUrl} but its /health probe failed.`,
@@ -325,7 +338,10 @@ export function serveCoverage(input) {
     if (!mapped.has(s.port)) {
       findings.push(mk("serve-coverage", s.fittingId, "fail",
         `${s.fittingId} (port ${s.port}) has no tailscale serve mapping (checked directly; app down).`,
-        { fix: "Run scripts/tailnet-serve-views.mjs; expected serve port " + servePort(s.port) + "." }));
+        {
+          fix: "Run scripts/tailnet-serve-views.mjs; expected serve port " + servePort(s.port) + ".",
+          action: { id: "tailscale-serve-map", params: { port: s.port }, command: `tailscale serve --bg --https=${servePort(s.port)} http://127.0.0.1:${s.port}` }
+        }));
     }
   }
   if (!findings.length) {
@@ -394,14 +410,20 @@ export function assessDrift(input) {
       if (!head.has(id) && !unfit.has(id)) {
         findings.push(mk("drift", `${cid}:${id}`, "fail",
           `${id} is selected on disk but not at git HEAD and not recorded in \`unfitted\` — it appears to have RE-STATIONED ITSELF (a fitting removed from selections without an unfitted record re-adds itself on the next read; compositions.ts writeComposition).`,
-          { fix: `PUT the composition WITHOUT ${id} in selections — writeComposition derives \`unfitted\` from the sent selections and records the opt-out. Editing apm.yml by hand does not stick.` }));
+          {
+            fix: `PUT the composition WITHOUT ${id} in selections — writeComposition derives \`unfitted\` from the sent selections and records the opt-out. Editing apm.yml by hand does not stick.`,
+            action: { id: "unstation-fitting", params: { compositionId: cid, fittingId: id }, command: `PUT ${cid} without ${id} in selections (records the opt-out), then push the manifest to the state service so the next up() cannot revert it` }
+          }));
       }
     }
     for (const id of [...head].sort()) {
       if (!disk.has(id) && !unfit.has(id)) {
         findings.push(mk("drift", `${cid}:${id}`, "warn",
           `${id} was removed from ${cid}'s selections but is NOT in \`unfitted\` — the next read will re-add it and silently undo the removal.`,
-          { fix: `PUT the composition without ${id} in selections so it lands in \`unfitted\`, or accept that it will come back.` }));
+          {
+            fix: `PUT the composition without ${id} in selections so it lands in \`unfitted\`, or accept that it will come back.`,
+            action: { id: "unstation-fitting", params: { compositionId: cid, fittingId: id }, command: `PUT ${cid} without ${id} in selections (records the opt-out), then push the manifest to the state service` }
+          }));
       }
     }
   }
