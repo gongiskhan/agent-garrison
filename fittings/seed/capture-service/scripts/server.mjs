@@ -36,7 +36,7 @@ import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
 import { MemoryWriter } from "../lib/memory-writer.mjs";
 import { CompanionNotifier, appPathFor, isLoopbackUrl, priorityForTag } from "../lib/notify.mjs";
-import { postConversationDigest } from "../lib/digest.mjs";
+import { postConversationDigest, postConversationTurn } from "../lib/digest.mjs";
 import { AckSink } from "../lib/ack-sink.mjs";
 import { MAX_TEXT_CHARS, ZecaVoice } from "../lib/tts.mjs";
 import { UpstreamError, transcribeClip } from "../lib/deepgram-rest.mjs";
@@ -991,6 +991,24 @@ export async function startServer(cfg = loadConfig()) {
 
   let screenContext = null;
   const screenContextFn = (q) => screenContext?.latest(q) ?? null;
+  const screenFramesFn = (q) => screenContext?.recent(q) ?? null;
+
+  // The REC button's broadcast is a microphone into ONE conversation: a wake
+  // hit on a session that carries a conversation_id becomes a user turn there
+  // (words after the wake word + the latest frames), never a classified
+  // command. The ingress is constructed below; the index holds it.
+  const conversationFn = (sessionId) =>
+    screenContext?.ingress?.sessions?.get(sessionId)?.record?.conversation_id ?? null;
+  const conversationTurnFn = ({ conversationId, command, eventId, frames }) =>
+    postConversationTurn({
+      conversationId,
+      command,
+      eventId,
+      frames,
+      counters,
+      env: cfg.env ?? process.env,
+      fetchImpl: live.fetchImpl ?? fetch
+    });
 
   // One active-conversation window for the process (D25): the pin is shared
   // by all three buses, each bus remembers its own last reply.
@@ -998,6 +1016,9 @@ export async function startServer(cfg = loadConfig()) {
 
   const wakeBus = new WakeBus({
     screenContextFn,
+    screenFramesFn,
+    conversationFn,
+    conversationTurnFn,
     activeConversation,
     cfg: live,
     store,

@@ -339,8 +339,17 @@ export class CaptureIngress {
     // just does not open a second transcription. A context-only broadcast
     // therefore produces no transcript, and its end-of-session capture_event is
     // thin - correct, and honest.
+    //
+    // The dedupe is decided per session, not per install: a broadcast that
+    // starts while a pendant session is live stays pixels-only; one started
+    // with no pendant around is the phone's ONLY microphone, and silencing it
+    // is what made "Zeca" from the REC button land on nothing. The flag is the
+    // hard override for a wearer who wants the broadcast mute regardless.
+    const pendantLive = [...this.sessions.values()].some(
+      (live) => live.record.mode === "pendant" && !live.record.ended
+    );
     const wantsTranscription =
-      record.mode !== "screen_audio" || this.cfg.screenAudioTranscribe !== false;
+      record.mode !== "screen_audio" || (this.cfg.screenAudioTranscribe !== false && !pendantLive);
     if (!wantsTranscription) this.counters.bump("screen_audio_transcription_skipped");
     const transcribing = this.transcriber && wantsTranscription ? this.transcriber.openSession(id) : false;
     const media = new SessionMedia(this.store.dirs.media, id, {

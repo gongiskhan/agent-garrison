@@ -719,7 +719,7 @@ export class ActiveConversation {
 }
 
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null, activeConversation = null }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null, activeConversation = null, conversationFn = null, conversationTurnFn = null, screenFramesFn = null }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -746,6 +746,14 @@ export class WakeBus {
     // Resolves the phone screen the user was looking at. Null for omi, which
     // has no broadcast lane - every screen branch below is then unreachable.
     this.screenContextFn = screenContextFn;
+    // The conversation a capture session was started FROM (the REC button in
+    // a conversation's composer), and the door that posts a user turn into it.
+    // Both null for omi and the pendant, whose sessions belong to no
+    // conversation - every conversation branch below is then unreachable.
+    // `screenFramesFn` widens the single screen still to the moments before it.
+    this.conversationFn = conversationFn;
+    this.conversationTurnFn = conversationTurnFn;
+    this.screenFramesFn = screenFramesFn;
     // The active-conversation window (D25), shared across the buses in a
     // process. Null keeps the deterministic per-capture-session key, which is
     // exactly what omi-channel's copy of this module does.
@@ -1381,6 +1389,7 @@ export class WakeBus {
         trailing,
         sessionId,
         screen,
+        wakeHitAt,
         onLanguage: (l) => {
           lang = l;
         }
@@ -1421,7 +1430,9 @@ export class WakeBus {
       ? []
       : await this.notifier.send({
           template: "wake_confirmation",
-          params: { text: outcome.confirmation, cardUrl: outcome.cardUrl ?? null, lang, sessionId, eventId }
+          // `path` is the in-app destination the push opens (the conversation a
+          // broadcast wake hit landed in); cardUrl stays the card line.
+          params: { text: outcome.confirmation, cardUrl: outcome.cardUrl ?? null, path: outcome.path ?? null, lang, sessionId, eventId }
         });
     if (!outcome.silent) this.counters.observe("wake_notify_ms", this.now() - commandDoneAt);
     // Persisted AFTER delivery so the record can say HOW it reached the user.
@@ -1463,10 +1474,19 @@ export class WakeBus {
     return { ...outcome, receipts, latencyMs };
   }
 
-  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, screen = null, onLanguage = null }) {
+  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, screen = null, wakeHitAt = null, onLanguage = null }) {
     // Nothing has been classified yet, so the only evidence is the transcript.
     let lang = this.resolveLanguage(command);
     onLanguage?.(lang);
+    // A capture started FROM a conversation (the REC button) is that
+    // conversation's microphone: the words after the wake word are the user's
+    // next turn there, with the screen as it stood when the name was said, and
+    // no classifier in between. Cards, notes and delegation are the lanes for
+    // a wearer with no conversation open.
+    const conversationId = this.conversationFn?.(sessionId) ?? null;
+    if (conversationId && this.conversationTurnFn) {
+      return this.conversationTurn({ conversationId, command, eventId, sessionId, screen, wakeHitAt, lang });
+    }
     if (!this.cfg.gatewayUrl || !this.runFn) {
       return this.fallbackNote({
         command,
@@ -2189,6 +2209,61 @@ export class WakeBus {
     const stripped = this.regex ? text.replace(new RegExp(this.regex.source, "giu"), " ") : text;
     const words = stripped.replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/u).filter(Boolean);
     return words.length === 0;
+  }
+
+  // Post the spoken command as a USER turn in the conversation the session was
+  // started from, carrying up to three recent screen stills as attachments
+  // (the same "Attached file" convention the composer's paperclip uses, so
+  // the operative reads them with the tools it already has). Frames are
+  // anchored on the wake hit: what the user was looking at when they said
+  // the name, not whatever is on screen by the time the command finishes.
+  async conversationTurn({ conversationId, command, eventId, sessionId, screen = null, wakeHitAt = null, lang = "en" }) {
+    if (this.isNothingSaid(command)) {
+      this.counters.bump("wake_unrecoverable_captures");
+      return {
+        confirmation: this.cfg.wakeUnheardEnabled ? t("wake.unheard", {}, lang) : null,
+        silent: !this.cfg.wakeUnheardEnabled,
+        result: { intent: "discarded", reason: "nothing said (conversation)", conversation_id: conversationId }
+      };
+    }
+    const anchor = typeof wakeHitAt === "number" ? wakeHitAt : this.now();
+    let frames = [];
+    try {
+      const recent = this.screenFramesFn?.({ sessionId, atMs: anchor, max: 3 }) ?? null;
+      if (recent && !recent.stale) frames = recent.frames;
+      else if (screen && !screen.stale) frames = [{ seq: screen.seq, file: screen.file, ageMs: screen.ageMs }];
+    } catch (err) {
+      this.log.error(`[${this.source.logPrefix}] screen frames lookup failed: ${err?.message ?? err}`);
+    }
+    let posted;
+    try {
+      posted = await this.conversationTurnFn({ conversationId, command, eventId, sessionId, frames, lang });
+    } catch (err) {
+      posted = { ok: false, reason: err?.message ?? String(err) };
+    }
+    if (!posted?.ok) {
+      this.counters.bump("wake_conversation_turn_failed");
+      return this.fallbackNote({
+        command,
+        eventId,
+        key: "wake.conversation_failed",
+        lang,
+        reason: `conversation turn failed: ${posted?.reason ?? "unknown"}`
+      });
+    }
+    this.counters.bump("wake_conversation_turns");
+    const shown = command.length > 80 ? `${command.slice(0, 77)}...` : command;
+    return {
+      confirmation: t("wake.conversation_sent", { text: shown }, lang),
+      // The push opens the conversation itself; no card was made.
+      path: `/talk/${encodeURIComponent(conversationId)}`,
+      result: {
+        intent: "conversation_turn",
+        conversation_id: conversationId,
+        frames: frames.map((f) => f.file),
+        input_id: posted.inputId ?? null
+      }
+    };
   }
 
   fallbackNote({ command, eventId, key, lang = "en", reason }) {

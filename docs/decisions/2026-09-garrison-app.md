@@ -1178,6 +1178,114 @@ takes it out. A row's "+ New" URL carries a trailing slash before the query
 `GarrisonNode.select(path)` stays for the switcher; no TestFlight is needed
 for this decision, the fix is entirely in the shell.
 
+### D49. The composer mic dictates into the message box; the hands-free conversation moves to a hold (2026-09-03)
+
+The operator, on the phone: "it shows a message saying it will record, and
+it's only after we close that message that it starts recording. Then it
+should show a transcription of what it is recording ... it would be writing
+into the input box already. When I'm happy, I would press the send button, so
+I wouldn't need a close button. There should be a stop button ... a trash
+button ... after we recorded once in a session, it doesn't record a second
+time. The button should always work when we press to record ... no matter if
+there was a previous message, if it is still working, or if there is already
+text in the input."
+
+A tap on the mic was a door to the voice sheet, and the one thing the sheet
+offered was the hands-free conversation: listen, send on the pause, read the
+reply aloud. That is a mode, not a keyboard. The mic the operator wants IS a
+keyboard: it opens on the tap, what it hears becomes text in the box, the
+normal Send sends it. So a TAP now starts dictation at once and a HOLD
+(320ms) opens the sheet where hands-free still lives; the push-to-talk hold
+gesture is gone (dictation covers it: tap, speak, Stop, Send).
+
+Dictation is per utterance over the REST `/stt` lane, not a live word stream.
+`voice-clip.ts` in conversation mode cuts a segment at each pause and posts
+it; each transcript lands in the composer through `setDraft(prev =>
+joinDictation(prev, text))`, one space between what was there and what was
+said. A live stream would need a browser socket to the speech provider, and
+the capture token never reaches the page (D9); the pause-sized delay is the
+cost, the level bar is the feedback in between (`onLevel` drives it, so the
+operator sees the mic hearing them before the first words land). Two
+buttons, no close: **Stop** (`finish()`: cuts and transcribes the last
+segment, tears the capture down 350ms after that transcript lands or after
+an 8s guard) keeps the text; **Discard** (`stop()`: aborts the in-flight
+transcription) removes what was dictated (`stripDictation`: back to the
+draft as it was, or each segment taken out when the operator edited around
+them). The mic button itself is Stop while dictating.
+
+The gate is only the microphone: `disabled={!usable}`. A running turn, a
+locked queue or text already in the box never block dictation, and the
+second-time failure the operator saw came from that gating (`disabled={!usable
+|| conversationOn}` plus the busy checks in the machine) and from the sheet
+standing between the tap and the mic. Hands-free and dictation share one
+device: starting dictation stops a running hands-free conversation first,
+and taking the sheet's hands-free option tears dictation down. A generation
+counter on the capture handle drops callbacks from a capture that was
+discarded before it came up (Stop or Discard before `onReady`).
+
+Wiring. `ComposerAdornmentApi` (claude-chat) gained `draft`, `setDraft` and
+`focusComposer`, and the talk app threads them into `VoiceConversation`; the
+composer is already controlled, so the dictated text rides the same draft
+autosave as typed text. The sheet's copy says what the tap does now. Where
+the api does not offer `setDraft` (a host that renders the mic without a
+composer draft) a tap falls back to opening the sheet.
+
+### D50. REC is the conversation's microphone: the wake word sends a user turn with the screen (2026-09-03)
+
+The operator: "when we press REC, it starts broadcasting and waits until it
+hears the keyword, the zeca, to send a message into the current session that
+we press REC on. It sends the context, so a few images or one image ... and
+the sounds that are grabbed after zeca are transcribed as a user message ...
+I said zeca a few times, and nothing happened. I didn't get any feedback."
+
+Two things were true before this decision. Broadcast audio was NOT
+transcribed by default (`screen_audio_transcribe: false`, a guard written so
+a pendant and a broadcast never transcribed the same room twice), so the
+wake word could never be heard; and a heard wake word went to the classifier
+(note / card / question), never into the conversation the button sits in.
+The digest (D41) was the only thing a recording produced, at its end.
+
+Now the broadcast IS the conversation's microphone. `screen_audio_transcribe`
+is on in the default composition; the double-transcription guard became
+dynamic (ingress mutes a broadcast's transcription only while a pendant
+session is actually live, and counts it as
+`screen_audio_transcription_skipped`). On a wake hit, `WakeBus.handleCommand`
+checks `conversationFn(sessionId)` FIRST: a session that carries a
+`conversation_id` (the record button sends it in `session_start`, D40) takes
+the conversation lane and never reaches the classifier or the gateway. The
+lane posts a user turn to `POST /api/threads/<id>/inputs` (`clientRequestId:
+wake:<eventId>`, so a replayed segment is a duplicate, not a second turn)
+with the words after the wake word as the message and up to three screen
+frames as attached files, `ScreenContextIndex.recent({atMs: wakeHitAt, max:
+3, spacingMs: 2000})` over the media log's 48-entry frame ring, so the
+context is the screen at the moment of the wake word, spaced two seconds
+apart, not three near-identical frames. The frame paths are the talk
+attachment convention (`Attached files:` with absolute paths), which the
+conversation's runtime already reads. Nothing said after the wake word
+discards silently (no turn, no note). A failed post falls back to the
+existing note lane and says so: "Couldn't reach the conversation".
+
+Feedback. The confirmation is spoken through the ack sink where one is
+attached and pushed otherwise, "Sent to the conversation: <words>", and the
+push opens `/talk/<id>` (`params.path`) rather than a card. The record
+button says what to do for as long as the broadcast runs: idle title
+"Broadcast the screen and microphone into this conversation. Say "Zeca" and
+then your request", and a live hint above the button, "Broadcasting. Say
+"Zeca" and then your request - the words after it plus the latest screen
+frames are sent into this conversation"; the capture page shows the same
+line while `broadcasting` is true (and its Stop now shows while a broadcast
+is still opening, when `broadcasting` is true before the phase turns live).
+
+Costs accepted. The wake word is heard by the broadcast's system-audio +
+mic mix, so the phone's own speaker output can trigger it if the conversation
+reads a reply aloud that contains "Zeca"; the reply lane does not, today.
+The pendant and Omi buses keep the classifier lane: they carry no
+conversation id. The frames ride as file paths on the node's disk, as the
+digest's do (D41); a framed cross-node conversation (D48) has no record
+button, so no cross-node path problem arises. A broadcast started from the
+capture page (no conversation id) still takes the classifier lane and ends
+in a digest.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

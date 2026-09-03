@@ -167,6 +167,8 @@ export const MESSAGES = {
     "automate.failed": "Couldn't run {name}: {error}",
     "wake.still_working": "Still working on it.",
     "wake.unheard": "Didn't catch that - say it again?",
+    "wake.conversation_sent": "Sent to the conversation: {text}",
+    "wake.conversation_failed": "Couldn't reach the conversation - saved your command as a note.",
     "screen.absent": "I can't see your screen. Turn on screen sharing, or tell me the name.",
     "screen.stale": "I haven't seen your screen for {seconds} seconds - tell me who you mean."
   },
@@ -211,6 +213,8 @@ export const MESSAGES = {
     "automate.failed": "Não consegui correr {name}: {error}",
     "wake.still_working": "Ainda estou a tratar disso.",
     "wake.unheard": "Não percebi - repete?",
+    "wake.conversation_sent": "Enviei para a conversa: {text}",
+    "wake.conversation_failed": "Não consegui chegar à conversa - guardei o teu comando como nota.",
     "screen.absent": "Não estou a ver o teu ecrã. Liga a partilha de ecrã, ou diz-me o nome.",
     "screen.stale": "Não vejo o teu ecrã há {seconds} segundos - diz-me a quem queres responder."
   }

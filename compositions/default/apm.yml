@@ -104,7 +104,10 @@ x-garrison:
             discuss_enabled: true
             automate_enabled: true
             screen_context_enabled: true
-            screen_audio_transcribe: false
+            # The REC button's broadcast is the phone's only microphone when no
+            # pendant is worn; the ingress mutes it by itself while a pendant
+            # session is live, so the hard override stays off.
+            screen_audio_transcribe: true
             # whatsapp-web is stationed, so the spoken-send lane goes live:
             # resolve the contact, park the send in the 60s outbox, speak it
             # back with recipient AND text, cancel by saying "cancela" - no

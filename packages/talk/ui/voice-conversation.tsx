@@ -1,9 +1,18 @@
-// Conversation-mode voice controls (S6b, D20). Rendered into ClaudeChat's
-// composerAdornment slot - it does NOT rebuild the chat, it drives it:
-//   • sends a transcribed utterance as a real chat turn (props.send)
-//   • reads each reply aloud by watching props.lastReply settle
-// The gating logic lives in the pure voice-machine reducer; this component only
-// wires browser side effects (capture, TTS, latency, DOM) to it.
+// The composer microphone (S6b, D20, D49). Rendered into ClaudeChat's
+// composerAdornment slot - it does NOT rebuild the chat, it drives it.
+//
+// Two ways to use the mic:
+//   • TAP: dictation. The mic opens at once and every utterance lands in the
+//     message box as text (props.setDraft); the user edits and presses the
+//     normal Send. Stop keeps what was heard, Discard removes it. Never gated
+//     by a running turn or by text already in the box - the mic is a keyboard.
+//   • HOLD: the voice sheet, where the hands-free conversation lives: talk,
+//     pause to send, the reply is read aloud. That mode's gating logic lives in
+//     the pure voice-machine reducer; this component only wires browser side
+//     effects (capture, TTS, latency, DOM) to it.
+// Dictation transcribes per utterance over the REST /stt lane (a segment is
+// cut at each pause and posted), not as a live word stream: the capture token
+// never reaches the page (D9), so there is no browser WebSocket to Deepgram.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -22,6 +31,11 @@ export interface VoiceConversationProps {
   queueLocked: boolean;
   /** Latest SETTLED assistant reply; changes id once per completed turn. */
   lastReply: { id: string; text: string; clientRequestId?: string } | null;
+  /** The composer text, for dictation to append to. Absent = no dictation
+   *  (the mic then only opens the voice sheet). */
+  draft?: string;
+  setDraft?: (next: string | ((prev: string) => string)) => void;
+  focusComposer?: () => void;
   // ── test overrides ──
   sttUrl?: string;
   ttsUrl?: string;
@@ -53,10 +67,43 @@ function unavailableReason(reason: string | undefined): string {
 // state machine rather than deadlock in `sending` (codex S6b finding).
 const SENDING_TIMEOUT_MS = 30000;
 
-/** How long the mic must be held before it becomes push-to-talk. Below this a
- *  press is a TAP and opens the voice sheet instead. Comfortably shorter than
- *  any deliberate hold, long enough that a tap never trips the capture. */
-const HOLD_MS = 220;
+/** How long the mic must be held before the press counts as a HOLD (the voice
+ *  sheet). Below this a press is a TAP and starts dictation. Comfortably shorter
+ *  than any deliberate hold, long enough that a tap never opens the sheet. */
+const HOLD_MS = 320;
+
+/** After Stop, the last cut segment is still being transcribed; the capture is
+ *  torn down this long after its transcript lands, or after DICTATION_FINISH_GUARD_MS
+ *  if it never does. */
+const DICTATION_SETTLE_MS = 350;
+const DICTATION_FINISH_GUARD_MS = 8000;
+
+/** Append a dictated utterance to the draft: one space between words, nothing
+ *  else invented. */
+export function joinDictation(prev: string, text: string): string {
+  const t = text.trim();
+  if (!t) return prev;
+  if (!prev) return t;
+  return /\s$/.test(prev) ? prev + t : `${prev} ${t}`;
+}
+
+/** Remove what a dictation put into the draft. The common case is the exact
+ *  base plus the segments, restored to the base; when the user edited around
+ *  the dictated text meanwhile, each segment still present is taken out. */
+export function stripDictation(current: string, base: string, segments: string[]): string {
+  if (segments.length === 0) return current;
+  const expected = segments.reduce((acc, seg) => joinDictation(acc, seg), base);
+  if (current === expected) return base;
+  let out = current;
+  for (const seg of segments) {
+    const at = out.indexOf(seg);
+    if (at < 0) continue;
+    const before = out.slice(0, at);
+    const after = out.slice(at + seg.length);
+    out = /\s$/.test(before) && /^\s/.test(after) ? before + after.replace(/^\s/, "") : before + after;
+  }
+  return out;
+}
 
 /** The voice modes, on demand. Mirrors the shared chat's route sheet: one group
  *  of controls, opened by the control it belongs to, instead of a second button
@@ -96,7 +143,7 @@ function VoiceSheet({
           <h2 className="cc-sheet-title">Voice</h2>
           <button type="button" className="cc-sheet-close" onClick={onClose} aria-label="Close voice sheet">×</button>
         </div>
-        <p className="cc-sheet-sub">Hold the mic to talk once. Or hand the conversation over:</p>
+        <p className="cc-sheet-sub">Tap the mic to dictate into the message box. Or hand the conversation over:</p>
         <div className="cc-sheet-body">
           <button
             type="button"
@@ -415,92 +462,186 @@ export function VoiceConversation(props: VoiceConversationProps) {
     }
   }, [conversationUsable, props.queueLocked, dispatch]);
 
-  const onPttDown = useCallback(() => {
-    if (!usable || props.queueLocked) return;
-    if (ctxRef.current.state === "idle") { setError(null); dispatch({ type: "START_PTT" }); }
-  }, [usable, props.queueLocked, dispatch]);
-  const onPttUp = useCallback(() => {
-    if (ctxRef.current.mode === "ptt") dispatch({ type: "RELEASE_PTT" });
-  }, [dispatch]);
+  // ── Dictation ──
+  // Its own small state, apart from the hands-free machine: nothing here is
+  // sent or read aloud, the transcript goes straight into the composer.
+  type DictationPhase = "idle" | "opening" | "live" | "finishing";
+  const [dictPhase, setDictPhase] = useState<DictationPhase>("idle");
+  const [dictLevel, setDictLevel] = useState(0);
+  const [dictError, setDictError] = useState<string | null>(null);
+  const [dictHeard, setDictHeard] = useState(0);
+  const dictRef = useRef<CaptureHandle | null>(null);
+  const dictGenRef = useRef(0);
+  const dictBaseRef = useRef("");
+  const dictSegmentsRef = useRef<string[]>([]);
+  const dictStoppingRef = useRef(false);
+  const dictSettleTimer = useRef<number | null>(null);
+  const dictGuardTimer = useRef<number | null>(null);
+  const setDraftRef = useRef(props.setDraft);
+  setDraftRef.current = props.setDraft;
+  const draftRef = useRef(props.draft ?? "");
+  draftRef.current = props.draft ?? "";
+  const focusComposerRef = useRef(props.focusComposer);
+  focusComposerRef.current = props.focusComposer;
+  const dictationAvailable = usable && typeof props.setDraft === "function";
 
+  const clearDictTimers = () => {
+    if (dictSettleTimer.current) { window.clearTimeout(dictSettleTimer.current); dictSettleTimer.current = null; }
+    if (dictGuardTimer.current) { window.clearTimeout(dictGuardTimer.current); dictGuardTimer.current = null; }
+  };
+
+  const teardownDictation = useCallback(() => {
+    clearDictTimers();
+    dictGenRef.current += 1;
+    dictStoppingRef.current = false;
+    if (dictRef.current) { try { dictRef.current.stop(); } catch {} dictRef.current = null; }
+    if (!mountedRef.current) return;
+    setDictPhase("idle");
+    setDictLevel(0);
+    focusComposerRef.current?.();
+  }, []);
+
+  const startDictation = useCallback(async () => {
+    if (!dictationAvailable) return;
+    if (dictRef.current || dictPhase !== "idle") return;
+    if (!supported) { setDictError(captureUnsupportedReason()); return; }
+    // The microphone is one device: hands-free lets go of it first.
+    if (ctxRef.current.mode) dispatch({ type: "STOP" });
+    const gen = ++dictGenRef.current;
+    dictBaseRef.current = draftRef.current;
+    dictSegmentsRef.current = [];
+    dictStoppingRef.current = false;
+    setDictError(null);
+    setDictHeard(0);
+    setDictPhase("opening");
+    try {
+      const handle = await startCapture(
+        {
+          onReady: () => { if (mountedRef.current && dictGenRef.current === gen) setDictPhase((p) => (p === "opening" ? "live" : p)); },
+          onFinal: (t) => {
+            if (dictGenRef.current !== gen) return;
+            const text = t.trim();
+            if (!text) return;
+            dictSegmentsRef.current.push(text);
+            setDraftRef.current?.((prev) => joinDictation(prev, text));
+            if (mountedRef.current) setDictHeard((n) => n + 1);
+          },
+          onUtteranceEnd: () => {
+            if (dictGenRef.current !== gen || !dictStoppingRef.current) return;
+            // The segment cut by Stop has landed; give a sibling still in
+            // flight a moment, then release the device.
+            if (dictSettleTimer.current) window.clearTimeout(dictSettleTimer.current);
+            dictSettleTimer.current = window.setTimeout(() => teardownDictation(), DICTATION_SETTLE_MS);
+          },
+          onLevel: (l) => { if (mountedRef.current && dictGenRef.current === gen) setDictLevel(l); },
+          onError: (e) => { if (mountedRef.current && dictGenRef.current === gen) setDictError(e); },
+        },
+        { sttUrl: props.sttUrl, mode: "conversation" },
+      );
+      if (!mountedRef.current || dictGenRef.current !== gen) { handle.stop(); return; }
+      dictRef.current = handle;
+    } catch (e: any) {
+      if (!mountedRef.current || dictGenRef.current !== gen) return;
+      setDictError(e?.message || "microphone error");
+      setDictPhase("idle");
+    }
+  }, [dictationAvailable, dictPhase, supported, dispatch, props.sttUrl, teardownDictation]);
+
+  const stopDictation = useCallback(() => {
+    const handle = dictRef.current;
+    if (!handle) { teardownDictation(); return; }
+    if (dictStoppingRef.current) return;
+    dictStoppingRef.current = true;
+    setDictPhase("finishing");
+    setDictLevel(0);
+    handle.finish();
+    dictGuardTimer.current = window.setTimeout(() => teardownDictation(), DICTATION_FINISH_GUARD_MS);
+  }, [teardownDictation]);
+
+  const discardDictation = useCallback(() => {
+    const base = dictBaseRef.current;
+    const segments = dictSegmentsRef.current.slice();
+    teardownDictation();
+    if (segments.length) setDraftRef.current?.((prev) => stripDictation(prev, base, segments));
+    dictSegmentsRef.current = [];
+  }, [teardownDictation]);
+
+  const dictating = dictPhase !== "idle";
+  const dictErrorShown = Boolean(dictError) && !dictating;
   const conversationOn = ctx.mode === "conversation";
-  const pttActive = ctx.mode === "ptt";
   const showPanel = ctx.state !== "idle" || Boolean(error);
   const finalText = ctx.finals.map((s) => s.trim()).filter(Boolean).join(" ");
-  const transcribing = ctx.mode === "ptt" && !ctx.pttHeld && ctx.state === "listening";
   const stateLabel =
-    ctx.state === "listening" ? (transcribing ? "Transcribing" : "Listening")
+    ctx.state === "listening" ? "Listening"
       : ctx.state === "sending" ? "Sending"
         : ctx.state === "speaking" ? "Speaking"
           : "";
+  const dictLabel = dictPhase === "opening" ? "Opening mic" : dictPhase === "finishing" ? "Finishing" : "Dictating";
+
+  // TAP: dictation (or stop it, or stop the hands-free conversation when that
+  // is what holds the mic). HOLD: the voice sheet.
+  const onTap = useCallback(() => {
+    if (dictating) { stopDictation(); return; }
+    if (conversationOn) { dispatch({ type: "STOP" }); return; }
+    if (dictationAvailable) { void startDictation(); return; }
+    setVoiceSheetOpen(true);
+  }, [dictating, conversationOn, dictationAvailable, stopDictation, startDictation, dispatch]);
+
+  const micTitle = !usable
+    ? disabledReason
+    : dictating
+      ? "Stop dictating (keeps the text)"
+      : conversationOn
+        ? "Stop the hands-free conversation"
+        : dictationAvailable
+          ? "Tap to dictate into the message box. Hold for hands-free conversation."
+          : "Voice";
 
   return (
     <span className="wcv" data-testid="wcv">
-      {/* Hands-free lives in a sheet the mic opens on a TAP; the standing Talk
-          button was a second permanent control for a mode that is entered
-          occasionally. Holding the mic is still push-to-talk. */}
       {voiceSheetOpen && (
         <VoiceSheet
           conversationOn={conversationOn}
           disabled={!conversationUsable || (props.queueLocked && !conversationOn)}
           reason={!usable ? disabledReason : !ttsAvailable ? noTtsReason : props.queueLocked ? queueLockedReason : ""}
-          onToggleConversation={() => { setVoiceSheetOpen(false); onToggleConversation(); }}
+          onToggleConversation={() => { setVoiceSheetOpen(false); if (dictating) teardownDictation(); onToggleConversation(); }}
           onClose={() => setVoiceSheetOpen(false)}
         />
       )}
       <button
         type="button"
-        className={`wcv-mic${pttActive ? " wcv-mic-rec" : ""}`}
+        className={`wcv-mic${dictating ? " wcv-mic-rec" : ""}`}
         data-testid="wcv-mic"
-        aria-pressed={pttActive}
-        aria-label={pttActive ? "Release push-to-talk" : "Hold to talk"}
-        // Stays tappable while the queue is locked: the mic is now the ONLY way
-        // into the voice sheet, and a disabled button would strand the user with
-        // no way to read why. Push-to-talk itself still refuses (onPttDown).
-        disabled={!usable || conversationOn}
-        title={usable
-          ? conversationOn
-            ? "Conversation active"
-            : props.queueLocked && !pttActive
-              ? queueLockedReason
-              : "Hold to talk (push-to-talk)"
-          : disabledReason}
-        // HOLD is push-to-talk, TAP opens the voice sheet. The capture only starts
-        // once the hold passes the threshold, so a tap never opens the mic for a
-        // few milliseconds and never posts an empty utterance.
+        aria-pressed={dictating}
+        aria-label={dictating ? "Stop dictating" : conversationOn ? "Stop conversation" : "Dictate"}
+        // Only an unusable microphone disables the button: a running turn, a
+        // locked queue or text already in the box never stop dictation.
+        disabled={!usable}
+        title={micTitle}
         onPointerDown={(e) => {
+          if (e.button !== 0 && e.pointerType === "mouse") return;
           e.preventDefault();
           if (holdTimer.current) window.clearTimeout(holdTimer.current);
-          holdTimer.current = window.setTimeout(() => { holdTimer.current = null; onPttDown(); }, HOLD_MS);
+          holdTimer.current = window.setTimeout(() => {
+            holdTimer.current = null;
+            if (!dictating) setVoiceSheetOpen(true);
+          }, HOLD_MS);
         }}
         onPointerUp={(e) => {
           e.preventDefault();
           const tapped = holdTimer.current !== null;
           if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
-          if (tapped) { if (!conversationOn) setVoiceSheetOpen(true); return; }
-          onPttUp();
+          if (tapped) onTap();
         }}
-        onPointerLeave={() => {
-          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; return; }
-          onPttUp();
-        }}
-        onPointerCancel={() => {
-          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; return; }
-          onPttUp();
-        }}
+        onPointerLeave={() => { if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } }}
+        onPointerCancel={() => { if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } }}
         onKeyDown={(e) => {
           if ((e.key !== " " && e.key !== "Enter") || e.repeat) return;
           e.preventDefault();
-          onPttDown();
+          onTap();
         }}
-        onKeyUp={(e) => {
-          if (e.key !== " " && e.key !== "Enter") return;
-          e.preventDefault();
-          onPttUp();
-        }}
-        onBlur={onPttUp}
       >
-        {pttActive ? (
+        {dictating ? (
           <span className="wcv-mic-dot" aria-hidden="true" />
         ) : (
           <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
@@ -510,7 +651,67 @@ export function VoiceConversation(props: VoiceConversationProps) {
         )}
       </button>
 
-      {showPanel && (
+      {(dictating || dictErrorShown) && (
+        <div className={`wcv-panel wcv-panel-dictation wcv-panel-${dictPhase}`} data-testid="wcv-dictation" role="group" aria-label="Dictation">
+          <div className="wcv-panel-head">
+            <span className={`wcv-dot${dictPhase === "live" ? " wcv-dot-listening" : ""}`} aria-hidden="true" />
+            <span className="wcv-state" data-testid="wcv-dict-state" data-state={dictPhase}>{dictating ? dictLabel : "Dictation"}</span>
+            {dictating && (
+              <span className="wcv-level" aria-hidden="true"><i style={{ transform: `scaleX(${0.12 + dictLevel * 0.88})` }} /></span>
+            )}
+            <span className="wcv-dict-actions">
+              {dictating ? (
+                <>
+                  <button
+                    type="button"
+                    className="wcv-dict-btn wcv-dict-stop"
+                    data-testid="wcv-dict-stop"
+                    onClick={stopDictation}
+                    disabled={dictPhase === "finishing"}
+                    title="Stop dictating and keep the text"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" fill="currentColor" /></svg>
+                    <span>Stop</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="wcv-dict-btn wcv-dict-trash"
+                    data-testid="wcv-dict-trash"
+                    onClick={discardDictation}
+                    title="Stop and remove everything dictated"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M3 4h10M6 4V2.5h4V4M4.5 4l.7 9.5h5.6l.7-9.5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span>Discard</span>
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="wcv-dict-btn" onClick={() => setDictError(null)} title="Dismiss">
+                  <span>Dismiss</span>
+                </button>
+              )}
+            </span>
+          </div>
+          {dictError ? (
+            <div className="wcv-err" data-testid="wcv-dict-error">{dictError}</div>
+          ) : (
+            <div className="wcv-transcript">
+              <span className="wcv-hint">
+                {dictPhase === "opening"
+                  ? "Opening the microphone…"
+                  : dictPhase === "finishing"
+                    ? "Writing the last words…"
+                    : dictHeard === 0
+                      ? "Speak; each pause lands in the message box. Send when you are happy with it."
+                      : `${dictHeard} utterance${dictHeard === 1 ? "" : "s"} in the message box. Keep talking, or Stop.`}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showPanel && !dictating && (
         <div className={`wcv-panel wcv-panel-${ctx.state}`} data-testid="wcv-panel" role="group" aria-label="Voice conversation">
           <div className="wcv-panel-head">
             <span className={`wcv-dot wcv-dot-${ctx.state}`} aria-hidden="true" />
@@ -539,7 +740,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
               {finalText && ctx.interim ? " " : ""}
               {ctx.interim && <span className="wcv-interim" data-testid="wcv-interim">{ctx.interim}</span>}
               {!finalText && !ctx.interim && (
-                <span className="wcv-hint">{transcribing ? "…" : ctx.state === "listening" ? "Listening… speak now" : ctx.state === "sending" ? "…" : "Reply is playing"}</span>
+                <span className="wcv-hint">{ctx.state === "listening" ? "Listening… speak now" : ctx.state === "sending" ? "…" : "Reply is playing"}</span>
               )}
             </div>
           )}

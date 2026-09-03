@@ -298,7 +298,9 @@ function RecordingSection() {
     }
   };
 
-  const live = status?.phase === "live" || status?.phase === "connecting";
+  // A broadcast that is still opening reports broadcasting=true before the
+  // phase turns live; Stop has to be there for it too.
+  const live = status?.phase === "live" || status?.phase === "connecting" || Boolean(status?.broadcasting);
   const start = (kind: CaptureKind) => run(() => nativeCapture.start(kind));
   const stop = (kind: CaptureKind) => run(() => nativeCapture.stop(kind));
 
@@ -367,6 +369,11 @@ function RecordingSection() {
           {status?.consentSuppressed ? "Ask for consent again" : "Skip the consent sheet"}
         </button>
       </div>
+      {live && status?.broadcasting ? (
+        <p className={styles.hint} data-testid="capture-wake-hint">
+          Broadcasting. Say &quot;Zeca&quot; and then your request - the words after it plus the latest screen frames are sent into the conversation the broadcast was started from.
+        </p>
+      ) : null}
       {status?.error ? <p className={styles.error}>{status.error}</p> : null}
       {status?.broadcastError ? <p className={styles.error}>{status.broadcastError}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}

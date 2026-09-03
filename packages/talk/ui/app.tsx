@@ -60,6 +60,9 @@ function voiceAdornment(api: ComposerAdornmentApi) {
       busy={api.busy}
       queueLocked={api.queueLocked}
       lastReply={api.lastReply}
+      draft={api.draft}
+      setDraft={api.setDraft}
+      focusComposer={api.focusComposer}
     />
   );
 }

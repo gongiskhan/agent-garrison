@@ -353,4 +353,22 @@ describe("screen_audio transcription gate", () => {
     expect(handle.counters.read().screen_audio_transcription_skipped ?? 0).toBe(0);
     c.ws.close();
   });
+
+  // The flag on is what makes the REC button a microphone when no pendant is
+  // worn; the dedupe against the pendant is dynamic, per session, so a
+  // broadcast opened WHILE a pendant session is live still stays mute.
+  it("mutes a broadcast opened while a pendant session is live, flag on", async () => {
+    const { handle, base } = await boot({ screenAudioTranscribe: true, pendantEnabled: true });
+    const pendant = connect(base);
+    await pendant.opened;
+    pendant.ws.send(startMsg("01PENDANTLIVE0001", { mode: "pendant", codec: "opus" }));
+    await pendant.next((m) => m.type === "session_started");
+    const screen = connect(base);
+    await screen.opened;
+    screen.ws.send(startMsg("01SCREENWITHPEND1", { mode: "screen_audio" }));
+    await screen.next((m) => m.type === "session_started");
+    expect(handle.counters.read().screen_audio_transcription_skipped).toBe(1);
+    screen.ws.close();
+    pendant.ws.close();
+  });
 });

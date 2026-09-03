@@ -146,3 +146,60 @@ export async function postConversationDigest({
   }
   return { ok: true, push: null };
 }
+
+// A wake hit inside a broadcast is a USER turn in the conversation the REC
+// button lived in, not a digest: the words after the wake word become the
+// message and the latest screen frames ride along as attached files, using
+// the same "Attached file(s):" convention the composer writes for uploads
+// so the runtime reads them the way it reads a pasted screenshot. Admission
+// goes through the router's input door (POST /inputs), so the turn runs
+// exactly like one typed on the phone - same routing, same transcript.
+export function conversationTurnMessage({ command, frames = [] }) {
+  const text = String(command ?? "").trim();
+  const files = frames.map((f) => f?.file).filter(Boolean);
+  if (files.length === 0) return text;
+  return `${text}\n\n${files.length === 1 ? "Attached file" : "Attached files"}:\n${files.map((f) => `- ${f}`).join("\n")}`;
+}
+
+export async function postConversationTurn({
+  conversationId,
+  command,
+  eventId,
+  frames = [],
+  counters = null,
+  env = process.env,
+  fetchImpl = fetch,
+  log = console
+}) {
+  if (!conversationId) return { ok: false, reason: "no conversation_id" };
+  const base = conversationsBaseUrl(env);
+  if (!base) {
+    counters?.bump("conversation_turn_skipped_no_app");
+    return { ok: false, reason: "no Conversations host: GARRISON_APP_URL unset" };
+  }
+  const message = conversationTurnMessage({ command, frames });
+  if (!message) return { ok: false, reason: "empty command" };
+  const url = `${base}/talk/${encodeURIComponent(conversationId)}`;
+  try {
+    const posted = await fetchImpl(`${base}/api/threads/${encodeURIComponent(conversationId)}/inputs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      // One wake hit is one turn: the event id keys the router's dedupe.
+      body: JSON.stringify({ message, clientRequestId: `wake:${eventId}` }),
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!posted.ok) {
+      counters?.bump("conversation_turn_post_failed");
+      log.error(`[capture-service] wake turn ${eventId} -> thread ${conversationId}: HTTP ${posted.status}`);
+      return { ok: false, reason: `HTTP ${posted.status}`, url };
+    }
+    const body = await posted.json().catch(() => ({}));
+    counters?.bump("conversation_turn_posted");
+    log.log(`[capture-service] wake turn ${eventId} -> thread ${conversationId} (${frames.length} frame${frames.length === 1 ? "" : "s"})`);
+    return { ok: true, inputId: body?.input?.id ?? null, duplicate: Boolean(body?.duplicate), url };
+  } catch (err) {
+    counters?.bump("conversation_turn_post_failed");
+    log.error(`[capture-service] wake turn ${eventId} -> thread ${conversationId}: ${err?.message ?? err}`);
+    return { ok: false, reason: err?.message ?? String(err), url };
+  }
+}

@@ -152,6 +152,7 @@ declare module "*/capture-service/lib/media-log.mjs" {
   export function readAudioLog(file: string): Generator<{ seq: number; ts: number; bytes: Buffer }>;
   export class SessionMedia {
     latestFrame(): { seq: number; tsMs: number; atMs: number; file: string } | null;
+    recentFrames(q?: { beforeMs?: number; max?: number; spacingMs?: number }): Array<{ seq: number; tsMs: number; atMs: number; file: string }>;
     constructor(root: string, sessionId: string, opts?: Record<string, unknown>);
     acceptAudio(seq: number, ts: number, bytes: Buffer): number;
     acceptVideo(seq: number, ts: number, bytes: Buffer): number;
@@ -433,8 +434,9 @@ declare module "*/capture-service/lib/wake.mjs" {
       trailing?: string;
       sessionId?: string | null;
       screen?: unknown;
+      wakeHitAt?: number | null;
       onLanguage?: ((lang: string) => void) | null;
-    }): Promise<{ confirmation: string; cardUrl: string | null; result: Record<string, unknown> }>;
+    }): Promise<{ confirmation: string | null; cardUrl?: string | null; path?: string | null; silent?: boolean; result: Record<string, unknown> }>;
     close(sessionId: string, reason: string): Promise<any>;
     session(sessionId: string): { state: string; [k: string]: unknown };
     discussion(sessionId: string): { chain: Promise<unknown>; turns: number; [k: string]: unknown } | null;
@@ -454,6 +456,11 @@ declare module "*/capture-service/lib/screen-context.mjs" {
   export class ScreenContextIndex {
     constructor(opts: { ingress: unknown; cfg?: Record<string, unknown>; counters?: unknown; now?: () => number });
     latest(q?: { atMs?: number | null }): { stale: boolean; sessionId: string; seq: number; file: string; ageMs: number } | null;
+    recent(q?: { atMs?: number | null; max?: number; spacingMs?: number }): {
+      stale: boolean;
+      sessionId: string;
+      frames: Array<{ seq: number; file: string; ageMs: number }>;
+    } | null;
   }
 }
 
@@ -494,6 +501,17 @@ declare module "*/capture-service/scripts/connector.mjs" {
 
 declare module "*/capture-service/lib/digest.mjs" {
   export const DIGEST_TRANSCRIPT_CAP: number;
+  export function conversationTurnMessage(args: { command: string; frames?: Array<{ file: string }> }): string;
+  export function postConversationTurn(args: {
+    conversationId: string | null;
+    command: string;
+    eventId: string;
+    frames?: Array<{ file: string }>;
+    counters?: unknown;
+    env?: Record<string, string | undefined>;
+    fetchImpl?: unknown;
+    log?: unknown;
+  }): Promise<{ ok: boolean; reason?: string; url?: string; inputId?: string | null; duplicate?: boolean }>;
   export function digestIdempotencyKey(sessionId: string): string;
   export function digestPath(record: Record<string, unknown> | null | undefined): string | null;
   export function buildDigest(args: {

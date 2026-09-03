@@ -1110,6 +1110,13 @@ export interface ComposerAdornmentApi {
   /** The latest SETTLED assistant reply, or null while streaming/empty. Its `id`
    *  changes once per completed turn, so an adornment can react to each reply. */
   lastReply: { id: string; text: string; clientRequestId?: string } | null;
+  /** The composer's current text. Dictation reads it to know where it started. */
+  draft: string;
+  /** Rewrite the composer text (updater form allowed). Dictation appends each
+   *  transcribed utterance here so the user edits and sends it like typed text. */
+  setDraft: (next: string | ((prev: string) => string)) => void;
+  /** Put the caret back in the composer, e.g. after dictation stops. */
+  focusComposer: () => void;
 }
 
 export interface ClaudeChatProps {
@@ -3518,7 +3525,15 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             </button>
           )}
           {typeof composerAdornment === "function"
-            ? composerAdornment({ send: (text: string) => send(text), busy, queueLocked: generatedWork, lastReply: settledReply })
+            ? composerAdornment({
+              send: (text: string) => send(text),
+              busy,
+              queueLocked: generatedWork,
+              lastReply: settledReply,
+              draft: input,
+              setDraft: setInput,
+              focusComposer: () => taRef.current?.focus(),
+            })
             : composerAdornment}
           {hasAttachmentTransport && (
             <>

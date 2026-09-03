@@ -122,9 +122,16 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
     step === "live" ? "Stop recording" :
     "Record screen";
   const title =
-    step === "live" ? "Recording this screen into the conversation. Tap to stop." :
-    step === "idle" ? "Record the screen and microphone; a digest lands in this conversation when it ends." :
+    step === "live" ? "Broadcasting into this conversation. Say \"Zeca\" and then your request. Tap to stop." :
+    step === "idle" ? "Broadcast the screen and microphone into this conversation. Say \"Zeca\" and then your request; the words after it plus the latest screen frames are sent as your message." :
     label;
+  // The wake word is the whole interface once the broadcast runs, so the
+  // instruction stays on screen for as long as it does.
+  const liveHint = step === "live"
+    ? "Broadcasting. Say \"Zeca\" and then your request - the words after it plus the latest screen frames are sent into this conversation."
+    : step === "starting"
+      ? "Starting the broadcast. Once it runs, say \"Zeca\" and then your request."
+      : null;
 
   return (
     <span className="wc-rec" data-testid="wc-rec" data-step={step}>
@@ -141,7 +148,11 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
         {live && <span className="wc-rec-dot" aria-hidden="true" />}
         <span className="wc-rec-label">{label}</span>
       </button>
-      {error && <span className="wc-rec-err" role="status">{error}</span>}
+      {error ? (
+        <span className="wc-rec-err" role="status">{error}</span>
+      ) : liveHint ? (
+        <span className="wc-rec-hint" role="status" data-testid="wc-rec-hint">{liveHint}</span>
+      ) : null}
     </span>
   );
 }

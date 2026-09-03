@@ -345,9 +345,11 @@ x-garrison:
       type: boolean
       default: true
       description: >-
-        Whether a screen-sharing session also transcribes. Set FALSE when the
-        pendant is worn alongside: otherwise one spoken sentence reaches two
-        microphones, hits two wake buses, and dispatches twice.
+        Whether a screen-sharing session also transcribes. A broadcast that
+        starts while a pendant session is live is muted by itself (one spoken
+        sentence would otherwise reach two microphones and dispatch twice);
+        FALSE mutes every broadcast regardless, which also silences the REC
+        button's wake word.
     - key: transcribe_mute_timeout_ms
       type: integer
       default: 120000

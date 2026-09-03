@@ -28,9 +28,24 @@ on the iPhone and walk this list on the real device against this node
    confirm the page does not zoom (D45; the 2026-09-02 evening screenshot was
    the 16/15 focus zoom, fixed in the shell viewport, needs the node on
    `main` at or after this commit).
-3. Record button: tap, grant the microphone (the consent sheet is native),
-   speak, stop. The digest message posts back into the SAME thread (G5,
-   D41); the transcript is the digest, summarisation is a follow-up.
+3. Record button (D50): tap, grant the microphone and the broadcast (the
+   consent sheets are native). A hint above the button says "Broadcasting.
+   Say "Zeca" and then your request ...". Say "Zeca, what is on this screen"
+   and pause: within a few seconds a USER turn appears in the SAME thread
+   with your words and up to three attached screen frames, and the reply
+   follows; the confirmation "Sent to the conversation: ..." is spoken or
+   pushed. Stop: the digest message still posts at the end (D41). If nothing
+   arrives, `curl -s http://127.0.0.1:8097/health | jq .counters` on the
+   node: `wake_conversation_turns` should count the hit,
+   `screen_audio_transcription_skipped` means a pendant session was live
+   and the broadcast was muted, `conversation_turn_post_failed` means the
+   talk API refused the turn (the note lane took it instead).
+3b. Composer mic (D49): tap the mic (no sheet), speak, watch the level bar
+   move and each sentence land in the message box after the pause; tap Stop,
+   the text stays, edit, Send. Tap the mic again straight away, with text
+   already in the box and while the reply is still streaming: it dictates
+   again. Discard removes only what was dictated. Hold the mic for the
+   hands-free sheet.
 4. Capture page (`/capture`, shown only in the app): the microphone lane and
    the broadcast picker (screen capture consent is native), the live status,
    a session that ends cleanly.

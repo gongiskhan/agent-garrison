@@ -845,6 +845,29 @@
   color: var(--cc-fg-dim); cursor: pointer; font-size: 15px;
 }
 .wcv-stop:hover { color: var(--cc-fg); border-color: var(--cc-fg); }
+
+/* Dictation actions (D49): Stop keeps the text, Discard removes it. No close
+   button - the panel leaves when either is pressed. */
+.wcv-dict-actions { display: inline-flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.wcv-dict-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 9px; border-radius: 2px;
+  border: 1px solid var(--cc-border); background: transparent;
+  color: var(--cc-fg-dim); cursor: pointer;
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.wcv-dict-btn:hover:not(:disabled) { color: var(--cc-fg); border-color: var(--cc-fg); }
+.wcv-dict-btn:disabled { opacity: 0.5; cursor: default; }
+.wcv-dict-stop { border-color: var(--cc-accent); color: var(--cc-accent); }
+.wcv-dict-stop:hover:not(:disabled) { background: var(--cc-accent); color: var(--cc-accent-fg); border-color: var(--cc-accent); }
+.wcv-dict-trash { color: var(--cc-danger-bg); }
+.wcv-dict-trash:hover:not(:disabled) { color: var(--cc-danger-bg); border-color: var(--cc-danger-bg); }
+.wcv-panel-dictation .wcv-level { flex: 1; width: auto; min-width: 40px; max-width: 220px; }
+.wcv-panel-finishing .wcv-dot { background: var(--cc-brass, #b4862a); }
+@media (max-width: 600px) {
+  .wcv-dict-btn span { display: none; }
+  .wcv-dict-btn { padding: 0 8px; min-width: 32px; justify-content: center; }
+}
 .wcv-transcript { line-height: 1.45; min-height: 1.2em; word-break: break-word; }
 .wcv-final { color: var(--cc-fg); }
 .wcv-interim { color: var(--cc-fg-faint); font-style: italic; }
@@ -874,6 +897,11 @@
   position: absolute; left: 0; bottom: calc(100% + 6px); max-width: 260px;
   padding: 6px 8px; background: var(--cc-bg-elev); border: 1px solid var(--cc-border-strong); border-radius: 2px;
   color: var(--cc-danger-bg); font-size: 12px; line-height: 1.35; z-index: 5;
+}
+.wc-rec-hint {
+  position: absolute; right: 0; bottom: calc(100% + 6px); width: max-content; max-width: min(340px, 80vw);
+  padding: 6px 8px; background: var(--cc-bg-elev); border: 1px solid var(--cc-border-strong); border-radius: 2px;
+  color: var(--cc-fg-dim); font-size: 12px; line-height: 1.35; z-index: 5;
 }
 @media (max-width: 600px) {
   .wc-rec-label { display: none; }
