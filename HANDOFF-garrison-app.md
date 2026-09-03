@@ -82,7 +82,12 @@ on the iPhone and walk this list on the real device against this node
    `/talk/<thread>` or the Kanban row (G4). Cold start (app killed) must land
    on the same route; that path was verified through the simulator DEBUG seam
    only (`pushRoute` KVO on `isLoading`).
-6. Node switch: Settings, pick a second node, the webview reloads on the new
+6. Node switch (there is no Settings screen): the node badge at the top of
+   the menu drawer lists the mesh roster and switches to any node the app
+   knows; a node is added on the Capture page (menu, Command, Capture, shown
+   only in the app), section Node, "Add a node" (shell URL + that node's
+   capture token), which also has Switch / Remove per node. Pick a second
+   node, the webview reloads on the new
    origin, Conversations show that node's threads. The list is web, the
    reload is native (D38).
 7. Embedded fitting views inside the app (G6, D46): open an own-port fitting
@@ -108,7 +113,7 @@ on the iPhone and walk this list on the real device against this node
    conversation (no native bridge in a cross-origin frame; follow-up). Needs
    the OWNING node on this commit or later (`/frame/talk`), which dev-madrid
    and the mini are; the Air is not. Any app build works: the fix is in the
-   shell. The node switcher in Settings still switches the whole webview and
+   shell. The node switcher (drawer badge, Capture page) still switches the whole webview and
    keeps the current page across the switch (D47).
 8. Pendant (G7): with the real pendant, Pair, Connect, watch `connected` and
    the battery, speak and see the words in the "Hearing" panel, Disconnect
@@ -210,7 +215,8 @@ the simulator and where the code is.
   have built that half-done tree and dropped its operative. The phone points
   at dev-madrid, so until that session lands and dev-madrid redeploys from
   `main`, phone checks 3, 3b and 3c run against this Mac or the mini through
-  the node switcher in Settings. When dev-madrid is free: `git merge
+  the drawer's node badge, after adding the node on the Capture page.
+  When dev-madrid is free: `git merge
   origin/main` (it has local commits; never `--ff-only`, never discard the
   uncommitted work) and `npm run node:redeploy`.
 
