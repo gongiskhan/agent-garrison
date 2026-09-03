@@ -78,12 +78,57 @@ restart_supervised() {
   fi
   return 1
 }
+# The pid serving the app port right now is the server we are replacing; the
+# supervisor only signals its parent (`concurrently`), so we track it ourselves.
+old_server_pid="$(lsof -nP -iTCP:"$PROD_PORT" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true)"
 if ! restart_supervised; then
   echo "[redeploy] no app supervisor found (systemd: $UNIT, launchd: $LAUNCHD_LABEL)." >&2
   echo "           Enroll this machine with scripts/install-node.sh, or start by hand:" >&2
   echo "           bash scripts/garrison-instance.sh prod start" >&2
   exit 1
 fi
+
+# --- 3a. make sure the OLD app server is gone --------------------------------
+# `next start` answers SIGTERM by closing its listener and then waiting for
+# every open connection to finish. Fittings keep keep-alive and SSE
+# connections into the shell, so that wait never ends: the old next-server
+# outlives its supervisor as an orphan, keeps serving stale keep-alive clients
+# on the OLD code, keeps every fitting it spawned as its child (so they never
+# pick up new code either), and its handlers keep opening requests into the
+# new server until that one is starved. Seen on the Mac 2026-09-03: 128 hung
+# connections, the new shell silent for an hour, "prod did not come up".
+# Give it a moment to exit on its own, then end it; a supervised server has
+# `concurrently` as its parent, so one whose parent is the init/launchd/systemd
+# reaper (or gone) is an orphan by definition. `next dev` children are parented
+# to their `next dev` process and are left alone.
+wait_for_exit() {
+  local pid="$1" i
+  for i in $(seq 1 10); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+  done
+  return 1
+}
+reap_orphan_app_servers() {
+  local pid ppid pcmd
+  while read -r pid ppid; do
+    [ -n "$pid" ] || continue
+    pcmd="$(ps -o command= -p "$ppid" 2>/dev/null || true)"
+    if [ "$ppid" != "1" ] && [ -n "$pcmd" ]; then
+      case "$pcmd" in
+        *launchd*|*systemd*) ;;
+        *) continue ;;
+      esac
+    fi
+    echo "[redeploy] ending orphaned next-server $pid (parent $ppid: ${pcmd:-gone})"
+    kill -KILL "$pid" 2>/dev/null || true
+  done < <(ps -Ao pid=,ppid=,command= | awk '$3 == "next-server" { print $1, $2 }')
+}
+if [ -n "$old_server_pid" ] && ! wait_for_exit "$old_server_pid"; then
+  echo "[redeploy] old app server $old_server_pid still alive after the restart; ending it"
+  kill -KILL "$old_server_pid" 2>/dev/null || true
+fi
+reap_orphan_app_servers
 
 # --- wait for the new server ------------------------------------------------
 say "waiting for $BASE"

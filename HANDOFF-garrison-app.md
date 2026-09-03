@@ -146,11 +146,12 @@ the simulator and where the code is.
   mini already run `66c84865` (redeploys finished; tails in
   `evidence/garrison-app/voice-d49-d50/redeploy.txt`), so phone checks 3 and
   3b can run against either peer today.
-- Redeploy robustness debt this exposed: `scripts/garrison-redeploy.sh` skips
-  the pre-down when the app does not answer, and `launchctl kickstart -k`
-  only signals `concurrently`; the old next-server survives as an orphan with
-  every fitting child. The script should kill the previous next-server (and
-  wait for it to exit) before starting the new one.
+- Redeploy robustness fix that came out of it: `scripts/garrison-redeploy.sh`
+  now records the pid serving the app port, waits up to 10 s for it to exit
+  after the supervisor restart, ends it if it lingers, and ends any
+  next-server whose parent is the init/launchd/systemd reaper (`next dev`
+  children stay). First exercised on this Mac's next redeploy; the pre-down
+  skip when the app is silent stays as it was.
 
 ## 3. Operator-triggered follow-ups
 
