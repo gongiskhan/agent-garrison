@@ -24609,6 +24609,25 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
   ] });
   if (!report) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "banner", children: "loading\u2026" });
   const { overall, counts } = report.summary;
+  const allFindings = [...report.findings, ...sweep?.findings ?? []];
+  const failingFittings = [...new Set(
+    allFindings.filter((f) => (f.check === "verify-results" || f.check === "verify-sweep") && f.status === "fail").map((f) => f.id.split(":").pop())
+  )];
+  const failsByCheck = /* @__PURE__ */ new Map();
+  for (const f of allFindings) {
+    if (f.status === "fail" && f.check !== "verify-results" && f.check !== "verify-sweep") {
+      failsByCheck.set(f.check, (failsByCheck.get(f.check) ?? 0) + 1);
+    }
+  }
+  const OTHER_LABELS = {
+    "library-crosscheck": "registry",
+    "port-collisions": "port",
+    "serve-coverage": "serve",
+    "orphans": "orphan",
+    "drift": "drift",
+    "kind-vocabulary": "kind",
+    "repo-root": "setup"
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `banner banner-${overall}`, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: overall.toUpperCase() }),
@@ -24623,6 +24642,21 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       report.degraded && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "degraded \u2014 app down" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ts", children: new Date(report.generatedAt).toLocaleTimeString() }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: refresh, disabled: sweeping, children: "refresh" })
+    ] }),
+    (failingFittings.length > 0 || failsByCheck.size > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
+      failingFittings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-fittings", children: [
+        failingFittings.length,
+        " fitting",
+        failingFittings.length > 1 ? "s" : "",
+        " failing verify:",
+        " ",
+        failingFittings.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "fitting-chip", children: id }, id))
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-fittings ok", children: "no fitting is failing verify" }),
+      failsByCheck.size > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-other", children: [
+        "other issues:",
+        " ",
+        [...failsByCheck].map(([check, n]) => `${n} ${OTHER_LABELS[check] ?? check}`).join(" \xB7 ")
+      ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "sweep-bar", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [

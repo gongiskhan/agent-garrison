@@ -50,6 +50,20 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
   background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn);
 }
 
+.headline {
+  display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  padding: 10px 16px; border: 1px solid var(--border); border-radius: 10px;
+  margin-bottom: 12px; background: var(--panel);
+}
+.headline-fittings { font-weight: 600; }
+.headline-fittings.ok { color: var(--pass); }
+.fitting-chip {
+  display: inline-block; margin: 0 3px; padding: 1px 8px; border-radius: 6px;
+  background: var(--fail-bg); color: var(--fail); border: 1px solid var(--fail);
+  font-size: 13px;
+}
+.headline-other { color: var(--muted); font-size: 13px; }
+
 .sweep-bar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 10px 16px; border: 1px dashed var(--border); border-radius: 10px;

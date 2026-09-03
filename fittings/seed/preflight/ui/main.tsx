@@ -149,6 +149,32 @@ function App() {
   if (!report) return <div className="banner">loading…</div>;
 
   const { overall, counts } = report.summary;
+
+  // The headline must answer "WHAT is broken", not just "how many rows are
+  // red" — a failing fitting, a missing registry entry and a port collision
+  // are different problems and a bare total conflates them.
+  const allFindings = [...report.findings, ...(sweep?.findings ?? [])];
+  const failingFittings = [...new Set(
+    allFindings
+      .filter((f) => (f.check === "verify-results" || f.check === "verify-sweep") && f.status === "fail")
+      .map((f) => f.id.split(":").pop() as string)
+  )];
+  const failsByCheck = new Map<string, number>();
+  for (const f of allFindings) {
+    if (f.status === "fail" && f.check !== "verify-results" && f.check !== "verify-sweep") {
+      failsByCheck.set(f.check, (failsByCheck.get(f.check) ?? 0) + 1);
+    }
+  }
+  const OTHER_LABELS: Record<string, string> = {
+    "library-crosscheck": "registry",
+    "port-collisions": "port",
+    "serve-coverage": "serve",
+    "orphans": "orphan",
+    "drift": "drift",
+    "kind-vocabulary": "kind",
+    "repo-root": "setup"
+  };
+
   return (
     <main>
       <div className={`banner banner-${overall}`}>
@@ -158,6 +184,25 @@ function App() {
         <span className="ts">{new Date(report.generatedAt).toLocaleTimeString()}</span>
         <button onClick={refresh} disabled={sweeping}>refresh</button>
       </div>
+
+      {(failingFittings.length > 0 || failsByCheck.size > 0) && (
+        <div className="headline">
+          {failingFittings.length > 0 ? (
+            <span className="headline-fittings">
+              {failingFittings.length} fitting{failingFittings.length > 1 ? "s" : ""} failing verify:{" "}
+              {failingFittings.map((id) => <code key={id} className="fitting-chip">{id}</code>)}
+            </span>
+          ) : (
+            <span className="headline-fittings ok">no fitting is failing verify</span>
+          )}
+          {failsByCheck.size > 0 && (
+            <span className="headline-other">
+              other issues:{" "}
+              {[...failsByCheck].map(([check, n]) => `${n} ${OTHER_LABELS[check] ?? check}`).join(" · ")}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="sweep-bar">
         <label>
