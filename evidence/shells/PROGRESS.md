@@ -10,7 +10,7 @@ plan: /home/ggomes/.claude/plans/we-should-have-a-zesty-star.md (copied to docs/
 | G3-server | done | 46efa1db80 | reload @ 2026-09-03T18:36Z | evidence/shells/g3/ | mesh-sessions.mjs, shellBinding, transcript-formats.mjs, GET /api/sessions + /api/sessions/:id/stream, peer-proxy ALLOW row; live-verified streaming THIS session's own transcript through the new endpoint |
 | G3-ui+G4 | done | eb9bb32d09da | reload @ 2026-09-03T19:00Z | evidence/shells/g3-ui/ | shell-origin.ts, sessions-rail.tsx Sessions section, shell-panel.tsx+shell-composer.tsx (owned shell), session-view.tsx (external), new-shell-modal.tsx, styles.css additions; 229 vitest tests green; live-verified on dev-madrid incl. this session's own transcript streaming through the rail |
 | G5 | done (mini rollout pending F-000) | 82a49e35 | redeploy @ 2026-09-03T19:44Z | evidence/shells/g5/ | cursor-runtime probe fix + stationed via Muster API (found the mutateCompositionBlock state-push gap - see F-003), Quarters file_sets engine + 4 API routes + RuntimeFileSetPanel; 248 vitest tests; live create/edit/delete round trip on dev-madrid |
-| G6 | doing | 1afe542a | n/a (deployed to csg directly, not via redeploy) | evidence/shells/g6/ | csg came back online mid-run; deployed+live-verified `devtunnel-host-supervisor.sh` on csg (fixes the operator's real "devtunnel host dies, needs a manual restart" problem - see evidence/shells/g6/devtunnel-host-mitigation.md). TetherManager, preflight scripts, installer, unstation still unstarted |
+| G6 | doing, csg locked out (see F-004) | 55cc6718 | reload @ TBD (server.mjs/tether.mjs changed - fittings, needs redeploy) | evidence/shells/g6/ | TetherManager (11 tests) + normalizeTether + /tether routes + host-credential pushHostToken skip all done and unit-tested; host-tunnel.sh (existing, superior) supersedes the new supervisor script (removed); a supervisor swap on csg dropped the tunnel entirely and locked this session out - see F-004 and evidence/shells/g6/devtunnel-host-mitigation.md. Preflight scripts, installer, local.yml unstation still unstarted |
 | G7 | todo | - | - | evidence/shells/g7/ | csg install |
 | G8 | todo | - | - | evidence/shells/g8/ | csg in the app |
 
@@ -32,13 +32,32 @@ routes) DOES push correctly - that asymmetry is the trap. When in doubt, `git di
 compositions/` right after a redeploy and re-push via `pushManifestToState` if anything you expected
 is gone.
 
-Next: the mini rollout (plan section 4) is the only piece of G0-G5 not done, and it is BLOCKED on
-F-000 (origin/main still can't be pushed to - see below). Once that clears: push `main`, then on the
-mini `ssh ggomes@goncalos-mac-mini-1 'zsh -lc "cd ~/dev/garrison && git fetch -q origin && git merge
+The mini rollout (plan section 4) is the only piece of G0-G5 not done, and it is BLOCKED on F-000
+(origin/main still can't be pushed to - see below). Once that clears: push `main`, then on the mini
+`ssh ggomes@goncalos-mac-mini-1 'zsh -lc "cd ~/dev/garrison && git fetch -q origin && git merge
 --no-edit origin/main && npm run node:redeploy"'`, then verify `/talk` shows the mini's real Cursor
 desktop sessions in the rail and `/quarters/cursor-runtime/rules` lists+autosaves the mini's actual
-hand-built rules (`indy-frontend-apps-all-prs.mdc` per the plan's research appendix). After that: G6
-(csg preflight - retry it now regardless of the mini, csg may be back up), G7, G8, then STOP 1.
+hand-built rules (`indy-frontend-apps-all-prs.mdc` per the plan's research appendix).
+
+**G6 is IN PROGRESS and csg is currently LOCKED OUT - read F-004 before any further remote command
+touching csg.** Done and unit-tested (no live csg needed): `TetherManager` (`lib/tether.mjs`, 11
+tests), `normalizeTether` in `transports.mjs` (owner gate, mandatory localPort, reserved servePort
+band), `host-credential.mjs`'s `pushHostToken: false` skip, `/tether` + `/tether/:name/repair` routes
+in `server.mjs`. A real correction happened mid-gate: the plan said delete `host-tunnel.sh`, but it
+turned out to be MORE capable than a fresh script written for the operator's live devtunnel-instability
+ask (service-health-checked, not just process-liveness - see the removed
+`devtunnel-host-supervisor.sh` in git history and `evidence/shells/g6/devtunnel-host-mitigation.md` for
+why); `host-tunnel.sh` stays, diverging from the plan's literal text. Then a supervisor swap on csg
+(chaining a kill with a start in one SSH command) dropped the tunnel entirely - self-sealing, this
+session cannot fix it remotely. **Next action is the operator's**: on csg directly, `DEVTUNNEL_BIN=
+~/.local/bin/devtunnel sh ~/.garrison/host-tunnel.sh swift-book-df6tw47.eun1 --detach`. Once csg
+answers again (`devtunnel show swift-book-df6tw47.eun1 --json` -> `hostConnections: 1` from
+dev-madrid, then `ssh -p 2222 -i ~/.ssh/garrison-remote-shell ggomes@127.0.0.1` through a fresh
+`devtunnel connect swift-book-df6tw47.eun1`), resume with: the `compositions/default/apm.yml` csg
+transport update (swift-book + `pushHostToken:false` + the `tether` block - through the Muster-safe
+write path per F-003, NOT a hand-edit), `src/lib/compositions.ts` `local.yml unstation`, node-identity/
+node-switch/peer-proxy/NodeSwitcher additions, then the preflight scripts, the installer, G7, G8.
+Meanwhile (does not need csg): keep building the code-only pieces and their unit tests.
 
 Known tooling limitation hit during G3-ui/G4 live verification (not a code finding): the browser-automation
 `resize_window` tool in this environment does not reliably land on an exact 390x844 viewport (see the
@@ -116,3 +135,15 @@ F-003 [source: g5-live-verify] [status: wontfix (worked around this run; the rea
   edits, config edits under some paths - fixing it is exactly the deferred task #31 work, out of scope
   for stationing one runtime). Anyone editing `targets:` via the Muster UI/API should `git diff --stat
   compositions/` after the next redeploy to confirm it held, same as any hand-edit.
+
+F-004 [source: g6-live-verify] [status: open, needs operator action] A devtunnel-host supervisor swap
+  on csg (kill the running host process, start a replacement, chained in one SSH command) dropped the
+  `swift-book-df6tw47.eun1` tunnel entirely - `devtunnel show` reads `hostConnections: 0`, confirmed
+  twice 15s apart, and SSH through it now times out during the banner exchange. Self-sealing: this
+  session is reachable only through that tunnel, so it cannot fix this remotely. Needs the operator to
+  run, ON THE CSG MACHINE DIRECTLY: `DEVTUNNEL_BIN=~/.local/bin/devtunnel sh
+  ~/.garrison/host-tunnel.sh swift-book-df6tw47.eun1 --detach` (both files already staged there from
+  this session). Full account, root-cause guess, and the rule for next time (never chain a kill of the
+  current host with anything else in one SSH command) in
+  evidence/shells/g6/devtunnel-host-mitigation.md. Everything requiring csg reachability (G7, G8,
+  live-testing TetherManager/host-tunnel.sh against the real tether) is blocked until this clears.
