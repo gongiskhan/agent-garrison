@@ -60,7 +60,21 @@ main { max-width: 980px; margin: 0 auto; padding: 16px; }
 .fitting-chip {
   display: inline-block; margin: 0 3px; padding: 1px 8px; border-radius: 6px;
   background: var(--fail-bg); color: var(--fail); border: 1px solid var(--fail);
-  font-size: 13px;
+  font-size: 13px; font-family: ui-monospace, monospace; cursor: pointer;
+}
+.fitting-chip.active { background: var(--fail); color: var(--bg); }
+
+.filter-view {
+  border: 1px solid var(--fail); border-radius: 10px; margin-bottom: 12px;
+  overflow: hidden;
+}
+.filter-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; background: var(--panel);
+}
+.filter-check-label {
+  padding: 8px 14px 0; color: var(--muted); font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em;
 }
 .headline-other { color: var(--muted); font-size: 13px; }
 

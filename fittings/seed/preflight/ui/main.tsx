@@ -89,6 +89,7 @@ function App() {
   const [sweeping, setSweeping] = useState(false);
   const [sweep, setSweep] = useState<{ compositionId: string; findings: Finding[] } | null>(null);
   const [comp, setComp] = useState<string>("");
+  const [fittingFilter, setFittingFilter] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -190,7 +191,16 @@ function App() {
           {failingFittings.length > 0 ? (
             <span className="headline-fittings">
               {failingFittings.length} fitting{failingFittings.length > 1 ? "s" : ""} failing verify:{" "}
-              {failingFittings.map((id) => <code key={id} className="fitting-chip">{id}</code>)}
+              {failingFittings.map((id) => (
+                <button
+                  key={id}
+                  className={`fitting-chip${fittingFilter === id ? " active" : ""}`}
+                  title={`show every finding that mentions ${id}`}
+                  onClick={() => setFittingFilter(fittingFilter === id ? null : id)}
+                >
+                  {id}
+                </button>
+              ))}
             </span>
           ) : (
             <span className="headline-fittings ok">no fitting is failing verify</span>
@@ -201,6 +211,23 @@ function App() {
               {[...failsByCheck].map(([check, n]) => `${n} ${OTHER_LABELS[check] ?? check}`).join(" · ")}
             </span>
           )}
+        </div>
+      )}
+
+      {fittingFilter && (
+        <div className="filter-view">
+          <div className="filter-head">
+            <strong>everything about <code>{fittingFilter}</code></strong>
+            <button className="linkish" onClick={() => setFittingFilter(null)}>show all checks</button>
+          </div>
+          {allFindings
+            .filter((f) => f.id.includes(fittingFilter) || f.detail.includes(fittingFilter) || (f.fix ?? "").includes(fittingFilter))
+            .map((f, i) => (
+              <div key={`flt:${i}`}>
+                <div className="filter-check-label">{CHECK_TITLES[f.check] || f.check}</div>
+                <FindingRow f={f} />
+              </div>
+            ))}
         </div>
       )}
 
@@ -218,7 +245,7 @@ function App() {
         <span className="sweep-note">runs EVERY fitting's verify and reports all failures — up() stops at the first</span>
       </div>
 
-      {grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} />)}
+      {!fittingFilter && grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} />)}
     </main>
   );
 }

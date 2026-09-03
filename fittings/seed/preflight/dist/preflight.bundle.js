@@ -24550,6 +24550,7 @@ function App() {
   const [sweeping, setSweeping] = (0, import_react.useState)(false);
   const [sweep, setSweep] = (0, import_react.useState)(null);
   const [comp, setComp] = (0, import_react.useState)("");
+  const [fittingFilter, setFittingFilter] = (0, import_react.useState)(null);
   const refresh = (0, import_react.useCallback)(async () => {
     try {
       const res = await fetch("/api/report");
@@ -24650,13 +24651,35 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
         failingFittings.length > 1 ? "s" : "",
         " failing verify:",
         " ",
-        failingFittings.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: "fitting-chip", children: id }, id))
+        failingFittings.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            className: `fitting-chip${fittingFilter === id ? " active" : ""}`,
+            title: `show every finding that mentions ${id}`,
+            onClick: () => setFittingFilter(fittingFilter === id ? null : id),
+            children: id
+          },
+          id
+        ))
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-fittings ok", children: "no fitting is failing verify" }),
       failsByCheck.size > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-other", children: [
         "other issues:",
         " ",
         [...failsByCheck].map(([check, n]) => `${n} ${OTHER_LABELS[check] ?? check}`).join(" \xB7 ")
       ] })
+    ] }),
+    fittingFilter && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "filter-view", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "filter-head", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("strong", { children: [
+          "everything about ",
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: fittingFilter })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "linkish", onClick: () => setFittingFilter(null), children: "show all checks" })
+      ] }),
+      allFindings.filter((f) => f.id.includes(fittingFilter) || f.detail.includes(fittingFilter) || (f.fix ?? "").includes(fittingFilter)).map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "filter-check-label", children: CHECK_TITLES[f.check] || f.check }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f })
+      ] }, `flt:${i}`))
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "sweep-bar", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
@@ -24674,7 +24697,7 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       ),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sweep-note", children: "runs EVERY fitting's verify and reports all failures \u2014 up() stops at the first" })
     ] }),
-    grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings }, check))
+    !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings }, check))
   ] });
 }
 (0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(App, {}));
