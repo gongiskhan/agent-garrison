@@ -43,8 +43,9 @@ on the iPhone and walk this list on the real device against this node
    wake hit and falls back to the persisted session record; the regression
    is `tests/capture-service-wake-conversation.test.ts` ("keeps the
    conversation bound at the wake hit when the broadcast stops before the
-   window closes"). Retest on a node running `D54` or later (dev-madrid
-   after the 2026-09-03 evening redeploy). If nothing arrives,
+   window closes"). Retest on a node running `66042392` or later: this Mac
+   or the mini tonight, dev-madrid once it redeploys from `main` (see §2).
+   If nothing arrives,
    `curl -s http://127.0.0.1:8097/health | jq .counters` on the node:
    `wake_conversation_turns` should count the hit,
    `screen_audio_transcription_skipped` means a pendant session was live
@@ -196,6 +197,22 @@ the simulator and where the code is.
   should - see §4).
 - dev-madrid carries a local commit `5af91f90` ("shells: G0") on top of
   `66c84865` from another session's plan; not this run's, left alone.
+- **2026-09-03 evening (`66042392`, D52-D54): this Mac and the mini are
+  redeployed; dev-madrid is NOT.** This Mac: `node:redeploy` 18:35Z-18:40Z,
+  every verify passed, capture-service pid 76878 on the installed copy that
+  carries the D54 binding (`evidence/garrison-app/voice-d52-d54/`). The
+  mini: fast-forward from `66c84865` and `node:redeploy` at 18:40Z,
+  capture-service pid 17109, same check. dev-madrid's tree at 18:32Z held
+  another session's plan mid-flight ("shells", HEAD `32ab43dc`, nine
+  modified tracked files and six untracked, `fittings/seed/kanban-loop/ui/main.tsx`
+  and `src/lib/mesh/peer-proxy.ts` written seconds earlier), so the merge
+  was refused by git and not forced, and no redeploy ran there: it would
+  have built that half-done tree and dropped its operative. The phone points
+  at dev-madrid, so until that session lands and dev-madrid redeploys from
+  `main`, phone checks 3, 3b and 3c run against this Mac or the mini through
+  the node switcher in Settings. When dev-madrid is free: `git merge
+  origin/main` (it has local commits; never `--ff-only`, never discard the
+  uncommitted work) and `npm run node:redeploy`.
 
 ## 3. Operator-triggered follow-ups
 

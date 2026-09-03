@@ -1,0 +1,38 @@
+# npm run node:redeploy on this Mac, 2026-09-03 ~18:35Z, commit 66042392
+
+> agent-garrison@0.1.0 node:redeploy
+> bash scripts/garrison-redeploy.sh
+[redeploy] building prod bundle (.next-prod)
+  ▲ Next.js 14.2.35
+  - Environments: .env
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/26) ...
+   Generating static pages (6/26) 
+   Generating static pages (12/26) 
+   Generating static pages (19/26) 
+ ✓ Generating static pages (26/26)
+   Finalizing page optimization ...
+   Collecting build traces ...
++ First Load JS shared by all                   88 kB
+  └ other shared chunks (total)                 2.43 kB
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+[redeploy] stopping operative + fittings (default)
+[redeploy] kickstarting io.garrison.node (launchd)
+[app-server] old app server 7738 still alive after the restart; ending it
+[redeploy] waiting for http://127.0.0.1:8777
+[redeploy] unlocking the vault (keychain-sealed)
+[redeploy] starting operative + fittings (default)
+[redeploy] publishing own-port views to the tailnet
+Warning: client version "1.92.3-t9a08e8f1c" != tailscaled server version "1.96.5-t4ee448d3a-g74ffbefc2"
+Found 1 own-port view(s). Ensuring tailscale serve mappings...
+Warning: client version "1.92.3-t9a08e8f1c" != tailscaled server version "1.96.5-t4ee448d3a-g74ffbefc2"
+Warning: client version "1.92.3-t9a08e8f1c" != tailscaled server version "1.96.5-t4ee448d3a-g74ffbefc2"
+Fitting            local   tailnet URL
+-----------------  ------  ------------------------------------------
+automations        8090    https://goncalos-macbook-pro.tail31efa.ts.net:8505   [kept]
+Done. Garrison will now link these views to their HTTPS tailnet URLs when reached over Tailscale.
+[redeploy] done — prod serving http://127.0.0.1:8777 (tailnet: https://goncalos-macbook-pro.tail31efa.ts.net)
