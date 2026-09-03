@@ -34,6 +34,10 @@ export const CONVERSATION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
  *  `..` are rejected separately because both match the character class. */
 const PAYLOAD_REF_RE = /^[A-Za-z0-9._-]{1,200}$/;
 const HANDOFF_ORDINAL_RE = /^\d{1,4}$/;
+/** The two ways a message reaches a RUNNING conversation: `steer` interrupts
+ *  the stretch in flight and re-runs its duty with the message in the brief;
+ *  `queue` holds it for the next brief the loop builds. */
+export const DELIVERY_MODES = new Set(["steer", "queue"]);
 
 const STREAM_POLL_MS = 350;
 const KEEPALIVE_MS = 15_000;
@@ -381,7 +385,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     sendJson(res, err?.code === "BODY_TOO_LARGE" ? 413 : 400, { error: err?.message ?? "unreadable body" });
     return;
   }
-  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing"]);
+  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing", "delivery"]);
   const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key));
   if (unknown.length) {
     sendJson(res, 400, { error: `unknown fields: ${unknown.join(", ")}` });
@@ -404,21 +408,43 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
   }
   const context = typeof body?.context === "string" ? body.context.slice(0, 8000) : null;
   const routing = body?.routing ?? null;
+  // How a message that lands on a RUNNING conversation is delivered. `steer`
+  // interrupts the stretch in flight and re-runs its duty with the message in
+  // the brief (what typing into a working Claude Code session does); `queue`
+  // holds it for the next brief the loop builds. Absent = the responder's
+  // default, which is queue. Anything else is a typo, not a third mode.
+  if (body?.delivery !== undefined && !DELIVERY_MODES.has(body.delivery)) {
+    sendJson(res, 400, { error: "delivery must be steer or queue" });
+    return;
+  }
+  const delivery = typeof body?.delivery === "string" ? body.delivery : null;
 
   let forwarded;
   try {
-    forwarded = await forwardMessage({ conversationId, message, clientRequestId, origin, context, routing });
+    forwarded = await forwardMessage({
+      conversationId,
+      message,
+      clientRequestId,
+      origin,
+      context,
+      routing,
+      ...(delivery ? { delivery } : {}),
+    });
   } catch (err) {
     forwarded = { ok: false, error: err?.message ?? String(err) };
   }
   if (!forwarded?.ok) {
+    const detail = forwarded?.error ?? forwarded?.status ?? null;
     sendJson(res, 502, {
-      error: "the conversation responder is unreachable; the message was NOT recorded",
-      detail: forwarded?.error ?? forwarded?.status ?? null,
+      // The detail rides the error TEXT as well as its own field: the composer
+      // renders only the text, and "unreachable" with no reason is exactly the
+      // message a person cannot act on.
+      error: `the conversation responder is unreachable; the message was NOT recorded${detail ? ` (${detail})` : ""}`,
+      detail,
     });
     return;
   }
-  let seq = null;
+  let seq = typeof forwarded.seq === "number" ? forwarded.seq : null;
   if (!forwarded.recorded) {
     const running = store.currentStretch();
     const record = store.append({
@@ -428,7 +454,8 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
         origin,
         clientRequestId,
         arrivedDuringStretch: running,
-        disposition: running ? "queued" : "opened",
+        disposition: running ? (delivery === "steer" ? "steer" : "queued") : "opened",
+        ...(delivery ? { delivery } : {}),
       },
     });
     seq = record.ok ? record.seq : null;
@@ -438,8 +465,13 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     conversationId,
     recordedBy: forwarded.recorded ? "responder" : "router",
     seq,
+    // What the responder did with it, when it said: `steer` (a stretch was
+    // interrupted for it), `running-stretch` (held for the next brief),
+    // `responder` (nothing was running; a responder stretch was opened).
+    ...(typeof forwarded.pickedUpBy === "string" ? { pickedUpBy: forwarded.pickedUpBy } : {}),
   });
 }
+
 
 /**
  * The forwarder every real mount uses: POST the gateway's own
@@ -452,7 +484,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
  * the message in the transcript twice.
  */
 export function gatewayMessageForwarder(gatewayUrl) {
-  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null }) => {
+  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null, delivery = null }) => {
     if (!gatewayUrl) return { ok: false, error: "this mount has no gateway URL" };
     try {
       const response = await fetch(new URL("/conversation/message", gatewayUrl), {
@@ -465,11 +497,25 @@ export function gatewayMessageForwarder(gatewayUrl) {
           ...(clientRequestId ? { clientRequestId } : {}),
           ...(context ? { context } : {}),
           ...(routing ? { routing } : {}),
+          ...(delivery ? { delivery } : {}),
         }),
         signal: AbortSignal.timeout(10_000),
       });
-      if (!response.ok) return { ok: false, status: response.status, error: `gateway answered ${response.status}` };
-      return { ok: true, recorded: true };
+      if (!response.ok) {
+        // The gateway's own reason (a not-ready router, a refused id) is the
+        // one thing the person can act on, so it is carried up, not flattened
+        // into a status code.
+        const body = await response.json().catch(() => null);
+        const why = typeof body?.error === "string" ? `: ${body.error.slice(0, 200)}` : "";
+        return { ok: false, status: response.status, error: `gateway answered ${response.status}${why}` };
+      }
+      const body = await response.json().catch(() => null);
+      return {
+        ok: true,
+        recorded: true,
+        ...(typeof body?.seq === "number" ? { seq: body.seq } : {}),
+        ...(typeof body?.pickedUpBy === "string" ? { pickedUpBy: body.pickedUpBy } : {}),
+      };
     } catch (err) {
       return { ok: false, error: err?.message ?? String(err) };
     }

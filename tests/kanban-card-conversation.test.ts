@@ -249,4 +249,66 @@ describe("the card's conversation surface", () => {
     });
     expect(hasUpload).toBe(false);
   });
+
+  it("steers a working card by default, and queues a follow-up on request", async () => {
+    await page.evaluate(() => {
+      (window as any).__messageResponse = { status: 202, body: { accepted: true, seq: 8, recordedBy: "responder", pickedUpBy: "steer" } };
+    });
+    await mount({ running: true });
+    await emit({ type: "init", available: true, live: true, events: [] });
+
+    // A working card shows the two-way choice, armed on steer.
+    const options = page.locator(".conv-delivery-option");
+    expect(await options.count()).toBe(2);
+    expect(await options.nth(0).getAttribute("aria-checked")).toBe("true");
+    expect(await page.locator(".cc-input").getAttribute("placeholder")).toBe("Steer the work in progress…");
+    expect(await page.locator(".conv-delivery-hint").textContent()).toContain("Interrupts the current stretch");
+
+    await send("use the other approach");
+    await page.waitForFunction(() => (window as any).__posts.length === 1);
+    let posts = await page.evaluate(() => (window as any).__posts);
+    expect(posts[0].body.delivery).toBe("steer");
+    expect(Object.keys(posts[0].body).sort()).toEqual(["clientRequestId", "delivery", "message", "origin"]);
+    // What the responder said it did, under the switch.
+    await page.waitForFunction(() => (document.querySelector(".conv-delivery-hint")?.textContent ?? "").includes("Steering"));
+
+    // Switch to a follow-up: the next message waits for the stretch to finish.
+    await page.evaluate(() => {
+      (window as any).__messageResponse = { status: 202, body: { accepted: true, seq: 9, recordedBy: "responder", pickedUpBy: "running-stretch" } };
+    });
+    await options.nth(1).click();
+    expect(await options.nth(1).getAttribute("aria-checked")).toBe("true");
+    expect(await page.locator(".cc-input").getAttribute("placeholder")).toBe("Queue a follow-up for after this stretch…");
+    await send("and then also add tests");
+    await page.waitForFunction(() => (window as any).__posts.length === 2);
+    posts = await page.evaluate(() => (window as any).__posts);
+    expect(posts[1].body.delivery).toBe("queue");
+    await page.waitForFunction(() => (document.querySelector(".conv-delivery-hint")?.textContent ?? "").includes("Queued"));
+  });
+
+  it("offers no delivery choice on a card that is not working", async () => {
+    await mount({ running: false });
+    await emit({ type: "init", available: true, live: false, events: [] });
+    expect(await page.locator(".conv-delivery").count()).toBe(0);
+    expect(await page.locator(".cc-input").getAttribute("placeholder")).toBe("Ask a question, or give the card more work…");
+    await send("is this deployed?");
+    await page.waitForFunction(() => (window as any).__posts.length === 1);
+    const posts = await page.evaluate(() => (window as any).__posts);
+    expect(posts[0].body).not.toHaveProperty("delivery");
+  });
+
+  it("surfaces the responder's reason when the door refuses", async () => {
+    await page.evaluate(() => {
+      (window as any).__messageResponse = {
+        status: 502,
+        body: { error: "the conversation responder is unreachable; the message was NOT recorded", detail: "gateway answered 409: routed operative is not ready" },
+      };
+    });
+    await mount();
+    await emit({ type: "init", available: true, live: false, events: [] });
+    await send("hello?");
+    const notice = page.locator(".cc-tailstrip-row .cc-session-error").first();
+    await notice.waitFor();
+    expect(await notice.textContent()).toContain("routed operative is not ready");
+  });
 });

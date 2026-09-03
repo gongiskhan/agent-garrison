@@ -34,9 +34,12 @@ export async function postConversationMessage(
   message: string,
   opts: { base?: string; clientRequestId?: string | null; origin?: string; signal?: AbortSignal } = {},
 ): Promise<{ seq: number | null; recordedBy: string | null }> {
-  // The door's allowed-fields gate is exact: `message`, `clientRequestId` and
-  // `origin` only. Anything else is a 400, so per-turn context/pins are NOT
-  // carried here - see the note on createConversationTransport.
+  // The door's allowed-fields gate is exact: `message`, `clientRequestId`,
+  // `origin`, `context`, `routing` and `delivery`. Anything else is a 400.
+  // Per-turn context/pins are NOT carried here - see the note on
+  // createConversationTransport - and neither is `delivery`: this surface
+  // takes the door's default (queue behind a running stretch); the kanban
+  // card's composer is where a message steers the stretch in flight.
   const body: Record<string, unknown> = { message, origin: opts.origin ?? "web" };
   if (opts.clientRequestId) body.clientRequestId = opts.clientRequestId;
   let res: Response;
