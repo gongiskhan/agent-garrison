@@ -146,7 +146,13 @@ the simulator and where the code is.
   files, the fitting directories and every manifest. The operator killed the
   orphans by hand this time (the session's classifier refused my `kill`);
   the `up()` that followed failed on `basic-memory` verify timing out under
-  load 150+ and has to be re-run once the reload lands.
+  load 150+. The `node:reload` of `6a168ea0` (18:50Z) reaped the last orphan
+  itself (`[app-server] ending orphaned next-server 9144`), and its `up()`
+  passed all verifies: 16 fittings, capture-service pid 12389 with the D50
+  flag on, `/talk` serving the dictation bundle over the tailnet. This node
+  is now the only one on the fixed build; the peers run `66c84865` (mini) and
+  `5af91f90` (dev-madrid) and get the app-server guard and the library cache
+  on their next redeploy.
 - **D50 was dark on every node, and would have stayed dark after a redeploy.**
   The state service on dev-madrid, not git, is the source of truth for a
   composition's manifest: `up()` materialises the service copy over the
