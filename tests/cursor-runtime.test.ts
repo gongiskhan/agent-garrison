@@ -1,4 +1,5 @@
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { describe, it, expect } from "vitest";
 import { shippedCompositionIds, compositionManifestPath } from "./helpers/shipped-compositions";
 // @ts-ignore — pure .mjs
@@ -279,6 +280,7 @@ describe("Cursor runtime-bridge delegation (MRr-bridge / cursor-runtime-ok)", ()
 
 describe("cursor-runtime bridge probe", () => {
   const okVersion = { status: 0, stdout: "2026.07.23-e383d2b\n", stderr: "" };
+  const notFound = { status: 127, stdout: "", stderr: "command not found" };
 
   it("passes when the CLI is present AND the box is authenticated", () => {
     const run = (_bin: string, argv: string[]) =>
@@ -297,15 +299,69 @@ describe("cursor-runtime bridge probe", () => {
     expect(statusCalls).toBe(0);
   });
 
-  it("fails loudly when the CLI is absent", () => {
-    const run = () => ({ status: 127, stdout: "", stderr: "command not found" });
-    expect(probeFailure(run, {})).toMatch(/not found on PATH/);
+  it("reports 'absent' when the CLI is on neither PATH nor ~/.local/bin", () => {
+    const run = () => notFound;
+    const failure = probeFailure(run, { HOME: "/home/tester" });
+    expect(failure).toMatchObject({ level: "absent" });
+    expect(failure.reason).toMatch(/not found on PATH/);
   });
 
-  it("fails loudly when the CLI is present but LOGGED OUT (a version-only probe would have passed)", () => {
+  it("falls back to ~/.local/bin/cursor-agent when the bare command is not on PATH", () => {
+    const run = (bin: string, argv: string[]) => {
+      if (bin === "cursor-agent") return notFound; // not on PATH (no login shell)
+      if (bin !== "/home/tester/.local/bin/cursor-agent") return notFound;
+      return argv[0] === "--version" ? okVersion : { status: 0, stdout: JSON.stringify({ status: "authenticated", isAuthenticated: true }), stderr: "" };
+    };
+    expect(probeFailure(run, { HOME: "/home/tester" })).toBeNull();
+  });
+
+  it("reports 'unauthenticated' (not 'absent') when the CLI is present but LOGGED OUT", () => {
     const run = (_bin: string, argv: string[]) =>
       argv[0] === "--version" ? okVersion : { status: 0, stdout: JSON.stringify({ status: "unauthenticated", isAuthenticated: false }), stderr: "" };
-    expect(probeFailure(run, {})).toMatch(/not authenticated[\s\S]*cursor-agent login/);
+    const failure = probeFailure(run, {});
+    expect(failure).toMatchObject({ level: "unauthenticated" });
+    expect(failure.reason).toMatch(/not authenticated[\s\S]*cursor-agent login/);
+  });
+});
+
+describe("cursor-runtime --probe exit behaviour (the composition-wide up() stakes)", () => {
+  // main() reads process.env directly and calls the real spawnSync-backed
+  // probeFailure, so these run the actual CLI as a subprocess rather than
+  // re-testing probeFailure's logic (covered above) - the contract under test
+  // here is specifically the exit code / stdout shape --probe produces for
+  // each probeFailure outcome, since that is what runner.ts's verify() step
+  // actually observes.
+  const BRIDGE = path.join(process.cwd(), "fittings/seed/cursor-runtime/scripts/bridge.mjs");
+  const FAKE_BIN_DIR = path.join(process.cwd(), "tests/fixtures/cursor-runtime/fake-bin");
+
+  function run(env: Record<string, string>) {
+    return spawnSync(process.execPath, [BRIDGE, "--probe"], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: "/nonexistent-so-the-real-cli-is-never-found", ...env }
+    });
+  }
+
+  it("absent + no GARRISON_REQUIRE_CURSOR: exits 0 with a degraded note", () => {
+    const HOME = path.join(process.cwd(), "tests/fixtures/cursor-runtime/empty-home");
+    const r = run({ HOME });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/^ok/);
+    expect(r.stdout).toMatch(/degraded: no cursor-agent on this node/);
+  });
+
+  it("absent + GARRISON_REQUIRE_CURSOR=1: exits 1 (strict)", () => {
+    const HOME = path.join(process.cwd(), "tests/fixtures/cursor-runtime/empty-home");
+    const r = run({ HOME, GARRISON_REQUIRE_CURSOR: "1" });
+    expect(r.status).toBe(1);
+    expect(r.stdout).not.toMatch(/^ok/);
+    expect(r.stderr).toMatch(/not found on PATH/);
+  });
+
+  it("present but unauthenticated: exits 1 even without GARRISON_REQUIRE_CURSOR", () => {
+    const HOME = path.join(process.cwd(), "tests/fixtures/cursor-runtime/empty-home");
+    const r = run({ HOME, PATH: FAKE_BIN_DIR, CURSOR_FAKE_AUTH: "0" });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/not authenticated/);
   });
 });
 
@@ -548,5 +604,25 @@ describe("cursor-runtime seed manifest", () => {
     // runtime with an inert account picker is worse than none (see for_consumers).
     expect((metadata.config_schema ?? []).some((f) => f.key === "account")).toBe(false);
     expect((metadata.summary ?? "").trim().length).toBeGreaterThan(0);
+  });
+
+  it("G5: declares the six file_sets, each with a valid glob, and desktop is darwin-only", async () => {
+    const manifest = await readYamlFile<{ "x-garrison"?: unknown }>(
+      path.resolve(__dirname, "..", "fittings", "seed", "cursor-runtime", "apm.yml")
+    );
+    const metadata = parseGarrisonMetadata(manifest!["x-garrison"]);
+    const fileSets = metadata.quarters_descriptor?.file_sets ?? [];
+    expect(fileSets.map((f) => f.id).sort()).toEqual(["agents", "desktop", "hooks", "project-rules", "rules", "skills"]);
+    const byId = new Map(fileSets.map((f) => [f.id, f]));
+    expect(byId.get("rules")).toMatchObject({ glob: "*.mdc", format: "markdown", create: true });
+    expect(byId.get("skills")).toMatchObject({ glob: "*/SKILL.md", format: "markdown", create: true });
+    expect(byId.get("hooks")).toMatchObject({ glob: "hooks.json", format: "json", write: "merge" });
+    expect(byId.get("desktop")).toMatchObject({ format: "json", platform: "darwin" });
+    expect(byId.get("project-rules")).toMatchObject({ glob: "*.mdc", scope: "project", create: true });
+    // Every file_sets id doubles as a categories entry, or the [type]/[sub]
+    // route 404s it before RuntimeFileSetPanel ever gets a chance to render.
+    for (const id of fileSets.map((f) => f.id)) {
+      expect(metadata.quarters_descriptor?.categories ?? []).toContain(id);
+    }
   });
 });

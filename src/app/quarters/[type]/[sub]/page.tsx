@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { resolveRuntimeQuarters, declaredFiles } from "@/lib/quarters-runtimes";
 import { RuntimeFileEditor, RuntimeLogsTail } from "@/components/quarters/RuntimeGenericPanels";
+import { RuntimeFileSetPanel } from "@/components/quarters/RuntimeFileSetPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,9 @@ export default async function RuntimeQuartersPage({ params }: { params: { type: 
             ))
         : null}
       {params.sub === "logs" ? <RuntimeLogsTail rid={entry.fittingId} /> : null}
+      {(descriptor.file_sets ?? []).some((f) => f.id === params.sub) ? (
+        <RuntimeFileSetPanel rid={entry.fittingId} setId={params.sub} />
+      ) : null}
     </div>
   );
 }

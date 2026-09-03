@@ -1663,6 +1663,51 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
   white-space: pre-wrap;
 }
 .quarters-note { color: var(--mute); font-size: 12.5px; padding: 12px 0; }
+
+/* G5: file_sets (a DIRECTORY of files - rules/skills/agents/hooks/desktop/
+   project rules), the same visual language as .runtime-file-editor above. */
+.runtime-file-set { display: flex; flex-direction: column; gap: 12px; }
+.qs-project-picker {
+  align-self: flex-start;
+  border: 1px solid var(--rule);
+  background: white;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--ink, #222);
+}
+.runtime-file-set-body { display: flex; flex-direction: column; gap: 8px; }
+.runtime-file-set-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.runtime-file-set-list li { display: contents; }
+.runtime-file-set-create { display: flex; align-items: center; gap: 8px; }
+.runtime-file-set-create input {
+  border: 1px solid var(--rule);
+  background: white;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  font-family: var(--mono, monospace);
+  min-width: 220px;
+}
+.runtime-file-set-editor { border: 1px solid var(--rule); background: var(--surface-raised); }
+.qs-frontmatter { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
+.qs-frontmatter-chip {
+  border: 1px solid var(--rule);
+  background: white;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--mono, monospace);
+  color: var(--mute);
+}
+.runtime-file-set-json {
+  width: 100%;
+  min-height: 420px;
+  border: none;
+  padding: 12px;
+  font-family: var(--mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.runtime-file-set-json:disabled { background: var(--surface, #f5f3ec); color: var(--mute); }
 nav.tabs .item .pin-toggle {
   display: inline-flex;
   align-items: center;

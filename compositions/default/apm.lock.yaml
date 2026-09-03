@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-03T18:20:41.680280+00:00'
+generated_at: '2026-09-03T19:44:14.962710+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -71,6 +71,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/cortex-client
+- repo_url: _local/cursor-runtime
+  name: cursor-runtime
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/cursor-runtime
 - repo_url: _local/dev-env
   name: dev-env
   version: 0.1.0

@@ -12,6 +12,7 @@ dependencies:
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/cortex-automations
     - path: ../../fittings/seed/cortex-client
+    - path: ../../fittings/seed/cursor-runtime
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/email-channel
@@ -180,6 +181,9 @@ x-garrison:
           config:
             model: deepseek-ai/DeepSeek-V4-Pro
             account: ''
+        - id: cursor-runtime
+          config:
+            model: auto
       memory:
         - id: basic-memory
           config:
@@ -792,3 +796,8 @@ x-garrison:
           authMode: subscription
           promptMode: coding
           maxTurns: 500
+      - id: cursor-local
+        runtime: cursor
+        model: auto
+        params:
+          type: secondary
