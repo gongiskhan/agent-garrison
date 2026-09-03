@@ -1,12 +1,14 @@
 # Shells run ledger
 
-plan: /home/ggomes/.claude/plans/we-should-have-a-zesty-star.md (copied to docs/decisions/2026-09-03-shells-and-mesh-sessions.md)   model: Claude Sonnet 5   branch: main   head: 1bc3c25db9ae6dae4f1c9f2242c715edc0ae6873
+plan: /home/ggomes/.claude/plans/we-should-have-a-zesty-star.md (copied to docs/decisions/2026-09-03-shells-and-mesh-sessions.md)   model: Claude Sonnet 5   branch: main   head: 46efa1db80170f49a6640dfec5aac2768a6159cf
 
 | gate | status | commit | deploy | evidence dir | notes |
 |---|---|---|---|---|---|
 | G0 | done | 5af91f9021d8 | none (docs only) | evidence/shells/g0/ | ledger + gitignore negation + decision doc |
 | G1 | done | 3f457a6b0715 | redeploy @ 2026-09-03T17:51Z | evidence/shells/g1/ | local transport, runtime catalog, claude-sessions lift; verified live on dev-madrid (csg transport unaffected) |
 | G2 | done | d44933f2a6, 1bc3c25db9 | redeploy @ 2026-09-03T18:15Z, redeploy @ 2026-09-03T18:21Z | evidence/shells/g2/ | listers, hook install, index publish, origin guard, manifest; found+fixed TWO live bugs on dev-madrid during verification (see Open findings F-001, F-002) |
+| G3-server | done | 46efa1db80 | reload @ 2026-09-03T18:36Z | evidence/shells/g3/ | mesh-sessions.mjs, shellBinding, transcript-formats.mjs, GET /api/sessions + /api/sessions/:id/stream, peer-proxy ALLOW row; live-verified streaming THIS session's own transcript through the new endpoint |
+| G3-ui | todo | - | - | evidence/shells/g3-ui/ | shell-origin.ts, sessions-rail.tsx Sessions section, app.tsx refresh clock |
 | G2 | todo | - | - | evidence/shells/g2/ | listers, hooks install, index publish, origin guard, manifest |
 | G3 | todo | - | - | evidence/shells/g3/ | talk: aggregated list, live rail, direct-origin client |
 | G4 | todo | - | - | evidence/shells/g4/ | talk: owned-shell workbench, external session view, new shell, styles |
@@ -16,23 +18,28 @@ plan: /home/ggomes/.claude/plans/we-should-have-a-zesty-star.md (copied to docs/
 | G8 | todo | - | - | evidence/shells/g8/ | csg in the app |
 
 ## Mesh heads
-dev-madrid 1bc3c25d @ 2026-09-03T18:21Z (local HEAD; 4 ahead / 4 behind origin/main, push deferred - see F-000) | mini n/a | csg n/a
+dev-madrid 46efa1db @ 2026-09-03T18:36Z (local HEAD; 5 ahead / 4 behind origin/main, push deferred - see F-000) | mini n/a | csg n/a
 
 ## Resume here
-G1 and G2 are done and live on dev-madrid (fitting `/health`, `/index` both healthy, real
-`~/.codex/hooks.json` and `~/.gemini/settings.json` correctly carry the hooks). Start G3 per the plan
-section 3: `packages/talk/src/threads.mjs` (`shellBinding`), `packages/talk/src/mesh-sessions.mjs` (new -
-merge local `/index` + peer `shells.sessions` docs + thread binding), `packages/talk/src/transcript-formats.mjs`
-(new - cursor/codex/gemini parsers), `packages/talk/src/router.mjs` (`GET /api/sessions`,
-`GET /api/sessions/:id/stream`, join `meta.shell` into `handleThreadsList`), `src/lib/mesh/peer-proxy.ts`
-(new ALLOW row for `sessions/:id/stream`), `packages/talk/ui/shell-origin.ts` (new - direct-origin client,
-mirrors `resolveViewUrl`), `packages/talk/ui/sessions-rail.tsx` (Sessions section, refresh clock in
-`app.tsx`). Row shape and REST contract are frozen in the decision doc section 2.2-2.4 - read those before
-touching UI code. Known deliberate simplification in G2: the index only rebuilds on a periodic timer
+G1, G2, and G3-server are done and live on dev-madrid (`GET /api/sessions` and
+`GET /api/sessions/:id/stream` both live-verified against this very session's own transcript). Start
+G3-ui/G4 per the plan section 3: `packages/talk/ui/shell-origin.ts` (new - `resolveOriginForPage` mirroring
+`resolveViewUrl`, `resolveShellOrigin(row, self)`, `shellFetch` with `ShellOriginError`, `shellSocketUrl`,
+`errorCopy`), `packages/talk/ui/sessions-rail.tsx` (RailSession type, buildRailRows pure export, the
+"Sessions" section: node sub-heads, working pulse, Show ended toggle, testids per section 3 G3 slice),
+`packages/talk/ui/app.tsx` (sessions poll 5s / thread list 10s / mesh-threads 30s refresh clock,
+`apiListSessions`), then G4: `remote-shell-workbench.tsx` `mode="shell"`, `shell-composer.tsx` (new),
+`session-view.tsx` (new - external session view + resume-refusal detection), `new-shell-modal.tsx` (new),
+`styles.css` additions. Row shape and REST contract are frozen in the decision doc section 2.2-2.4 - read
+those before touching UI code. `tests/vocabulary.test.ts` only scans `packages/talk/ui` (not `src`), so new
+UI files that say "session" legitimately need whitelist entries there (see its `ALLOWLIST` array and the
+existing `shells-modal.tsx`/`remote-shell-workbench.tsx` entries for the pattern).
+
+Known deliberate simplification in G2: the index only rebuilds on a periodic timer
 (`index_publish_seconds`, default 10s), not on every session state change (`manager.onChange` was scoped
 out to avoid invasive edits across every state-mutation point in sessions.mjs) - the rail's own poll cadence
-(G3, 5s) should be enough that this is not user-visible, but note it if a "why did this take 10s to show
-Working" question comes up.
+(5s, per the plan) should be enough that this is not user-visible, but note it if a "why did this take 10s
+to show Working" question comes up.
 
 Two real bugs were found DURING G2 verification (both fixed in this run, not deferred) - see F-001/F-002
 below for the exact failure and fix; read them before writing any new code that touches process.env-derived
