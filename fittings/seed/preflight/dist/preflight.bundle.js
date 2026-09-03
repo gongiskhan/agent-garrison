@@ -24509,11 +24509,15 @@ var CHECK_ORDER = Object.keys(CHECK_TITLES);
 function StatusPip({ status }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pip pip-${status}`, title: status });
 }
-function FixButton({ f }) {
+function FixButton({ f, onSweep }) {
   const [state, setState] = (0, import_react.useState)("idle");
   const [message, setMessage] = (0, import_react.useState)("");
   const run = async () => {
     if (!f.action) return;
+    if (f.action.id === "verify-sweep") {
+      onSweep?.(String(f.action.params.compositionId));
+      return;
+    }
     if (!window.confirm(`Fix "${f.id}"?
 
 This will run:
@@ -24545,7 +24549,7 @@ ${f.action.command}`)) return;
   ] });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, disabled: state === "running", title: f.action?.command, children: state === "running" ? "fixing\u2026" : "Fix it" });
 }
-function FindingRow({ f }) {
+function FindingRow({ f, onSweep }) {
   const [open, setOpen] = (0, import_react.useState)(false);
   const parts = f.id.includes(":") ? f.id.split(":") : null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `finding finding-${f.status}`, children: [
@@ -24561,14 +24565,14 @@ function FindingRow({ f }) {
       "fix: ",
       f.fix
     ] }),
-    f.action && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixButton, { f }),
+    f.action && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixButton, { f, onSweep }),
     f.evidence && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "linkish", onClick: () => setOpen(!open), children: open ? "hide evidence" : "show evidence" }),
       open && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "evidence", children: f.evidence })
     ] })
   ] });
 }
-function Section({ check, findings }) {
+function Section({ check, findings, onSweep }) {
   const worst = findings.reduce(
     (acc, f) => f.status === "fail" || acc === "fail" ? "fail" : f.status === "warn" || acc === "warn" ? "warn" : "pass",
     "pass"
@@ -24582,7 +24586,7 @@ function Section({ check, findings }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "count", children: findings.length }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chev", children: open ? "\u25BE" : "\u25B8" })
     ] }),
-    open && findings.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f }, `${f.id}:${i}`))
+    open && findings.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, onSweep }, `${f.id}:${i}`))
   ] });
 }
 function ResolvedBadge({ resolved }) {
@@ -24674,10 +24678,12 @@ function App() {
     }, 3e4);
     return () => clearInterval(id);
   }, [refresh, sweeping]);
-  const runSweep = (0, import_react.useCallback)(async () => {
-    if (!comp) return;
+  const runSweep = (0, import_react.useCallback)(async (target) => {
+    const id = target ?? comp;
+    if (!id) return;
+    if (target) setComp(target);
     if (!window.confirm(
-      `Run the FULL verify sweep for "${comp}"?
+      `Run the FULL verify sweep for "${id}"?
 
 This is heavy: it flips the runner status, may run apm install, and runs every setup + verify hook. It is the same code path up() uses.`
     )) return;
@@ -24687,13 +24693,13 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       const res = await fetch("/api/verify-sweep", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ compositionId: comp })
+        body: JSON.stringify({ compositionId: id })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setSweep({ compositionId: comp, findings: data.findings });
+      setSweep({ compositionId: id, findings: data.findings });
     } catch (err) {
-      setSweep({ compositionId: comp, findings: [{ check: "verify-sweep", id: comp, status: "fail", detail: String(err) }] });
+      setSweep({ compositionId: id, findings: [{ check: "verify-sweep", id, status: "fail", detail: String(err) }] });
     } finally {
       setSweeping(false);
     }
@@ -24783,7 +24789,7 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       ] }),
       allFindings.filter((f) => f.id.includes(fittingFilter) || f.detail.includes(fittingFilter) || (f.fix ?? "").includes(fittingFilter)).map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "filter-check-label", children: CHECK_TITLES[f.check] || f.check }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, onSweep: runSweep })
       ] }, `flt:${i}`))
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "sweep-bar", children: [
@@ -24794,7 +24800,7 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "button",
         {
-          onClick: runSweep,
+          onClick: () => runSweep(),
           disabled: sweeping || !report.appUp || !comp,
           title: report.appUp ? "Runs every verify hook via the app \u2014 heavy" : "Needs the Garrison app up",
           children: sweeping ? "sweeping\u2026 (can take minutes)" : "Run full verify sweep"
@@ -24802,7 +24808,7 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       ),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sweep-note", children: "runs EVERY fitting's verify and reports all failures \u2014 up() stops at the first" })
     ] }),
-    !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings }, check)),
+    !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings, onSweep: runSweep }, check)),
     ((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixJournal, { entries: report.recentFixes ?? [], libraryDiff: report.libraryDiff, onChanged: refresh })
   ] });
 }

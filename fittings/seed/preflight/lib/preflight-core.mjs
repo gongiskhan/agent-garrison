@@ -266,7 +266,12 @@ export function assessVerifyResults(records) {
     if (!source) {
       findings.push(mk("verify-results", r.compositionId, "warn",
         `${r.compositionId} has no verify record — no .garrison/last-up.json and no live runner state (it has never been brought up, or the app restarted since).`,
-        { fix: "Run the verify sweep (button/--sweep) to get a first complete picture without attempting a full up()." }));
+        {
+          fix: "Run the verify sweep to get a first complete picture without attempting a full up().",
+          // Not a fixers.mjs action: the UI routes this one to the existing
+          // sweep flow (own endpoint, own confirm, own busy-guard).
+          action: { id: "verify-sweep", params: { compositionId: r.compositionId }, command: `run EVERY fitting's verify for ${r.compositionId} via the app's own verify endpoint (heavy: flips runner status, may run apm install, runs setup hooks)` }
+        }));
       continue;
     }
     const failed = source.results.filter((v) => !v.ok);

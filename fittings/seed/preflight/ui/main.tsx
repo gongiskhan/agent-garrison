@@ -49,11 +49,17 @@ function StatusPip({ status }: { status: string }) {
 // Executes a finding's whitelisted fix action after an explicit confirm that
 // shows exactly what will run. The refresh happens on the next poll (or the
 // refresh button) so the row's outcome is visible immediately in place.
-function FixButton({ f }: { f: Finding }) {
+function FixButton({ f, onSweep }: { f: Finding; onSweep?: (compositionId: string) => void }) {
   const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
   const run = async () => {
     if (!f.action) return;
+    // The sweep is not a fixers.mjs action — route it to the sweep flow,
+    // which owns the heavy-op confirm and the busy-guard.
+    if (f.action.id === "verify-sweep") {
+      onSweep?.(String(f.action.params.compositionId));
+      return;
+    }
     if (!window.confirm(`Fix "${f.id}"?\n\nThis will run:\n${f.action.command}`)) return;
     setState("running");
     try {
@@ -80,7 +86,7 @@ function FixButton({ f }: { f: Finding }) {
   );
 }
 
-function FindingRow({ f }: { f: Finding }) {
+function FindingRow({ f, onSweep }: { f: Finding; onSweep?: (compositionId: string) => void }) {
   const [open, setOpen] = useState(false);
   // Ids in verify/drift checks are "composition:fitting" — render the
   // composition as a muted prefix badge so the FITTING reads as the subject
@@ -101,7 +107,7 @@ function FindingRow({ f }: { f: Finding }) {
         <span className="finding-detail">{f.detail}</span>
       </div>
       {f.fix && <div className="finding-fix">fix: {f.fix}</div>}
-      {f.action && <FixButton f={f} />}
+      {f.action && <FixButton f={f} onSweep={onSweep} />}
       {f.evidence && (
         <div>
           <button className="linkish" onClick={() => setOpen(!open)}>
@@ -114,7 +120,7 @@ function FindingRow({ f }: { f: Finding }) {
   );
 }
 
-function Section({ check, findings }: { check: string; findings: Finding[] }) {
+function Section({ check, findings, onSweep }: { check: string; findings: Finding[]; onSweep?: (compositionId: string) => void }) {
   const worst = findings.reduce<string>(
     (acc, f) => (f.status === "fail" || acc === "fail" ? "fail" : f.status === "warn" || acc === "warn" ? "warn" : "pass"),
     "pass"
@@ -129,7 +135,7 @@ function Section({ check, findings }: { check: string; findings: Finding[] }) {
         <span className="count">{findings.length}</span>
         <span className="chev">{open ? "▾" : "▸"}</span>
       </header>
-      {open && findings.map((f, i) => <FindingRow key={`${f.id}:${i}`} f={f} />)}
+      {open && findings.map((f, i) => <FindingRow key={`${f.id}:${i}`} f={f} onSweep={onSweep} />)}
     </section>
   );
 }
@@ -238,10 +244,12 @@ function App() {
     return () => clearInterval(id);
   }, [refresh, sweeping]);
 
-  const runSweep = useCallback(async () => {
-    if (!comp) return;
+  const runSweep = useCallback(async (target?: string) => {
+    const id = target ?? comp;
+    if (!id) return;
+    if (target) setComp(target);
     if (!window.confirm(
-      `Run the FULL verify sweep for "${comp}"?\n\nThis is heavy: it flips the runner status, may run apm install, and runs every setup + verify hook. It is the same code path up() uses.`
+      `Run the FULL verify sweep for "${id}"?\n\nThis is heavy: it flips the runner status, may run apm install, and runs every setup + verify hook. It is the same code path up() uses.`
     )) return;
     setSweeping(true);
     setSweep(null);
@@ -249,13 +257,13 @@ function App() {
       const res = await fetch("/api/verify-sweep", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ compositionId: comp })
+        body: JSON.stringify({ compositionId: id })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setSweep({ compositionId: comp, findings: data.findings });
+      setSweep({ compositionId: id, findings: data.findings });
     } catch (err) {
-      setSweep({ compositionId: comp, findings: [{ check: "verify-sweep", id: comp, status: "fail", detail: String(err) }] });
+      setSweep({ compositionId: id, findings: [{ check: "verify-sweep", id, status: "fail", detail: String(err) }] });
     } finally {
       setSweeping(false);
     }
@@ -352,7 +360,7 @@ function App() {
             .map((f, i) => (
               <div key={`flt:${i}`}>
                 <div className="filter-check-label">{CHECK_TITLES[f.check] || f.check}</div>
-                <FindingRow f={f} />
+                <FindingRow f={f} onSweep={runSweep} />
               </div>
             ))}
         </div>
@@ -365,14 +373,14 @@ function App() {
             {(report.compositions ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
-        <button onClick={runSweep} disabled={sweeping || !report.appUp || !comp}
+        <button onClick={() => runSweep()} disabled={sweeping || !report.appUp || !comp}
           title={report.appUp ? "Runs every verify hook via the app — heavy" : "Needs the Garrison app up"}>
           {sweeping ? "sweeping… (can take minutes)" : "Run full verify sweep"}
         </button>
         <span className="sweep-note">runs EVERY fitting's verify and reports all failures — up() stops at the first</span>
       </div>
 
-      {!fittingFilter && grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} />)}
+      {!fittingFilter && grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} onSweep={runSweep} />)}
 
       {((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && (
         <FixJournal entries={report.recentFixes ?? []} libraryDiff={report.libraryDiff} onChanged={refresh} />
