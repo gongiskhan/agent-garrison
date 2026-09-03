@@ -175,6 +175,61 @@ async function readTransportsFile() {
 const SSH_USER_RE = /^[a-z_][a-z0-9_-]{0,31}$/i;
 const SSH_HOST_RE = /^(?!-)[A-Za-z0-9._-]{1,253}$|^[0-9a-fA-F:]{2,45}$/;
 
+// Publish ports the mesh already reserves - a tether's servePort must never
+// collide with the tailnet-serve invariant (8400 + port%1000 for own-port
+// fittings) or the fixed shell-served ports.
+const RESERVED_SERVE_PORTS = new Set([443, 8443, 8444, 8445, 8860]);
+function servePortReserved(port) {
+  return port >= 8400 && port <= 8499 ? true : RESERVED_SERVE_PORTS.has(port);
+}
+
+/** `tether` config (section 2.5): the reverse+forward SSH tunnel that makes
+ *  this transport's remote a full mesh node. Absent/malformed -> null (the
+ *  transport works as a plain remote shell, just not as a tethered node). */
+function normalizeTether(raw, transportName) {
+  if (!raw || typeof raw !== "object") return null;
+  const owner = String(raw.owner || "").trim();
+  const node = String(raw.node || "").trim();
+  if (!owner || !node) {
+    console.warn(`[remote-shell] transport "${transportName}" tether needs owner + node — skipped`);
+    return null;
+  }
+  const normForward = (f, kind) => {
+    const remotePort = Number(f?.remotePort);
+    const localPort = Number(f?.localPort);
+    if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) return null;
+    if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) {
+      console.warn(`[remote-shell] transport "${transportName}" tether ${kind} "${f?.name}" needs a localPort — skipped`);
+      return null;
+    }
+    const name = String(f?.name || `${kind}-${remotePort}`).replace(/[^A-Za-z0-9_-]/g, "-");
+    const out = { name, remotePort, localPort };
+    if (kind === "forward" && f?.publish?.servePort !== undefined) {
+      const servePort = Number(f.publish.servePort);
+      if (!Number.isInteger(servePort) || servePort < 1 || servePort > 65535 || servePortReserved(servePort)) {
+        console.warn(`[remote-shell] transport "${transportName}" tether forward "${name}" publish.servePort ${f.publish.servePort} is reserved or invalid — not published`);
+      } else {
+        out.publish = { servePort };
+      }
+    }
+    return out;
+  };
+  const reverseForwards = Array.isArray(raw.reverseForwards)
+    ? raw.reverseForwards.map((f) => normForward(f, "reverseForward")).filter(Boolean)
+    : [];
+  const forwards = Array.isArray(raw.forwards)
+    ? raw.forwards.map((f) => normForward(f, "forward")).filter(Boolean)
+    : [];
+  if (!reverseForwards.length && !forwards.length) {
+    console.warn(`[remote-shell] transport "${transportName}" tether declares no valid forwards — skipped`);
+    return null;
+  }
+  // Run as a fixed string via `bash -lc` (see tether.mjs #fireOnUp) - never
+  // interpolated from anything a request body could influence.
+  const onUp = typeof raw.onUp === "string" && raw.onUp.trim() ? raw.onUp.trim() : null;
+  return { owner, node, reverseForwards, forwards, onUp };
+}
+
 function normalizeTransport(name, t) {
   if (!t || typeof t !== "object" || !t.ssh || typeof t.ssh !== "object") {
     console.warn(`[remote-shell] transport "${name}" has no ssh block — skipped`);
@@ -197,8 +252,19 @@ function normalizeTransport(name, t) {
     kind: devtunnel ? "devtunnel" : "ssh",
     ssh,
     via: devtunnel
-      ? { devtunnel: { tunnel: String(devtunnel.tunnel), port: Number(devtunnel.port || ssh.port) } }
+      ? {
+          devtunnel: {
+            tunnel: String(devtunnel.tunnel),
+            port: Number(devtunnel.port || ssh.port),
+            // Default true (existing behaviour, host-credential.mjs). A VS
+            // Code Remote Tunnel (csg's swift-book) manages its own auth -
+            // Garrison pushing a minted host token onto it would fight
+            // whatever VS Code is doing, so that transport sets this false.
+            pushHostToken: devtunnel.pushHostToken !== false
+          }
+        }
       : null,
+    tether: normalizeTether(t.tether, name),
     tmuxSession: String(t.tmuxSession || name).replace(/[^A-Za-z0-9_-]/g, "_"),
     cwd: t.cwd ? String(t.cwd) : "~",
     eventsFile: t.eventsFile ? String(t.eventsFile) : "~/.garrison/events.jsonl",

@@ -20,6 +20,7 @@ import { WebSocketServer } from "ws";
 import { HttpError, SessionManager } from "../lib/sessions.mjs";
 import { SETTLE_SUPERVISOR_MS, TunnelManager, garrisonHome, loadTransports } from "../lib/transports.mjs";
 import { refreshHostTokens, DEFAULT_REFRESH_MS } from "../lib/host-credential.mjs";
+import { TetherManager, tetherArmed } from "../lib/tether.mjs";
 import { ForwardManager } from "../lib/forwards.mjs";
 import { listRemoteDir, readRemoteFile } from "../lib/remote-files.mjs";
 import { buildIndex } from "../lib/session-index.mjs";
@@ -165,7 +166,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const notify = (payload) => notifyChannels(opts.notifyFittings, payload);
   const tunnels = new TunnelManager({ notify });
   const forwards = new ForwardManager({});
+  const tether = new TetherManager({ notify });
   const manager = new SessionManager({ tunnels, transports, notify });
+
+  // A tether transport is inert everywhere except its declared owner (checked
+  // per-call by tetherArmed) - so it is always safe to try ensure() + start
+  // ticking for every tethered transport here; on every other node in the
+  // mesh those calls are a quick no-op.
+  for (const t of transports.values()) {
+    if (!t.tether) continue;
+    void tether.ensure(t);
+    tether.startTicking(t);
+  }
   // A tunnel coming back is the moment everything that gave up while it was
   // down should be restarted — the session pulse, the events watchers, and any
   // attach a browser is still waiting on. Nothing else observes that edge.
@@ -277,6 +289,31 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         if (!transport) return jsonRes(res, 404, { error: `no transport named "${key}" and no transport on a tunnel with that id` });
         const result = await tunnels.repair(transport);
         return jsonRes(res, result.ok ? 200 : 502, { ...result, tunnels: tunnels.status() });
+      }
+      // The tethered-node analog of /tunnels: every transport that declares a
+      // tether block, its armed-ness on THIS node, and its current status.
+      if (req.method === "GET" && pathname === "/tether") {
+        const rows = [...transports.values()]
+          .filter((t) => t.tether)
+          .map((t) => ({
+            transport: t.name,
+            node: t.tether.node,
+            owner: t.tether.owner,
+            armed: tetherArmed(t),
+            ...tether.status(t.name)
+          }));
+        return jsonRes(res, 200, { tether: rows });
+      }
+      if (req.method === "POST" && /^\/tether\/[^/]+\/repair$/.test(pathname)) {
+        const name = decodeURIComponent(pathname.split("/")[2]);
+        const transport = transports.get(name);
+        if (!transport || !transport.tether) return jsonRes(res, 404, { error: `no tethered transport named "${name}"` });
+        if (!tetherArmed(transport)) {
+          return jsonRes(res, 409, { error: `tether for "${name}" is not armed on this node (owner mismatch)` });
+        }
+        await tether.stop(name);
+        const result = await tether.ensure(transport);
+        return jsonRes(res, result.ok ? 200 : 502, { ...result, tether: tether.status(name) });
       }
       // Bring a transport's forwards up (idempotent) and report where they landed.
       // POST because it opens ssh channels - a GET that dials would make a status

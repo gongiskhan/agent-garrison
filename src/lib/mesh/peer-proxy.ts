@@ -147,7 +147,18 @@ export function allowListDescription(): string[] {
 // The peer's Garrison app. Each node publishes its app at the tailnet ROOT
 // (the `tailscale serve` mapping the installer makes), which is why MeshPanel's
 // "Open <node>" link is a bare https://<host> - same address, no port.
-export function peerAppBase(tailnetHost: string | null | undefined): string | null {
+// A TETHERED peer (csg) has no tailnet interface of its own - `appOrigin` (its
+// node.json field, carried through the beat's health.node.appOrigin) is the
+// only way to reach it, and is preferred whenever present.
+export function peerAppBase(tailnetHost: string | null | undefined, appOrigin?: string | null): string | null {
+  if (typeof appOrigin === "string" && appOrigin.trim()) {
+    try {
+      const u = new URL(appOrigin.trim());
+      if (u.protocol === "https:") return `${u.protocol}//${u.host}`;
+    } catch {
+      /* fall through to the tailnetHost derivation */
+    }
+  }
   const host = String(tailnetHost ?? "").trim().replace(/\.$/, "");
   if (!host) return null;
   return `https://${host}`;

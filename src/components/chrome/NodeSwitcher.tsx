@@ -15,6 +15,10 @@ interface RosterNode {
   name: string;
   accentColor: string;
   tailnetHost: string | null;
+  // A tethered node's own published https origin (null on an ordinary node) -
+  // nodeAppOrigin()/nodePageUrl() prefer this over deriving one from
+  // tailnetHost, since a tethered node has no tailnet interface of its own.
+  appOrigin: string | null;
   state: string;
   isSelf: boolean;
 }
@@ -76,7 +80,7 @@ export function NodeSwitcher() {
 
   if (!node) return null;
 
-  const appRecordFor = (row: RosterNode) => appNodes?.find((n) => sameNodeOrigin(n.shellOrigin, row.tailnetHost)) ?? null;
+  const appRecordFor = (row: RosterNode) => appNodes?.find((n) => sameNodeOrigin(n.shellOrigin, row.tailnetHost, row.appOrigin)) ?? null;
 
   const switchTo = async (row: RosterNode) => {
     if (row.isSelf) {
@@ -99,7 +103,7 @@ export function NodeSwitcher() {
       }
       return;
     }
-    const url = nodePageUrl(row.tailnetHost, pathname, search);
+    const url = nodePageUrl(row.tailnetHost, pathname, search, row.appOrigin);
     if (!url) {
       setError(`${row.name} has no tailnet address`);
       return;
@@ -132,12 +136,12 @@ export function NodeSwitcher() {
           ) : (
             roster.map((row) => {
               const record = native ? appRecordFor(row) : null;
-              const reachable = row.isSelf || (native ? Boolean(record) : Boolean(nodeAppOrigin(row.tailnetHost)));
+              const reachable = row.isSelf || (native ? Boolean(record) : Boolean(nodeAppOrigin(row.tailnetHost, row.appOrigin)));
               const hint = row.isSelf
                 ? "this window"
                 : native && !record
                   ? "not added in the app"
-                  : !nodeAppOrigin(row.tailnetHost)
+                  : !nodeAppOrigin(row.tailnetHost, row.appOrigin)
                     ? "no tailnet address"
                     : row.state;
               return (

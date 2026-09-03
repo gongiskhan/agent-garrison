@@ -67,7 +67,7 @@ export default function MeshConversationPage() {
     router.replace(`/talk${conversation ? `/${encodeURIComponent(conversation)}` : ""}${qs ? `?${qs}` : ""}`);
   }, [row, conversation, qs, router]);
 
-  const origin = row && !row.isSelf ? nodeAppOrigin(row.tailnetHost) : null;
+  const origin = row && !row.isSelf ? nodeAppOrigin(row.tailnetHost, row.appOrigin) : null;
 
   // A row the FRAMED page cannot open itself: a conversation on a third node, or
   // on this one. It posts the url it would have navigated to; this window maps
