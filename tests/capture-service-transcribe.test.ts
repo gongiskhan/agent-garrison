@@ -314,6 +314,17 @@ describe("capture-service transcription", () => {
     expect(deepgramUrl(loadConfig({ DEEPGRAM_API_KEY: DG_KEY }))).toContain("model=nova-3");
   });
 
+  it("pins the screen broadcast's stream to the session language, the pendant to the household's", () => {
+    const cfg = loadConfig({ DEEPGRAM_API_KEY: DG_KEY });
+    expect(cfg.sttLanguage).toBe("pt");
+    expect(cfg.screenSttLanguage).toBe("en");
+    expect(new URL(deepgramUrl(cfg)).searchParams.get("language")).toBe("pt");
+    expect(new URL(deepgramUrl(cfg, { language: cfg.screenSttLanguage })).searchParams.get("language")).toBe("en");
+    expect(new URL(deepgramUrl(cfg, { language: "  " })).searchParams.get("language")).toBe("pt");
+    const pinned = loadConfig({ DEEPGRAM_API_KEY: DG_KEY, GARRISON_CAPTURESERVICE_SCREEN_STT_LANGUAGE: "pt" });
+    expect(pinned.screenSttLanguage).toBe("pt");
+  });
+
   it("stores the transcript on session end and references it from the record, with no text in logs", async () => {
     const logSpy = vi.spyOn(console, "log");
     const errSpy = vi.spyOn(console, "error");

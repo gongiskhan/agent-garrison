@@ -351,7 +351,11 @@ export class CaptureIngress {
     const wantsTranscription =
       record.mode !== "screen_audio" || (this.cfg.screenAudioTranscribe !== false && !pendantLive);
     if (!wantsTranscription) this.counters.bump("screen_audio_transcription_skipped");
-    const transcribing = this.transcriber && wantsTranscription ? this.transcriber.openSession(id) : false;
+    // The broadcast is the phone in a coding session: it transcribes in the
+    // session's language, not the household's (2026-09-03: an English request
+    // after "Zeca" came out of the pt-pinned stream as Portuguese nonsense).
+    const language = record.mode === "screen_audio" ? this.cfg.screenSttLanguage ?? null : null;
+    const transcribing = this.transcriber && wantsTranscription ? this.transcriber.openSession(id, { language }) : false;
     const media = new SessionMedia(this.store.dirs.media, id, {
       counters: this.counters,
       transient,

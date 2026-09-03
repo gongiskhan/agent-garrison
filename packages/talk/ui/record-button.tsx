@@ -147,7 +147,14 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
         disabled={step === "starting" || step === "stopping"}
         onClick={() => { void (live ? onStop() : onRecord()); }}
       >
-        {live && <span className="wc-rec-dot" aria-hidden="true" />}
+        {live ? (
+          <span className="wc-rec-dot" aria-hidden="true" />
+        ) : (
+          <svg className="wc-rec-ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="8" cy="8" r="3.2" fill="currentColor" />
+          </svg>
+        )}
         <span className="wc-rec-label">{face}</span>
       </button>
       {error ? (

@@ -92,6 +92,18 @@ export function probeFailure(run = (bin, argv) => spawnSync(bin, argv, { encodin
     /* fall through to the loud not-authenticated message */
   }
   if (parsed?.isAuthenticated === true) return null;
+  // Older CLIs (2025.10.01 is still what `cursor-agent update` leaves on a
+  // box that installed it last autumn) have `status` but no `--format`: the
+  // json probe dies with "unknown option '--format'" and a logged-in machine
+  // would read as logged out. Ask the plain command instead and read its
+  // verdict line; every other failure keeps the loud message below.
+  if (/unknown option '--format'/i.test(`${s.stdout ?? ""}${s.stderr ?? ""}`)) {
+    const plain = run("cursor-agent", ["status"]);
+    const text = `${plain.stdout ?? ""}${plain.stderr ?? ""}`;
+    if (plain.status === 0 && /login successful|logged in as|authenticated/i.test(text) && !/not (logged in|authenticated)/i.test(text)) {
+      return null;
+    }
+  }
   const detail = parsed?.status ?? (out.slice(0, 120) || "no status output");
   return `cursor-agent is not authenticated (${detail}) — run \`cursor-agent login\` on this box, or set CURSOR_API_KEY`;
 }

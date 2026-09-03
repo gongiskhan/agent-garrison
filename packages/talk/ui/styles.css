@@ -891,7 +891,10 @@
 }
 
 /* The record button (Garrison app only): same footing as the mic. */
-.wc-rec { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; position: relative; }
+/* Not positioned on purpose: the hint and the error anchor to the composer
+   (the nearest positioned ancestor), gutter to gutter, the same as the
+   dictation panel - a bubble anchored to the button ran off a phone screen. */
+.wc-rec { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .wc-rec-btn {
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 42px; padding: 0 10px;
@@ -904,16 +907,15 @@
 .wc-rec-btn:disabled { opacity: 0.6; cursor: default; }
 .wc-rec-btn.wc-rec-live { border-color: var(--cc-danger-bg); color: var(--cc-danger-bg); }
 .wc-rec-dot { width: 9px; height: 9px; background: var(--cc-danger-bg); border-radius: 50%; animation: wcv-pulse 1.1s ease-in-out infinite; }
-.wc-rec-err {
-  position: absolute; left: 0; bottom: calc(100% + 6px); max-width: 260px;
-  padding: 6px 8px; background: var(--cc-bg-elev); border: 1px solid var(--cc-border-strong); border-radius: 2px;
-  color: var(--cc-danger-bg); font-size: 12px; line-height: 1.35; z-index: 5;
-}
+.wc-rec-ic { flex-shrink: 0; }
+.wc-rec-err,
 .wc-rec-hint {
-  position: absolute; right: 0; bottom: calc(100% + 6px); width: max-content; max-width: min(340px, 80vw);
+  position: absolute; left: var(--cc-gutter, 14px); right: var(--cc-gutter, 14px); bottom: calc(100% + 6px);
   padding: 6px 8px; background: var(--cc-bg-elev); border: 1px solid var(--cc-border-strong); border-radius: 2px;
-  color: var(--cc-fg-dim); font-size: 12px; line-height: 1.35; z-index: 5;
+  font-size: 12px; line-height: 1.35; z-index: 5; overflow-wrap: anywhere;
 }
+.wc-rec-err { color: var(--cc-danger-bg); }
+.wc-rec-hint { color: var(--cc-fg-dim); }
 @media (max-width: 600px) {
   .wc-rec-btn { justify-content: center; padding: 0 8px; }
 }

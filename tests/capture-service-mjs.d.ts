@@ -27,6 +27,7 @@ declare module "*/capture-service/lib/config.mjs" {
     sttModel: string;
     sttLanguage: string;
     sttRestLanguage: string;
+  screenSttLanguage: string;
     ttsEnabled: boolean;
     ttsBackend: "auto" | "elevenlabs" | "deepgram";
     ttsDeepgramModel: string;
@@ -162,7 +163,7 @@ declare module "*/capture-service/lib/media-log.mjs" {
 }
 
 declare module "*/capture-service/lib/deepgram-live.mjs" {
-  export function deepgramUrl(cfg: unknown): string;
+  export function deepgramUrl(cfg: unknown, opts?: { language?: string | null }): string;
   export function segmentFromResults(msg: unknown): {
     start: number;
     end: number;

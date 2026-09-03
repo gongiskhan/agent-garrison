@@ -155,7 +155,7 @@ describe("the posted turn", () => {
     );
   });
 
-  it("goes through the router's input door keyed by the wake event", async () => {
+  it("goes through the conversation door keyed by the wake event", async () => {
     const posts: Array<{ url: string; body: any }> = [];
     const server = createServer((req, res) => {
       let raw = "";
@@ -163,7 +163,7 @@ describe("the posted turn", () => {
       req.on("end", () => {
         posts.push({ url: req.url ?? "", body: JSON.parse(raw) });
         res.writeHead(202, { "content-type": "application/json" });
-        res.end(JSON.stringify({ input: { id: "in-9" }, duplicate: false }));
+        res.end(JSON.stringify({ accepted: true, seq: 9, recordedBy: "responder" }));
       });
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -179,10 +179,12 @@ describe("the posted turn", () => {
       env: { GARRISON_APP_URL: base },
       log: { log: () => {}, error: () => {} }
     });
-    expect(posted).toMatchObject({ ok: true, inputId: "in-9", url: `${base}/talk/${THREAD}` });
+    expect(posted).toMatchObject({ ok: true, seq: 9, recordedBy: "responder", url: `${base}/talk/${THREAD}` });
     expect(posts).toHaveLength(1);
-    expect(posts[0].url).toBe(`/api/threads/${THREAD}/inputs`);
-    expect(posts[0].body).toEqual({ message: "what is on screen\n\nAttached file:\n- /m/1.jpg", clientRequestId: "wake:ev9" });
+    // The conversation door, not the thread's /inputs lane: a conversation-backed
+    // thread renders only the ledger, so a turn posted to /inputs ran unseen.
+    expect(posts[0].url).toBe(`/api/conversation/${THREAD}/message`);
+    expect(posts[0].body).toEqual({ message: "what is on screen\n\nAttached file:\n- /m/1.jpg", origin: "capture", clientRequestId: "wake:ev9" });
     expect(counters.read().conversation_turn_posted).toBe(1);
   });
 

@@ -151,6 +151,13 @@ export function loadConfig(env = process.env) {
     // stt_language, so the one pin above covers both lanes unless a caller
     // deliberately splits them.
     sttRestLanguage: (env.GARRISON_CAPTURESERVICE_STT_REST_LANGUAGE || "").trim() || sttLanguage,
+    // Language for the screen broadcast's live stream (the app's Record
+    // button). The pin above is the household's; the broadcast is the phone
+    // held up to a coding session, which the user runs in English, and an
+    // English request after "Zeca" through a pt-pinned stream came out as
+    // Portuguese nonsense (2026-09-03). The wake word survives the switch
+    // through stt_keyterms. Empty = follow stt_language.
+    screenSttLanguage: (env.GARRISON_CAPTURESERVICE_SCREEN_STT_LANGUAGE || "").trim() || "en",
     // Keyterm prompting (nova-3): lifts the wake word from conf ~0.74 to
     // 0.99-1.0 on real captures and rescues embedded English product words.
     sttKeyterms: (() => {

@@ -1369,6 +1369,43 @@ was started from. Regression test in
 code). Once the turn lands it IS the feedback the user was missing: the
 message and the reply appear in the conversation and the push opens it.
 
+### D55. The wake turn and the digest go through the conversation doors (2026-09-03)
+
+D54 deployed, the phone retest said "nothing happened" again. The counters
+and the log said otherwise: the turn posted (`wake_conversation_turn`), the
+routing gate answered it, the digest landed. All of it went through
+`POST /api/threads/:id/inputs` and `POST /api/threads/:id/messages` - the
+chat/FIFO lane, whose replies live in `thread.messages`. A conversation-backed
+thread (every thread whose id matches `CONVERSATION_ID_RE`, which is the norm
+since G1) renders ONLY the conversation ledger, so the turn, the reply and the
+digest were recorded in a transcript the open view never reads. The user was
+right: nothing happened where they were looking.
+
+Decision: capture-service is one more client of the conversation door, the
+same one the composer's Send uses. The wake turn is
+`POST /api/conversation/:id/message` with `origin: "capture"` and
+`clientRequestId: "wake:<eventId>"` (one hit, one turn; the responder's dedupe
+keys on it). The digest, which nobody should answer, goes through a new
+`POST /api/conversation/:id/note`: it appends a `note` record (a new ledger
+kind, stored like every other kind; `conversation-adapt.mjs` renders it as
+assistant text) without opening a responder stretch, dedupes on the client id
+over the last 500 notes, and accepts only `text`, `clientRequestId`, `origin`.
+The `/inputs` and `/messages` thread lanes are untouched for the callers that
+still live there (remote-shell threads, Slack, the scheduler).
+
+Two more things from the same retest, both fixed here: the pill that jumps
+back to the bottom of a transcript never worked under a finger because the
+press feedback every button gets (`transform: translateY(1px)`) REPLACED the
+pill's own `translateY(-100%)` lift, so the pill dropped its own height out
+from under the tap and the click landed on the transcript - the lift is now
+flex alignment, not a transform; and the live transcription of the screen
+broadcast is pinned to English (`screenSttLanguage`, env
+`GARRISON_CAPTURESERVICE_SCREEN_STT_LANGUAGE`, default `en`) while the
+pendant keeps the household pin: the phone held up to a coding session speaks
+the session's language, and the pt-pinned stream turned an English request
+into Portuguese nonsense ("tu moro aonde tu vai a Nascarim?"). The wake word
+survives through `stt_keyterms`.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

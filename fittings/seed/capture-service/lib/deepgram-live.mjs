@@ -23,10 +23,13 @@ const CLOSE_FLUSH_TIMEOUT_MS = 3000;
 const RECONNECT_DELAY_MS = 1000;
 const FEED_QUEUE_MAX = 1024; // ~20s of 20ms packets buffered across a reconnect
 
-export function deepgramUrl(cfg) {
+// `language` overrides the deployment pin for ONE session: the screen
+// broadcast speaks the language of a coding session (see screenSttLanguage in
+// config.mjs), the pendant keeps the household pin.
+export function deepgramUrl(cfg, { language = null } = {}) {
   const params = new URLSearchParams({
     model: cfg.sttModel,
-    language: cfg.sttLanguage,
+    language: String(language ?? "").trim() || cfg.sttLanguage,
     encoding: "opus",
     sample_rate: "16000",
     channels: "1",
@@ -72,9 +75,10 @@ export function segmentFromResults(msg) {
 }
 
 class SessionTranscription {
-  constructor(lane, sessionId) {
+  constructor(lane, sessionId, { language = null } = {}) {
     this.lane = lane;
     this.sessionId = sessionId;
+    this.language = language;
     this.segments = []; // finals only
     this.listeners = new Set(); // live-view subscribers
     this.queue = []; // Buffers awaiting an open socket
@@ -96,7 +100,7 @@ class SessionTranscription {
     const { cfg, counters, log } = this.lane;
     let ws;
     try {
-      ws = this.lane.wsFactory(deepgramUrl(cfg), {
+      ws = this.lane.wsFactory(deepgramUrl(cfg, { language: this.language }), {
         headers: { authorization: `Token ${cfg.secrets.deepgramApiKey}` }
       });
     } catch (err) {
@@ -340,7 +344,7 @@ export class TranscriptionLane {
     return { ok: true };
   }
 
-  openSession(sessionId) {
+  openSession(sessionId, { language = null } = {}) {
     const availability = this.available();
     if (!availability.ok) {
       this.counters.bump("transcribe_skipped");
@@ -348,7 +352,7 @@ export class TranscriptionLane {
       return false;
     }
     if (!this.sessions.has(sessionId)) {
-      this.sessions.set(sessionId, new SessionTranscription(this, sessionId));
+      this.sessions.set(sessionId, new SessionTranscription(this, sessionId, { language }));
       this.counters.bump("transcribe_sessions");
     }
     return true;

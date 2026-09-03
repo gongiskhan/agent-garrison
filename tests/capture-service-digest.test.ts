@@ -2,7 +2,7 @@
 //
 // A recording started from a Conversations thread carries conversation_id in
 // session_start; when it ends, ONE assistant message lands in that thread
-// through the shell's /api/threads/:id/messages lane, keyed by the session id,
+// through the conversation router's /api/conversation/:id/note door, keyed by the session id,
 // and the push (when any) deep-links to /talk/<id>. Drives the real ingress
 // over ws against a sandboxed GARRISON_HOME with a fake Conversations host.
 
@@ -178,12 +178,11 @@ describe("recording digest delivery", () => {
     await waitFor(() => app.posts.length >= 1);
     expect(app.posts).toHaveLength(1);
     const [post] = app.posts;
-    expect(post.url).toBe(`/api/threads/${THREAD}/messages`);
-    expect(post.body.idempotencyKey).toBe(`capture-digest:${SID}`);
-    expect(post.body.messages).toHaveLength(1);
-    expect(post.body.messages[0]).toMatchObject({ role: "assistant", sessionId: SID });
-    expect(post.body.messages[0].text).toContain("Recording ended: screen audio");
-    expect(post.body.messages[0].text).toContain(`Recording id ${SID}.`);
+    expect(post.url).toBe(`/api/conversation/${THREAD}/note`);
+    expect(post.body.clientRequestId).toBe(`capture-digest:${SID}`);
+    expect(post.body.origin).toBe("capture");
+    expect(post.body.text).toContain("Recording ended: screen audio");
+    expect(post.body.text).toContain(`Recording id ${SID}.`);
     expect(handle.counters.read().digest_posted).toBe(1);
   });
 

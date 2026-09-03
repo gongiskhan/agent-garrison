@@ -377,6 +377,53 @@ describe("conversation router - message", () => {
   });
 });
 
+describe("conversation router - note", () => {
+  it("appends a note nobody answers, dedupes on the client id, and renders it as assistant text", async () => {
+    const store = seed("c-note");
+    const { base, forwardMessage } = await mount();
+
+    const rejected = await fetch(`${base}/c-note/note`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hi", message: "no" }),
+    });
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).error).toContain("message");
+
+    const empty = await fetch(`${base}/c-note/note`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "  " }),
+    });
+    expect(empty.status).toBe(400);
+
+    const post = () => fetch(`${base}/c-note/note`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "Recording ended: screen audio", origin: "capture", clientRequestId: "capture-digest:s1" }),
+    });
+    const first = await post();
+    expect(first.status).toBe(202);
+    expect(await first.json()).toMatchObject({ accepted: true, conversationId: "c-note", duplicate: false });
+    const second = await post();
+    expect(second.status).toBe(202);
+    expect(await second.json()).toMatchObject({ accepted: true, duplicate: true });
+
+    // A note never opens a responder stretch and never becomes a user message.
+    expect(forwardMessage).not.toHaveBeenCalled();
+    const notes = store.tail(50, { kinds: ["note"] });
+    expect(notes).toHaveLength(1);
+    expect(notes[0].payload).toMatchObject({ text: "Recording ended: screen audio", origin: "capture", clientRequestId: "capture-digest:s1" });
+    expect(store.tail(50, { kinds: ["user-message"] })).toHaveLength(1); // only the seeded one
+
+    const events = ledgerToSessionEvents(store.range({ fromIndex: 0, limit: 100 }).events, { conversationId: "c-note" });
+    const rendered = events.find((event: any) => event.blocks?.some((block: any) => block.text === "Recording ended: screen audio"));
+    expect(rendered).toBeTruthy();
+    expect(rendered.role).toBe("assistant");
+    expect(sanitizeSessionEvent(rendered)).not.toBeNull();
+  });
+});
+
 describe("conversation router - search", () => {
   it("returns conversation coordinates and never a file path", async () => {
     seed("c-search");

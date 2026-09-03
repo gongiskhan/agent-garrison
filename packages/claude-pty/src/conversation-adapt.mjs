@@ -162,6 +162,15 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
     return { ...base, role: "user", blocks: [{ type: "text", text }] };
   }
 
+  // A note (the router's POST /:id/note): prose a machine added without waking
+  // the responder, a recording digest for one. It reads as an assistant turn
+  // of its own, outside any stretch.
+  if (record.kind === "note") {
+    const text = typeof payload.text === "string" ? payload.text : "";
+    if (!text.trim()) return null;
+    return { ...base, role: "assistant", blocks: [{ type: "text", text }] };
+  }
+
   if (record.kind === "stretch-started") {
     const stretchId = stretchIdOf(record, payload);
     if (!stretchId) return null;

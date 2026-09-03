@@ -15,6 +15,7 @@
 //   GET  {base}/:id/payload/:ref       one L3 payload, raw bytes, confined
 //   GET  {base}/:id/stream?from=       SSE SessionEvents {init|events|end}
 //   POST {base}/:id/message            admit a user message (allowed fields)
+//   POST {base}/:id/note               append a note nobody answers (allowed fields)
 //   GET  {base}/search?q&id&limit      fixed-string search over L1/L2/L3
 //
 // Reading is not free of consequence: a payload/log/handoff read writes a `dig`
@@ -146,6 +147,10 @@ export async function handleConversationRequest(req, res, opts = {}) {
   }
   if (method === "POST" && tail.length === 1 && tail[0] === "message") {
     await handleMessage(req, res, { store, conversationId, forwardMessage: opts.forwardMessage });
+    return true;
+  }
+  if (method === "POST" && tail.length === 1 && tail[0] === "note") {
+    await handleNote(req, res, { store, conversationId });
     return true;
   }
 
@@ -373,6 +378,59 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
  * responder). Only when it did not does this router write the record itself, so
  * one message can never appear twice in the ledger.
  */
+/**
+ * A note is the one record a machine may add to a conversation WITHOUT
+ * waking the responder: a recording digest, a report of something that
+ * happened elsewhere. It renders as an assistant-side text block and opens
+ * no stretch, so nothing answers it; a caller that wants an answer posts a
+ * message. `clientRequestId` dedupes a replayed post (a session end can be
+ * finalised twice); the second post is acknowledged with the first record's
+ * seq and appends nothing.
+ */
+const NOTE_TEXT_CAP = 32_000;
+const NOTE_DEDUPE_WINDOW = 500;
+
+async function handleNote(req, res, { store, conversationId }) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    sendJson(res, err?.code === "BODY_TOO_LARGE" ? 413 : 400, { error: err?.message ?? "unreadable body" });
+    return;
+  }
+  const allowed = new Set(["text", "clientRequestId", "origin"]);
+  const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key));
+  if (unknown.length) {
+    sendJson(res, 400, { error: `unknown fields: ${unknown.join(", ")}` });
+    return;
+  }
+  const text = typeof body?.text === "string" ? body.text : "";
+  if (!text.trim()) {
+    sendJson(res, 400, { error: "text is required" });
+    return;
+  }
+  const clientRequestId = typeof body?.clientRequestId === "string" ? body.clientRequestId.slice(0, 200) : null;
+  const origin = typeof body?.origin === "string" ? body.origin.slice(0, 80) : "web";
+  if (clientRequestId) {
+    const earlier = store
+      .tail(NOTE_DEDUPE_WINDOW, { kinds: ["note"] })
+      .find((record) => record?.payload?.clientRequestId === clientRequestId);
+    if (earlier) {
+      sendJson(res, 202, { accepted: true, conversationId, seq: earlier.index ?? null, duplicate: true });
+      return;
+    }
+  }
+  const record = store.append({
+    kind: "note",
+    payload: { text: text.slice(0, NOTE_TEXT_CAP), origin, clientRequestId },
+  });
+  if (!record.ok) {
+    sendJson(res, 500, { error: record.error ?? "the note could not be appended" });
+    return;
+  }
+  sendJson(res, 202, { accepted: true, conversationId, seq: record.seq, duplicate: false });
+}
+
 async function handleMessage(req, res, { store, conversationId, forwardMessage }) {
   if (typeof forwardMessage !== "function") {
     sendJson(res, 500, { error: "this mount has no message forwarder" });

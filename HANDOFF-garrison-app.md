@@ -43,17 +43,29 @@ on the iPhone and walk this list on the real device against this node
    wake hit and falls back to the persisted session record; the regression
    is `tests/capture-service-wake-conversation.test.ts` ("keeps the
    conversation bound at the wake hit when the broadcast stops before the
-   window closes"). Retest on a node running `66042392` or later: this Mac
-   or the mini tonight, dev-madrid once it redeploys from `main` (see §2).
-   If nothing arrives,
+   window closes"). The 2026-09-03 evening phone run on `66042392` STILL saw
+   nothing, and that one was the lane: the wake turn posted to the thread's
+   old chat store (`POST /api/threads/:id/messages`), which a
+   conversation-backed thread never renders (the page reads only the
+   conversation ledger), so the turn was recorded and invisible; the digest
+   went the same way. D55 moves both onto the conversation doors
+   (`/api/conversation/:id/message` for the turn, the new `/note` door for
+   the digest) and pins the broadcast's live transcription to English (the
+   `pt` pin turned "what is on this screen" into Portuguese word salad; the
+   pendant keeps `pt`). Regressions: `tests/capture-service-digest.test.ts`,
+   `tests/capture-service-wake-conversation.test.ts`,
+   `tests/conversation-store-read.test.ts` ("conversation router - note").
+   Retest on a node running the D55 commit: this Mac or the mini, dev-madrid
+   once it redeploys from `main` (see §2). Speak ENGLISH after "Zeca"; the
+   turn appears in the open conversation as your words plus frames, the
+   digest lands at the end as an unanswered note. If nothing arrives,
    `curl -s http://127.0.0.1:8097/health | jq .counters` on the node:
    `wake_conversation_turns` should count the hit,
    `screen_audio_transcription_skipped` means a pendant session was live
    and the broadcast was muted, `conversation_turn_post_failed` means the
-   talk API refused the turn (the note lane took it instead). Say "Zeca" in
-   Portuguese-friendly speech: the wake lane still transcribes with the
-   `pt` pin (nova-3 hears "Zeca" there; `multi` heard "Zecke"), D52 did
-   not touch it.
+   talk API refused the turn (the note lane took it instead), and
+   `digest_post_failed` that the digest note was refused. "Zeca"
+   itself survives the English pin through the `stt_keyterms` list.
 3b. Composer mic (D49, D52): tap the mic (no sheet), speak ENGLISH, watch
    the level bar move and each sentence land in the message box after the
    pause; tap Stop, the text stays, edit, Send. The dictation panel carries
@@ -219,6 +231,19 @@ the simulator and where the code is.
   When dev-madrid is free: `git merge
   origin/main` (it has local commits; never `--ff-only`, never discard the
   uncommitted work) and `npm run node:redeploy`.
+- **2026-09-03 night (D55): this Mac redeployed; the mini follows; dev-madrid
+  still NOT.** This Mac's first `node:redeploy` (20:12Z) built and came back
+  DOWN: dev-madrid had pushed rev 35 of the shared `default` manifest at
+  19:41Z stationing `cursor-runtime` (a `cursor-local` secondary target),
+  and this Mac's `cursor-agent` is 2025.10.01, whose `status` has no
+  `--format json`, so the verify probe read a logged-in box as logged out and
+  `up()` aborted with every fitting stopped. `cursor-agent update` is a
+  no-op on that version. The probe now falls back to the plain `status`
+  verdict (`fittings/seed/cursor-runtime/scripts/bridge.mjs`,
+  `tests/cursor-runtime.test.ts`); `up()` re-run through the runner API.
+  The shared-manifest change itself is dev-madrid's and was left alone; the
+  local `apm.yml` diff you see on this Mac IS that rev-35 refresh, not
+  something to commit here.
 
 ## 3. Operator-triggered follow-ups
 
@@ -252,6 +277,26 @@ the simulator and where the code is.
   Conversations is the G5 live smoke; delete it when you like.
 
 ## 4. Debt seen on the way (not this run's)
+
+- The routing-gate reply to a wake turn carries `Card:
+  http://127.0.0.1:8089/...`, a machine-local URL handed to the client (the
+  HARD RULE in CLAUDE.md "Instances, ports, and deploying"); on the phone it
+  is a dead link. The kanban-loop reply builder should emit a relative
+  `/fitting/kanban-loop/...` route or a `garrison://` link.
+- The capture digest says "from Mac mini" for a broadcast that came from the
+  phone: the device label is the node, not the sender.
+- Another session left uncommitted capture-service work in this Mac's tree
+  during the D55 run (pronunciation aliases, `EKOA` keyterm:
+  `fittings/seed/capture-service/apm.yml`, `lib/deepgram-rest.mjs`,
+  `lib/pronunciation-aliases.mjs`, `tests/capture-service-deepgram-rest.test.ts`,
+  `tests/capture-service-pronunciation-aliases.test.ts`). Not staged here;
+  its untracked test fails `npm run typecheck` (TS7016, no declaration in
+  `tests/capture-service-mjs.d.ts`) until that session lands it.
+- A shared-manifest change from one node can take another node down at its
+  next `up()` when the stationed fitting's verify depends on a local tool
+  version (the cursor-runtime case above). `up()` should report which node
+  changed the manifest and when, and a verify that fails only on this node
+  should degrade that fitting, not abort the composition.
 
 - `scripts/garrison-redeploy.sh` should push HEAD's `compositions/*/apm.yml`
   to the state service (what `scripts/state-push-composition.ts` does) before
