@@ -42,6 +42,13 @@ export interface CaptureCallbacks {
 export interface CaptureOptions {
   /** Transcription endpoint (default `/api/voice/stt`). */
   sttUrl?: string;
+  /**
+   * Language hint for the transcriber (`en`, `pt`, `multi`), sent as
+   * `?language=` on every clip. A function is consulted per clip, so a choice
+   * made mid-dictation applies to the next segment. Unset leaves the
+   * server's default (the wake lane's pin) in charge.
+   */
+  language?: string | (() => string | null | undefined);
   /** `conversation` cuts segments at silence; `ptt` records until finish(). */
   mode?: "conversation" | "ptt";
   /** Silence after speech that closes a segment (conversation mode). */
@@ -182,6 +189,14 @@ export class SegmentGate {
   }
 }
 
+/** `sttUrl` with the language hint appended, or unchanged without one. */
+export function sttUrlFor(sttUrl: string, language: CaptureOptions["language"]): string {
+  const lang = (typeof language === "function" ? language() : language)?.trim();
+  if (!lang) return sttUrl;
+  const sep = sttUrl.includes("?") ? "&" : "?";
+  return `${sttUrl}${sep}language=${encodeURIComponent(lang)}`;
+}
+
 async function transcribeBlob(sttUrl: string, blob: Blob, signal: AbortSignal): Promise<string> {
   const r = await fetch(sttUrl, {
     method: "POST",
@@ -245,7 +260,7 @@ export async function startCapture(cb: CaptureCallbacks, opts: CaptureOptions = 
       try { cb.onUtteranceEnd?.(""); } catch {}
       return;
     }
-    transcribeBlob(sttUrl, blob, abort.signal)
+    transcribeBlob(sttUrlFor(sttUrl, opts.language), blob, abort.signal)
       .then((text) => {
         if (closed && !finishing) return;
         if (text) { try { cb.onFinal?.(text); } catch {} }

@@ -1309,6 +1309,66 @@ runtime truth; the script is the bridge until the redeploy does it itself
 that would silently discard Muster edits made on another node, which is the
 fork the sync was built to prevent.
 
+### D52. The typed lane transcribes English by default; the wake lane keeps its Portuguese pin (2026-09-03)
+
+The dictation quality complaint had one cause: `lib/config.mjs` pins Deepgram
+to `pt` for every lane (the pin exists so nova-3 hears "Zeca" as a name and
+not as the German "Zecke" `multi` produced), and the composer's dictation and
+hands-free clips went through the same pin. English speech under a Portuguese
+model comes back as near-random Portuguese words - the "quality" was the
+language. The `?language=` override already crossed every hop
+(`voice-clip.ts` -> `/api/voice/stt` -> capture-service `/stt` ->
+`transcribeClip`); nothing set it.
+
+Decision: the browser sends the language on every clip. `startCapture` takes
+`language` (a value or a per-clip function), `voice-conversation.tsx` keeps
+an `EN / PT / Auto` choice per browser in `localStorage`
+(`talk.stt.language`, default `en`, `Auto` = Deepgram `multi`) and shows the
+switch in the dictation panel, where a wrong guess is seen first. Both the
+dictation and hands-free lanes read it. The wake lane (REC broadcast, pendant)
+stays on the server pin: it needs the name heard, and the words after it are
+routed to the conversation as text, where the operative reads either language.
+Not chosen: flipping the server default to `en` - that would break the wake
+word for the pendant and for Portuguese broadcasts alike.
+
+### D53. The composer is two rows: the message box alone, the labelled controls beneath (2026-09-03)
+
+One row held Route, Dictate, Record, Attach, the box and Send, which left the
+box ~150px wide on a phone, and the WebKit the app runs in has no
+`field-sizing: content`, so the box never grew past one line: a dictated
+paragraph was unreadable. `ClaudeChat.tsx` now renders the textarea on its own
+row and every control on a second row (`.cc-composertools`, Send at the
+right-hand end), and an effect grows the box with its text up to half the
+viewport (`max-height: 50vh` plus a JS cap for WebKit), scrolling past that.
+With the width back, the controls carry their words again on every viewport:
+`Route`, `Dictate`, `Record` / `Stop`, `Attach`, `Send` / `Queue` / `Resend`
+(`.cc-btnlabel`; the phone rules that hid the labels and replaced the record
+face with a bare `REC` are gone; the record button's aria-label keeps the
+long form). Applies to every ClaudeChat host, the dev-env chat included.
+
+### D54. A wake hit binds its conversation at the hit, not at dispatch (2026-09-03)
+
+The "said Zeca during a broadcast, nothing happened" report, traced on
+dev-madrid (session `01M1M77XGMPN9ZERJJH5ZF`): the transcript was fine and
+the hit counted, but the words became a Kanban card (`create_task`), never a
+turn in the conversation. `WakeBus.handleCommand` resolved the conversation
+id when the capture window closed - 15s after the hit, 32s with the
+classifier - by looking up the LIVE ingress session, and by then the user had
+stopped REC and the session was gone: `conversationFn` returned null and the
+command fell through to the classifier lane. The digest that did land in the
+thread was the only trace.
+
+Decision: `handleSegments` binds `s.conversationId` the moment the wake word
+is heard and carries it through `close()` -> `dispatch()` -> `handleCommand()`
+(the late lookup survives only for direct callers). The server's
+`conversationFn` also falls back to the persisted session record on disk, so
+a hit delivered by the transcription lane's final flush, after the ingress has
+already dropped the session, still routes to the conversation the broadcast
+was started from. Regression test in
+`tests/capture-service-wake-conversation.test.ts` (fails on the previous
+code). Once the turn lands it IS the feedback the user was missing: the
+message and the reply appear in the conversation and the push opens it.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

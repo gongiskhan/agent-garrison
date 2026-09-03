@@ -997,8 +997,17 @@ export async function startServer(cfg = loadConfig()) {
   // hit on a session that carries a conversation_id becomes a user turn there
   // (words after the wake word + the latest frames), never a classified
   // command. The ingress is constructed below; the index holds it.
-  const conversationFn = (sessionId) =>
-    screenContext?.ingress?.sessions?.get(sessionId)?.record?.conversation_id ?? null;
+  // Falls back to the persisted session record: a wake hit carried by the
+  // transcription lane's final flush arrives after the ingress has already
+  // dropped the live session, and that late word still belongs to the
+  // conversation the broadcast was started from.
+  const conversationFn = (sessionId) => {
+    if (!sessionId) return null;
+    const live = screenContext?.ingress?.sessions?.get(sessionId)?.record?.conversation_id;
+    if (live) return live;
+    const stored = readJSON(path.join(store.dirs.sessions, `${sessionId}.json`));
+    return typeof stored?.conversation_id === "string" ? stored.conversation_id : null;
+  };
   const conversationTurnFn = ({ conversationId, command, eventId, frames }) =>
     postConversationTurn({
       conversationId,

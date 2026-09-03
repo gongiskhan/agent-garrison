@@ -1537,6 +1537,19 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const pinnedRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
+  // The message box grows with its text up to half the viewport, then scrolls.
+  // Done in JS because the WebKit the phone app runs in has no
+  // `field-sizing: content`, and a one-line box made a long dictation
+  // unreadable. Empty resets to the stylesheet's one-line height.
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    if (!input) { ta.style.height = ""; return; }
+    ta.style.height = "auto";
+    const cap = Math.max(120, Math.floor(window.innerHeight * 0.5));
+    ta.style.height = `${Math.min(ta.scrollHeight, cap)}px`;
+  }, [input]);
+
   // ── Theme (opt-in). Mirrors the dev-env terminal toggle: shared LS key, so
   // flipping either re-themes the other. When the feature is off the root
   // carries no data-theme attribute and the CSS falls back to its fixed dark
@@ -3506,6 +3519,21 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           onDragLeave={() => setDragOver(false)}
           onDrop={onComposerDrop}
         >
+          {/* The box sits on a row of its own so what is typed (or dictated)
+              can be read; the controls, labelled now that they have the width,
+              share the row beneath it. */}
+          <textarea
+            ref={taRef}
+            className="cc-input"
+            value={input}
+            placeholder={placeholder ?? "Message Claude…  (/ for commands)"}
+            aria-label={`Message ${title ?? "Claude"}`}
+            rows={1}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            onPaste={onComposerPaste}
+          />
+          <div className="cc-composertools">
           {railOn && generatedMode && (
             <button
               type="button"
@@ -3522,6 +3550,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 <circle cx="3" cy="4.2" r="1.6" fill="currentColor" />
                 <circle cx="13" cy="4.2" r="1.6" fill="currentColor" />
               </svg>
+              <span className="cc-btnlabel">Route</span>
             </button>
           )}
           {typeof composerAdornment === "function"
@@ -3565,6 +3594,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     strokeLinejoin="round"
                   />
                 </svg>
+                <span className="cc-btnlabel">Attach</span>
               </button>
             </>
           )}
@@ -3597,19 +3627,10 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                   <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                 </svg>
               )}
+              <span className="cc-btnlabel">Talk</span>
             </button>
           )}
-          <textarea
-            ref={taRef}
-            className="cc-input"
-            value={input}
-            placeholder={placeholder ?? "Message Claude…  (/ for commands)"}
-            aria-label={`Message ${title ?? "Claude"}`}
-            rows={1}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={onComposerPaste}
-          />
+          <span className="cc-toolspacer" aria-hidden="true" />
           {generatedMode ? (
             <>
               {activeGeneratedTurn && (generatedMode || !showFlightRail) && (
@@ -3649,6 +3670,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M8 13.5V3M8 3 3.5 7.5M8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
+                <span className="cc-btnlabel">{generatedWork ? "Queue" : resendArmed ? "Resend" : "Send"}</span>
               </button>
             </>
           ) : busy && !showFlightRail ? (
@@ -3669,6 +3691,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               {resendArmed ? "Resend" : "Send"}
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>

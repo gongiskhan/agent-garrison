@@ -87,6 +87,40 @@ describe("wake hit inside a broadcast started from a conversation", () => {
     expect(counters.read().wake_conversation_turns).toBe(1);
   });
 
+  it("keeps the conversation bound at the wake hit when the broadcast stops before the window closes", async () => {
+    // The observed failure (2026-09-03): "Zeca, escreve comprar morangos", then
+    // the user stopped REC. By the time the capture window closed the ingress
+    // had dropped the session, the late lookup returned null, and the words
+    // became a Kanban card instead of a turn in the conversation.
+    let live = true;
+    const { bus, counters, runCalls, turns, sent } = makeBus({
+      cfg: {
+        ...loadConfig({ GARRISON_HOME: mkdtempSync(path.join(os.tmpdir(), "wake-conv-cfg-")) }),
+        wakeEnabled: true,
+        gatewayUrl: "http://gateway.test",
+        wakeUnheardEnabled: false,
+        wakeSilenceCloseMs: 60,
+        wakeSettledCloseMs: 60,
+        wakeMinCaptureMs: 0
+      },
+      conversationFn: (sessionId: string) => (live && sessionId === "rec-1" ? THREAD : null)
+    });
+    bus.handleSegments({
+      sessionId: "rec-1",
+      segments: [{ text: "Zeca escreve comprar morangos.", speaker: "SPEAKER_00", speakerId: 0, is_user: true, start: 0, end: 2 }]
+    });
+    // The broadcast ends while the window is still open.
+    live = false;
+    const deadline = Date.now() + 3000;
+    while (sent.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+    expect(turns).toHaveLength(1);
+    expect(turns[0].conversationId).toBe(THREAD);
+    expect(turns[0].command).toBe("escreve comprar morangos.");
+    expect(runCalls).toEqual([]);
+    expect(counters.read().wake_conversation_turns).toBe(1);
+    expect(sent[0].params.path).toBe(`/talk/${THREAD}`);
+  });
+
   it("leaves a session with no conversation on the classifier lane", async () => {
     const { bus, runCalls, turns } = makeBus();
     await bus.handleCommand({ command: "note this down", eventId: "ev2", sessionId: "pendant-1" });

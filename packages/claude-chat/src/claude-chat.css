@@ -410,9 +410,15 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-mic-spin { width: 13px; height: 13px; }
 
 .cc-composer { position: relative; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
-.cc-composerrow { display: flex; gap: 8px; align-items: flex-end; min-width: 0; }
+/* Two rows: the message box alone on top (it grows with its text to half the
+   viewport, see the autosize effect), the labelled controls beneath it with
+   Send at the right-hand end. */
+.cc-composerrow { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; }
+.cc-composertools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.cc-toolspacer { flex: 1 1 0; min-width: 0; }
+.cc-btnlabel { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; line-height: 1; white-space: nowrap; }
 .cc-input {
-  flex: 1 1 auto; width: 100%; min-width: 0; resize: none; max-height: 160px; min-height: 38px;
+  flex: 0 0 auto; width: 100%; min-width: 0; resize: none; max-height: 50vh; min-height: 38px;
   background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-border-strong); border-radius: 8px;
   padding: 9px 12px; font: 14px/1.4 inherit; outline: none;
 }
@@ -425,7 +431,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 /* ── Mic (push-to-talk) ── */
 .cc-mic {
-  min-height: 38px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center;
+  min-height: 38px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 10px;
   background: var(--cc-bg); color: var(--cc-fg-dim); border: 1px solid var(--cc-border-strong);
   border-radius: 8px; cursor: pointer; line-height: 0; flex-shrink: 0;
 }
@@ -1600,8 +1607,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    one set of affordances rather than a mix of words and icons. */
 .cc-routebtn-active { border-color: var(--cc-fg); color: var(--cc-fg); }
 .cc-send-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 44px; padding-left: 10px; padding-right: 10px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 44px; padding-left: 12px; padding-right: 14px;
 }
 
 /* The per-message action bar is a finger target like everything else. Without

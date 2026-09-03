@@ -1211,7 +1211,12 @@ export class WakeBus {
         if (s.contextUsed.length > 0) this.counters.bump("wake_context_used");
         s.wakeHitAt = this.now();
         s.screen = this.screenContextFn?.({ sessionId, atMs: s.wakeHitAt }) ?? null;
-        this.emitLifecycle("wake_detected", { sessionId, at: s.wakeHitAt });
+        // Bound NOW, not at dispatch: the capture window plus the command take
+        // long enough that the user has often stopped the broadcast by then,
+        // and a stopped session is gone from the ingress. Resolving late made
+        // a REC wake hit fall through to the classifier and become a card.
+        s.conversationId = this.conversationFn?.(sessionId) ?? null;
+        this.emitLifecycle("wake_detected", { sessionId, at: s.wakeHitAt, conversationId: s.conversationId });
         const after = text.slice(m.index + m[0].length).replace(/^[\s,.:;!?-]+/u, "").trim();
         if (after) s.parts.push({ text: after, at: s.wakeHitAt });
         // Only a wake segment that itself carries a complete command settles
@@ -1308,9 +1313,11 @@ export class WakeBus {
     const context = s.contextUsed;
     // Pinned at the wake hit and cleared with the rest of the capture state.
     const screen = s.screen;
+    const conversationId = s.conversationId ?? null;
     s.parts = [];
     s.contextUsed = [];
     s.screen = null;
+    s.conversationId = null;
     // `empty` rides the event so the closing cue can stay honest: promising
     // "Deixa comigo." and then admitting you heard nothing is worse than one
     // clean "Não percebi".
@@ -1349,12 +1356,12 @@ export class WakeBus {
       return this.dispatchChain;
     }
     this.dispatchChain = this.dispatchChain
-      .then(() => this.dispatch({ sessionId, command, wakeHitAt, reason, context, trailing, screen }))
+      .then(() => this.dispatch({ sessionId, command, wakeHitAt, reason, context, trailing, screen, conversationId }))
       .catch((err) => this.log.error(`[${this.source.logPrefix}] wake dispatch error: ${err?.message ?? err}`));
     return this.dispatchChain;
   }
 
-  async dispatch({ sessionId, command, wakeHitAt, context = [], trailing = "", screen = null }) {
+  async dispatch({ sessionId, command, wakeHitAt, context = [], trailing = "", screen = null, conversationId = null }) {
     this.counters.bump("wake_dispatches");
     // The ONLY persistence from the wake bus: the assembled command text.
     const eventId = ulid();
@@ -1390,6 +1397,7 @@ export class WakeBus {
         sessionId,
         screen,
         wakeHitAt,
+        conversationId,
         onLanguage: (l) => {
           lang = l;
         }
@@ -1474,7 +1482,7 @@ export class WakeBus {
     return { ...outcome, receipts, latencyMs };
   }
 
-  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, screen = null, wakeHitAt = null, onLanguage = null }) {
+  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, screen = null, wakeHitAt = null, conversationId: boundConversationId = null, onLanguage = null }) {
     // Nothing has been classified yet, so the only evidence is the transcript.
     let lang = this.resolveLanguage(command);
     onLanguage?.(lang);
@@ -1482,8 +1490,9 @@ export class WakeBus {
     // conversation's microphone: the words after the wake word are the user's
     // next turn there, with the screen as it stood when the name was said, and
     // no classifier in between. Cards, notes and delegation are the lanes for
-    // a wearer with no conversation open.
-    const conversationId = this.conversationFn?.(sessionId) ?? null;
+    // a wearer with no conversation open. The id was bound at the wake hit
+    // (see handleSegments); the late lookup is only for direct callers.
+    const conversationId = boundConversationId ?? this.conversationFn?.(sessionId) ?? null;
     if (conversationId && this.conversationTurnFn) {
       return this.conversationTurn({ conversationId, command, eventId, sessionId, screen, wakeHitAt, lang });
     }

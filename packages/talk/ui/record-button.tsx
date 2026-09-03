@@ -121,6 +121,8 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
     step === "stopping" ? "Stopping" :
     step === "live" ? "Stop recording" :
     "Record screen";
+  // The button's face: short, so the controls row keeps every label on a phone.
+  const face = step === "live" ? "Stop" : step === "idle" ? "Record" : label;
   const title =
     step === "live" ? "Broadcasting into this conversation. Say \"Zeca\" and then your request. Tap to stop." :
     step === "idle" ? "Broadcast the screen and microphone into this conversation. Say \"Zeca\" and then your request; the words after it plus the latest screen frames are sent as your message." :
@@ -146,7 +148,7 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500 }: RecordBu
         onClick={() => { void (live ? onStop() : onRecord()); }}
       >
         {live && <span className="wc-rec-dot" aria-hidden="true" />}
-        <span className="wc-rec-label">{label}</span>
+        <span className="wc-rec-label">{face}</span>
       </button>
       {error ? (
         <span className="wc-rec-err" role="status">{error}</span>

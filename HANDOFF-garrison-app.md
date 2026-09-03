@@ -28,24 +28,48 @@ on the iPhone and walk this list on the real device against this node
    confirm the page does not zoom (D45; the 2026-09-02 evening screenshot was
    the 16/15 focus zoom, fixed in the shell viewport, needs the node on
    `main` at or after this commit).
-3. Record button (D50): tap, grant the microphone and the broadcast (the
-   consent sheets are native). A hint above the button says "Broadcasting.
-   Say "Zeca" and then your request ...". Say "Zeca, what is on this screen"
-   and pause: within a few seconds a USER turn appears in the SAME thread
-   with your words and up to three attached screen frames, and the reply
-   follows; the confirmation "Sent to the conversation: ..." is spoken or
-   pushed. Stop: the digest message still posts at the end (D41). If nothing
-   arrives, `curl -s http://127.0.0.1:8097/health | jq .counters` on the
-   node: `wake_conversation_turns` should count the hit,
+3. Record button (D50, D54): tap, grant the microphone and the broadcast
+   (the consent sheets are native). A hint above the button says
+   "Broadcasting. Say "Zeca" and then your request ...". Say "Zeca, what is
+   on this screen" and pause: within a few seconds a USER turn appears in
+   the SAME thread with your words and up to three attached screen frames,
+   and the reply follows; the confirmation "Sent to the conversation: ..."
+   is spoken or pushed. Stop: the digest message still posts at the end
+   (D41). The 2026-09-03 phone run saw NOTHING here, on the session and
+   after the stop alike: the conversation id was looked up at dispatch
+   time, after the capture window, when the stopped broadcast was already
+   gone from the ingress, so the hit fell through to the classifier lane
+   and became a card (or a note), never a turn. D54 binds the id at the
+   wake hit and falls back to the persisted session record; the regression
+   is `tests/capture-service-wake-conversation.test.ts` ("keeps the
+   conversation bound at the wake hit when the broadcast stops before the
+   window closes"). Retest on a node running `D54` or later (dev-madrid
+   after the 2026-09-03 evening redeploy). If nothing arrives,
+   `curl -s http://127.0.0.1:8097/health | jq .counters` on the node:
+   `wake_conversation_turns` should count the hit,
    `screen_audio_transcription_skipped` means a pendant session was live
    and the broadcast was muted, `conversation_turn_post_failed` means the
-   talk API refused the turn (the note lane took it instead).
-3b. Composer mic (D49): tap the mic (no sheet), speak, watch the level bar
-   move and each sentence land in the message box after the pause; tap Stop,
-   the text stays, edit, Send. Tap the mic again straight away, with text
-   already in the box and while the reply is still streaming: it dictates
-   again. Discard removes only what was dictated. Hold the mic for the
-   hands-free sheet.
+   talk API refused the turn (the note lane took it instead). Say "Zeca" in
+   Portuguese-friendly speech: the wake lane still transcribes with the
+   `pt` pin (nova-3 hears "Zeca" there; `multi` heard "Zecke"), D52 did
+   not touch it.
+3b. Composer mic (D49, D52): tap the mic (no sheet), speak ENGLISH, watch
+   the level bar move and each sentence land in the message box after the
+   pause; tap Stop, the text stays, edit, Send. The dictation panel carries
+   an EN / PT / Auto switch (default EN, remembered per browser in
+   `talk.stt.language`); before D52 every clip was transcribed with the
+   server's `pt` pin, which is what made English dictation read as garbage.
+   Flip to PT for a Portuguese sentence and confirm it lands right too. Tap
+   the mic again straight away, with text already in the box and while the
+   reply is still streaming: it dictates again. Discard removes only what
+   was dictated. Hold the mic for the hands-free sheet.
+3c. Composer layout (D53): the message box sits alone on the top row and
+   the controls (Route, Dictate, Record, Attach, Send) sit beneath it with
+   their labels, on the phone as on the desktop. Paste or dictate a long
+   text: the box grows with it up to half the screen, then scrolls inside.
+   Send empties it back to one line. Verified in WebKit at 390x844 against
+   this node's build (`evidence/garrison-app/phone/webkit-390-composer-*.png`
+   if present; otherwise the phone is the first look).
 4. Capture page (`/capture`, shown only in the app): the microphone lane and
    the broadcast picker (screen capture consent is native), the live status,
    a session that ends cleanly.
