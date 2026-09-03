@@ -32,6 +32,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=lib/app-server.sh
+. "$SCRIPT_DIR/lib/app-server.sh"
 
 PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
 BASE="http://127.0.0.1:${PROD_PORT}"
@@ -64,12 +66,16 @@ restart_supervised() {
   fi
   return 1
 }
+# Track the server being replaced and make sure it is gone after the restart
+# (scripts/lib/app-server.sh says why a SIGTERMed next-server may never exit).
+old_server_pid="$(app_server_pid_on_port "$PROD_PORT")"
 if ! restart_supervised; then
   echo "[reload] no app supervisor found (systemd: $UNIT, launchd: $LAUNCHD_LABEL)." >&2
   echo "         Enroll this machine with scripts/install-node.sh, or start by hand:" >&2
   echo "         npm run prod:start" >&2
   exit 1
 fi
+ensure_old_app_server_gone "$old_server_pid"
 
 # --- wait for it to answer --------------------------------------------------
 say "waiting for $BASE"
