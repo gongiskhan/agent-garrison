@@ -204,6 +204,11 @@ describe("assessVerifyResults", () => {
       }
     ]) as Finding[];
     expect(fails(f).map((x) => x.id)).toEqual(["default-2:basic-memory", "default-2:vault-git-sync"]);
+    // Every failing verify offers the one safe click: unstation the fitting.
+    expect(fails(f)[0].action).toEqual(expect.objectContaining({
+      id: "unstation-fitting",
+      params: { compositionId: "default-2", fittingId: "basic-memory" }
+    }));
   });
 
   it("warns when there is no last-up record and no runner state", () => {

@@ -275,7 +275,10 @@ export function assessVerifyResults(records) {
         `${v.fittingId} failed verify at ${source.label}: exit ${v.exitCode}, expected "${v.expect}" from \`${v.command}\`.`,
         {
           evidence: [v.stderr, v.stdout].filter(Boolean).join("\n").slice(0, 2000),
-          fix: `Fix ${v.fittingId}'s verify and re-run the sweep. Unlike up() — which stops at the FIRST failure alphabetically — this list is complete.`
+          fix: `Fix ${v.fittingId}'s verify and re-run the sweep — or unstation it so up() can proceed without it (one failing fitting blocks the whole composition). Unlike up(), this list is complete.`,
+          // The clickable half: parking the broken fitting. Repairing the
+          // fitting itself (a missing repo, binary, credential) stays human.
+          action: { id: "unstation-fitting", params: { compositionId: r.compositionId, fittingId: v.fittingId }, command: `UNSTATION ${v.fittingId} from ${r.compositionId} (PUT without it + state-service push) — the composition runs without this fitting until you re-add it via Muster` }
         }));
     }
     if (!failed.length) {
@@ -298,7 +301,8 @@ export function assessSweepResults(compositionId, results) {
         : `${v.fittingId} failed: exit ${v.exitCode}, expected "${v.expect}" from \`${v.command}\`.`,
       v.ok ? {} : {
         evidence: [v.error, v.stderr, v.stdout].filter(Boolean).join("\n").slice(0, 2000),
-        fix: `Fix ${v.fittingId}'s verify. This sweep ran EVERY fitting — nothing is hidden behind the first failure.`
+        fix: `Fix ${v.fittingId}'s verify — or unstation it so up() can proceed. This sweep ran EVERY fitting; nothing is hidden behind the first failure.`,
+        action: { id: "unstation-fitting", params: { compositionId, fittingId: v.fittingId }, command: `UNSTATION ${v.fittingId} from ${compositionId} (PUT without it + state-service push) — the composition runs without this fitting until you re-add it via Muster` }
       }));
   }
   return findings;
