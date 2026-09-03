@@ -128,30 +128,44 @@ the simulator and where the code is.
   `cb9c9fbf` build; `main` is two commits ahead of it (dev-madrid's kanban
   card-id hardening), which reaches it on its next redeploy.
 
-- **This Mac's node is stuck on the D49/D50 redeploy (2026-09-03 16:35Z) and
-  needs one manual kill.** `66c84865` is built into `.next-prod` and the new
-  next-server (pid 25952, under launchd's `concurrently` 24760) listens on
-  8777, but it never answers: two orphaned next-server copies from earlier
-  redeploys (pids 36317 and 9144, parent 1, no listener, stuck in a graceful
-  shutdown that never ends because they still hold their children and
-  keep-alive clients) keep serving old keep-alive connections and hold 128
-  hung requests into the new server, which sits behind ~370 established
-  loopback connections. 36317 is also the parent of all 17 running fitting
-  processes, so capture-service (8097) still runs the OLD code - which is why
-  "Zeca" on this node still does nothing. Killing the orphans was refused by
-  the session's permission classifier. Recovery, from the repo root:
-  `kill 36317 9144` (children are reparented, `up()` restarts them), then
-  `npm run node:redeploy`, then confirm
-  `curl -s http://127.0.0.1:8097/health | jq .pid` changed. dev-madrid and the
-  mini already run `66c84865` (redeploys finished; tails in
-  `evidence/garrison-app/voice-d49-d50/redeploy.txt`), so phone checks 3 and
-  3b can run against either peer today.
-- Redeploy robustness fix that came out of it: `scripts/garrison-redeploy.sh`
-  now records the pid serving the app port, waits up to 10 s for it to exit
-  after the supervisor restart, ends it if it lingers, and ends any
-  next-server whose parent is the init/launchd/systemd reaper (`next dev`
-  children stay). First exercised on this Mac's next redeploy; the pre-down
-  skip when the app is silent stays as it was.
+- **This Mac's node fell silent for an hour after the D49/D50 redeploy
+  (2026-09-03 16:35Z-17:50Z); two causes, both fixed in `6a168ea0`.** (a)
+  Orphaned next-servers: `next start` answers SIGTERM by closing its listener
+  and waiting for every connection to drain, and the fittings hold keep-alive
+  and SSE connections forever, so the old app server survived the launchctl
+  restart as an orphan (parent 1), kept all 17 fittings on the OLD code
+  (which is why "Zeca" did nothing on this node), and starved the new server
+  with hung keep-alive requests. `scripts/lib/app-server.sh`, sourced by both
+  `garrison-redeploy.sh` and `garrison-reload.sh`, now records the pid on the
+  app port, waits 10 s after the restart, ends it, and reaps any next-server
+  whose parent is the reaper (`next dev` children stay). (b) `readLibrary()`
+  re-read, parsed and validated ~50 manifests on nearly every API request;
+  a few hundred tailscale-proxied requests kept the event loop in that alone
+  (profiled with the inspector, `--cpu-prof`-style sampling at 500 us).
+  `src/lib/library.ts` keeps one snapshot keyed on mtime+size of the registry
+  files, the fitting directories and every manifest. The operator killed the
+  orphans by hand this time (the session's classifier refused my `kill`);
+  the `up()` that followed failed on `basic-memory` verify timing out under
+  load 150+ and has to be re-run once the reload lands.
+- **D50 was dark on every node, and would have stayed dark after a redeploy.**
+  The state service on dev-madrid, not git, is the source of truth for a
+  composition's manifest: `up()` materialises the service copy over the
+  working tree and only Muster edits flow back. `66c84865` committed
+  `screen_audio_transcribe: true`, the service still held `false`, and every
+  node's `up()` rewrote the working tree to `false` and started
+  capture-service with `GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE=false`
+  (verified in the live process env on dev-madrid and the mini). Fixed by
+  pushing HEAD's manifest to the service (rev 30 -> 31) with the new
+  `tsx scripts/state-push-composition.ts default` (shows the diff, refuses an
+  un-committed manifest, rev CAS), restoring the committed `apm.yml` on both
+  peers and restarting capture-service through
+  `POST /api/fittings/capture-service/restart` - both peers now run with the
+  flag true (dev-madrid pid 1085939, mini pid 14713). Rule for the future: a
+  committed `compositions/*/apm.yml` change is not live until it is pushed to
+  the service; `scripts/garrison-redeploy.sh` does not do it for you (it
+  should - see §4).
+- dev-madrid carries a local commit `5af91f90` ("shells: G0") on top of
+  `66c84865` from another session's plan; not this run's, left alone.
 
 ## 3. Operator-triggered follow-ups
 
@@ -186,6 +200,17 @@ the simulator and where the code is.
 
 ## 4. Debt seen on the way (not this run's)
 
+- `scripts/garrison-redeploy.sh` should push HEAD's `compositions/*/apm.yml`
+  to the state service (what `scripts/state-push-composition.ts` does) before
+  `up()`, or `up()` should treat a working-tree manifest that matches HEAD and
+  differs from the service copy as the newer intent. Today a redeploy of a
+  committed manifest change silently reverts it (the D50 flag, above).
+- Under load 150+ this Mac's `up()` failed on `basic-memory` verify (`exit
+  null: verify timed out`) and left an orphan `basic-memory project info main`
+  running; the verify has no budget of its own beyond the runner's timeout.
+- The Mac accumulates process debt: ~44 orphan `tail -F`, ~200 Chrome
+  crashpad zombies, launchd at 16 % CPU. Not Garrison's, but it is what
+  pushed the load to 200 and made both faults above visible.
 - Stale 27xxx/7xxx prose in fitting `summary:` texts (browser-default,
   ports-default, monitor-default, power-default, screen-share-default) and the
   base-family `DEFAULT_PORT` fallbacks in every own-port fitting's config

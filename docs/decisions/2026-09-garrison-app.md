@@ -1286,6 +1286,29 @@ button, so no cross-node path problem arises. A broadcast started from the
 capture page (no conversation id) still takes the classifier lane and ends
 in a digest.
 
+### D51. A committed manifest is not live until it reaches the state service (2026-09-03)
+
+Found while D50 did nothing on any node although `66c84865` was built and
+running everywhere: the state service on dev-madrid, not git, is the source
+of truth for a composition's shared files (`src/lib/composition-sync.ts`).
+`up()` materialises the service copy over the working tree, and the only
+write-back path is a Muster edit (`src/app/api/muster/model.ts` ->
+`pushManifestToState`). The commit turned `screen_audio_transcribe` on, the
+service still held `false`, so every node's `up()` reverted the file and
+started capture-service with the flag off. The `git diff` on each node was
+the tell: a working tree that differs from HEAD only where the service copy
+differs.
+
+Decision: a change to `compositions/*/apm.yml` that arrives through git is
+pushed to the service explicitly, with
+`tsx scripts/state-push-composition.ts <id>` (refuses an un-committed
+manifest, prints the diff against the service copy, writes with rev CAS).
+The manifest stays under git as the reviewable record; the service stays the
+runtime truth; the script is the bridge until the redeploy does it itself
+(handoff §4). Not chosen: making git win over the service in `up()` -
+that would silently discard Muster edits made on another node, which is the
+fork the sync was built to prevent.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
