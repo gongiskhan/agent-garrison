@@ -17,6 +17,7 @@
 
 import WebSocket from "ws";
 import { normalizeOpusPacket } from "./opus-normalize.mjs";
+import { applyAliases } from "./pronunciation-aliases.mjs";
 
 const KEEPALIVE_MS = 5000;
 const CLOSE_FLUSH_TIMEOUT_MS = 3000;
@@ -172,6 +173,9 @@ class SessionTranscription {
       this.lastResultAt = Date.now();
       const segment = segmentFromResults(msg);
       if (!segment) return;
+      // Fix known mishearings AFTER the bias, before storage/dispatch (I5:
+      // this touches only in-flight segment text, never a log or counter).
+      if (cfg.sttAliases) segment.text = applyAliases(segment.text, cfg.sttAliases);
       // Echo suppression sits HERE, at the single ingestion point: a
       // suppressed segment (the app's own spoken ack coming back through the
       // mic) never reaches the stored transcript, the live view, or the wake

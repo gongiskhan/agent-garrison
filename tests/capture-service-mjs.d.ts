@@ -629,3 +629,10 @@ declare module "*/capture-service/scripts/zeca-nightly.mjs" {
     file?: string;
   }>;
 }
+
+// The post-ASR pronunciation fixes: stt_keyterms biases Deepgram toward a word,
+// this rewrites the renderings it still gets wrong.
+declare module "*/capture-service/lib/pronunciation-aliases.mjs" {
+  export function aliasRegex(variants: readonly string[] | null | undefined): RegExp | null;
+  export function applyAliases(text: string, aliasMap: Record<string, readonly string[]> | null | undefined): string;
+}

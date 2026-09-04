@@ -15,6 +15,8 @@
 // status and a bounded excerpt of its TEXT body, never the audio and never the
 // key.
 
+import { applyAliases } from "./pronunciation-aliases.mjs";
+
 const DETAIL_MAX_CHARS = 200;
 
 // Every upstream call is bounded. Without a signal an undici fetch waits on a
@@ -70,6 +72,10 @@ export async function transcribeClip({ cfg, bytes, contentType = "audio/webm", l
   const lang = String(language ?? "").trim() || cfg.sttRestLanguage || cfg.sttLanguage;
   const model = cfg.sttModel;
   const params = new URLSearchParams({ model, smart_format: "true", punctuate: "true", language: lang });
+  // Same keyterm bias as the live lane (deepgram-live.mjs) - this lane was
+  // missing it entirely, so a clip transcription got none of the lift a live
+  // pendant session does for the same words.
+  for (const term of cfg.sttKeyterms ?? []) params.append("keyterm", term);
   let res;
   try {
     res = await doFetch(`${cfg.dgRestBaseUrl}/v1/listen?${params}`, {
@@ -89,8 +95,9 @@ export async function transcribeClip({ cfg, bytes, contentType = "audio/webm", l
     throw new UpstreamError("deepgram", res.status, "non-JSON body", { cause: err });
   }
   const alt = data?.results?.channels?.[0]?.alternatives?.[0] ?? {};
+  const transcript = typeof alt.transcript === "string" ? alt.transcript : "";
   return {
-    transcript: typeof alt.transcript === "string" ? alt.transcript : "",
+    transcript: cfg.sttAliases ? applyAliases(transcript, cfg.sttAliases) : transcript,
     confidence: typeof alt.confidence === "number" ? alt.confidence : null,
     language: lang,
     model
