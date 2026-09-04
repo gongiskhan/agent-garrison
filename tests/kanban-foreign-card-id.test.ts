@@ -94,7 +94,13 @@ describe("a card the board did not mint", () => {
     expect(got.body.card.title).toBe("Build a small todo REST API");
   });
 
-  it("still cannot start work or take a lifecycle write - those need a real ULID", async () => {
+  // Two nodes fixed the same 400 in the same week: one kept the ULID mandate
+  // for lifecycle routes, the other dropped it everywhere because the state
+  // service's card contract is the path-safe token, not a ULID (and it mints
+  // the run dirs itself). The merge keeps the second: a foreign id passes the
+  // id guard on every route, and what the route then says about the card is
+  // the route's own business (here: no gateway to start against).
+  it("passes the id guard on lifecycle routes too - the state service, not the board, owns the id shape", async () => {
     for (const [method, path] of [
       ["POST", `/cards/${FOREIGN_ID}/start`],
       ["POST", `/cards/${FOREIGN_ID}/steer`],
@@ -102,8 +108,7 @@ describe("a card the board did not mint", () => {
       ["PATCH", `/cards/${FOREIGN_ID}`]
     ] as const) {
       const res = await raw(method, path);
-      expect(res.status, `${method} ${path}`).toBe(400);
-      expect(res.body.error).toBe("invalid card id");
+      expect(res.body.error, `${method} ${path}`).not.toBe("invalid card id");
     }
   });
 

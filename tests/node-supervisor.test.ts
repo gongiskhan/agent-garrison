@@ -15,6 +15,16 @@ import path from "node:path";
 
 const SCRIPT = path.resolve(__dirname, "..", "scripts", "remote-shell", "node-supervisor.sh");
 const FIXTURE = path.resolve(__dirname, "fixtures", "node-supervisor", "fake-instance.sh");
+// The daemon boundary detaches with setsid, a util-linux tool: the supervisor
+// runs on the Linux nodes only, and a Mac has no setsid to run these against.
+function hasSetsid(): boolean {
+  try {
+    execFileSync("sh", ["-c", "command -v setsid"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 let TEST_HOME: string;
 let MARKERS: string;
@@ -71,7 +81,7 @@ afterEach(async () => {
   rmSync(TEST_HOME, { recursive: true, force: true });
 });
 
-describe("node-supervisor.sh", () => {
+describe.skipIf(!hasSetsid())("node-supervisor.sh", () => {
   it("reports stopped (exit 1) when nothing has ever been started", () => {
     const result = run(["status"]);
     expect(result.status).toBe(1);

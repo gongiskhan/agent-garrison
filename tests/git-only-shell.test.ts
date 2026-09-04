@@ -7,10 +7,14 @@
 
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 const SCRIPT = path.resolve(__dirname, "..", "scripts", "remote-shell", "git-only-shell.sh");
 const REPO = "/home/ggomes/dev/garrison";
+// The accept side needs the real repo at dev-madrid's path; every other node
+// has it elsewhere, so only the refusal side runs there.
+const onRepoHost = existsSync(path.join(REPO, ".git"));
 
 function run(sshOriginalCommand: string | undefined): { status: number | null; stdout: string; stderr: string } {
   try {
@@ -34,7 +38,7 @@ describe("git-only-shell.sh", () => {
   // stdin, it just wants proof the RIGHT command ran against the RIGHT repo).
   // That is git's exit code, not the shell script's - the script's own job
   // was already done the moment it exec'd, and its stdout is the evidence.
-  it("execs the real git-upload-pack for the exact expected repo (single-quoted, as git's own ssh transport sends it)", () => {
+  it.skipIf(!onRepoHost)("execs the real git-upload-pack for the exact expected repo (single-quoted, as git's own ssh transport sends it)", () => {
     const result = run(`git-upload-pack '${REPO}'`);
     // A real git-upload-pack advertisement starts with a pkt-line length
     // prefix followed by the HEAD ref line - proof this actually ran against
@@ -42,7 +46,7 @@ describe("git-only-shell.sh", () => {
     expect(result.stdout).toMatch(/^[0-9a-f]{4}[0-9a-f]{40} HEAD/);
   });
 
-  it("also accepts the double-quoted form", () => {
+  it.skipIf(!onRepoHost)("also accepts the double-quoted form", () => {
     const result = run(`git-upload-pack "${REPO}"`);
     expect(result.stdout).toMatch(/^[0-9a-f]{4}[0-9a-f]{40} HEAD/);
   });
