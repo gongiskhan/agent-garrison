@@ -94,13 +94,17 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
     } catch {
       threads = [];
     }
-    if (!peer.tailnetHost && threads.length === 0) continue;
+    // A TETHERED peer (csg) has no tailnetHost at all - its appOrigin (carried
+    // through the beat's health.node.appOrigin) is its only real address, so
+    // it must not be skipped just for lacking a tailnetHost.
+    const appOrigin = peer.health?.node?.appOrigin ?? null;
+    if (!peer.tailnetHost && !appOrigin && threads.length === 0) continue;
     // Rows open THIS node's /mesh/talk/<node>/<id> page, which frames the
     // conversation on its home node. The top window never leaves this origin:
     // a cross-origin top-level load is a new tab on a phone browser, a Safari
     // hand-off in the Garrison app, and a scope exit for a Home Screen install.
-    // The page resolves the node's tailnet host from the roster and says so
-    // when it has none.
+    // The page resolves the node's tailnet host (or, for a tethered node, its
+    // appOrigin) from the roster and says so when it has neither.
     const base = `/mesh/talk/${encodeURIComponent(peer.name)}`;
     nodes.push({
       node: peer.name,

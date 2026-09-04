@@ -325,6 +325,14 @@ const SESSION_IS_THE_RUNTIME: ReadonlyArray<{ file: string; why: string }> = [
   {
     file: "packages/talk/ui/shells-modal.tsx",
     why: "the shells picker lists tmux sessions per project on a remote host — the tmux vocabulary is the correct one"
+  },
+  {
+    file: "packages/talk/ui/sessions-rail.tsx",
+    why: "the rail's Sessions section lists live claude/codex/cursor/gemini/tmux sessions across every mesh node, distinct from the conversation threads above it"
+  },
+  {
+    file: "packages/talk/ui/session-view.tsx",
+    why: "the external-session view streams the transcript of one runtime session (Claude, Codex, Cursor, Gemini, or a bare shell) that a conversation has not yet claimed"
   }
 ];
 

@@ -123,3 +123,4 @@ export { delegate, validateTaskSpec, parseTaskSpec, validateDelegationResult, De
 export { acquireCodexLock, releaseCodexLock, withCodexLock, LOCK_FILE as CODEX_LOCK_FILE, CODEX_LOCK_DIR } from "./codex-lock.mjs";
 export { MultiRuntimePool } from "./multi-runtime-pool.mjs";
 export { claudeProjectDirForCwd, claudeProjectsDir, claudeGlobalConfigPath } from "./paths.mjs";
+export { readLiveRegistry, listHistory, isInternalCwd, listBackgroundAgents } from "./claude-sessions.mjs";

@@ -27,6 +27,9 @@ const selfSnapshot = {
     accentInk: "#ffffff",
     tailnetHost: "alpha.tail31efa.ts.net",
     createdAt: "2026-08-25T09:00:00.000Z",
+    tetherHost: null,
+    appOrigin: null,
+    shellOrigin: null,
     source: "file" as const
   },
   schemaVersion: { min: CLIENT_SCHEMA.min, max: CLIENT_SCHEMA.max },

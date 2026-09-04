@@ -281,7 +281,17 @@ function hasLegacyRoutingOnPrimary(manifest: CompositionManifest): boolean {
 export interface LocalOverlay {
   global_config?: Partial<GlobalConfig> & Record<string, unknown>;
   selections?: FittingSelectionMap;
+  // Mesh (2026-09): fitting ids this machine does not run, even though the
+  // shared composition selects them - a tethered node (csg) has no reason to
+  // run channels/automations/memory sync meant for the owner's own machine.
+  // Never the write path (D8 stands: membership lives in the shared
+  // manifest); this only hides selections FROM THIS NODE at read time.
+  unstation?: string[];
 }
+
+// A faculty whose absence breaks up() outright for every other fitting too -
+// refused even from a local.yml this machine fully controls.
+const UNSTATION_REFUSED_IDS = new Set(["orchestrator", "http-gateway", "scheduler"]);
 
 // The composition-side duty schema. Kept structurally identical to the
 // canonical dutySchema in metadata.ts (which owns fitting-side duty parsing but
@@ -594,11 +604,20 @@ export async function readLocalOverlay(id: string): Promise<LocalOverlay | null>
   const source = (isPlainObject(nested) ? nested : raw) as {
     global_config?: LocalOverlay["global_config"];
     selections?: FittingSelectionMap;
+    unstation?: unknown;
   };
   const overlay: LocalOverlay = {};
   if (isPlainObject(source.global_config)) overlay.global_config = source.global_config;
   if (isPlainObject(source.selections)) overlay.selections = source.selections;
-  return overlay.global_config || overlay.selections ? overlay : null;
+  // Accepted at the top level too (raw.unstation), not only nested under
+  // x-garrison.composition - `source` already resolves to `raw` when nothing
+  // is nested, so a bare {unstation: [...]} local.yml (no global_config/
+  // selections at all) still needs its own read here.
+  const unstationRaw = Array.isArray(source.unstation) ? source.unstation : Array.isArray(raw.unstation) ? raw.unstation : null;
+  if (unstationRaw) {
+    overlay.unstation = unstationRaw.filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+  }
+  return overlay.global_config || overlay.selections || overlay.unstation ? overlay : null;
 }
 
 // Deep-merge the local overlay over a parsed manifest's composition block:
@@ -606,11 +625,15 @@ export async function readLocalOverlay(id: string): Promise<LocalOverlay | null>
 // win); selections merge by fitting id within each faculty, with config keys
 // shallow-merged per selection (overlay keys win). Returns the manifest
 // unchanged when there is nothing to overlay. Pure — never mutates its inputs.
+// Logged once per process, not once per read - up() and every API route that
+// calls readComposition() would otherwise repeat this on every poll.
+const unstationWarned = new Set<string>();
+
 export function applyLocalOverlay(
   manifest: CompositionManifest,
   overlay: LocalOverlay | null
 ): CompositionManifest {
-  if (!overlay || (!overlay.global_config && !overlay.selections)) {
+  if (!overlay || (!overlay.global_config && !overlay.selections && !overlay.unstation)) {
     return manifest;
   }
   const composition = manifest["x-garrison"]?.composition ?? {};
@@ -626,6 +649,27 @@ export function applyLocalOverlay(
       composition.selections ?? {},
       overlay.selections
     );
+  }
+  // Unstation LAST, after the config merge, so an unstation list can name a
+  // fitting the overlay's own `selections` block also configures without the
+  // two fighting over ordering.
+  if (overlay.unstation?.length) {
+    const wanted = new Set(overlay.unstation);
+    const refused = overlay.unstation.filter((id) => UNSTATION_REFUSED_IDS.has(id));
+    for (const id of refused) {
+      const key = `${manifest.name ?? "?"}:${id}`;
+      if (!unstationWarned.has(key)) {
+        unstationWarned.add(key);
+        console.warn(`[garrison] local.yml unstation names "${id}", which this node may never unstation — ignored`);
+      }
+      wanted.delete(id);
+    }
+    const base = mergedComposition.selections ?? composition.selections ?? {};
+    const next: FittingSelectionMap = {};
+    for (const [facultyKey, items] of Object.entries(base) as [FacultyId, SelectedFitting[]][]) {
+      next[facultyKey] = (items ?? []).filter((item) => !wanted.has(item.id));
+    }
+    mergedComposition.selections = next;
   }
   return {
     ...manifest,

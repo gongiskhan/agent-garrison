@@ -3,6 +3,7 @@ import { StateUnavailableError, stateDegraded, withState } from "@/lib/state-cli
 import { readNodeIdentity } from "@/lib/node-identity";
 import { crossSiteBlocked } from "@/lib/mesh/peer-auth";
 import { MAX_BODY_BYTES, classifyPeerPath, forwardToPeer, peerAppBase, peerThreadUrl } from "@/lib/mesh/peer-proxy";
+import { healthAppOrigin } from "@/lib/mesh/node-row";
 import type { SessionInfo } from "@garrison/state-client";
 
 export const runtime = "nodejs";
@@ -87,6 +88,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
   // node.json is authoritative for THIS machine and the registry is its
   // replica, so a node that has not enrolled yet can still answer about itself.
   const tailnetHost = registryNode?.tailnetHost ?? (isSelf ? self.tailnetHost : null);
+  const appOrigin = healthAppOrigin(registryNode?.health as Record<string, unknown> | undefined) ?? (isSelf ? self.appOrigin : null);
   if (!registryNode && !isSelf) return json(404, { error: "unknown-node", node });
 
   // The convenience read: served from the REGISTRY, never from the peer, so a
@@ -104,7 +106,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
       }
       return json(502, { error: "sessions-read-failed", node, detail: err instanceof Error ? err.message : String(err) });
     }
-    const base = peerAppBase(tailnetHost);
+    const base = peerAppBase(tailnetHost, appOrigin);
     return json(200, {
       node,
       isSelf,
@@ -117,7 +119,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     });
   }
 
-  const base = peerAppBase(tailnetHost);
+  const base = peerAppBase(tailnetHost, appOrigin);
   if (!base) {
     return json(502, {
       error: "peer-unaddressable",

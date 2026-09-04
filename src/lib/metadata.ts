@@ -272,6 +272,59 @@ const quartersDescriptorIdSchema = z
   .string()
   .regex(/^[a-z][a-z0-9-]*$/, "quarters_descriptor id must be kebab-case");
 
+// G5: a restricted glob for a file_sets entry - literal path segments, "*",
+// "*.ext", or "{a,b}.ext", at most two segments deep, never ".." or a leading
+// "/". Deliberately narrower than a real glob library: the same string is
+// matched against the real filesystem by `matchRestrictedGlob` in
+// quarters-runtimes.ts (path/containment safety, not just authoring lint), so
+// the grammar stays small enough to reason about at both ends.
+const QUARTERS_GLOB_SEGMENT =
+  /^(?:\*(?:\.[A-Za-z0-9]+)?|\{[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)+\}\.[A-Za-z0-9]+|[A-Za-z0-9][A-Za-z0-9._-]*)$/;
+
+export function isRestrictedQuartersGlob(glob: string): boolean {
+  if (!glob || glob.includes("..") || glob.startsWith("/")) return false;
+  const segments = glob.split("/");
+  if (segments.length === 0 || segments.length > 2) return false;
+  return segments.every((seg) => seg.length > 0 && QUARTERS_GLOB_SEGMENT.test(seg));
+}
+
+const quartersFileSetSchema = z
+  .object({
+    id: z.string().regex(/^[a-z][a-z0-9-]*$/, "file_sets id must be kebab-case"),
+    label: z.string().min(1),
+    root: z.string().min(1),
+    glob: z
+      .string()
+      .min(1)
+      .refine(
+        isRestrictedQuartersGlob,
+        "file_sets glob must be a restricted pattern (literal segments, '*', '*.ext', or '{a,b}.ext'; at most two segments deep; no '..' or a leading '/')"
+      ),
+    format: z.enum(["markdown", "json"]),
+    frontmatter: z.array(z.string().min(1)).optional(),
+    create: z.boolean().optional(),
+    write: z.enum(["replace", "merge"]).optional(),
+    platform: z.enum(["darwin", "linux", "win32"]).optional(),
+    scope: z.enum(["home", "project"]).optional()
+  })
+  .strict()
+  .refine((fs) => fs.format === "markdown" || !fs.frontmatter, {
+    message: "file_sets frontmatter is only valid when format is markdown",
+    path: ["frontmatter"]
+  })
+  .refine((fs) => fs.write !== "merge" || fs.format === "json", {
+    message: "file_sets write:'merge' is only valid when format is json (a markdown file has no field-level merge)",
+    path: ["write"]
+  });
+
+const quartersFileSetsSchema = z
+  .array(quartersFileSetSchema)
+  .optional()
+  .refine(
+    (sets) => !sets || new Set(sets.map((s) => s.id)).size === sets.length,
+    "quarters_descriptor file_sets ids must be unique within one descriptor"
+  );
+
 const quartersDescriptorSchema = z.discriminatedUnion("tier", [
   z
     .object({
@@ -282,7 +335,8 @@ const quartersDescriptorSchema = z.discriminatedUnion("tier", [
       context_file: z.string().min(1).optional(),
       mcp_config: quartersMcpConfigSchema.optional(),
       log_paths: z.array(z.string().min(1)).optional(),
-      categories: z.array(z.string().min(1)).optional()
+      categories: z.array(z.string().min(1)).optional(),
+      file_sets: quartersFileSetsSchema
     })
     .strict(),
   z
@@ -299,7 +353,8 @@ const quartersDescriptorSchema = z.discriminatedUnion("tier", [
       context_file: z.string().min(1).optional(),
       mcp_config: quartersMcpConfigSchema.optional(),
       log_paths: z.array(z.string().min(1)).optional(),
-      categories: z.array(z.string().min(1)).optional()
+      categories: z.array(z.string().min(1)).optional(),
+      file_sets: quartersFileSetsSchema
     })
     .strict()
 ]);

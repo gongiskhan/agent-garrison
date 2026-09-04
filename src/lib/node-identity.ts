@@ -64,10 +64,37 @@ export interface NodeIdentity {
   // FQDN this node is reachable at on the tailnet, when the installer knew it.
   tailnetHost: string | null;
   createdAt: string | null;
+  // Mesh (2026-09): a TETHERED node (csg) has no tailscale interface of its
+  // own - it reaches the mesh through its owner's reverse tunnel instead, so
+  // it needs its browser-facing origins spelled out rather than derived from
+  // tailnetHost. `tethered` is present (true) only on such a node; every
+  // other node leaves it undefined. `tetherHost` names the owner node.
+  tethered?: true;
+  tetherHost: string | null;
+  // Full https origins a browser can reach this node's app / Shells fitting
+  // at - the tether's published tailnet serve URLs on the OWNER's host, not
+  // this node's own address (it has none reachable from outside the tether).
+  // https only: an http origin would be mixed content on the shell's https
+  // page, so a non-https value here is treated as absent (null), never
+  // passed through.
+  appOrigin: string | null;
+  shellOrigin: string | null;
   // "file" once the installer has run; "fallback" for a checkout that never
   // did. A fallback node is still visually distinct - four identical
   // "Agent Garrison" windows is the failure this whole module exists to avoid.
   source: "file" | "fallback";
+}
+
+// https only - an http value is mixed content on the (always-https) shell
+// page, so it is treated as absent rather than passed through to a client.
+function httpsOriginOrNull(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const u = new URL(raw.trim());
+    return u.protocol === "https:" ? raw.trim().replace(/\/+$/, "") : null;
+  } catch {
+    return null;
+  }
 }
 
 export function nodeIdentityPath(home: string = garrisonDir()): string {
@@ -142,6 +169,9 @@ function fallbackIdentity(): NodeIdentity {
     accentInk: accent.ink,
     tailnetHost: null,
     createdAt: null,
+    tetherHost: null,
+    appOrigin: null,
+    shellOrigin: null,
     source: "fallback"
   };
 }
@@ -165,6 +195,8 @@ function parseIdentity(raw: string): NodeIdentity | null {
       : null;
   const createdAt =
     typeof rec.createdAt === "string" && rec.createdAt.trim() ? rec.createdAt.trim() : null;
+  const tetherHost =
+    typeof rec.tetherHost === "string" && rec.tetherHost.trim() ? rec.tetherHost.trim() : null;
   return {
     id,
     name,
@@ -173,6 +205,10 @@ function parseIdentity(raw: string): NodeIdentity | null {
     accentInk: accent.ink,
     tailnetHost,
     createdAt,
+    ...(rec.tethered === true ? { tethered: true as const } : {}),
+    tetherHost,
+    appOrigin: httpsOriginOrNull(rec.appOrigin),
+    shellOrigin: httpsOriginOrNull(rec.shellOrigin),
     source: "file"
   };
 }

@@ -144,6 +144,13 @@ GARRISON_INSTANCE_ID=prod GARRISON_HOME="$PROD_HOME" \
   node "$REPO_ROOT/scripts/tailnet-serve-views.mjs" || \
   echo "[redeploy] tailnet publish failed (views may be unreachable off-box)"
 
+# Any tethered node this machine owns (csg) - its app/Shells ports become
+# reachable through THIS machine's own tailnet identity, not its own (it has
+# none). A no-op, quietly, when this machine owns no tether.
+GARRISON_INSTANCE_ID=prod GARRISON_HOME="$PROD_HOME" \
+  node "$REPO_ROOT/scripts/tailnet-serve-tether.mjs" || \
+  echo "[redeploy] tether publish failed"
+
 # Name THIS node's tailnet address, not a hardcoded one - the same script runs
 # on every mesh machine.
 TAILNET_HOST="$(node -e '

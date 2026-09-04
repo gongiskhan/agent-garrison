@@ -72,18 +72,34 @@ async function logDecision(rec) {
 }
 
 // Health probe, offline-safe (no model turn): the CLI must be on PATH AND print a
-// version, and the box must be able to authenticate — either Cursor's native login
+// version, and the box must be able to authenticate - either Cursor's native login
 // reports authenticated, or a CURSOR_API_KEY is present. Returns null when healthy,
-// else the reason, so --probe can fail loudly with the remediation.
+// else {level, reason}: "absent" (the binary itself is missing - most nodes in the
+// mesh do not run Cursor, so this is the common, non-fatal case) vs
+// "unauthenticated" (the binary IS here but nobody logged in, which only happens on
+// a node someone specifically set up for Cursor and so is always a real problem).
+// --probe treats the two differently; see main() below.
 export function probeFailure(run = (bin, argv) => spawnSync(bin, argv, { encoding: "utf8" }), env = process.env) {
-  const v = run("cursor-agent", ["--version"]);
-  const version = `${v.stdout ?? ""}${v.stderr ?? ""}`.trim();
-  if (v.status !== 0 || !/\d/.test(version)) {
-    return "cursor-agent CLI not found on PATH (or no version string) — install the Cursor CLI (https://cursor.com/cli)";
+  // A bare `cursor-agent` resolves via PATH like a real login shell would; the
+  // `~/.local/bin/cursor-agent` fallback covers a non-interactive probe (no login
+  // shell, so no PATH augmentation) on a box where the CLI is installed there but
+  // not symlinked anywhere PATH already covers.
+  const candidates = ["cursor-agent", path.join(env.HOME || os.homedir(), ".local/bin/cursor-agent")];
+  let bin = null;
+  for (const candidate of candidates) {
+    const v = run(candidate, ["--version"]);
+    const version = `${v.stdout ?? ""}${v.stderr ?? ""}`.trim();
+    if (v.status === 0 && /\d/.test(version)) {
+      bin = candidate;
+      break;
+    }
+  }
+  if (!bin) {
+    return { level: "absent", reason: "not found on PATH or in ~/.local/bin (install: https://cursor.com/cli)" };
   }
   // An API key authenticates without any stored login, so it short-circuits.
   if (String(env.CURSOR_API_KEY ?? "").trim()) return null;
-  const s = run("cursor-agent", ["status", "--format", "json"]);
+  const s = run(bin, ["status", "--format", "json"]);
   const out = `${s.stdout ?? ""}`.trim();
   let parsed = null;
   try {
@@ -105,19 +121,33 @@ export function probeFailure(run = (bin, argv) => spawnSync(bin, argv, { encodin
     }
   }
   const detail = parsed?.status ?? (out.slice(0, 120) || "no status output");
-  return `cursor-agent is not authenticated (${detail}) — run \`cursor-agent login\` on this box, or set CURSOR_API_KEY`;
+  return {
+    level: "unauthenticated",
+    reason: `cursor-agent is not authenticated (${detail}) - run \`cursor-agent login\` on this box, or set CURSOR_API_KEY`
+  };
 }
 
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes("--probe")) {
     const failure = probeFailure();
-    if (failure) {
-      console.error(failure);
-      process.exit(1);
+    if (!failure) {
+      console.log("ok");
+      return;
     }
-    console.log("ok");
-    return;
+    // Absent is degraded, not fatal, UNLESS this node was told it must run
+    // Cursor (GARRISON_REQUIRE_CURSOR=1, set in the mini's launchd env) - a
+    // composition-wide `up()` aborts on any verify failure, so a node without
+    // cursor-agent must not break `up` for every OTHER fitting just because
+    // the composition also stations Cursor. Unauthenticated never degrades:
+    // the binary being here at all means someone meant this node to run it.
+    if (failure.level === "absent" && process.env.GARRISON_REQUIRE_CURSOR !== "1") {
+      console.log("ok");
+      console.log(`degraded: no cursor-agent on this node (${failure.reason})`);
+      return;
+    }
+    console.error(failure.reason);
+    process.exit(1);
   }
 
   const specFileIdx = argv.indexOf("--spec-file");

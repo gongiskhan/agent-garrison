@@ -23,6 +23,8 @@
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { meshThreads } from "./mesh-threads.mjs";
+import { meshSessions } from "./mesh-sessions.mjs";
+import { parseByFormat } from "./transcript-formats.mjs";
 import { gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
 import { rotateZecaConversation, zecaConversation } from "./zeca.mjs";
 import { loadSidebar, saveSidebar } from "./sidebar-state.mjs";
@@ -2388,6 +2390,21 @@ async function handleRouteOptions(req, res, opts) {
 // server persists each completed exchange itself (handleChat tees the upstream
 // `done` event into the thread the client named) and lists/serves prior threads
 // so the UI can show a session list and move between conversations.
+/** meshSessions() rows keyed by the LOCAL thread they are bound to (only rows
+ *  this node's own binding step tagged - see mesh-sessions.mjs). A FOURTH
+ *  liveness source for handleThreadsList, the same shape as the remote-shell
+ *  join below: a `source:"shell"` thread's own row IS its activity. */
+async function shellSessionsByThread() {
+  const byThread = new Map();
+  try {
+    const { rows } = await meshSessions();
+    for (const r of rows) {
+      if (r.threadId) byThread.set(r.threadId, r);
+    }
+  } catch { /* meshSessions() never throws, but a defensive catch costs nothing */ }
+  return byThread;
+}
+
 async function handleThreadsList(res) {
   // `runningSince` rides the list so the sidebar can mark which conversations
   // have a turn in flight, not just the one that is open. A remote-shell thread
@@ -2395,12 +2412,13 @@ async function handleThreadsList(res) {
   // typed straight into the remote TUI still shows as live.
   const running = new Set(runningThreadIds());
   const rsh = await remoteShellSessions();
+  const shellByThread = await shellSessionsByThread();
   const threads = (await listThreads()).map((t) => {
     const session = matchRemoteShellSession(t.remoteShell, rsh);
     // The agent's own lifecycle IS this thread's activity: a terminal-first
     // shell never writes a message, so without this its row would sit at the
     // bottom of the rail forever, however busy the agent is.
-    const meta = session
+    let meta = session
       ? {
           ...t,
           remoteShell: {
@@ -2413,9 +2431,28 @@ async function handleThreadsList(res) {
           updatedAt: laterOf(t.updatedAt, session.lastEventAt)
         }
       : t;
+    const shellRow = t.shell ? shellByThread.get(t.id) : null;
+    if (shellRow) {
+      meta = {
+        ...meta,
+        shell: {
+          ...t.shell,
+          sessionId: shellRow.shell?.sessionId ?? null,
+          status: shellRow.status,
+          runtime: shellRow.runtime,
+          project: shellRow.project ?? null,
+          cwd: shellRow.cwd ?? t.shell.cwd ?? null,
+          lastActivityAt: shellRow.lastActivityAt ?? null
+        },
+        updatedAt: laterOf(meta.updatedAt, shellRow.lastActivityAt)
+      };
+    }
     if (running.has(t.id)) return { ...meta, runningSince: runningSince(t.id) };
     if (session?.state === "running") {
       return { ...meta, runningSince: session.lastEventAt ?? session.createdAt ?? new Date().toISOString() };
+    }
+    if (shellRow?.status === "working") {
+      return { ...meta, runningSince: shellRow.lastActivityAt ?? t.createdAt ?? new Date().toISOString() };
     }
     // A conversation thread's work is launcher-driven: its liveness lives in the
     // conversation store, not in this server's input lifecycle.
@@ -2424,6 +2461,78 @@ async function handleThreadsList(res) {
     return meta;
   });
   jsonRes(res, 200, { threads });
+}
+
+/** The aggregated session list: this node's own Shells fitting index plus
+ *  every mesh peer's, bound to local threads. Never 5xx on a state-service or
+ *  fitting outage - meshSessions() already fails closed to {self, nodes:[],
+ *  rows:<local only or even empty>}. */
+async function handleSessionsList(res) {
+  const result = await meshSessions().catch(() => ({ self: { node: null, accentColor: null }, nodes: [], rows: [] }));
+  jsonRes(res, 200, result);
+}
+
+/** Live transcript for an external (non-thread-owned) session on THIS node -
+ *  same SSE frame shape as handleSessionStream, but sourced from the row's
+ *  own transcript file/format rather than a Claude-specific path. A peer's
+ *  session streams through /api/mesh/nodes/<node>/sessions/:id/stream (the
+ *  shell app's peer proxy), never here. */
+async function handleExternalSessionStream(req, res, id) {
+  const emit = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* client gone */ } };
+  const notFound = () => {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    emit({ type: "init", available: false, live: false, events: [] });
+    emit({ type: "end" });
+    res.end();
+  };
+  let row;
+  try {
+    const { self, rows } = await meshSessions();
+    row = rows.find((r) => r.id === id && r.node === self.node);
+  } catch {
+    row = null;
+  }
+  if (!row?.transcript?.path || !row?.transcript?.format) return notFound();
+  const format = row.transcript.format;
+  const filePath = row.transcript.path;
+
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  let offset = 0;
+  try {
+    const first = await readJsonlLines(filePath, 0);
+    offset = first.offset;
+    const { events, title } = parseByFormat(format, first.lines);
+    emit({ type: "init", available: true, live: row.status !== "ended", title, events });
+  } catch {
+    emit({ type: "init", available: false, live: false, events: [] });
+    emit({ type: "end" });
+    return res.end();
+  }
+  let closed = false;
+  const stop = () => { closed = true; clearInterval(keep); clearInterval(poll); };
+  const keep = setInterval(() => { if (!closed) { try { res.write(": keep-alive\n\n"); } catch { stop(); } } }, 15000);
+  const poll = setInterval(async () => {
+    if (closed) return;
+    try {
+      const next = await readJsonlLines(filePath, offset);
+      if (next.lines.length) {
+        offset = next.offset;
+        const { events, title } = parseByFormat(format, next.lines);
+        if (events.length) emit({ type: "events", title, events });
+      }
+    } catch { /* transient read error; retry next tick */ }
+  }, 800);
+  req.on("close", stop);
+  res.on("close", stop);
 }
 
 async function handleThreadCreate(req, res) {
@@ -2689,6 +2798,18 @@ async function handleThreadRename(req, res, id) {
 // Route /api/threads, /api/threads/:id, /api/threads/:id/live and mutations.
 // Returns true
 // when it handled the request.
+function routeSessions(req, res, pathname, method, log = console) {
+  if (pathname === "/api/sessions" && method === "GET") { settle(res, handleSessionsList(res), log); return true; }
+  const m = pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);
+  if (m && method === "GET") {
+    let id;
+    try { id = decodeURIComponent(m[1]); } catch { id = m[1]; }
+    void handleExternalSessionStream(req, res, id);
+    return true;
+  }
+  return false;
+}
+
 function routeThreads(req, res, pathname, method, opts, log = console) {
   if (pathname === "/api/threads" && method === "GET") { settle(res, handleThreadsList(res), log); return true; }
   if (pathname === "/api/threads" && method === "POST") { settle(res, handleThreadCreate(req, res), log); return true; }
@@ -3446,6 +3567,7 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       }
       if (pathname === "/api/brief" && method === "GET") { settle(res, handleBriefGet(res, parsed.query.path), log); return true; }
       if (pathname === "/api/brief" && method === "PUT") { settle(res, handleBriefPut(req, res), log); return true; }
+      if (pathname.startsWith("/api/sessions") && routeSessions(req, res, pathname, method, log)) return true;
       if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method, liveOpts, log)) return true;
       // The standing Zeca conversation (D60): the voice layer asks where every
       // spoken "Zeca" lands; the nightly review rotates it.

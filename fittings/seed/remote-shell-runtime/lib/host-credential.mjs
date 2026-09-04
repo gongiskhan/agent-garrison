@@ -129,6 +129,11 @@ export async function refreshHostTokens(transports, opts = {}) {
   for (const transport of transports) {
     const dt = transport.via?.devtunnel;
     if (!dt) continue;
+    // csg's VS Code tunnel is minted and refreshed by VS Code / the operator,
+    // not by Garrison - pushing a Garrison-minted host token onto it would
+    // fight whatever VS Code's own token management is doing. This mechanism
+    // stays reserved for a tunnel Garrison fully owns (peaceful-ocean).
+    if (dt.pushHostToken === false) continue;
     // Bring the channel up first. At startup nothing else has, and the push is
     // plain ssh through the forward - without this it fails on every boot and the
     // remote silently keeps ageing out its token (caught live: the fitting

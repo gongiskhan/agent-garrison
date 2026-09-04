@@ -644,9 +644,21 @@
   .wc-sidebar { transition: width .16s ease; }
   .wc-shell--rail .wc-sidebar { width: 42px; }
   /* Hidden, not merely narrow: leaving them in a 42px column produces clipped
-     text rather than a clean rail. */
+     text rather than a clean rail.
+     .wc-shells-btn and .wc-new-wrap are hidden for a sharper reason than tidiness:
+     the head is a flex row (gap 8px) whose children do not shrink, so leaving them
+     in stacked 20 + 8 + (26 + 6 margin) + 8 + 0 = 68px of content into a 42px
+     column. .wc-sidebar does not clip, and the head centres its overflow, so the
+     spill lands on BOTH sides - pushing the collapse chevron out under the shell
+     sidebar, where it cannot be seen or clicked. The rail then had no way back to
+     the list: Conversations looked broken on every wide screen. Hiding them keeps
+     the chevron alone and centred, which is the whole job of a collapsed rail -
+     `+ New` was already hidden on the same reasoning, and both are one click away
+     again the moment the rail is expanded. */
   .wc-shell--rail .wc-sidebar-title,
   .wc-shell--rail .wc-new,
+  .wc-shell--rail .wc-shells-btn,
+  .wc-shell--rail .wc-new-wrap,
   .wc-shell--rail .wc-side-scroll,
   .wc-shell--rail .wc-thread-list { display: none; }
   .wc-shell--rail .wc-sidebar-head {
@@ -2347,4 +2359,212 @@
      keeps the larger share, and a long id ellipsises the same way it does at
      26ch on the desktop - the click still copies the whole id. */
   .wc-conv-id { flex: 0 1 auto; min-width: 0; max-width: 45%; }
+}
+
+/* ── Sessions rail: runtime/node/project badges + the auto Sessions section ─
+   Session rows reuse .wc-thread/.wc-thread-open/.wc-row-dot; these are the
+   extra chips a plain conversation row never carries. ─────────────────────── */
+.wc-thread-rt { color: var(--wc-brass-bright); border-color: var(--wc-brass-deep); }
+.wc-thread-proj {
+  padding: 2px 5px;
+  border: 1px solid #576358;
+  border-radius: 1px;
+  color: #9fa69a;
+  font: 9px/1.2 var(--wc-mono);
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wc-thread-when {
+  margin-left: auto;
+  color: #6a746b;
+  font: 9px/1.3 var(--wc-mono);
+  white-space: nowrap;
+}
+.wc-thread--ended { opacity: 0.62; }
+.wc-thread--ended .wc-row-dot { background: transparent; border-color: #576358; }
+
+.wc-group--sessions { border-top: 0; margin-top: 0; padding-top: 0; }
+.wc-group--sessions .wc-group-head { border-left: 2px solid var(--wc-brass, #b1954e); }
+.wc-sessions-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 20px;
+  color: #9fa69a;
+  font: 10px/1.3 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wc-show-ended {
+  display: block;
+  width: 100%;
+  padding: 6px 20px;
+  border: 0;
+  background: transparent;
+  color: #7d8578;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.wc-show-ended:hover { color: #eef0e8; }
+@media (any-pointer: coarse) {
+  .wc-show-ended { min-height: 44px; }
+}
+
+/* ── Owned-shell workbench (deck reused; no seam/ledger) and external session
+   view share the delegate workbench's deck header shape. ──────────────────── */
+.wc-wb, .wc-sess {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.wc-wb-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #7d8578;
+  font: 11px/1.3 var(--wc-serif);
+}
+@media (max-width: 480px) {
+  .wc-sess .wc-wb-head, .wc-wb--shell .wc-wb-head { height: auto; flex-wrap: wrap; padding: 8px 12px; gap: 6px; }
+  .wc-wb-sub { flex-basis: 100%; white-space: normal; }
+}
+
+.wc-wb-composer {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  background: var(--wc-olive-900);
+  border-top: 1px solid #4b584d;
+}
+.wc-wb-composer-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 96px;
+  padding: 8px 10px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #eef0e8;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+}
+.wc-wb-composer-input:focus { outline: 2px solid var(--wc-brass, #b1954e); outline-offset: 0; }
+.wc-wb-composer-send {
+  flex: none;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--wc-brass, #b1954e);
+  border-radius: 6px;
+  background: var(--wc-brass, #b1954e);
+  color: #1d2620;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 620;
+  cursor: pointer;
+}
+.wc-wb-composer-send:disabled { opacity: 0.5; cursor: default; }
+.wc-wb-keys {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.wc-wb-key {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #cfd4c9;
+  font-family: var(--wc-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.wc-wb-key:hover { background: #2b372c; color: #eef0e8; }
+.wc-wb-keys-toggle {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd4c9;
+  font-size: 15px;
+  cursor: pointer;
+}
+.wc-wb-keys-toggle[aria-pressed="true"] { background: var(--wc-brass, #b1954e); color: #1d2620; border-color: var(--wc-brass, #b1954e); }
+@media (max-width: 600px) {
+  .wc-wb-composer-input { font-size: 16px; } /* iOS: a smaller size zooms the viewport on focus */
+}
+@media (any-pointer: coarse) {
+  .wc-wb-composer-send, .wc-wb-key, .wc-wb-keys-toggle { min-height: 44px; }
+}
+
+/* ── External session view: transcript + the honest actions a row's kind
+   actually supports. ────────────────────────────────────────────────────── */
+.wc-sess-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #4b584d;
+}
+.wc-sess-body { flex: 1; min-height: 0; overflow-y: auto; }
+.wc-sess-note {
+  padding: 16px 14px;
+  color: #9fa69a;
+  font: 400 13px/1.5 var(--wc-serif);
+}
+.wc-sess-note strong { color: #eef0e8; font-weight: 600; }
+
+/* ── New shell modal: node / runtime segmented controls + project picker ──── */
+.wc-newshell-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.wc-newshell-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #4b584d;
+  border-radius: 999px;
+  background: transparent;
+  color: #cfd4c9;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wc-newshell-seg button:hover:not(:disabled) { background: #2b372c; color: #eef0e8; }
+.wc-newshell-seg button:disabled { color: #576358; cursor: default; }
+.wc-newshell-seg-active { background: var(--wc-brass, #b1954e) !important; border-color: var(--wc-brass, #b1954e) !important; color: #1d2620 !important; }
+.wc-newshell-select, .wc-newshell-input {
+  width: 100%;
+  padding: 7px 9px;
+  margin-top: 4px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #eef0e8;
+  font-family: inherit;
+  font-size: 13px;
+}
+.wc-newshell-select:focus, .wc-newshell-input:focus { outline: 2px solid var(--wc-brass, #b1954e); outline-offset: 0; }
+@media (any-pointer: coarse) {
+  .wc-newshell-seg button { min-height: 44px; }
 }

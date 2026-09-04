@@ -15,6 +15,12 @@ export interface MeshNodeRow {
   // AND contrast-checked. See resolveAccent in src/lib/node-identity.ts.
   accentColor: string;
   tailnetHost: string | null;
+  // A TETHERED node's own https app origin (its node.json field, carried
+  // through the beat's health.node.appOrigin - no state-service schema
+  // change, hello() already stores the whole self body). Null on every
+  // ordinary node; nodeAppOrigin()/nodePageUrl() prefer this over deriving
+  // `https://<tailnetHost>` when it is set.
+  appOrigin: string | null;
   platform: string | null;
   status: string;
   state: NodeState;
@@ -30,6 +36,15 @@ export interface MeshNodeRow {
   isSelf: boolean;
   // false when this node has a node.json but no row in the registry yet.
   registered: boolean;
+}
+
+// A peer's health.node.appOrigin, read defensively: an older peer build never
+// posted the field, and the roster must not crash on it. Exported: the
+// cross-node session-control route (peer-proxy.ts) needs the identical
+// extraction to resolve a TETHERED peer's address.
+export function healthAppOrigin(health: Record<string, unknown> | undefined): string | null {
+  const node = (health as { node?: { appOrigin?: unknown } } | undefined)?.node;
+  return typeof node?.appOrigin === "string" && node.appOrigin.trim() ? node.appOrigin.trim() : null;
 }
 
 export interface MeshNodesResponse {
@@ -80,6 +95,7 @@ function registryRow(node: RegistryNode, selfId: string | null, accentHex: Accen
     name: node.name,
     accentColor: accentHex(node.accentColor, node.name),
     tailnetHost: node.tailnetHost,
+    appOrigin: healthAppOrigin(node.health),
     platform: node.platform,
     status: node.status,
     state: nodeState(
@@ -106,6 +122,7 @@ function selfRow(self: MeshSelfSnapshot, registry: MeshNodeRow | null, now: numb
     // so this node's own already-resolved palette hex wins over the pushed copy.
     accentColor: self.node.accentHex,
     tailnetHost: self.node.tailnetHost ?? registry?.tailnetHost ?? null,
+    appOrigin: self.node.appOrigin ?? registry?.appOrigin ?? null,
     platform: self.platform,
     status,
     // Local data, so freshness is not in question — but `behind` and `retired`

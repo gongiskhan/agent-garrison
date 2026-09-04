@@ -20,8 +20,14 @@ import { WebSocketServer } from "ws";
 import { HttpError, SessionManager } from "../lib/sessions.mjs";
 import { SETTLE_SUPERVISOR_MS, TunnelManager, garrisonHome, loadTransports } from "../lib/transports.mjs";
 import { refreshHostTokens, DEFAULT_REFRESH_MS } from "../lib/host-credential.mjs";
+import { TetherManager, tetherArmed } from "../lib/tether.mjs";
 import { ForwardManager } from "../lib/forwards.mjs";
 import { listRemoteDir, readRemoteFile } from "../lib/remote-files.mjs";
+import { buildIndex } from "../lib/session-index.mjs";
+import { nodeName, shellOrigin } from "../lib/node-identity.mjs";
+import { flush as flushIndex, schedulePublish as publishIndex } from "../lib/index-publisher.mjs";
+import { applyCors, verdict as originVerdict } from "../lib/origin-guard.mjs";
+import { installHooks } from "./install-hooks.mjs";
 
 const FITTING_ID = "remote-shell-runtime";
 const DEFAULT_PORT = 7098;
@@ -35,7 +41,11 @@ function parseArgs(argv) {
     host: process.env.GARRISON_REMOTESHELLRUNTIME_BIND_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1",
     // Empty = every running fitting that answers /notify (404 = skip).
     notifyFittings: String(process.env.GARRISON_REMOTESHELLRUNTIME_NOTIFY_FITTINGS || "")
-      .split(",").map((s) => s.trim()).filter(Boolean)
+      .split(",").map((s) => s.trim()).filter(Boolean),
+    sessionWindowDays: Number(process.env.GARRISON_REMOTESHELLRUNTIME_SESSION_WINDOW_DAYS) > 0
+      ? Number(process.env.GARRISON_REMOTESHELLRUNTIME_SESSION_WINDOW_DAYS) : 5,
+    indexPublishSeconds: Number(process.env.GARRISON_REMOTESHELLRUNTIME_INDEX_PUBLISH_SECONDS) > 0
+      ? Number(process.env.GARRISON_REMOTESHELLRUNTIME_INDEX_PUBLISH_SECONDS) : 10
   };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--port") out.port = Number(argv[++i]);
@@ -156,7 +166,18 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const notify = (payload) => notifyChannels(opts.notifyFittings, payload);
   const tunnels = new TunnelManager({ notify });
   const forwards = new ForwardManager({});
+  const tether = new TetherManager({ notify });
   const manager = new SessionManager({ tunnels, transports, notify });
+
+  // A tether transport is inert everywhere except its declared owner (checked
+  // per-call by tetherArmed) - so it is always safe to try ensure() + start
+  // ticking for every tethered transport here; on every other node in the
+  // mesh those calls are a quick no-op.
+  for (const t of transports.values()) {
+    if (!t.tether) continue;
+    void tether.ensure(t);
+    tether.startTicking(t);
+  }
   // A tunnel coming back is the moment everything that gave up while it was
   // down should be restarted — the session pulse, the events watchers, and any
   // attach a browser is still waiting on. Nothing else observes that edge.
@@ -164,11 +185,62 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const restored = await manager.restore();
   if (restored > 0) console.log(`[remote-shell] restored ${restored} session record(s)`);
 
+  // NEVER under vitest: installHooks() merges into the REAL Cursor/Codex/
+  // Gemini config on whatever machine runs the suite (it is not sandboxed by
+  // GARRISON_HOME the way everything else here is - it reads HOME/CODEX_HOME/
+  // GEMINI_CLI_HOME/GARRISON_CURSOR_HOME, which a test booting a live server
+  // has no reason to pin). A test that wants installHooks() behavior calls it
+  // directly with every home pinned (tests/shells-hooks-install.test.ts) -
+  // same fail-closed discipline as notifyChannels' underTestRunner() below.
+  if (!process.env.VITEST) {
+    try {
+      installHooks(process.env, (line) => console.log(`[remote-shell] ${line}`));
+    } catch (err) {
+      console.warn(`[remote-shell] hook install failed (non-fatal): ${err?.message ?? err}`);
+    }
+  }
+
   const distDir = path.resolve(HERE, "..", "dist");
+
+  // ── the session index (owned shells + every listed external session) ─────
+  let lastIndex = { node: nodeName(), shellOrigin: shellOrigin(process.env, { port: opts.port }), updatedAt: null, rows: [] };
+  let indexBuilding = false;
+  function refreshIndex() {
+    if (indexBuilding) return lastIndex;
+    indexBuilding = true;
+    try {
+      const rows = buildIndex({ manager, windowDays: opts.sessionWindowDays, garrisonHomeDir: garrisonHome() });
+      lastIndex = {
+        node: nodeName(),
+        shellOrigin: shellOrigin(process.env, { port: opts.port }),
+        updatedAt: new Date().toISOString(),
+        rows
+      };
+      void publishIndex(lastIndex);
+    } catch (err) {
+      console.warn(`[remote-shell] index build failed: ${err?.message ?? err}`);
+    } finally {
+      indexBuilding = false;
+    }
+    return lastIndex;
+  }
+  refreshIndex();
+  const indexTimer = setInterval(refreshIndex, opts.indexPublishSeconds * 1000);
+  indexTimer.unref?.();
 
   const server = http.createServer(async (req, res) => {
     const { pathname, query } = url.parse(req.url || "/", true);
+    const guard = originVerdict({ host: req.headers.host, origin: req.headers.origin });
+    if (guard.blocked) return jsonRes(res, 403, { error: "forbidden", reason: guard.reason });
+    applyCors(res, req.headers.origin);
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      return void res.end();
+    }
     try {
+      if (req.method === "GET" && pathname === "/index") {
+        return jsonRes(res, 200, lastIndex);
+      }
       if (req.method === "GET" && pathname === "/health") {
         return jsonRes(res, 200, {
           ok: true,
@@ -176,7 +248,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           pid: process.pid,
           transports: [...transports.keys()],
           tunnels: tunnels.status(),
-          sessions: manager.list().length
+          sessions: manager.list().length,
+          local: { enabled: transports.has("local"), tmux: transports.has("local") }
         });
       }
       if (req.method === "GET" && pathname === "/transports") {
@@ -184,17 +257,23 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           transports: [...transports.values()].map((t) => ({
             name: t.name,
             label: t.label,
-            via: t.via ? "devtunnel" : "ssh",
+            kind: t.kind,
+            via: t.via ? "devtunnel" : t.kind === "local" ? "local" : "ssh",
             // The join key for /tunnels: the UI renders health per transport row.
             tunnel: t.via?.devtunnel?.tunnel ?? null,
             tmuxSession: t.tmuxSession,
             cwd: t.cwd,
+            projectsRoot: t.projectsRoot,
             agentCommand: t.agentCommand,
             routingTarget: t.routingTarget,
             // Cheap read: reports what is already up, never dials.
-            forwards: forwards.snapshot(t)
+            forwards: t.kind === "local" ? [] : forwards.snapshot(t)
           }))
         });
+      }
+      if (req.method === "GET" && pathname === "/runtimes") {
+        const rows = await manager.listRuntimes(String(query.transport || ""));
+        return jsonRes(res, 200, { runtimes: rows });
       }
       // Tunnel health, and the one lever that used to be "restart the whole
       // fitting" - which is what both observed outages actually required.
@@ -210,6 +289,31 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         if (!transport) return jsonRes(res, 404, { error: `no transport named "${key}" and no transport on a tunnel with that id` });
         const result = await tunnels.repair(transport);
         return jsonRes(res, result.ok ? 200 : 502, { ...result, tunnels: tunnels.status() });
+      }
+      // The tethered-node analog of /tunnels: every transport that declares a
+      // tether block, its armed-ness on THIS node, and its current status.
+      if (req.method === "GET" && pathname === "/tether") {
+        const rows = [...transports.values()]
+          .filter((t) => t.tether)
+          .map((t) => ({
+            transport: t.name,
+            node: t.tether.node,
+            owner: t.tether.owner,
+            armed: tetherArmed(t),
+            ...tether.status(t.name)
+          }));
+        return jsonRes(res, 200, { tether: rows });
+      }
+      if (req.method === "POST" && /^\/tether\/[^/]+\/repair$/.test(pathname)) {
+        const name = decodeURIComponent(pathname.split("/")[2]);
+        const transport = transports.get(name);
+        if (!transport || !transport.tether) return jsonRes(res, 404, { error: `no tethered transport named "${name}"` });
+        if (!tetherArmed(transport)) {
+          return jsonRes(res, 409, { error: `tether for "${name}" is not armed on this node (owner mismatch)` });
+        }
+        await tether.stop(name);
+        const result = await tether.ensure(transport);
+        return jsonRes(res, result.ok ? 200 : 502, { ...result, tether: tether.status(name) });
       }
       // Bring a transport's forwards up (idempotent) and report where they landed.
       // POST because it opens ssh channels - a GET that dials would make a status
@@ -264,17 +368,24 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           cwd: typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null,
           // "another agent in this folder": the tmux name above is a BASE and
           // the free instance beside it is chosen here (see start()).
-          allocate: body.allocate === true
+          allocate: body.allocate === true,
+          // The runtime catalog: which CLI to type into a fresh pane, and
+          // (optionally) which of its own sessions to resume or attach.
+          runtime: typeof body.runtime === "string" && body.runtime.trim() ? body.runtime.trim() : null,
+          resume: typeof body.resume === "string" && body.resume.trim() ? body.resume.trim() : null,
+          attach: body.attach === true
         });
         return jsonRes(res, 200, { session: manager.summary(session) });
       }
 
       // ── the exec lane ──────────────────────────────────────────────────
-      // Loopback only, and deliberately ABSENT from the web channel's proxy
-      // allow-list: this runs a command on the remote machine, and the browser
-      // has no business reaching it. The tmux lane above is the interactive
-      // face of the same transport; this is the structured one.
+      // Loopback tools only, never a browser: refuse outright when the
+      // request carries an Origin header (a same-origin fetch never sends
+      // one; only a browser page does) - deliberately ABSENT from the web
+      // channel's proxy allow-list too. The tmux lane above is the
+      // interactive face of the same transport; this is the structured one.
       if (req.method === "POST" && pathname === "/exec") {
+        if (req.headers.origin) return jsonRes(res, 403, { error: "forbidden", reason: "loopback tools only" });
         const body = await readJsonBody(req);
         const out = await manager.execArgv(String(body.transport || ""), {
           argv: body.argv,
@@ -291,6 +402,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       // buffered response would show nothing until it ended - and the caller
       // could not tell a slow turn from a dead one.
       if (req.method === "POST" && pathname === "/agent-turns") {
+        if (req.headers.origin) return jsonRes(res, 403, { error: "forbidden", reason: "loopback tools only" });
         const body = await readJsonBody(req);
         res.statusCode = 200;
         res.setHeader("Content-Type", "application/x-ndjson");
@@ -410,6 +522,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   // binary/raw frames = stdin; {resize}; server pushes bytes + {state} frames.
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
+    const guard = originVerdict({ host: request.headers.host, origin: request.headers.origin });
+    if (guard.blocked) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     const { pathname } = url.parse(request.url || "/");
     if (pathname !== "/io") {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
@@ -528,6 +646,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   const shutdown = async () => {
     clearInterval(refreshTimer);
+    clearInterval(indexTimer);
+    try { await flushIndex(); } catch {}
     tunnels.stopSupervision();
     manager.shutdownAll();
     tunnels.shutdown();

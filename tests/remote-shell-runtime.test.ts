@@ -50,6 +50,9 @@ describe("transports config", () => {
       })
     );
     const env = {
+      // Local shells are a separate concern (see remote-shell-local-transport
+      // test); disabled here so this stays a pure ssh-config-merging test.
+      GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS: "false",
       GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: JSON.stringify({
         both: { ssh: { host: "from-env", port: 2222 }, tmuxSession: "weird name!", label: "Both" },
         csg: {
@@ -72,9 +75,13 @@ describe("transports config", () => {
   });
 
   it("drops entries without an ssh block and tolerates bad env JSON", async () => {
-    const bad = { GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: "{not json" } as unknown as NodeJS.ProcessEnv;
+    const bad = {
+      GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS: "false",
+      GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: "{not json"
+    } as unknown as NodeJS.ProcessEnv;
     expect((await loadTransports(bad)).size).toBe(0);
     const noSsh = {
+      GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS: "false",
       GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: JSON.stringify({ x: { tmuxSession: "x" } })
     } as unknown as NodeJS.ProcessEnv;
     expect((await loadTransports(noSsh)).size).toBe(0);
@@ -94,6 +101,46 @@ describe("transports config", () => {
     expect(plain).toContain("-i");
     expect(plain).not.toContain("-tt");
     expect(sshArgv(t, { pty: true })).toContain("-tt");
+  });
+
+  it("normalizes a tether block: valid forwards kept, a reserved/invalid servePort dropped, no owner/node drops the whole block", async () => {
+    const env = {
+      GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS: "false",
+      GARRISON_REMOTESHELLRUNTIME_TRANSPORTS: JSON.stringify({
+        csg: {
+          ssh: { host: "127.0.0.1", port: 2222, user: "ggomes" },
+          via: { devtunnel: { tunnel: "swift-book", port: 2222, pushHostToken: false } },
+          tether: {
+            owner: "dev-madrid",
+            node: "csg",
+            reverseForwards: [{ name: "state", remotePort: 8460, localPort: 8460 }],
+            forwards: [
+              { name: "app", remotePort: 8777, localPort: 9777, publish: { servePort: 8977 } },
+              { name: "shells", remotePort: 8098, localPort: 9098, publish: { servePort: 8400 } }, // reserved
+              { name: "bad", remotePort: 8099 } // no localPort - dropped
+            ],
+            onUp: "$HOME/.garrison/node-supervisor.sh ensure"
+          }
+        },
+        noOwner: {
+          ssh: { host: "127.0.0.1", port: 2223, user: "ggomes" },
+          tether: { node: "x", forwards: [{ name: "a", remotePort: 1, localPort: 1 }] }
+        }
+      })
+    } as unknown as NodeJS.ProcessEnv;
+    const transports = await loadTransports(env);
+    const csg = transports.get("csg");
+    expect(csg.via.devtunnel.pushHostToken).toBe(false);
+    expect(csg.tether.owner).toBe("dev-madrid");
+    expect(csg.tether.reverseForwards).toEqual([{ name: "state", remotePort: 8460, localPort: 8460 }]);
+    expect(csg.tether.forwards).toHaveLength(2);
+    const app = csg.tether.forwards.find((f: any) => f.name === "app");
+    expect(app.publish).toEqual({ servePort: 8977 });
+    const shells = csg.tether.forwards.find((f: any) => f.name === "shells");
+    expect(shells.publish).toBeUndefined(); // 8400 is inside the reserved 8400-8499 band
+    expect(csg.tether.forwards.find((f: any) => f.name === "bad")).toBeUndefined();
+    expect(csg.tether.onUp).toBe("$HOME/.garrison/node-supervisor.sh ensure");
+    expect(transports.get("noOwner").tether).toBeNull();
   });
 });
 

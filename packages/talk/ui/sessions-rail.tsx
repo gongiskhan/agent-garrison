@@ -62,6 +62,48 @@ export interface RailTransport {
   routingTarget?: string | null;
 }
 
+/** One row from GET /api/sessions (mesh-sessions.mjs) - a session on THIS
+ *  node or a mesh peer, owned (a Shells thread) or not. Never draggable or
+ *  groupable: this is a derived, transient list, not part of the organizer
+ *  document. */
+export interface RailSession {
+  id: string;
+  node: string;
+  nodeAccent: string | null;
+  nodeStatus: string;
+  shellOrigin: string | null;
+  runtime: string;
+  kind: "shell" | "cli" | "desktop" | "bg";
+  cwd: string | null;
+  project: string | null;
+  title: string | null;
+  status: "working" | "idle" | "ended" | "unknown";
+  statusSource: string;
+  startedAt: string | null;
+  lastActivityAt: string | null;
+  resumable: boolean;
+  attachable: boolean;
+  resumeRef: unknown;
+  resumeCommand: string | null;
+  shell?: { transport: string; tmuxSession: string; label?: string | null; sessionId?: string | null } | null;
+  threadId?: string | null;
+  boundTo?: { kind: "conversation"; threadId: string } | null;
+  claimedBy?: { kind: "thread" | "card"; id: string } | null;
+  transcript?: { format: string; path: string } | null;
+}
+
+const RUNTIME_LABEL: Record<string, string> = { claude: "CLAUDE", codex: "CODEX", cursor: "CURSOR", gemini: "GEMINI", shell: "SHELL" };
+
+/** Sessions actually worth a row: not already represented by a local
+ *  conversation thread (an owned shell row IS that thread; a bare claude
+ *  session already bound to a conversation is that conversation), and not
+ *  claimed by something else (a Kanban card) that isn't this rail's business.
+ *  Exported so app.tsx and tests can compute "how many sessions" without
+ *  duplicating this filter. */
+export function visibleSessionRows(sessions: RailSession[]): RailSession[] {
+  return sessions.filter((s) => !s.threadId && !s.boundTo && !s.claimedBy);
+}
+
 interface SidebarState {
   groups: { id: string; name: string; collapsed: boolean }[];
   membership: Record<string, string>;
@@ -309,12 +351,29 @@ export function SessionsRail(props: {
   /** Opens the Shells picker (spawn an agent in any remote project folder).
    *  Absent when no transport is configured - the button simply isn't there. */
   onOpenShells?: () => void;
+  /** GET /api/sessions rows not already covered by a local thread. */
+  sessions?: RailSession[];
+  activeSessionId?: string | null;
+  onSelectSession?: (row: RailSession) => void;
+  onOpenNewShell?: () => void;
 }) {
   const {
     threads, pinnedId = null, meshNodes, self, transports, activeId,
     listOpen, onToggleList, onSelect, onNewLocal, onOpenRemote, onOpenRemoteShell, onDeleteLocal, onRenameLocal,
-    onOpenShells
+    onOpenShells, sessions = [], activeSessionId = null, onSelectSession, onOpenNewShell
   } = props;
+  const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
+  const [showEnded, setShowEnded] = useState(false);
+  useEffect(() => {
+    try { setSessionsCollapsed(window.localStorage.getItem("wc.sessions.collapsed") === "1"); } catch { /* default expanded */ }
+  }, []);
+  const toggleSessionsCollapsed = useCallback(() => {
+    setSessionsCollapsed((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem("wc.sessions.collapsed", next ? "1" : "0"); } catch { /* best effort */ }
+      return next;
+    });
+  }, []);
 
   const [sidebar, setSidebar] = useState<SidebarState>(EMPTY_SIDEBAR);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -727,6 +786,60 @@ export function SessionsRail(props: {
   const hasGroups = sidebar.groups.length > 0;
   const peersWithBase = meshNodes.filter((n) => n.openBase);
 
+  // ── Sessions section: node sub-groups, working > idle > unknown, ended
+  // hidden behind a toggle. Never touches the organizer document - this is a
+  // derived, transient list rebuilt every poll.
+  const sessionsByNode = useMemo(() => {
+    const rank = (s: RailSession["status"]) => (s === "working" ? 0 : s === "idle" ? 1 : s === "unknown" ? 2 : 3);
+    const visible = visibleSessionRows(sessions);
+    const byNode = new Map<string, RailSession[]>();
+    for (const s of visible) {
+      const list = byNode.get(s.node) ?? [];
+      list.push(s);
+      byNode.set(s.node, list);
+    }
+    for (const list of byNode.values()) {
+      list.sort((a, b) => {
+        const d = rank(a.status) - rank(b.status);
+        if (d !== 0) return d;
+        return Date.parse(b.lastActivityAt ?? "0") - Date.parse(a.lastActivityAt ?? "0");
+      });
+    }
+    return [...byNode.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [sessions]);
+  const endedCount = sessionsByNode.reduce((n, [, list]) => n + list.filter((s) => s.status === "ended").length, 0);
+
+  const renderSessionRow = (s: RailSession) => {
+    const isActive = s.id === activeSessionId;
+    const meta: React.ReactNode[] = [
+      <span key="rt" className="wc-thread-src wc-thread-rt">{RUNTIME_LABEL[s.runtime] ?? s.runtime.toUpperCase()}</span>
+    ];
+    if (s.kind === "desktop") meta.push(<span key="k" className="wc-thread-src">desktop</span>);
+    if (s.kind === "bg") meta.push(<span key="k" className="wc-thread-src">bg</span>);
+    if (s.project) meta.push(<span key="p" className="wc-thread-proj" title={s.cwd ?? undefined}>{s.project}</span>);
+    if (s.status === "working") meta.push(<span key="s" className="wc-thread-src wc-thread-working-label">Working</span>);
+    else if (s.status === "idle") meta.push(<span key="s" className="wc-thread-src">Idle</span>);
+    else if (s.status === "ended") meta.push(<span key="s" className="wc-thread-src">Ended</span>);
+    const when = fmtWhen(s.lastActivityAt);
+    if (when) meta.push(<span key="w" className="wc-thread-when">{when}</span>);
+    return (
+      <div
+        key={`session:${s.node}:${s.id}`}
+        data-testid="rail-row"
+        data-key={`session:${s.node}:${s.id}`}
+        className={["wc-thread", "wc-thread--session", isActive ? "wc-thread--active" : "", s.status === "working" ? "wc-thread--working" : "", s.status === "ended" ? "wc-thread--ended" : ""].filter(Boolean).join(" ")}
+      >
+        <span className="wc-row-dot" style={{ background: s.nodeAccent || "#6a746b" }} aria-hidden />
+        <button type="button" className="wc-thread-open" onClick={() => onSelectSession?.(s)} title={s.title ?? s.id}>
+          <span className="wc-thread-main">
+            <span className="wc-thread-title">{s.title || s.cwd || s.id}</span>
+            <span className="wc-thread-meta">{meta}</span>
+          </span>
+        </button>
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="wc-sidebar-head">
@@ -756,20 +869,27 @@ export function SessionsRail(props: {
           </button>
         )}
         <div className="wc-new-wrap" ref={newRef}>
-          <button className="wc-new" onClick={() => setNewOpen((v) => !v)} title="Start a new conversation" aria-expanded={newOpen}>
+          <button className="wc-new" data-testid="rail-new" onClick={() => setNewOpen((v) => !v)} title="Start a new conversation" aria-expanded={newOpen}>
             + New
           </button>
           {newOpen && (
             <div className="wc-newmenu" role="menu">
-              <button type="button" className="wc-ctx-item" onClick={() => { setNewOpen(false); onNewLocal(); }}>
+              <button type="button" className="wc-ctx-item" data-testid="rail-new-local" onClick={() => { setNewOpen(false); onNewLocal(); }}>
                 <span className="wc-row-dot" style={{ background: self.accentColor || "#6a746b" }} aria-hidden />
                 <span className="wc-ctx-label">On {shortNode(self.node) || "this node"}</span>
               </button>
+              {onOpenNewShell && (
+                <button type="button" className="wc-ctx-item" data-testid="rail-new-shell" onClick={() => { setNewOpen(false); onOpenNewShell(); }}>
+                  <span className="wc-row-dot wc-row-dot--shell" aria-hidden />
+                  <span className="wc-ctx-label">New shell...</span>
+                </button>
+              )}
               {peersWithBase.map((n) => (
                 <button
                   key={n.node}
                   type="button"
                   className="wc-ctx-item"
+                  data-testid={`rail-new-node-${n.node}`}
                   onClick={() => {
                     setNewOpen(false);
                     onOpenRemote(`${n.openBase}/?new=1`);
@@ -784,6 +904,7 @@ export function SessionsRail(props: {
                   key={t.name}
                   type="button"
                   className="wc-ctx-item"
+                  data-testid={`rail-new-transport-${t.name}`}
                   onClick={() => { setNewOpen(false); onOpenRemoteShell(t); }}
                 >
                   <span className="wc-row-dot wc-row-dot--shell" aria-hidden />
@@ -801,7 +922,44 @@ export function SessionsRail(props: {
           if (e.target === e.currentTarget) { e.preventDefault(); listMenu(e.clientX, e.clientY); }
         }}
       >
-        {rows.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
+        {sessionsByNode.length > 0 && (
+          <div className="wc-group wc-group--sessions" data-testid="rail-section-sessions">
+            <button
+              type="button"
+              className="wc-group-head"
+              data-testid="rail-sessions-toggle"
+              onClick={toggleSessionsCollapsed}
+              aria-expanded={!sessionsCollapsed}
+            >
+              <svg className={`wc-group-chev${sessionsCollapsed ? " wc-group-chev--closed" : ""}`} width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </svg>
+              <span className="wc-group-name">Sessions</span>
+              <span className="wc-group-count">{sessionsByNode.reduce((n, [, l]) => n + l.length, 0)}</span>
+            </button>
+            {!sessionsCollapsed && sessionsByNode.map(([node, list]) => {
+              const shown = showEnded ? list : list.filter((s) => s.status !== "ended");
+              if (shown.length === 0) return null;
+              return (
+                <div key={node}>
+                  <div className="wc-sessions-node" data-testid={`rail-node-${node}`}>
+                    <span className="wc-row-dot" style={{ background: list[0]?.nodeAccent || "#6a746b" }} aria-hidden />
+                    {shortNode(node) || node}
+                    <span className="wc-group-count">{shown.length}</span>
+                  </div>
+                  {shown.map(renderSessionRow)}
+                </div>
+              );
+            })}
+            {!sessionsCollapsed && endedCount > 0 && (
+              <button type="button" className="wc-show-ended" data-testid="rail-show-ended" onClick={() => setShowEnded((v) => !v)}>
+                {showEnded ? "Hide ended" : `Show ended (${endedCount})`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {rows.length === 0 && sessionsByNode.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
 
         {pinnedRow && (
           <div className="wc-group wc-group--pinned" data-testid="wc-pinned">

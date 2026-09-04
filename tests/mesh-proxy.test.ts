@@ -47,7 +47,8 @@ describe("peer proxy allow-list", () => {
     ["PUT", ["threads", "t-1", "routing"]],
     ["POST", ["threads", "t-1", "permissions", "req-4"]],
     ["GET", ["mesh", "self"]],
-    ["GET", ["sessions"]]
+    ["GET", ["sessions"]],
+    ["GET", ["sessions", "sess-1", "stream"]]
   ];
 
   it.each(allowed)("relays %s /%s", (method, segments) => {
@@ -55,10 +56,19 @@ describe("peer proxy allow-list", () => {
     expect(result.ok, `${method} ${(segments as string[]).join("/")} should be relayed`).toBe(true);
   });
 
+  it("the shells session-stream row is distinct from the registry sessions row", () => {
+    const list = classifyPeerPath("GET", ["sessions"]);
+    const stream = classifyPeerPath("GET", ["sessions", "sess-1", "stream"]);
+    expect(list.ok && list.route.upstream).toBe("registry");
+    expect(stream.ok && stream.route.upstream).toBe("app");
+    expect(stream.ok && stream.route.sse).toBe(true);
+    expect(stream.ok && stream.route.path).toBe("/api/sessions/sess-1/stream");
+  });
+
   it("every allowed path is described, and the description is the table", () => {
     // A cheap tripwire on the thing that must never grow by accident: if a row
     // is added to ALLOW, this count changes and the diff is visible in review.
-    expect(allowListDescription()).toHaveLength(10);
+    expect(allowListDescription()).toHaveLength(11);
   });
 
   // These are the paths a generic passthrough WOULD have exposed. The web

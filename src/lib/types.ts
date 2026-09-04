@@ -506,6 +506,27 @@ export interface QuartersSettingsFile {
   label?: string;
 }
 
+// G5: a directory-of-files surface the generic Quarters tier can list, read,
+// write, create, and delete into (Cursor's rules/skills/agents/hooks/desktop
+// settings/project rules - anything that is many files under one root rather
+// than the single settings_files entries above). `root` and `glob` are
+// resolved relative to `runtimeHome()` (or the current project's root when
+// `scope: "project"`); `write: "merge"` is only meaningful for `format:
+// "json"` (a markdown file has no field-level merge). `create`/absence of it
+// gates whether the panel offers "new file" for this set.
+export interface QuartersFileSet {
+  id: string;
+  label: string;
+  root: string;
+  glob: string;
+  format: "markdown" | "json";
+  frontmatter?: string[];
+  create?: boolean;
+  write?: "replace" | "merge";
+  platform?: "darwin" | "linux" | "win32";
+  scope?: "home" | "project";
+}
+
 // D5: the Quarters descriptor a runtime Fitting ships. Discriminated on `tier`:
 // the generic tier is rendered FROM the descriptor, so its home_dir is required
 // (the zod refinement enforces it at parse time; the union carries it to
@@ -520,6 +541,7 @@ export type QuartersDescriptor =
       mcp_config?: { path: string; format: "json" | "toml"; key?: string };
       log_paths?: string[];
       categories?: string[];
+      file_sets?: QuartersFileSet[];
     }
   | {
       tier: "generic";
@@ -530,6 +552,7 @@ export type QuartersDescriptor =
       mcp_config?: { path: string; format: "json" | "toml"; key?: string };
       log_paths?: string[];
       categories?: string[];
+      file_sets?: QuartersFileSet[];
     };
 
 export interface RatingInfo {
